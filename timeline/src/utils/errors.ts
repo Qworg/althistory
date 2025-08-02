@@ -161,6 +161,130 @@ export class DatabaseConnectionError extends AppError {
 }
 
 /**
+ * Local storage error for file system operations
+ */
+export class LocalStorageError extends AppError {
+  readonly statusCode = 500;
+  readonly isOperational = true;
+
+  constructor(
+    message: string,
+    public readonly operation?: string,
+    public readonly filePath?: string,
+    cause?: Error
+  ) {
+    super(message, cause);
+  }
+}
+
+/**
+ * Data corruption error for local storage
+ */
+export class DataCorruptionError extends AppError {
+  readonly statusCode = 500;
+  readonly isOperational = true;
+
+  constructor(
+    message: string,
+    public readonly filePath?: string,
+    public readonly corruptionType?: string,
+    public readonly expectedChecksum?: string,
+    public readonly actualChecksum?: string,
+    cause?: Error
+  ) {
+    super(message, cause);
+  }
+}
+
+/**
+ * Insufficient storage space error
+ */
+export class InsufficientStorageError extends AppError {
+  readonly statusCode = 507;
+  readonly isOperational = true;
+
+  constructor(
+    message: string,
+    public readonly requiredSpace?: number,
+    public readonly availableSpace?: number,
+    public readonly operation?: string
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Local execution mode configuration error
+ */
+export class LocalExecutionError extends AppError {
+  readonly statusCode = 500;
+  readonly isOperational = true;
+
+  constructor(
+    message: string,
+    public readonly component?: string,
+    public readonly configIssue?: string,
+    cause?: Error
+  ) {
+    super(message, cause);
+  }
+}
+
+/**
+ * Migration error for data migration operations
+ */
+export class MigrationError extends AppError {
+  readonly statusCode = 500;
+  readonly isOperational = true;
+
+  constructor(
+    message: string,
+    public readonly migrationType?: 'export' | 'import',
+    public readonly stage?: string,
+    public readonly processedCount?: number,
+    public readonly totalCount?: number,
+    cause?: Error
+  ) {
+    super(message, cause);
+  }
+}
+
+/**
+ * Backup operation error
+ */
+export class BackupError extends AppError {
+  readonly statusCode = 500;
+  readonly isOperational = true;
+
+  constructor(
+    message: string,
+    public readonly backupPath?: string,
+    public readonly operation?: 'create' | 'restore' | 'verify' | 'list' | 'delete',
+    cause?: Error
+  ) {
+    super(message, cause);
+  }
+}
+
+/**
+ * Recovery operation error
+ */
+export class RecoveryError extends AppError {
+  readonly statusCode = 500;
+  readonly isOperational = true;
+
+  constructor(
+    message: string,
+    public readonly recoveryType?: 'automatic' | 'manual',
+    public readonly backupSource?: string,
+    public readonly failedOperation?: string,
+    cause?: Error
+  ) {
+    super(message, cause);
+  }
+}
+
+/**
  * Error handler utility functions
  */
 export class ErrorHandler {
@@ -229,6 +353,33 @@ export class ErrorHandler {
     } else if (error instanceof IntegrityError) {
       details.constraintType = error.constraintType;
       details.violatedConstraint = error.violatedConstraint;
+    } else if (error instanceof LocalStorageError) {
+      details.operation = error.operation;
+      details.filePath = error.filePath;
+    } else if (error instanceof DataCorruptionError) {
+      details.filePath = error.filePath;
+      details.corruptionType = error.corruptionType;
+      details.expectedChecksum = error.expectedChecksum;
+      details.actualChecksum = error.actualChecksum;
+    } else if (error instanceof InsufficientStorageError) {
+      details.requiredSpace = error.requiredSpace;
+      details.availableSpace = error.availableSpace;
+      details.operation = error.operation;
+    } else if (error instanceof LocalExecutionError) {
+      details.component = error.component;
+      details.configIssue = error.configIssue;
+    } else if (error instanceof MigrationError) {
+      details.migrationType = error.migrationType;
+      details.stage = error.stage;
+      details.processedCount = error.processedCount;
+      details.totalCount = error.totalCount;
+    } else if (error instanceof BackupError) {
+      details.backupPath = error.backupPath;
+      details.operation = error.operation;
+    } else if (error instanceof RecoveryError) {
+      details.recoveryType = error.recoveryType;
+      details.backupSource = error.backupSource;
+      details.failedOperation = error.failedOperation;
     }
 
     return Object.keys(details).length > 0 ? details : undefined;

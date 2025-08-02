@@ -10,13 +10,15 @@
     "test": "vitest --run",
     "test:watch": "vitest",
     "lint": "eslint src/**/*.ts",
-    "format": "prettier --write src/**/*.ts"
+    "format": "prettier --write src/**/*.ts",
+    "migrate": "npx ts-node src/scripts/migrate-data.ts"
   },
   "dependencies": {
     "@types/cytoscape": "^3.21.9",
     "@types/d3": "^7.4.3",
     "@types/react": "^19.1.9",
     "@types/react-dom": "^19.1.7",
+    "commander": "^11.1.0",
     "cors": "^2.8.5",
     "cytoscape": "^3.33.0",
     "cytoscape-dom-node": "^1.2.0",
