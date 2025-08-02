@@ -1,5 +1,8 @@
 import neo4j, { Driver, Session, auth } from 'neo4j-driver';
 import { createClient, RedisClientType } from 'redis';
+import { DatabaseConnectionError } from './errors';
+import { LocalGraphStore, LocalQueryResult } from './LocalGraphStore';
+import { getCacheManager } from './cache';
 
 /**
  * Database configuration interface
@@ -288,20 +291,6 @@ export class DatabaseManager {
   }
 }
 
-/**
- * Database connection error
- */
-export class DatabaseConnectionError extends Error {
-  public cause?: Error;
-  
-  constructor(message: string, cause?: Error) {
-    super(message);
-    this.name = 'DatabaseConnectionError';
-    if (cause) {
-      this.cause = cause;
-    }
-  }
-}
 
 /**
  * Singleton database manager instance
@@ -311,8 +300,15 @@ let databaseManager: DatabaseManager | null = null;
 /**
  * Initialize database manager with configuration
  */
-export function initializeDatabaseManager(config: DatabaseConfig): DatabaseManager {
-  databaseManager = new DatabaseManager(config);
+export function initializeDatabaseManager(config: DatabaseConfig): DatabaseManager | LocalDatabaseManager {
+  const appConfig = require('./config').loadConfig();
+  
+  if (appConfig.localExecution.enabled) {
+    databaseManager = new LocalDatabaseManager() as any;
+  } else {
+    databaseManager = new DatabaseManager(config);
+  }
+  
   return databaseManager;
 }
 
@@ -324,4 +320,190 @@ export function getDatabaseManager(): DatabaseManager {
     throw new Error('Database manager not initialized. Call initializeDatabaseManager first.');
   }
   return databaseManager;
+}
+
+/**
+ * Local session implementation that wraps LocalGraphStore operations
+ * Provides Neo4j Session-compatible interface
+ */
+export class LocalSession {
+  private graphStore: LocalGraphStore;
+  private isOpen: boolean = true;
+
+  constructor(graphStore: LocalGraphStore) {
+    this.graphStore = graphStore;
+  }
+
+  /**
+   * Run a query against the local graph store
+   */
+  async run(query: string, parameters: Record<string, any> = {}): Promise<LocalQueryResult> {
+    if (!this.isOpen) {
+      throw new Error('Session is closed');
+    }
+    
+    try {
+      return await this.graphStore.executeQuery(query, parameters);
+    } catch (error) {
+      throw new DatabaseConnectionError(`Local query execution failed: ${error}`, error as Error);
+    }
+  }
+
+  /**
+   * Close the session
+   */
+  async close(): Promise<void> {
+    this.isOpen = false;
+  }
+
+  /**
+   * Check if session is open
+   */
+  isConnected(): boolean {
+    return this.isOpen;
+  }
+}
+
+/**
+ * Local database manager implementation for local execution mode
+ * Provides DatabaseManager-compatible interface using LocalGraphStore
+ */
+export class LocalDatabaseManager {
+  private graphStore: LocalGraphStore;
+  private cacheManager = getCacheManager();
+  private connectionStats: ConnectionPoolStats = {
+    inUse: 0,
+    idle: 0,
+    total: 1, // Single local connection
+    created: 1,
+    closed: 0,
+    failedToCreate: 0
+  };
+
+  constructor() {
+    this.graphStore = new LocalGraphStore();
+  }
+
+  /**
+   * Initialize the local graph store (load data from file)
+   */
+  async initializeNeo4j(): Promise<void> {
+    try {
+      await this.graphStore.load();
+      console.log('Local graph store initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize local graph store:', error);
+      throw new DatabaseConnectionError('Local graph store initialization failed', error as Error);
+    }
+  }
+
+  /**
+   * Initialize cache (already handled by getCacheManager)
+   */
+  async initializeRedis(): Promise<void> {
+    // Cache manager handles local cache initialization
+    console.log('Local cache initialized via cache manager');
+  }
+
+  /**
+   * Get a local session (Neo4j Session-compatible)
+   */
+  getNeo4jSession(database?: string, options?: { 
+    defaultAccessMode?: 'READ' | 'WRITE';
+    bookmarks?: string[];
+    fetchSize?: number;
+  }): LocalSession {
+    this.connectionStats.inUse++;
+    return new LocalSession(this.graphStore);
+  }
+
+  /**
+   * Get read-only session (same as regular session for local store)
+   */
+  getReadOnlySession(database?: string): LocalSession {
+    return this.getNeo4jSession(database, { defaultAccessMode: 'READ' });
+  }
+
+  /**
+   * Execute query with automatic session management
+   */
+  async executeQuery<T>(
+    query: string,
+    parameters: Record<string, any> = {},
+    options?: {
+      timeout?: number;
+      database?: string;
+      readOnly?: boolean;
+      mapper?: (record: any) => T;
+    }
+  ): Promise<T[]> {
+    const session = this.getNeo4jSession(options?.database);
+    
+    try {
+      const result = await session.run(query, parameters);
+      
+      return options?.mapper ? 
+        result.records.map(options.mapper) : 
+        result.records as any as T[];
+    } finally {
+      await session.close();
+      this.connectionStats.inUse = Math.max(0, this.connectionStats.inUse - 1);
+    }
+  }
+
+  /**
+   * Get cache manager (Redis client replacement)
+   */
+  getRedisClient(): any {
+    return this.cacheManager;
+  }
+
+  /**
+   * Close all connections and save data
+   */
+  async close(): Promise<void> {
+    try {
+      await this.graphStore.shutdown();
+      this.connectionStats.closed = this.connectionStats.created;
+      console.log('Local database manager closed successfully');
+    } catch (error) {
+      console.error('Error closing local database manager:', error);
+    }
+  }
+
+  /**
+   * Health check for local components
+   */
+  async healthCheck(): Promise<{ neo4j: boolean; redis: boolean; connectionPool?: ConnectionPoolStats }> {
+    const health = { 
+      neo4j: true, // Local graph store is always available
+      redis: this.cacheManager.isConnected(),
+      connectionPool: this.connectionStats 
+    };
+
+    // Basic functionality test
+    try {
+      const stats = this.graphStore.getStats();
+      console.log(`Local graph store stats: ${JSON.stringify(stats)}`);
+    } catch (error) {
+      console.error('Local graph store health check failed:', error);
+      health.neo4j = false;
+    }
+
+    return health;
+  }
+
+  /**
+   * Get connection pool statistics (simulated for local execution)
+   */
+  getConnectionPoolStats(): ConnectionPoolStats {
+    return { ...this.connectionStats };
+  }
+
+  /**
+   * Get the underlying graph store (for direct access if needed)
+   */
+  getGraphStore(): LocalGraphStore {
+    return this.graphStore;
+  }
 }

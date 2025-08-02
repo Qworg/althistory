@@ -32,6 +32,18 @@ class Application {
    */
   async initialize(): Promise<void> {
     try {
+      // Log execution mode
+      if (this.config.localExecution.enabled) {
+        console.log('🚀 Starting application in LOCAL EXECUTION mode');
+        console.log(`📁 Data directory: ${this.config.localExecution.dataDirectory}`);
+        console.log(`💾 Graph file: ${this.config.localExecution.graphFile}`);
+        console.log(`🧠 Max memory: ${this.config.localExecution.maxMemoryUsage}MB`);
+      } else {
+        console.log('🌐 Starting application in CLOUD mode');
+        console.log(`📊 Neo4j: ${this.config.database.neo4j.uri}`);
+        console.log(`🗄️  Redis: ${this.config.database.redis.host}:${this.config.database.redis.port}`);
+      }
+      
       // Initialize database manager
       const dbManager = initializeDatabaseManager(this.config.database);
       
@@ -48,9 +60,9 @@ class Application {
       // Setup error handling
       this.setupErrorHandling();
 
-      console.log('Application initialized successfully');
+      console.log('✅ Application initialized successfully');
     } catch (error) {
-      console.error('Failed to initialize application:', error);
+      console.error('❌ Failed to initialize application:', error);
       throw error;
     }
   }

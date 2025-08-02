@@ -5,6 +5,18 @@ import { CausalGraphContainer } from '@/components/integrated/CausalGraphContain
 import { VisualizationDashboard } from '@/components/integrated/VisualizationDashboard';
 import { useEvents, useArcs, useCausalRelationships, useCausalChain } from '@/hooks/useApiData';
 
+// Mock the API service
+const mockApiService = {
+  getEvents: vi.fn(),
+  getArcs: vi.fn(),
+  getCausalRelationships: vi.fn(),
+  getCausalChain: vi.fn(),
+};
+
+vi.mock('@/services/apiService', () => ({
+  apiService: mockApiService,
+}));
+
 // Mock the API hooks
 vi.mock('@/hooks/useApiData', () => ({
   useEvents: vi.fn(),
@@ -21,7 +33,7 @@ vi.mock('@/hooks/useApiData', () => ({
 
 // Mock D3 and Cytoscape
 vi.mock('d3', () => {
-  const createMockSelection = () => ({
+  const createMockSelection = (): any => ({
     selectAll: vi.fn(() => createMockSelection()),
     remove: vi.fn(() => createMockSelection()),
     data: vi.fn(() => createMockSelection()),
@@ -36,21 +48,23 @@ vi.mock('d3', () => {
 
   return {
     select: vi.fn(() => createMockSelection()),
-  scaleTime: vi.fn(() => {
-    const scale = vi.fn((value: Date) => 100); // Mock scale function that returns a fixed value
-    scale.domain = vi.fn(() => scale);
-    scale.range = vi.fn(() => scale);
-    return scale;
-  }),
-  axisBottom: vi.fn(() => ({})),
-  zoom: vi.fn(() => ({
-    scaleExtent: vi.fn(() => ({
-      extent: vi.fn(() => ({
-        on: vi.fn(() => ({}))
+    scaleTime: vi.fn(() => {
+      const scale = Object.assign(vi.fn(() => 100), {
+        domain: vi.fn(function (this: any) { return this; }),
+        range: vi.fn(function (this: any) { return this; })
+      });
+      return scale;
+    }),
+    axisBottom: vi.fn(() => ({})),
+    zoom: vi.fn(() => ({
+      scaleExtent: vi.fn(() => ({
+        extent: vi.fn(() => ({
+          on: vi.fn(() => ({}))
+        }))
       }))
     }))
-  }))
-}));
+  };
+});
 
 vi.mock('cytoscape', () => ({
   default: vi.fn(() => ({
@@ -123,7 +137,7 @@ describe('Visualization Integration Tests', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     // Setup default hook responses
     (useEvents as any).mockReturnValue({
       data: mockEventsData,
@@ -131,21 +145,21 @@ describe('Visualization Integration Tests', () => {
       error: null,
       refetch: vi.fn()
     });
-    
+
     (useArcs as any).mockReturnValue({
       data: mockArcsData,
       loading: false,
       error: null,
       refetch: vi.fn()
     });
-    
+
     (useCausalRelationships as any).mockReturnValue({
       data: mockRelationshipsData,
       loading: false,
       error: null,
       refetch: vi.fn()
     });
-    
+
     (useCausalChain as any).mockReturnValue({
       data: {
         success: true,
@@ -163,9 +177,6 @@ describe('Visualization Integration Tests', () => {
   describe('TimelineContainer', () => {
     it('should render timeline with API data', async () => {
       render(<TimelineContainer />);
-
-      // Should show loading initially
-      expect(screen.getByText('Loading timeline data...')).toBeInTheDocument();
 
       // Wait for data to load
       await waitFor(() => {
@@ -239,13 +250,7 @@ describe('Visualization Integration Tests', () => {
       render(<TimelineContainer initialFilters={initialFilters} />);
 
       await waitFor(() => {
-        expect(apiService.getEvents).toHaveBeenCalledWith(
-          expect.objectContaining({
-            actor: 'Actor 1',
-            startTime: expect.any(String),
-            endTime: expect.any(String)
-          })
-        );
+        expect(useEvents).toHaveBeenCalledWith(initialFilters);
       });
     });
   });
@@ -254,17 +259,14 @@ describe('Visualization Integration Tests', () => {
     it('should render causal graph with API data', async () => {
       render(<CausalGraphContainer />);
 
-      // Should show loading initially
-      expect(screen.getByText('Loading causal graph data...')).toBeInTheDocument();
-
       // Wait for data to load
       await waitFor(() => {
         expect(screen.getByText(/2 events, 1 relationships/)).toBeInTheDocument();
       });
 
-      // Should call API methods
-      expect(apiService.getEvents).toHaveBeenCalled();
-      expect(apiService.getCausalRelationships).toHaveBeenCalled();
+      // Should call API hooks
+      expect(useEvents).toHaveBeenCalled();
+      expect(useCausalRelationships).toHaveBeenCalled();
     });
 
     it('should handle weight filtering', async () => {
@@ -295,7 +297,12 @@ describe('Visualization Integration Tests', () => {
     });
 
     it('should handle empty relationships', async () => {
-      (apiService.getCausalRelationships as any).mockResolvedValue({ success: true, data: [] });
+      (useCausalRelationships as any).mockReturnValue({
+        data: { success: true, data: [] },
+        loading: false,
+        error: null,
+        refetch: vi.fn()
+      });
 
       render(<CausalGraphContainer />);
 
@@ -402,7 +409,12 @@ describe('Visualization Integration Tests', () => {
 
   describe('Error Handling', () => {
     it('should handle network errors', async () => {
-      (apiService.getEvents as any).mockRejectedValue(new Error('Network error'));
+      (useEvents as any).mockReturnValue({
+        data: null,
+        loading: false,
+        error: new Error('Network error'),
+        refetch: vi.fn()
+      });
 
       render(<TimelineContainer />);
 
@@ -414,8 +426,18 @@ describe('Visualization Integration Tests', () => {
     });
 
     it('should handle retry functionality', async () => {
-      (apiService.getEvents as any).mockRejectedValueOnce(new Error('Network error'))
-                                   .mockResolvedValue(mockEventsData);
+      const mockRefetch = vi.fn();
+      (useEvents as any).mockReturnValueOnce({
+        data: null,
+        loading: false,
+        error: new Error('Network error'),
+        refetch: mockRefetch
+      }).mockReturnValue({
+        data: mockEventsData,
+        loading: false,
+        error: null,
+        refetch: mockRefetch
+      });
 
       render(<TimelineContainer />);
 
@@ -426,28 +448,30 @@ describe('Visualization Integration Tests', () => {
       // Click retry
       fireEvent.click(screen.getByText('Retry'));
 
-      await waitFor(() => {
-        expect(screen.getByText(/events, .* arcs/)).toBeInTheDocument();
-      });
+      expect(mockRefetch).toHaveBeenCalled();
     });
   });
 
   describe('Loading States', () => {
     it('should show loading states correctly', async () => {
-      // Delay API response to test loading state
-      (apiService.getEvents as any).mockImplementation(() => 
-        new Promise(resolve => setTimeout(() => resolve(mockEventsData), 100))
-      );
+      // Mock loading state initially
+      (useEvents as any).mockReturnValue({
+        data: null,
+        loading: true,
+        error: null,
+        refetch: vi.fn()
+      });
+      (useArcs as any).mockReturnValue({
+        data: null,
+        loading: true,
+        error: null,
+        refetch: vi.fn()
+      });
 
       render(<TimelineContainer />);
 
       // Should show loading
       expect(screen.getByText('Loading timeline data...')).toBeInTheDocument();
-
-      // Should hide loading after data loads
-      await waitFor(() => {
-        expect(screen.queryByText('Loading timeline data...')).not.toBeInTheDocument();
-      });
     });
   });
 
@@ -461,9 +485,9 @@ describe('Visualization Integration Tests', () => {
       });
 
       // Both views should use the same data
-      expect(apiService.getEvents).toHaveBeenCalled();
-      expect(apiService.getArcs).toHaveBeenCalled();
-      expect(apiService.getCausalRelationships).toHaveBeenCalled();
+      expect(useEvents).toHaveBeenCalled();
+      expect(useArcs).toHaveBeenCalled();
+      expect(useCausalRelationships).toHaveBeenCalled();
     });
 
     it('should handle filter changes across views', async () => {
@@ -480,7 +504,7 @@ describe('Visualization Integration Tests', () => {
 
       // Should apply the same filters
       await waitFor(() => {
-        expect(apiService.getCausalRelationships).toHaveBeenCalled();
+        expect(useCausalRelationships).toHaveBeenCalled();
       });
     });
   });

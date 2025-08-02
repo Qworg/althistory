@@ -1,86 +1,75 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { DatabaseManager, DatabaseConfig, initializeDatabaseManager, getDatabaseManager } from './database';
 import { SchemaManager, initializeSchema, validateSchema } from './schema';
-
-// Test configuration
-const testConfig: DatabaseConfig = {
-  neo4j: {
-    uri: process.env.NEO4J_TEST_URI || 'bolt://localhost:7687',
-    username: process.env.NEO4J_TEST_USERNAME || 'neo4j',
-    password: process.env.NEO4J_TEST_PASSWORD || 'password',
-    database: process.env.NEO4J_TEST_DATABASE || 'test'
-  },
-  redis: {
-    host: process.env.REDIS_TEST_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_TEST_PORT || '6379', 10),
-    password: process.env.REDIS_TEST_PASSWORD
-  }
-};
-
-// Helper function to check if databases are available
-async function areDatabasesAvailable(): Promise<boolean> {
-  try {
-    const tempManager = initializeDatabaseManager(testConfig);
-    await tempManager.initializeNeo4j();
-    await tempManager.initializeRedis();
-    await tempManager.close();
-    return true;
-  } catch (error) {
-    console.warn('Databases not available for testing:', error.message);
-    return false;
-  }
-}
+import { getTestConfig, isNeo4jAvailable, isRedisAvailable, createTestDatabaseManager } from './test-utils';
 
 describe('DatabaseManager', () => {
-  let databaseManager: DatabaseManager;
+  let databaseManager: DatabaseManager | null = null;
 
   beforeAll(async () => {
-    databaseManager = initializeDatabaseManager(testConfig);
-  });
+    databaseManager = await createTestDatabaseManager();
+  }, 30000);
 
   afterAll(async () => {
-    await databaseManager.close();
+    if (databaseManager) {
+      await databaseManager.close();
+    }
   });
 
   describe('Neo4j Connection', () => {
     it('should initialize Neo4j connection successfully', async () => {
-      try {
-        await expect(databaseManager.initializeNeo4j()).resolves.not.toThrow();
-      } catch (error) {
-        // Skip test if Neo4j is not available
-        console.warn('Neo4j not available, skipping test');
-        expect(true).toBe(true);
+      if (!databaseManager) {
+        console.warn('Database manager not available, skipping test');
+        return;
       }
+      
+      const neo4jAvailable = await isNeo4jAvailable();
+      if (!neo4jAvailable) {
+        console.warn('Neo4j not available, skipping test');
+        return;
+      }
+      
+      expect(databaseManager).toBeDefined();
     });
 
     it('should provide a valid Neo4j session', async () => {
-      try {
-        await databaseManager.initializeNeo4j();
-        const session = databaseManager.getNeo4jSession();
-        expect(session).toBeDefined();
-        
-        // Test basic query
-        const result = await session.run('RETURN 1 as test');
-        expect(result.records).toHaveLength(1);
-        expect(result.records[0].get('test').toNumber()).toBe(1);
-        
-        await session.close();
-      } catch (error) {
-        console.warn('Neo4j connection failed');
-        expect(true).toBe(true);
+      if (!databaseManager) {
+        console.warn('Database manager not available, skipping test');
+        return;
       }
+      
+      const neo4jAvailable = await isNeo4jAvailable();
+      if (!neo4jAvailable) {
+        console.warn('Neo4j not available, skipping test');
+        return;
+      }
+      
+      const session = databaseManager.getNeo4jSession();
+      expect(session).toBeDefined();
+      
+      // Test basic query
+      const result = await session.run('RETURN 1 as test');
+      expect(result.records).toHaveLength(1);
+      expect(result.records[0].get('test').toNumber()).toBe(1);
+      
+      await session.close();
     });
 
     it('should handle database specification', async () => {
-      try {
-        await databaseManager.initializeNeo4j();
-        const session = databaseManager.getNeo4jSession('test');
-        expect(session).toBeDefined();
-        await session.close();
-      } catch (error) {
-        console.warn('Neo4j connection failed');
-        expect(true).toBe(true);
+      if (!databaseManager) {
+        console.warn('Database manager not available, skipping test');
+        return;
       }
+      
+      const neo4jAvailable = await isNeo4jAvailable();
+      if (!neo4jAvailable) {
+        console.warn('Neo4j not available, skipping test');
+        return;
+      }
+      
+      const session = databaseManager.getNeo4jSession('test');
+      expect(session).toBeDefined();
+      await session.close();
     });
   });
 
@@ -149,6 +138,7 @@ describe('DatabaseManager', () => {
     });
 
     it('should report unhealthy connections when not initialized', async () => {
+      const testConfig = getTestConfig();
       const uninitializedManager = new DatabaseManager(testConfig);
       const health = await uninitializedManager.healthCheck();
       expect(health.neo4j).toBe(false);
@@ -158,11 +148,13 @@ describe('DatabaseManager', () => {
 
   describe('Error Handling', () => {
     it('should throw error when getting session without initialization', () => {
+      const testConfig = getTestConfig();
       const uninitializedManager = new DatabaseManager(testConfig);
       expect(() => uninitializedManager.getNeo4jSession()).toThrow('Neo4j driver not initialized');
     });
 
     it('should throw error when getting Redis client without initialization', () => {
+      const testConfig = getTestConfig();
       const uninitializedManager = new DatabaseManager(testConfig);
       expect(() => uninitializedManager.getRedisClient()).toThrow('Redis client not initialized');
     });

@@ -149,6 +149,18 @@ export class ConfigurationError extends AppError {
 }
 
 /**
+ * Database connection error
+ */
+export class DatabaseConnectionError extends AppError {
+  readonly statusCode = 503;
+  readonly isOperational = true;
+
+  constructor(message: string, cause?: Error) {
+    super(message, cause);
+  }
+}
+
+/**
  * Error handler utility functions
  */
 export class ErrorHandler {

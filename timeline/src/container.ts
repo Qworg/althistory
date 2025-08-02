@@ -1,4 +1,4 @@
-import { DatabaseManager } from '@/utils/database';
+import { DatabaseManager, LocalDatabaseManager } from '@/utils/database';
 import { 
   TemporalService, 
   CausalService, 
@@ -29,7 +29,7 @@ export interface ServiceContainer {
   arcRepository: ArcRepository;
   
   // Infrastructure
-  databaseManager: DatabaseManager;
+  databaseManager: DatabaseManager | LocalDatabaseManager;
   config: AppConfig;
 }
 
@@ -48,7 +48,7 @@ export class Container implements ServiceContainer {
   private _arcRepository?: ArcRepository;
 
   constructor(
-    public readonly databaseManager: DatabaseManager,
+    public readonly databaseManager: DatabaseManager | LocalDatabaseManager,
     public readonly config: AppConfig
   ) {}
 
@@ -173,7 +173,7 @@ export class Container implements ServiceContainer {
    * Initialize all services and perform health checks
    */
   async initialize(): Promise<void> {
-    console.log('Initializing service container...');
+    console.log('🔧 Initializing service container...');
 
     try {
       // Initialize database connections
@@ -187,11 +187,18 @@ export class Container implements ServiceContainer {
       }
 
       // Initialize services that need setup
-      await this.databaseOptimizationService.initialize();
+      // Note: DatabaseOptimizationService might not be available for LocalDatabaseManager
+      if ('initialize' in this.databaseOptimizationService) {
+        await this.databaseOptimizationService.initialize();
+      }
 
-      console.log('Service container initialized successfully');
+      if (this.config.localExecution.enabled) {
+        console.log('📦 Service container initialized successfully (Local Mode)');
+      } else {
+        console.log('☁️  Service container initialized successfully (Cloud Mode)');
+      }
     } catch (error) {
-      console.error('Failed to initialize service container:', error);
+      console.error('❌ Failed to initialize service container:', error);
       throw error;
     }
   }
@@ -258,7 +265,7 @@ let container: Container | null = null;
 /**
  * Initialize the global container
  */
-export function initializeContainer(databaseManager: DatabaseManager, config: AppConfig): Container {
+export function initializeContainer(databaseManager: DatabaseManager | LocalDatabaseManager, config: AppConfig): Container {
   container = new Container(databaseManager, config);
   return container;
 }

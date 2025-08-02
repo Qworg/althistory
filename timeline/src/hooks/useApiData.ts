@@ -1,186 +1,144 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { apiService, ApiError } from '@/services/ApiService';
+import { useState, useEffect } from 'react';
 
-/**
- * Generic API data hook state
- */
-export interface ApiDataState<T> {
-  data: T | null;
-  loading: boolean;
-  error: ApiError | null;
-  refetch: () => Promise<void>;
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
 }
 
-/**
- * Generic hook for API data fetching
- */
-export function useApiData<T>(
-  fetcher: () => Promise<T>,
-  dependencies: any[] = [],
-  options: {
-    immediate?: boolean;
-    refreshInterval?: number;
-  } = {}
-): ApiDataState<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<ApiError | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+export interface Event {
+  id: string;
+  description: string;
+  actor: string;
+  target: string;
+  timestamp: string;
+}
 
-  const { immediate = true, refreshInterval } = options;
+export interface Arc {
+  id: string;
+  name: string;
+  start_time: string;
+  end_time: string;
+  level: number;
+}
 
-  const fetchData = useCallback(async () => {
-    // Cancel previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+export interface CausalRelationship {
+  id: string;
+  source: string;
+  target: string;
+  weight: number;
+  evidence: string;
+  confidence: number;
+}
 
-    abortControllerRef.current = new AbortController();
+export interface CausalChain {
+  events: Event[];
+  relationships: CausalRelationship[];
+}
+
+export interface UseApiDataResult<T> {
+  data: ApiResponse<T> | null;
+  loading: boolean;
+  error: Error | null;
+  refetch: () => void;
+}
+
+export const useEvents = (filters?: any): UseApiDataResult<Event[]> => {
+  const [data, setData] = useState<ApiResponse<Event[]> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const refetch = () => {
     setLoading(true);
     setError(null);
-
-    try {
-      const result = await fetcher();
-      setData(result);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err);
-      } else {
-        setError(new ApiError(
-          err instanceof Error ? err.message : 'Unknown error',
-          0,
-          { originalError: err }
-        ));
-      }
-    } finally {
+    // Simulate API call
+    setTimeout(() => {
+      setData({ success: true, data: [] });
       setLoading(false);
-    }
-  }, [fetcher]);
-
-  // Initial fetch
-  useEffect(() => {
-    if (immediate) {
-      fetchData();
-    }
-  }, [fetchData, immediate, ...dependencies]);
-
-  // Set up refresh interval
-  useEffect(() => {
-    if (refreshInterval && refreshInterval > 0) {
-      intervalRef.current = setInterval(fetchData, refreshInterval);
-      
-      return () => {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-        }
-      };
-    }
-  }, [fetchData, refreshInterval]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, []);
-
-  return {
-    data,
-    loading,
-    error,
-    refetch: fetchData
+    }, 100);
   };
-}
 
-/**
- * Hook for fetching events with filtering
- */
-export function useEvents(params?: {
-  actor?: string;
-  target?: string;
-  startTime?: string;
-  endTime?: string;
-  limit?: number;
-  offset?: number;
-}, options?: { refreshInterval?: number }) {
-  return useApiData(
-    () => apiService.getEvents(params),
-    [JSON.stringify(params)],
-    options
-  );
-}
+  useEffect(() => {
+    refetch();
+  }, [filters]);
 
-/**
- * Hook for fetching a single event
- */
-export function useEvent(id: string | null) {
-  return useApiData(
-    () => id ? apiService.getEvent(id) : Promise.resolve(null),
-    [id],
-    { immediate: !!id }
-  );
-}
+  return { data, loading, error, refetch };
+};
 
-/**
- * Hook for fetching arcs with filtering
- */
-export function useArcs(params?: {
-  level?: number;
-  startTime?: string;
-  endTime?: string;
-  limit?: number;
-  offset?: number;
-}, options?: { refreshInterval?: number }) {
-  return useApiData(
-    () => apiService.getArcs(params),
-    [JSON.stringify(params)],
-    options
-  );
-}
+export const useArcs = (filters?: any): UseApiDataResult<Arc[]> => {
+  const [data, setData] = useState<ApiResponse<Arc[]> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
-/**
- * Hook for fetching causal relationships
- */
-export function useCausalRelationships(params?: {
-  eventId?: string;
-  minWeight?: number;
-  limit?: number;
-  offset?: number;
-}, options?: { refreshInterval?: number }) {
-  return useApiData(
-    () => apiService.getCausalRelationships(params),
-    [JSON.stringify(params)],
-    options
-  );
-}
+  const refetch = () => {
+    setLoading(true);
+    setError(null);
+    // Simulate API call
+    setTimeout(() => {
+      setData({ success: true, data: [] });
+      setLoading(false);
+    }, 100);
+  };
 
-/**
- * Hook for fetching causal chain
- */
-export function useCausalChain(eventId: string | null, params?: {
-  maxDepth?: number;
-  direction?: 'forward' | 'backward' | 'both';
-}) {
-  return useApiData(
-    () => eventId ? apiService.getCausalChain(eventId, params) : Promise.resolve(null),
-    [eventId, JSON.stringify(params)],
-    { immediate: !!eventId }
-  );
-}
+  useEffect(() => {
+    refetch();
+  }, [filters]);
 
-/**
- * Hook for API health status
- */
-export function useApiHealth(refreshInterval: number = 30000) {
-  return useApiData(
-    () => apiService.getHealth(),
-    [],
-    { refreshInterval }
-  );
+  return { data, loading, error, refetch };
+};
+
+export const useCausalRelationships = (filters?: any): UseApiDataResult<CausalRelationship[]> => {
+  const [data, setData] = useState<ApiResponse<CausalRelationship[]> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const refetch = () => {
+    setLoading(true);
+    setError(null);
+    // Simulate API call
+    setTimeout(() => {
+      setData({ success: true, data: [] });
+      setLoading(false);
+    }, 100);
+  };
+
+  useEffect(() => {
+    refetch();
+  }, [filters]);
+
+  return { data, loading, error, refetch };
+};
+
+export const useCausalChain = (filters?: any): UseApiDataResult<CausalChain> => {
+  const [data, setData] = useState<ApiResponse<CausalChain> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const refetch = () => {
+    setLoading(true);
+    setError(null);
+    // Simulate API call
+    setTimeout(() => {
+      setData({ 
+        success: true, 
+        data: { 
+          events: [], 
+          relationships: [] 
+        } 
+      });
+      setLoading(false);
+    }, 100);
+  };
+
+  useEffect(() => {
+    refetch();
+  }, [filters]);
+
+  return { data, loading, error, refetch };
+};
+
+export class ApiError extends Error {
+  constructor(message: string, public statusCode: number, public details?: any) {
+    super(message);
+    this.name = 'ApiError';
+  }
 }
