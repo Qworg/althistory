@@ -39,6 +39,30 @@ A sophisticated system for capturing, analyzing, and visualizing historical even
 - Redis 6+ instance
 - Git
 
+### ⚡ 5-Minute Local Setup
+
+Get running locally in under 5 minutes with zero infrastructure:
+
+```bash
+# Clone and setup
+git clone <repository-url>
+cd hierarchical-temporal-graph
+npm install
+
+# Quick local configuration
+echo "LOCAL_EXECUTION_ENABLED=true" > .env.local
+echo "PORT=3000" >> .env.local
+
+# Start developing immediately
+npm run dev
+```
+
+Your application will be running at `http://localhost:3000` with:
+- ✅ Zero database setup required
+- ✅ Automatic file-based storage in `./data/`
+- ✅ Hot reload for development
+- ✅ Built-in backup system
+
 ### Installation
 
 1. **Clone the repository**
@@ -53,6 +77,40 @@ A sophisticated system for capturing, analyzing, and visualizing historical even
    ```
 
 3. **Choose your execution mode** (see detailed instructions below)
+
+### 🔄 Switching Between Modes
+
+You can easily switch between local and cloud execution modes:
+
+**Switch to Local Mode**
+```bash
+# Create or update your environment file
+echo "LOCAL_EXECUTION_ENABLED=true" > .env.local
+npm run dev
+```
+
+**Switch to Cloud Mode**
+```bash
+# Update environment file with cloud credentials
+echo "LOCAL_EXECUTION_ENABLED=false" > .env.production
+echo "NEO4J_URI=bolt://your-neo4j-host:7687" >> .env.production
+echo "NEO4J_USERNAME=your-username" >> .env.production
+echo "NEO4J_PASSWORD=your-password" >> .env.production
+echo "REDIS_HOST=your-redis-host" >> .env.production
+
+# Build and start in production mode
+npm run build
+NODE_ENV=production npm start
+```
+
+**Data Migration Between Modes**
+```bash
+# Export local data for cloud deployment
+npm run export:local-to-cloud
+
+# Import cloud data for local development
+npm run import:cloud-to-local
+```
 
 ## 🏠 Local Execution Mode (Offline Development)
 
@@ -352,15 +410,61 @@ npm test -- --grep "performance"
 ### Common Issues
 
 #### Local Mode Issues
+
+**Data Directory Permission Errors**
 ```bash
-# Data directory permission error
+# Fix data directory permissions
 chmod 755 ./data
+mkdir -p ./data/backups
 
-# Memory limit exceeded
-# Increase LOCAL_MAX_MEMORY_MB in .env
+# If running on Windows with WSL
+sudo chown -R $(whoami):$(whoami) ./data
+```
 
-# Backup failures
-# Check disk space and LOCAL_DATA_DIR permissions
+**Memory Limit Exceeded**
+```bash
+# Increase memory allocation in your environment file
+echo "LOCAL_MAX_MEMORY_MB=1024" >> .env.local
+
+# Monitor current memory usage
+curl http://localhost:3000/health | jq '.localStorage.memoryUsage'
+```
+
+**Backup and Persistence Failures**
+```bash
+# Check disk space availability
+df -h ./data
+
+# Verify backup directory permissions
+ls -la ./data/backups/
+
+# Manually trigger backup for testing
+curl -X POST http://localhost:3000/api/admin/backup
+```
+
+**Data Corruption Recovery**
+```bash
+# List available backups
+ls -la ./data/backups/
+
+# Restore from latest backup
+# Stop the application first, then:
+cp ./data/backups/graph_backup_[latest].json ./data/graph.json
+
+# Clear corrupted cache
+rm -f ./data/cache.json
+```
+
+**File System Errors**
+```bash
+# Check file system permissions
+ls -la ./data/
+
+# Validate JSON file integrity
+node -e "console.log(JSON.parse(require('fs').readFileSync('./data/graph.json', 'utf8')))"
+
+# Reset local storage (WARNING: This will delete all data)
+rm -rf ./data && mkdir -p ./data/backups
 ```
 
 #### Cloud Mode Issues
