@@ -1,43 +1,21 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { screen } from '@testing-library/react'
+import { renderWithProviders } from './test/utils'
 import App from './App'
-
-// Create a test wrapper with providers
-function TestWrapper({ children }: { children: React.ReactNode }) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-      },
-    },
-  })
-
-  return (
-    <QueryClientProvider client={queryClient}>
-      {children}
-    </QueryClientProvider>
-  )
-}
 
 describe('App', () => {
   it('renders without crashing', () => {
-    render(
-      <TestWrapper>
-        <App />
-      </TestWrapper>
-    )
+    renderWithProviders(<App />, { withRouter: false })
     
     expect(screen.getByText('Timeline Interface')).toBeInTheDocument()
   })
 
   it('displays the timeline view by default', () => {
-    render(
-      <TestWrapper>
-        <App />
-      </TestWrapper>
-    )
+    renderWithProviders(<App />, { withRouter: false })
     
-    expect(screen.getByText('Timeline View')).toBeInTheDocument()
+    // Check that timeline tab is active (aria-selected="true") and visible
+    const timelineTab = screen.getByRole('tab', { name: /timeline/i })
+    expect(timelineTab).toBeInTheDocument()
+    expect(timelineTab).toHaveAttribute('aria-selected', 'true')
   })
 })

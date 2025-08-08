@@ -1,0 +1,461 @@
+import { 
+  useQuery, 
+  useMutation, 
+  useQueryClient,
+  UseQueryOptions,
+  UseMutationOptions
+} from '@tanstack/react-query'
+import { apiClient, APIError } from '@/services/api'
+import { useGlobalStore } from '@/stores/globalStore'
+import { 
+  Event, 
+  Arc, 
+  CausalRelationship, 
+  InferredPressure,
+  CreateEventRequest,
+  UpdateEventRequest,
+  CreateArcRequest,
+  UpdateArcRequest,
+  CausalRelationshipData,
+  EventFilters,
+  ArcFilters,
+  CausalPath,
+  CausalSuggestion,
+  EventCluster,
+  Pattern,
+  CopyResult,
+  EntityFilter,
+  TimeRange
+} from '@/types'
+
+// Query keys for React Query
+export const queryKeys = {
+  events: {
+    all: ['events'] as const,
+    lists: () => [...queryKeys.events.all, 'list'] as const,
+    list: (filters?: EventFilters) => [...queryKeys.events.lists(), filters] as const,
+    details: () => [...queryKeys.events.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.events.details(), id] as const,
+    search: (query: string, filters?: EventFilters) => [...queryKeys.events.all, 'search', query, filters] as const,
+  },
+  arcs: {
+    all: ['arcs'] as const,
+    lists: () => [...queryKeys.arcs.all, 'list'] as const,
+    list: (filters?: ArcFilters) => [...queryKeys.arcs.lists(), filters] as const,
+    details: () => [...queryKeys.arcs.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.arcs.details(), id] as const,
+    hierarchy: () => [...queryKeys.arcs.all, 'hierarchy'] as const,
+  },
+  causal: {
+    all: ['causal'] as const,
+    relationships: (eventId?: string) => [...queryKeys.causal.all, 'relationships', eventId] as const,
+    chains: (startEventId: string, maxDepth: number) => [...queryKeys.causal.all, 'chains', startEventId, maxDepth] as const,
+    suggestions: (eventId: string) => [...queryKeys.causal.all, 'suggestions', eventId] as const,
+  },
+  inference: {
+    all: ['inference'] as const,
+    pressures: (arcId?: string) => [...queryKeys.inference.all, 'pressures', arcId] as const,
+    clusters: (eventIds: string[]) => [...queryKeys.inference.all, 'clusters', eventIds] as const,
+    patterns: (timeRange: TimeRange) => [...queryKeys.inference.all, 'patterns', timeRange] as const,
+  },
+  graph: {
+    all: ['graph'] as const,
+    copyStatus: (copyId: string) => [...queryKeys.graph.all, 'copy', copyId] as const,
+  },
+} as const
+
+// Event hooks
+export function useEvents(filters?: EventFilters, options?: Omit<UseQueryOptions<Event[], APIError>, 'queryKey' | 'queryFn'>) {
+  return useQuery({
+    queryKey: queryKeys.events.list(filters),
+    queryFn: () => apiClient.events.getAll(filters),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    ...options
+  })
+}
+
+export function useEvent(id: string, options?: Omit<UseQueryOptions<Event, APIError>, 'queryKey' | 'queryFn'>) {
+  return useQuery({
+    queryKey: queryKeys.events.detail(id),
+    queryFn: () => apiClient.events.getById(id),
+    enabled: !!id,
+    ...options
+  })
+}
+
+export function useSearchEvents(query: string, filters?: EventFilters, options?: Omit<UseQueryOptions<Event[], APIError>, 'queryKey' | 'queryFn'>) {
+  return useQuery({
+    queryKey: queryKeys.events.search(query, filters),
+    queryFn: () => apiClient.events.search(query, filters),
+    enabled: query.length > 0,
+    ...options
+  })
+}
+
+export function useCreateEvent(options?: UseMutationOptions<Event, APIError, CreateEventRequest>) {
+  const queryClient = useQueryClient()
+  const { addEvent, addError } = useGlobalStore(state => ({
+    addEvent: state.addEvent,
+    addError: state.addError
+  }))
+  
+  return useMutation({
+    mutationFn: (data: CreateEventRequest) => apiClient.events.create(data),
+    onSuccess: (newEvent) => {
+      // Update local state
+      addEvent(newEvent)
+      
+      // Invalidate and refetch events
+      queryClient.invalidateQueries({ queryKey: queryKeys.events.all })
+    },
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to create event: ${error.message}`,
+        type: error.status === 400 ? 'validation' : 'network'
+      })
+    },
+    ...options
+  })
+}
+
+export function useUpdateEvent(options?: UseMutationOptions<Event, APIError, { id: string; data: UpdateEventRequest }>) {
+  const queryClient = useQueryClient()
+  const { updateEvent, addError } = useGlobalStore(state => ({
+    updateEvent: state.updateEvent,
+    addError: state.addError
+  }))
+  
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateEventRequest }) => apiClient.events.update(id, data),
+    onSuccess: (updatedEvent) => {
+      // Update local state
+      updateEvent(updatedEvent.id, updatedEvent)
+      
+      // Update specific event query
+      queryClient.setQueryData(queryKeys.events.detail(updatedEvent.id), updatedEvent)
+      
+      // Invalidate events list
+      queryClient.invalidateQueries({ queryKey: queryKeys.events.lists() })
+    },
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to update event: ${error.message}`,
+        type: error.status === 400 ? 'validation' : 'network'
+      })
+    },
+    ...options
+  })
+}
+
+export function useDeleteEvent(options?: UseMutationOptions<void, APIError, string>) {
+  const queryClient = useQueryClient()
+  const { deleteEvent, addError } = useGlobalStore(state => ({
+    deleteEvent: state.deleteEvent,
+    addError: state.addError
+  }))
+  
+  return useMutation({
+    mutationFn: (id: string) => apiClient.events.delete(id),
+    onSuccess: (_, deletedId) => {
+      // Update local state
+      deleteEvent(deletedId)
+      
+      // Remove from cache
+      queryClient.removeQueries({ queryKey: queryKeys.events.detail(deletedId) })
+      
+      // Invalidate events list
+      queryClient.invalidateQueries({ queryKey: queryKeys.events.lists() })
+    },
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to delete event: ${error.message}`,
+        type: 'network'
+      })
+    },
+    ...options
+  })
+}
+
+// Arc hooks
+export function useArcs(filters?: ArcFilters, options?: UseQueryOptions<Arc[], APIError>) {
+  const addError = useGlobalStore(state => state.addError)
+  
+  return useQuery({
+    queryKey: queryKeys.arcs.list(filters),
+    queryFn: () => apiClient.arcs.getAll(filters),
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to fetch arcs: ${error.message}`,
+        type: 'network'
+      })
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    ...options
+  })
+}
+
+export function useArc(id: string, options?: UseQueryOptions<Arc, APIError>) {
+  const addError = useGlobalStore(state => state.addError)
+  
+  return useQuery({
+    queryKey: queryKeys.arcs.detail(id),
+    queryFn: () => apiClient.arcs.getById(id),
+    enabled: !!id,
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to fetch arc: ${error.message}`,
+        type: 'network'
+      })
+    },
+    ...options
+  })
+}
+
+export function useArcHierarchy(options?: UseQueryOptions<Arc[], APIError>) {
+  const addError = useGlobalStore(state => state.addError)
+  
+  return useQuery({
+    queryKey: queryKeys.arcs.hierarchy(),
+    queryFn: () => apiClient.arcs.getHierarchy(),
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to fetch arc hierarchy: ${error.message}`,
+        type: 'network'
+      })
+    },
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    ...options
+  })
+}
+
+export function useCreateArc(options?: UseMutationOptions<Arc, APIError, CreateArcRequest>) {
+  const queryClient = useQueryClient()
+  const { addArc, addError } = useGlobalStore(state => ({
+    addArc: state.addArc,
+    addError: state.addError
+  }))
+  
+  return useMutation({
+    mutationFn: (data: CreateArcRequest) => apiClient.arcs.create(data),
+    onSuccess: (newArc) => {
+      // Update local state
+      addArc(newArc)
+      
+      // Invalidate and refetch arcs
+      queryClient.invalidateQueries({ queryKey: queryKeys.arcs.all })
+    },
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to create arc: ${error.message}`,
+        type: error.status === 400 ? 'validation' : 'network'
+      })
+    },
+    ...options
+  })
+}
+
+export function useUpdateArc(options?: UseMutationOptions<Arc, APIError, { id: string; data: UpdateArcRequest }>) {
+  const queryClient = useQueryClient()
+  const { updateArc, addError } = useGlobalStore(state => ({
+    updateArc: state.updateArc,
+    addError: state.addError
+  }))
+  
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateArcRequest }) => apiClient.arcs.update(id, data),
+    onSuccess: (updatedArc) => {
+      // Update local state
+      updateArc(updatedArc.id, updatedArc)
+      
+      // Update specific arc query
+      queryClient.setQueryData(queryKeys.arcs.detail(updatedArc.id), updatedArc)
+      
+      // Invalidate arcs list and hierarchy
+      queryClient.invalidateQueries({ queryKey: queryKeys.arcs.lists() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.arcs.hierarchy() })
+    },
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to update arc: ${error.message}`,
+        type: error.status === 400 ? 'validation' : 'network'
+      })
+    },
+    ...options
+  })
+}
+
+export function useDeleteArc(options?: UseMutationOptions<void, APIError, string>) {
+  const queryClient = useQueryClient()
+  const { deleteArc, addError } = useGlobalStore(state => ({
+    deleteArc: state.deleteArc,
+    addError: state.addError
+  }))
+  
+  return useMutation({
+    mutationFn: (id: string) => apiClient.arcs.delete(id),
+    onSuccess: (_, deletedId) => {
+      // Update local state
+      deleteArc(deletedId)
+      
+      // Remove from cache
+      queryClient.removeQueries({ queryKey: queryKeys.arcs.detail(deletedId) })
+      
+      // Invalidate arcs list and hierarchy
+      queryClient.invalidateQueries({ queryKey: queryKeys.arcs.lists() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.arcs.hierarchy() })
+    },
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to delete arc: ${error.message}`,
+        type: 'network'
+      })
+    },
+    ...options
+  })
+}
+
+// Causal relationship hooks
+export function useCausalRelationships(eventId?: string, options?: UseQueryOptions<CausalRelationship[], APIError>) {
+  const addError = useGlobalStore(state => state.addError)
+  
+  return useQuery({
+    queryKey: queryKeys.causal.relationships(eventId),
+    queryFn: () => apiClient.causal.getRelationships(eventId),
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to fetch causal relationships: ${error.message}`,
+        type: 'network'
+      })
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    ...options
+  })
+}
+
+export function useCausalChain(startEventId: string, maxDepth: number = 3, options?: UseQueryOptions<CausalPath[], APIError>) {
+  const addError = useGlobalStore(state => state.addError)
+  
+  return useQuery({
+    queryKey: queryKeys.causal.chains(startEventId, maxDepth),
+    queryFn: () => apiClient.causal.findChain(startEventId, maxDepth),
+    enabled: !!startEventId,
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to fetch causal chain: ${error.message}`,
+        type: 'network'
+      })
+    },
+    ...options
+  })
+}
+
+export function useCausalSuggestions(eventId: string, options?: UseQueryOptions<CausalSuggestion[], APIError>) {
+  const addError = useGlobalStore(state => state.addError)
+  
+  return useQuery({
+    queryKey: queryKeys.causal.suggestions(eventId),
+    queryFn: () => apiClient.causal.getSuggestions(eventId),
+    enabled: !!eventId,
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to fetch causal suggestions: ${error.message}`,
+        type: 'network'
+      })
+    },
+    ...options
+  })
+}
+
+export function useCreateCausalLink(options?: UseMutationOptions<CausalRelationship, APIError, { causeId: string; effectId: string; relationship: CausalRelationshipData }>) {
+  const queryClient = useQueryClient()
+  const { addCausalRelationship, addError } = useGlobalStore(state => ({
+    addCausalRelationship: state.addCausalRelationship,
+    addError: state.addError
+  }))
+  
+  return useMutation({
+    mutationFn: ({ causeId, effectId, relationship }) => apiClient.causal.createLink(causeId, effectId, relationship),
+    onSuccess: (newRelationship) => {
+      // Update local state
+      addCausalRelationship(newRelationship)
+      
+      // Invalidate causal relationships
+      queryClient.invalidateQueries({ queryKey: queryKeys.causal.all })
+    },
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to create causal link: ${error.message}`,
+        type: error.status === 400 ? 'validation' : 'network'
+      })
+    },
+    ...options
+  })
+}
+
+// Inference hooks
+export function useInferredPressures(arcId?: string, options?: UseQueryOptions<InferredPressure[], APIError>) {
+  const addError = useGlobalStore(state => state.addError)
+  
+  return useQuery({
+    queryKey: queryKeys.inference.pressures(arcId),
+    queryFn: () => apiClient.inference.getPressures(arcId),
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to fetch inferred pressures: ${error.message}`,
+        type: 'network'
+      })
+    },
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    ...options
+  })
+}
+
+// Graph copy hooks
+export function useCopyGraph(options?: UseMutationOptions<CopyResult, APIError, { type: 'full' | 'timeRange' | 'filter'; targetName: string; timeRange?: TimeRange; filter?: EntityFilter }>) {
+  const addError = useGlobalStore(state => state.addError)
+  
+  return useMutation({
+    mutationFn: async ({ type, targetName, timeRange, filter }) => {
+      switch (type) {
+        case 'full':
+          return apiClient.graph.copyFull(targetName)
+        case 'timeRange':
+          if (!timeRange) throw new Error('Time range is required for time range copy')
+          return apiClient.graph.copyByTimeRange(timeRange, targetName)
+        case 'filter':
+          if (!filter) throw new Error('Filter is required for filtered copy')
+          return apiClient.graph.copyByFilter(filter, targetName)
+        default:
+          throw new Error('Invalid copy type')
+      }
+    },
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to copy graph: ${error.message}`,
+        type: 'network'
+      })
+    },
+    ...options
+  })
+}
+
+export function useCopyStatus(copyId: string, options?: UseQueryOptions<CopyResult, APIError>) {
+  const addError = useGlobalStore(state => state.addError)
+  
+  return useQuery({
+    queryKey: queryKeys.graph.copyStatus(copyId),
+    queryFn: () => apiClient.graph.getCopyStatus(copyId),
+    enabled: !!copyId,
+    refetchInterval: (data) => {
+      // Poll every 2 seconds if copy is in progress
+      return data?.status === 'in_progress' ? 2000 : false
+    },
+    onError: (error: APIError) => {
+      addError({
+        message: `Failed to fetch copy status: ${error.message}`,
+        type: 'network'
+      })
+    },
+    ...options
+  })
+}
