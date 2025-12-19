@@ -1,10 +1,11 @@
-import React, { useMemo, useRef, useState, useEffect } from 'react'
-import * as d3 from 'd3'
+import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 import { Event, Arc, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { ArcWithUIState, calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
 import EventArcAssignment from './EventArcAssignment'
 import PressureIndicators from './PressureIndicators'
+import { useTimelineScales } from '@/hooks/useTimelineScales'
+import { useTimelineEventHandlers } from '@/hooks/useTimelineEventHandlers'
 
 export interface TimelineProps {
   events: Event[]
@@ -55,37 +56,24 @@ const Timeline: React.FC<TimelineProps> = ({
     position: { x: number; y: number } | null
   }>({ isOpen: false, event: null, position: null })
 
-  const innerWidth = Math.max(0, width - margin.left - margin.right)
-  const innerHeight = Math.max(0, height - margin.top - margin.bottom)
+  // Use custom hook for memoized scale calculations (Phase 2.2)
+  const { xScale, innerWidth, innerHeight, xDomain } = useTimelineScales(
+    events,
+    arcs,
+    width,
+    height,
+    margin
+  )
 
-  // Compute x-domain from arcs and events
-  const [xDomainStart, xDomainEnd] = useMemo(() => {
-    const times: number[] = []
-    for (const e of events) {
-      const t = new Date(e.timestamp).getTime()
-      if (!Number.isNaN(t)) times.push(t)
-    }
-    for (const a of arcs) {
-      const s = new Date(a.start_time).getTime()
-      const e = new Date(a.end_time).getTime()
-      if (!Number.isNaN(s)) times.push(s)
-      if (!Number.isNaN(e)) times.push(e)
-    }
-    if (times.length === 0) {
-      const now = Date.now()
-      return [new Date(now - 1000 * 60 * 60 * 24 * 30), new Date(now + 1000 * 60 * 60 * 24 * 30)] // ±30 days
-    }
-    return [new Date(Math.min(...times)), new Date(Math.max(...times))]
-  }, [events, arcs])
+  // Stable ref for time range callback to avoid infinite loops (Phase 2.3)
+  // See: impl/deferredplans/ADR-001-d3-react-integration.md
+  const onTimeRangeChangeRef = useRef(onTimeRangeChange)
+  onTimeRangeChangeRef.current = onTimeRangeChange
 
-  const xScale = useMemo(() => {
-    return d3.scaleTime().domain([xDomainStart, xDomainEnd]).range([0, innerWidth]).nice()
-  }, [xDomainStart, xDomainEnd, innerWidth])
-
-  // Expose time range upwards
+  // Expose time range upwards - callback NOT in dependencies to prevent infinite loops
   useEffect(() => {
-    onTimeRangeChange?.({ start: xDomainStart, end: xDomainEnd })
-  }, [xDomainStart, xDomainEnd, onTimeRangeChange])
+    onTimeRangeChangeRef.current?.({ start: xDomain[0], end: xDomain[1] })
+  }, [xDomain[0]?.getTime(), xDomain[1]?.getTime()])
 
   // Arc hierarchy and levels
   const { arcHierarchy } = useMemo(() => {
@@ -104,39 +92,32 @@ const Timeline: React.FC<TimelineProps> = ({
   // Event y position
   const eventY = innerHeight - 30
 
-  // Handlers
-  const handleEventContextMenu = (evt: React.MouseEvent, ev: Event) => {
+  // Use custom hook for stable event handlers (Phase 2.2)
+  const { handleEventClick, handleArcClick, handleSvgDoubleClick } = useTimelineEventHandlers({
+    onEventSelect,
+    onArcSelect,
+    onEventCreate,
+    xScale,
+    margin,
+    innerWidth
+  })
+
+  // Context menu handler for event arc assignment
+  const handleEventContextMenu = useCallback((evt: React.MouseEvent, ev: Event) => {
     evt.preventDefault()
     setEventAssignmentModal({ isOpen: true, event: ev, position: { x: evt.pageX, y: evt.pageY } })
-  }
+  }, [])
 
-  const handleEventAssignment = async (eventId: string, arcId: string | null) => {
+  const handleEventAssignment = useCallback(async (eventId: string, arcId: string | null) => {
     const ev = events.find(e => e.id === eventId)
     const arc = arcId ? arcs.find(a => a.id === arcId) : null
     if (ev && arc && onEventAssignToArc) await onEventAssignToArc(ev, arc)
     setEventAssignmentModal({ isOpen: false, event: null, position: null })
-  }
+  }, [events, arcs, onEventAssignToArc])
 
-  const handleEventAssignmentCancel = () => {
+  const handleEventAssignmentCancel = useCallback(() => {
     setEventAssignmentModal({ isOpen: false, event: null, position: null })
-  }
-
-  // Optional: double click to create event at position
-  const handleSvgDoubleClick = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!onEventCreate) return
-    const svg = svgRef.current
-    if (!svg) return
-    const pt = svg.createSVGPoint()
-    pt.x = e.clientX
-    pt.y = e.clientY
-    const ctm = (e.target as SVGElement).ownerSVGElement?.getScreenCTM()
-    if (!ctm) return
-    const inv = ctm.inverse()
-    const local = pt.matrixTransform(inv)
-    const x = local.x - margin.left
-    const t = xScale.invert(Math.max(0, Math.min(innerWidth, x)))
-    onEventCreate(t)
-  }
+  }, [])
 
   return (
     <div ref={containerRef} className={`timeline-container ${className}`}>
@@ -168,7 +149,7 @@ const Timeline: React.FC<TimelineProps> = ({
                   stroke="#6b7280"
                   strokeWidth={1}
                   rx={3}
-                  onClick={() => onArcSelect?.(arc)}
+                  onClick={() => handleArcClick(arc)}
                 />
                 <text x={x1 + 4} y={y - 2} fontSize={10} fill="#6b7280">{arc.name}</text>
               </g>
@@ -194,7 +175,7 @@ const Timeline: React.FC<TimelineProps> = ({
                   fill="#f59e0b"
                   stroke="#ffffff"
                   strokeWidth={2}
-                  onClick={() => onEventSelect?.(ev)}
+                  onClick={() => handleEventClick(ev)}
                   onContextMenu={(e) => handleEventContextMenu(e, ev)}
                 />
                 <line x1={0} y1={0} x2={0} y2={20} stroke="#6b7280" strokeWidth={1} />
@@ -234,4 +215,6 @@ const Timeline: React.FC<TimelineProps> = ({
   )
 }
 
+// Named export for tests, default export for general usage
+export { Timeline }
 export default Timeline

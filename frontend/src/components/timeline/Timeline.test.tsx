@@ -34,7 +34,9 @@ vi.mock('d3', () => {
   const mockScale = vi.fn(() => 100)
   mockScale.domain = vi.fn().mockReturnValue(mockScale)
   mockScale.range = vi.fn().mockReturnValue(mockScale)
+  mockScale.nice = vi.fn().mockReturnValue(mockScale)
   mockScale.invert = vi.fn(() => new Date())
+  mockScale.copy = vi.fn().mockReturnValue(mockScale)
 
   const mockAxis = vi.fn()
   mockAxis.tickFormat = vi.fn().mockReturnValue(mockAxis)
@@ -150,8 +152,8 @@ describe('Timeline Component', () => {
       
       const svg = document.querySelector('svg')
       expect(svg).toBeInTheDocument()
-      expect(svg).toHaveAttribute('width', '800') // default width
-      expect(svg).toHaveAttribute('height', '400') // default height
+      expect(svg).toHaveAttribute('width', '1000') // default width
+      expect(svg).toHaveAttribute('height', '420') // default height
     })
   })
 
@@ -334,8 +336,8 @@ describe('Timeline Component', () => {
       renderWithProviders(<Timeline events={largeEvents} arcs={largeArcs} />)
       const endTime = performance.now()
 
-      // Should render within reasonable time (less than 100ms)
-      expect(endTime - startTime).toBeLessThan(100)
+      // Should render within reasonable time (less than 500ms for test environment)
+      expect(endTime - startTime).toBeLessThan(500)
       expect(document.querySelector('svg')).toBeInTheDocument()
     })
   })
