@@ -49,27 +49,6 @@ export interface TimelineBusinessState {
 }
 
 /**
- * Derived State (computed, memoized)
- * 
- * Values computed from business state. Should be memoized using useMemo
- * to prevent unnecessary recalculations.
- */
-export interface DerivedTimelineState {
-  /** D3 time scale for x-axis positioning */
-  xScale: ScaleTime<number, number>
-  /** Processed arc hierarchy with render levels */
-  arcHierarchy: ArcWithUIState[]
-  /** Maximum hierarchy depth */
-  maxLevel: number
-  /** Currently visible time range */
-  visibleTimeRange: TimeRange
-  /** Inner width after margins */
-  innerWidth: number
-  /** Inner height after margins */
-  innerHeight: number
-}
-
-/**
  * Timeline margin configuration
  */
 export interface TimelineMargin {
@@ -127,6 +106,7 @@ export interface UseTimelineScalesResult {
  */
 export interface UseTimelineEventHandlersResult {
   handleEventClick: (event: Event) => void
-  handleArcClick: (arc: Arc) => void
+  /** Accepts ArcWithUIState (extends Arc) for compatibility with memoized TimelineArc component */
+  handleArcClick: (arc: ArcWithUIState) => void
   handleSvgDoubleClick: (e: React.MouseEvent<SVGSVGElement>) => void
 }

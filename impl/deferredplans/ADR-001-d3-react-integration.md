@@ -79,21 +79,29 @@ D3 will be used **only for calculations** (scales, layouts, data transformations
 ### Current State Analysis
 
 **useEffect Hooks:**
-- Line 79-81: `onTimeRangeChange` effect with `[xDomainStart, xDomainEnd, onTimeRangeChange]` dependencies
-  - **Issue**: Callback in dependencies can cause infinite loops if parent re-renders
-  - **Fix**: Use ref pattern to stabilize callback reference
+- Lines 74-76: `onTimeRangeChange` effect with `[xDomain[0]?.getTime(), xDomain[1]?.getTime()]` dependencies
+  - **Status**: FIXED - Uses ref pattern (lines 70-71) to stabilize callback reference
+  - **Pattern**: `onTimeRangeChangeRef.current` instead of direct callback in dependencies
 
 **D3 Usage:**
-- `d3.scaleTime()` for xScale computation (correct usage - calculation only)
-- `xScale.invert()` for converting pixel position to date (correct usage)
+- `d3.scaleTime()` for xScale computation via `useTimelineScales` hook (correct usage - calculation only)
+- `xScale.invert()` for converting pixel position to date in `useTimelineEventHandlers` (correct usage)
 - No direct DOM manipulation via D3 (good - already follows Option A)
 
 **State Variables:**
-- `eventAssignmentModal`: Local modal state (appropriate)
+- `eventAssignmentModal`: Local modal state (lines 53-57, appropriate)
 - No visualization state (zoom, pan) - could be added for advanced features
 
 **Zustand Store:**
 - No direct subscriptions in Timeline.tsx (state passed via props)
 
+**Custom Hooks:**
+- `useTimelineScales` (line 60-66): Memoized scale calculations
+- `useTimelineEventHandlers` (lines 96-103): Stable event handlers using ref pattern
+
 ### Conclusion
-The Timeline component is mostly well-architected. Primary fix needed is the useEffect dependency pattern.
+The Timeline component has been refactored to follow the "React Owns the DOM" pattern:
+- All D3 calculations are memoized in custom hooks
+- Event handlers use the ref pattern to avoid dependency issues
+- No infinite loop risks remain
+- DOM rendering is fully declarative via JSX

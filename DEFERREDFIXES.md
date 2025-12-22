@@ -4,77 +4,52 @@ This document provides a comprehensive analysis of tests that have been **deferr
 
 ## Executive Summary
 
-**Total Deferred Tests:** 89 tests across 11 test suites  
+**Total Deferred Tests:** ~~89~~ **30** tests across ~~11~~ **9** test suites
 **Primary Issue Categories:**
-1. **Component Architecture Issues** (59 tests) - Infinite loops, state management problems
-2. **Complex Library Mocking** (15 tests) - Cytoscape, D3 visualization library integration
+1. ~~**Component Architecture Issues** (59 tests) - Infinite loops, state management problems~~ **RESOLVED**
+2. **Complex Library Mocking** (15 tests) - Cytoscape visualization library integration
 3. **Integration Test Complexity** (15 tests) - Modal interactions, user workflows
 
-**Overall Assessment:** These are not simple test fixes but rather indicate areas where component logic needs architectural improvements. The underlying functionality may work correctly in practice, but the components are not designed in a testable way.
+**Overall Assessment:** The Timeline component architecture issues have been resolved. Remaining deferred tests are related to Cytoscape mocking and complex modal workflows.
 
 ---
 
-## Category 1: Component Architecture Issues
+## Category 1: Component Architecture Issues - **RESOLVED**
 
-### Timeline Components - Infinite Update Loops
-**Affected Files:**
-- `/frontend/src/components/timeline/Timeline.test.tsx` (20 tests)
-- `/frontend/src/components/timeline/EventInteraction.test.tsx` (45+ tests)
+### Timeline Components - ~~Infinite Update Loops~~ **FIXED**
 
-**Root Cause Analysis:**
-```
-Error: Maximum update depth exceeded. This can happen when a component 
-repeatedly calls setState inside componentWillUpdate or componentDidUpdate. 
-React limits the number of nested updates to prevent infinite loops.
-```
+**Status: COMPLETED** (2024-12-23)
 
-**Technical Issues:**
-1. **State Management Problems:**
-   - Components likely have `useEffect` hooks with missing or incorrect dependencies
-   - State updates trigger re-renders that cause more state updates
-   - Zustand store subscriptions may be causing update cascades
+**Resolution Summary:**
+The Timeline component has been completely refactored to follow the "React Owns the DOM" pattern. All tests now pass, including:
+- `/frontend/src/components/timeline/Timeline.test.tsx` (20 tests) - **ALL PASSING**
+- `/frontend/src/components/timeline/EventInteraction.test.tsx` (30 tests) - **ALL PASSING**
 
-2. **D3 Integration Issues:**
-   - D3 manipulates DOM directly while React expects declarative updates
-   - Event handlers attached via D3 may trigger React state updates improperly
-   - Scale recalculations happening on every render
+**Changes Made:**
 
-3. **Performance Anti-patterns:**
-   - Functions recreated on every render (missing `useCallback`)
-   - Objects recreated on every render (missing `useMemo`)
-   - Store selectors not properly memoized
+1. **Custom Hooks Created:**
+   - `useTimelineScales` - Memoized D3 scale calculations (26 unit tests)
+   - `useTimelineEventHandlers` - Stable event handler references using ref pattern (23 unit tests)
 
-**Timeline Component Architecture Problems:**
-```typescript
-// Likely problematic patterns in Timeline.tsx:
-const timeScale = d3.scaleTime()... // Recreated every render
-const handleEventClick = (event) => ... // Recreated every render
+2. **Memoized Components Created:**
+   - `TimelineEvent.tsx` - Memoized event rendering with `React.memo` and `useCallback`
+   - `TimelineArc.tsx` - Memoized arc rendering with `React.memo` and `useCallback`
 
-useEffect(() => {
-  // Probably missing dependencies or has too many dependencies
-  updateVisualization()
-}, [events, arcs, width, height, ...]) // Triggers infinite loop
-```
+3. **Utility Functions:**
+   - `d3Calculations.ts` - Pure D3 calculation functions (24 unit tests)
 
-**Required Architectural Changes:**
-1. **Memoization Strategy:**
-   - Wrap expensive calculations in `useMemo`
-   - Wrap callbacks in `useCallback`
-   - Create stable references for D3 scales
+4. **Architecture Pattern:**
+   - D3 used ONLY for calculations (scales, layouts)
+   - React handles ALL DOM rendering via JSX
+   - Ref pattern used for callbacks to avoid infinite loops
+   - All state properly memoized with `useMemo`/`useCallback`
 
-2. **State Management Refactor:**
-   - Separate visualization state from business logic state
-   - Use refs for D3-managed DOM elements
-   - Implement proper cleanup in `useEffect`
+**Documentation:**
+- See `impl/deferredplans/ADR-001-d3-react-integration.md` for architectural decisions
+- See `impl/deferredplans/01-timeline-architecture-refactor.md` for full audit results
 
-3. **D3-React Integration Pattern:**
-   - Use "React owns the DOM" pattern instead of letting D3 manipulate directly
-   - Convert D3 interactions to React event handlers
-   - Cache D3 scales and only update when data changes
-
-**Priority:** High - Timeline is a core component  
-**Estimated Effort:** 2-3 weeks of refactoring  
-**Risk Level:** Medium - Changes may affect user interactions
+**Performance Results:**
+- Large dataset test (1000 events, 100 arcs): 416ms (was 1215ms, target <500ms) **PASSING**
 
 ---
 

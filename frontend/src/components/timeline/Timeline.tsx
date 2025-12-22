@@ -1,9 +1,11 @@
-import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react'
+import React, { useMemo, useRef, useState, useEffect, useCallback, memo } from 'react'
 import { Event, Arc, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { ArcWithUIState, calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
 import EventArcAssignment from './EventArcAssignment'
 import PressureIndicators from './PressureIndicators'
+import { TimelineEvent } from './TimelineEvent'
+import { TimelineArc } from './TimelineArc'
 import { useTimelineScales } from '@/hooks/useTimelineScales'
 import { useTimelineEventHandlers } from '@/hooks/useTimelineEventHandlers'
 
@@ -30,7 +32,15 @@ export interface TimelineProps {
   className?: string
 }
 
-const Timeline: React.FC<TimelineProps> = ({
+/**
+ * Timeline component for visualizing events and arcs over time.
+ *
+ * This component is wrapped in React.memo to prevent unnecessary re-renders
+ * from parent component updates that don't affect Timeline's props.
+ *
+ * @see impl/deferredplans/01-timeline-architecture-refactor.md (Phase 3.3)
+ */
+const Timeline = memo(function Timeline({
   events,
   arcs,
   pressures = [],
@@ -46,7 +56,7 @@ const Timeline: React.FC<TimelineProps> = ({
   onEventAssignToArc,
   showPressureIndicators = true,
   className = '',
-}) => {
+}: TimelineProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
 
@@ -77,20 +87,24 @@ const Timeline: React.FC<TimelineProps> = ({
 
   // Arc hierarchy and levels
   const { arcHierarchy } = useMemo(() => {
-    const withState: ArcWithUIState[] = processArcsWithUIState(arcs, events, new Set(), new Set()) as unknown as ArcWithUIState[]
+    const withState = processArcsWithUIState(arcs, events, new Set(), new Set())
     return calculateArcHierarchy(withState)
   }, [arcs, events])
 
   const arcLevelMap = useMemo(() => new Map(arcHierarchy.map(a => [a.id, a.renderLevel])), [arcHierarchy])
 
-  // Y scale for arc levels
+  // Y scale for arc levels - constant function, memoized once
   const yScale = useMemo(() => {
     const levelHeight = 28
     return (level: number) => 10 + level * levelHeight
   }, [])
 
-  // Event y position
-  const eventY = innerHeight - 30
+  // Event y position - memoized to avoid recalculation on every render
+  const eventY = useMemo(() => innerHeight - 30, [innerHeight])
+
+  // Memoized scale wrappers for PressureIndicators to prevent re-renders
+  const timeScaleWrapper = useCallback((d: Date) => xScale(d), [xScale])
+  const yScaleWrapper = useCallback((level: number) => yScale(level), [yScale])
 
   // Use custom hook for stable event handlers (Phase 2.2)
   const { handleEventClick, handleArcClick, handleSvgDoubleClick } = useTimelineEventHandlers({
@@ -131,55 +145,36 @@ const Timeline: React.FC<TimelineProps> = ({
         style={{ border: '1px solid #e5e7eb', borderRadius: 4 }}
       >
         <g transform={`translate(${margin.left},${margin.top})`}>
-          {/* Arcs */}
+          {/* Arcs - using memoized TimelineArc component */}
           {arcHierarchy.map(arc => {
             const x1 = xScale(new Date(arc.start_time))
             const x2 = xScale(new Date(arc.end_time))
             const y = yScale(arc.renderLevel)
             const w = Math.max(0, x2 - x1)
             return (
-              <g key={arc.id} className="arc" data-arc-id={arc.id}>
-                <rect
-                  className="arc-main"
-                  x={x1}
-                  y={y}
-                  width={w}
-                  height={16}
-                  fill={arc.isSelected ? '#60a5fa' : '#93c5fd'}
-                  stroke="#6b7280"
-                  strokeWidth={1}
-                  rx={3}
-                  onClick={() => handleArcClick(arc)}
-                />
-                <text x={x1 + 4} y={y - 2} fontSize={10} fill="#6b7280">{arc.name}</text>
-              </g>
+              <TimelineArc
+                key={arc.id}
+                arc={arc}
+                x={x1}
+                y={y}
+                width={w}
+                onClick={handleArcClick}
+              />
             )
           })}
 
-          {/* Events */}
+          {/* Events - using memoized TimelineEvent component */}
           {events.map(ev => {
             const x = xScale(new Date(ev.timestamp))
             return (
-              <g
+              <TimelineEvent
                 key={ev.id}
-                className="event"
-                data-event-id={ev.id}
-                transform={`translate(${x}, ${eventY})`}
-                tabIndex={0}
-                role="button"
-                aria-label={`Event: ${ev.description} by ${ev.actor} targeting ${ev.target} at ${new Date(ev.timestamp).toLocaleString()}`}
-              >
-                <circle
-                  className="event-marker"
-                  r={6}
-                  fill="#f59e0b"
-                  stroke="#ffffff"
-                  strokeWidth={2}
-                  onClick={() => handleEventClick(ev)}
-                  onContextMenu={(e) => handleEventContextMenu(e, ev)}
-                />
-                <line x1={0} y1={0} x2={0} y2={20} stroke="#6b7280" strokeWidth={1} />
-              </g>
+                event={ev}
+                x={x}
+                y={eventY}
+                onClick={handleEventClick}
+                onContextMenu={handleEventContextMenu}
+              />
             )
           })}
 
@@ -188,10 +183,10 @@ const Timeline: React.FC<TimelineProps> = ({
             <PressureIndicators
               pressures={pressures}
               arcs={arcs}
-              timeScale={(d: Date) => xScale(d)}
-              yScale={(level: number) => yScale(level)}
+              timeScale={timeScaleWrapper}
+              yScale={yScaleWrapper}
               arcLevelMap={arcLevelMap}
-              svgRef={svgRef as unknown as React.RefObject<SVGSVGElement>}
+              svgRef={svgRef as React.RefObject<SVGSVGElement>}
               onPressureClick={onPressureSelect}
               onPressureHover={onPressureHover}
               showTooltips={true}
@@ -213,7 +208,7 @@ const Timeline: React.FC<TimelineProps> = ({
       )}
     </div>
   )
-}
+})
 
 // Named export for tests, default export for general usage
 export { Timeline }

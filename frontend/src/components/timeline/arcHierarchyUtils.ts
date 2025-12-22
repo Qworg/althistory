@@ -1,4 +1,6 @@
 import { Arc, Event } from '@/types'
+// Re-export formatDuration from shared utilities to avoid duplication
+export { formatDuration } from '@/utils/d3Calculations'
 
 // Extended Arc interface for UI state
 export interface ArcWithUIState extends Arc {
@@ -130,20 +132,3 @@ export function processArcsWithUIState(
   })
 }
 
-export function formatDuration(start: Date, end: Date): string {
-  const diffMs = end.getTime() - start.getTime()
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-  
-  if (diffDays < 1) {
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-    return `${diffHours} hours`
-  } else if (diffDays < 30) {
-    return `${diffDays} days`
-  } else if (diffDays < 365) {
-    const diffMonths = Math.floor(diffDays / 30)
-    return `${diffMonths} months`
-  } else {
-    const diffYears = Math.floor(diffDays / 365)
-    return `${diffYears} years`
-  }
-}

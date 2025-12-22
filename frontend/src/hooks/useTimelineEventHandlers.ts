@@ -2,10 +2,11 @@
 // See: impl/deferredplans/01-timeline-architecture-refactor.md (Phase 2.2)
 
 import React, { useCallback, useRef } from 'react'
-import { Event, Arc } from '@/types'
-import { 
-  TimelineEventHandlerProps, 
-  UseTimelineEventHandlersResult 
+import { Event } from '@/types'
+import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
+import {
+  TimelineEventHandlerProps,
+  UseTimelineEventHandlersResult
 } from '@/types/timeline'
 
 /**
@@ -44,7 +45,9 @@ export function useTimelineEventHandlers({
   }, []) // No dependencies - uses ref
 
   // Stable handler for arc clicks
-  const handleArcClick = useCallback((arc: Arc) => {
+  // Note: Accepts ArcWithUIState but passes to onArcSelect which expects Arc
+  // This works because ArcWithUIState extends Arc
+  const handleArcClick = useCallback((arc: ArcWithUIState) => {
     onArcSelectRef.current?.(arc)
   }, []) // No dependencies - uses ref
 
