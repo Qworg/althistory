@@ -138,6 +138,7 @@ Test setup files:
 3. **Zustand Store Cascades** - Ensure store selectors are properly memoized
 4. **Test Timeouts** - Database tests have 30s timeout configured
 5. **Integration Tests** - Excluded by default in vitest config (require infrastructure)
+6. **Vitest Watch Mode** - Running `npx vitest` directly stays open in watch mode. Always use `npm test` (includes `--run` flag) or `./run-tests.sh` to exit after completion
 
 ## Environment Configuration
 
