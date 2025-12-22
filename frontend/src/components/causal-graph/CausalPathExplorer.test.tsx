@@ -24,7 +24,7 @@ vi.mock('@/services/api', () => ({
 }))
 
 const mockApiClient = vi.mocked(apiClient)
-const mockFindChain = mockFindChain as ReturnType<typeof vi.fn>
+const mockFindChain = mockApiClient.causal.findChain as ReturnType<typeof vi.fn>
 
 // Mock data
 const mockEvents: Event[] = [
