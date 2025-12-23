@@ -65,7 +65,10 @@ export const PressureDetailModal: React.FC<PressureDetailModalProps> = ({
   }
 
   return (
-    <div 
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="pressure-modal-title"
       className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${className}`}
       onClick={handleBackdropClick}
       data-testid="pressure-detail-modal"
@@ -74,9 +77,9 @@ export const PressureDetailModal: React.FC<PressureDetailModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <div className="flex items-center space-x-3">
-            <span className="text-2xl">{getPressureTypeIcon(pressure.pressure_type)}</span>
+            <span className="text-2xl" aria-hidden="true">{getPressureTypeIcon(pressure.pressure_type)}</span>
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">
+              <h2 id="pressure-modal-title" className="text-xl font-semibold text-gray-900">
                 {formatPressureType(pressure.pressure_type)} Pressure
               </h2>
               <div className="flex items-center space-x-4 mt-1">

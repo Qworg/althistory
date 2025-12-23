@@ -46,21 +46,24 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
   }, [filterConfig, setSelectedFilter])
 
   const handleCreateCopy = useCallback(async () => {
-    switch (selectedCopyType) {
-      case 'full':
-        await createFullCopy()
-        break
-      case 'time_range':
-        await createTimeRangeCopy()
-        break
-      case 'filtered':
-        handleFilterChange()
-        await createFilteredCopy()
-        break
-    }
-    
-    if (!isCreatingCopy) {
+    try {
+      switch (selectedCopyType) {
+        case 'full':
+          await createFullCopy()
+          break
+        case 'time_range':
+          await createTimeRangeCopy()
+          break
+        case 'filtered':
+          handleFilterChange()
+          await createFilteredCopy()
+          break
+      }
+      // Close modal on successful completion
       onClose()
+    } catch (error) {
+      // Don't close on error - let the hook handle error state
+      console.error('Failed to create copy:', error)
     }
   }, [
     selectedCopyType,
@@ -68,7 +71,6 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
     createTimeRangeCopy,
     createFilteredCopy,
     handleFilterChange,
-    isCreatingCopy,
     onClose
   ])
 
@@ -86,15 +88,21 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="graph-copy-modal-title"
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+    >
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">Create Graph Copy</h2>
+            <h2 id="graph-copy-modal-title" className="text-2xl font-bold text-gray-900">Create Graph Copy</h2>
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600 transition-colors"
               disabled={isCreatingCopy}
+              aria-label="Close modal"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -105,7 +113,7 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
           {/* Copy Name Input */}
           <div className="mb-6">
             <label htmlFor="copyName" className="block text-sm font-medium text-gray-700 mb-2">
-              Copy Name *
+              Copy Name <span className="text-red-500">*</span>
             </label>
             <input
               id="copyName"
@@ -113,6 +121,8 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
               value={copyState.copyName}
               onChange={(e) => setCopyName(e.target.value)}
               placeholder="Enter a name for the new graph copy"
+              aria-required="true"
+              aria-invalid={!copyState.copyName.trim()}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={isCreatingCopy}
             />
@@ -120,10 +130,10 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
 
           {/* Copy Type Selection */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-3">
+            <label id="copy-type-label" className="block text-sm font-medium text-gray-700 mb-3">
               Copy Type
             </label>
-            <div className="space-y-3">
+            <div role="radiogroup" aria-labelledby="copy-type-label" className="space-y-3">
               <label className="flex items-center">
                 <input
                   type="radio"
@@ -210,16 +220,18 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
               <div className="space-y-4">
                 {/* Actors Filter */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="actors-select" className="block text-sm font-medium text-gray-700 mb-2">
                     Actors
                   </label>
                   <select
+                    id="actors-select"
                     multiple
                     value={filterConfig.actors || []}
                     onChange={(e) => {
                       const selected = Array.from(e.target.selectedOptions, option => option.value)
                       setFilterConfig(prev => ({ ...prev, actors: selected }))
                     }}
+                    aria-describedby="actors-help"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-24"
                     disabled={isCreatingCopy}
                   >
@@ -229,23 +241,25 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p id="actors-help" className="text-xs text-gray-500 mt-1">
                     Hold Ctrl/Cmd to select multiple actors
                   </p>
                 </div>
 
                 {/* Targets Filter */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="targets-select" className="block text-sm font-medium text-gray-700 mb-2">
                     Targets
                   </label>
                   <select
+                    id="targets-select"
                     multiple
                     value={filterConfig.targets || []}
                     onChange={(e) => {
                       const selected = Array.from(e.target.selectedOptions, option => option.value)
                       setFilterConfig(prev => ({ ...prev, targets: selected }))
                     }}
+                    aria-describedby="targets-help"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-24"
                     disabled={isCreatingCopy}
                   >
@@ -255,26 +269,30 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p id="targets-help" className="text-xs text-gray-500 mt-1">
                     Hold Ctrl/Cmd to select multiple targets
                   </p>
                 </div>
 
                 {/* Confidence Threshold */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="confidence-threshold" className="block text-sm font-medium text-gray-700 mb-2">
                     Confidence Threshold: {filterConfig.confidence_threshold}
                   </label>
                   <input
+                    id="confidence-threshold"
                     type="range"
                     min="0"
                     max="1"
                     step="0.1"
                     value={filterConfig.confidence_threshold || 0.5}
-                    onChange={(e) => setFilterConfig(prev => ({ 
-                      ...prev, 
-                      confidence_threshold: parseFloat(e.target.value) 
+                    onChange={(e) => setFilterConfig(prev => ({
+                      ...prev,
+                      confidence_threshold: parseFloat(e.target.value)
                     }))}
+                    aria-valuemin={0}
+                    aria-valuemax={1}
+                    aria-valuenow={filterConfig.confidence_threshold || 0.5}
                     className="w-full"
                     disabled={isCreatingCopy}
                   />

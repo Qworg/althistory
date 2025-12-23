@@ -27,8 +27,11 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'failed'>('all')
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Combine active and completed operations
-  const allOperations = [...copyState.activeOperations, ...copyState.completedOperations]
+  // Combine active and completed operations (memoized to avoid recreating array)
+  const allOperations = React.useMemo(
+    () => [...copyState.activeOperations, ...copyState.completedOperations],
+    [copyState.activeOperations, copyState.completedOperations]
+  )
 
   // Filter and sort operations
   const filteredOperations = React.useMemo(() => {
@@ -42,7 +45,7 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
     // Apply search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
-      filtered = filtered.filter(op => 
+      filtered = filtered.filter(op =>
         op.name.toLowerCase().includes(query) ||
         op.type.toLowerCase().includes(query)
       )
@@ -50,17 +53,24 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
 
     // Sort operations
     filtered.sort((a, b) => {
-      let aValue: any = a[sortField]
-      let bValue: any = b[sortField]
+      let aValue: string | number | undefined = a[sortField]
+      let bValue: string | number | undefined = b[sortField]
 
       if (sortField === 'created_at') {
-        aValue = new Date(aValue).getTime()
-        bValue = new Date(bValue).getTime()
+        aValue = aValue ? new Date(aValue as string).getTime() : 0
+        bValue = bValue ? new Date(bValue as string).getTime() : 0
       }
 
-      if (typeof aValue === 'string') {
+      // Safely handle string comparison with null checks
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
         aValue = aValue.toLowerCase()
         bValue = bValue.toLowerCase()
+      } else if (aValue == null && bValue == null) {
+        return 0
+      } else if (aValue == null) {
+        return sortDirection === 'asc' ? -1 : 1
+      } else if (bValue == null) {
+        return sortDirection === 'asc' ? 1 : -1
       }
 
       if (sortDirection === 'asc') {
@@ -137,12 +147,17 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="copy-history-title"
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+    >
       <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Copy History</h2>
+              <h2 id="copy-history-title" className="text-2xl font-bold text-gray-900">Copy History</h2>
               <p className="text-gray-600 mt-1">
                 Manage and review all graph copy operations
               </p>
@@ -150,6 +165,7 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600 transition-colors"
+              aria-label="Close panel"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -160,18 +176,24 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
           {/* Filters and Search */}
           <div className="flex flex-wrap gap-4 mb-6">
             <div className="flex-1 min-w-64">
+              <label htmlFor="search-operations" className="sr-only">Search operations</label>
               <input
+                id="search-operations"
                 type="text"
                 placeholder="Search by name or type..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                aria-label="Search by name or type"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            
+
+            <label htmlFor="filter-status" className="sr-only">Filter by status</label>
             <select
+              id="filter-status"
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as any)}
+              onChange={(e) => setFilterStatus(e.target.value as 'all' | 'completed' | 'failed')}
+              aria-label="Filter by status"
               className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Status</option>

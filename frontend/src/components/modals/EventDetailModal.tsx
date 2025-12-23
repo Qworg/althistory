@@ -144,7 +144,14 @@ export function EventDetailModal({
 
     setIsLoading(true)
     try {
-      await onSave(formData)
+      // Only pass fields that exist on Event type
+      const eventData: Partial<Event> = {
+        description: formData.description,
+        actor: formData.actor,
+        target: formData.target,
+        timestamp: formData.timestamp
+      }
+      await onSave(eventData)
       onClose()
     } catch (error) {
       console.error('Failed to save event:', error)
@@ -218,7 +225,7 @@ export function EventDetailModal({
                   </div>
 
                   {errors.submit && (
-                    <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+                    <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded" role="alert">
                       {errors.submit}
                     </div>
                   )}
@@ -227,13 +234,16 @@ export function EventDetailModal({
                     {/* Description */}
                     <div>
                       <label htmlFor="description" className="block text-sm font-medium text-gray-700">
-                        Description *
+                        Description <span className="text-red-500">*</span>
                       </label>
                       <textarea
                         id="description"
                         rows={3}
                         value={formData.description}
                         onChange={(e) => handleInputChange('description', e.target.value)}
+                        aria-required="true"
+                        aria-invalid={!!errors.description}
+                        aria-describedby={errors.description ? 'description-error' : undefined}
                         className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                           errors.description ? 'border-red-300' : 'border-gray-300'
                         }`}
@@ -241,7 +251,7 @@ export function EventDetailModal({
                         required
                       />
                       {errors.description && (
-                        <p className="mt-1 text-sm text-red-600">{errors.description}</p>
+                        <p id="description-error" role="alert" className="mt-1 text-sm text-red-600">{errors.description}</p>
                       )}
                     </div>
 
@@ -249,13 +259,16 @@ export function EventDetailModal({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label htmlFor="actor" className="block text-sm font-medium text-gray-700">
-                          Actor *
+                          Actor <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="text"
                           id="actor"
                           value={formData.actor}
                           onChange={(e) => handleInputChange('actor', e.target.value)}
+                          aria-required="true"
+                          aria-invalid={!!errors.actor}
+                          aria-describedby={errors.actor ? 'actor-error' : undefined}
                           className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                             errors.actor ? 'border-red-300' : 'border-gray-300'
                           }`}
@@ -263,7 +276,7 @@ export function EventDetailModal({
                           required
                         />
                         {errors.actor && (
-                          <p className="mt-1 text-sm text-red-600">{errors.actor}</p>
+                          <p id="actor-error" role="alert" className="mt-1 text-sm text-red-600">{errors.actor}</p>
                         )}
                       </div>
 
@@ -286,20 +299,23 @@ export function EventDetailModal({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label htmlFor="timestamp" className="block text-sm font-medium text-gray-700">
-                          Timestamp *
+                          Timestamp <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="datetime-local"
                           id="timestamp"
                           value={formData.timestamp.slice(0, 16)} // Remove seconds for datetime-local
                           onChange={(e) => handleInputChange('timestamp', e.target.value + ':00Z')}
+                          aria-required="true"
+                          aria-invalid={!!errors.timestamp}
+                          aria-describedby={errors.timestamp ? 'timestamp-error' : undefined}
                           className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                             errors.timestamp ? 'border-red-300' : 'border-gray-300'
                           }`}
                           required
                         />
                         {errors.timestamp && (
-                          <p className="mt-1 text-sm text-red-600">{errors.timestamp}</p>
+                          <p id="timestamp-error" role="alert" className="mt-1 text-sm text-red-600">{errors.timestamp}</p>
                         )}
                       </div>
 
@@ -331,6 +347,11 @@ export function EventDetailModal({
                         step="0.01"
                         value={formData.confidence}
                         onChange={(e) => handleInputChange('confidence', parseFloat(e.target.value))}
+                        aria-valuemin={0}
+                        aria-valuemax={1}
+                        aria-valuenow={formData.confidence}
+                        aria-invalid={!!errors.confidence}
+                        aria-describedby={errors.confidence ? 'confidence-error' : undefined}
                         className="mt-1 block w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
                       />
                       <div className="flex justify-between text-xs text-gray-500 mt-1">
@@ -338,7 +359,7 @@ export function EventDetailModal({
                         <span>1.00</span>
                       </div>
                       {errors.confidence && (
-                        <p className="mt-1 text-sm text-red-600">{errors.confidence}</p>
+                        <p id="confidence-error" role="alert" className="mt-1 text-sm text-red-600">{errors.confidence}</p>
                       )}
                     </div>
 

@@ -135,11 +135,16 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
   const duration = formatDuration(new Date(arc.start_time), new Date(arc.end_time))
 
   return (
-    <div className={`fixed inset-y-0 right-0 w-96 bg-white shadow-xl border-l border-gray-200 transform transition-transform duration-300 ease-in-out z-50 ${className}`}>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="arc-panel-title"
+      className={`fixed inset-y-0 right-0 w-96 bg-white shadow-xl border-l border-gray-200 transform transition-transform duration-300 ease-in-out z-50 ${className}`}
+    >
       <div className="flex flex-col h-full">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Arc Details</h2>
+          <h2 id="arc-panel-title" className="text-lg font-semibold text-gray-900">Arc Details</h2>
           <button
             onClick={onClose}
             className="p-2 hover:bg-gray-100 rounded-md transition-colors"
@@ -155,7 +160,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
           {/* General Error */}
           {errors.general && (
-            <div className="bg-red-50 border border-red-200 rounded-md p-3">
+            <div className="bg-red-50 border border-red-200 rounded-md p-3" role="alert">
               <p className="text-sm text-red-600">{errors.general}</p>
             </div>
           )}
@@ -166,36 +171,42 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
             
             <div>
               <label htmlFor="arc-name" className="block text-sm font-medium text-gray-700 mb-1">
-                Name
+                Name <span className="text-red-500">*</span>
               </label>
               <input
                 id="arc-name"
                 type="text"
                 value={formData.name || ''}
                 onChange={(e) => handleInputChange('name', e.target.value)}
+                aria-required="true"
+                aria-invalid={!!errors.name}
+                aria-describedby={errors.name ? 'arc-name-error' : undefined}
                 className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                   errors.name ? 'border-red-300' : 'border-gray-300'
                 }`}
                 placeholder="Enter arc name"
               />
-              {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
+              {errors.name && <p id="arc-name-error" role="alert" className="mt-1 text-sm text-red-600">{errors.name}</p>}
             </div>
 
             <div>
               <label htmlFor="arc-description" className="block text-sm font-medium text-gray-700 mb-1">
-                Description
+                Description <span className="text-red-500">*</span>
               </label>
               <textarea
                 id="arc-description"
                 value={formData.description || ''}
                 onChange={(e) => handleInputChange('description', e.target.value)}
                 rows={3}
+                aria-required="true"
+                aria-invalid={!!errors.description}
+                aria-describedby={errors.description ? 'arc-description-error' : undefined}
                 className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                   errors.description ? 'border-red-300' : 'border-gray-300'
                 }`}
                 placeholder="Enter arc description"
               />
-              {errors.description && <p className="mt-1 text-sm text-red-600">{errors.description}</p>}
+              {errors.description && <p id="arc-description-error" role="alert" className="mt-1 text-sm text-red-600">{errors.description}</p>}
             </div>
           </div>
 
@@ -206,39 +217,45 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="arc-start-time" className="block text-sm font-medium text-gray-700 mb-1">
-                  Start Time
+                  Start Time <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="arc-start-time"
                   type="datetime-local"
                   value={formData.start_time ? new Date(formData.start_time).toISOString().slice(0, 16) : ''}
                   onChange={(e) => handleInputChange('start_time', e.target.value ? new Date(e.target.value).toISOString() : '')}
+                  aria-required="true"
+                  aria-invalid={!!errors.start_time}
+                  aria-describedby={errors.start_time ? 'arc-start-time-error' : undefined}
                   className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                     errors.start_time ? 'border-red-300' : 'border-gray-300'
                   }`}
                 />
-                {errors.start_time && <p className="mt-1 text-sm text-red-600">{errors.start_time}</p>}
+                {errors.start_time && <p id="arc-start-time-error" role="alert" className="mt-1 text-sm text-red-600">{errors.start_time}</p>}
               </div>
 
               <div>
                 <label htmlFor="arc-end-time" className="block text-sm font-medium text-gray-700 mb-1">
-                  End Time
+                  End Time <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="arc-end-time"
                   type="datetime-local"
                   value={formData.end_time ? new Date(formData.end_time).toISOString().slice(0, 16) : ''}
                   onChange={(e) => handleInputChange('end_time', e.target.value ? new Date(e.target.value).toISOString() : '')}
+                  aria-required="true"
+                  aria-invalid={!!errors.end_time}
+                  aria-describedby={errors.end_time ? 'arc-end-time-error' : undefined}
                   className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                     errors.end_time ? 'border-red-300' : 'border-gray-300'
                   }`}
                 />
-                {errors.end_time && <p className="mt-1 text-sm text-red-600">{errors.end_time}</p>}
+                {errors.end_time && <p id="arc-end-time-error" role="alert" className="mt-1 text-sm text-red-600">{errors.end_time}</p>}
               </div>
             </div>
 
             {errors.time_range && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3" role="alert">
                 <p className="text-sm text-yellow-600">{errors.time_range}</p>
               </div>
             )}
