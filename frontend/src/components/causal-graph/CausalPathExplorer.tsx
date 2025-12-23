@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { Event, CausalRelationship, CausalPath } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
@@ -44,8 +44,20 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
   const [isLoading, setIsLoading] = useState(false)
   // TODO: Use highlightedPath for visual indication or remove if not needed
   // const [highlightedPath, setHighlightedPath] = useState<CausalPath | null>(null)
-  
+
+  // Ref for cancelling pending API requests
+  const abortControllerRef = useRef<AbortController | null>(null)
+
   const { addError } = useGlobalStore()
+
+  // Cleanup on unmount - cancel any pending requests
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [])
 
   // Calculate cumulative strength for a causal path
   const calculateCumulativeStrength = useCallback((path: CausalPath): number => {
@@ -92,6 +104,15 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
 
   // Start causal chain exploration from a specific event
   const startExploration = useCallback(async (startEventId: string, depth: number = maxDepth) => {
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+
+    // Create new abort controller for this request
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
+
     setIsLoading(true)
     setExplorationState(prev => ({
       ...prev,
@@ -102,7 +123,12 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
     try {
       // Fetch causal chains from the API
       const paths = await apiClient.causal.findChain(startEventId, depth)
-      
+
+      // Check if this request was cancelled
+      if (abortController.signal.aborted) {
+        return
+      }
+
       // Calculate cumulative strengths and sort by strength
       const pathsWithStrength = paths.map(path => ({
         ...path,
@@ -128,18 +154,32 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
       }
 
     } catch (error) {
+      // Ignore abort errors
+      if (error instanceof Error && error.name === 'AbortError') {
+        return
+      }
       console.error('Failed to explore causal chains:', error)
       addError({
         message: 'Failed to explore causal chains',
         type: 'network'
       })
     } finally {
-      setIsLoading(false)
+      // Only clear loading if this is still the active request
+      if (!abortController.signal.aborted) {
+        setIsLoading(false)
+      }
     }
   }, [maxDepth, calculateCumulativeStrength, addError, onPathHighlight, onPathSelect])
 
   // Stop exploration and clear highlights
   const stopExploration = useCallback(() => {
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+
+    setIsLoading(false)
     setExplorationState({
       isExploring: false,
       currentPath: null,

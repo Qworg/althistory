@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { Event, CausalSuggestion, CausalRelationshipData } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
@@ -32,20 +32,46 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
     improvementSuggestion: ''
   })
 
-  const { 
-    events, 
-    causalRelationships, 
+  const {
+    events,
+    causalRelationships,
     addCausalRelationship,
-    addError 
+    addError
   } = useGlobalStore()
+
+  // Ref for cancelling pending API requests
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  // Cleanup on unmount - cancel any pending requests
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [])
 
   // Load suggestions for a specific event
   const loadSuggestions = useCallback(async (eventId: string) => {
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+
+    // Create new abort controller for this request
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
+
     setIsLoading(true)
-    
+
     try {
       const rawSuggestions = await apiClient.causal.getSuggestions(eventId)
-      
+
+      // Check if this request was cancelled
+      if (abortController.signal.aborted) {
+        return
+      }
+
       // Limit suggestions and add state
       const suggestionsWithState: SuggestionWithState[] = rawSuggestions
         .slice(0, maxSuggestions)
@@ -56,15 +82,22 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
         }))
 
       setSuggestions(suggestionsWithState)
-      
+
     } catch (error) {
+      // Ignore abort errors
+      if (error instanceof Error && error.name === 'AbortError') {
+        return
+      }
       console.error('Failed to load causal suggestions:', error)
       addError({
         message: 'Failed to load causal suggestions',
         type: 'network'
       })
     } finally {
-      setIsLoading(false)
+      // Only clear loading if this is still the active request
+      if (!abortController.signal.aborted) {
+        setIsLoading(false)
+      }
     }
   }, [maxSuggestions, addError])
 

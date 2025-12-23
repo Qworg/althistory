@@ -70,7 +70,7 @@ export interface MockCytoscape {
 /**
  * Wraps a raw data item to look like a Cytoscape element with methods
  */
-function wrapAsElement(item: any): any {
+function wrapAsElement(item: any, mockData?: any): any {
   return {
     data: (key?: string, value?: any) => {
       if (key === undefined) {
@@ -82,7 +82,7 @@ function wrapAsElement(item: any): any {
       if (item.data) {
         item.data[key] = value
       }
-      return wrapAsElement(item)
+      return wrapAsElement(item, mockData)
     },
     id: () => item.data?.id || item.id || '',
     position: (pos?: { x: number; y: number }) => {
@@ -90,37 +90,53 @@ function wrapAsElement(item: any): any {
         return item.position || { x: 0, y: 0 }
       }
       item.position = pos
-      return wrapAsElement(item)
+      return wrapAsElement(item, mockData)
     },
-    addClass: vi.fn(() => wrapAsElement(item)),
-    removeClass: vi.fn(() => wrapAsElement(item)),
-    select: vi.fn(() => wrapAsElement(item)),
-    unselect: vi.fn(() => wrapAsElement(item)),
+    addClass: vi.fn(() => wrapAsElement(item, mockData)),
+    removeClass: vi.fn(() => wrapAsElement(item, mockData)),
+    select: vi.fn(() => wrapAsElement(item, mockData)),
+    unselect: vi.fn(() => wrapAsElement(item, mockData)),
     renderedMidpoint: () => ({ x: 100, y: 100 }),
-    source: () => createMockCollection([]),
-    target: () => createMockCollection([])
+    source: () => {
+      // Return the source node for edges
+      const sourceId = item.data?.source
+      if (sourceId && mockData?.nodes) {
+        const sourceNode = mockData.nodes.find((n: any) => n.data?.id === sourceId)
+        return createMockCollection(sourceNode ? [sourceNode] : [], mockData)
+      }
+      return createMockCollection([], mockData)
+    },
+    target: () => {
+      // Return the target node for edges
+      const targetId = item.data?.target
+      if (targetId && mockData?.nodes) {
+        const targetNode = mockData.nodes.find((n: any) => n.data?.id === targetId)
+        return createMockCollection(targetNode ? [targetNode] : [], mockData)
+      }
+      return createMockCollection([], mockData)
+    }
   }
 }
 
 /**
  * Creates a mock Cytoscape collection with proper chaining support
  */
-export function createMockCollection(items: any[] = []): MockCollection {
+export function createMockCollection(items: any[] = [], mockData?: any): MockCollection {
   const collection: MockCollection = {
     length: items.length,
     forEach: vi.fn((callback: (item: any, index: number) => void) => {
-      items.forEach((item, index) => callback(wrapAsElement(item), index))
+      items.forEach((item, index) => callback(wrapAsElement(item, mockData), index))
       return collection
     }),
     map: vi.fn((callback: (item: any, index: number) => any) =>
-      items.map((item, index) => callback(wrapAsElement(item), index))
+      items.map((item, index) => callback(wrapAsElement(item, mockData), index))
     ),
     filter: vi.fn((selectorOrCallback: string | ((item: any) => boolean)) => {
       if (typeof selectorOrCallback === 'function') {
-        return createMockCollection(items.filter(selectorOrCallback))
+        return createMockCollection(items.filter(selectorOrCallback), mockData)
       }
       // Simple selector support - return all for now
-      return createMockCollection(items)
+      return createMockCollection(items, mockData)
     }),
     remove: vi.fn(() => collection),
     addClass: vi.fn((_className: string) => collection),
@@ -144,8 +160,22 @@ export function createMockCollection(items: any[] = []): MockCollection {
     }),
     id: vi.fn(() => items[0]?.data?.id || ''),
     renderedMidpoint: vi.fn(() => ({ x: 100, y: 100 })),
-    source: vi.fn(() => createMockCollection([])),
-    target: vi.fn(() => createMockCollection([]))
+    source: vi.fn(() => {
+      // Return source node for edge collections (single edge)
+      if (items.length === 1 && items[0]?.data?.source && mockData?.nodes) {
+        const sourceNode = mockData.nodes.find((n: any) => n.data?.id === items[0].data.source)
+        return createMockCollection(sourceNode ? [sourceNode] : [], mockData)
+      }
+      return createMockCollection([], mockData)
+    }),
+    target: vi.fn(() => {
+      // Return target node for edge collections (single edge)
+      if (items.length === 1 && items[0]?.data?.target && mockData?.nodes) {
+        const targetNode = mockData.nodes.find((n: any) => n.data?.id === items[0].data.target)
+        return createMockCollection(targetNode ? [targetNode] : [], mockData)
+      }
+      return createMockCollection([], mockData)
+    })
   }
 
   return collection
@@ -199,7 +229,10 @@ export function createMockCytoscape(): MockCytoscape {
   const mockData = {
     nodes: [] as any[],
     edges: [] as any[],
-    eventHandlers: new Map<string, Function[]>()
+    eventHandlers: new Map<string, Function[]>(),
+    // Track zoom/pan state
+    zoomLevel: 1,
+    panPosition: { x: 0, y: 0 }
   }
 
   const cy: MockCytoscape = {
@@ -216,7 +249,41 @@ export function createMockCytoscape(): MockCytoscape {
       return cy
     }),
 
-    off: vi.fn((_event: string, _selectorOrHandler?: string | Function) => {
+    off: vi.fn((event: string, selectorOrHandler?: string | Function, handler?: Function) => {
+      // Determine the key and handler to remove
+      let key: string
+      let handlerToRemove: Function | undefined
+
+      if (typeof selectorOrHandler === 'function') {
+        // off(event, handler)
+        key = event
+        handlerToRemove = selectorOrHandler
+      } else if (selectorOrHandler && handler) {
+        // off(event, selector, handler)
+        key = `${event}:${selectorOrHandler}`
+        handlerToRemove = handler
+      } else if (selectorOrHandler) {
+        // off(event, selector) - remove all handlers for this event+selector
+        key = `${event}:${selectorOrHandler}`
+      } else {
+        // off(event) - remove all handlers for this event
+        key = event
+      }
+
+      if (handlerToRemove) {
+        // Remove specific handler
+        const handlers = mockData.eventHandlers.get(key)
+        if (handlers) {
+          const index = handlers.indexOf(handlerToRemove)
+          if (index > -1) {
+            handlers.splice(index, 1)
+          }
+        }
+      } else {
+        // Remove all handlers for the key
+        mockData.eventHandlers.delete(key)
+      }
+
       return cy
     }),
 
@@ -224,18 +291,32 @@ export function createMockCytoscape(): MockCytoscape {
       const actualHandler = handler || selectorOrHandler as Function
       const key = handler ? `${event}:${selectorOrHandler}` : event
 
+      // Create a wrapper that removes itself after first execution
+      const onceWrapper = (...args: any[]) => {
+        // Remove this handler after first call
+        const handlers = mockData.eventHandlers.get(key)
+        if (handlers) {
+          const index = handlers.indexOf(onceWrapper)
+          if (index > -1) {
+            handlers.splice(index, 1)
+          }
+        }
+        // Call the actual handler
+        return actualHandler(...args)
+      }
+
       if (!mockData.eventHandlers.has(key)) {
         mockData.eventHandlers.set(key, [])
       }
-      mockData.eventHandlers.get(key)!.push(actualHandler)
+      mockData.eventHandlers.get(key)!.push(onceWrapper)
       return cy
     }),
 
-    nodes: vi.fn(() => createMockCollection(mockData.nodes)),
+    nodes: vi.fn(() => createMockCollection(mockData.nodes, mockData)),
 
-    edges: vi.fn(() => createMockCollection(mockData.edges)),
+    edges: vi.fn(() => createMockCollection(mockData.edges, mockData)),
 
-    elements: vi.fn(() => createMockCollection([...mockData.nodes, ...mockData.edges])),
+    elements: vi.fn(() => createMockCollection([...mockData.nodes, ...mockData.edges], mockData)),
 
     add: vi.fn((elements: any | any[]) => {
       const elementsArray = Array.isArray(elements) ? elements : [elements]
@@ -246,12 +327,32 @@ export function createMockCytoscape(): MockCytoscape {
           mockData.edges.push(el)
         }
       })
-      return createMockCollection(elementsArray)
+      return createMockCollection(elementsArray, mockData)
     }),
 
-    remove: vi.fn(() => {
-      mockData.nodes = []
-      mockData.edges = []
+    remove: vi.fn((selector?: string | any) => {
+      if (!selector) {
+        // Clear all elements
+        mockData.nodes = []
+        mockData.edges = []
+      } else if (typeof selector === 'string') {
+        // Handle selector-based removal
+        if (selector.startsWith('#')) {
+          // ID selector
+          const id = selector.slice(1)
+          mockData.nodes = mockData.nodes.filter(n => n.data?.id !== id)
+          mockData.edges = mockData.edges.filter(e => e.data?.id !== id)
+        } else if (selector === 'node') {
+          mockData.nodes = []
+        } else if (selector === 'edge') {
+          mockData.edges = []
+        }
+      } else if (selector.data?.id) {
+        // Remove specific element
+        const id = selector.data.id
+        mockData.nodes = mockData.nodes.filter(n => n.data?.id !== id)
+        mockData.edges = mockData.edges.filter(e => e.data?.id !== id)
+      }
       return cy
     }),
 
@@ -265,7 +366,7 @@ export function createMockCytoscape(): MockCytoscape {
       const element = [...mockData.nodes, ...mockData.edges].find(
         el => el.data?.id === id
       )
-      return createMockCollection(element ? [element] : [])
+      return createMockCollection(element ? [element] : [], mockData)
     }),
 
     $: vi.fn((selector: string) => {
@@ -278,13 +379,23 @@ export function createMockCytoscape(): MockCytoscape {
 
     style: vi.fn(() => createMockStyle()),
 
-    zoom: vi.fn((level?: number) => level === undefined ? 1 : cy),
+    zoom: vi.fn((level?: number) => {
+      if (level === undefined) {
+        return mockData.zoomLevel
+      }
+      mockData.zoomLevel = level
+      return cy
+    }),
 
     center: vi.fn(() => cy),
 
-    pan: vi.fn((position?: { x: number; y: number }) =>
-      position === undefined ? { x: 0, y: 0 } : cy
-    ),
+    pan: vi.fn((position?: { x: number; y: number }) => {
+      if (position === undefined) {
+        return { ...mockData.panPosition }
+      }
+      mockData.panPosition = { ...position }
+      return cy
+    }),
 
     resize: vi.fn(() => cy),
 
@@ -372,6 +483,3 @@ export default cytoscape
 export function resetCytoscapeMock() {
   cytoscape.mockClear()
 }
-
-// Export types for external use
-export type { MockCytoscape, MockCollection, MockLayout, MockStyle }

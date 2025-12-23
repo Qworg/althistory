@@ -85,6 +85,10 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   const [isInitialized, setIsInitialized] = useState(false)
   const [isCreatingLink, setIsCreatingLink] = useState(false)
   const [linkCreationSource, setLinkCreationSource] = useState<Event | null>(null)
+
+  // Refs to hold current state values for event handlers (fixes closure stale state bug)
+  const isCreatingLinkRef = useRef(isCreatingLink)
+  const linkCreationSourceRef = useRef(linkCreationSource)
   const [hoveredRelationship, setHoveredRelationship] = useState<CausalRelationship | null>(null)
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null)
   
@@ -128,6 +132,15 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     maxSuggestions: 5,
     minConfidence: 0.3
   })
+
+  // Keep refs in sync with state (fixes closure stale state bug)
+  useEffect(() => {
+    isCreatingLinkRef.current = isCreatingLink
+  }, [isCreatingLink])
+
+  useEffect(() => {
+    linkCreationSourceRef.current = linkCreationSource
+  }, [linkCreationSource])
 
   // Initialize Cytoscape instance
   const initializeCytoscape = useCallback(() => {
@@ -288,15 +301,19 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       boxSelectionEnabled: false
     })
 
-    // Event handlers
+    // Event handlers - use refs to access current state (fixes closure stale state bug)
     cy.on('tap', 'node', (event: EventObject) => {
       const node = event.target as NodeSingular
       const nodeData = node.data() as CausalNodeData
-      
-      if (isCreatingLink) {
-        if (linkCreationSource) {
+
+      // Read from refs to get current state values
+      const currentIsCreatingLink = isCreatingLinkRef.current
+      const currentLinkCreationSource = linkCreationSourceRef.current
+
+      if (currentIsCreatingLink) {
+        if (currentLinkCreationSource) {
           // Complete link creation
-          if (linkCreationSource.id !== nodeData.event.id) {
+          if (currentLinkCreationSource.id !== nodeData.event.id) {
             // Create default relationship data
             const defaultRelationshipData: CausalRelationshipData = {
               weight: 0.5,
@@ -304,10 +321,10 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
               confidence: 0.7,
               relationship_type: 'direct'
             }
-            
-            createCausalRelationship(linkCreationSource, nodeData.event, defaultRelationshipData)
+
+            createCausalRelationship(currentLinkCreationSource, nodeData.event, defaultRelationshipData)
           }
-          
+
           // Reset link creation state
           setIsCreatingLink(false)
           setLinkCreationSource(null)
@@ -317,7 +334,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         }
       } else {
         onNodeClick?.(nodeData.event)
-        
+
         // Start path exploration if enabled and not already exploring
         if (enablePathExploration && !navigationState.isNavigating) {
           startExploration(nodeData.event.id)
@@ -375,9 +392,9 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       onRelationshipEdit?.(edgeData.relationship)
     })
 
-    // Cancel link creation on background click
+    // Cancel link creation on background click - use ref for current state
     cy.on('tap', (event: EventObject) => {
-      if (event.target === cy && isCreatingLink) {
+      if (event.target === cy && isCreatingLinkRef.current) {
         setIsCreatingLink(false)
         setLinkCreationSource(null)
       }

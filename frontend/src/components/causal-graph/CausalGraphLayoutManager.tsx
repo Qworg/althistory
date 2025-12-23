@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState, useRef } from 'react'
 import { Core } from 'cytoscape'
 import { useGlobalStore } from '@/stores/globalStore'
 
@@ -230,13 +230,39 @@ export function CausalGraphLayoutManager({
   const [isTransitioning, setIsTransitioning] = useState(false)
   const [previewLayout, setPreviewLayout] = useState<string | null>(null)
 
+  // Refs for preventing race conditions and cleanup
+  const isTransitioningRef = useRef(false)
+  const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const currentLayoutRef = useRef<any>(null)
+
   const currentLayout = sessionData.viewportState.causalGraph.layout || 'cose'
+
+  // Cleanup preview timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (previewTimeoutRef.current) {
+        clearTimeout(previewTimeoutRef.current)
+      }
+      // Stop any running layout on unmount
+      if (currentLayoutRef.current?.stop) {
+        currentLayoutRef.current.stop()
+      }
+    }
+  }, [])
 
   // Apply layout with smooth transition
   const applyLayout = useCallback(async (layoutName: string, options?: any) => {
-    if (!cytoscapeInstance || isTransitioning) return
+    // Use ref to prevent race conditions (state may be stale in callbacks)
+    if (!cytoscapeInstance || isTransitioningRef.current) return
 
+    // Set both ref and state to prevent race conditions
+    isTransitioningRef.current = true
     setIsTransitioning(true)
+
+    // Stop any currently running layout
+    if (currentLayoutRef.current?.stop) {
+      currentLayoutRef.current.stop()
+    }
 
     try {
       const layoutConfig = layoutConfigs.find(config => config.name === layoutName)
@@ -251,7 +277,8 @@ export function CausalGraphLayoutManager({
 
       // Apply the layout
       const layout = cytoscapeInstance.layout(layoutOptions)
-      
+      currentLayoutRef.current = layout
+
       // Run layout and wait for completion
       await new Promise<void>((resolve) => {
         layout.on('layoutstop', () => {
@@ -259,6 +286,9 @@ export function CausalGraphLayoutManager({
         })
         layout.run()
       })
+
+      // Clear reference after layout completes
+      currentLayoutRef.current = null
 
       // Save new positions
       const newPositions: Record<string, { x: number; y: number }> = {}
@@ -284,14 +314,22 @@ export function CausalGraphLayoutManager({
 
     } catch (error) {
       console.error('Failed to apply layout:', error)
+      currentLayoutRef.current = null
     } finally {
+      isTransitioningRef.current = false
       setIsTransitioning(false)
     }
-  }, [cytoscapeInstance, isTransitioning, sessionData, updateSessionData, onLayoutChange])
+  }, [cytoscapeInstance, sessionData, updateSessionData, onLayoutChange])
 
   // Preview layout (without applying)
   const previewLayoutChange = useCallback((layoutName: string) => {
-    if (!showLayoutPreview || !cytoscapeInstance || isTransitioning) return
+    if (!showLayoutPreview || !cytoscapeInstance || isTransitioningRef.current) return
+
+    // Clear any existing preview timeout
+    if (previewTimeoutRef.current) {
+      clearTimeout(previewTimeoutRef.current)
+      previewTimeoutRef.current = null
+    }
 
     setPreviewLayout(layoutName)
 
@@ -308,18 +346,25 @@ export function CausalGraphLayoutManager({
       layout.run()
     }
 
-    // Clear preview after a delay
-    setTimeout(() => {
+    // Clear preview after a delay - store ref for cleanup
+    previewTimeoutRef.current = setTimeout(() => {
       setPreviewLayout(null)
+      previewTimeoutRef.current = null
     }, 2000)
-  }, [showLayoutPreview, cytoscapeInstance, isTransitioning])
+  }, [showLayoutPreview, cytoscapeInstance])
 
   // Cancel preview and restore original layout
   const cancelPreview = useCallback(() => {
     if (!previewLayout || !cytoscapeInstance) return
 
+    // Clear the preview timeout
+    if (previewTimeoutRef.current) {
+      clearTimeout(previewTimeoutRef.current)
+      previewTimeoutRef.current = null
+    }
+
     setPreviewLayout(null)
-    
+
     // Restore original layout
     applyLayout(currentLayout)
   }, [previewLayout, cytoscapeInstance, currentLayout, applyLayout])
