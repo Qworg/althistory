@@ -234,6 +234,7 @@ export function CausalGraphLayoutManager({
   const isTransitioningRef = useRef(false)
   const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const currentLayoutRef = useRef<any>(null)
+  const previewLayoutRef = useRef<any>(null)
 
   const currentLayout = sessionData.viewportState.causalGraph.layout || 'cose'
 
@@ -246,6 +247,10 @@ export function CausalGraphLayoutManager({
       // Stop any running layout on unmount
       if (currentLayoutRef.current?.stop) {
         currentLayoutRef.current.stop()
+      }
+      // Stop any running preview layout on unmount
+      if (previewLayoutRef.current?.stop) {
+        previewLayoutRef.current.stop()
       }
     }
   }, [])
@@ -279,9 +284,16 @@ export function CausalGraphLayoutManager({
       const layout = cytoscapeInstance.layout(layoutOptions)
       currentLayoutRef.current = layout
 
-      // Run layout and wait for completion
-      await new Promise<void>((resolve) => {
+      // Run layout and wait for completion with timeout to prevent hanging
+      const LAYOUT_TIMEOUT_MS = 30000 // 30 second timeout
+      await new Promise<void>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          layout.stop()
+          reject(new Error('Layout timed out'))
+        }, LAYOUT_TIMEOUT_MS)
+
         layout.on('layoutstop', () => {
+          clearTimeout(timeoutId)
           resolve()
         })
         layout.run()
@@ -331,6 +343,12 @@ export function CausalGraphLayoutManager({
       previewTimeoutRef.current = null
     }
 
+    // Stop any existing preview layout
+    if (previewLayoutRef.current?.stop) {
+      previewLayoutRef.current.stop()
+      previewLayoutRef.current = null
+    }
+
     setPreviewLayout(layoutName)
 
     // Create a temporary preview with reduced animation
@@ -343,6 +361,7 @@ export function CausalGraphLayoutManager({
       }
 
       const layout = cytoscapeInstance.layout(previewOptions)
+      previewLayoutRef.current = layout
       layout.run()
     }
 
@@ -350,6 +369,7 @@ export function CausalGraphLayoutManager({
     previewTimeoutRef.current = setTimeout(() => {
       setPreviewLayout(null)
       previewTimeoutRef.current = null
+      previewLayoutRef.current = null
     }, 2000)
   }, [showLayoutPreview, cytoscapeInstance])
 
@@ -382,12 +402,14 @@ export function CausalGraphLayoutManager({
   }, [])
 
   // Handle keyboard shortcuts
+  // Use ref for isTransitioning to avoid re-attaching listener on every state change
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
-      if (!cytoscapeInstance || isTransitioning) return
+      // Use ref to get current transitioning state without causing re-attachment
+      if (!cytoscapeInstance || isTransitioningRef.current) return
 
       // Only handle shortcuts when no input is focused
-      if (event.target instanceof HTMLInputElement || 
+      if (event.target instanceof HTMLInputElement ||
           event.target instanceof HTMLTextAreaElement ||
           event.target instanceof HTMLSelectElement) {
         return
@@ -429,7 +451,7 @@ export function CausalGraphLayoutManager({
 
     document.addEventListener('keydown', handleKeyPress)
     return () => document.removeEventListener('keydown', handleKeyPress)
-  }, [cytoscapeInstance, isTransitioning, applyLayout])
+  }, [cytoscapeInstance, applyLayout])
 
   const categoryLabels = {
     force: 'Force-Based',

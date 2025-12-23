@@ -266,10 +266,11 @@ class APIClient {
             }
         },
 
-        findChain: async (startEventId: string, maxDepth: number = 3): Promise<CausalPath[]> => {
+        findChain: async (startEventId: string, maxDepth: number = 3, signal?: AbortSignal): Promise<CausalPath[]> => {
             try {
                 const response: AxiosResponse<CausalPath[]> = await this.client.get('/causal-relationships/chain', {
-                    params: { start_event_id: startEventId, max_depth: maxDepth }
+                    params: { start_event_id: startEventId, max_depth: maxDepth },
+                    signal
                 })
                 return response.data
             } catch (error) {
@@ -277,10 +278,11 @@ class APIClient {
             }
         },
 
-        getSuggestions: async (eventId: string): Promise<CausalSuggestion[]> => {
+        getSuggestions: async (eventId: string, signal?: AbortSignal): Promise<CausalSuggestion[]> => {
             try {
                 const response: AxiosResponse<CausalSuggestion[]> = await this.client.get('/causal-relationships/suggestions', {
-                    params: { event_id: eventId }
+                    params: { event_id: eventId },
+                    signal
                 })
                 return response.data
             } catch (error) {

@@ -67,11 +67,26 @@ export interface MockCytoscape {
   }
 }
 
+// Cache for wrapped elements to maintain consistent mock function references
+const wrappedElementCache = new WeakMap<any, any>()
+
 /**
  * Wraps a raw data item to look like a Cytoscape element with methods
+ * Uses caching to ensure consistent mock function references for method chaining
  */
 function wrapAsElement(item: any, mockData?: any): any {
-  return {
+  // Return cached wrapper if available to maintain mock function references
+  if (wrappedElementCache.has(item)) {
+    return wrappedElementCache.get(item)
+  }
+
+  // Create mock functions once per element
+  const addClassFn = vi.fn()
+  const removeClassFn = vi.fn()
+  const selectFn = vi.fn()
+  const unselectFn = vi.fn()
+
+  const wrapped: any = {
     data: (key?: string, value?: any) => {
       if (key === undefined) {
         return item.data || item
@@ -82,7 +97,7 @@ function wrapAsElement(item: any, mockData?: any): any {
       if (item.data) {
         item.data[key] = value
       }
-      return wrapAsElement(item, mockData)
+      return wrapped
     },
     id: () => item.data?.id || item.id || '',
     position: (pos?: { x: number; y: number }) => {
@@ -90,12 +105,12 @@ function wrapAsElement(item: any, mockData?: any): any {
         return item.position || { x: 0, y: 0 }
       }
       item.position = pos
-      return wrapAsElement(item, mockData)
+      return wrapped
     },
-    addClass: vi.fn(() => wrapAsElement(item, mockData)),
-    removeClass: vi.fn(() => wrapAsElement(item, mockData)),
-    select: vi.fn(() => wrapAsElement(item, mockData)),
-    unselect: vi.fn(() => wrapAsElement(item, mockData)),
+    addClass: addClassFn,
+    removeClass: removeClassFn,
+    select: selectFn,
+    unselect: unselectFn,
     renderedMidpoint: () => ({ x: 100, y: 100 }),
     source: () => {
       // Return the source node for edges
@@ -116,6 +131,17 @@ function wrapAsElement(item: any, mockData?: any): any {
       return createMockCollection([], mockData)
     }
   }
+
+  // Set up chainable methods to return the same wrapped instance
+  addClassFn.mockReturnValue(wrapped)
+  removeClassFn.mockReturnValue(wrapped)
+  selectFn.mockReturnValue(wrapped)
+  unselectFn.mockReturnValue(wrapped)
+
+  // Cache the wrapped element
+  wrappedElementCache.set(item, wrapped)
+
+  return wrapped
 }
 
 /**
@@ -321,10 +347,12 @@ export function createMockCytoscape(): MockCytoscape {
     add: vi.fn((elements: any | any[]) => {
       const elementsArray = Array.isArray(elements) ? elements : [elements]
       elementsArray.forEach(el => {
-        if (el.group === 'nodes' || el.data?.source === undefined) {
-          mockData.nodes.push(el)
-        } else {
+        // Element is an edge if explicitly declared OR has source/target (edge properties)
+        const isEdge = el.group === 'edges' || (el.data?.source !== undefined && el.data?.target !== undefined)
+        if (isEdge) {
           mockData.edges.push(el)
+        } else {
+          mockData.nodes.push(el)
         }
       })
       return createMockCollection(elementsArray, mockData)

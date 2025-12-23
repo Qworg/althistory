@@ -47,6 +47,8 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
 
   // Ref for cancelling pending API requests
   const abortControllerRef = useRef<AbortController | null>(null)
+  // Request counter to prevent race conditions in loading state
+  const requestIdRef = useRef(0)
 
   const { addError } = useGlobalStore()
 
@@ -113,6 +115,9 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
     const abortController = new AbortController()
     abortControllerRef.current = abortController
 
+    // Increment request ID to track this specific request
+    const currentRequestId = ++requestIdRef.current
+
     setIsLoading(true)
     setExplorationState(prev => ({
       ...prev,
@@ -121,11 +126,11 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
     }))
 
     try {
-      // Fetch causal chains from the API
-      const paths = await apiClient.causal.findChain(startEventId, depth)
+      // Fetch causal chains from the API with abort signal
+      const paths = await apiClient.causal.findChain(startEventId, depth, abortController.signal)
 
-      // Check if this request was cancelled
-      if (abortController.signal.aborted) {
+      // Check if this request was cancelled or superseded (double-check for race conditions)
+      if (abortController.signal.aborted || currentRequestId !== requestIdRef.current) {
         return
       }
 
@@ -154,18 +159,21 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
       }
 
     } catch (error) {
-      // Ignore abort errors
+      // Ignore abort errors or if this request was superseded
       if (error instanceof Error && error.name === 'AbortError') {
         return
       }
-      console.error('Failed to explore causal chains:', error)
-      addError({
-        message: 'Failed to explore causal chains',
-        type: 'network'
-      })
+      // Only report error if this is still the active request
+      if (currentRequestId === requestIdRef.current) {
+        console.error('Failed to explore causal chains:', error)
+        addError({
+          message: 'Failed to explore causal chains',
+          type: 'network'
+        })
+      }
     } finally {
-      // Only clear loading if this is still the active request
-      if (!abortController.signal.aborted) {
+      // Only clear loading if this is still the active request (check both abort and request ID)
+      if (!abortController.signal.aborted && currentRequestId === requestIdRef.current) {
         setIsLoading(false)
       }
     }

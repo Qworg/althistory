@@ -65,9 +65,9 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
     setIsLoading(true)
 
     try {
-      const rawSuggestions = await apiClient.causal.getSuggestions(eventId)
+      const rawSuggestions = await apiClient.causal.getSuggestions(eventId, abortController.signal)
 
-      // Check if this request was cancelled
+      // Check if this request was cancelled (double-check for race conditions)
       if (abortController.signal.aborted) {
         return
       }
@@ -153,12 +153,8 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
         confidence: suggestion.confidence,
         reasoning: suggestion.reasoning
       })
-
-      // Show success feedback
-      addError({
-        message: 'Causal relationship created successfully',
-        type: 'general'
-      })
+      // Note: Success feedback removed - visual feedback (relationship appearing in graph, suggestion removed from list) is sufficient
+      // Using addError for success messages is semantically incorrect
 
     } catch (error) {
       console.error('Failed to accept suggestion:', error)
@@ -226,12 +222,8 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
       // Close modal
       setShowFeedbackModal(false)
       setSelectedSuggestion(null)
-
-      // Show success message
-      addError({
-        message: 'Feedback submitted successfully',
-        type: 'general'
-      })
+      // Note: Success feedback removed - modal closing is sufficient visual feedback
+      // Using addError for success messages is semantically incorrect
 
     } catch (error) {
       console.error('Failed to submit feedback:', error)
