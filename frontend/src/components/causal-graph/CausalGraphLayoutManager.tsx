@@ -1,15 +1,23 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react'
 import { Core } from 'cytoscape'
 import { useGlobalStore } from '@/stores/globalStore'
+import {
+  getLayoutFromShortcut,
+  getShortcutForLayout,
+  shouldIgnoreKeyboardShortcut,
+  getCategoryLabel,
+  getDefaultLayoutOptions,
+  getPreviewLayoutOptions,
+  isActionShortcut,
+  getActionFromShortcut,
+  LAYOUT_TIMEOUT_MS,
+  PREVIEW_TIMEOUT_MS,
+  FIT_PADDING,
+  DEFAULT_ZOOM,
+  LayoutConfig
+} from '@/utils/layoutManagerUtils'
 
-export interface LayoutConfig {
-  name: string
-  label: string
-  description: string
-  icon: React.ReactNode
-  options: any
-  category: 'force' | 'hierarchical' | 'circular' | 'grid'
-}
+export type { LayoutConfig }
 
 export interface CausalGraphLayoutManagerProps {
   cytoscapeInstance: Core | null
@@ -271,7 +279,7 @@ export function CausalGraphLayoutManager({
 
     try {
       const layoutConfig = layoutConfigs.find(config => config.name === layoutName)
-      const layoutOptions = options || layoutConfig?.options || { name: layoutName }
+      const layoutOptions = options || layoutConfig?.options || getDefaultLayoutOptions(layoutName)
 
       // Save current positions for potential rollback
       const currentPositions: Record<string, { x: number; y: number }> = {}
@@ -285,7 +293,6 @@ export function CausalGraphLayoutManager({
       currentLayoutRef.current = layout
 
       // Run layout and wait for completion with timeout to prevent hanging
-      const LAYOUT_TIMEOUT_MS = 30000 // 30 second timeout
       await new Promise<void>((resolve, reject) => {
         const timeoutId = setTimeout(() => {
           layout.stop()
@@ -352,25 +359,17 @@ export function CausalGraphLayoutManager({
     setPreviewLayout(layoutName)
 
     // Create a temporary preview with reduced animation
-    const layoutConfig = layoutConfigs.find(config => config.name === layoutName)
-    if (layoutConfig) {
-      const previewOptions = {
-        ...layoutConfig.options,
-        animationDuration: 300,
-        fit: false // Don't fit to prevent jarring movements
-      }
-
-      const layout = cytoscapeInstance.layout(previewOptions)
-      previewLayoutRef.current = layout
-      layout.run()
-    }
+    const previewOptions = getPreviewLayoutOptions(layoutName)
+    const layout = cytoscapeInstance.layout(previewOptions as any)
+    previewLayoutRef.current = layout
+    layout.run()
 
     // Clear preview after a delay - store ref for cleanup
     previewTimeoutRef.current = setTimeout(() => {
       setPreviewLayout(null)
       previewTimeoutRef.current = null
       previewLayoutRef.current = null
-    }, 2000)
+    }, PREVIEW_TIMEOUT_MS)
   }, [showLayoutPreview, cytoscapeInstance])
 
   // Cancel preview and restore original layout
@@ -409,56 +408,34 @@ export function CausalGraphLayoutManager({
       if (!cytoscapeInstance || isTransitioningRef.current) return
 
       // Only handle shortcuts when no input is focused
-      if (event.target instanceof HTMLInputElement ||
-          event.target instanceof HTMLTextAreaElement ||
-          event.target instanceof HTMLSelectElement) {
+      if (shouldIgnoreKeyboardShortcut()) {
         return
       }
 
-      // Layout shortcuts (1-8 for different layouts)
-      const layoutShortcuts: Record<string, string> = {
-        '1': 'cose',
-        '2': 'breadthfirst',
-        '3': 'circle',
-        '4': 'grid',
-        '5': 'concentric',
-        '6': 'dagre',
-        '7': 'cose-bilkent',
-        '8': 'random'
+      // Check for layout shortcuts (1-8)
+      const layoutName = getLayoutFromShortcut(event.key)
+      if (layoutName) {
+        event.preventDefault()
+        applyLayout(layoutName)
+        return
       }
 
-      if (layoutShortcuts[event.key]) {
+      // Check for action shortcuts (f, r)
+      if (isActionShortcut(event.key)) {
         event.preventDefault()
-        const layoutName = layoutShortcuts[event.key]
-        if (layoutName) {
-          applyLayout(layoutName)
+        const action = getActionFromShortcut(event.key)
+        if (action === 'fit') {
+          cytoscapeInstance.fit(undefined, FIT_PADDING)
+        } else if (action === 'reset') {
+          cytoscapeInstance.zoom(DEFAULT_ZOOM)
+          cytoscapeInstance.center()
         }
-      }
-
-      // Fit to view (F key)
-      if (event.key === 'f' || event.key === 'F') {
-        event.preventDefault()
-        cytoscapeInstance.fit(undefined, 50)
-      }
-
-      // Reset zoom (R key)
-      if (event.key === 'r' || event.key === 'R') {
-        event.preventDefault()
-        cytoscapeInstance.zoom(1)
-        cytoscapeInstance.center()
       }
     }
 
     document.addEventListener('keydown', handleKeyPress)
     return () => document.removeEventListener('keydown', handleKeyPress)
   }, [cytoscapeInstance, applyLayout])
-
-  const categoryLabels = {
-    force: 'Force-Based',
-    hierarchical: 'Hierarchical',
-    circular: 'Circular',
-    grid: 'Grid-Based'
-  }
 
   return (
     <div className={`causal-graph-layout-manager ${className}`}>
@@ -477,7 +454,7 @@ export function CausalGraphLayoutManager({
           {Object.entries(layoutsByCategory).map(([category, layouts]) => (
             <div key={category}>
               <h4 className="text-xs font-medium text-gray-700 mb-2 uppercase tracking-wide">
-                {categoryLabels[category as keyof typeof categoryLabels]}
+                {getCategoryLabel(category)}
               </h4>
               <div className="grid grid-cols-2 gap-2">
                 {layouts.map((layout) => {
@@ -502,14 +479,7 @@ export function CausalGraphLayoutManager({
                         }
                         ${isTransitioning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                       `}
-                      title={`${layout.description} (${layout.name === 'cose' ? '1' : 
-                        layout.name === 'breadthfirst' ? '2' :
-                        layout.name === 'circle' ? '3' :
-                        layout.name === 'grid' ? '4' :
-                        layout.name === 'concentric' ? '5' :
-                        layout.name === 'dagre' ? '6' :
-                        layout.name === 'cose-bilkent' ? '7' :
-                        layout.name === 'random' ? '8' : ''})`}
+                      title={`${layout.description}${getShortcutForLayout(layout.name) ? ` (${getShortcutForLayout(layout.name)})` : ''}`}
                     >
                       <span className={`
                         ${isActive ? 'text-blue-600' : 
@@ -531,14 +501,7 @@ export function CausalGraphLayoutManager({
 
                       {/* Keyboard shortcut indicator */}
                       <span className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {layout.name === 'cose' ? '1' : 
-                         layout.name === 'breadthfirst' ? '2' :
-                         layout.name === 'circle' ? '3' :
-                         layout.name === 'grid' ? '4' :
-                         layout.name === 'concentric' ? '5' :
-                         layout.name === 'dagre' ? '6' :
-                         layout.name === 'cose-bilkent' ? '7' :
-                         layout.name === 'random' ? '8' : ''}
+                        {getShortcutForLayout(layout.name) || ''}
                       </span>
                     </button>
                   )
@@ -554,7 +517,7 @@ export function CausalGraphLayoutManager({
             <span>Quick Actions:</span>
             <div className="flex space-x-4">
               <button
-                onClick={() => cytoscapeInstance?.fit(undefined, 50)}
+                onClick={() => cytoscapeInstance?.fit(undefined, FIT_PADDING)}
                 className="hover:text-gray-900 transition-colors"
                 title="Fit to view (F)"
               >
@@ -562,7 +525,7 @@ export function CausalGraphLayoutManager({
               </button>
               <button
                 onClick={() => {
-                  cytoscapeInstance?.zoom(1)
+                  cytoscapeInstance?.zoom(DEFAULT_ZOOM)
                   cytoscapeInstance?.center()
                 }}
                 className="hover:text-gray-900 transition-colors"

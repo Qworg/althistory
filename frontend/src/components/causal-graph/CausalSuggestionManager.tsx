@@ -3,6 +3,14 @@ import { Event, CausalSuggestion, CausalRelationshipData } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
 import { SuggestionWithState, SuggestionFeedback } from '@/hooks/useCausalSuggestions'
+import {
+  relationshipExists,
+  getConfidenceStyle,
+  getFeedbackRatingStyle,
+  formatRatingForDisplay,
+  createInitialFeedback,
+  FEEDBACK_RATING_OPTIONS
+} from '@/utils/suggestionManagerUtils'
 
 export interface CausalSuggestionManagerProps {
   className?: string
@@ -26,11 +34,7 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
   const [isLoading, setIsLoading] = useState(false)
   const [selectedSuggestion, setSelectedSuggestion] = useState<SuggestionWithState | null>(null)
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
-  const [feedbackForm, setFeedbackForm] = useState<SuggestionFeedback>({
-    rating: 'helpful',
-    comment: '',
-    improvementSuggestion: ''
-  })
+  const [feedbackForm, setFeedbackForm] = useState<SuggestionFeedback>(createInitialFeedback())
 
   const {
     events,
@@ -110,12 +114,7 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
 
     try {
       // Check if relationship already exists
-      const existingRelationship = causalRelationships.find(rel => 
-        rel.cause_event_id === suggestion.cause_event_id && 
-        rel.effect_event_id === suggestion.effect_event_id
-      )
-      
-      if (existingRelationship) {
+      if (relationshipExists(suggestion.cause_event_id, suggestion.effect_event_id, causalRelationships)) {
         addError({
           message: 'Causal relationship already exists between these events',
           type: 'validation'
@@ -189,11 +188,7 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
   // Show feedback modal for a suggestion
   const showFeedbackForSuggestion = useCallback((suggestion: SuggestionWithState) => {
     setSelectedSuggestion(suggestion)
-    setFeedbackForm({
-      rating: 'helpful',
-      comment: '',
-      improvementSuggestion: ''
-    })
+    setFeedbackForm(createInitialFeedback())
     setShowFeedbackModal(true)
   }, [])
 
@@ -390,12 +385,8 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
                     <span>{(suggestion.confidence * 100).toFixed(0)}%</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className={`h-2 rounded-full transition-all duration-300 ${
-                        suggestion.confidence >= 0.8 ? 'bg-green-500' :
-                        suggestion.confidence >= 0.6 ? 'bg-yellow-500' :
-                        'bg-red-500'
-                      }`}
+                    <div
+                      className={`h-2 rounded-full transition-all duration-300 ${getConfidenceStyle(suggestion.confidence).progressBarColor}`}
                       style={{ width: `${suggestion.confidence * 100}%` }}
                     />
                   </div>
@@ -432,12 +423,8 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
                   <div className="mt-3 p-2 bg-blue-50 rounded-lg border border-blue-200">
                     <div className="flex items-center space-x-2 mb-1">
                       <span className="text-xs font-medium text-blue-800">Your Feedback:</span>
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        suggestion.userFeedback.rating === 'helpful' ? 'bg-green-100 text-green-800' :
-                        suggestion.userFeedback.rating === 'not_helpful' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        {suggestion.userFeedback.rating.replace('_', ' ')}
+                      <span className={`text-xs px-2 py-1 rounded-full ${getFeedbackRatingStyle(suggestion.userFeedback.rating).bgColor} ${getFeedbackRatingStyle(suggestion.userFeedback.rating).textColor}`}>
+                        {formatRatingForDisplay(suggestion.userFeedback.rating)}
                       </span>
                     </div>
                     {suggestion.userFeedback.comment && (
@@ -482,11 +469,7 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
                     How helpful was this suggestion?
                   </label>
                   <div className="space-y-2">
-                    {[
-                      { value: 'helpful', label: 'Helpful - Good suggestion' },
-                      { value: 'not_helpful', label: 'Not helpful - Irrelevant' },
-                      { value: 'incorrect', label: 'Incorrect - Wrong relationship' }
-                    ].map(option => (
+                    {FEEDBACK_RATING_OPTIONS.map(option => (
                       <label key={option.value} className="flex items-center">
                         <input
                           type="radio"

@@ -4,7 +4,7 @@ import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
 
 export interface SuggestionFeedback {
-  rating: 'helpful' | 'not_helpful' | 'incorrect'
+  rating: 'helpful' | 'not_helpful' | 'needs_improvement'
   comment?: string
   improvementSuggestion?: string
 }

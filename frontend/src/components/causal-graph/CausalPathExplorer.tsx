@@ -1,7 +1,12 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
-import { Event, CausalRelationship, CausalPath } from '@/types'
+import { CausalPath } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
+import {
+  calculateCumulativeStrength,
+  transformPathToSteps,
+  CausalChainStep
+} from '@/utils/causalPathCalculations'
 
 export interface CausalPathExplorerProps {
   className?: string
@@ -11,12 +16,8 @@ export interface CausalPathExplorerProps {
   onPathHighlight?: (path: CausalPath | null) => void
 }
 
-export interface CausalChainStep {
-  event: Event
-  relationship?: CausalRelationship
-  cumulativeWeight: number
-  stepIndex: number
-}
+// Re-export CausalChainStep for backwards compatibility
+export type { CausalChainStep }
 
 export interface ExplorationState {
   isExploring: boolean
@@ -61,49 +62,6 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
     }
   }, [])
 
-  // Calculate cumulative strength for a causal path
-  const calculateCumulativeStrength = useCallback((path: CausalPath): number => {
-    if (path.relationships.length === 0) return 0
-    
-    // Calculate cumulative strength as product of weights and confidences
-    return path.relationships.reduce((cumulative, relationship) => {
-      const strength = relationship.weight * relationship.confidence
-      return cumulative * strength
-    }, 1)
-  }, [])
-
-  // Transform causal path to chain steps for navigation
-  const transformPathToSteps = useCallback((path: CausalPath): CausalChainStep[] => {
-    const steps: CausalChainStep[] = []
-    let cumulativeWeight = 1
-
-    // First event (starting point)
-    if (path.events.length > 0) {
-      steps.push({
-        event: path.events[0]!,
-        cumulativeWeight: 1,
-        stepIndex: 0
-      })
-    }
-
-    // Subsequent events with their relationships
-    for (let i = 1; i < path.events.length; i++) {
-      const relationship = path.relationships[i - 1]
-      if (relationship) {
-        cumulativeWeight *= relationship.weight * relationship.confidence
-      }
-      
-      steps.push({
-        event: path.events[i]!,
-        relationship,
-        cumulativeWeight,
-        stepIndex: i
-      })
-    }
-
-    return steps
-  }, [])
-
   // Start causal chain exploration from a specific event
   const startExploration = useCallback(async (startEventId: string, depth: number = maxDepth) => {
     // Cancel any pending request
@@ -137,7 +95,7 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
       // Calculate cumulative strengths and sort by strength
       const pathsWithStrength = paths.map(path => ({
         ...path,
-        totalWeight: calculateCumulativeStrength(path)
+        totalWeight: calculateCumulativeStrength(path.relationships)
       })).sort((a, b) => b.totalWeight - a.totalWeight)
 
       setExplorationState(prev => ({
@@ -177,7 +135,7 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
         setIsLoading(false)
       }
     }
-  }, [maxDepth, calculateCumulativeStrength, addError, onPathHighlight, onPathSelect])
+  }, [maxDepth, addError, onPathHighlight, onPathSelect])
 
   // Stop exploration and clear highlights
   const stopExploration = useCallback(() => {

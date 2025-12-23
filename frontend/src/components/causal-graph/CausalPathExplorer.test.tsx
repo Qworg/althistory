@@ -237,9 +237,9 @@ describe('CausalPathExplorer', () => {
 
   it('should start exploration when focusEventId is provided', async () => {
     render(<CausalPathExplorer focusEventId="1" maxDepth={3} />)
-    
+
     await waitFor(() => {
-      expect(mockFindChain).toHaveBeenCalledWith('1', 3)
+      expect(mockFindChain).toHaveBeenCalledWith('1', 3, expect.any(AbortSignal))
     })
   })
 
@@ -435,7 +435,7 @@ describe('CausalPathExplorer', () => {
 
     // Wait for the API call
     await waitFor(() => {
-      expect(mockFindChain).toHaveBeenCalledWith('1', 3)
+      expect(mockFindChain).toHaveBeenCalledWith('1', 3, expect.any(AbortSignal))
     })
 
     // Wait for the paths to be displayed - component sorts by totalWeight

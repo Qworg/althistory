@@ -8,6 +8,11 @@ import {
   createMockLayout,
   MockCytoscape
 } from '@/test/__mocks__/cytoscape'
+import {
+  FIT_PADDING,
+  DEFAULT_ZOOM,
+  LAYOUT_SHORTCUTS
+} from '@/utils/layoutManagerUtils'
 
 // Mock the global store
 vi.mock('@/stores/globalStore')
@@ -254,5 +259,86 @@ describe('CausalGraphLayoutManager', () => {
     expect(hierarchicalSection).toContainElement(screen.getByRole('button', { name: /hierarchical/i }))
     expect(circularSection).toContainElement(screen.getByRole('button', { name: /circular/i }))
     expect(gridSection).toContainElement(screen.getByRole('button', { name: /grid/i }))
+  })
+
+  describe('Utility Constants Integration', () => {
+    it('uses FIT_PADDING constant for fit operations', () => {
+      renderLayoutManager()
+
+      fireEvent.keyDown(document, { key: 'f' })
+
+      expect(mockCytoscapeInstance.fit).toHaveBeenCalledWith(undefined, FIT_PADDING)
+    })
+
+    it('uses DEFAULT_ZOOM constant for reset operations', () => {
+      renderLayoutManager()
+
+      fireEvent.keyDown(document, { key: 'r' })
+
+      expect(mockCytoscapeInstance.zoom).toHaveBeenCalledWith(DEFAULT_ZOOM)
+    })
+
+    it('supports all layout shortcuts from LAYOUT_SHORTCUTS', async () => {
+      renderLayoutManager()
+
+      // Test a subset of layout shortcuts (can't test all in sequence due to transition state)
+      // Test first shortcut
+      fireEvent.keyDown(document, { key: '1' })
+      expect(mockCytoscapeInstance.layout).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'cose' })
+      )
+
+      // Verify the shortcuts mapping is correct
+      expect(LAYOUT_SHORTCUTS['1']).toBe('cose')
+      expect(LAYOUT_SHORTCUTS['2']).toBe('breadthfirst')
+      expect(LAYOUT_SHORTCUTS['3']).toBe('circle')
+      expect(LAYOUT_SHORTCUTS['4']).toBe('grid')
+      expect(LAYOUT_SHORTCUTS['5']).toBe('concentric')
+      expect(LAYOUT_SHORTCUTS['6']).toBe('dagre')
+      expect(LAYOUT_SHORTCUTS['7']).toBe('cose-bilkent')
+      expect(LAYOUT_SHORTCUTS['8']).toBe('random')
+    })
+
+    it('handles uppercase action shortcuts', () => {
+      renderLayoutManager()
+
+      fireEvent.keyDown(document, { key: 'F' })
+      expect(mockCytoscapeInstance.fit).toHaveBeenCalledWith(undefined, FIT_PADDING)
+
+      vi.clearAllMocks()
+
+      fireEvent.keyDown(document, { key: 'R' })
+      expect(mockCytoscapeInstance.zoom).toHaveBeenCalledWith(DEFAULT_ZOOM)
+    })
+  })
+
+  describe('Textarea and Select Focus Handling', () => {
+    it('ignores keyboard shortcuts when textarea is focused', () => {
+      renderLayoutManager()
+
+      const textarea = document.createElement('textarea')
+      document.body.appendChild(textarea)
+      textarea.focus()
+
+      fireEvent.keyDown(textarea, { key: '2' })
+
+      expect(mockCytoscapeInstance.layout).not.toHaveBeenCalled()
+
+      document.body.removeChild(textarea)
+    })
+
+    it('ignores keyboard shortcuts when select is focused', () => {
+      renderLayoutManager()
+
+      const select = document.createElement('select')
+      document.body.appendChild(select)
+      select.focus()
+
+      fireEvent.keyDown(select, { key: '2' })
+
+      expect(mockCytoscapeInstance.layout).not.toHaveBeenCalled()
+
+      document.body.removeChild(select)
+    })
   })
 })

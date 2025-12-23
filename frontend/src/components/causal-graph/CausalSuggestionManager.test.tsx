@@ -207,7 +207,7 @@ describe('CausalSuggestionManager', () => {
     render(<CausalSuggestionManager focusEventId="1" />)
     
     await waitFor(() => {
-      expect(mockApiClient.causal.getSuggestions).toHaveBeenCalledWith('1')
+      expect(mockApiClient.causal.getSuggestions).toHaveBeenCalledWith('1', expect.any(AbortSignal))
     })
 
     await waitFor(() => {
@@ -345,7 +345,7 @@ describe('CausalSuggestionManager', () => {
     expect(screen.getByText('How helpful was this suggestion?')).toBeInTheDocument()
     expect(screen.getByText('Helpful - Good suggestion')).toBeInTheDocument()
     expect(screen.getByText('Not helpful - Irrelevant')).toBeInTheDocument()
-    expect(screen.getByText('Incorrect - Wrong relationship')).toBeInTheDocument()
+    expect(screen.getByText('Needs improvement - Could be better')).toBeInTheDocument()
   })
 
   it('should submit feedback and close modal', async () => {
@@ -430,7 +430,7 @@ describe('CausalSuggestionManager', () => {
     // When API returns empty array, the component returns null (doesn't render)
     // This is the expected behavior - the component only renders when there are suggestions
     await waitFor(() => {
-      expect(mockApiClient.causal.getSuggestions).toHaveBeenCalledWith('1')
+      expect(mockApiClient.causal.getSuggestions).toHaveBeenCalledWith('1', expect.any(AbortSignal))
     })
 
     // Component should not be rendered when there are no suggestions
