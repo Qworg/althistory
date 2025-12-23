@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act } from 'react'
 import { CausalGraphLayoutManager } from './CausalGraphLayoutManager'
 import { useGlobalStore } from '@/stores/globalStore'
 import {
@@ -51,10 +52,12 @@ describe('CausalGraphLayoutManager', () => {
     renderLayoutManager()
 
     expect(screen.getByText('Graph Layout')).toBeInTheDocument()
-    expect(screen.getByText('FORCE-BASED')).toBeInTheDocument()
-    expect(screen.getByText('HIERARCHICAL')).toBeInTheDocument()
-    expect(screen.getByText('CIRCULAR')).toBeInTheDocument()
-    expect(screen.getByText('GRID-BASED')).toBeInTheDocument()
+    // CSS uppercase class makes text appear uppercase, but actual DOM text is title case
+    // Use h4 selector since category headers use h4 elements
+    expect(screen.getByRole('heading', { name: /force-based/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /hierarchical/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /circular/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /grid-based/i })).toBeInTheDocument()
   })
 
   it('shows current active layout', () => {
@@ -69,7 +72,10 @@ describe('CausalGraphLayoutManager', () => {
     renderLayoutManager({ onLayoutChange })
 
     const hierarchicalButton = screen.getByRole('button', { name: /hierarchical/i })
-    fireEvent.click(hierarchicalButton)
+
+    await act(async () => {
+      fireEvent.click(hierarchicalButton)
+    })
 
     await waitFor(() => {
       expect(mockCytoscapeInstance.layout).toHaveBeenCalledWith(
@@ -238,10 +244,11 @@ describe('CausalGraphLayoutManager', () => {
     renderLayoutManager()
 
     // Check that layouts are grouped under correct categories
-    const forceSection = screen.getByText('FORCE-BASED').closest('div')
-    const hierarchicalSection = screen.getByText('HIERARCHICAL').closest('div')
-    const circularSection = screen.getByText('CIRCULAR').closest('div')
-    const gridSection = screen.getByText('GRID-BASED').closest('div')
+    // Use heading role to distinguish category headers from button labels
+    const forceSection = screen.getByRole('heading', { name: /force-based/i }).closest('div')
+    const hierarchicalSection = screen.getByRole('heading', { name: /hierarchical/i }).closest('div')
+    const circularSection = screen.getByRole('heading', { name: /circular/i }).closest('div')
+    const gridSection = screen.getByRole('heading', { name: /grid-based/i }).closest('div')
 
     expect(forceSection).toContainElement(screen.getByRole('button', { name: /force-directed/i }))
     expect(hierarchicalSection).toContainElement(screen.getByRole('button', { name: /hierarchical/i }))

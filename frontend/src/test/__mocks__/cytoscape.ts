@@ -155,9 +155,24 @@ export function createMockCollection(items: any[] = []): MockCollection {
  * Creates a mock layout object
  */
 export function createMockLayout(): MockLayout {
+  const handlers: Map<string, Function[]> = new Map()
+
   const layout: MockLayout = {
-    run: vi.fn(() => layout),
-    on: vi.fn((_event: string, _handler: Function) => layout),
+    run: vi.fn(() => {
+      // Trigger layoutstop handlers asynchronously (like real Cytoscape)
+      setTimeout(() => {
+        const layoutstopHandlers = handlers.get('layoutstop') || []
+        layoutstopHandlers.forEach(handler => handler())
+      }, 0)
+      return layout
+    }),
+    on: vi.fn((event: string, handler: Function) => {
+      if (!handlers.has(event)) {
+        handlers.set(event, [])
+      }
+      handlers.get(event)!.push(handler)
+      return layout
+    }),
     stop: vi.fn(() => layout)
   }
   return layout
