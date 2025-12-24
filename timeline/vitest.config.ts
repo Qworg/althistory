@@ -15,7 +15,13 @@ export default defineConfig({
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
-      '**/*.integration.test.ts' // Exclude integration tests by default
+      '**/tests/integration/**', // Exclude integration tests by default
+      '**/tests/e2e/**', // Exclude e2e tests by default
+      '**/*.load.test.ts', // Exclude load tests by default
+      'src/utils/database.test.ts', // Exclude database tests (requires Neo4j)
+      'src/repositories/EventRepository.test.ts', // Integration test, use EventRepository.unit.test.ts
+      'src/repositories/ArcRepository.test.ts', // Integration test, use ArcRepository.unit.test.ts
+      'src/services/GraphCopyService.test.ts' // Integration test, use GraphCopyService.unit.test.ts
     ]
   },
   resolve: {

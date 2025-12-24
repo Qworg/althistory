@@ -324,7 +324,8 @@ export class LocalCacheStore implements CacheManager {
    */
   async invalidateByPatterns(patterns: string[]): Promise<void> {
     for (const pattern of patterns) {
-      const regex = new RegExp(pattern.replace(/\*/g, '.*').replace(/\?/g, '.'));
+      const regexPattern = '^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$';
+      const regex = new RegExp(regexPattern);
       const keysToDelete: string[] = [];
       
       for (const key of this.cache.keys()) {

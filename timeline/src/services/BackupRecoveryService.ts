@@ -312,6 +312,13 @@ export class BackupRecoveryService {
    */
   async listBackups(): Promise<BackupMetadata[]> {
     try {
+      // Check if backup directory exists, return empty if not
+      try {
+        await fs.access(this.backupDir);
+      } catch {
+        return [];
+      }
+
       const files = await fs.readdir(this.backupDir);
       const backupFiles = files.filter(file => file.endsWith('.backup'));
       const backups: BackupMetadata[] = [];
@@ -321,7 +328,7 @@ export class BackupRecoveryService {
           const backupPath = path.join(this.backupDir, file);
           const content = await fs.readFile(backupPath, 'utf8');
           const backupData = JSON.parse(content);
-          
+
           if (backupData.metadata) {
             backups.push({
               ...backupData.metadata,
@@ -380,21 +387,29 @@ export class BackupRecoveryService {
         );
       }
 
-      // Create a copy without checksum for verification
-      const verificationData = { ...backupData };
+      // Save the expected checksum before modifying
+      const expectedChecksum = backupData.metadata.checksum;
+
+      // Create a deep copy without checksum and size for verification
+      // Size was added after checksum calculation, so exclude it too
+      const verificationData = {
+        ...backupData,
+        metadata: { ...backupData.metadata }
+      };
       delete verificationData.metadata.checksum;
-      
+      delete verificationData.metadata.size;
+
       const calculatedChecksum = crypto
         .createHash('sha256')
-        .update(JSON.stringify(verificationData))
+        .update(JSON.stringify(verificationData, null, 2))
         .digest('hex');
 
-      if (calculatedChecksum !== backupData.metadata.checksum) {
+      if (calculatedChecksum !== expectedChecksum) {
         throw new DataCorruptionError(
           'Backup checksum mismatch',
           backupPath,
           'checksum_mismatch',
-          backupData.metadata.checksum,
+          expectedChecksum,
           calculatedChecksum
         );
       }

@@ -83,25 +83,25 @@ export class CypherQueryParser {
    */
   static execute(query: string, parameters: Record<string, any>, graphData: GraphData): LocalQueryResult {
     const trimmedQuery = query.trim();
-    
+
     // Handle CREATE queries
     if (trimmedQuery.startsWith('CREATE')) {
-      return this.executeCreate(query, parameters, graphData);
+      return this.executeCreate(trimmedQuery, parameters, graphData);
     }
-    
-    // Handle MATCH queries
-    if (trimmedQuery.startsWith('MATCH')) {
-      return this.executeMatch(query, parameters, graphData);
+
+    // Handle DELETE queries (must check before MATCH since pattern is MATCH...DELETE)
+    if (trimmedQuery.includes('DELETE') || trimmedQuery.includes('DETACH DELETE')) {
+      return this.executeDelete(trimmedQuery, parameters, graphData);
     }
-    
+
     // Handle SET queries (UPDATE)
     if (trimmedQuery.includes('SET')) {
-      return this.executeSet(query, parameters, graphData);
+      return this.executeSet(trimmedQuery, parameters, graphData);
     }
-    
-    // Handle DELETE queries
-    if (trimmedQuery.includes('DELETE') || trimmedQuery.includes('DETACH DELETE')) {
-      return this.executeDelete(query, parameters, graphData);
+
+    // Handle MATCH queries
+    if (trimmedQuery.startsWith('MATCH')) {
+      return this.executeMatch(trimmedQuery, parameters, graphData);
     }
 
     throw new Error(`Unsupported query type: ${query}`);
@@ -184,24 +184,47 @@ export class CypherQueryParser {
   private static executeMatch(query: string, parameters: Record<string, any>, graphData: GraphData): LocalQueryResult {
     const records: LocalQueryRecord[] = [];
     const counters = { nodesCreated: 0, relationshipsCreated: 0, nodesDeleted: 0, relationshipsDeleted: 0, propertiesSet: 0 };
-    
-    // Parse MATCH (n:Label) WHERE conditions RETURN fields
-    const matchPattern = /MATCH\s*\((\w+):(\w+)\)(?:\s*WHERE\s+([^RETURN]+))?(?:\s*RETURN\s+(.+))?/i;
-    const match = query.match(matchPattern);
-    
+
+    // Normalize query: replace newlines and multiple spaces with single space
+    const normalizedQuery = query.replace(/\s+/g, ' ').trim();
+
+    // Parse MATCH patterns - supports both:
+    // 1. MATCH (n:Label) WHERE conditions RETURN fields
+    // 2. MATCH (n:Label { props }) RETURN fields
+    const matchWithPropsPattern = /MATCH\s*\((\w+):(\w+)\s*\{([^}]+)\}\)\s*(?:RETURN\s+(.+))?\s*$/i;
+    const matchWithWherePattern = /MATCH\s*\((\w+):(\w+)\)(?:\s*WHERE\s+(.+?))?\s*(?:RETURN\s+(.+))?\s*$/i;
+
+    let match = normalizedQuery.match(matchWithPropsPattern);
+    let usePropsFilter = false;
+
     if (match) {
-      const [, variable, label, whereClause, returnClause] = match;
-      
+      usePropsFilter = true;
+    } else {
+      match = normalizedQuery.match(matchWithWherePattern);
+    }
+
+    if (match) {
+      const [, variable, label, filterClause, returnClause] = match;
+
       // Get nodes with matching label
       const nodeIds = graphData.nodesByLabel.get(label) || new Set();
       let matchingNodes: GraphNode[] = [];
-      
+
       for (const nodeId of nodeIds) {
         const node = graphData.nodes.get(nodeId);
         if (node) {
-          // Apply WHERE clause filtering
-          if (!whereClause || this.evaluateWhereClause(whereClause, node.properties, parameters)) {
-            matchingNodes.push(node);
+          // Apply filtering based on pattern type
+          if (usePropsFilter) {
+            // MATCH (n:Label { props }) - use property matching
+            const props = this.parseProperties(filterClause, parameters);
+            if (this.nodeMatchesProperties(node, props)) {
+              matchingNodes.push(node);
+            }
+          } else {
+            // MATCH (n:Label) WHERE condition - use WHERE clause
+            if (!filterClause || this.evaluateWhereClause(filterClause, node.properties, parameters)) {
+              matchingNodes.push(node);
+            }
           }
         }
       }
@@ -272,10 +295,13 @@ export class CypherQueryParser {
 
   private static executeDelete(query: string, parameters: Record<string, any>, graphData: GraphData): LocalQueryResult {
     const counters = { nodesCreated: 0, relationshipsCreated: 0, nodesDeleted: 0, relationshipsDeleted: 0, propertiesSet: 0 };
-    
+
+    // Normalize query: replace newlines and multiple spaces with single space
+    const normalizedQuery = query.replace(/\s+/g, ' ').trim();
+
     // Parse MATCH...DELETE pattern
     const deletePattern = /MATCH\s*\((\w+):(\w+)\s*\{([^}]+)\}\)\s*(?:DETACH\s+)?DELETE\s+\1/i;
-    const match = query.match(deletePattern);
+    const match = normalizedQuery.match(deletePattern);
     
     if (match) {
       const [, variable, label, propsStr] = match;
