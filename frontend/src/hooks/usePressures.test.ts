@@ -182,7 +182,7 @@ describe('usePressures', () => {
     const pressure = result.current.pressuresWithContext[0]
 
     act(() => {
-      result.current.showEvidenceModal(pressure)
+      result.current.showEvidenceModalAction(pressure)
     })
 
     expect(result.current.explorationState.showEvidenceModal).toBe(true)

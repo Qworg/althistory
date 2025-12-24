@@ -8,10 +8,11 @@ import EventArcAssignment from './EventArcAssignment'
 import { Timeline } from './Timeline'
 import { Event, Arc, UpdateArcRequest, CreateArcRequest, TimeRange } from '@/types'
 
-// Mock the useCreateArc hook
+// Mock the useCreateArc hook with hoisted mock
+const mockMutateAsync = vi.fn()
 vi.mock('@/hooks/useAPI', () => ({
   useCreateArc: () => ({
-    mutateAsync: vi.fn(),
+    mutateAsync: mockMutateAsync,
     isPending: false
   })
 }))
@@ -114,17 +115,21 @@ describe('Arc Creation and Editing', () => {
 
     it('should validate time range', async () => {
       render(<ArcDetailPanel {...defaultProps} />)
-      
-      const startTimeInput = screen.getByLabelText('Start Time')
-      const endTimeInput = screen.getByLabelText('End Time')
-      
+
+      // Use ID selectors since labels contain required asterisk markers
+      const startTimeInput = document.getElementById('arc-start-time') as HTMLInputElement
+      const endTimeInput = document.getElementById('arc-end-time') as HTMLInputElement
+
+      expect(startTimeInput).toBeInTheDocument()
+      expect(endTimeInput).toBeInTheDocument()
+
       // Set end time before start time
       fireEvent.change(startTimeInput, { target: { value: '2024-01-31T00:00' } })
       fireEvent.change(endTimeInput, { target: { value: '2024-01-01T00:00' } })
-      
+
       const saveButton = screen.getByText('Save Changes')
       fireEvent.click(saveButton)
-      
+
       await waitFor(() => {
         expect(screen.getByText('End time must be after start time')).toBeInTheDocument()
       })
@@ -132,17 +137,21 @@ describe('Arc Creation and Editing', () => {
 
     it('should warn about events outside time range', async () => {
       render(<ArcDetailPanel {...defaultProps} />)
-      
-      const startTimeInput = screen.getByLabelText('Start Time')
-      const endTimeInput = screen.getByLabelText('End Time')
-      
-      // Set time range that excludes some events
+
+      // Use ID selectors since labels contain required asterisk markers
+      const startTimeInput = document.getElementById('arc-start-time') as HTMLInputElement
+      const endTimeInput = document.getElementById('arc-end-time') as HTMLInputElement
+
+      expect(startTimeInput).toBeInTheDocument()
+      expect(endTimeInput).toBeInTheDocument()
+
+      // Set time range that excludes some events (events are on Jan 15 and Jan 20)
       fireEvent.change(startTimeInput, { target: { value: '2024-01-01T00:00' } })
       fireEvent.change(endTimeInput, { target: { value: '2024-01-10T00:00' } })
-      
+
       const saveButton = screen.getByText('Save Changes')
       fireEvent.click(saveButton)
-      
+
       await waitFor(() => {
         expect(screen.getByText(/contained events would be outside the new time range/)).toBeInTheDocument()
       })
@@ -411,8 +420,6 @@ describe('Arc Creation and Editing', () => {
       end: new Date('2024-01-31T23:59:59Z')
     }
 
-    const mockCreateArc = vi.fn()
-
     const arcCreationProps = {
       isOpen: true,
       onClose: vi.fn(),
@@ -443,21 +450,35 @@ describe('Arc Creation and Editing', () => {
     })
 
     it('should validate required fields', async () => {
+      const user = userEvent.setup()
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } }
       })
-      
+
       render(
         <QueryClientProvider client={queryClient}>
           <ArcCreationModal {...arcCreationProps} />
         </QueryClientProvider>
       )
-      
-      const createButton = screen.getByText('Create Arc')
-      fireEvent.click(createButton)
-      
+
+      // Wait for component to initialize (useEffect runs)
+      await waitFor(() => {
+        expect(screen.getByText('Selected Time Range')).toBeInTheDocument()
+      })
+
+      // Submit the form without filling in name/description
+      const form = document.querySelector('form')
+      expect(form).toBeInTheDocument()
+
+      await act(async () => {
+        fireEvent.submit(form!)
+      })
+
+      // Check that validation errors appear
       await waitFor(() => {
         expect(screen.getByText('Name is required')).toBeInTheDocument()
+      })
+      await waitFor(() => {
         expect(screen.getByText('Description is required')).toBeInTheDocument()
       })
     })
@@ -467,24 +488,27 @@ describe('Arc Creation and Editing', () => {
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } }
       })
-      
-      mockCreateArc.mockResolvedValue(mockArc)
-      
+
+      mockMutateAsync.mockResolvedValue(mockArc)
+
       render(
         <QueryClientProvider client={queryClient}>
           <ArcCreationModal {...arcCreationProps} />
         </QueryClientProvider>
       )
-      
-      // Fill in form
-      await user.type(screen.getByLabelText('Name *'), 'New Arc')
-      await user.type(screen.getByLabelText('Description *'), 'New arc description')
-      
+
+      // Fill in form using ID selectors (labels have asterisks with different formatting)
+      const nameInput = document.getElementById('arc-name') as HTMLInputElement
+      const descInput = document.getElementById('arc-description') as HTMLTextAreaElement
+
+      await user.type(nameInput, 'New Arc')
+      await user.type(descInput, 'New arc description')
+
       // Submit form
       await user.click(screen.getByText('Create Arc'))
-      
+
       await waitFor(() => {
-        expect(mockCreateArc).toHaveBeenCalledWith({
+        expect(mockMutateAsync).toHaveBeenCalledWith({
           name: 'New Arc',
           description: 'New arc description',
           start_time: '2024-01-01T00:00:00.000Z',
@@ -576,9 +600,13 @@ describe('Arc Creation and Editing', () => {
 
     it('should render timeline with events and arcs', () => {
       render(<Timeline {...timelineProps} />)
-      
-      const timeline = screen.getByRole('application', { name: /interactive timeline/i })
-      expect(timeline).toBeInTheDocument()
+
+      // Check that the timeline SVG exists (it's an img role with timeline aria-label)
+      const svg = document.querySelector('svg')
+      expect(svg).toBeInTheDocument()
+
+      // Check that events are rendered
+      expect(document.querySelectorAll('[data-event-id]').length).toBe(2)
     })
 
     it('should handle time range selection for arc creation', async () => {

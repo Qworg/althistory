@@ -57,10 +57,11 @@ describe('useViewStateManager', () => {
   }
 
   beforeEach(() => {
+    vi.useFakeTimers()
     mockUseGlobalStore.mockReturnValue(mockStore as any)
     vi.clearAllMocks()
     mockSessionStorage.getItem.mockReturnValue(null)
-    
+
     // Mock DOM elements
     const mockMainElement = {
       scrollLeft: 100,
@@ -70,6 +71,9 @@ describe('useViewStateManager', () => {
   })
 
   afterEach(() => {
+    // Advance just enough time to run pending setTimeout (100ms) without triggering infinite interval
+    vi.advanceTimersByTime(200)
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -248,13 +252,13 @@ describe('useViewStateManager', () => {
     expect(mockSessionStorage.setItem).toHaveBeenCalled()
   })
 
-  it('restores scroll position with delay', async () => {
+  it('restores scroll position with delay', () => {
     const mockMainElement = {
       scrollLeft: 0,
       scrollTop: 0
     }
     vi.spyOn(document, 'querySelector').mockReturnValue(mockMainElement as any)
-    
+
     const savedState = {
       selectedEvents: [],
       selectedArcs: [],
@@ -264,18 +268,20 @@ describe('useViewStateManager', () => {
       centerPoint: null,
       timestamp: Date.now()
     }
-    
+
     mockSessionStorage.getItem.mockReturnValue(JSON.stringify(savedState))
-    
+
     const { result } = renderHook(() => useViewStateManager())
-    
+
     act(() => {
       result.current.restoreViewState('timeline')
     })
-    
-    // Wait for the setTimeout to execute
-    await new Promise(resolve => setTimeout(resolve, 150))
-    
+
+    // Advance fake timers to trigger the delayed scroll position restore
+    act(() => {
+      vi.advanceTimersByTime(150)
+    })
+
     expect(mockMainElement.scrollLeft).toBe(150)
     expect(mockMainElement.scrollTop).toBe(250)
   })

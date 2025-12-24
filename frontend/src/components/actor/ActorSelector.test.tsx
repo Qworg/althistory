@@ -99,26 +99,26 @@ describe('ActorSelector', () => {
 
     it('closes dropdown when clicking outside', async () => {
       const user = userEvent.setup()
-      
+
       renderWithProviders(
-        <div>
-          <ActorSelector
-            actors={mockActors}
-            selectedActor=""
-            onActorSelect={mockOnActorSelect}
-          />
-          <div data-testid="outside">Outside element</div>
-        </div>
+        <ActorSelector
+          actors={mockActors}
+          selectedActor=""
+          onActorSelect={mockOnActorSelect}
+        />
       )
-      
+
       const button = screen.getByRole('button')
       await user.click(button)
-      
+
       expect(screen.getByPlaceholderText('Search actors...')).toBeInTheDocument()
-      
-      const outside = screen.getByTestId('outside')
-      await user.click(outside)
-      
+
+      // The component uses a fixed overlay with aria-hidden="true" to catch outside clicks
+      // Click on the overlay to close the dropdown
+      const overlay = document.querySelector('[aria-hidden="true"]')
+      expect(overlay).toBeInTheDocument()
+      await user.click(overlay!)
+
       expect(screen.queryByPlaceholderText('Search actors...')).not.toBeInTheDocument()
     })
 

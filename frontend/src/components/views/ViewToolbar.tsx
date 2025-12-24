@@ -317,7 +317,7 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         onClick: clearSelection,
         disabled: !hasSelection,
         tooltip: 'Clear all selections (Escape)',
-        shortcut: 'Esc'
+        shortcut: 'Escape'
       },
       {
         id: 'clear-filters',

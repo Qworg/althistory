@@ -342,15 +342,20 @@ describe('useGraphCopy', () => {
       result.current.setCopyName('Test Copy')
     })
 
-    // Try to create copy
+    // Try to create copy - wrap in try-catch since it throws
     await act(async () => {
-      await result.current.createFullCopy()
+      try {
+        await result.current.createFullCopy()
+      } catch (e) {
+        // Expected to throw
+      }
     })
 
     expect(mockAddError).toHaveBeenCalledWith({
       message: 'Failed to create graph copy: API Error',
       type: 'network'
     })
+    expect(result.current.isCreatingCopy).toBe(false)
   })
 
   it('should cancel copy operation', () => {

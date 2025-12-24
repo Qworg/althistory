@@ -278,23 +278,29 @@ describe('useCausalPathExploration', () => {
       totalWeight: 0.6,
       confidence: 0.7
     }
-    
+
     mockApiClient.causal.findChain.mockResolvedValue([mockCausalPath, secondPath])
-    
+
     const { result } = renderHook(() => useCausalPathExploration())
-    
+
     await act(async () => {
       await result.current.startExploration('1')
     })
 
+    // Paths are sorted by cumulative strength (descending)
+    // secondPath has strength 0.72 (0.8 * 0.9) which is > mockCausalPath strength 0.3024 (0.8 * 0.9 * 0.6 * 0.7)
+    // So after sorting, secondPath is at index 0 and mockCausalPath is at index 1
+    expect(result.current.availablePaths).toHaveLength(2)
     expect(result.current.navigationState.currentPathIndex).toBe(0)
-    
+
     act(() => {
       result.current.navigateToPath(1)
     })
 
     expect(result.current.navigationState.currentPathIndex).toBe(1)
-    expect(result.current.currentHighlight?.path).toBe(secondPath)
+    // After navigating to path 1, we should see the mockCausalPath (3 events)
+    expect(result.current.currentHighlight?.path.events).toHaveLength(3)
+    expect(result.current.currentHighlight?.path.relationships).toHaveLength(2)
   })
 
   it('should navigate between steps', async () => {
