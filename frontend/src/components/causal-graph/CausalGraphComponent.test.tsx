@@ -4,7 +4,6 @@ import { CausalGraphComponent } from './CausalGraphComponent'
 import { useGlobalStore } from '@/stores/globalStore'
 import { Event, CausalRelationship } from '@/types'
 import {
-  createMockCytoscape,
   MockCytoscape
 } from '@/test/__mocks__/cytoscape'
 import {
@@ -15,10 +14,39 @@ import {
 // Mock Cytoscape - the factory will be set up in beforeEach
 vi.mock('cytoscape')
 
-// Mock the global store
-vi.mock('@/stores/globalStore', () => ({
-  useGlobalStore: vi.fn()
-}))
+// Mock the global store with getState support and selector support
+vi.mock('@/stores/globalStore', () => {
+  const mockState = {
+    events: [],
+    causalRelationships: [],
+    selectedEvents: [],
+    sessionData: {
+      viewportState: {
+        causalGraph: {
+          layout: 'cose',
+          nodePositions: {}
+        }
+      }
+    },
+    updateSessionData: vi.fn(),
+    addCausalRelationship: vi.fn(),
+    addError: vi.fn()
+  }
+
+  // Support both selector and no-selector usage
+  const mockFn = vi.fn((selector?: (state: typeof mockState) => unknown) => {
+    if (typeof selector === 'function') {
+      return selector(mockState)
+    }
+    return mockState
+  })
+  ;(mockFn as any).getState = () => mockState
+  ;(mockFn as any)._mockState = mockState
+
+  return {
+    useGlobalStore: mockFn
+  }
+})
 
 // Mock hooks
 vi.mock('@/hooks/useCausalPathExploration', () => ({
@@ -101,6 +129,8 @@ vi.mock('@/services/api', () => ({
 import cytoscape from 'cytoscape'
 
 const mockUseGlobalStore = useGlobalStore as any
+// Get reference to the mock state for tests that need to check/modify it
+const getMockStoreState = () => mockUseGlobalStore._mockState
 
 describe('CausalGraphComponent', () => {
   const mockEvents: Event[] = [
@@ -138,23 +168,6 @@ describe('CausalGraphComponent', () => {
     }
   ]
 
-  const mockStoreState = {
-    events: mockEvents,
-    causalRelationships: mockCausalRelationships,
-    selectedEvents: [],
-    sessionData: {
-      viewportState: {
-        causalGraph: {
-          layout: 'cose',
-          nodePositions: {}
-        }
-      }
-    },
-    updateSessionData: vi.fn(),
-    addCausalRelationship: vi.fn(),
-    addError: vi.fn()
-  }
-
   let mockCy: MockCytoscape
 
   beforeEach(() => {
@@ -167,7 +180,16 @@ describe('CausalGraphComponent', () => {
     // Set up cytoscape mock to return our instance
     vi.mocked(cytoscape).mockReturnValue(mockCy as any)
 
-    mockUseGlobalStore.mockReturnValue(mockStoreState)
+    // Update the mock state with test data
+    const mockState = (mockUseGlobalStore as any)._mockState
+    if (mockState) {
+      mockState.events = mockEvents
+      mockState.causalRelationships = mockCausalRelationships
+      mockState.selectedEvents = []
+      mockState.updateSessionData = vi.fn()
+      mockState.addCausalRelationship = vi.fn()
+      mockState.addError = vi.fn()
+    }
   })
 
   afterEach(() => {
@@ -368,18 +390,16 @@ describe('CausalGraphComponent', () => {
       vi.clearAllMocks()
 
       // Update store data
-      mockUseGlobalStore.mockReturnValue({
-        ...mockStoreState,
-        events: [...mockEvents, {
-          id: '3',
-          description: 'Event 3',
-          actor: 'Actor 3',
-          target: 'Target 3',
-          timestamp: '2023-01-03T00:00:00Z',
-          created_at: '2023-01-03T00:00:00Z',
-          updated_at: '2023-01-03T00:00:00Z'
-        }]
-      })
+      const mockState = getMockStoreState()
+      mockState.events = [...mockEvents, {
+        id: '3',
+        description: 'Event 3',
+        actor: 'Actor 3',
+        target: 'Target 3',
+        timestamp: '2023-01-03T00:00:00Z',
+        created_at: '2023-01-03T00:00:00Z',
+        updated_at: '2023-01-03T00:00:00Z'
+      }]
 
       rerender(<CausalGraphComponent />)
 
@@ -423,11 +443,9 @@ describe('CausalGraphComponent', () => {
     })
 
     it('handles empty data gracefully', async () => {
-      mockUseGlobalStore.mockReturnValue({
-        ...mockStoreState,
-        events: [],
-        causalRelationships: []
-      })
+      const mockState = getMockStoreState()
+      mockState.events = []
+      mockState.causalRelationships = []
 
       render(<CausalGraphComponent />)
 
@@ -483,11 +501,12 @@ describe('CausalGraphComponent', () => {
 
       handlers[0]!()
 
-      expect(mockStoreState.updateSessionData).toHaveBeenCalledWith({
+      const mockState = getMockStoreState()
+      expect(mockState.updateSessionData).toHaveBeenCalledWith({
         viewportState: {
-          ...mockStoreState.sessionData.viewportState,
+          ...mockState.sessionData.viewportState,
           causalGraph: {
-            ...mockStoreState.sessionData.viewportState.causalGraph,
+            ...mockState.sessionData.viewportState.causalGraph,
             nodePositions: {
               '1': { x: 100, y: 200 },
               '2': { x: 300, y: 400 }

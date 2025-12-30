@@ -107,6 +107,7 @@ const mockArcs: Arc[] = [
     description: 'First arc',
     start_time: '2024-01-01T00:00:00Z',
     end_time: '2024-01-02T23:59:59Z',
+    level: 0,
     parent_arc_id: null,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z'
@@ -117,6 +118,7 @@ const mockArcs: Arc[] = [
     description: 'Second arc',
     start_time: '2024-01-03T00:00:00Z',
     end_time: '2024-01-04T23:59:59Z',
+    level: 0,
     parent_arc_id: null,
     created_at: '2024-01-03T00:00:00Z',
     updated_at: '2024-01-03T00:00:00Z'

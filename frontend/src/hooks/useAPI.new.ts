@@ -284,19 +284,20 @@ export function useCreateCausalLink(options?: UseMutationOptions<CausalRelations
   })
 }
 
-export function useUpdateCausalLink(options?: UseMutationOptions<CausalRelationship, APIError, { id: string; data: Partial<CausalRelationship> }>) {
+export function useUpdateCausalLink(options?: UseMutationOptions<CausalRelationship, APIError, { causeEventId: string; effectEventId: string; data: Partial<CausalRelationshipData> }>) {
   const queryClient = useQueryClient()
   const { updateCausalRelationship } = useGlobalStore(state => ({
     updateCausalRelationship: state.updateCausalRelationship
   }))
-  
+
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<CausalRelationship> }) =>
-      apiClient.causal.updateLink(id, data),
-    onSuccess: (updatedRelationship) => {
+    mutationFn: ({ causeEventId, effectEventId, data }: { causeEventId: string; effectEventId: string; data: Partial<CausalRelationshipData> }) =>
+      apiClient.causal.updateLink(causeEventId, effectEventId, data),
+    onSuccess: (updatedRelationship, { causeEventId, effectEventId }) => {
       // Update local state
-      updateCausalRelationship(updatedRelationship.id, updatedRelationship)
-      
+      const id = `${causeEventId}_${effectEventId}`
+      updateCausalRelationship(id, updatedRelationship)
+
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.causal.all })
     },
@@ -304,18 +305,20 @@ export function useUpdateCausalLink(options?: UseMutationOptions<CausalRelations
   })
 }
 
-export function useDeleteCausalLink(options?: UseMutationOptions<void, APIError, string>) {
+export function useDeleteCausalLink(options?: UseMutationOptions<void, APIError, { causeEventId: string; effectEventId: string }>) {
   const queryClient = useQueryClient()
   const { deleteCausalRelationship } = useGlobalStore(state => ({
     deleteCausalRelationship: state.deleteCausalRelationship
   }))
-  
+
   return useMutation({
-    mutationFn: (id: string) => apiClient.causal.deleteLink(id),
-    onSuccess: (_, id) => {
+    mutationFn: ({ causeEventId, effectEventId }: { causeEventId: string; effectEventId: string }) =>
+      apiClient.causal.deleteLink(causeEventId, effectEventId),
+    onSuccess: (_, { causeEventId, effectEventId }) => {
       // Update local state
+      const id = `${causeEventId}_${effectEventId}`
       deleteCausalRelationship(id)
-      
+
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.causal.all })
     },

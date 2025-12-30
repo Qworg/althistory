@@ -15,6 +15,7 @@ export interface Arc {
   description: string
   start_time: string
   end_time: string
+  level: number
   parent_arc_id: string | null
   created_at: string
   updated_at: string
@@ -61,6 +62,7 @@ export interface CreateArcRequest {
   description: string
   start_time: string
   end_time: string
+  level: number
   parent_arc_id?: string | null
 }
 
@@ -69,6 +71,7 @@ export interface UpdateArcRequest {
   description?: string
   start_time?: string
   end_time?: string
+  level?: number
   parent_arc_id?: string | null
 }
 
@@ -187,6 +190,8 @@ export interface FilterState {
 
 export type ViewMode = 'timeline' | 'causal' | 'actor-perspective'
 
+export type LayoutMode = 'sidebar' | 'topbar'
+
 export interface ErrorState {
   id: string
   message: string
@@ -197,6 +202,7 @@ export interface ErrorState {
 // User preferences that should be persisted
 export interface UserPreferences {
   theme: 'light' | 'dark' | 'system'
+  layoutMode: LayoutMode
   defaultViewMode: ViewMode
   timelineHeight: number
   showEventLabels: boolean
@@ -224,6 +230,7 @@ export interface SessionData {
     timeline: {
       zoomLevel: number
       centerTime: string | null
+      fitToViewTrigger: number
     }
     causalGraph: {
       layout: string

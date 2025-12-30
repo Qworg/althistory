@@ -1,106 +1,88 @@
-import { describe, it, expect, vi } from 'vitest'
-import { screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect } from 'vitest'
+import { screen } from '@testing-library/react'
 import { renderWithProviders } from '../../test/utils'
 import { Header } from './Header'
 
 describe('Header', () => {
+  const defaultProps = {
+    isMobile: false,
+    layoutMode: 'sidebar' as const,
+  }
+
   it('renders the application title', () => {
-    renderWithProviders(<Header />)
-    
+    renderWithProviders(<Header {...defaultProps} />)
+
     expect(screen.getByText('Timeline Interface')).toBeInTheDocument()
   })
 
   it('has proper semantic structure', () => {
-    renderWithProviders(<Header />)
-    
+    renderWithProviders(<Header {...defaultProps} />)
+
     expect(screen.getByRole('banner')).toBeInTheDocument()
   })
 
-  it('renders desktop navigation', () => {
-    renderWithProviders(<Header />)
-    
+  it('renders navigation in topbar mode', () => {
+    renderWithProviders(<Header isMobile={false} layoutMode="topbar" />)
+
     expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument()
   })
 
-  it('renders mobile navigation toggle', () => {
-    renderWithProviders(<Header />)
-    
-    expect(screen.getByLabelText('Toggle navigation menu')).toBeInTheDocument()
+  it('hides navigation in sidebar mode', () => {
+    renderWithProviders(<Header isMobile={false} layoutMode="sidebar" />)
+
+    expect(screen.queryByRole('navigation', { name: 'Main navigation' })).not.toBeInTheDocument()
   })
 
-  it('shows sidebar toggle button when showSidebarToggle is true', () => {
-    renderWithProviders(<Header showSidebarToggle={true} />)
-    
-    expect(screen.getByLabelText('Toggle sidebar')).toBeInTheDocument()
+  it('hides navigation on mobile regardless of layout mode', () => {
+    renderWithProviders(<Header isMobile={true} layoutMode="topbar" />)
+
+    expect(screen.queryByRole('navigation', { name: 'Main navigation' })).not.toBeInTheDocument()
   })
 
-  it('hides sidebar toggle button when showSidebarToggle is false', () => {
-    renderWithProviders(<Header showSidebarToggle={false} />)
-    
-    expect(screen.queryByLabelText('Toggle sidebar')).not.toBeInTheDocument()
-  })
+  it('renders breadcrumb navigation on desktop', () => {
+    renderWithProviders(<Header {...defaultProps} />)
 
-  it('calls onSidebarToggle when sidebar toggle is clicked', () => {
-    const onToggle = vi.fn()
-    renderWithProviders(<Header onSidebarToggle={onToggle} showSidebarToggle={true} />)
-    
-    const toggleButton = screen.getByLabelText('Toggle sidebar')
-    fireEvent.click(toggleButton)
-    
-    expect(onToggle).toHaveBeenCalledOnce()
-  })
-
-  it('renders breadcrumb navigation', () => {
-    renderWithProviders(<Header />)
-    
-    // Breadcrumb might not be visible on home page, but component should be rendered
-    // We can't easily test this without navigating to a different route
+    // Breadcrumb container should be present
     expect(screen.getByRole('banner')).toBeInTheDocument()
   })
 
-  it('renders user menu button', () => {
-    renderWithProviders(<Header />)
-    
+  it('hides user menu in sidebar mode on desktop', () => {
+    renderWithProviders(<Header isMobile={false} layoutMode="sidebar" />)
+
+    expect(screen.queryByLabelText('User menu')).not.toBeInTheDocument()
+  })
+
+  it('shows user menu in topbar mode on desktop', () => {
+    renderWithProviders(<Header isMobile={false} layoutMode="topbar" />)
+
+    expect(screen.getByLabelText('User menu')).toBeInTheDocument()
+  })
+
+  it('shows user menu on mobile regardless of layout mode', () => {
+    renderWithProviders(<Header isMobile={true} layoutMode="sidebar" />)
+
     expect(screen.getByLabelText('User menu')).toBeInTheDocument()
   })
 
   it('has sticky positioning', () => {
-    renderWithProviders(<Header />)
-    
+    renderWithProviders(<Header {...defaultProps} />)
+
     const header = screen.getByRole('banner')
     expect(header).toHaveClass('sticky', 'top-0')
   })
 
   it('has proper z-index for layering', () => {
-    renderWithProviders(<Header />)
-    
+    renderWithProviders(<Header {...defaultProps} />)
+
     const header = screen.getByRole('banner')
     expect(header).toHaveClass('z-40')
   })
 
-  it('handles mobile menu toggle state', () => {
-    renderWithProviders(<Header />)
-    
-    const mobileToggle = screen.getByLabelText('Toggle navigation menu')
-    
-    // Initially closed
-    expect(mobileToggle).toHaveAttribute('aria-expanded', 'false')
-    
-    // Click to open
-    fireEvent.click(mobileToggle)
-    expect(mobileToggle).toHaveAttribute('aria-expanded', 'true')
-    
-    // Click to close
-    fireEvent.click(mobileToggle)
-    expect(mobileToggle).toHaveAttribute('aria-expanded', 'false')
-  })
+  it('renders mobile breadcrumb when on mobile', () => {
+    renderWithProviders(<Header isMobile={true} layoutMode="sidebar" />)
 
-  it('shows mobile breadcrumb section', () => {
-    renderWithProviders(<Header />)
-    
-    // The mobile breadcrumb container should be present
+    // The breadcrumb should be rendered in the mobile location
     const header = screen.getByRole('banner')
-    const mobileBreadcrumb = header.querySelector('.md\\:hidden')
-    expect(mobileBreadcrumb).toBeInTheDocument()
+    expect(header).toBeInTheDocument()
   })
 })

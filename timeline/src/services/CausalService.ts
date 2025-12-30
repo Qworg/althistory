@@ -1,9 +1,10 @@
 import { Event } from '@/models';
 import { CausalRelationship, CausalPath, CausalCycle, CausalSuggestion, CausalValidationResult } from '@/models/relationships';
-import { getDatabaseManager } from '@/utils/database';
-import { CausalParadoxError, ValidationError, DatabaseError } from '@/utils/errors';
+import { getDatabaseManager, LocalDatabaseManager } from '@/utils/database';
+import { CausalParadoxError, ValidationError, DatabaseError, NotFoundError } from '@/utils/errors';
 import { getCacheManager, CacheKeyGenerator } from '@/utils/cache';
 import { CacheInvalidationService } from './CacheInvalidationService';
+import { loadConfig } from '@/utils/config';
 
 /**
  * Service for managing causal relationships and chain analysis
@@ -35,6 +36,253 @@ export class CausalService {
 
     // Invalidate related cache entries
     await this.cacheInvalidationService.invalidateCausalCache();
+  }
+
+  /**
+   * Delete a causal link between two events
+   */
+  async deleteCausalLink(causeEventId: string, effectEventId: string): Promise<void> {
+    const config = loadConfig();
+
+    if (config.localExecution.enabled) {
+      // Local mode: use LocalGraphStore
+      const dbManager = getDatabaseManager() as LocalDatabaseManager;
+      const graphStore = dbManager.getGraphStore();
+
+      const relationship = await graphStore.findRelationshipByNodes(causeEventId, effectEventId, 'CAUSES');
+      if (!relationship) {
+        throw new NotFoundError(
+          `Causal relationship from ${causeEventId} to ${effectEventId} not found`,
+          'CausalRelationship',
+          `${causeEventId}->${effectEventId}`
+        );
+      }
+
+      await graphStore.deleteRelationship(relationship.id);
+      await graphStore.save();
+    } else {
+      // Cloud mode: use Neo4j
+      const session = getDatabaseManager().getNeo4jSession();
+
+      try {
+        const query = `
+          MATCH (cause:Event {id: $causeEventId})-[r:CAUSES]->(effect:Event {id: $effectEventId})
+          DELETE r
+          RETURN count(r) as deletedCount
+        `;
+
+        const result = await session.run(query, { causeEventId, effectEventId });
+        const deletedCount = result.records[0]?.get('deletedCount')?.toNumber?.() || result.records[0]?.get('deletedCount') || 0;
+
+        if (deletedCount === 0) {
+          throw new NotFoundError(
+            `Causal relationship from ${causeEventId} to ${effectEventId} not found`,
+            'CausalRelationship',
+            `${causeEventId}->${effectEventId}`
+          );
+        }
+      } catch (error) {
+        if (error instanceof NotFoundError) {
+          throw error;
+        }
+        throw new DatabaseError(
+          'Failed to delete causal relationship',
+          'deleteCausalLink',
+          error as Error
+        );
+      } finally {
+        await session.close();
+      }
+    }
+
+    // Invalidate related cache entries
+    await this.cacheInvalidationService.invalidateCausalCache();
+  }
+
+  /**
+   * Update a causal link between two events
+   */
+  async updateCausalLink(
+    causeEventId: string,
+    effectEventId: string,
+    updates: Partial<CausalRelationship>
+  ): Promise<CausalRelationship> {
+    // Validate update values
+    if (updates.weight !== undefined && (updates.weight < 0 || updates.weight > 1)) {
+      throw new ValidationError('Weight must be between 0.0 and 1.0', 'weight', updates.weight);
+    }
+    if (updates.confidence !== undefined && (updates.confidence < 0 || updates.confidence > 1)) {
+      throw new ValidationError('Confidence must be between 0.0 and 1.0', 'confidence', updates.confidence);
+    }
+    if (updates.relationship_type !== undefined && !['direct', 'indirect', 'contributory'].includes(updates.relationship_type)) {
+      throw new ValidationError('Relationship type must be direct, indirect, or contributory', 'relationship_type', updates.relationship_type);
+    }
+
+    const config = loadConfig();
+    let updatedRelationship: CausalRelationship;
+
+    if (config.localExecution.enabled) {
+      // Local mode: use LocalGraphStore
+      const dbManager = getDatabaseManager() as LocalDatabaseManager;
+      const graphStore = dbManager.getGraphStore();
+
+      const relationship = await graphStore.findRelationshipByNodes(causeEventId, effectEventId, 'CAUSES');
+      if (!relationship) {
+        throw new NotFoundError(
+          `Causal relationship from ${causeEventId} to ${effectEventId} not found`,
+          'CausalRelationship',
+          `${causeEventId}->${effectEventId}`
+        );
+      }
+
+      const updateProps: Record<string, any> = {};
+      if (updates.weight !== undefined) updateProps.weight = updates.weight;
+      if (updates.confidence !== undefined) updateProps.confidence = updates.confidence;
+      if (updates.evidence !== undefined) updateProps.evidence = updates.evidence;
+      if (updates.relationship_type !== undefined) updateProps.relationship_type = updates.relationship_type;
+      updateProps.updated_at = new Date().toISOString();
+
+      const updated = await graphStore.updateRelationship(relationship.id, updateProps);
+      await graphStore.save();
+
+      updatedRelationship = {
+        weight: updated!.properties.weight,
+        evidence: updated!.properties.evidence,
+        confidence: updated!.properties.confidence,
+        relationship_type: updated!.properties.relationship_type
+      };
+    } else {
+      // Cloud mode: use Neo4j
+      const session = getDatabaseManager().getNeo4jSession();
+
+      try {
+        // Build SET clauses dynamically
+        const setClauses: string[] = [];
+        const params: Record<string, any> = { causeEventId, effectEventId };
+
+        if (updates.weight !== undefined) {
+          setClauses.push('r.weight = $weight');
+          params.weight = updates.weight;
+        }
+        if (updates.confidence !== undefined) {
+          setClauses.push('r.confidence = $confidence');
+          params.confidence = updates.confidence;
+        }
+        if (updates.evidence !== undefined) {
+          setClauses.push('r.evidence = $evidence');
+          params.evidence = updates.evidence;
+        }
+        if (updates.relationship_type !== undefined) {
+          setClauses.push('r.relationship_type = $relationshipType');
+          params.relationshipType = updates.relationship_type;
+        }
+        setClauses.push('r.updated_at = datetime()');
+
+        const query = `
+          MATCH (cause:Event {id: $causeEventId})-[r:CAUSES]->(effect:Event {id: $effectEventId})
+          SET ${setClauses.join(', ')}
+          RETURN r
+        `;
+
+        const result = await session.run(query, params);
+
+        if (result.records.length === 0) {
+          throw new NotFoundError(
+            `Causal relationship from ${causeEventId} to ${effectEventId} not found`,
+            'CausalRelationship',
+            `${causeEventId}->${effectEventId}`
+          );
+        }
+
+        const rel = result.records[0].get('r');
+        updatedRelationship = {
+          weight: rel.properties.weight,
+          evidence: rel.properties.evidence,
+          confidence: rel.properties.confidence,
+          relationship_type: rel.properties.relationship_type
+        };
+      } catch (error) {
+        if (error instanceof NotFoundError || error instanceof ValidationError) {
+          throw error;
+        }
+        throw new DatabaseError(
+          'Failed to update causal relationship',
+          'updateCausalLink',
+          error as Error
+        );
+      } finally {
+        await session.close();
+      }
+    }
+
+    // Invalidate related cache entries
+    await this.cacheInvalidationService.invalidateCausalCache();
+
+    return updatedRelationship;
+  }
+
+  /**
+   * Get all causal relationships in the system
+   */
+  async getAllRelationships(): Promise<Array<{
+    id: string;
+    cause_event_id: string;
+    effect_event_id: string;
+    weight: number;
+    confidence: number;
+    evidence: string;
+    relationship_type: string;
+  }>> {
+    const config = loadConfig();
+
+    if (config.localExecution.enabled) {
+      // Local mode: use LocalGraphStore
+      const dbManager = getDatabaseManager() as LocalDatabaseManager;
+      const graphStore = dbManager.getGraphStore();
+
+      const relationships = await graphStore.findRelationshipsByType('CAUSES');
+      return relationships.map(rel => ({
+        id: rel.id,
+        cause_event_id: rel.startNodeId,
+        effect_event_id: rel.endNodeId,
+        weight: rel.properties.weight || 0.5,
+        confidence: rel.properties.confidence || 0.7,
+        evidence: rel.properties.evidence || '',
+        relationship_type: rel.properties.relationship_type || 'direct'
+      }));
+    } else {
+      // Cloud mode: use Neo4j
+      const session = getDatabaseManager().getNeo4jSession();
+
+      try {
+        const query = `
+          MATCH (cause:Event)-[r:CAUSES]->(effect:Event)
+          RETURN r.id as id, cause.id as cause_event_id, effect.id as effect_event_id,
+                 r.weight as weight, r.confidence as confidence,
+                 r.evidence as evidence, r.relationship_type as relationship_type
+        `;
+
+        const result = await session.run(query);
+
+        return result.records.map(record => ({
+          id: record.get('id'),
+          cause_event_id: record.get('cause_event_id'),
+          effect_event_id: record.get('effect_event_id'),
+          weight: record.get('weight') || 0.5,
+          confidence: record.get('confidence') || 0.7,
+          evidence: record.get('evidence') || '',
+          relationship_type: record.get('relationship_type') || 'direct'
+        }));
+      } catch (error) {
+        throw new DatabaseError(
+          'Failed to get causal relationships',
+          'getAllRelationships',
+          error as Error
+        );
+      } finally {
+        await session.close();
+      }
+    }
   }
 
   /**
@@ -267,51 +515,94 @@ export class CausalService {
   }
 
   /**
-   * Stores the causal relationship in the Neo4j database
+   * Stores the causal relationship in the database (supports local and cloud modes)
    */
   private async storeCausalRelationship(cause: Event, effect: Event, relationship: CausalRelationship): Promise<void> {
-    const session = getDatabaseManager().getNeo4jSession();
-    
-    try {
-      const query = `
-        MATCH (cause:Event {id: $causeId})
-        MATCH (effect:Event {id: $effectId})
-        CREATE (cause)-[r:CAUSES {
-          weight: $weight,
-          evidence: $evidence,
-          confidence: $confidence,
-          relationship_type: $relationshipType,
-          created_at: datetime()
-        }]->(effect)
-        RETURN r
-      `;
+    const config = loadConfig();
 
-      const result = await session.run(query, {
-        causeId: cause.id,
-        effectId: effect.id,
-        weight: relationship.weight,
-        evidence: relationship.evidence,
-        confidence: relationship.confidence,
-        relationshipType: relationship.relationship_type
-      });
+    if (config.localExecution.enabled) {
+      // Local mode: use LocalGraphStore
+      const dbManager = getDatabaseManager() as LocalDatabaseManager;
+      const graphStore = dbManager.getGraphStore();
 
-      if (result.records.length === 0) {
+      // Verify both events exist
+      const causeNode = await graphStore.getNode(cause.id);
+      const effectNode = await graphStore.getNode(effect.id);
+
+      if (!causeNode || !effectNode) {
         throw new DatabaseError(
           'Failed to create causal relationship - one or both events may not exist',
           'createCausalRelationship'
         );
       }
-    } catch (error) {
-      if (error instanceof DatabaseError) {
-        throw error;
-      }
-      throw new DatabaseError(
-        'Failed to store causal relationship in database',
-        'createCausalRelationship',
-        error as Error
+
+      // Create the relationship
+      const result = await graphStore.createRelationship(
+        cause.id,
+        effect.id,
+        'CAUSES',
+        {
+          weight: relationship.weight,
+          evidence: relationship.evidence,
+          confidence: relationship.confidence,
+          relationship_type: relationship.relationship_type,
+          created_at: new Date().toISOString()
+        }
       );
-    } finally {
-      await session.close();
+
+      if (!result) {
+        throw new DatabaseError(
+          'Failed to create causal relationship - nodes may not exist in local store',
+          'createCausalRelationship'
+        );
+      }
+
+      await graphStore.save();
+    } else {
+      // Cloud mode: use Neo4j
+      const session = getDatabaseManager().getNeo4jSession();
+
+      try {
+        const query = `
+          MATCH (cause:Event {id: $causeId})
+          MATCH (effect:Event {id: $effectId})
+          CREATE (cause)-[r:CAUSES {
+            weight: $weight,
+            evidence: $evidence,
+            confidence: $confidence,
+            relationship_type: $relationshipType,
+            created_at: datetime()
+          }]->(effect)
+          RETURN r
+        `;
+
+        const result = await session.run(query, {
+          causeId: cause.id,
+          effectId: effect.id,
+          weight: relationship.weight,
+          evidence: relationship.evidence,
+          confidence: relationship.confidence,
+          relationshipType: relationship.relationship_type
+        });
+
+        if (result.records.length === 0) {
+          throw new DatabaseError(
+            'Failed to create causal relationship - one or both events may not exist',
+            'createCausalRelationship'
+          );
+        }
+      } catch (error) {
+        if (error instanceof DatabaseError) {
+          throw error;
+        }
+        throw new DatabaseError(
+          'Failed to store causal relationship in database',
+          'createCausalRelationship',
+          error as Error
+        );
+      } finally {
+        await session.close();
+      }
     }
   }
 }

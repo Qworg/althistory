@@ -1,11 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CopyHistoryPanel } from './CopyHistoryPanel'
 import { useGraphCopy } from '@/hooks/useGraphCopy'
 import { CopyOperation } from '@/types'
-import { createMockCopyOperation, copyHistoryPanelScenarios } from '@/test/fixtures/modalFixtures'
 
 // Mock the useGraphCopy hook
 vi.mock('@/hooks/useGraphCopy')

@@ -1,12 +1,12 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import { 
-  Event, 
-  Arc, 
-  CausalRelationship, 
-  InferredPressure, 
-  FilterState, 
-  ViewMode, 
+import {
+  Event,
+  Arc,
+  CausalRelationship,
+  InferredPressure,
+  FilterState,
+  ViewMode,
   ErrorState,
   UserPreferences,
   SessionData,
@@ -110,6 +110,7 @@ const initialFilters: FilterState = {
 
 const initialUserPreferences: UserPreferences = {
   theme: 'system',
+  layoutMode: 'sidebar',
   defaultViewMode: 'timeline',
   timelineHeight: 600,
   showEventLabels: true,
@@ -136,9 +137,10 @@ const initialSessionData: SessionData = {
     timeline: {
       zoomLevel: 1,
       centerTime: null,
+      fitToViewTrigger: 0,
     },
     causalGraph: {
-      layout: 'force-directed',
+      layout: 'cose',
       nodePositions: {},
     },
   },

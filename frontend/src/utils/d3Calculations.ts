@@ -231,3 +231,93 @@ export function formatDuration(start: Date, end: Date): string {
     return `${diffYears} years`
   }
 }
+
+/**
+ * Time span thresholds in milliseconds for format selection.
+ */
+const TIME_THRESHOLDS = {
+  ONE_DAY: 24 * 60 * 60 * 1000,
+  TWO_WEEKS: 14 * 24 * 60 * 60 * 1000,
+  TWO_MONTHS: 60 * 24 * 60 * 60 * 1000,
+  TWO_YEARS: 730 * 24 * 60 * 60 * 1000,
+  TWO_DECADES: 7300 * 24 * 60 * 60 * 1000,
+}
+
+/**
+ * Determines the appropriate time axis format based on the visible time span.
+ *
+ * Format selection:
+ * - Within 1 day: hours:minutes:seconds (HH:MM:SS)
+ * - Within 2 weeks: weekday + day (Mon 24)
+ * - Within 2 months: month + day (Dec 24)
+ * - Within 2 years: month + year (Dec 2025)
+ * - Within 2 decades: year (2025)
+ * - Beyond 2 decades: decade (2020s)
+ *
+ * @param timeSpanMs - The time span in milliseconds
+ * @returns D3 time format string
+ */
+export function getTimeAxisFormat(timeSpanMs: number): string {
+  if (timeSpanMs <= TIME_THRESHOLDS.ONE_DAY) {
+    return '%H:%M:%S'
+  } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_WEEKS) {
+    return '%a %d'
+  } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_MONTHS) {
+    return '%b %d'
+  } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_YEARS) {
+    return '%b %Y'
+  } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_DECADES) {
+    return '%Y'
+  } else {
+    // Decades - custom formatting needed
+    return 'decade'
+  }
+}
+
+/**
+ * Formats a tick value based on the visible time span.
+ * Handles standard D3 formats and special cases like decades.
+ *
+ * @param tick - The Date to format
+ * @param timeSpanMs - The visible time span in milliseconds
+ * @returns Formatted string for the tick label
+ */
+export function formatTimeAxisTick(tick: Date, timeSpanMs: number): string {
+  const format = getTimeAxisFormat(timeSpanMs)
+
+  if (format === 'decade') {
+    const year = tick.getFullYear()
+    const decadeStart = Math.floor(year / 10) * 10
+    return `${decadeStart}s`
+  }
+
+  return d3.timeFormat(format)(tick)
+}
+
+/**
+ * Returns appropriate D3 time interval for tick generation based on time span.
+ *
+ * @param timeSpanMs - The time span in milliseconds
+ * @returns D3 time interval for tick generation
+ */
+export function getTimeAxisInterval(timeSpanMs: number): d3.TimeInterval {
+  if (timeSpanMs <= TIME_THRESHOLDS.ONE_DAY) {
+    // Within a day: hourly ticks
+    return d3.timeHour
+  } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_WEEKS) {
+    // Within 2 weeks: daily ticks
+    return d3.timeDay
+  } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_MONTHS) {
+    // Within 2 months: weekly ticks
+    return d3.timeWeek
+  } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_YEARS) {
+    // Within 2 years: monthly ticks
+    return d3.timeMonth
+  } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_DECADES) {
+    // Within 2 decades: yearly ticks
+    return d3.timeYear
+  } else {
+    // Beyond 2 decades: decade ticks (every 10 years)
+    return d3.timeYear.every(10) as d3.TimeInterval
+  }
+}

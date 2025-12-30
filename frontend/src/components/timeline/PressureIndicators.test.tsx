@@ -68,6 +68,7 @@ describe('PressureIndicators', () => {
       description: 'First test arc',
       start_time: '2023-01-01T00:00:00Z',
       end_time: '2023-01-31T00:00:00Z',
+      level: 0,
       parent_arc_id: null,
       created_at: '2023-01-01T00:00:00Z',
       updated_at: '2023-01-01T00:00:00Z'

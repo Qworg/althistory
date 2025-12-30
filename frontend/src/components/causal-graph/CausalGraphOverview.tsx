@@ -31,6 +31,10 @@ export function CausalGraphOverview({
   const [mainViewport, setMainViewport] = useState<BoundingBox | null>(null)
   const [isDragging, setIsDragging] = useState(false)
 
+  // Refs to store latest callback versions (fixes stale closure in event listeners)
+  const updateViewportIndicatorRef = useRef<() => void>(() => {})
+  const drawViewportOverlayRef = useRef<() => void>(() => {})
+
   // Initialize overview Cytoscape instance
   const initializeOverview = useCallback(() => {
     if (!containerRef.current || overviewCyRef.current || !mainCytoscapeInstance) return
@@ -200,17 +204,26 @@ export function CausalGraphOverview({
     if (!overviewCyRef.current || !mainCytoscapeInstance || !isInitialized) return
 
     // Get main graph viewport
-    const mainViewport = mainCytoscapeInstance.extent()
-    setMainViewport(mainViewport)
+    const newViewport = mainCytoscapeInstance.extent()
+
+    // Only update state if viewport actually changed (avoid unnecessary re-renders)
+    setMainViewport(prev => {
+      if (!prev ||
+          prev.x1 !== newViewport.x1 || prev.x2 !== newViewport.x2 ||
+          prev.y1 !== newViewport.y1 || prev.y2 !== newViewport.y2) {
+        return newViewport
+      }
+      return prev
+    })
 
     // Highlight nodes in current viewport
     overviewCyRef.current.nodes().removeClass('in-viewport')
-    
+
     mainCytoscapeInstance.nodes().forEach(mainNode => {
       const pos = mainNode.position()
-      const isInViewport = pos.x >= mainViewport.x1 && pos.x <= mainViewport.x2 &&
-                          pos.y >= mainViewport.y1 && pos.y <= mainViewport.y2
-      
+      const isInViewport = pos.x >= newViewport.x1 && pos.x <= newViewport.x2 &&
+                          pos.y >= newViewport.y1 && pos.y <= newViewport.y2
+
       if (isInViewport) {
         const overviewNode = overviewCyRef.current?.getElementById(mainNode.id())
         overviewNode?.addClass('in-viewport')
@@ -218,9 +231,9 @@ export function CausalGraphOverview({
     })
 
     // Notify parent of viewport change
-    onViewportChange?.(mainViewport)
+    onViewportChange?.(newViewport)
 
-  }, [overviewCyRef, mainCytoscapeInstance, isInitialized, onViewportChange])
+  }, [mainCytoscapeInstance, isInitialized, onViewportChange])
 
   // Draw viewport rectangle overlay
   const drawViewportOverlay = useCallback(() => {
@@ -277,14 +290,23 @@ export function CausalGraphOverview({
     }
   }, [isInitialized, updateOverviewData])
 
+  // Keep refs in sync with latest callbacks
+  useEffect(() => {
+    updateViewportIndicatorRef.current = updateViewportIndicator
+  }, [updateViewportIndicator])
+
+  useEffect(() => {
+    drawViewportOverlayRef.current = drawViewportOverlay
+  }, [drawViewportOverlay])
+
   // Listen to main graph viewport changes
   useEffect(() => {
     if (!mainCytoscapeInstance || !isInitialized) return
 
     const handleViewportChange = () => {
-      updateViewportIndicator()
+      updateViewportIndicatorRef.current()
       if (showMinimap) {
-        drawViewportOverlay()
+        drawViewportOverlayRef.current()
       }
     }
 
@@ -299,7 +321,8 @@ export function CausalGraphOverview({
       mainCytoscapeInstance.off('pan zoom resize', handleViewportChange)
       mainCytoscapeInstance.off('layoutstop', handleViewportChange)
     }
-  }, [mainCytoscapeInstance, isInitialized, updateViewportIndicator, showMinimap, drawViewportOverlay])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainCytoscapeInstance, isInitialized, showMinimap]) // Removed callback deps - using refs instead
 
   // Cleanup
   useEffect(() => {
@@ -329,12 +352,13 @@ export function CausalGraphOverview({
           </div>
         </div>
         
-        <div 
+        <div
           ref={containerRef}
           className="relative bg-gray-50 rounded border border-gray-200"
-          style={{ 
-            width: `${width}px`, 
+          style={{
+            width: `${width}px`,
             height: `${height}px`,
+            overflow: 'hidden',
             cursor: enableNavigation ? (isDragging ? 'grabbing' : 'grab') : 'default'
           }}
         />

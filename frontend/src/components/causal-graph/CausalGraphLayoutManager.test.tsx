@@ -5,7 +5,6 @@ import { CausalGraphLayoutManager } from './CausalGraphLayoutManager'
 import { useGlobalStore } from '@/stores/globalStore'
 import {
   createMockCytoscape,
-  createMockLayout,
   MockCytoscape
 } from '@/test/__mocks__/cytoscape'
 import {

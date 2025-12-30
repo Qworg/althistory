@@ -45,6 +45,7 @@ describe('Arc Hierarchy Utilities', () => {
       description: 'Top level arc',
       start_time: '2024-01-01T00:00:00Z',
       end_time: '2024-01-31T23:59:59Z',
+      level: 0,
       parent_arc_id: null,
       created_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-01T00:00:00Z'
@@ -55,6 +56,7 @@ describe('Arc Hierarchy Utilities', () => {
       description: 'Child of Root Arc 1',
       start_time: '2024-01-10T00:00:00Z',
       end_time: '2024-01-25T23:59:59Z',
+      level: 1,
       parent_arc_id: 'arc1',
       created_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-01T00:00:00Z'
@@ -65,6 +67,7 @@ describe('Arc Hierarchy Utilities', () => {
       description: 'Another top level arc',
       start_time: '2024-02-01T00:00:00Z',
       end_time: '2024-02-28T23:59:59Z',
+      level: 0,
       parent_arc_id: null,
       created_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-01T00:00:00Z'
@@ -75,6 +78,7 @@ describe('Arc Hierarchy Utilities', () => {
       description: 'Child of Child Arc 1',
       start_time: '2024-01-15T00:00:00Z',
       end_time: '2024-01-20T23:59:59Z',
+      level: 2,
       parent_arc_id: 'arc2',
       created_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-01T00:00:00Z'
@@ -185,6 +189,7 @@ describe('Arc Hierarchy Utilities', () => {
           description: 'First overlapping arc',
           start_time: '2024-01-01T00:00:00Z',
           end_time: '2024-01-15T23:59:59Z',
+          level: 0,
           parent_arc_id: null,
           created_at: '2024-01-01T00:00:00Z',
           updated_at: '2024-01-01T00:00:00Z'
@@ -195,6 +200,7 @@ describe('Arc Hierarchy Utilities', () => {
           description: 'Second overlapping arc',
           start_time: '2024-01-10T00:00:00Z',
           end_time: '2024-01-25T23:59:59Z',
+          level: 0,
           parent_arc_id: null,
           created_at: '2024-01-01T00:00:00Z',
           updated_at: '2024-01-01T00:00:00Z'
@@ -218,6 +224,7 @@ describe('Arc Hierarchy Utilities', () => {
         description: `Level ${i} arc`,
         start_time: `2024-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
         end_time: `2024-01-${String(i + 10).padStart(2, '0')}T23:59:59Z`,
+        level: i,
         parent_arc_id: i > 0 ? `deep${i - 1}` : null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z'
@@ -334,6 +341,7 @@ describe('Arc Hierarchy Utilities', () => {
         description: `Description ${i}`,
         start_time: `2024-01-${String(i % 28 + 1).padStart(2, '0')}T00:00:00Z`,
         end_time: `2024-01-${String((i % 28 + 1) + 1).padStart(2, '0')}T23:59:59Z`,
+        level: i > 50 ? 1 : 0,
         parent_arc_id: i > 50 ? `arc${i - 50}` : null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z'
@@ -360,11 +368,12 @@ describe('Arc Hierarchy Utilities', () => {
           description: `Root arc ${i}`,
           start_time: `2024-${String(i % 12 + 1).padStart(2, '0')}-01T00:00:00Z`,
           end_time: `2024-${String(i % 12 + 1).padStart(2, '0')}-28T23:59:59Z`,
+          level: 0,
           parent_arc_id: null,
           created_at: '2024-01-01T00:00:00Z',
           updated_at: '2024-01-01T00:00:00Z'
         })
-        
+
         // Add children
         for (let j = 0; j < 3; j++) {
           complexArcs.push({
@@ -373,6 +382,7 @@ describe('Arc Hierarchy Utilities', () => {
             description: `Child arc ${i}_${j}`,
             start_time: `2024-${String(i % 12 + 1).padStart(2, '0')}-${String(j * 7 + 1).padStart(2, '0')}T00:00:00Z`,
             end_time: `2024-${String(i % 12 + 1).padStart(2, '0')}-${String(j * 7 + 7).padStart(2, '0')}T23:59:59Z`,
+            level: 1,
             parent_arc_id: `root${i}`,
             created_at: '2024-01-01T00:00:00Z',
             updated_at: '2024-01-01T00:00:00Z'

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { Event, Arc, CausalRelationship } from '@/types'
+import { Event, Arc, CausalRelationship, CreateArcRequest } from '@/types'
 
 // Mock axios.create to return a mock instance
 const mockAxiosInstance = {
@@ -45,7 +45,7 @@ describe('APIClient', () => {
 
     it('should fetch all events', async () => {
       const mockEvents = [mockEvent]
-      mockAxiosInstance.get.mockResolvedValue({ data: mockEvents })
+      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockEvents } })
 
       const result = await apiClient.events.getAll()
 
@@ -56,7 +56,7 @@ describe('APIClient', () => {
     it('should fetch all events with filters', async () => {
       const mockEvents = [mockEvent]
       const filters = { actor: 'Test actor' }
-      mockAxiosInstance.get.mockResolvedValue({ data: mockEvents })
+      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockEvents } })
 
       const result = await apiClient.events.getAll(filters)
 
@@ -65,7 +65,7 @@ describe('APIClient', () => {
     })
 
     it('should fetch event by id', async () => {
-      mockAxiosInstance.get.mockResolvedValue({ data: mockEvent })
+      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockEvent } })
 
       const result = await apiClient.events.getById('1')
 
@@ -80,7 +80,7 @@ describe('APIClient', () => {
         target: 'Test target',
         timestamp: '2024-01-01T00:00:00Z',
       }
-      mockAxiosInstance.post.mockResolvedValue({ data: mockEvent })
+      mockAxiosInstance.post.mockResolvedValue({ data: { success: true, data: mockEvent } })
 
       const result = await apiClient.events.create(createData)
 
@@ -91,7 +91,7 @@ describe('APIClient', () => {
     it('should update an event', async () => {
       const updateData = { description: 'Updated event' }
       const updatedEvent = { ...mockEvent, ...updateData }
-      mockAxiosInstance.put.mockResolvedValue({ data: updatedEvent })
+      mockAxiosInstance.put.mockResolvedValue({ data: { success: true, data: updatedEvent } })
 
       const result = await apiClient.events.update('1', updateData)
 
@@ -111,7 +111,7 @@ describe('APIClient', () => {
       const mockEvents = [mockEvent]
       const query = 'test query'
       const filters = { actor: 'Test actor' }
-      mockAxiosInstance.get.mockResolvedValue({ data: mockEvents })
+      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockEvents } })
 
       const result = await apiClient.events.search(query, filters)
 
@@ -165,6 +165,7 @@ describe('APIClient', () => {
       description: 'Test arc description',
       start_time: '2024-01-01T00:00:00Z',
       end_time: '2024-01-02T00:00:00Z',
+      level: 0,
       parent_arc_id: null,
       created_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-01T00:00:00Z',
@@ -172,7 +173,7 @@ describe('APIClient', () => {
 
     it('should fetch all arcs', async () => {
       const mockArcs = [mockArc]
-      mockAxiosInstance.get.mockResolvedValue({ data: mockArcs })
+      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockArcs } })
 
       const result = await apiClient.arcs.getAll()
 
@@ -181,7 +182,7 @@ describe('APIClient', () => {
     })
 
     it('should fetch arc by id', async () => {
-      mockAxiosInstance.get.mockResolvedValue({ data: mockArc })
+      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockArc } })
 
       const result = await apiClient.arcs.getById('1')
 
@@ -190,13 +191,14 @@ describe('APIClient', () => {
     })
 
     it('should create an arc', async () => {
-      const createData = {
+      const createData: CreateArcRequest = {
         name: 'Test arc',
         description: 'Test arc description',
         start_time: '2024-01-01T00:00:00Z',
         end_time: '2024-01-02T00:00:00Z',
+        level: 0,
       }
-      mockAxiosInstance.post.mockResolvedValue({ data: mockArc })
+      mockAxiosInstance.post.mockResolvedValue({ data: { success: true, data: mockArc } })
 
       const result = await apiClient.arcs.create(createData)
 
@@ -206,7 +208,7 @@ describe('APIClient', () => {
 
     it('should fetch arc hierarchy', async () => {
       const mockHierarchy = [mockArc]
-      mockAxiosInstance.get.mockResolvedValue({ data: mockHierarchy })
+      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockHierarchy } })
 
       const result = await apiClient.arcs.getHierarchy()
 
@@ -230,7 +232,7 @@ describe('APIClient', () => {
 
     it('should fetch causal relationships', async () => {
       const mockRelationships = [mockRelationship]
-      mockAxiosInstance.get.mockResolvedValue({ data: mockRelationships })
+      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockRelationships } })
 
       const result = await apiClient.causal.getRelationships()
 
@@ -242,7 +244,7 @@ describe('APIClient', () => {
 
     it('should fetch causal relationships for specific event', async () => {
       const mockRelationships = [mockRelationship]
-      mockAxiosInstance.get.mockResolvedValue({ data: mockRelationships })
+      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockRelationships } })
 
       const result = await apiClient.causal.getRelationships('event1')
 
@@ -259,7 +261,7 @@ describe('APIClient', () => {
         confidence: 0.9,
         relationship_type: 'direct' as const,
       }
-      mockAxiosInstance.post.mockResolvedValue({ data: mockRelationship })
+      mockAxiosInstance.post.mockResolvedValue({ data: { success: true, data: mockRelationship } })
 
       const result = await apiClient.causal.createLink('event1', 'event2', relationshipData)
 
@@ -278,7 +280,7 @@ describe('APIClient', () => {
         totalWeight: 0.8,
         confidence: 0.9
       }]
-      mockAxiosInstance.get.mockResolvedValue({ data: mockChain })
+      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockChain } })
 
       const result = await apiClient.causal.findChain('event1', 3)
 
@@ -297,7 +299,7 @@ describe('APIClient', () => {
         confidence: 0.8,
         reasoning: 'Test reasoning'
       }]
-      mockAxiosInstance.get.mockResolvedValue({ data: mockSuggestions })
+      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockSuggestions } })
 
       const result = await apiClient.causal.getSuggestions('event1')
 
@@ -318,7 +320,7 @@ describe('APIClient', () => {
     }
 
     it('should copy full graph', async () => {
-      mockAxiosInstance.post.mockResolvedValue({ data: mockCopyResult })
+      mockAxiosInstance.post.mockResolvedValue({ data: { success: true, data: mockCopyResult } })
 
       const result = await apiClient.graph.copyFull('Test Copy')
 
@@ -334,7 +336,7 @@ describe('APIClient', () => {
         start: new Date('2024-01-01'),
         end: new Date('2024-01-02')
       }
-      mockAxiosInstance.post.mockResolvedValue({ data: mockCopyResult })
+      mockAxiosInstance.post.mockResolvedValue({ data: { success: true, data: mockCopyResult } })
 
       const result = await apiClient.graph.copyByTimeRange(timeRange, 'Test Copy')
 
@@ -348,7 +350,7 @@ describe('APIClient', () => {
     })
 
     it('should get copy status', async () => {
-      mockAxiosInstance.get.mockResolvedValue({ data: mockCopyResult })
+      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockCopyResult } })
 
       const result = await apiClient.graph.getCopyStatus('copy1')
 

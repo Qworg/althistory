@@ -524,23 +524,34 @@ describe('TemporalService', () => {
     });
 
     it('should throw PerformanceError when query exceeds timeout', async () => {
-      // Arrange
+      // Arrange - use a unique time range to avoid cache interference
       const timeRange: TimeRange = {
-        start: new Date('2023-06-01T00:00:00Z'),
-        end: new Date('2023-06-30T23:59:59Z')
+        start: new Date('2024-06-01T00:00:00Z'),
+        end: new Date('2024-06-30T23:59:59Z')
       };
 
       // Clear cache first to ensure we hit the database
       await temporalService.clearTemporalCache();
 
-      // Mock a slow query that takes longer than the timeout
-      vi.mocked(mockEventRepository.findByTimeRange).mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve([]), 3000))
-      );
+      // Mock Date.now() to simulate slow query (more reliable than real setTimeout)
+      let callCount = 0;
+      vi.spyOn(Date, 'now').mockImplementation(() => {
+        callCount++;
+        // First call is at start, subsequent calls simulate 3000ms elapsed
+        return callCount === 1 ? 1000 : 4000;
+      });
 
-      // Act & Assert
-      await expect(temporalService.findEventsInRange(timeRange))
-        .rejects.toThrow(PerformanceError);
+      // Mock repository to return immediately (timing handled by Date.now mock)
+      vi.mocked(mockEventRepository.findByTimeRange).mockResolvedValue([]);
+
+      try {
+        // Act & Assert
+        await expect(temporalService.findEventsInRange(timeRange))
+          .rejects.toThrow(PerformanceError);
+      } finally {
+        // Restore Date.now
+        vi.spyOn(Date, 'now').mockRestore();
+      }
     });
 
     it('should handle empty results', async () => {

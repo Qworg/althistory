@@ -219,7 +219,7 @@ describe('Arc Detail Panel Utilities', () => {
         { id: '2', description: '', actor: '', target: '', timestamp: '', created_at: '', updated_at: '' }
       ]
       const arcs: Arc[] = [
-        { id: '1', name: '', description: '', start_time: '', end_time: '', parent_arc_id: null, created_at: '', updated_at: '' }
+        { id: '1', name: '', description: '', start_time: '', end_time: '', level: 0, parent_arc_id: null, created_at: '', updated_at: '' }
       ]
       const pressures = [{ id: '1' }, { id: '2' }, { id: '3' }]
 
@@ -245,8 +245,8 @@ describe('Arc Detail Panel Utilities', () => {
   describe('getDeleteConfirmationMessage', () => {
     it('returns child arc warning message when child arcs exist', () => {
       const childArcs: Arc[] = [
-        { id: '1', name: 'Child', description: '', start_time: '', end_time: '', parent_arc_id: 'parent', created_at: '', updated_at: '' },
-        { id: '2', name: 'Child 2', description: '', start_time: '', end_time: '', parent_arc_id: 'parent', created_at: '', updated_at: '' }
+        { id: '1', name: 'Child', description: '', start_time: '', end_time: '', level: 1, parent_arc_id: 'parent', created_at: '', updated_at: '' },
+        { id: '2', name: 'Child 2', description: '', start_time: '', end_time: '', level: 1, parent_arc_id: 'parent', created_at: '', updated_at: '' }
       ]
       const message = getDeleteConfirmationMessage(childArcs)
       expect(message).toContain('2 child arcs')
@@ -267,6 +267,7 @@ describe('Arc Detail Panel Utilities', () => {
         description: 'Test Description',
         start_time: '2023-01-01T00:00:00Z',
         end_time: '2023-01-31T00:00:00Z',
+        level: 1,
         parent_arc_id: 'parent-1',
         created_at: '2023-01-01T00:00:00Z',
         updated_at: '2023-01-01T00:00:00Z'

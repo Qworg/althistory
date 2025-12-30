@@ -74,17 +74,18 @@ describe('ViewToolbar', () => {
 
     it('handles zoom fit action', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
-      
+
       const fitButton = screen.getByRole('button', { name: /fit to view/i })
       fireEvent.click(fitButton)
-      
+
       expect(mockStore.updateSessionData).toHaveBeenCalledWith({
         viewportState: {
           ...mockStore.sessionData.viewportState,
           timeline: {
             ...mockStore.sessionData.viewportState.timeline,
             zoomLevel: 1,
-            centerTime: null
+            centerTime: null,
+            fitToViewTrigger: 1
           }
         }
       })

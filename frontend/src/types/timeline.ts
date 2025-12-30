@@ -99,6 +99,7 @@ export interface UseTimelineScalesResult {
   innerWidth: number
   innerHeight: number
   xDomain: [Date, Date]
+  zoomedWidth: number
 }
 
 /**

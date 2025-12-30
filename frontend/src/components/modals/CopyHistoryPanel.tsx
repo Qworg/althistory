@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { useGraphCopy } from '@/hooks/useGraphCopy'
 import { CopyOperation } from '@/types'
 
@@ -26,6 +26,16 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'failed'>('all')
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Reset filter state when panel opens
+  useEffect(() => {
+    if (isOpen) {
+      setSortField('created_at')
+      setSortDirection('desc')
+      setFilterStatus('all')
+      setSearchQuery('')
+    }
+  }, [isOpen])
 
   // Combine active and completed operations (memoized to avoid recreating array)
   const allOperations = React.useMemo(

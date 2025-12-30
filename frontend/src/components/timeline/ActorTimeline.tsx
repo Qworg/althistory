@@ -1,6 +1,7 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react'
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
+import { formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
 
 export interface ActorEventData extends Event {
   role: 'actor' | 'target'
@@ -41,14 +42,29 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
 }) => {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  
+  const zoomTransformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity)
+
+  // Calculate original time extent from events (memoized, doesn't change with zoom)
+  const originalTimeExtent = useMemo(() => {
+    if (events.length === 0) {
+      return {
+        start: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+        end: new Date()
+      }
+    }
+    return {
+      start: new Date(Math.min(...events.map(e => new Date(e.timestamp).getTime())) - 86400000),
+      end: new Date(Math.max(...events.map(e => new Date(e.timestamp).getTime())) + 86400000)
+    }
+  }, [events])
+
   const [state, setState] = useState<ActorTimelineState>({
     zoomLevel: 1,
     visibleTimeRange: {
-      start: events.length > 0 
+      start: events.length > 0
         ? new Date(Math.min(...events.map(e => new Date(e.timestamp).getTime())) - 86400000) // 1 day before first event
         : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
-      end: events.length > 0 
+      end: events.length > 0
         ? new Date(Math.max(...events.map(e => new Date(e.timestamp).getTime())) + 86400000) // 1 day after last event
         : new Date()
     },
@@ -59,6 +75,22 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
   // Calculate dimensions
   const innerWidth = width - margin.left - margin.right
   const innerHeight = height - margin.top - margin.bottom
+
+  // Reset visible range when original extent changes (e.g., new events loaded)
+  useEffect(() => {
+    setState(prev => ({
+      ...prev,
+      visibleTimeRange: originalTimeExtent,
+      zoomLevel: 1
+    }))
+    zoomTransformRef.current = d3.zoomIdentity
+
+    // Reset zoom transform on the SVG if it exists
+    if (svgRef.current) {
+      const svg = d3.select(svgRef.current)
+      svg.call(d3.zoom<SVGSVGElement, unknown>().transform, d3.zoomIdentity)
+    }
+  }, [originalTimeExtent])
 
   // Create time scale
   const timeScale = useCallback(() => {
@@ -123,13 +155,17 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     const g = svg.append('g')
       .attr('transform', `translate(${margin.left},${margin.top})`)
 
-    // Create time axis
+    // Create time axis with dynamic formatting based on visible time span
+    const timeSpanMs = state.visibleTimeRange.end.getTime() - state.visibleTimeRange.start.getTime()
+    const timeInterval = getTimeAxisInterval(timeSpanMs)
+    const maxTicks = Math.min(10, Math.floor(innerWidth / 100))
+
     const xAxis = d3.axisBottom(timeScale())
       .tickFormat((domainValue) => {
         const date = domainValue as Date
-        return d3.timeFormat('%Y-%m-%d')(date)
+        return formatTimeAxisTick(date, timeSpanMs)
       })
-      .ticks(Math.min(10, Math.floor(innerWidth / 100)))
+      .ticks(timeInterval, maxTicks > 0 ? maxTicks : 1)
 
     g.append('g')
       .attr('class', 'x-axis')
@@ -303,16 +339,19 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
           }))
           onEventSelect?.(d)
         })
-        .on('mouseover', function(event, d) {
+        .on('mouseenter', function(event, d) {
           setState(prev => ({ ...prev, hoveredEventId: d.id }))
-          
+
           // Enhance hover effect
           d3.select(this)
             .transition()
             .duration(150)
             .attr('r', state.selectedEventId === d.id ? 10 : 8)
             .style('filter', 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.6))')
-          
+
+          // Remove any existing tooltip before showing new one
+          d3.selectAll('.actor-timeline-tooltip').remove()
+
           // Show tooltip
           d3.select('body').append('div')
             .attr('class', 'actor-timeline-tooltip')
@@ -341,16 +380,16 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
             .style('left', (event.pageX + 10) + 'px')
             .style('top', (event.pageY - 10) + 'px')
         })
-        .on('mouseout', function(_, d) {
+        .on('mouseleave', function(_, d) {
           setState(prev => ({ ...prev, hoveredEventId: null }))
-          
+
           // Remove hover effect
           d3.select(this)
             .transition()
             .duration(150)
             .attr('r', state.selectedEventId === d.id ? 8 : 6)
             .style('filter', state.selectedEventId === d.id ? 'drop-shadow(0 0 6px rgba(239, 68, 68, 0.5))' : 'none')
-          
+
           d3.selectAll('.actor-timeline-tooltip').remove()
         })
 
@@ -391,6 +430,10 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
       }
     })
 
+    // Cleanup tooltips on unmount or dependency change
+    return () => {
+      d3.selectAll('.actor-timeline-tooltip').remove()
+    }
   }, [events, timeScale, yScale, layoutMode, state.selectedEventId, state.hoveredEventId, groupedEvents, onEventSelect, actor])
 
   // Add zoom and pan functionality
@@ -399,15 +442,24 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
 
     const svg = d3.select(svgRef.current)
 
+    // Create a base scale from the ORIGINAL extent (not the current visible range)
+    // This prevents the compounding zoom issue
+    const baseTimeScale = d3.scaleTime()
+      .domain([originalTimeExtent.start, originalTimeExtent.end])
+      .range([0, innerWidth])
+
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 10])
       .on('zoom', (event) => {
         const { transform } = event
-        
-        // Update time scale domain based on zoom
-        const newTimeScale = transform.rescaleX(timeScale())
+
+        // Store the current transform
+        zoomTransformRef.current = transform
+
+        // Calculate new domain from the ORIGINAL scale, not the current visible range
+        const newTimeScale = transform.rescaleX(baseTimeScale)
         const newDomain = newTimeScale.domain()
-        
+
         setState(prev => ({
           ...prev,
           visibleTimeRange: {
@@ -416,7 +468,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
           },
           zoomLevel: transform.k
         }))
-        
+
         onTimeRangeChange?.({
           start: newDomain[0],
           end: newDomain[1]
@@ -425,27 +477,37 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
 
     svg.call(zoom)
 
-    // Reset zoom button
-    const resetButton = d3.select(containerRef.current)
-      .select('.reset-zoom-button')
-    
-    if (resetButton.empty()) {
+    // Fit to View button
+    const fitButton = d3.select(containerRef.current)
+      .select('.fit-to-view-button')
+
+    if (fitButton.empty()) {
       d3.select(containerRef.current)
         .append('button')
-        .attr('class', 'reset-zoom-button')
+        .attr('class', 'fit-to-view-button')
+        .attr('title', 'Fit all events in view (F)')
         .style('position', 'absolute')
         .style('top', '10px')
         .style('right', '10px')
         .style('padding', '4px 8px')
-        .style('background', '#f3f4f6')
+        .style('background', '#ffffff')
         .style('border', '1px solid #d1d5db')
         .style('border-radius', '4px')
         .style('font-size', '12px')
         .style('cursor', 'pointer')
-        .text('Reset Zoom')
+        .style('display', 'flex')
+        .style('align-items', 'center')
+        .style('gap', '4px')
+        .style('box-shadow', '0 1px 2px rgba(0,0,0,0.05)')
+        .html(`
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+          </svg>
+          Fit to View
+        `)
         .on('click', () => {
           svg.transition()
-            .duration(750)
+            .duration(300)
             .call(zoom.transform, d3.zoomIdentity)
         })
     }
@@ -453,7 +515,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     return () => {
       svg.on('.zoom', null)
     }
-  }, [timeScale, onTimeRangeChange])
+  }, [originalTimeExtent, innerWidth, onTimeRangeChange])
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>

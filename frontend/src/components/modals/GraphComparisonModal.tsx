@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { Event, Arc, CausalRelationship } from '@/types'
 
 interface GraphComparisonModalProps {
@@ -37,6 +37,14 @@ export const GraphComparisonModal: React.FC<GraphComparisonModalProps> = ({
 }) => {
   const [activeView, setActiveView] = useState<ComparisonView>('summary')
   const [showOnlyDifferences, setShowOnlyDifferences] = useState(false)
+
+  // Reset view state when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setActiveView('summary')
+      setShowOnlyDifferences(false)
+    }
+  }, [isOpen])
 
   // Calculate comparison statistics
   const comparisonStats = useMemo(() => {

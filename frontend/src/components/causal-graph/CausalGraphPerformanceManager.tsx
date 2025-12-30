@@ -53,6 +53,10 @@ export function CausalGraphPerformanceManager({
   const renderTimeRef = useRef<number>(0)
   const layoutTimeRef = useRef<number>(0)
 
+  // Refs to store latest callback versions (fixes stale closure issues)
+  const autoOptimizeRef = useRef<() => void>(() => {})
+  const handleZoomLevelOfDetailRef = useRef<() => void>(() => {})
+
   // Calculate current performance metrics
   const calculateMetrics = useCallback((): PerformanceMetrics => {
     const nodeCount = events.length
@@ -318,26 +322,37 @@ export function CausalGraphPerformanceManager({
     }
   }, [cytoscapeInstance])
 
+  // Keep refs in sync with latest callbacks
+  useEffect(() => {
+    autoOptimizeRef.current = autoOptimize
+  }, [autoOptimize])
+
+  useEffect(() => {
+    handleZoomLevelOfDetailRef.current = handleZoomLevelOfDetail
+  }, [handleZoomLevelOfDetail])
+
   // Initialize monitoring when cytoscape instance is available
   useEffect(() => {
     if (cytoscapeInstance && enableOptimizations) {
       startMonitoring()
-      autoOptimize()
+      autoOptimizeRef.current()
 
-      // Add zoom listener for level of detail
-      cytoscapeInstance.on('zoom', handleZoomLevelOfDetail)
+      // Wrapper that calls current ref value
+      const zoomHandler = () => handleZoomLevelOfDetailRef.current()
+      cytoscapeInstance.on('zoom', zoomHandler)
 
       return () => {
         stopMonitoring()
-        cytoscapeInstance.off('zoom', handleZoomLevelOfDetail)
+        cytoscapeInstance.off('zoom', zoomHandler)
       }
     }
-  }, [cytoscapeInstance, enableOptimizations, startMonitoring, autoOptimize, handleZoomLevelOfDetail, stopMonitoring])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cytoscapeInstance, enableOptimizations]) // Removed callback deps - using refs instead
 
-  // Auto-optimize when data changes
+  // Auto-optimize when data size changes (not when callback recreates)
   useEffect(() => {
-    autoOptimize()
-  }, [autoOptimize])
+    autoOptimizeRef.current()
+  }, [events.length, causalRelationships.length, enableOptimizations])
 
   // Cleanup on unmount
   useEffect(() => {

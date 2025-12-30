@@ -15,8 +15,37 @@ import {
 } from '@/test/helpers/cytoscapeTestHelpers'
 
 // Mock dependencies
-vi.mock('@/stores/globalStore')
 vi.mock('@/services/api')
+
+// Mock the global store with getState support
+vi.mock('@/stores/globalStore', () => {
+  const mockState = {
+    events: [],
+    causalRelationships: [],
+    selectedEvents: [],
+    sessionData: {
+      viewportState: {
+        causalGraph: {
+          layout: 'cose',
+          nodePositions: {}
+        }
+      }
+    },
+    updateSessionData: vi.fn(),
+    addCausalRelationship: vi.fn(),
+    updateCausalRelationship: vi.fn(),
+    deleteCausalRelationship: vi.fn(),
+    addError: vi.fn()
+  }
+
+  const mockFn = vi.fn(() => mockState)
+  ;(mockFn as any).getState = () => mockState
+  ;(mockFn as any)._mockState = mockState
+
+  return {
+    useGlobalStore: mockFn
+  }
+})
 
 // Mock Cytoscape
 vi.mock('cytoscape')
@@ -122,25 +151,6 @@ const mockCausalRelationships: CausalRelationship[] = [
   }
 ]
 
-const mockGlobalStore = {
-  events: mockEvents,
-  causalRelationships: mockCausalRelationships,
-  selectedEvents: [],
-  sessionData: {
-    viewportState: {
-      causalGraph: {
-        layout: 'cose',
-        nodePositions: {}
-      }
-    }
-  },
-  updateSessionData: vi.fn(),
-  addCausalRelationship: vi.fn(),
-  updateCausalRelationship: vi.fn(),
-  deleteCausalRelationship: vi.fn(),
-  addError: vi.fn()
-}
-
 describe('CausalGraphComponent - Relationship Interactions', () => {
   const user = userEvent.setup()
   let mockCy: MockCytoscape
@@ -155,7 +165,18 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     // Set up cytoscape mock to return our instance
     vi.mocked(cytoscape).mockReturnValue(mockCy as any)
 
-    vi.mocked(useGlobalStore).mockReturnValue(mockGlobalStore as any)
+    // Update the mock state with test data
+    const mockState = (useGlobalStore as any)._mockState
+    if (mockState) {
+      mockState.events = mockEvents
+      mockState.causalRelationships = mockCausalRelationships
+      mockState.selectedEvents = []
+      mockState.updateSessionData = vi.fn()
+      mockState.addCausalRelationship = vi.fn()
+      mockState.updateCausalRelationship = vi.fn()
+      mockState.deleteCausalRelationship = vi.fn()
+      mockState.addError = vi.fn()
+    }
     vi.mocked(apiClient.causal.createLink).mockResolvedValue({
       id: 'new-rel',
       cause_event_id: 'event1',

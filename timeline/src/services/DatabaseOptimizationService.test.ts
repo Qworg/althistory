@@ -104,15 +104,26 @@ describe('DatabaseOptimizationService', () => {
         summary: { profile: null }
       };
 
-      // Mock a slow query by delaying the response
-      mockSession.run.mockImplementation(() => 
-        new Promise(resolve => setTimeout(() => resolve(mockResult), 3000))
-      );
+      // Mock Date.now() to simulate slow query (more reliable than real setTimeout)
+      let callCount = 0;
+      vi.spyOn(Date, 'now').mockImplementation(() => {
+        callCount++;
+        // First call is at start, subsequent calls simulate 3000ms elapsed
+        return callCount === 1 ? 1000 : 4000;
+      });
+
+      // Mock repository to return immediately (timing handled by Date.now mock)
+      mockSession.run.mockResolvedValue(mockResult);
 
       const query = 'MATCH (e:Event) RETURN e';
-      
-      await expect(service.analyzeQueryPerformance(query))
-        .rejects.toThrow('Query exceeded performance threshold');
+
+      try {
+        await expect(service.analyzeQueryPerformance(query))
+          .rejects.toThrow('Query exceeded performance threshold');
+      } finally {
+        // Restore Date.now
+        vi.spyOn(Date, 'now').mockRestore();
+      }
     });
   });
 
@@ -173,22 +184,31 @@ describe('DatabaseOptimizationService', () => {
         summary: { profile: { operatorType: 'IndexSeek' } }
       };
 
-      // Add delay to make execution time measurable  
-      mockSession.run.mockImplementation(() => 
-        new Promise(resolve => setTimeout(() => resolve(mockResult), 5))
-      );
+      // Use Date.now() mock to ensure measurable execution times
+      let baseTime = 1000;
+      vi.spyOn(Date, 'now').mockImplementation(() => {
+        baseTime += 50; // Each call advances by 50ms
+        return baseTime;
+      });
 
-      // Execute a few queries to generate metrics
-      await service.analyzeQueryPerformance('MATCH (e:Event) RETURN e');
-      await service.analyzeQueryPerformance('MATCH (a:Arc) RETURN a');
-      await service.analyzeQueryPerformance('MATCH (e:Event) RETURN e');
+      // Mock repository to return immediately (timing handled by Date.now mock)
+      mockSession.run.mockResolvedValue(mockResult);
 
-      const stats = service.getPerformanceStatistics();
+      try {
+        // Execute a few queries to generate metrics
+        await service.analyzeQueryPerformance('MATCH (e:Event) RETURN e');
+        await service.analyzeQueryPerformance('MATCH (a:Arc) RETURN a');
+        await service.analyzeQueryPerformance('MATCH (e:Event) RETURN e');
 
-      expect(stats.averageExecutionTime).toBeGreaterThan(0);
-      expect(stats.queryTypeBreakdown['event_query']).toBe(2);
-      expect(stats.queryTypeBreakdown['arc_query']).toBe(1);
-      expect(stats.slowestQueries.length).toBeGreaterThan(0);
+        const stats = service.getPerformanceStatistics();
+
+        expect(stats.averageExecutionTime).toBeGreaterThan(0);
+        expect(stats.queryTypeBreakdown['event_query']).toBe(2);
+        expect(stats.queryTypeBreakdown['arc_query']).toBe(1);
+        expect(stats.slowestQueries.length).toBeGreaterThan(0);
+      } finally {
+        vi.spyOn(Date, 'now').mockRestore();
+      }
     });
   });
 
@@ -200,21 +220,29 @@ describe('DatabaseOptimizationService', () => {
         summary: { profile: null }
       };
 
-      mockSession.run.mockImplementation(() => 
-        new Promise(resolve => setTimeout(() => resolve(mockResult), 1500))
-      );
+      // Use Date.now() mock to simulate slow queries (> 50% of threshold)
+      // queryTimeoutMs = 2000ms, so 1500ms is 75% of threshold
+      let callCount = 0;
+      vi.spyOn(Date, 'now').mockImplementation(() => {
+        callCount++;
+        // Simulate 1500ms elapsed time for each query
+        return callCount % 2 === 1 ? 1000 : 2500;
+      });
+
+      // Mock repository to return immediately (timing handled by Date.now mock)
+      mockSession.run.mockResolvedValue(mockResult);
 
       try {
         await service.analyzeQueryPerformance('MATCH (e:Event) RETURN e');
-      } catch {
-        // Expected to throw due to timeout, but metrics should be recorded
+
+        const suggestions = service.suggestOptimizations();
+
+        expect(Array.isArray(suggestions)).toBe(true);
+        // Should have suggestions due to slow performance (1500ms > 1000ms = 50% of 2000ms)
+        expect(suggestions.length).toBeGreaterThan(0);
+      } finally {
+        vi.spyOn(Date, 'now').mockRestore();
       }
-
-      const suggestions = service.suggestOptimizations();
-
-      expect(Array.isArray(suggestions)).toBe(true);
-      // Should have suggestions due to slow performance
-      expect(suggestions.length).toBeGreaterThan(0);
     });
   });
 

@@ -1,14 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { ArcDetailPanel } from './ArcDetailPanel'
 import {
   createMockArc,
-  createMockEvent,
-  arcDetailPanelScenarios
+  createMockEvent
 } from '@/test/fixtures/modalFixtures'
-import { getFormField, waitForValidationError, getDialog, expectDialogAccessibility } from '@/test/helpers/a11yTestHelpers'
+import { expectDialogAccessibility } from '@/test/helpers/a11yTestHelpers'
 
 describe('ArcDetailPanel', () => {
   const defaultProps = {
@@ -32,9 +31,10 @@ describe('ArcDetailPanel', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
 
-    it('does not render when arc is null', () => {
+    it('renders in create mode when arc is null and isOpen is true', () => {
       renderWithProviders(<ArcDetailPanel {...defaultProps} isOpen={true} arc={null} />)
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: /create arc/i })).toBeInTheDocument()
     })
 
     it('renders panel when isOpen is true and arc is provided', () => {

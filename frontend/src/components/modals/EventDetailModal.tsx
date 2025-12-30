@@ -1,6 +1,35 @@
 import { useState, useEffect } from 'react'
 import { Event } from '@/types'
 
+// Helper to convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
+const isoToDatetimeLocal = (isoString: string): string => {
+  if (!isoString) return ''
+  try {
+    const date = new Date(isoString)
+    if (isNaN(date.getTime())) return ''
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${year}-${month}-${day}T${hours}:${minutes}`
+  } catch {
+    return ''
+  }
+}
+
+// Helper to convert datetime-local format to ISO string
+const datetimeLocalToIso = (datetimeLocal: string): string => {
+  if (!datetimeLocal) return ''
+  try {
+    const date = new Date(datetimeLocal)
+    if (isNaN(date.getTime())) return ''
+    return date.toISOString()
+  } catch {
+    return ''
+  }
+}
+
 interface EventDetailModalProps {
   event: Event | null
   isOpen: boolean
@@ -52,7 +81,7 @@ export function EventDetailModal({
         description: event.description || '',
         actor: event.actor || '',
         target: event.target || '',
-        timestamp: event.timestamp || '',
+        timestamp: isoToDatetimeLocal(event.timestamp || ''),
         event_type: '', // Not in Event type
         confidence: 1.0, // Not in Event type
         evidence: '' // Not in Event type
@@ -70,7 +99,7 @@ export function EventDetailModal({
     }
     setErrors({})
     setShowDeleteConfirm(false)
-  }, [event])
+  }, [event, isOpen])
 
   // Handle escape key
   useEffect(() => {
@@ -102,13 +131,17 @@ export function EventDetailModal({
       newErrors.actor = 'Actor is required'
     }
 
+    if (!formData.target.trim()) {
+      newErrors.target = 'Target is required'
+    }
+
     if (!formData.timestamp.trim()) {
       newErrors.timestamp = 'Timestamp is required'
     } else {
-      // Validate timestamp format
-      const timestampRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?$/
-      if (!timestampRegex.test(formData.timestamp)) {
-        newErrors.timestamp = 'Invalid timestamp format (use ISO 8601)'
+      // Validate that the timestamp can be parsed as a valid date
+      const date = new Date(formData.timestamp)
+      if (isNaN(date.getTime())) {
+        newErrors.timestamp = 'Invalid timestamp'
       }
     }
 
@@ -145,11 +178,12 @@ export function EventDetailModal({
     setIsLoading(true)
     try {
       // Only pass fields that exist on Event type
+      // Convert datetime-local format to ISO string for API
       const eventData: Partial<Event> = {
         description: formData.description,
         actor: formData.actor,
         target: formData.target,
-        timestamp: formData.timestamp
+        timestamp: datetimeLocalToIso(formData.timestamp)
       }
       await onSave(eventData)
       onClose()
@@ -203,7 +237,7 @@ export function EventDetailModal({
           &#8203;
         </span>
 
-        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
+        <div className="relative z-10 inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
           <form onSubmit={handleSubmit}>
             <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
               <div className="sm:flex sm:items-start">
@@ -282,16 +316,25 @@ export function EventDetailModal({
 
                       <div>
                         <label htmlFor="target" className="block text-sm font-medium text-gray-700">
-                          Target
+                          Target <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="text"
                           id="target"
                           value={formData.target}
                           onChange={(e) => handleInputChange('target', e.target.value)}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          aria-required="true"
+                          aria-invalid={!!errors.target}
+                          aria-describedby={errors.target ? 'target-error' : undefined}
+                          className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                            errors.target ? 'border-red-300' : 'border-gray-300'
+                          }`}
                           placeholder="Enter target..."
+                          required
                         />
+                        {errors.target && (
+                          <p id="target-error" role="alert" className="mt-1 text-sm text-red-600">{errors.target}</p>
+                        )}
                       </div>
                     </div>
 
@@ -304,8 +347,8 @@ export function EventDetailModal({
                         <input
                           type="datetime-local"
                           id="timestamp"
-                          value={formData.timestamp.slice(0, 16)} // Remove seconds for datetime-local
-                          onChange={(e) => handleInputChange('timestamp', e.target.value + ':00Z')}
+                          value={formData.timestamp}
+                          onChange={(e) => handleInputChange('timestamp', e.target.value)}
                           aria-required="true"
                           aria-invalid={!!errors.timestamp}
                           aria-describedby={errors.timestamp ? 'timestamp-error' : undefined}
@@ -451,7 +494,7 @@ export function EventDetailModal({
         <div className="fixed inset-0 z-60 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
             <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
-            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+            <div className="relative z-10 inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
               <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                 <div className="sm:flex sm:items-start">
                   <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">

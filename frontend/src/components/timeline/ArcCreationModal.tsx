@@ -2,6 +2,37 @@ import React, { useState, useEffect } from 'react'
 import { TimeRange, CreateArcRequest, Event, Arc } from '@/types'
 import { useCreateArc } from '@/hooks/useAPI'
 
+// Helper to convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
+const isoToDatetimeLocal = (isoString: string): string => {
+  if (!isoString) return ''
+  try {
+    const date = new Date(isoString)
+    if (isNaN(date.getTime())) return ''
+    // Format as local datetime
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${year}-${month}-${day}T${hours}:${minutes}`
+  } catch {
+    return ''
+  }
+}
+
+// Helper to convert datetime-local format to ISO string
+const datetimeLocalToIso = (datetimeLocal: string): string => {
+  if (!datetimeLocal) return ''
+  try {
+    // datetime-local is in local time, create Date from it
+    const date = new Date(datetimeLocal)
+    if (isNaN(date.getTime())) return ''
+    return date.toISOString()
+  } catch {
+    return ''
+  }
+}
+
 export interface ArcCreationModalProps {
   isOpen: boolean
   onClose: () => void
@@ -26,6 +57,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
     description: '',
     start_time: '',
     end_time: '',
+    level: 0,
     parent_arc_id: null
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -39,19 +71,28 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
     }
   })
 
+  // Calculate level based on parent arc selection
+  const calculateLevel = (parentId: string | null): number => {
+    if (!parentId) return 0
+    const parentArc = parentArcs.find(arc => arc.id === parentId)
+    // Use parent's level + 1, or default to 1 if parent has no level
+    return parentArc?.level !== undefined ? parentArc.level + 1 : 1
+  }
+
   // Initialize form data when timeRange changes
   useEffect(() => {
     if (timeRange && isOpen) {
       setFormData({
         name: '',
         description: '',
-        start_time: timeRange.start.toISOString(),
-        end_time: timeRange.end.toISOString(),
+        start_time: isoToDatetimeLocal(timeRange.start.toISOString()),
+        end_time: isoToDatetimeLocal(timeRange.end.toISOString()),
+        level: calculateLevel(selectedParentId),
         parent_arc_id: selectedParentId
       })
       setErrors({})
     }
-  }, [timeRange, isOpen, selectedParentId])
+  }, [timeRange, isOpen, selectedParentId, parentArcs])
 
   const resetForm = () => {
     setFormData({
@@ -59,6 +100,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
       description: '',
       start_time: '',
       end_time: '',
+      level: 0,
       parent_arc_id: null
     })
     setErrors({})
@@ -138,11 +180,17 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!validateForm()) return
 
     try {
-      await createArcMutation.mutateAsync(formData)
+      // Convert datetime-local format to ISO strings for API
+      const submitData = {
+        ...formData,
+        start_time: datetimeLocalToIso(formData.start_time),
+        end_time: datetimeLocalToIso(formData.end_time)
+      }
+      await createArcMutation.mutateAsync(submitData)
     } catch (error) {
       setErrors({ general: 'Failed to create arc. Please try again.' })
     }
@@ -258,8 +306,8 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                 <input
                   id="arc-start-time"
                   type="datetime-local"
-                  value={formData.start_time ? new Date(formData.start_time).toISOString().slice(0, 16) : ''}
-                  onChange={(e) => handleInputChange('start_time', e.target.value ? new Date(e.target.value).toISOString() : '')}
+                  value={formData.start_time}
+                  onChange={(e) => handleInputChange('start_time', e.target.value)}
                   className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                     errors.start_time ? 'border-red-300' : 'border-gray-300'
                   }`}
@@ -275,8 +323,8 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                 <input
                   id="arc-end-time"
                   type="datetime-local"
-                  value={formData.end_time ? new Date(formData.end_time).toISOString().slice(0, 16) : ''}
-                  onChange={(e) => handleInputChange('end_time', e.target.value ? new Date(e.target.value).toISOString() : '')}
+                  value={formData.end_time}
+                  onChange={(e) => handleInputChange('end_time', e.target.value)}
                   className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                     errors.end_time ? 'border-red-300' : 'border-gray-300'
                   }`}
@@ -308,7 +356,11 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                   onChange={(e) => {
                     const value = e.target.value || null
                     setSelectedParentId(value)
-                    handleInputChange('parent_arc_id', value || '')
+                    setFormData(prev => ({
+                      ...prev,
+                      parent_arc_id: value,
+                      level: calculateLevel(value)
+                    }))
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >

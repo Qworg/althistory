@@ -8,7 +8,11 @@ export interface CausalRelationshipModalProps {
   isOpen: boolean
   onClose: () => void
   onSave?: (relationship: CausalRelationship) => void
+  onCreate?: (causeId: string, effectId: string, data: CausalRelationshipData) => Promise<void>
   onDelete?: (relationshipId: string) => void
+  // For create mode - specify the cause and effect events
+  causeEventId?: string
+  effectEventId?: string
 }
 
 export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = ({
@@ -16,8 +20,12 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
   isOpen,
   onClose,
   onSave,
-  onDelete
+  onCreate,
+  onDelete,
+  causeEventId,
+  effectEventId
 }) => {
+  const isCreateMode = !relationship && !!causeEventId && !!effectEventId
   const [formData, setFormData] = useState<CausalRelationshipData>({
     weight: 0.5,
     evidence: '',
@@ -28,30 +36,46 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
   const [causeEvent, setCauseEvent] = useState<Event | null>(null)
   const [effectEvent, setEffectEvent] = useState<Event | null>(null)
 
-  const { 
-    events, 
-    updateCausalRelationship, 
-    deleteCausalRelationship, 
-    addError 
+  const {
+    events,
+    updateCausalRelationship,
+    deleteCausalRelationship,
+    addError
   } = useGlobalStore()
 
-  // Load relationship data when modal opens
+  // Load relationship data when modal opens (edit mode) or find events (create mode)
   useEffect(() => {
-    if (relationship && isOpen) {
-      setFormData({
-        weight: relationship.weight,
-        evidence: relationship.evidence,
-        confidence: relationship.confidence,
-        relationship_type: relationship.relationship_type
-      })
+    if (isOpen) {
+      if (relationship) {
+        // Edit mode
+        setFormData({
+          weight: relationship.weight,
+          evidence: relationship.evidence,
+          confidence: relationship.confidence,
+          relationship_type: relationship.relationship_type
+        })
 
-      // Find cause and effect events
-      const cause = events.find(e => e.id === relationship.cause_event_id)
-      const effect = events.find(e => e.id === relationship.effect_event_id)
-      setCauseEvent(cause || null)
-      setEffectEvent(effect || null)
+        // Find cause and effect events
+        const cause = events.find(e => e.id === relationship.cause_event_id)
+        const effect = events.find(e => e.id === relationship.effect_event_id)
+        setCauseEvent(cause || null)
+        setEffectEvent(effect || null)
+      } else if (causeEventId && effectEventId) {
+        // Create mode - find the selected events
+        const cause = events.find(e => e.id === causeEventId)
+        const effect = events.find(e => e.id === effectEventId)
+        setCauseEvent(cause || null)
+        setEffectEvent(effect || null)
+        // Reset form data for new relationship
+        setFormData({
+          weight: 0.5,
+          evidence: '',
+          confidence: 0.7,
+          relationship_type: 'direct'
+        })
+      }
     }
-  }, [relationship, isOpen, events])
+  }, [relationship, isOpen, events, causeEventId, effectEventId])
 
   // Reset form when modal closes
   useEffect(() => {
@@ -68,8 +92,6 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
   }, [isOpen])
 
   const handleSave = async () => {
-    if (!relationship) return
-
     try {
       setIsLoading(true)
 
@@ -90,20 +112,30 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
         return
       }
 
-      // Update via API
-      const updatedRelationship = await apiClient.causal.updateLink(relationship.id, formData)
-      
-      // Update global state
-      updateCausalRelationship(relationship.id, formData)
-      
-      // Notify parent
-      onSave?.(updatedRelationship)
-      
-      onClose()
+      if (isCreateMode && onCreate && causeEventId && effectEventId) {
+        // Create mode
+        await onCreate(causeEventId, effectEventId, formData)
+        onClose()
+      } else if (relationship) {
+        // Update via API
+        const updatedRelationship = await apiClient.causal.updateLink(
+          relationship.cause_event_id,
+          relationship.effect_event_id,
+          formData
+        )
+
+        // Update global state
+        updateCausalRelationship(relationship.id, formData)
+
+        // Notify parent
+        onSave?.(updatedRelationship)
+
+        onClose()
+      }
     } catch (error) {
-      console.error('Failed to update causal relationship:', error)
+      console.error(`Failed to ${isCreateMode ? 'create' : 'update'} causal relationship:`, error)
       addError({
-        message: 'Failed to update causal relationship',
+        message: `Failed to ${isCreateMode ? 'create' : 'update'} causal relationship`,
         type: 'network'
       })
     } finally {
@@ -122,7 +154,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
       setIsLoading(true)
 
       // Delete via API
-      await apiClient.causal.deleteLink(relationship.id)
+      await apiClient.causal.deleteLink(relationship.cause_event_id, relationship.effect_event_id)
       
       // Update global state
       deleteCausalRelationship(relationship.id)
@@ -149,7 +181,8 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
     }))
   }
 
-  if (!isOpen || !relationship) return null
+  // Show modal if open and either in edit mode (has relationship) or create mode (has both event IDs)
+  if (!isOpen || (!relationship && !isCreateMode)) return null
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -157,7 +190,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">
-            Edit Causal Relationship
+            {isCreateMode ? 'Create Causal Relationship' : 'Edit Causal Relationship'}
           </h2>
           <button
             onClick={onClose}
@@ -283,14 +316,18 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
 
         {/* Footer */}
         <div className="flex items-center justify-between p-6 border-t border-gray-200">
-          <button
-            onClick={handleDelete}
-            className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors"
-            disabled={isLoading}
-          >
-            Delete Relationship
-          </button>
-          
+          {!isCreateMode ? (
+            <button
+              onClick={handleDelete}
+              className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors"
+              disabled={isLoading}
+            >
+              Delete Relationship
+            </button>
+          ) : (
+            <div />
+          )}
+
           <div className="flex space-x-3">
             <button
               onClick={onClose}
@@ -304,7 +341,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={isLoading}
             >
-              {isLoading ? 'Saving...' : 'Save Changes'}
+              {isLoading ? (isCreateMode ? 'Creating...' : 'Saving...') : (isCreateMode ? 'Create Relationship' : 'Save Changes')}
             </button>
           </div>
         </div>

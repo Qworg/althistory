@@ -1,9 +1,23 @@
 import { config } from 'dotenv';
 import { ConfigurationError } from './errors';
 import { DatabaseConfig } from './database';
+import * as path from 'path';
+import * as fs from 'fs';
 
-// Load environment variables
-config();
+// Load environment variables from .env and .env.local (local takes precedence)
+const rootDir = process.cwd();
+const envPath = path.resolve(rootDir, '.env');
+const envLocalPath = path.resolve(rootDir, '.env.local');
+
+// Load .env first (base configuration)
+if (fs.existsSync(envPath)) {
+  config({ path: envPath });
+}
+
+// Load .env.local second (overrides - takes precedence)
+if (fs.existsSync(envLocalPath)) {
+  config({ path: envLocalPath, override: true });
+}
 
 /**
  * Local execution configuration interface

@@ -1,15 +1,24 @@
-import { Session, Result, Record as Neo4jRecord, Integer } from 'neo4j-driver';
+import { Session, Record as Neo4jRecord, Integer } from 'neo4j-driver';
 import { Event, IEvent, CreateEventRequest, UpdateEventRequest, TimeRange } from '../models/Event';
-import { getDatabaseManager } from '../utils/database';
+import { DatabaseManager, LocalDatabaseManager, LocalSession } from '../utils/database';
+
+type AnySession = Session | LocalSession;
 
 /**
- * Repository for Event operations using Neo4j
+ * Repository for Event operations using Neo4j or LocalGraphStore
  */
 export class EventRepository {
-  private session: Session;
+  protected databaseManager: DatabaseManager | LocalDatabaseManager;
 
-  constructor(session?: Session) {
-    this.session = session || getDatabaseManager().getNeo4jSession();
+  constructor(databaseManager: DatabaseManager | LocalDatabaseManager, validationService?: any, cacheService?: any) {
+    this.databaseManager = databaseManager;
+  }
+
+  /**
+   * Get a session from the database manager
+   */
+  protected getSession(): AnySession {
+    return this.databaseManager.getNeo4jSession();
   }
 
   /**
@@ -17,7 +26,7 @@ export class EventRepository {
    */
   async create(eventData: CreateEventRequest): Promise<Event> {
     const event = new Event(eventData);
-    
+
     const query = `
       CREATE (e:Event {
         id: $id,
@@ -39,9 +48,10 @@ export class EventRepository {
       metadata: event.metadata || {}
     };
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
-      
+      const result = await session.run(query, parameters);
+
       if (result.records.length === 0) {
         throw new Error('Failed to create event');
       }
@@ -49,6 +59,8 @@ export class EventRepository {
       return event;
     } catch (error) {
       throw new Error(`Failed to create event: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -61,9 +73,10 @@ export class EventRepository {
       RETURN e
     `;
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, { id });
-      
+      const result = await session.run(query, { id });
+
       if (result.records.length === 0) {
         return null;
       }
@@ -71,6 +84,8 @@ export class EventRepository {
       return this.mapRecordToEvent(result.records[0]);
     } catch (error) {
       throw new Error(`Failed to find event by ID: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -92,11 +107,14 @@ export class EventRepository {
       parameters.offset = Integer.fromNumber(offset || 0);
     }
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
       throw new Error(`Failed to find events: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -122,11 +140,14 @@ export class EventRepository {
       parameters.offset = Integer.fromNumber(offset || 0);
     }
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
       throw new Error(`Failed to find events by time range: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -148,11 +169,14 @@ export class EventRepository {
       parameters.offset = Integer.fromNumber(offset || 0);
     }
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
       throw new Error(`Failed to find events by actor: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -174,11 +198,14 @@ export class EventRepository {
       parameters.offset = Integer.fromNumber(offset || 0);
     }
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
       throw new Error(`Failed to find events by target: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -188,8 +215,8 @@ export class EventRepository {
   async findByActorAndTimeRange(actor: string, timeRange: TimeRange, limit?: number, offset?: number): Promise<Event[]> {
     let query = `
       MATCH (e:Event)
-      WHERE e.actor = $actor 
-        AND e.timestamp >= datetime($startTime) 
+      WHERE e.actor = $actor
+        AND e.timestamp >= datetime($startTime)
         AND e.timestamp <= datetime($endTime)
       RETURN e
       ORDER BY e.timestamp ASC
@@ -207,11 +234,14 @@ export class EventRepository {
       parameters.offset = Integer.fromNumber(offset || 0);
     }
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
       throw new Error(`Failed to find events by actor and time range: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -247,9 +277,10 @@ export class EventRepository {
       metadata: updatedEvent.metadata || {}
     };
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
-      
+      const result = await session.run(query, parameters);
+
       if (result.records.length === 0) {
         return null;
       }
@@ -257,6 +288,8 @@ export class EventRepository {
       return updatedEvent;
     } catch (error) {
       throw new Error(`Failed to update event: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -270,12 +303,15 @@ export class EventRepository {
       RETURN count(e) as deletedCount
     `;
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, { id });
-      const deletedCount = result.records[0]?.get('deletedCount')?.toNumber() || 0;
+      const result = await session.run(query, { id });
+      const deletedCount = result.records[0]?.get('deletedCount')?.toNumber?.() || result.records[0]?.get('deletedCount') || 0;
       return deletedCount > 0;
     } catch (error) {
       throw new Error(`Failed to delete event: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -288,11 +324,14 @@ export class EventRepository {
       RETURN count(e) as total
     `;
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query);
-      return result.records[0]?.get('total')?.toNumber() || 0;
+      const result = await session.run(query);
+      return result.records[0]?.get('total')?.toNumber?.() || result.records[0]?.get('total') || 0;
     } catch (error) {
       throw new Error(`Failed to count events: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -305,11 +344,14 @@ export class EventRepository {
       RETURN count(e) as total
     `;
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, { actor });
-      return result.records[0]?.get('total')?.toNumber() || 0;
+      const result = await session.run(query, { actor });
+      return result.records[0]?.get('total')?.toNumber?.() || result.records[0]?.get('total') || 0;
     } catch (error) {
       throw new Error(`Failed to count events by actor: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -328,11 +370,14 @@ export class EventRepository {
       endTime: timeRange.end.toISOString()
     };
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
-      return result.records[0]?.get('total')?.toNumber() || 0;
+      const result = await session.run(query, parameters);
+      return result.records[0]?.get('total')?.toNumber?.() || result.records[0]?.get('total') || 0;
     } catch (error) {
       throw new Error(`Failed to count events by time range: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -345,25 +390,28 @@ export class EventRepository {
       RETURN count(e) > 0 as exists
     `;
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, { id });
+      const result = await session.run(query, { id });
       return result.records[0]?.get('exists') || false;
     } catch (error) {
       throw new Error(`Failed to check if event exists: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
   /**
-   * Close the session
+   * Close the repository (no-op, sessions are managed per-operation)
    */
   async close(): Promise<void> {
-    await this.session.close();
+    // Sessions are now closed after each operation
   }
 
   /**
    * Map Neo4j record to Event instance
    */
-  private mapRecordToEvent(record: Neo4jRecord): Event {
+  protected mapRecordToEvent(record: any): Event {
     const node = record.get('e');
     const properties = node.properties;
 
@@ -438,7 +486,7 @@ export class AdvancedEventRepository extends EventRepository {
 
     // Build query
     let query = 'MATCH (e:Event)';
-    
+
     if (conditions.length > 0) {
       query += ` WHERE ${conditions.join(' AND ')}`;
     }
@@ -457,11 +505,14 @@ export class AdvancedEventRepository extends EventRepository {
       parameters.offset = Integer.fromNumber(options.offset || 0);
     }
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
       throw new Error(`Failed to search events: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 }

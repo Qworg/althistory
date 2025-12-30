@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '../../test/utils'
 import { MainLayout } from './MainLayout'
 
@@ -32,7 +32,7 @@ describe('MainLayout', () => {
         <div>Test Content</div>
       </MainLayout>
     )
-    
+
     expect(screen.getByText('Test Content')).toBeInTheDocument()
   })
 
@@ -42,7 +42,7 @@ describe('MainLayout', () => {
         <div>Test Content</div>
       </MainLayout>
     )
-    
+
     expect(screen.getByText('Timeline Interface')).toBeInTheDocument()
   })
 
@@ -52,18 +52,18 @@ describe('MainLayout', () => {
         <div>Test Content</div>
       </MainLayout>
     )
-    
+
     expect(screen.getByRole('banner')).toBeInTheDocument()
     expect(screen.getByRole('main')).toBeInTheDocument()
   })
 
-  it('renders sidebar on desktop', () => {
+  it('renders sidebar on desktop in sidebar mode', () => {
     renderWithRouter(
       <MainLayout>
         <div>Test Content</div>
       </MainLayout>
     )
-    
+
     expect(screen.getByLabelText('Sidebar navigation')).toBeInTheDocument()
   })
 
@@ -73,26 +73,26 @@ describe('MainLayout', () => {
         <div>Test Content</div>
       </MainLayout>
     )
-    
+
     mockInnerWidth(800)
-    
+
     await waitFor(() => {
       expect(screen.queryByLabelText('Sidebar navigation')).not.toBeInTheDocument()
     })
   })
 
-  it('toggles sidebar collapse on desktop', async () => {
+  it('shows mobile bottom bar on mobile', async () => {
     renderWithRouter(
       <MainLayout>
         <div>Test Content</div>
       </MainLayout>
     )
-    
-    const toggleButton = screen.getByLabelText('Collapse sidebar')
-    fireEvent.click(toggleButton)
-    
-    // Sidebar should still be present but collapsed
-    expect(screen.getByLabelText('Sidebar navigation')).toBeInTheDocument()
+
+    mockInnerWidth(800)
+
+    await waitFor(() => {
+      expect(screen.getByRole('navigation', { name: 'Mobile navigation' })).toBeInTheDocument()
+    })
   })
 
   it('provides keyboard navigation support', () => {
@@ -101,7 +101,7 @@ describe('MainLayout', () => {
         <div>Test Content</div>
       </MainLayout>
     )
-    
+
     const main = screen.getByRole('main')
     expect(main).toHaveAttribute('tabIndex', '-1')
   })
@@ -112,7 +112,19 @@ describe('MainLayout', () => {
         <div>Test Content</div>
       </MainLayout>
     )
-    
+
     expect(window.addEventListener).toHaveBeenCalledWith('resize', expect.any(Function))
+  })
+
+  it('renders user profile menu in sidebar on desktop sidebar mode', () => {
+    renderWithRouter(
+      <MainLayout>
+        <div>Test Content</div>
+      </MainLayout>
+    )
+
+    // In sidebar mode on desktop, user menu should be in sidebar only
+    const userMenus = screen.getAllByLabelText('User menu')
+    expect(userMenus).toHaveLength(1)
   })
 })

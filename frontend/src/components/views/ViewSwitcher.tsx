@@ -129,29 +129,7 @@ export function ViewSwitcher({
     }
   }, [currentViewMode, navigate, setViewMode, saveCurrentViewState, sessionData])
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyPress = (event: KeyboardEvent) => {
-      // Only handle shortcuts when no input is focused
-      if (event.target instanceof HTMLInputElement || 
-          event.target instanceof HTMLTextAreaElement ||
-          event.target instanceof HTMLSelectElement) {
-        return
-      }
-
-      // Check for Alt + number shortcuts
-      if (event.altKey && !event.ctrlKey && !event.shiftKey) {
-        const config = viewConfigs.find(c => c.shortcut === event.key)
-        if (config) {
-          event.preventDefault()
-          handleViewSwitch(config.mode, config.path)
-        }
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyPress)
-    return () => document.removeEventListener('keydown', handleKeyPress)
-  }, [handleViewSwitch])
+  // Note: Keyboard shortcuts (Alt+1/2/3) are handled globally by useViewShortcuts hook in MainLayout
 
   const containerClasses = orientation === 'horizontal' 
     ? 'flex items-center space-x-1' 

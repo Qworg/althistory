@@ -47,6 +47,10 @@ npm test -- src/components/timeline/Timeline.test.tsx
 No Neo4j/Redis required for local development:
 
 ```bash
+# Option 1: Use the start script (recommended)
+./start-local.sh
+
+# Option 2: Manual startup
 # Backend
 cd timeline
 npm install
@@ -58,6 +62,8 @@ cd frontend
 npm install
 npm run dev
 ```
+
+**Note:** The backend loads both `.env` and `.env.local` files, with `.env.local` taking precedence for local overrides.
 
 ## Architecture
 

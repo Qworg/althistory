@@ -31,12 +31,13 @@ vi.mock('d3', () => {
     node: vi.fn(() => document.createElement('g'))
   }
 
-  const mockScale = vi.fn(() => 100)
+  const mockScale = vi.fn(() => 100) as any
   mockScale.domain = vi.fn().mockReturnValue(mockScale)
   mockScale.range = vi.fn().mockReturnValue(mockScale)
   mockScale.nice = vi.fn().mockReturnValue(mockScale)
   mockScale.invert = vi.fn(() => new Date())
   mockScale.copy = vi.fn().mockReturnValue(mockScale)
+  mockScale.ticks = vi.fn(() => [new Date('2024-01-01'), new Date('2024-01-02')])
 
   const mockAxis = vi.fn()
   mockAxis.tickFormat = vi.fn().mockReturnValue(mockAxis)
@@ -45,10 +46,24 @@ vi.mock('d3', () => {
 
   const mockZoom = vi.fn()
   mockZoom.scaleExtent = vi.fn().mockReturnValue(mockZoom)
+  mockZoom.translateExtent = vi.fn().mockReturnValue(mockZoom)
+  mockZoom.extent = vi.fn().mockReturnValue(mockZoom)
+  mockZoom.transform = vi.fn().mockReturnValue(mockZoom)
   mockZoom.on = vi.fn().mockReturnValue(mockZoom)
 
   const mockDrag = vi.fn()
   mockDrag.on = vi.fn().mockReturnValue(mockDrag)
+
+  // Mock time intervals
+  const mockTimeInterval = {
+    every: vi.fn(() => mockTimeInterval),
+    range: vi.fn(() => []),
+    floor: vi.fn((d: Date) => d),
+    ceil: vi.fn((d: Date) => d),
+    round: vi.fn((d: Date) => d),
+    offset: vi.fn((d: Date) => d),
+    count: vi.fn(() => 0)
+  }
 
   return {
     select: vi.fn(() => mockSelection),
@@ -56,11 +71,14 @@ vi.mock('d3', () => {
     scaleLinear: vi.fn(() => mockScale),
     axisBottom: vi.fn(() => mockAxis),
     axisLeft: vi.fn(() => mockAxis),
-    timeFormat: vi.fn(() => vi.fn()),
-    timeWeek: {
-      every: vi.fn(() => vi.fn())
-    },
+    timeFormat: vi.fn(() => vi.fn(() => '')),
+    timeHour: mockTimeInterval,
+    timeDay: mockTimeInterval,
+    timeWeek: mockTimeInterval,
+    timeMonth: mockTimeInterval,
+    timeYear: mockTimeInterval,
     zoom: vi.fn(() => mockZoom),
+    zoomIdentity: { k: 1, x: 0, y: 0 },
     drag: vi.fn(() => mockDrag),
     pointer: vi.fn(() => [100, 100]),
     easeElastic: vi.fn(),
@@ -98,6 +116,7 @@ describe('Timeline Component', () => {
       description: 'First test arc',
       start_time: '2024-01-01T00:00:00Z',
       end_time: '2024-01-03T00:00:00Z',
+      level: 0,
       parent_arc_id: null,
       created_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-01T00:00:00Z'
@@ -108,6 +127,7 @@ describe('Timeline Component', () => {
       description: 'Second test arc',
       start_time: '2024-01-02T00:00:00Z',
       end_time: '2024-01-04T00:00:00Z',
+      level: 0,
       parent_arc_id: null,
       created_at: '2024-01-02T00:00:00Z',
       updated_at: '2024-01-02T00:00:00Z'
@@ -253,6 +273,7 @@ describe('Timeline Component', () => {
           description: 'New test arc',
           start_time: '2024-01-05T00:00:00Z',
           end_time: '2024-01-07T00:00:00Z',
+          level: 0,
           parent_arc_id: null,
           created_at: '2024-01-05T00:00:00Z',
           updated_at: '2024-01-05T00:00:00Z'
@@ -327,6 +348,7 @@ describe('Timeline Component', () => {
         description: `Arc description ${i}`,
         start_time: new Date(2024, 0, 1 + i * 10).toISOString(),
         end_time: new Date(2024, 0, 1 + i * 10 + 5).toISOString(),
+        level: 0,
         parent_arc_id: null,
         created_at: new Date(2024, 0, 1 + i * 10).toISOString(),
         updated_at: new Date(2024, 0, 1 + i * 10).toISOString()
@@ -356,6 +378,7 @@ describe('Timeline Helper Functions', () => {
         description: 'First arc',
         start_time: '2024-01-01T00:00:00Z',
         end_time: '2024-01-03T00:00:00Z',
+        level: 0,
         parent_arc_id: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z'
@@ -366,6 +389,7 @@ describe('Timeline Helper Functions', () => {
         description: 'Overlapping arc',
         start_time: '2024-01-02T00:00:00Z',
         end_time: '2024-01-04T00:00:00Z',
+        level: 0,
         parent_arc_id: null,
         created_at: '2024-01-02T00:00:00Z',
         updated_at: '2024-01-02T00:00:00Z'
@@ -384,6 +408,7 @@ describe('Timeline Helper Functions', () => {
         description: 'Test arc for duration',
         start_time: '2024-01-01T00:00:00Z',
         end_time: '2024-01-03T00:00:00Z',
+        level: 0,
         parent_arc_id: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z'

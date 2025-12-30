@@ -10,8 +10,16 @@ vi.mock('@/stores/globalStore')
 const mockUseGlobalStore = vi.mocked(useGlobalStore)
 
 // Mock the API client
-vi.mock('@/services/api')
-const mockApiClient = vi.mocked(apiClient)
+vi.mock('@/services/api', () => ({
+  apiClient: {
+    causal: {
+      getSuggestions: vi.fn(),
+      createLink: vi.fn()
+    }
+  }
+}))
+const mockGetSuggestions = vi.mocked(apiClient.causal.getSuggestions)
+const mockCreateLink = vi.mocked(apiClient.causal.createLink)
 
 // Mock data
 const mockEvents: Event[] = [
@@ -61,19 +69,62 @@ const mockNewRelationship: CausalRelationship = {
 describe('CausalSuggestionManager', () => {
   const mockAddError = vi.fn()
   const mockAddCausalRelationship = vi.fn()
-  
-  beforeEach(() => {
-    mockUseGlobalStore.mockReturnValue({
-      events: mockEvents,
-      causalRelationships: [],
-      addCausalRelationship: mockAddCausalRelationship,
-      addError: mockAddError,
-      // Add other required store properties with default values
-      arcs: [],
-      inferredPressures: [],
-      selectedEvents: [],
-      selectedArcs: [],
-      activeFilters: {
+
+  // Base mock store state for reuse in tests
+  const getBaseMockStoreState = () => ({
+    events: mockEvents,
+    causalRelationships: [] as CausalRelationship[],
+    addCausalRelationship: mockAddCausalRelationship,
+    addError: mockAddError,
+    arcs: [],
+    inferredPressures: [],
+    selectedEvents: [],
+    selectedArcs: [],
+    activeFilters: {
+      dateRange: null,
+      actors: [],
+      targets: [],
+      eventTypes: [],
+      arcLevels: [],
+      causalWeightRange: [0, 1],
+      confidenceThreshold: 0,
+      searchQuery: ''
+    },
+    viewMode: 'causal' as const,
+    uiState: {
+      sidebarCollapsed: false,
+      filterPanelOpen: true,
+      activeModal: null,
+      dragState: {
+        isDragging: false,
+        dragType: null,
+        draggedItemId: null
+      },
+      selectionState: {
+        isSelecting: false,
+        selectionType: 'single',
+        selectionBox: null
+      }
+    },
+    userPreferences: {
+      theme: 'light' as const,
+      defaultViewMode: 'timeline' as const,
+      timelineHeight: 600,
+      showEventLabels: true,
+      autoSaveFilters: true,
+      notificationSettings: {
+        showSuccess: true,
+        showErrors: true,
+        showWarnings: true
+      },
+      accessibility: {
+        highContrast: false,
+        reducedMotion: false,
+        screenReaderOptimized: false
+      }
+    },
+    sessionData: {
+      lastActiveFilters: {
         dateRange: null,
         actors: [],
         targets: [],
@@ -83,113 +134,71 @@ describe('CausalSuggestionManager', () => {
         confidenceThreshold: 0,
         searchQuery: ''
       },
-      viewMode: 'causal' as const,
-      uiState: {
-        sidebarCollapsed: false,
-        filterPanelOpen: true,
-        activeModal: null,
-        dragState: {
-          isDragging: false,
-          dragType: null,
-          draggedItemId: null
+      lastViewMode: 'timeline' as const,
+      lastSelectedEvents: [],
+      lastSelectedArcs: [],
+      recentSearches: [],
+      viewportState: {
+        timeline: {
+          zoomLevel: 1,
+          centerTime: null
         },
-        selectionState: {
-          isSelecting: false,
-          selectionType: 'single',
-          selectionBox: null
+        causalGraph: {
+          layout: 'cose',
+          nodePositions: {}
         }
-      },
-      userPreferences: {
-        theme: 'light' as const,
-        defaultViewMode: 'timeline' as const,
-        timelineHeight: 600,
-        showEventLabels: true,
-        autoSaveFilters: true,
-        notificationSettings: {
-          showSuccess: true,
-          showErrors: true,
-          showWarnings: true
-        },
-        accessibility: {
-          highContrast: false,
-          reducedMotion: false,
-          screenReaderOptimized: false
-        }
-      },
-      sessionData: {
-        lastActiveFilters: {
-          dateRange: null,
-          actors: [],
-          targets: [],
-          eventTypes: [],
-          arcLevels: [],
-          causalWeightRange: [0, 1],
-          confidenceThreshold: 0,
-          searchQuery: ''
-        },
-        lastViewMode: 'timeline' as const,
-        lastSelectedEvents: [],
-        lastSelectedArcs: [],
-        recentSearches: [],
-        viewportState: {
-          timeline: {
-            zoomLevel: 1,
-            centerTime: null
-          },
-          causalGraph: {
-            layout: 'force-directed',
-            nodePositions: {}
-          }
-        }
-      },
-      isLoading: false,
-      loadingOperations: new Set(),
-      errors: [],
-      // Mock all the action functions
-      setEvents: vi.fn(),
-      setArcs: vi.fn(),
-      setCausalRelationships: vi.fn(),
-      setInferredPressures: vi.fn(),
-      addEvent: vi.fn(),
-      updateEvent: vi.fn(),
-      deleteEvent: vi.fn(),
-      addArc: vi.fn(),
-      updateArc: vi.fn(),
-      deleteArc: vi.fn(),
-      updateCausalRelationship: vi.fn(),
-      deleteCausalRelationship: vi.fn(),
-      setSelectedEvents: vi.fn(),
-      setSelectedArcs: vi.fn(),
-      toggleEventSelection: vi.fn(),
-      toggleArcSelection: vi.fn(),
-      clearSelection: vi.fn(),
-      setFilters: vi.fn(),
-      updateFilters: vi.fn(),
-      clearFilters: vi.fn(),
-      setViewMode: vi.fn(),
-      setUIState: vi.fn(),
-      setSidebarCollapsed: vi.fn(),
-      setFilterPanelOpen: vi.fn(),
-      setActiveModal: vi.fn(),
-      setDragState: vi.fn(),
-      setSelectionState: vi.fn(),
-      setUserPreferences: vi.fn(),
-      updateSessionData: vi.fn(),
-      setLoading: vi.fn(),
-      addLoadingOperation: vi.fn(),
-      removeLoadingOperation: vi.fn(),
-      clearErrors: vi.fn(),
-      removeError: vi.fn(),
-      savePreferences: vi.fn(),
-      loadPreferences: vi.fn(),
-      saveSessionData: vi.fn(),
-      loadSessionData: vi.fn(),
-      clearPersistedData: vi.fn()
-    })
+      }
+    },
+    isLoading: false,
+    loadingOperations: new Set<string>(),
+    errors: [],
+    setEvents: vi.fn(),
+    setArcs: vi.fn(),
+    setCausalRelationships: vi.fn(),
+    setInferredPressures: vi.fn(),
+    addEvent: vi.fn(),
+    updateEvent: vi.fn(),
+    deleteEvent: vi.fn(),
+    addArc: vi.fn(),
+    updateArc: vi.fn(),
+    deleteArc: vi.fn(),
+    updateCausalRelationship: vi.fn(),
+    deleteCausalRelationship: vi.fn(),
+    setSelectedEvents: vi.fn(),
+    setSelectedArcs: vi.fn(),
+    toggleEventSelection: vi.fn(),
+    toggleArcSelection: vi.fn(),
+    clearSelection: vi.fn(),
+    setFilters: vi.fn(),
+    updateFilters: vi.fn(),
+    clearFilters: vi.fn(),
+    setViewMode: vi.fn(),
+    setUIState: vi.fn(),
+    setSidebarCollapsed: vi.fn(),
+    setFilterPanelOpen: vi.fn(),
+    setActiveModal: vi.fn(),
+    setDragState: vi.fn(),
+    setSelectionState: vi.fn(),
+    setUserPreferences: vi.fn(),
+    updateSessionData: vi.fn(),
+    setLoading: vi.fn(),
+    addLoadingOperation: vi.fn(),
+    removeLoadingOperation: vi.fn(),
+    clearErrors: vi.fn(),
+    removeError: vi.fn(),
+    savePreferences: vi.fn(),
+    loadPreferences: vi.fn(),
+    saveSessionData: vi.fn(),
+    loadSessionData: vi.fn(),
+    clearPersistedData: vi.fn()
+  })
+
+  beforeEach(() => {
+    mockUseGlobalStore.mockReturnValue(getBaseMockStoreState())
 
     // Mock API client
-    mockApiClient.causal.getSuggestions.mockResolvedValue(mockSuggestions)
-    mockApiClient.causal.createLink.mockResolvedValue(mockNewRelationship)
+    mockGetSuggestions.mockResolvedValue(mockSuggestions)
+    mockCreateLink.mockResolvedValue(mockNewRelationship)
   })
 
   afterEach(() => {
@@ -207,7 +216,7 @@ describe('CausalSuggestionManager', () => {
     render(<CausalSuggestionManager focusEventId="1" />)
     
     await waitFor(() => {
-      expect(mockApiClient.causal.getSuggestions).toHaveBeenCalledWith('1', expect.any(AbortSignal))
+      expect(mockGetSuggestions).toHaveBeenCalledWith('1', expect.any(AbortSignal))
     })
 
     await waitFor(() => {
@@ -287,7 +296,7 @@ describe('CausalSuggestionManager', () => {
     fireEvent.click(acceptButton)
 
     await waitFor(() => {
-      expect(mockApiClient.causal.createLink).toHaveBeenCalledWith(
+      expect(mockCreateLink).toHaveBeenCalledWith(
         '1',
         '2',
         {
@@ -410,7 +419,7 @@ describe('CausalSuggestionManager', () => {
   })
 
   it('should handle API errors gracefully', async () => {
-    mockApiClient.causal.getSuggestions.mockRejectedValue(new Error('API Error'))
+    mockGetSuggestions.mockRejectedValue(new Error('API Error'))
     
     render(<CausalSuggestionManager focusEventId="1" />)
     
@@ -423,14 +432,14 @@ describe('CausalSuggestionManager', () => {
   })
 
   it('should show empty state when no suggestions are available', async () => {
-    mockApiClient.causal.getSuggestions.mockResolvedValue([])
+    mockGetSuggestions.mockResolvedValue([])
 
     render(<CausalSuggestionManager focusEventId="1" />)
 
     // When API returns empty array, the component returns null (doesn't render)
     // This is the expected behavior - the component only renders when there are suggestions
     await waitFor(() => {
-      expect(mockApiClient.causal.getSuggestions).toHaveBeenCalledWith('1', expect.any(AbortSignal))
+      expect(mockGetSuggestions).toHaveBeenCalledWith('1', expect.any(AbortSignal))
     })
 
     // Component should not be rendered when there are no suggestions
@@ -441,7 +450,7 @@ describe('CausalSuggestionManager', () => {
   it('should prevent accepting suggestion if relationship already exists', async () => {
     // Mock existing relationship
     mockUseGlobalStore.mockReturnValue({
-      ...mockUseGlobalStore(),
+      ...getBaseMockStoreState(),
       causalRelationships: [mockNewRelationship]
     })
     
@@ -463,12 +472,12 @@ describe('CausalSuggestionManager', () => {
     })
 
     // Should not create new relationship
-    expect(mockApiClient.causal.createLink).not.toHaveBeenCalled()
+    expect(mockCreateLink).not.toHaveBeenCalled()
   })
 
   it('should show processing state when accepting suggestion', async () => {
     // Delay the API response
-    mockApiClient.causal.createLink.mockImplementation(() => 
+    mockCreateLink.mockImplementation(() => 
       new Promise(resolve => setTimeout(() => resolve(mockNewRelationship), 100))
     )
     

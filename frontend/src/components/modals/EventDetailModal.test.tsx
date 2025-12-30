@@ -5,10 +5,8 @@ import { EventDetailModal } from './EventDetailModal'
 import {
   createMockEvent,
   createMockArc,
-  createMockCausalRelationship,
-  eventDetailModalScenarios
+  createMockCausalRelationship
 } from '@/test/fixtures/modalFixtures'
-import { expectDialogAccessibility } from '@/test/helpers/a11yTestHelpers'
 
 describe('EventDetailModal', () => {
   const defaultProps = {
@@ -156,6 +154,7 @@ describe('EventDetailModal', () => {
 
       expect(screen.getByLabelText(/description/i)).toBeRequired()
       expect(screen.getByLabelText(/actor/i)).toBeRequired()
+      expect(screen.getByLabelText(/target/i)).toBeRequired()
       expect(screen.getByLabelText(/timestamp/i)).toBeRequired()
     })
 
@@ -167,6 +166,7 @@ describe('EventDetailModal', () => {
       // Fill in valid data
       await user.type(screen.getByLabelText(/description/i), 'Test Event')
       await user.type(screen.getByLabelText(/actor/i), 'Test Actor')
+      await user.type(screen.getByLabelText(/target/i), 'Test Target')
       fireEvent.change(screen.getByLabelText(/timestamp/i), { target: { value: '2023-01-01T12:00' } })
 
       const saveButton = screen.getByRole('button', { name: /save/i })
@@ -201,6 +201,7 @@ describe('EventDetailModal', () => {
       // Fill in required fields
       await user.type(screen.getByLabelText(/description/i), 'New Event')
       await user.type(screen.getByLabelText(/actor/i), 'New Actor')
+      await user.type(screen.getByLabelText(/target/i), 'New Target')
 
       const timestampInput = screen.getByLabelText(/timestamp/i)
       fireEvent.change(timestampInput, { target: { value: '2023-01-01T12:00' } })
@@ -212,7 +213,8 @@ describe('EventDetailModal', () => {
         expect(onSave).toHaveBeenCalledWith(
           expect.objectContaining({
             description: 'New Event',
-            actor: 'New Actor'
+            actor: 'New Actor',
+            target: 'New Target'
           })
         )
       })
@@ -226,6 +228,7 @@ describe('EventDetailModal', () => {
       // Fill in required fields
       await user.type(screen.getByLabelText(/description/i), 'New Event')
       await user.type(screen.getByLabelText(/actor/i), 'New Actor')
+      await user.type(screen.getByLabelText(/target/i), 'New Target')
       fireEvent.change(screen.getByLabelText(/timestamp/i), { target: { value: '2023-01-01T12:00' } })
 
       const saveButton = screen.getByRole('button', { name: /save/i })
@@ -242,6 +245,7 @@ describe('EventDetailModal', () => {
       // Fill in required fields
       await user.type(screen.getByLabelText(/description/i), 'New Event')
       await user.type(screen.getByLabelText(/actor/i), 'New Actor')
+      await user.type(screen.getByLabelText(/target/i), 'New Target')
       fireEvent.change(screen.getByLabelText(/timestamp/i), { target: { value: '2023-01-01T12:00' } })
 
       const saveButton = screen.getByRole('button', { name: /save/i })
@@ -260,6 +264,7 @@ describe('EventDetailModal', () => {
       // Fill in required fields
       await user.type(screen.getByLabelText(/description/i), 'New Event')
       await user.type(screen.getByLabelText(/actor/i), 'New Actor')
+      await user.type(screen.getByLabelText(/target/i), 'New Target')
       fireEvent.change(screen.getByLabelText(/timestamp/i), { target: { value: '2023-01-01T12:00' } })
 
       const saveButton = screen.getByRole('button', { name: /save/i })

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Event, CausalSuggestion, CausalRelationshipData } from '@/types'
+import { CausalSuggestion, CausalRelationshipData } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
 
@@ -119,20 +119,23 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
     return filtered.slice(0, filters.maxSuggestions)
   }, [suggestions, filters, events])
 
+  // Ref to track if suggestions have been loaded (avoids dependency on suggestions.length)
+  const hasLoadedRef = useRef(false)
+
   // Load suggestions for a specific event
   const loadSuggestions = useCallback(async (eventId: string, force = false) => {
-    // Don't reload if same event and not forced
-    if (!force && lastFocusEventId === eventId && suggestions.length > 0) {
+    // Don't reload if same event and not forced (use ref to avoid dependency cycle)
+    if (!force && lastFocusEventId === eventId && hasLoadedRef.current) {
       return
     }
 
     setIsLoading(true)
     setError(null)
     setLastFocusEventId(eventId)
-    
+
     try {
       const rawSuggestions = await apiClient.causal.getSuggestions(eventId)
-      
+
       // Transform to suggestions with state
       const suggestionsWithState: SuggestionWithState[] = rawSuggestions.map(suggestion => ({
         ...suggestion,
@@ -144,7 +147,8 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
       }))
 
       setSuggestions(suggestionsWithState)
-      
+      hasLoadedRef.current = true
+
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load suggestions'
       setError(errorMessage)
@@ -152,10 +156,11 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
         message: errorMessage,
         type: 'network'
       })
+      hasLoadedRef.current = false
     } finally {
       setIsLoading(false)
     }
-  }, [lastFocusEventId, suggestions.length, addError])
+  }, [lastFocusEventId, addError]) // Removed suggestions.length to break dependency cycle
 
   // Accept a suggestion and create causal relationship
   const acceptSuggestion = useCallback(async (suggestion: SuggestionWithState) => {
@@ -291,6 +296,7 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
     setSuggestions([])
     setLastFocusEventId(null)
     setError(null)
+    hasLoadedRef.current = false
   }, [])
 
   // Update filters
@@ -348,17 +354,39 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
     )
   }, [suggestions])
 
-  // Auto-refresh suggestions when causal relationships change
+  // Track previous causalRelationships length to detect actual changes
+  const prevRelationshipsLengthRef = useRef(causalRelationships.length)
+
+  // Auto-refresh suggestions when causal relationships change (not on initial load or focus change)
   useEffect(() => {
-    if (lastFocusEventId && causalRelationships.length > 0) {
+    // Only refresh if relationships actually changed (not just on mount or focus change)
+    const relationshipsChanged = prevRelationshipsLengthRef.current !== causalRelationships.length
+    prevRelationshipsLengthRef.current = causalRelationships.length
+
+    if (relationshipsChanged && lastFocusEventId && hasLoadedRef.current) {
       // Debounce refresh to avoid excessive API calls
       const timeoutId = setTimeout(() => {
-        loadSuggestions(lastFocusEventId, true)
+        // Use ref to avoid dependency on loadSuggestions
+        apiClient.causal.getSuggestions(lastFocusEventId)
+          .then(rawSuggestions => {
+            const suggestionsWithState: SuggestionWithState[] = rawSuggestions.map(suggestion => ({
+              ...suggestion,
+              isVisible: true,
+              isProcessing: false,
+              userFeedback: feedbackCache.current.get(suggestion.id),
+              isAccepted: false,
+              isRejected: false
+            }))
+            setSuggestions(suggestionsWithState)
+          })
+          .catch(err => {
+            console.error('Failed to refresh suggestions:', err)
+          })
       }, 1000)
 
       return () => clearTimeout(timeoutId)
     }
-  }, [causalRelationships.length, lastFocusEventId, loadSuggestions])
+  }, [causalRelationships.length, lastFocusEventId])
 
   return {
     // State

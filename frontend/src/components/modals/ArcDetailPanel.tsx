@@ -1,16 +1,46 @@
 import React, { useState, useEffect } from 'react'
-import { Arc, Event, UpdateArcRequest } from '@/types'
+import { Arc, Event, UpdateArcRequest, CreateArcRequest } from '@/types'
 import { formatDuration } from '../timeline/arcHierarchyUtils'
+
+// Helper to convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
+const isoToDatetimeLocal = (isoString: string): string => {
+  if (!isoString) return ''
+  try {
+    const date = new Date(isoString)
+    if (isNaN(date.getTime())) return ''
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${year}-${month}-${day}T${hours}:${minutes}`
+  } catch {
+    return ''
+  }
+}
+
+// Helper to convert datetime-local format to ISO string
+const datetimeLocalToIso = (datetimeLocal: string): string => {
+  if (!datetimeLocal) return ''
+  try {
+    const date = new Date(datetimeLocal)
+    if (isNaN(date.getTime())) return ''
+    return date.toISOString()
+  } catch {
+    return ''
+  }
+}
 
 export interface ArcDetailPanelProps {
   arc: Arc | null
   isOpen: boolean
   onClose: () => void
   onSave: (updates: UpdateArcRequest) => Promise<void>
+  onCreate?: (data: CreateArcRequest) => Promise<void>
   onDelete?: () => Promise<void>
-  containedEvents: Event[]
-  childArcs: Arc[]
-  parentArc: Arc | null
+  containedEvents?: Event[]
+  childArcs?: Arc[]
+  parentArc?: Arc | null
   className?: string
 }
 
@@ -19,29 +49,41 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
   isOpen,
   onClose,
   onSave,
+  onCreate,
   onDelete,
   containedEvents = [],
   childArcs = [],
   parentArc = null,
   className = ''
 }) => {
+  const isCreateMode = !arc
   const [formData, setFormData] = useState<UpdateArcRequest>({})
   const [isLoading, setIsLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // Update form data when arc changes
+  // Update form data when arc changes or reset for create mode
   useEffect(() => {
     if (arc) {
       setFormData({
         name: arc.name,
         description: arc.description,
-        start_time: arc.start_time,
-        end_time: arc.end_time,
+        start_time: isoToDatetimeLocal(arc.start_time),
+        end_time: isoToDatetimeLocal(arc.end_time),
         parent_arc_id: arc.parent_arc_id
       })
-      setErrors({})
+    } else {
+      // Reset form for create mode
+      setFormData({
+        name: '',
+        description: '',
+        start_time: '',
+        end_time: '',
+        level: 0,
+        parent_arc_id: null
+      })
     }
-  }, [arc])
+    setErrors({})
+  }, [arc, isOpen])
 
   const handleInputChange = (field: keyof UpdateArcRequest, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -101,10 +143,33 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
 
     setIsLoading(true)
     try {
-      await onSave(formData)
+      // Convert datetime-local format to ISO strings for API
+      const start_time = datetimeLocalToIso(formData.start_time || '')
+      const end_time = datetimeLocalToIso(formData.end_time || '')
+
+      if (isCreateMode && onCreate) {
+        // Create mode - ensure all required fields are present
+        // Calculate level based on parent (default to 0 for top-level)
+        const level = parentArc ? (parentArc.level !== undefined ? parentArc.level + 1 : 1) : 0
+        const createData: CreateArcRequest = {
+          name: formData.name || '',
+          description: formData.description || '',
+          start_time,
+          end_time,
+          level,
+          parent_arc_id: formData.parent_arc_id
+        }
+        await onCreate(createData)
+      } else {
+        await onSave({
+          ...formData,
+          start_time,
+          end_time
+        })
+      }
       onClose()
     } catch (error) {
-      setErrors({ general: 'Failed to save arc. Please try again.' })
+      setErrors({ general: `Failed to ${isCreateMode ? 'create' : 'save'} arc. Please try again.` })
     } finally {
       setIsLoading(false)
     }
@@ -130,9 +195,9 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
     }
   }
 
-  if (!isOpen || !arc) return null
+  if (!isOpen) return null
 
-  const duration = formatDuration(new Date(arc.start_time), new Date(arc.end_time))
+  const duration = arc ? formatDuration(new Date(arc.start_time), new Date(arc.end_time)) : null
 
   return (
     <div
@@ -144,7 +209,9 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
       <div className="flex flex-col h-full">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h2 id="arc-panel-title" className="text-lg font-semibold text-gray-900">Arc Details</h2>
+          <h2 id="arc-panel-title" className="text-lg font-semibold text-gray-900">
+            {isCreateMode ? 'Create Arc' : 'Arc Details'}
+          </h2>
           <button
             onClick={onClose}
             className="p-2 hover:bg-gray-100 rounded-md transition-colors"
@@ -222,8 +289,8 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
                 <input
                   id="arc-start-time"
                   type="datetime-local"
-                  value={formData.start_time ? new Date(formData.start_time).toISOString().slice(0, 16) : ''}
-                  onChange={(e) => handleInputChange('start_time', e.target.value ? new Date(e.target.value).toISOString() : '')}
+                  value={formData.start_time || ''}
+                  onChange={(e) => handleInputChange('start_time', e.target.value)}
                   aria-required="true"
                   aria-invalid={!!errors.start_time}
                   aria-describedby={errors.start_time ? 'arc-start-time-error' : undefined}
@@ -241,8 +308,8 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
                 <input
                   id="arc-end-time"
                   type="datetime-local"
-                  value={formData.end_time ? new Date(formData.end_time).toISOString().slice(0, 16) : ''}
-                  onChange={(e) => handleInputChange('end_time', e.target.value ? new Date(e.target.value).toISOString() : '')}
+                  value={formData.end_time || ''}
+                  onChange={(e) => handleInputChange('end_time', e.target.value)}
                   aria-required="true"
                   aria-invalid={!!errors.end_time}
                   aria-describedby={errors.end_time ? 'arc-end-time-error' : undefined}
@@ -260,60 +327,66 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
               </div>
             )}
 
-            <div className="text-sm text-gray-500">
-              Duration: {duration}
+            {duration && (
+              <div className="text-sm text-gray-500">
+                Duration: {duration}
+              </div>
+            )}
+          </div>
+
+          {/* Hierarchy Information - only show in edit mode */}
+          {!isCreateMode && (
+            <div className="space-y-4">
+              <h3 className="text-sm font-medium text-gray-900">Hierarchy</h3>
+
+              {parentArc && (
+                <div className="bg-gray-50 rounded-md p-3">
+                  <p className="text-sm text-gray-600">
+                    <span className="font-medium">Parent Arc:</span> {parentArc.name}
+                  </p>
+                </div>
+              )}
+
+              {childArcs.length > 0 && (
+                <div className="bg-gray-50 rounded-md p-3">
+                  <p className="text-sm text-gray-600 mb-2">
+                    <span className="font-medium">Child Arcs ({childArcs.length}):</span>
+                  </p>
+                  <ul className="space-y-1">
+                    {childArcs.map(child => (
+                      <li key={child.id} className="text-sm text-gray-500 pl-2">
+                        • {child.name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
-          {/* Hierarchy Information */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-medium text-gray-900">Hierarchy</h3>
-            
-            {parentArc && (
-              <div className="bg-gray-50 rounded-md p-3">
-                <p className="text-sm text-gray-600">
-                  <span className="font-medium">Parent Arc:</span> {parentArc.name}
-                </p>
-              </div>
-            )}
+          {/* Contained Events - only show in edit mode */}
+          {!isCreateMode && (
+            <div className="space-y-4">
+              <h3 className="text-sm font-medium text-gray-900">
+                Contained Events ({containedEvents.length})
+              </h3>
 
-            {childArcs.length > 0 && (
-              <div className="bg-gray-50 rounded-md p-3">
-                <p className="text-sm text-gray-600 mb-2">
-                  <span className="font-medium">Child Arcs ({childArcs.length}):</span>
-                </p>
-                <ul className="space-y-1">
-                  {childArcs.map(child => (
-                    <li key={child.id} className="text-sm text-gray-500 pl-2">
-                      • {child.name}
-                    </li>
+              {containedEvents.length > 0 ? (
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {containedEvents.map(event => (
+                    <div key={event.id} className="bg-gray-50 rounded-md p-3">
+                      <p className="text-sm font-medium text-gray-900">{event.description}</p>
+                      <p className="text-xs text-gray-500">
+                        {event.actor} → {event.target} • {new Date(event.timestamp).toLocaleString()}
+                      </p>
+                    </div>
                   ))}
-                </ul>
-              </div>
-            )}
-          </div>
-
-          {/* Contained Events */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-medium text-gray-900">
-              Contained Events ({containedEvents.length})
-            </h3>
-            
-            {containedEvents.length > 0 ? (
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {containedEvents.map(event => (
-                  <div key={event.id} className="bg-gray-50 rounded-md p-3">
-                    <p className="text-sm font-medium text-gray-900">{event.description}</p>
-                    <p className="text-xs text-gray-500">
-                      {event.actor} → {event.target} • {new Date(event.timestamp).toLocaleString()}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 italic">No events contained in this arc</p>
-            )}
-          </div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 italic">No events contained in this arc</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -324,7 +397,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
               disabled={isLoading}
               className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isLoading ? 'Saving...' : 'Save Changes'}
+              {isLoading ? (isCreateMode ? 'Creating...' : 'Saving...') : (isCreateMode ? 'Create Arc' : 'Save Changes')}
             </button>
             <button
               onClick={onClose}
@@ -334,8 +407,8 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
               Cancel
             </button>
           </div>
-          
-          {onDelete && (
+
+          {!isCreateMode && onDelete && (
             <button
               onClick={handleDelete}
               disabled={isLoading}

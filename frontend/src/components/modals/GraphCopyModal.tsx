@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { useGraphCopy } from '@/hooks/useGraphCopy'
 import { useGlobalStore } from '@/stores/globalStore'
 import { TimeRangeSelector } from '@/components/filters/TimeRangeSelector'
@@ -34,6 +34,19 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
     event_types: [],
     confidence_threshold: 0.5
   })
+
+  // Reset form state when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedCopyType('full')
+      setFilterConfig({
+        actors: [],
+        targets: [],
+        event_types: [],
+        confidence_threshold: 0.5
+      })
+    }
+  }, [isOpen])
 
   // Get unique actors and targets for filter options
   const uniqueActors = Array.from(new Set(events.map(e => e.actor))).sort()

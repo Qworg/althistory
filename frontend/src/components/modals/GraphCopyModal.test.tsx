@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { GraphCopyModal } from './GraphCopyModal'
 import { useGlobalStore } from '@/stores/globalStore'
 import { useGraphCopy } from '@/hooks/useGraphCopy'
-import { Event, Arc } from '@/types'
 import { createMockEvent, createMockArc } from '@/test/fixtures/modalFixtures'
+import { Event, Arc } from '@/types'
 
 // Mock the hooks
 vi.mock('@/stores/globalStore')
@@ -40,6 +40,7 @@ const mockArcs: Arc[] = [
     description: 'Test arc',
     start_time: '2023-01-01T00:00:00Z',
     end_time: '2023-12-31T00:00:00Z',
+    level: 0,
     parent_arc_id: null,
     created_at: '2023-01-01T00:00:00Z',
     updated_at: '2023-01-01T00:00:00Z'

@@ -1,10 +1,9 @@
 import { InferredPressure, Arc, Event } from '@/types'
-import { 
-  PressureWithContext, 
-  PressureIndicatorData, 
+import {
+  PressureWithContext,
+  PressureIndicatorData,
   PressureTooltipData,
-  DEFAULT_PRESSURE_COLORS,
-  PressureColorScheme 
+  DEFAULT_PRESSURE_COLORS
 } from '@/types/pressure'
 
 /**
@@ -14,12 +13,12 @@ export function processPressuresWithContext(
   pressures: InferredPressure[],
   arcs: Arc[],
   events: Event[],
-  selectedPressures: Set<string> = new Set(),
+  _selectedPressures: Set<string> = new Set(),
   highlightedPressures: Set<string> = new Set()
 ): PressureWithContext[] {
   return pressures.map(pressure => {
     // Find arcs affected by this pressure (simplified - in real implementation would come from backend)
-    const affectedArcs = arcs.filter(arc => {
+    const affectedArcs = arcs.filter(_arc => {
       // For now, assume pressure affects arcs that contain events in the same time period
       // In a real implementation, this would be determined by the backend inference engine
       return true // Placeholder logic
@@ -74,7 +73,7 @@ export function calculatePressureOpacity(confidenceScore: number): number {
  */
 export function generatePressureIndicators(
   pressuresWithContext: PressureWithContext[],
-  arcs: Arc[],
+  _arcs: Arc[],
   timeScale: (date: Date) => number,
   yScale: (level: number) => number,
   arcLevelMap: Map<string, number>
@@ -176,9 +175,11 @@ export function calculatePressurePositions(
     // Check for overlaps with previous indicators
     for (let i = index - 1; i >= 0; i--) {
       const prevIndicator = sortedIndicators[i]
+      if (!prevIndicator) continue
+
       const xOverlap = indicator.x < prevIndicator.x + prevIndicator.width + 5
       const yOverlap = Math.abs(adjustedY - prevIndicator.y) < 8
-      
+
       if (xOverlap && yOverlap) {
         adjustedY = prevIndicator.y - 8 // Stack vertically
       }

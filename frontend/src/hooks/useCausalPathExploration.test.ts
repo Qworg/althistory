@@ -153,7 +153,7 @@ describe('useCausalPathExploration', () => {
             centerTime: null
           },
           causalGraph: {
-            layout: 'force-directed',
+            layout: 'cose',
             nodePositions: {}
           }
         }

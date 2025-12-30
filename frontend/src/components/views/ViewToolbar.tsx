@@ -1,12 +1,16 @@
 import React, { useCallback, useState } from 'react'
 import { useGlobalStore } from '@/stores/globalStore'
-import { ViewMode } from '@/types'
-import { 
-  GraphCopyModal, 
-  GraphCopyProgressPanel, 
+import { ViewMode, CreateEventRequest, CreateArcRequest, CausalRelationshipData } from '@/types'
+import {
+  GraphCopyModal,
+  GraphCopyProgressPanel,
   CopyHistoryPanel,
-  GraphComparisonModal 
+  GraphComparisonModal,
+  EventDetailModal,
+  ArcDetailPanel,
+  CausalRelationshipModal
 } from '@/components/modals'
+import { useCreateEvent, useCreateArc, useCreateCausalLink } from '@/hooks/useAPI'
 
 interface ViewToolbarProps {
   viewMode: ViewMode
@@ -41,10 +45,22 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
   const [showProgressPanel, setShowProgressPanel] = useState(false)
   const [showHistoryPanel, setShowHistoryPanel] = useState(false)
   const [showComparisonModal, setShowComparisonModal] = useState(false)
+  const [showCreateEventModal, setShowCreateEventModal] = useState(false)
+  const [showCreateArcPanel, setShowCreateArcPanel] = useState(false)
+  const [showCreateCausalLinkModal, setShowCreateCausalLinkModal] = useState(false)
   const [comparisonData, setComparisonData] = useState<{
     originalName: string
     copiedName: string
   } | null>(null)
+
+  // Actor perspective state
+  const [actorLayout, setActorLayout] = useState<'chronological' | 'thematic'>('chronological')
+  const [showActorStats, setShowActorStats] = useState(false)
+
+  // Mutations
+  const createEventMutation = useCreateEvent()
+  const createArcMutation = useCreateArc()
+  const createCausalLinkMutation = useCreateCausalLink()
 
   // Timeline-specific actions
   const getTimelineActions = useCallback((): ToolbarAction[] => {
@@ -58,14 +74,15 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           </svg>
         ),
         onClick: () => {
-          // Reset zoom to fit all events
+          // Trigger fit to view in Timeline component
           updateSessionData({
             viewportState: {
               ...sessionData.viewportState,
               timeline: {
                 ...sessionData.viewportState.timeline,
                 zoomLevel: 1,
-                centerTime: null
+                centerTime: null,
+                fitToViewTrigger: (sessionData.viewportState.timeline.fitToViewTrigger || 0) + 1
               }
             }
           })
@@ -82,8 +99,7 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           </svg>
         ),
         onClick: () => {
-          // Open create event modal
-          console.log('Create event clicked')
+          setShowCreateEventModal(true)
         },
         tooltip: 'Create new event (Ctrl+N)',
         shortcut: 'Ctrl+N'
@@ -97,8 +113,7 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           </svg>
         ),
         onClick: () => {
-          // Open create arc modal
-          console.log('Create arc clicked')
+          setShowCreateArcPanel(true)
         },
         tooltip: 'Create new arc (Ctrl+Shift+N)',
         shortcut: 'Ctrl+Shift+N'
@@ -189,10 +204,9 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           </svg>
         ),
         onClick: () => {
-          // Enable causal link creation mode
-          console.log('Create causal link clicked')
+          setShowCreateCausalLinkModal(true)
         },
-        tooltip: 'Create causal relationship (L)',
+        tooltip: 'Create causal relationship (L) - Select 2 events first',
         shortcut: 'L',
         disabled: selectedEvents.length !== 2
       }
@@ -211,11 +225,11 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           </svg>
         ),
         onClick: () => {
-          // Switch to chronological layout
-          console.log('Chronological layout clicked')
+          setActorLayout('chronological')
         },
         tooltip: 'Chronological layout (C)',
-        shortcut: 'C'
+        shortcut: 'C',
+        disabled: actorLayout === 'chronological'
       },
       {
         id: 'layout-thematic',
@@ -226,29 +240,28 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           </svg>
         ),
         onClick: () => {
-          // Switch to thematic layout
-          console.log('Thematic layout clicked')
+          setActorLayout('thematic')
         },
         tooltip: 'Thematic layout (T)',
-        shortcut: 'T'
+        shortcut: 'T',
+        disabled: actorLayout === 'thematic'
       },
       {
         id: 'actor-stats',
-        label: 'Show Stats',
+        label: showActorStats ? 'Hide Stats' : 'Show Stats',
         icon: (
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
         ),
         onClick: () => {
-          // Toggle actor statistics panel
-          console.log('Actor stats clicked')
+          setShowActorStats(!showActorStats)
         },
         tooltip: 'Toggle actor statistics (S)',
         shortcut: 'S'
       }
     ]
-  }, [])
+  }, [actorLayout, showActorStats])
 
   // Common actions available in all views
   const getCommonActions = useCallback((): ToolbarAction[] => {
@@ -505,6 +518,45 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         // TODO: Load actual graph data for comparison
         originalData={undefined}
         copiedData={undefined}
+      />
+
+      {/* Create Event Modal */}
+      <EventDetailModal
+        event={null}
+        isOpen={showCreateEventModal}
+        onClose={() => setShowCreateEventModal(false)}
+        onSave={async (eventData) => {
+          const createData: CreateEventRequest = {
+            description: eventData.description || '',
+            actor: eventData.actor || '',
+            target: eventData.target || '',
+            timestamp: eventData.timestamp || new Date().toISOString()
+          }
+          await createEventMutation.mutateAsync(createData)
+        }}
+      />
+
+      {/* Create Arc Panel */}
+      <ArcDetailPanel
+        arc={null}
+        isOpen={showCreateArcPanel}
+        onClose={() => setShowCreateArcPanel(false)}
+        onSave={async () => {}}
+        onCreate={async (arcData: CreateArcRequest) => {
+          await createArcMutation.mutateAsync(arcData)
+        }}
+      />
+
+      {/* Create Causal Link Modal */}
+      <CausalRelationshipModal
+        relationship={null}
+        isOpen={showCreateCausalLinkModal}
+        onClose={() => setShowCreateCausalLinkModal(false)}
+        causeEventId={selectedEvents.length === 2 ? selectedEvents[0] : undefined}
+        effectEventId={selectedEvents.length === 2 ? selectedEvents[1] : undefined}
+        onCreate={async (causeId: string, effectId: string, data: CausalRelationshipData) => {
+          await createCausalLinkMutation.mutateAsync({ causeId, effectId, relationship: data })
+        }}
       />
     </>
   )

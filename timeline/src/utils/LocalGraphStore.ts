@@ -185,14 +185,18 @@ export class CypherQueryParser {
     const records: LocalQueryRecord[] = [];
     const counters = { nodesCreated: 0, relationshipsCreated: 0, nodesDeleted: 0, relationshipsDeleted: 0, propertiesSet: 0 };
 
-    // Normalize query: replace newlines and multiple spaces with single space
-    const normalizedQuery = query.replace(/\s+/g, ' ').trim();
+    // Remove single-line comments (// ...) before normalizing
+    const queryWithoutComments = query.replace(/\/\/[^\n]*/g, '');
 
-    // Parse MATCH patterns - supports both:
-    // 1. MATCH (n:Label) WHERE conditions RETURN fields
-    // 2. MATCH (n:Label { props }) RETURN fields
-    const matchWithPropsPattern = /MATCH\s*\((\w+):(\w+)\s*\{([^}]+)\}\)\s*(?:RETURN\s+(.+))?\s*$/i;
-    const matchWithWherePattern = /MATCH\s*\((\w+):(\w+)\)(?:\s*WHERE\s+(.+?))?\s*(?:RETURN\s+(.+))?\s*$/i;
+    // Normalize query: replace newlines and multiple spaces with single space
+    const normalizedQuery = queryWithoutComments.replace(/\s+/g, ' ').trim();
+
+    // Parse MATCH patterns - supports:
+    // 1. MATCH (n:Label) WHERE conditions RETURN fields ORDER BY ... SKIP ... LIMIT ...
+    // 2. MATCH (n:Label { props }) RETURN fields ORDER BY ... SKIP ... LIMIT ...
+    // Updated patterns to capture full RETURN clause including aliases
+    const matchWithPropsPattern = /MATCH\s*\((\w+):(\w+)\s*\{([^}]+)\}\)\s*RETURN\s+(.+?)(?:\s+ORDER\s+BY|\s+SKIP|\s+LIMIT|$)/i;
+    const matchWithWherePattern = /MATCH\s*\((\w+):(\w+)\)(?:\s*WHERE\s+(.+?))?\s*RETURN\s+(.+?)(?:\s+ORDER\s+BY|\s+SKIP|\s+LIMIT|$)/i;
 
     let match = normalizedQuery.match(matchWithPropsPattern);
     let usePropsFilter = false;
@@ -228,45 +232,109 @@ export class CypherQueryParser {
           }
         }
       }
-      
-      // Apply LIMIT if present
-      const limitMatch = query.match(/LIMIT\s+(\d+)/i);
-      if (limitMatch) {
-        const limit = parseInt(limitMatch[1]);
-        matchingNodes = matchingNodes.slice(0, limit);
+
+      // Apply ORDER BY if present
+      const orderByMatch = normalizedQuery.match(/ORDER\s+BY\s+(\w+)\.(\w+)(?:\s+(ASC|DESC))?/i);
+      if (orderByMatch) {
+        const [, , orderProperty, direction] = orderByMatch;
+        const isDesc = direction?.toUpperCase() === 'DESC';
+        matchingNodes.sort((a, b) => {
+          const aVal = a.properties[orderProperty];
+          const bVal = b.properties[orderProperty];
+          if (aVal < bVal) return isDesc ? 1 : -1;
+          if (aVal > bVal) return isDesc ? -1 : 1;
+          return 0;
+        });
       }
-      
-      // Apply SKIP if present
-      const skipMatch = query.match(/SKIP\s+(\d+)/i);
+
+      // Apply SKIP if present (handle both literal and parameterized)
+      const skipMatch = normalizedQuery.match(/SKIP\s+(\$?\w+)/i);
       if (skipMatch) {
-        const skip = parseInt(skipMatch[1]);
-        matchingNodes = matchingNodes.slice(skip);
+        const skipValue = skipMatch[1];
+        let skip: number;
+        if (skipValue.startsWith('$')) {
+          const paramName = skipValue.substring(1);
+          const paramValue = parameters[paramName];
+          skip = typeof paramValue === 'object' && paramValue.toNumber ? paramValue.toNumber() : parseInt(paramValue);
+        } else {
+          skip = parseInt(skipValue);
+        }
+        if (!isNaN(skip) && skip > 0) {
+          matchingNodes = matchingNodes.slice(skip);
+        }
       }
-      
+
+      // Apply LIMIT if present (handle both literal and parameterized)
+      const limitMatch = normalizedQuery.match(/LIMIT\s+(\$?\w+)/i);
+      if (limitMatch) {
+        const limitValue = limitMatch[1];
+        let limit: number;
+        if (limitValue.startsWith('$')) {
+          const paramName = limitValue.substring(1);
+          const paramValue = parameters[paramName];
+          limit = typeof paramValue === 'object' && paramValue.toNumber ? paramValue.toNumber() : parseInt(paramValue);
+        } else {
+          limit = parseInt(limitValue);
+        }
+        if (!isNaN(limit) && limit > 0) {
+          matchingNodes = matchingNodes.slice(0, limit);
+        }
+      }
+
       // Create records based on RETURN clause
       if (returnClause) {
-        const returnFields = returnClause.split(',').map(f => f.trim());
-        
-        for (const node of matchingNodes) {
-          const values: any[] = [];
-          const keys: string[] = [];
-          
-          for (const field of returnFields) {
-            if (field === variable) {
-              values.push(node);
-              keys.push(field);
-            } else if (field.startsWith(`${variable}.`)) {
-              const property = field.substring(variable.length + 1);
-              values.push(node.properties[property]);
-              keys.push(field);
-            }
+        // Check for count() function in return clause
+        const countMatch = normalizedQuery.match(/RETURN\s+count\((\w+)\)(?:\s*>\s*(\d+))?\s+as\s+(\w+)/i);
+        if (countMatch) {
+          const [, , comparison, alias] = countMatch;
+          if (comparison !== undefined) {
+            // Handle count(n) > X as alias (returns boolean)
+            const comparisonValue = parseInt(comparison);
+            const result = matchingNodes.length > comparisonValue;
+            records.push(this.createRecord([alias], [result]));
+          } else {
+            // Handle count(n) as alias (returns number)
+            records.push(this.createRecord([alias], [matchingNodes.length]));
           }
-          
-          records.push(this.createRecord(keys, values));
+        } else {
+          // Regular field returns - parse fields with optional aliases
+          // Supports: variable, variable.property, variable.property as alias
+          const returnFields = returnClause.split(',').map(f => f.trim());
+
+          for (const node of matchingNodes) {
+            const values: any[] = [];
+            const keys: string[] = [];
+
+            for (const field of returnFields) {
+              // Check for "field as alias" pattern
+              const aliasMatch = field.match(/^(.+?)\s+as\s+(\w+)$/i);
+              let fieldName: string;
+              let keyName: string;
+
+              if (aliasMatch) {
+                fieldName = aliasMatch[1].trim();
+                keyName = aliasMatch[2];
+              } else {
+                fieldName = field;
+                keyName = field;
+              }
+
+              if (fieldName === variable) {
+                values.push(node);
+                keys.push(keyName);
+              } else if (fieldName.startsWith(`${variable}.`)) {
+                const property = fieldName.substring(variable.length + 1);
+                values.push(node.properties[property]);
+                keys.push(keyName);
+              }
+            }
+
+            records.push(this.createRecord(keys, values));
+          }
         }
       }
     }
-    
+
     return {
       records,
       summary: {
@@ -279,12 +347,78 @@ export class CypherQueryParser {
 
   private static executeSet(query: string, parameters: Record<string, any>, graphData: GraphData): LocalQueryResult {
     const counters = { nodesCreated: 0, relationshipsCreated: 0, nodesDeleted: 0, relationshipsDeleted: 0, propertiesSet: 0 };
-    
-    // This is a simplified SET implementation
-    // Real implementation would parse the full MATCH...SET pattern
-    
+    const records: LocalQueryRecord[] = [];
+
+    // Normalize query
+    const normalizedQuery = query.replace(/\s+/g, ' ').trim();
+
+    // Parse MATCH (n:Label {id: $id}) SET ... RETURN n pattern
+    const matchSetPattern = /MATCH\s*\((\w+):(\w+)\s*\{([^}]+)\}\)\s*SET\s+(.+?)\s*RETURN\s+(\w+)/i;
+    const match = normalizedQuery.match(matchSetPattern);
+
+    if (match) {
+      const [, variable, label, matchPropsStr, setClause, returnVar] = match;
+      const matchProps = this.parseProperties(matchPropsStr, parameters);
+
+      // Find the matching node
+      const nodeIds = graphData.nodesByLabel.get(label) || new Set();
+      let targetNode: GraphNode | null = null;
+
+      for (const nodeId of nodeIds) {
+        const node = graphData.nodes.get(nodeId);
+        if (node && this.nodeMatchesProperties(node, matchProps)) {
+          targetNode = node;
+          break;
+        }
+      }
+
+      if (targetNode) {
+        // Parse SET assignments: n.prop1 = $val1, n.prop2 = $val2, ...
+        const assignments = setClause.split(',').map(s => s.trim());
+
+        for (const assignment of assignments) {
+          // Match: variable.property = value
+          const assignMatch = assignment.match(/(\w+)\.(\w+)\s*=\s*(.+)/);
+          if (assignMatch) {
+            const [, , property, rawValue] = assignMatch;
+            let value: any;
+
+            // Parse the value
+            if (rawValue.startsWith('datetime($')) {
+              const paramMatch = rawValue.match(/datetime\(\$(\w+)\)/);
+              if (paramMatch) {
+                value = parameters[paramMatch[1]];
+              }
+            } else if (rawValue.startsWith('$')) {
+              const paramName = rawValue.substring(1);
+              value = parameters[paramName];
+            } else if (rawValue === 'null') {
+              value = null;
+            } else if (rawValue.startsWith('"') || rawValue.startsWith("'")) {
+              value = rawValue.slice(1, -1);
+            } else if (!isNaN(Number(rawValue))) {
+              value = Number(rawValue);
+            } else {
+              value = rawValue;
+            }
+
+            targetNode.properties[property] = value;
+            counters.propertiesSet++;
+          }
+        }
+
+        // Update the node in graphData
+        graphData.nodes.set(targetNode.id, targetNode);
+
+        // Create return record
+        if (returnVar === variable) {
+          records.push(this.createRecord([variable], [targetNode]));
+        }
+      }
+    }
+
     return {
-      records: [],
+      records,
       summary: {
         query,
         parameters,
@@ -344,9 +478,17 @@ export class CypherQueryParser {
         counters.nodesDeleted++;
       }
     }
-    
+
+    // Check if query returns count
+    const countReturnMatch = normalizedQuery.match(/RETURN\s+count\(\w+\)\s+as\s+(\w+)/i);
+    const records: LocalQueryRecord[] = [];
+    if (countReturnMatch) {
+      const alias = countReturnMatch[1];
+      records.push(this.createRecord([alias], [counters.nodesDeleted]));
+    }
+
     return {
-      records: [],
+      records,
       summary: {
         query,
         parameters,
@@ -357,66 +499,228 @@ export class CypherQueryParser {
 
   private static parseProperties(propsStr: string, parameters: Record<string, any>): Record<string, any> {
     const props: Record<string, any> = {};
-    
-    // Simple property parsing: key: $param or key: value
-    const propertyPattern = /(\w+):\s*(\$\w+|'[^']*'|"[^"]*"|\d+|true|false)/g;
+
+    // Simple property parsing: key: $param, key: value, or key: function($param)
+    // Matches: $param, 'string', "string", numbers, true/false, datetime($param), etc.
+    const propertyPattern = /(\w+):\s*(\$\w+|'[^']*'|"[^"]*"|\d+|true|false|datetime\(\$\w+\)|\{[^}]*\})/g;
     let match;
-    
+
     while ((match = propertyPattern.exec(propsStr)) !== null) {
       const [, key, value] = match;
-      
+
       if (value.startsWith('$')) {
         const paramName = value.substring(1);
         props[key] = parameters[paramName];
+      } else if (value.startsWith('datetime($')) {
+        // Handle Neo4j datetime function: datetime($param) -> extract param value
+        const paramMatch = value.match(/datetime\(\$(\w+)\)/);
+        if (paramMatch) {
+          const paramName = paramMatch[1];
+          props[key] = parameters[paramName]; // Store the ISO string directly
+        }
       } else if (value.startsWith('"') || value.startsWith("'")) {
         props[key] = value.slice(1, -1);
       } else if (value === 'true' || value === 'false') {
         props[key] = value === 'true';
+      } else if (value.startsWith('{')) {
+        // Handle object/map values like metadata: $metadata
+        // This is a simplification - in practice, this might be a JSON object
+        try {
+          props[key] = JSON.parse(value);
+        } catch {
+          props[key] = {};
+        }
       } else if (!isNaN(Number(value))) {
         props[key] = Number(value);
       } else {
         props[key] = value;
       }
     }
-    
+
     return props;
   }
 
   private static evaluateWhereClause(whereClause: string, properties: Record<string, any>, parameters: Record<string, any>): boolean {
-    // Simplified WHERE clause evaluation
-    // Support basic property comparisons: n.property = $param or n.property = 'value'
-    
-    const comparisons = whereClause.split(/\s+AND\s+/i);
-    
-    for (const comparison of comparisons) {
-      const match = comparison.match(/(\w+)\.(\w+)\s*([=<>!]+)\s*(\$\w+|'[^']*'|"[^"]*"|\d+)/);
-      if (match) {
-        const [, variable, property, operator, value] = match;
-        
-        let compareValue;
-        if (value.startsWith('$')) {
-          compareValue = parameters[value.substring(1)];
-        } else if (value.startsWith('"') || value.startsWith("'")) {
-          compareValue = value.slice(1, -1);
-        } else {
-          compareValue = value;
+    // Enhanced WHERE clause evaluation supporting complex conditions
+    // Supports: AND, OR, NOT, comparison operators, datetime() functions
+
+    // Handle OR conditions by splitting and evaluating each branch
+    // Note: This is a simplified implementation that handles common patterns
+    const orParts = this.splitByTopLevelOr(whereClause);
+    if (orParts.length > 1) {
+      return orParts.some(part => this.evaluateWhereClause(part.trim(), properties, parameters));
+    }
+
+    // Handle AND conditions
+    const andParts = this.splitByTopLevelAnd(whereClause);
+
+    for (const part of andParts) {
+      const trimmedPart = part.trim();
+
+      // Skip empty parts
+      if (!trimmedPart) continue;
+
+      // Handle NOT conditions: NOT (condition)
+      const notMatch = trimmedPart.match(/^NOT\s*\((.+)\)$/i);
+      if (notMatch) {
+        if (this.evaluateWhereClause(notMatch[1], properties, parameters)) {
+          return false;
         }
-        
-        const propertyValue = properties[property];
-        
-        switch (operator) {
-          case '=':
-            if (propertyValue !== compareValue) return false;
-            break;
-          case '!=':
-            if (propertyValue === compareValue) return false;
-            break;
-          // Add more operators as needed
+        continue;
+      }
+
+      // Handle parenthesized conditions
+      if (trimmedPart.startsWith('(') && trimmedPart.endsWith(')')) {
+        if (!this.evaluateWhereClause(trimmedPart.slice(1, -1), properties, parameters)) {
+          return false;
         }
+        continue;
+      }
+
+      // Handle comparison: n.property op value
+      // Supports: =, !=, <>, <, >, <=, >=
+      // Value can be: $param, datetime($param), 'string', "string", number
+      const comparisonMatch = trimmedPart.match(/(\w+)\.(\w+)\s*(<>|!=|<=|>=|[=<>])\s*(.+)/);
+      if (comparisonMatch) {
+        const [, , property, operator, rawValue] = comparisonMatch;
+
+        const compareValue = this.parseComparisonValue(rawValue.trim(), parameters);
+        const propertyValue = this.normalizePropertyValue(properties[property]);
+
+        if (!this.compareValues(propertyValue, operator, compareValue)) {
+          return false;
+        }
+        continue;
+      }
+
+      // Handle datetime comparison: datetime($param) op n.property
+      const datetimeFirstMatch = trimmedPart.match(/datetime\(\$(\w+)\)\s*(<>|!=|<=|>=|[=<>])\s*(\w+)\.(\w+)/);
+      if (datetimeFirstMatch) {
+        const [, paramName, operator, , property] = datetimeFirstMatch;
+        const compareValue = this.normalizePropertyValue(parameters[paramName]);
+        const propertyValue = this.normalizePropertyValue(properties[property]);
+
+        if (!this.compareValues(compareValue, operator, propertyValue)) {
+          return false;
+        }
+        continue;
       }
     }
-    
+
     return true;
+  }
+
+  private static splitByTopLevelOr(clause: string): string[] {
+    const parts: string[] = [];
+    let depth = 0;
+    let current = '';
+
+    for (let i = 0; i < clause.length; i++) {
+      const char = clause[i];
+      if (char === '(') depth++;
+      else if (char === ')') depth--;
+
+      if (depth === 0 && clause.substring(i, i + 4).toUpperCase() === ' OR ') {
+        parts.push(current);
+        current = '';
+        i += 3; // Skip " OR "
+      } else {
+        current += char;
+      }
+    }
+
+    if (current.trim()) {
+      parts.push(current);
+    }
+
+    return parts.length > 0 ? parts : [clause];
+  }
+
+  private static splitByTopLevelAnd(clause: string): string[] {
+    const parts: string[] = [];
+    let depth = 0;
+    let current = '';
+
+    for (let i = 0; i < clause.length; i++) {
+      const char = clause[i];
+      if (char === '(') depth++;
+      else if (char === ')') depth--;
+
+      if (depth === 0 && clause.substring(i, i + 5).toUpperCase() === ' AND ') {
+        parts.push(current);
+        current = '';
+        i += 4; // Skip " AND "
+      } else {
+        current += char;
+      }
+    }
+
+    if (current.trim()) {
+      parts.push(current);
+    }
+
+    return parts.length > 0 ? parts : [clause];
+  }
+
+  private static parseComparisonValue(rawValue: string, parameters: Record<string, any>): any {
+    // Handle datetime($param)
+    const datetimeMatch = rawValue.match(/^datetime\(\$(\w+)\)$/);
+    if (datetimeMatch) {
+      return this.normalizePropertyValue(parameters[datetimeMatch[1]]);
+    }
+
+    // Handle $param
+    if (rawValue.startsWith('$')) {
+      return parameters[rawValue.substring(1)];
+    }
+
+    // Handle strings
+    if ((rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+        (rawValue.startsWith("'") && rawValue.endsWith("'"))) {
+      return rawValue.slice(1, -1);
+    }
+
+    // Handle numbers
+    if (!isNaN(Number(rawValue))) {
+      return Number(rawValue);
+    }
+
+    return rawValue;
+  }
+
+  private static normalizePropertyValue(value: any): any {
+    // Convert date strings to Date objects for comparison
+    if (typeof value === 'string') {
+      // Check if it's an ISO date string
+      const dateMatch = value.match(/^\d{4}-\d{2}-\d{2}T/);
+      if (dateMatch) {
+        return new Date(value).getTime();
+      }
+    }
+    if (value instanceof Date) {
+      return value.getTime();
+    }
+    return value;
+  }
+
+  private static compareValues(left: any, operator: string, right: any): boolean {
+    switch (operator) {
+      case '=':
+        return left === right;
+      case '!=':
+      case '<>':
+        return left !== right;
+      case '<':
+        return left < right;
+      case '>':
+        return left > right;
+      case '<=':
+        return left <= right;
+      case '>=':
+        return left >= right;
+      default:
+        return true;
+    }
   }
 
   private static nodeMatchesProperties(node: GraphNode, targetProps: Record<string, any>): boolean {
@@ -656,15 +960,60 @@ export class LocalGraphStore {
   async getRelationshipsByType(type: string): Promise<GraphRelationship[]> {
     const relIds = this.graphData.relationshipsByType.get(type) || new Set();
     const relationships: GraphRelationship[] = [];
-    
+
     for (const relId of relIds) {
       const rel = this.graphData.relationships.get(relId);
       if (rel) {
         relationships.push(rel);
       }
     }
-    
+
     return relationships;
+  }
+
+  /**
+   * Find a relationship by start and end node IDs
+   */
+  async findRelationshipByNodes(startNodeId: string, endNodeId: string, type?: string): Promise<GraphRelationship | null> {
+    for (const rel of this.graphData.relationships.values()) {
+      if (rel.startNodeId === startNodeId && rel.endNodeId === endNodeId) {
+        if (!type || rel.type === type) {
+          return rel;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Find all relationships of a specific type
+   */
+  async findRelationshipsByType(type: string): Promise<GraphRelationship[]> {
+    const results: GraphRelationship[] = [];
+    for (const rel of this.graphData.relationships.values()) {
+      if (rel.type === type) {
+        results.push(rel);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Update a relationship's properties
+   */
+  async updateRelationship(id: string, properties: Record<string, any>): Promise<GraphRelationship | null> {
+    const relationship = this.graphData.relationships.get(id);
+    if (!relationship) {
+      return null;
+    }
+
+    const updatedRelationship: GraphRelationship = {
+      ...relationship,
+      properties: { ...relationship.properties, ...properties }
+    };
+
+    this.graphData.relationships.set(id, updatedRelationship);
+    return updatedRelationship;
   }
 
   /**

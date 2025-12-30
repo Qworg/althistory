@@ -8,7 +8,10 @@ import {
   createArcYScale,
   pixelToTimestamp,
   calculateInnerDimensions,
-  formatDuration
+  formatDuration,
+  getTimeAxisFormat,
+  formatTimeAxisTick,
+  getTimeAxisInterval
 } from './d3Calculations'
 import { Event, Arc } from '@/types'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
@@ -87,6 +90,7 @@ describe('d3Calculations', () => {
         description: 'Test arc',
         start_time: '2024-01-01T00:00:00Z',
         end_time: '2024-01-31T00:00:00Z',
+        level: 0,
         parent_arc_id: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z'
@@ -192,6 +196,7 @@ describe('d3Calculations', () => {
         description: 'Test arc',
         start_time: '2024-01-10T00:00:00Z',
         end_time: '2024-01-20T00:00:00Z',
+        level: 0,
         parent_arc_id: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
@@ -210,6 +215,7 @@ describe('d3Calculations', () => {
         description: 'Test arc 2',
         start_time: '2024-01-15T00:00:00Z',
         end_time: '2024-01-25T00:00:00Z',
+        level: 0,
         parent_arc_id: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
@@ -367,6 +373,132 @@ describe('d3Calculations', () => {
       const end = new Date('2024-06-01')
 
       expect(formatDuration(start, end)).toBe('2 years')
+    })
+  })
+
+  describe('getTimeAxisFormat', () => {
+    const ONE_HOUR = 60 * 60 * 1000
+    const ONE_DAY = 24 * ONE_HOUR
+    const ONE_WEEK = 7 * ONE_DAY
+    const ONE_MONTH = 30 * ONE_DAY
+    const ONE_YEAR = 365 * ONE_DAY
+
+    it('returns HH:MM:SS format within a single day', () => {
+      expect(getTimeAxisFormat(12 * ONE_HOUR)).toBe('%H:%M:%S')
+      expect(getTimeAxisFormat(ONE_DAY)).toBe('%H:%M:%S')
+    })
+
+    it('returns weekday + day format within two weeks', () => {
+      expect(getTimeAxisFormat(ONE_DAY + 1)).toBe('%a %d')
+      expect(getTimeAxisFormat(ONE_WEEK)).toBe('%a %d')
+      expect(getTimeAxisFormat(14 * ONE_DAY)).toBe('%a %d')
+    })
+
+    it('returns month + day format within two months', () => {
+      expect(getTimeAxisFormat(14 * ONE_DAY + 1)).toBe('%b %d')
+      expect(getTimeAxisFormat(ONE_MONTH)).toBe('%b %d')
+      expect(getTimeAxisFormat(60 * ONE_DAY)).toBe('%b %d')
+    })
+
+    it('returns month + year format within two years', () => {
+      expect(getTimeAxisFormat(60 * ONE_DAY + 1)).toBe('%b %Y')
+      expect(getTimeAxisFormat(ONE_YEAR)).toBe('%b %Y')
+      expect(getTimeAxisFormat(730 * ONE_DAY)).toBe('%b %Y')
+    })
+
+    it('returns year format within two decades', () => {
+      expect(getTimeAxisFormat(730 * ONE_DAY + 1)).toBe('%Y')
+      expect(getTimeAxisFormat(5 * ONE_YEAR)).toBe('%Y')
+      expect(getTimeAxisFormat(7300 * ONE_DAY)).toBe('%Y')
+    })
+
+    it('returns decade format beyond two decades', () => {
+      expect(getTimeAxisFormat(7300 * ONE_DAY + 1)).toBe('decade')
+      expect(getTimeAxisFormat(30 * ONE_YEAR)).toBe('decade')
+    })
+  })
+
+  describe('formatTimeAxisTick', () => {
+    const ONE_HOUR = 60 * 60 * 1000
+    const ONE_DAY = 24 * ONE_HOUR
+    const ONE_YEAR = 365 * ONE_DAY
+
+    it('formats with time for short spans', () => {
+      const tick = new Date('2024-01-15T14:30:45')
+      const result = formatTimeAxisTick(tick, 12 * ONE_HOUR)
+      expect(result).toBe('14:30:45')
+    })
+
+    it('formats with weekday for medium spans', () => {
+      const tick = new Date('2024-01-15T12:00:00')
+      const result = formatTimeAxisTick(tick, 7 * ONE_DAY)
+      expect(result).toMatch(/Mon 15/) // Monday Jan 15
+    })
+
+    it('formats with month + day for longer spans', () => {
+      const tick = new Date('2024-01-15T12:00:00')
+      const result = formatTimeAxisTick(tick, 45 * ONE_DAY)
+      expect(result).toBe('Jan 15')
+    })
+
+    it('formats with month + year for yearly spans', () => {
+      const tick = new Date('2024-06-15T12:00:00')
+      const result = formatTimeAxisTick(tick, ONE_YEAR)
+      expect(result).toBe('Jun 2024')
+    })
+
+    it('formats with year only for multi-year spans', () => {
+      const tick = new Date('2024-06-15T12:00:00')
+      const result = formatTimeAxisTick(tick, 5 * ONE_YEAR)
+      expect(result).toBe('2024')
+    })
+
+    it('formats as decade for very long spans', () => {
+      const tick2020 = new Date('2020-01-01T12:00:00')
+      const tick2025 = new Date('2025-01-01T12:00:00')
+      const tick1999 = new Date('1999-06-15T12:00:00')
+      const longSpan = 30 * ONE_YEAR
+
+      expect(formatTimeAxisTick(tick2020, longSpan)).toBe('2020s')
+      expect(formatTimeAxisTick(tick2025, longSpan)).toBe('2020s')
+      expect(formatTimeAxisTick(tick1999, longSpan)).toBe('1990s')
+    })
+  })
+
+  describe('getTimeAxisInterval', () => {
+    const ONE_HOUR = 60 * 60 * 1000
+    const ONE_DAY = 24 * ONE_HOUR
+    const ONE_YEAR = 365 * ONE_DAY
+
+    it('returns hourly interval for sub-day spans', () => {
+      const interval = getTimeAxisInterval(12 * ONE_HOUR)
+      expect(interval).toBe(d3.timeHour)
+    })
+
+    it('returns daily interval for sub-2-week spans', () => {
+      const interval = getTimeAxisInterval(7 * ONE_DAY)
+      expect(interval).toBe(d3.timeDay)
+    })
+
+    it('returns weekly interval for sub-2-month spans', () => {
+      const interval = getTimeAxisInterval(45 * ONE_DAY)
+      expect(interval).toBe(d3.timeWeek)
+    })
+
+    it('returns monthly interval for sub-2-year spans', () => {
+      const interval = getTimeAxisInterval(ONE_YEAR)
+      expect(interval).toBe(d3.timeMonth)
+    })
+
+    it('returns yearly interval for sub-2-decade spans', () => {
+      const interval = getTimeAxisInterval(5 * ONE_YEAR)
+      expect(interval).toBe(d3.timeYear)
+    })
+
+    it('returns decade interval for very long spans', () => {
+      const interval = getTimeAxisInterval(30 * ONE_YEAR)
+      // Decade intervals are created with d3.timeYear.every(10)
+      expect(interval).toBeDefined()
     })
   })
 })

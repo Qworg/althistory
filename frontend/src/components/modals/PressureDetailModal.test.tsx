@@ -1,10 +1,8 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import PressureDetailModal from './PressureDetailModal'
 import { PressureWithContext } from '@/types/pressure'
 import { Event, Arc } from '@/types'
-import { createMockEvent, createMockArc, createMockPressure, pressureDetailModalScenarios } from '@/test/fixtures/modalFixtures'
 
 describe('PressureDetailModal', () => {
   const mockEvents: Event[] = [
@@ -35,6 +33,7 @@ describe('PressureDetailModal', () => {
       description: 'Period of economic instability',
       start_time: '2023-01-01T00:00:00Z',
       end_time: '2023-01-31T00:00:00Z',
+      level: 0,
       parent_arc_id: null,
       created_at: '2023-01-01T00:00:00Z',
       updated_at: '2023-01-01T00:00:00Z'

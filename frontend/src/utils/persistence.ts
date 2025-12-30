@@ -74,7 +74,7 @@ export const userPreferencesPersistence = new PersistenceManager({
 export const sessionDataPersistence = new PersistenceManager({
   key: 'timeline-interface-session',
   version: 1,
-  migrate: (state, version) => {
+  migrate: (state, _version) => {
     // Handle future migrations here
     return state
   }

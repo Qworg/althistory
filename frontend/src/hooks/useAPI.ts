@@ -92,9 +92,7 @@ export function useSearchEvents(query: string, filters?: EventFilters, options?:
 
 export function useCreateEvent(options?: UseMutationOptions<Event, APIError, CreateEventRequest>) {
   const queryClient = useQueryClient()
-  const { addEvent } = useGlobalStore(state => ({
-    addEvent: state.addEvent
-  }))
+  const addEvent = useGlobalStore(state => state.addEvent)
   
   return useMutation({
     mutationFn: (data: CreateEventRequest) => apiClient.events.create(data),
@@ -111,9 +109,7 @@ export function useCreateEvent(options?: UseMutationOptions<Event, APIError, Cre
 
 export function useUpdateEvent(options?: UseMutationOptions<Event, APIError, { id: string; data: UpdateEventRequest }>) {
   const queryClient = useQueryClient()
-  const { updateEvent } = useGlobalStore(state => ({
-    updateEvent: state.updateEvent
-  }))
+  const updateEvent = useGlobalStore(state => state.updateEvent)
   
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateEventRequest }) => 
@@ -132,9 +128,7 @@ export function useUpdateEvent(options?: UseMutationOptions<Event, APIError, { i
 
 export function useDeleteEvent(options?: UseMutationOptions<void, APIError, string>) {
   const queryClient = useQueryClient()
-  const { deleteEvent } = useGlobalStore(state => ({
-    deleteEvent: state.deleteEvent
-  }))
+  const deleteEvent = useGlobalStore(state => state.deleteEvent)
   
   return useMutation({
     mutationFn: (id: string) => apiClient.events.delete(id),
@@ -180,9 +174,7 @@ export function useArcHierarchy(options?: Omit<UseQueryOptions<Arc[], APIError>,
 
 export function useCreateArc(options?: UseMutationOptions<Arc, APIError, CreateArcRequest>) {
   const queryClient = useQueryClient()
-  const { addArc } = useGlobalStore(state => ({
-    addArc: state.addArc
-  }))
+  const addArc = useGlobalStore(state => state.addArc)
   
   return useMutation({
     mutationFn: (data: CreateArcRequest) => apiClient.arcs.create(data),
@@ -199,9 +191,7 @@ export function useCreateArc(options?: UseMutationOptions<Arc, APIError, CreateA
 
 export function useUpdateArc(options?: UseMutationOptions<Arc, APIError, { id: string; data: UpdateArcRequest }>) {
   const queryClient = useQueryClient()
-  const { updateArc } = useGlobalStore(state => ({
-    updateArc: state.updateArc
-  }))
+  const updateArc = useGlobalStore(state => state.updateArc)
   
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateArcRequest }) => 
@@ -219,9 +209,7 @@ export function useUpdateArc(options?: UseMutationOptions<Arc, APIError, { id: s
 
 export function useDeleteArc(options?: UseMutationOptions<void, APIError, string>) {
   const queryClient = useQueryClient()
-  const { deleteArc } = useGlobalStore(state => ({
-    deleteArc: state.deleteArc
-  }))
+  const deleteArc = useGlobalStore(state => state.deleteArc)
   
   return useMutation({
     mutationFn: (id: string) => apiClient.arcs.delete(id),
@@ -266,9 +254,7 @@ export function useCausalSuggestions(eventId: string, options?: Omit<UseQueryOpt
 
 export function useCreateCausalLink(options?: UseMutationOptions<CausalRelationship, APIError, { causeId: string; effectId: string; relationship: CausalRelationshipData }>) {
   const queryClient = useQueryClient()
-  const { addCausalRelationship } = useGlobalStore(state => ({
-    addCausalRelationship: state.addCausalRelationship
-  }))
+  const addCausalRelationship = useGlobalStore(state => state.addCausalRelationship)
   
   return useMutation({
     mutationFn: ({ causeId, effectId, relationship }: { causeId: string; effectId: string; relationship: CausalRelationshipData }) =>
@@ -284,19 +270,18 @@ export function useCreateCausalLink(options?: UseMutationOptions<CausalRelations
   })
 }
 
-export function useUpdateCausalLink(options?: UseMutationOptions<CausalRelationship, APIError, { id: string; data: Partial<CausalRelationship> }>) {
+export function useUpdateCausalLink(options?: UseMutationOptions<CausalRelationship, APIError, { causeEventId: string; effectEventId: string; data: Partial<CausalRelationshipData> }>) {
   const queryClient = useQueryClient()
-  const { updateCausalRelationship } = useGlobalStore(state => ({
-    updateCausalRelationship: state.updateCausalRelationship
-  }))
-  
+  const updateCausalRelationship = useGlobalStore(state => state.updateCausalRelationship)
+
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<CausalRelationship> }) =>
-      apiClient.causal.updateLink(id, data),
-    onSuccess: (updatedRelationship, { id }) => {
+    mutationFn: ({ causeEventId, effectEventId, data }: { causeEventId: string; effectEventId: string; data: Partial<CausalRelationshipData> }) =>
+      apiClient.causal.updateLink(causeEventId, effectEventId, data),
+    onSuccess: (updatedRelationship, { causeEventId, effectEventId }) => {
       // Update local state
+      const id = `${causeEventId}_${effectEventId}`
       updateCausalRelationship(id, updatedRelationship)
-      
+
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.causal.all })
     },
@@ -304,18 +289,18 @@ export function useUpdateCausalLink(options?: UseMutationOptions<CausalRelations
   })
 }
 
-export function useDeleteCausalLink(options?: UseMutationOptions<void, APIError, string>) {
+export function useDeleteCausalLink(options?: UseMutationOptions<void, APIError, { causeEventId: string; effectEventId: string }>) {
   const queryClient = useQueryClient()
-  const { deleteCausalRelationship } = useGlobalStore(state => ({
-    deleteCausalRelationship: state.deleteCausalRelationship
-  }))
-  
+  const deleteCausalRelationship = useGlobalStore(state => state.deleteCausalRelationship)
+
   return useMutation({
-    mutationFn: (id: string) => apiClient.causal.deleteLink(id),
-    onSuccess: (_, id) => {
+    mutationFn: ({ causeEventId, effectEventId }: { causeEventId: string; effectEventId: string }) =>
+      apiClient.causal.deleteLink(causeEventId, effectEventId),
+    onSuccess: (_, { causeEventId, effectEventId }) => {
       // Update local state
+      const id = `${causeEventId}_${effectEventId}`
       deleteCausalRelationship(id)
-      
+
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.causal.all })
     },

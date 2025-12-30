@@ -49,6 +49,7 @@ describe('pressureVisualization utils', () => {
       description: 'First test arc',
       start_time: '2023-01-01T00:00:00Z',
       end_time: '2023-01-31T00:00:00Z',
+      level: 0,
       parent_arc_id: null,
       created_at: '2023-01-01T00:00:00Z',
       updated_at: '2023-01-01T00:00:00Z'
@@ -154,7 +155,7 @@ describe('pressureVisualization utils', () => {
   describe('formatPressureTooltip', () => {
     it('formats tooltip data correctly', () => {
       const pressureWithContext: PressureWithContext = {
-        ...mockPressures[0],
+        ...mockPressures[0]!,
         affectedArcs: mockArcs,
         evidenceEvents: mockEvents,
         influenceStrength: 0.75,
@@ -211,7 +212,7 @@ describe('pressureVisualization utils', () => {
         {
           id: 'indicator-1',
           pressure: {} as PressureWithContext,
-          arc: mockArcs[0],
+          arc: mockArcs[0]!,
           x: 100,
           y: 50,
           width: 50,
@@ -224,7 +225,7 @@ describe('pressureVisualization utils', () => {
         {
           id: 'indicator-2',
           pressure: {} as PressureWithContext,
-          arc: mockArcs[0],
+          arc: mockArcs[0]!,
           x: 120,
           y: 50,
           width: 50,
@@ -237,21 +238,21 @@ describe('pressureVisualization utils', () => {
       ]
 
       const result = calculatePressurePositions(indicators)
-      
+
       expect(result).toHaveLength(2)
       // Second indicator should be moved to avoid overlap
-      expect(result[1].y).not.toBe(result[0].y)
+      expect(result[1]!.y).not.toBe(result[0]!.y)
     })
   })
 
   describe('filterPressuresByConfidence', () => {
     it('filters pressures by confidence threshold', () => {
       const pressuresWithContext = processPressuresWithContext(mockPressures, mockArcs, mockEvents)
-      
+
       const filtered = filterPressuresByConfidence(pressuresWithContext, 0.5)
-      
+
       expect(filtered.length).toBe(1) // Only the 0.8 confidence pressure should remain
-      expect(filtered[0].confidence_score).toBe(0.8)
+      expect(filtered[0]!.confidence_score).toBe(0.8)
     })
 
     it('returns all pressures when threshold is 0', () => {

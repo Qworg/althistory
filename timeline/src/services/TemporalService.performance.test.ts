@@ -169,22 +169,34 @@ describe('TemporalService Performance Tests', () => {
     it('should enforce performance constraints and throw PerformanceError for slow queries', async () => {
       // Arrange
       const timeRange: TimeRange = {
-        start: new Date('2023-01-01T00:00:00Z'),
-        end: new Date('2023-12-31T23:59:59Z')
+        start: new Date('2023-02-01T00:00:00Z'), // Unique range to avoid cache interference
+        end: new Date('2023-02-28T23:59:59Z')
       };
 
-      // Mock a slow query (exceeding timeout but not the test timeout)
-      vi.mocked(mockEventRepository.findByTimeRange).mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve([]), 3000))
-      );
+      // Mock Date.now() to simulate slow query (more reliable than real setTimeout)
+      const originalDateNow = Date.now;
+      let callCount = 0;
+      vi.spyOn(Date, 'now').mockImplementation(() => {
+        callCount++;
+        // First call is at start, subsequent calls simulate 3000ms elapsed
+        return callCount === 1 ? 1000 : 4000;
+      });
 
-      // Clear cache to ensure we hit the slow database
+      // Mock repository to return immediately (timing handled by Date.now mock)
+      vi.mocked(mockEventRepository.findByTimeRange).mockResolvedValue([]);
+
+      // Clear cache to ensure we hit the database
       await temporalService.clearTemporalCache();
 
-      // Act & Assert
-      await expect(temporalService.findEventsInRange(timeRange))
-        .rejects.toThrow(PerformanceError);
-    }, 10000); // Give test enough time to complete
+      try {
+        // Act & Assert
+        await expect(temporalService.findEventsInRange(timeRange))
+          .rejects.toThrow(PerformanceError);
+      } finally {
+        // Restore Date.now
+        vi.spyOn(Date, 'now').mockRestore();
+      }
+    });
 
     it('should handle concurrent temporal queries efficiently', async () => {
       // Arrange
@@ -225,19 +237,22 @@ describe('TemporalService Performance Tests', () => {
 
   describe('Memory and Resource Management', () => {
     it('should limit query results to prevent memory exhaustion', async () => {
-      // Arrange
+      // Arrange - use a unique time range to avoid cache interference
       const timeRange: TimeRange = {
-        start: new Date('2023-01-01T00:00:00Z'),
-        end: new Date('2023-12-31T23:59:59Z')
+        start: new Date('2022-01-01T00:00:00Z'),
+        end: new Date('2022-12-31T23:59:59Z')
       };
 
+      // Clear cache to ensure we hit the repository
+      await temporalService.clearTemporalCache();
+
       // Mock a very large dataset
-      const hugeDataset = Array.from({ length: 50000 }, (_, i) => 
+      const hugeDataset = Array.from({ length: 50000 }, (_, i) =>
         new Event({
           description: `Event ${i}`,
           actor: 'Test Actor',
           target: 'Test Target',
-          timestamp: new Date(2023, 0, 1 + (i % 365))
+          timestamp: new Date(2022, 0, 1 + (i % 365))
         })
       );
 

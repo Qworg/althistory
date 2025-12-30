@@ -43,9 +43,19 @@ causalRoutes.post('/link', async (req: RequestWithContainer, res: Response, next
       throw new NotFoundError(`Effect event with ID ${effectEventId} not found`, 'Event', effectEventId);
     }
 
+    // Transform relationship fields to match CausalService expectations
+    // Route accepts: type, strength, confidence, evidence
+    // Service expects: relationship_type, weight, confidence, evidence
+    const transformedRelationship = {
+      relationship_type: relationship.type || relationship.relationship_type,
+      weight: relationship.strength ?? relationship.weight,
+      confidence: relationship.confidence,
+      evidence: relationship.evidence || ''
+    };
+
     // Create causal link
     const causalService = req.container.causalService;
-    await causalService.createCausalLink(causeEvent, effectEvent, relationship);
+    await causalService.createCausalLink(causeEvent, effectEvent, transformedRelationship as any);
 
     res.status(201).json({
       success: true,
@@ -249,6 +259,24 @@ causalRoutes.post('/validate', async (req: RequestWithContainer, res: Response, 
 });
 
 /**
+ * GET /causal/relationships - Get all causal relationships
+ */
+causalRoutes.get('/relationships', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+  try {
+    const causalService = req.container.causalService;
+    const relationships = await causalService.getAllRelationships();
+
+    res.json({
+      success: true,
+      data: relationships,
+      requestId: req.requestId
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * GET /causal/relationships/:eventId - Get all causal relationships for an event
  */
 causalRoutes.get('/relationships/:eventId', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
@@ -297,12 +325,12 @@ causalRoutes.get('/relationships/:eventId', async (req: RequestWithContainer, re
 });
 
 /**
- * DELETE /causal/link - Remove a causal link between two events
+ * PUT /causal/link - Update a causal link between two events
  */
-causalRoutes.delete('/link', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+causalRoutes.put('/link', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const { causeEventId, effectEventId } = req.body;
-    
+    const { causeEventId, effectEventId, relationship } = req.body;
+
     // Validate required fields
     if (!causeEventId || !effectEventId) {
       throw new ValidationError(
@@ -313,7 +341,15 @@ causalRoutes.delete('/link', async (req: RequestWithContainer, res: Response, ne
       );
     }
 
-    // Get events from repository
+    if (!relationship || typeof relationship !== 'object') {
+      throw new ValidationError(
+        'Relationship updates must be provided as an object',
+        'relationship',
+        relationship
+      );
+    }
+
+    // Get events from repository to verify they exist
     const eventRepository = req.container.eventRepository;
     const causeEvent = await eventRepository.findById(causeEventId);
     const effectEvent = await eventRepository.findById(effectEventId);
@@ -325,9 +361,62 @@ causalRoutes.delete('/link', async (req: RequestWithContainer, res: Response, ne
       throw new NotFoundError(`Effect event with ID ${effectEventId} not found`, 'Event', effectEventId);
     }
 
-    // For now, return success - would need to implement link removal
-    // This would require additional service methods to be implemented
-    const removed = true; // Placeholder
+    // Update causal link
+    const causalService = req.container.causalService;
+    const updatedRelationship = await causalService.updateCausalLink(causeEventId, effectEventId, {
+      weight: relationship.weight,
+      confidence: relationship.confidence,
+      evidence: relationship.evidence,
+      relationship_type: relationship.type || relationship.relationship_type
+    });
+
+    res.json({
+      success: true,
+      data: {
+        cause: causeEvent.toJSON(),
+        effect: effectEvent.toJSON(),
+        relationship: updatedRelationship
+      },
+      message: 'Causal link updated successfully',
+      requestId: req.requestId
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * DELETE /causal/link - Remove a causal link between two events
+ */
+causalRoutes.delete('/link', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+  try {
+    const { causeEventId, effectEventId } = req.body;
+
+    // Validate required fields
+    if (!causeEventId || !effectEventId) {
+      throw new ValidationError(
+        'Missing required fields: causeEventId and effectEventId are required',
+        undefined,
+        req.body,
+        ['causeEventId', 'effectEventId'].filter(field => !req.body[field])
+      );
+    }
+
+    // Get events from repository to verify they exist
+    const eventRepository = req.container.eventRepository;
+    const causeEvent = await eventRepository.findById(causeEventId);
+    const effectEvent = await eventRepository.findById(effectEventId);
+
+    if (!causeEvent) {
+      throw new NotFoundError(`Cause event with ID ${causeEventId} not found`, 'Event', causeEventId);
+    }
+    if (!effectEvent) {
+      throw new NotFoundError(`Effect event with ID ${effectEventId} not found`, 'Event', effectEventId);
+    }
+
+    // Delete the causal link
+    const causalService = req.container.causalService;
+    await causalService.deleteCausalLink(causeEventId, effectEventId);
 
     res.json({
       success: true,

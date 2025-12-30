@@ -112,8 +112,8 @@ class APIClient {
     events = {
         getAll: async (filters?: EventFilters): Promise<Event[]> => {
             try {
-                const response: AxiosResponse<Event[]> = await this.client.get('/events', { params: filters })
-                return response.data
+                const response: AxiosResponse<{ success: boolean; data: Event[] }> = await this.client.get('/events', { params: filters })
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -121,8 +121,8 @@ class APIClient {
 
         getById: async (id: string): Promise<Event> => {
             try {
-                const response: AxiosResponse<Event> = await this.client.get(`/events/${id}`)
-                return response.data
+                const response: AxiosResponse<{ success: boolean; data: Event }> = await this.client.get(`/events/${id}`)
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -130,8 +130,8 @@ class APIClient {
 
         create: async (data: CreateEventRequest): Promise<Event> => {
             try {
-                const response: AxiosResponse<Event> = await this.client.post('/events', data)
-                return response.data
+                const response: AxiosResponse<{ success: boolean; data: Event }> = await this.client.post('/events', data)
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -139,8 +139,8 @@ class APIClient {
 
         update: async (id: string, data: UpdateEventRequest): Promise<Event> => {
             try {
-                const response: AxiosResponse<Event> = await this.client.put(`/events/${id}`, data)
-                return response.data
+                const response: AxiosResponse<{ success: boolean; data: Event }> = await this.client.put(`/events/${id}`, data)
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -156,10 +156,10 @@ class APIClient {
 
         search: async (query: string, filters?: EventFilters): Promise<Event[]> => {
             try {
-                const response: AxiosResponse<Event[]> = await this.client.get('/events/search', {
+                const response: AxiosResponse<{ success: boolean; data: Event[] }> = await this.client.get('/events/search', {
                     params: { q: query, ...filters }
                 })
-                return response.data
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -170,8 +170,8 @@ class APIClient {
     arcs = {
         getAll: async (filters?: ArcFilters): Promise<Arc[]> => {
             try {
-                const response: AxiosResponse<Arc[]> = await this.client.get('/arcs', { params: filters })
-                return response.data
+                const response: AxiosResponse<{ success: boolean; data: Arc[] }> = await this.client.get('/arcs', { params: filters })
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -179,8 +179,8 @@ class APIClient {
 
         getById: async (id: string): Promise<Arc> => {
             try {
-                const response: AxiosResponse<Arc> = await this.client.get(`/arcs/${id}`)
-                return response.data
+                const response: AxiosResponse<{ success: boolean; data: Arc }> = await this.client.get(`/arcs/${id}`)
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -188,8 +188,8 @@ class APIClient {
 
         create: async (data: CreateArcRequest): Promise<Arc> => {
             try {
-                const response: AxiosResponse<Arc> = await this.client.post('/arcs', data)
-                return response.data
+                const response: AxiosResponse<{ success: boolean; data: Arc }> = await this.client.post('/arcs', data)
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -197,8 +197,8 @@ class APIClient {
 
         update: async (id: string, data: UpdateArcRequest): Promise<Arc> => {
             try {
-                const response: AxiosResponse<Arc> = await this.client.put(`/arcs/${id}`, data)
-                return response.data
+                const response: AxiosResponse<{ success: boolean; data: Arc }> = await this.client.put(`/arcs/${id}`, data)
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -214,8 +214,8 @@ class APIClient {
 
         getHierarchy: async (): Promise<Arc[]> => {
             try {
-                const response: AxiosResponse<Arc[]> = await this.client.get('/arcs/hierarchy')
-                return response.data
+                const response: AxiosResponse<{ success: boolean; data: Arc[] }> = await this.client.get('/arcs/hierarchy')
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -226,41 +226,87 @@ class APIClient {
     causal = {
         getRelationships: async (eventId?: string): Promise<CausalRelationship[]> => {
             try {
-                const response: AxiosResponse<CausalRelationship[]> = await this.client.get('/causal-relationships', {
+                const response: AxiosResponse<{ success: boolean; data: CausalRelationship[] }> = await this.client.get('/causal/relationships', {
                     params: eventId ? { event_id: eventId } : undefined
                 })
-                return response.data
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
         },
 
-        createLink: async (causeId: string, effectId: string, relationship: CausalRelationshipData): Promise<CausalRelationship> => {
+        createLink: async (causeId: string, effectId: string, relationshipData: CausalRelationshipData): Promise<CausalRelationship> => {
             try {
+                // Transform to backend format: POST /causal/link expects causeEventId, effectEventId, relationship
                 const data = {
+                    causeEventId: causeId,
+                    effectEventId: effectId,
+                    relationship: {
+                        type: relationshipData.relationship_type || 'direct',
+                        strength: relationshipData.weight,
+                        confidence: relationshipData.confidence,
+                        evidence: relationshipData.evidence
+                    }
+                }
+                const response: AxiosResponse<{ success: boolean; data: { cause: Event; effect: Event; relationship: any } }> = await this.client.post('/causal/link', data)
+                // Transform response back to frontend format
+                const now = new Date().toISOString()
+                const result: CausalRelationship = {
+                    id: `${causeId}_${effectId}`,
                     cause_event_id: causeId,
                     effect_event_id: effectId,
-                    ...relationship
+                    weight: response.data.data.relationship.strength || relationshipData.weight,
+                    confidence: response.data.data.relationship.confidence || relationshipData.confidence,
+                    evidence: response.data.data.relationship.evidence || relationshipData.evidence,
+                    relationship_type: response.data.data.relationship.type || relationshipData.relationship_type || 'direct',
+                    created_at: response.data.data.relationship.created_at || now,
+                    updated_at: response.data.data.relationship.updated_at || now
                 }
-                const response: AxiosResponse<CausalRelationship> = await this.client.post('/causal-relationships', data)
-                return response.data
+                return result
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
         },
 
-        updateLink: async (id: string, data: Partial<CausalRelationship>): Promise<CausalRelationship> => {
+        updateLink: async (causeEventId: string, effectEventId: string, data: Partial<CausalRelationshipData>): Promise<CausalRelationship> => {
             try {
-                const response: AxiosResponse<CausalRelationship> = await this.client.put(`/causal-relationships/${id}`, data)
-                return response.data
+                const requestData = {
+                    causeEventId,
+                    effectEventId,
+                    relationship: {
+                        type: data.relationship_type,
+                        weight: data.weight,
+                        confidence: data.confidence,
+                        evidence: data.evidence
+                    }
+                }
+                const response: AxiosResponse<{ success: boolean; data: { cause: Event; effect: Event; relationship: any } }> = await this.client.put('/causal/link', requestData)
+                // Transform response back to frontend format
+                const now = new Date().toISOString()
+                const result: CausalRelationship = {
+                    id: `${causeEventId}_${effectEventId}`,
+                    cause_event_id: causeEventId,
+                    effect_event_id: effectEventId,
+                    weight: response.data.data.relationship.weight ?? data.weight ?? 0,
+                    confidence: response.data.data.relationship.confidence ?? data.confidence ?? 0,
+                    evidence: response.data.data.relationship.evidence ?? data.evidence ?? '',
+                    relationship_type: response.data.data.relationship.relationship_type || data.relationship_type || 'direct',
+                    created_at: response.data.data.relationship.created_at || now,
+                    updated_at: response.data.data.relationship.updated_at || now
+                }
+                return result
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
         },
 
-        deleteLink: async (id: string): Promise<void> => {
+        deleteLink: async (causeEventId: string, effectEventId: string): Promise<void> => {
             try {
-                await this.client.delete(`/causal-relationships/${id}`)
+                await this.client.request({
+                    method: 'DELETE',
+                    url: '/causal/link',
+                    data: { causeEventId, effectEventId }
+                })
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -268,11 +314,11 @@ class APIClient {
 
         findChain: async (startEventId: string, maxDepth: number = 3, signal?: AbortSignal): Promise<CausalPath[]> => {
             try {
-                const response: AxiosResponse<CausalPath[]> = await this.client.get('/causal-relationships/chain', {
-                    params: { start_event_id: startEventId, max_depth: maxDepth },
+                const response: AxiosResponse<{ success: boolean; data: CausalPath[] }> = await this.client.get(`/causal/chain/${startEventId}`, {
+                    params: { max_depth: maxDepth },
                     signal
                 })
-                return response.data
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -280,11 +326,11 @@ class APIClient {
 
         getSuggestions: async (eventId: string, signal?: AbortSignal): Promise<CausalSuggestion[]> => {
             try {
-                const response: AxiosResponse<CausalSuggestion[]> = await this.client.get('/causal-relationships/suggestions', {
+                const response: AxiosResponse<{ success: boolean; data: CausalSuggestion[] }> = await this.client.get('/causal/suggestions', {
                     params: { event_id: eventId },
                     signal
                 })
-                return response.data
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -295,10 +341,10 @@ class APIClient {
     inference = {
         getPressures: async (arcId?: string): Promise<InferredPressure[]> => {
             try {
-                const response: AxiosResponse<InferredPressure[]> = await this.client.get('/inferred-pressures', {
+                const response: AxiosResponse<{ success: boolean; data: InferredPressure[] }> = await this.client.get('/inferred-pressures', {
                     params: arcId ? { arc_id: arcId } : undefined
                 })
-                return response.data
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -306,10 +352,10 @@ class APIClient {
 
         analyzeClusters: async (events: Event[]): Promise<EventCluster[]> => {
             try {
-                const response: AxiosResponse<EventCluster[]> = await this.client.post('/inference/clusters', {
+                const response: AxiosResponse<{ success: boolean; data: EventCluster[] }> = await this.client.post('/inference/clusters', {
                     event_ids: events.map(e => e.id)
                 })
-                return response.data
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -317,13 +363,13 @@ class APIClient {
 
         getPatterns: async (timeRange: TimeRange): Promise<Pattern[]> => {
             try {
-                const response: AxiosResponse<Pattern[]> = await this.client.get('/inference/patterns', {
+                const response: AxiosResponse<{ success: boolean; data: Pattern[] }> = await this.client.get('/inference/patterns', {
                     params: {
                         start_time: timeRange.start.toISOString(),
                         end_time: timeRange.end.toISOString()
                     }
                 })
-                return response.data
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -334,11 +380,11 @@ class APIClient {
     graph = {
         copyFull: async (targetName: string): Promise<CopyResult> => {
             try {
-                const response: AxiosResponse<CopyResult> = await this.client.post('/graph/copy', {
+                const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.post('/graph/copy', {
                     target_name: targetName,
                     copy_type: 'full'
                 })
-                return response.data
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -346,13 +392,13 @@ class APIClient {
 
         copyByTimeRange: async (timeRange: TimeRange, targetName: string): Promise<CopyResult> => {
             try {
-                const response: AxiosResponse<CopyResult> = await this.client.post('/graph/copy', {
+                const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.post('/graph/copy', {
                     target_name: targetName,
                     copy_type: 'time_range',
                     start_time: timeRange.start.toISOString(),
                     end_time: timeRange.end.toISOString()
                 })
-                return response.data
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -360,12 +406,12 @@ class APIClient {
 
         copyByFilter: async (filter: EntityFilter, targetName: string): Promise<CopyResult> => {
             try {
-                const response: AxiosResponse<CopyResult> = await this.client.post('/graph/copy', {
+                const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.post('/graph/copy', {
                     target_name: targetName,
                     copy_type: 'filtered',
                     filter
                 })
-                return response.data
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
@@ -373,8 +419,8 @@ class APIClient {
 
         getCopyStatus: async (copyId: string): Promise<CopyResult> => {
             try {
-                const response: AxiosResponse<CopyResult> = await this.client.get(`/graph/copy/${copyId}`)
-                return response.data
+                const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.get(`/graph/copy/${copyId}`)
+                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }

@@ -11,6 +11,7 @@ export const createMockArc = (overrides: Partial<Arc> = {}): Arc => ({
   description: 'Test Description',
   start_time: '2023-01-01T00:00:00Z',
   end_time: '2023-01-31T23:59:59Z',
+  level: 0,
   parent_arc_id: null,
   created_at: '2023-01-01T00:00:00Z',
   updated_at: '2023-01-01T00:00:00Z',

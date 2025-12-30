@@ -1,16 +1,25 @@
-import { Session, Result, Record as Neo4jRecord, Integer } from 'neo4j-driver';
+import { Session, Record as Neo4jRecord, Integer } from 'neo4j-driver';
 import { Arc, IArc, CreateArcRequest, UpdateArcRequest } from '../models/Arc';
 import { TimeRange } from '../models/Event';
-import { getDatabaseManager } from '../utils/database';
+import { DatabaseManager, LocalDatabaseManager, LocalSession } from '../utils/database';
+
+type AnySession = Session | LocalSession;
 
 /**
- * Repository for Arc operations using Neo4j
+ * Repository for Arc operations using Neo4j or LocalGraphStore
  */
 export class ArcRepository {
-  private session: Session;
+  protected databaseManager: DatabaseManager | LocalDatabaseManager;
 
-  constructor(session?: Session) {
-    this.session = session || getDatabaseManager().getNeo4jSession();
+  constructor(databaseManager: DatabaseManager | LocalDatabaseManager, validationService?: any, temporalService?: any, cacheService?: any) {
+    this.databaseManager = databaseManager;
+  }
+
+  /**
+   * Get a session from the database manager
+   */
+  protected getSession(): AnySession {
+    return this.databaseManager.getNeo4jSession();
   }
 
   /**
@@ -18,10 +27,10 @@ export class ArcRepository {
    */
   async create(arcData: CreateArcRequest): Promise<Arc> {
     const arc = new Arc(arcData);
-    
+
     // Validate temporal boundaries at database level
     await this.validateTemporalBoundaries(arc);
-    
+
     const query = `
       CREATE (a:Arc {
         id: $id,
@@ -45,9 +54,10 @@ export class ArcRepository {
       metadata: arc.metadata || {}
     };
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
-      
+      const result = await session.run(query, parameters);
+
       if (result.records.length === 0) {
         throw new Error('Failed to create arc');
       }
@@ -55,6 +65,8 @@ export class ArcRepository {
       return arc;
     } catch (error) {
       throw new Error(`Failed to create arc: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -67,9 +79,10 @@ export class ArcRepository {
       RETURN a
     `;
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, { id });
-      
+      const result = await session.run(query, { id });
+
       if (result.records.length === 0) {
         return null;
       }
@@ -77,6 +90,8 @@ export class ArcRepository {
       return this.mapRecordToArc(result.records[0]);
     } catch (error) {
       throw new Error(`Failed to find arc by ID: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -98,11 +113,14 @@ export class ArcRepository {
       parameters.offset = Integer.fromNumber(offset || 0);
     }
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find arcs: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -124,11 +142,14 @@ export class ArcRepository {
       parameters.offset = Integer.fromNumber(offset || 0);
     }
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find arcs by level: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -154,11 +175,14 @@ export class ArcRepository {
       parameters.offset = Integer.fromNumber(offset || 0);
     }
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find overlapping arcs: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -184,11 +208,14 @@ export class ArcRepository {
       parameters.offset = Integer.fromNumber(offset || 0);
     }
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find containing arcs: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -199,7 +226,7 @@ export class ArcRepository {
     const query = `
       MATCH (parent:Arc {id: $parentId})
       MATCH (child:Arc)
-      WHERE child.start_time >= parent.start_time 
+      WHERE child.start_time >= parent.start_time
         AND child.end_time <= parent.end_time
         AND child.id <> parent.id
         AND child.level > parent.level
@@ -215,11 +242,14 @@ export class ArcRepository {
       parameters.offset = Integer.fromNumber(offset || 0);
     }
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find nested arcs: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -230,7 +260,7 @@ export class ArcRepository {
     const query = `
       MATCH (parent:Arc {id: $parentId})
       MATCH (child:Arc)
-      WHERE child.start_time >= parent.start_time 
+      WHERE child.start_time >= parent.start_time
         AND child.end_time <= parent.end_time
         AND child.id <> parent.id
         AND child.level = parent.level + 1
@@ -238,11 +268,14 @@ export class ArcRepository {
       ORDER BY child.start_time ASC
     `;
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, { parentId: parentArcId });
+      const result = await session.run(query, { parentId: parentArcId });
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find direct children: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -253,7 +286,7 @@ export class ArcRepository {
     const query = `
       MATCH (child:Arc {id: $childId})
       MATCH (parent:Arc)
-      WHERE parent.start_time <= child.start_time 
+      WHERE parent.start_time <= child.start_time
         AND parent.end_time >= child.end_time
         AND parent.id <> child.id
         AND parent.level < child.level
@@ -261,11 +294,14 @@ export class ArcRepository {
       ORDER BY parent.level DESC
     `;
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, { childId: childArcId });
+      const result = await session.run(query, { childId: childArcId });
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find parent arcs: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -281,7 +317,7 @@ export class ArcRepository {
 
     // Create updated arc to validate
     const updatedArc = existingArc.update(updates);
-    
+
     // Validate temporal boundaries
     await this.validateTemporalBoundaries(updatedArc, id);
 
@@ -306,9 +342,10 @@ export class ArcRepository {
       metadata: updatedArc.metadata || {}
     };
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
-      
+      const result = await session.run(query, parameters);
+
       if (result.records.length === 0) {
         return null;
       }
@@ -316,6 +353,8 @@ export class ArcRepository {
       return updatedArc;
     } catch (error) {
       throw new Error(`Failed to update arc: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -329,12 +368,15 @@ export class ArcRepository {
       RETURN count(a) as deletedCount
     `;
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, { id });
-      const deletedCount = result.records[0]?.get('deletedCount')?.toNumber() || 0;
+      const result = await session.run(query, { id });
+      const deletedCount = result.records[0]?.get('deletedCount')?.toNumber?.() || result.records[0]?.get('deletedCount') || 0;
       return deletedCount > 0;
     } catch (error) {
       throw new Error(`Failed to delete arc: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -347,11 +389,14 @@ export class ArcRepository {
       RETURN count(a) as total
     `;
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query);
-      return result.records[0]?.get('total')?.toNumber() || 0;
+      const result = await session.run(query);
+      return result.records[0]?.get('total')?.toNumber?.() || result.records[0]?.get('total') || 0;
     } catch (error) {
       throw new Error(`Failed to count arcs: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -364,11 +409,14 @@ export class ArcRepository {
       RETURN count(a) as total
     `;
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, { level });
-      return result.records[0]?.get('total')?.toNumber() || 0;
+      const result = await session.run(query, { level });
+      return result.records[0]?.get('total')?.toNumber?.() || result.records[0]?.get('total') || 0;
     } catch (error) {
       throw new Error(`Failed to count arcs by level: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -381,11 +429,14 @@ export class ArcRepository {
       RETURN count(a) > 0 as exists
     `;
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, { id });
+      const result = await session.run(query, { id });
       return result.records[0]?.get('exists') || false;
     } catch (error) {
       throw new Error(`Failed to check if arc exists: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -399,14 +450,14 @@ export class ArcRepository {
       WHERE existing.id <> $excludeId
         AND (
           // Check for invalid nesting - child arc extends beyond parent
-          (existing.level < $level 
-           AND existing.start_time <= datetime($start_time) 
+          (existing.level < $level
+           AND existing.start_time <= datetime($start_time)
            AND existing.end_time >= datetime($end_time)
            AND NOT (datetime($start_time) >= existing.start_time AND datetime($end_time) <= existing.end_time))
           OR
           // Check for invalid parent - parent doesn't fully contain child
-          (existing.level > $level 
-           AND datetime($start_time) <= existing.start_time 
+          (existing.level > $level
+           AND datetime($start_time) <= existing.start_time
            AND datetime($end_time) >= existing.end_time
            AND NOT (existing.start_time >= datetime($start_time) AND existing.end_time <= datetime($end_time)))
         )
@@ -421,9 +472,10 @@ export class ArcRepository {
       end_time: arc.end_time.toISOString()
     };
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
-      
+      const result = await session.run(query, parameters);
+
       if (result.records.length > 0) {
         const conflict = result.records[0];
         throw new Error(
@@ -436,6 +488,8 @@ export class ArcRepository {
         throw error;
       }
       throw new Error(`Failed to validate temporal boundaries: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -447,26 +501,26 @@ export class ArcRepository {
   }
 
   /**
-   * Close the session
+   * Close the repository (no-op, sessions are managed per-operation)
    */
   async close(): Promise<void> {
-    await this.session.close();
+    // Sessions are now closed after each operation
   }
 
   /**
    * Map Neo4j record to Arc instance
    */
-  private mapRecordToArc(record: Neo4jRecord): Arc {
+  protected mapRecordToArc(record: any): Arc {
     const node = record.get('a') || record.get('child') || record.get('parent');
     const properties = node.properties;
 
     // Convert Neo4j DateTime to JavaScript Date
-    const start_time = properties.start_time.toString ? 
-      new Date(properties.start_time.toString()) : 
+    const start_time = properties.start_time.toString ?
+      new Date(properties.start_time.toString()) :
       new Date(properties.start_time);
-    
-    const end_time = properties.end_time.toString ? 
-      new Date(properties.end_time.toString()) : 
+
+    const end_time = properties.end_time.toString ?
+      new Date(properties.end_time.toString()) :
       new Date(properties.end_time);
 
     return new Arc({
@@ -548,7 +602,7 @@ export class AdvancedArcRepository extends ArcRepository {
 
     // Build query
     let query = 'MATCH (a:Arc)';
-    
+
     if (conditions.length > 0) {
       query += ` WHERE ${conditions.join(' AND ')}`;
     }
@@ -567,11 +621,14 @@ export class AdvancedArcRepository extends ArcRepository {
       parameters.offset = Integer.fromNumber(options.offset || 0);
     }
 
+    const session = this.getSession();
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to search arcs: ${error}`);
+    } finally {
+      await session.close();
     }
   }
 
@@ -602,13 +659,13 @@ export class AdvancedArcRepository extends ArcRepository {
     }
 
     const children = await this.findDirectChildren(node.arc.id);
-    
+
     for (const child of children) {
       const childNode: ArcHierarchyNode = {
         arc: child,
         children: []
       };
-      
+
       node.children.push(childNode);
       await this.buildHierarchyTree(childNode, maxDepth);
     }
