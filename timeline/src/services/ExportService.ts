@@ -511,11 +511,75 @@ export class ExportService {
   }
 
   private async getProvenance(graphId: string): Promise<ExportProvenance> {
-    // In a full implementation, this would load provenance data from storage
-    // For now, return empty provenance
+    const sources: DataSource[] = [];
+    const importHistory: ImportRecord[] = [];
+
+    // Load provenance data from version history
+    const { versions } = await this.graphRepository.getVersionHistory(graphId, 1000, 0);
+    
+    // Track entity sources based on operation types
+    const entitySourceMap = new Map<string, DataSource>();
+    
+    for (const version of versions) {
+      // Track imports
+      if (version.operation === 'import') {
+        importHistory.push({
+          id: `import-v${version.version}`,
+          importedAt: version.timestamp,
+          sourceFile: version.description || undefined,
+          entityCount: version.changes.added.length,
+          userId: version.userId,
+        });
+        
+        // Mark imported entities as from 'import' source
+        const sourceId = `import-v${version.version}`;
+        if (!entitySourceMap.has(sourceId)) {
+          entitySourceMap.set(sourceId, {
+            id: sourceId,
+            type: 'import',
+            accessedAt: version.timestamp,
+            confidence: 0.8,
+            entityIds: [],
+          });
+        }
+        for (const change of version.changes.added) {
+          entitySourceMap.get(sourceId)!.entityIds.push(change.id);
+        }
+      }
+      
+      // Track manual creations
+      if (version.operation === 'create') {
+        const sourceId = `manual-v${version.version}`;
+        if (!entitySourceMap.has(sourceId)) {
+          entitySourceMap.set(sourceId, {
+            id: sourceId,
+            type: 'manual',
+            accessedAt: version.timestamp,
+            confidence: 1.0,
+            entityIds: [],
+          });
+        }
+        for (const change of version.changes.added) {
+          entitySourceMap.get(sourceId)!.entityIds.push(change.id);
+        }
+      }
+    }
+
+    // Convert source map to array
+    for (const source of entitySourceMap.values()) {
+      if (source.entityIds.length > 0) {
+        sources.push(source);
+      }
+    }
+
+    // Sort import history by date descending
+    importHistory.sort((a, b) => 
+      new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime()
+    );
+
     return {
-      sources: [],
-      importHistory: [],
+      sources,
+      importHistory,
     };
   }
 

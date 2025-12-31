@@ -2,6 +2,8 @@
  * Graph Service for business logic around multi-graph management
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   Graph,
   IGraph,
@@ -29,14 +31,34 @@ export interface GraphServiceConfig {
 }
 
 /**
+ * Cross-graph reference tracking entry
+ */
+interface CrossGraphReference {
+  sourceGraphId: string;
+  sourceEntityId: string;
+  sourceEntityType: EntityType;
+  targetGraphId: string;
+  targetEntityId: string;
+  targetEntityType: EntityType;
+  createdAt: string;
+}
+
+/**
  * Service for managing graphs with business logic
  */
 export class GraphService {
   private readonly graphRepository: GraphRepository;
+  private readonly dataDir: string;
   private referenceNotifications: ReferenceNotification[] = [];
+  private crossGraphReferences: CrossGraphReference[] = [];
+  private notificationsPath: string;
+  private referencesPath: string;
 
   constructor(config: GraphServiceConfig) {
+    this.dataDir = config.dataDir;
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
+    this.notificationsPath = path.join(config.dataDir, 'notifications.json');
+    this.referencesPath = path.join(config.dataDir, 'cross-references.json');
   }
 
   /**
@@ -44,6 +66,105 @@ export class GraphService {
    */
   async initialize(): Promise<void> {
     await this.graphRepository.initialize();
+    
+    // Load persisted notifications and references
+    await this.loadNotifications();
+    await this.loadCrossGraphReferences();
+  }
+
+  /**
+   * Load notifications from disk
+   */
+  private async loadNotifications(): Promise<void> {
+    try {
+      const content = await fs.promises.readFile(this.notificationsPath, 'utf-8');
+      this.referenceNotifications = JSON.parse(content);
+    } catch {
+      // File doesn't exist yet, start with empty array
+      this.referenceNotifications = [];
+    }
+  }
+
+  /**
+   * Save notifications to disk
+   */
+  private async saveNotifications(): Promise<void> {
+    await fs.promises.writeFile(
+      this.notificationsPath,
+      JSON.stringify(this.referenceNotifications, null, 2),
+      'utf-8'
+    );
+  }
+
+  /**
+   * Load cross-graph references from disk
+   */
+  private async loadCrossGraphReferences(): Promise<void> {
+    try {
+      const content = await fs.promises.readFile(this.referencesPath, 'utf-8');
+      this.crossGraphReferences = JSON.parse(content);
+    } catch {
+      // File doesn't exist yet, start with empty array
+      this.crossGraphReferences = [];
+    }
+  }
+
+  /**
+   * Save cross-graph references to disk
+   */
+  private async saveCrossGraphReferences(): Promise<void> {
+    await fs.promises.writeFile(
+      this.referencesPath,
+      JSON.stringify(this.crossGraphReferences, null, 2),
+      'utf-8'
+    );
+  }
+
+  /**
+   * Register a cross-graph reference
+   */
+  async registerCrossGraphReference(
+    sourceGraphId: string,
+    sourceEntityId: string,
+    sourceEntityType: EntityType,
+    targetGraphId: string,
+    targetEntityId: string,
+    targetEntityType: EntityType
+  ): Promise<void> {
+    // Check if reference already exists
+    const existing = this.crossGraphReferences.find(
+      r => r.sourceGraphId === sourceGraphId &&
+           r.sourceEntityId === sourceEntityId &&
+           r.targetGraphId === targetGraphId &&
+           r.targetEntityId === targetEntityId
+    );
+    
+    if (!existing) {
+      this.crossGraphReferences.push({
+        sourceGraphId,
+        sourceEntityId,
+        sourceEntityType,
+        targetGraphId,
+        targetEntityId,
+        targetEntityType,
+        createdAt: new Date().toISOString(),
+      });
+      await this.saveCrossGraphReferences();
+    }
+  }
+
+  /**
+   * Get all references to a specific graph
+   */
+  getReferencesToGraph(graphId: string): CrossGraphReference[] {
+    return this.crossGraphReferences.filter(r => r.targetGraphId === graphId);
+  }
+
+  /**
+   * Get all references from a specific graph
+   */
+  getReferencesFromGraph(graphId: string): CrossGraphReference[] {
+    return this.crossGraphReferences.filter(r => r.sourceGraphId === graphId);
   }
 
   /**
@@ -337,7 +458,31 @@ export class GraphService {
     const notification = this.referenceNotifications.find(n => n.id === notificationId);
     if (notification) {
       notification.acknowledged = true;
+      await this.saveNotifications();
     }
+  }
+
+  /**
+   * Delete old acknowledged notifications (cleanup)
+   */
+  async cleanupNotifications(olderThanDays: number = 30): Promise<number> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - olderThanDays);
+    const cutoffStr = cutoff.toISOString();
+
+    const originalLength = this.referenceNotifications.length;
+    this.referenceNotifications = this.referenceNotifications.filter(n => {
+      // Keep unacknowledged notifications
+      if (!n.acknowledged) return true;
+      // Keep recent acknowledged notifications
+      return n.createdAt > cutoffStr;
+    });
+
+    const removed = originalLength - this.referenceNotifications.length;
+    if (removed > 0) {
+      await this.saveNotifications();
+    }
+    return removed;
   }
 
   /**
@@ -451,9 +596,41 @@ export class GraphService {
   }
 
   private async notifyGraphDeleted(graphId: string): Promise<void> {
-    // In a real implementation, we'd scan all graphs for references to this one
-    // For now, we just log a warning
-    console.warn(`Graph ${graphId} deleted - cross-graph references may be broken`);
+    // Find all graphs that reference this deleted graph
+    const referencingGraphs = this.getReferencesToGraph(graphId);
+    
+    // Group by source graph to create one notification per affected graph
+    const affectedGraphs = new Set<string>();
+    for (const ref of referencingGraphs) {
+      affectedGraphs.add(ref.sourceGraphId);
+    }
+
+    // Create notifications for each affected graph
+    for (const sourceGraphId of affectedGraphs) {
+      const affectedRefs = referencingGraphs.filter(r => r.sourceGraphId === sourceGraphId);
+      
+      const notification: ReferenceNotification = {
+        id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'graph_deleted',
+        sourceGraphId: graphId,
+        targetGraphId: sourceGraphId,
+        entityId: affectedRefs.map(r => r.sourceEntityId).join(','),
+        entityType: 'event', // Use first type
+        message: `Graph "${graphId}" has been deleted. ${affectedRefs.length} cross-graph reference(s) in this graph may be broken.`,
+        createdAt: new Date().toISOString(),
+        acknowledged: false,
+      };
+      
+      this.referenceNotifications.push(notification);
+    }
+
+    // Persist notifications
+    if (affectedGraphs.size > 0) {
+      await this.saveNotifications();
+    }
+
+    // Mark cross-graph references as broken (keep them for reference but note the deletion)
+    console.warn(`Graph ${graphId} deleted - ${referencingGraphs.length} cross-graph references affected`);
   }
 
   private async checkCrossGraphReferences(
@@ -461,12 +638,45 @@ export class GraphService {
     changes: EntityChanges
   ): Promise<void> {
     // Check modified and deleted entities for cross-graph references
-    // In a real implementation, we'd maintain an index of cross-graph references
-    // and create notifications for affected graphs
+    const modifiedOrDeletedIds = new Set([
+      ...changes.modified.map(c => c.id),
+      ...changes.deleted.map(c => c.id),
+    ]);
 
-    for (const change of [...changes.modified, ...changes.deleted]) {
-      // Create notification if this entity is referenced by other graphs
-      // This is a placeholder - real implementation would need a reference index
+    if (modifiedOrDeletedIds.size === 0) return;
+
+    // Find references to this graph's entities
+    const referencesToThisGraph = this.getReferencesToGraph(graphId);
+    
+    // Check if any referenced entities are being modified or deleted
+    for (const ref of referencesToThisGraph) {
+      if (modifiedOrDeletedIds.has(ref.targetEntityId)) {
+        const isDeleted = changes.deleted.some(c => c.id === ref.targetEntityId);
+        const change = changes.modified.find(c => c.id === ref.targetEntityId) ||
+                       changes.deleted.find(c => c.id === ref.targetEntityId);
+        
+        // Create notification for the referencing graph
+        const notification: ReferenceNotification = {
+          id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: isDeleted ? 'entity_deleted' : 'entity_modified',
+          sourceGraphId: graphId,
+          targetGraphId: ref.sourceGraphId,
+          entityId: ref.targetEntityId,
+          entityType: change?.type || ref.targetEntityType,
+          message: isDeleted
+            ? `Referenced ${ref.targetEntityType} "${ref.targetEntityId}" has been deleted in graph "${graphId}".`
+            : `Referenced ${ref.targetEntityType} "${ref.targetEntityId}" has been modified in graph "${graphId}".`,
+          createdAt: new Date().toISOString(),
+          acknowledged: false,
+        };
+        
+        this.referenceNotifications.push(notification);
+      }
+    }
+
+    // Persist notifications if any were created
+    if (this.referenceNotifications.length > 0) {
+      await this.saveNotifications();
     }
   }
 }

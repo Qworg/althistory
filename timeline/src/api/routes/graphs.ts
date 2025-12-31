@@ -2,6 +2,7 @@
  * Graph Management API Routes
  * 
  * Endpoints for managing multiple graphs, versions, branching, and merging.
+ * Uses dependency injection via the container pattern.
  */
 
 import { Router, Response, NextFunction } from 'express';
@@ -12,31 +13,16 @@ import {
   BranchGraphRequest,
   MergeGraphRequest,
 } from '../../models/Graph';
-import { GraphService } from '../../services/GraphService';
-import { ValidationError, NotFoundError } from '../../utils/errors';
-import { AppConfig } from '../../utils/config';
+import { ValidationError } from '../../utils/errors';
 
 export const graphRoutes = Router();
-
-// GraphService instance (initialized lazily)
-let graphService: GraphService | null = null;
-
-function getGraphService(config: AppConfig): GraphService {
-  if (!graphService) {
-    graphService = new GraphService({
-      dataDir: config.localExecution.dataDirectory,
-    });
-  }
-  return graphService;
-}
 
 /**
  * GET /graphs - List all graphs
  */
 graphRoutes.get('/', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     const { status, limit = '50', offset = '0' } = req.query;
 
@@ -78,8 +64,7 @@ graphRoutes.get('/', async (req: RequestWithContainer, res: Response, next: Next
  */
 graphRoutes.post('/', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     const request: CreateGraphRequest = req.body;
 
@@ -105,8 +90,7 @@ graphRoutes.post('/', async (req: RequestWithContainer, res: Response, next: Nex
  */
 graphRoutes.get('/active', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     const graph = await service.getActiveGraph();
 
@@ -135,8 +119,7 @@ graphRoutes.get('/active', async (req: RequestWithContainer, res: Response, next
  */
 graphRoutes.get('/:id', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     const graph = await service.getGraph(req.params.id);
 
@@ -155,8 +138,7 @@ graphRoutes.get('/:id', async (req: RequestWithContainer, res: Response, next: N
  */
 graphRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     const request: UpdateGraphRequest = req.body;
     const graph = await service.updateGraph(req.params.id, request);
@@ -177,8 +159,7 @@ graphRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: N
  */
 graphRoutes.delete('/:id', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     await service.deleteGraph(req.params.id);
 
@@ -197,8 +178,7 @@ graphRoutes.delete('/:id', async (req: RequestWithContainer, res: Response, next
  */
 graphRoutes.post('/:id/activate', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     await service.setActiveGraph(req.params.id);
 
@@ -218,8 +198,7 @@ graphRoutes.post('/:id/activate', async (req: RequestWithContainer, res: Respons
  */
 graphRoutes.get('/:id/versions', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     const { limit = '50', offset = '0' } = req.query;
 
@@ -257,8 +236,7 @@ graphRoutes.get('/:id/versions', async (req: RequestWithContainer, res: Response
  */
 graphRoutes.post('/:id/rollback/:version', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     const version = parseInt(req.params.version, 10);
 
@@ -284,8 +262,7 @@ graphRoutes.post('/:id/rollback/:version', async (req: RequestWithContainer, res
  */
 graphRoutes.post('/:id/branch', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     const request: BranchGraphRequest = req.body;
 
@@ -311,8 +288,7 @@ graphRoutes.post('/:id/branch', async (req: RequestWithContainer, res: Response,
  */
 graphRoutes.post('/:id/merge', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     const request: MergeGraphRequest = req.body;
 
@@ -356,8 +332,7 @@ graphRoutes.post('/:id/merge', async (req: RequestWithContainer, res: Response, 
  */
 graphRoutes.get('/:id/data', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     const { version } = req.query;
 
@@ -397,8 +372,7 @@ graphRoutes.get('/:id/data', async (req: RequestWithContainer, res: Response, ne
  */
 graphRoutes.post('/:id/gc', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getGraphService(req.container.config);
-    await service.initialize();
+    const service = req.container.graphService;
 
     const result = await service.gcGraph(req.params.id);
 

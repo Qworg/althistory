@@ -6,9 +6,18 @@ import {
   GraphCopyService, 
   ValidationService,
   CacheInvalidationService,
-  DatabaseOptimizationService
+  DatabaseOptimizationService,
+  GraphService,
+  ExportService,
+  JobService
 } from '@/services';
-import { EventRepository, ArcRepository } from '@/repositories';
+import { 
+  EventRepository, 
+  ArcRepository,
+  GraphRepository,
+  VersionRepository,
+  JobRepository
+} from '@/repositories';
 import { AppConfig } from '@/utils/config';
 
 /**
@@ -24,9 +33,19 @@ export interface ServiceContainer {
   cacheInvalidationService: CacheInvalidationService;
   databaseOptimizationService: DatabaseOptimizationService;
   
+  // Phase 1 I/O services
+  graphService: GraphService;
+  exportService: ExportService;
+  jobService: JobService;
+  
   // Repositories
   eventRepository: EventRepository;
   arcRepository: ArcRepository;
+  
+  // Phase 1 I/O repositories
+  graphRepository: GraphRepository;
+  versionRepository: VersionRepository;
+  jobRepository: JobRepository;
   
   // Infrastructure
   databaseManager: DatabaseManager | LocalDatabaseManager;
@@ -46,6 +65,16 @@ export class Container implements ServiceContainer {
   private _databaseOptimizationService?: DatabaseOptimizationService;
   private _eventRepository?: EventRepository;
   private _arcRepository?: ArcRepository;
+  
+  // Phase 1 I/O services
+  private _graphService?: GraphService;
+  private _exportService?: ExportService;
+  private _jobService?: JobService;
+  
+  // Phase 1 I/O repositories
+  private _graphRepository?: GraphRepository;
+  private _versionRepository?: VersionRepository;
+  private _jobRepository?: JobRepository;
 
   constructor(
     public readonly databaseManager: DatabaseManager | LocalDatabaseManager,
@@ -169,6 +198,82 @@ export class Container implements ServiceContainer {
     return this._arcRepository;
   }
 
+  // Phase 1 I/O Repositories
+
+  /**
+   * Get version repository instance (singleton)
+   */
+  get versionRepository(): VersionRepository {
+    if (!this._versionRepository) {
+      this._versionRepository = new VersionRepository({
+        dataDir: this.config.localExecution.dataDirectory,
+      });
+    }
+    return this._versionRepository;
+  }
+
+  /**
+   * Get graph repository instance (singleton)
+   */
+  get graphRepository(): GraphRepository {
+    if (!this._graphRepository) {
+      this._graphRepository = new GraphRepository({
+        dataDir: this.config.localExecution.dataDirectory,
+      });
+    }
+    return this._graphRepository;
+  }
+
+  /**
+   * Get job repository instance (singleton)
+   */
+  get jobRepository(): JobRepository {
+    if (!this._jobRepository) {
+      this._jobRepository = new JobRepository({
+        dataDir: this.config.localExecution.dataDirectory,
+      });
+    }
+    return this._jobRepository;
+  }
+
+  // Phase 1 I/O Services
+
+  /**
+   * Get graph service instance (singleton)
+   */
+  get graphService(): GraphService {
+    if (!this._graphService) {
+      this._graphService = new GraphService({
+        dataDir: this.config.localExecution.dataDirectory,
+      });
+    }
+    return this._graphService;
+  }
+
+  /**
+   * Get export service instance (singleton)
+   */
+  get exportService(): ExportService {
+    if (!this._exportService) {
+      this._exportService = new ExportService({
+        dataDir: this.config.localExecution.dataDirectory,
+      });
+    }
+    return this._exportService;
+  }
+
+  /**
+   * Get job service instance (singleton)
+   */
+  get jobService(): JobService {
+    if (!this._jobService) {
+      this._jobService = new JobService({
+        dataDir: this.config.localExecution.dataDirectory,
+      });
+    }
+    return this._jobService;
+  }
+
   /**
    * Initialize all services and perform health checks
    */
@@ -192,6 +297,14 @@ export class Container implements ServiceContainer {
         await this.databaseOptimizationService.initialize();
       }
 
+      // Initialize Phase 1 I/O services (local execution mode)
+      if (this.config.localExecution.enabled) {
+        await this.graphService.initialize();
+        await this.exportService.initialize();
+        await this.jobService.initialize();
+        this.jobService.start();
+      }
+
       if (this.config.localExecution.enabled) {
         console.log('📦 Service container initialized successfully (Local Mode)');
       } else {
@@ -210,6 +323,14 @@ export class Container implements ServiceContainer {
     console.log('Cleaning up service container...');
 
     try {
+      // Stop Phase 1 I/O services
+      if (this._jobService) {
+        this._jobService.stop();
+      }
+      if (this._jobRepository) {
+        this._jobRepository.stop();
+      }
+
       // Close database connections
       await this.databaseManager.close();
       
@@ -240,7 +361,14 @@ export class Container implements ServiceContainer {
       cacheInvalidationService: !!this._cacheInvalidationService,
       databaseOptimizationService: !!this._databaseOptimizationService,
       eventRepository: !!this._eventRepository,
-      arcRepository: !!this._arcRepository
+      arcRepository: !!this._arcRepository,
+      // Phase 1 I/O services
+      graphService: !!this._graphService,
+      exportService: !!this._exportService,
+      jobService: !!this._jobService,
+      graphRepository: !!this._graphRepository,
+      versionRepository: !!this._versionRepository,
+      jobRepository: !!this._jobRepository
     };
 
     const allHealthy = dbHealth.neo4j && dbHealth.redis && Object.values(services).every(Boolean);

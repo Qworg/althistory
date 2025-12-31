@@ -2,6 +2,7 @@
  * Export API Routes
  * 
  * Endpoints for exporting graph data and managing export jobs.
+ * Uses dependency injection via the container pattern.
  */
 
 import { Router, Response, NextFunction } from 'express';
@@ -13,49 +14,17 @@ import {
   JobStatusResponse,
   ExportFilters,
 } from '../../models/AsyncJob';
-import { JobService } from '../../services/JobService';
-import { ExportService, AlthistoryExport } from '../../services/ExportService';
+import { AlthistoryExport } from '../../services/ExportService';
 import { ValidationError, NotFoundError } from '../../utils/errors';
-import { AppConfig } from '../../utils/config';
 
 export const exportRoutes = Router();
-
-// Service instances (initialized lazily)
-let jobService: JobService | null = null;
-let exportService: ExportService | null = null;
-
-function getJobService(config: AppConfig): JobService {
-  if (!jobService) {
-    jobService = new JobService({
-      dataDir: config.localExecution.dataDirectory,
-      appVersion: '1.0.0',
-    });
-    // Initialize and start in background
-    jobService.initialize().then(() => {
-      jobService!.start();
-    }).catch(console.error);
-  }
-  return jobService;
-}
-
-function getExportService(config: AppConfig): ExportService {
-  if (!exportService) {
-    exportService = new ExportService({
-      dataDir: config.localExecution.dataDirectory,
-      appVersion: '1.0.0',
-    });
-    exportService.initialize().catch(console.error);
-  }
-  return exportService;
-}
 
 /**
  * POST /export/jobs - Create a new export job
  */
 exportRoutes.post('/jobs', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getJobService(req.container.config);
-    await service.initialize();
+    const service = req.container.jobService;
 
     const request: CreateExportJobRequest = req.body;
 
@@ -95,8 +64,7 @@ exportRoutes.post('/jobs', async (req: RequestWithContainer, res: Response, next
  */
 exportRoutes.get('/jobs', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getJobService(req.container.config);
-    await service.initialize();
+    const service = req.container.jobService;
 
     const { status, limit = '50', offset = '0' } = req.query;
 
@@ -148,8 +116,7 @@ exportRoutes.get('/jobs', async (req: RequestWithContainer, res: Response, next:
  */
 exportRoutes.get('/jobs/:jobId', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getJobService(req.container.config);
-    await service.initialize();
+    const service = req.container.jobService;
 
     const { jobId } = req.params;
     const job = await service.getJob(jobId);
@@ -185,8 +152,7 @@ exportRoutes.get('/jobs/:jobId', async (req: RequestWithContainer, res: Response
  */
 exportRoutes.delete('/jobs/:jobId', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getJobService(req.container.config);
-    await service.initialize();
+    const service = req.container.jobService;
 
     const { jobId } = req.params;
     const job = await service.getJob(jobId);
@@ -221,8 +187,7 @@ exportRoutes.delete('/jobs/:jobId', async (req: RequestWithContainer, res: Respo
  */
 exportRoutes.get('/jobs/:jobId/download', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getJobService(req.container.config);
-    await service.initialize();
+    const service = req.container.jobService;
 
     const { jobId } = req.params;
     const job = await service.getJob(jobId);
@@ -266,8 +231,7 @@ exportRoutes.get('/jobs/:jobId/download', async (req: RequestWithContainer, res:
  */
 exportRoutes.post('/sync', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getExportService(req.container.config);
-    await service.initialize();
+    const service = req.container.exportService;
 
     const request: CreateExportJobRequest = req.body;
 
@@ -325,8 +289,7 @@ exportRoutes.post('/sync', async (req: RequestWithContainer, res: Response, next
  */
 exportRoutes.post('/validate', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getExportService(req.container.config);
-    await service.initialize();
+    const service = req.container.exportService;
 
     const exportData = req.body as AlthistoryExport;
 
@@ -351,8 +314,7 @@ exportRoutes.post('/validate', async (req: RequestWithContainer, res: Response, 
  */
 exportRoutes.get('/stats', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const service = getJobService(req.container.config);
-    await service.initialize();
+    const service = req.container.jobService;
 
     const stats = await service.getStats();
 
