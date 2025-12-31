@@ -8,7 +8,8 @@
  * - Rate limiting on all endpoints
  * - File size validation
  * - Input sanitization
- * - Concurrent import protection
+ * - Concurrent import protection (with atomic locking)
+ * - Authentication middleware
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
@@ -34,6 +35,10 @@ export interface ImportRouterConfig {
   disableRateLimit?: boolean;
   /** Rate limit max requests per minute */
   rateLimitMaxRequests?: number;
+  /** Disable authentication (for testing) */
+  disableAuth?: boolean;
+  /** API key validator function */
+  validateApiKey?: (apiKey: string) => Promise<{ valid: boolean; userId?: string }>;
 }
 
 // Rate limiting: track requests per IP
@@ -41,8 +46,65 @@ const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute per IP
 
-// Concurrent import protection
-const activeImports = new Set<string>();
+// FIX #4: Concurrent import protection with atomic locking using mutex pattern
+const activeImports = new Map<string, { startedAt: number; jobId?: string }>();
+const importLock = new Map<string, Promise<void>>();
+
+/**
+ * FIX #4: Atomic lock acquisition for concurrent import protection
+ */
+async function acquireImportLock(graphId: string): Promise<boolean> {
+  // Wait for any pending lock operations
+  const existingLock = importLock.get(graphId);
+  if (existingLock) {
+    await existingLock;
+  }
+
+  // Check if already locked
+  if (activeImports.has(graphId)) {
+    return false;
+  }
+
+  // Create a new lock promise
+  let resolveLock: () => void;
+  const lockPromise = new Promise<void>((resolve) => {
+    resolveLock = resolve;
+  });
+  importLock.set(graphId, lockPromise);
+
+  // Acquire the lock
+  activeImports.set(graphId, { startedAt: Date.now() });
+  
+  // Resolve the lock promise
+  resolveLock!();
+  importLock.delete(graphId);
+
+  return true;
+}
+
+/**
+ * Release import lock
+ */
+function releaseImportLock(graphId: string): void {
+  activeImports.delete(graphId);
+}
+
+/**
+ * FIX #3: Clean up stale locks (called periodically)
+ */
+function cleanupStaleLocks(): void {
+  const staleThresholdMs = 60 * 60 * 1000; // 1 hour
+  const now = Date.now();
+  for (const [graphId, info] of activeImports) {
+    if (now - info.startedAt > staleThresholdMs) {
+      logger.warn('Cleaning up stale import lock', { graphId, startedAt: info.startedAt });
+      activeImports.delete(graphId);
+    }
+  }
+}
+
+// Run cleanup every 10 minutes
+setInterval(cleanupStaleLocks, 10 * 60 * 1000);
 
 /**
  * Rate limiting middleware factory
@@ -101,16 +163,68 @@ function validateContentLength(maxBytes: number) {
 }
 
 /**
- * Concurrent import protection middleware
+ * FIX #5: Authentication middleware factory
  */
-function checkConcurrentImport(req: Request, res: Response, next: NextFunction): void {
+function createAuthMiddleware(config: ImportRouterConfig) {
+  if (config.disableAuth) {
+    return (_req: Request, _res: Response, next: NextFunction): void => {
+      next();
+    };
+  }
+
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const apiKey = req.headers['x-api-key'] as string || req.headers['authorization']?.replace('Bearer ', '');
+    
+    if (!apiKey) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'API key required. Provide via X-API-Key header or Authorization: Bearer <key>',
+      });
+      return;
+    }
+
+    if (config.validateApiKey) {
+      try {
+        const result = await config.validateApiKey(apiKey);
+        if (!result.valid) {
+          res.status(401).json({
+            error: 'Unauthorized',
+            message: 'Invalid API key',
+          });
+          return;
+        }
+        // Store userId in request for provenance tracking
+        (req as Request & { userId?: string }).userId = result.userId;
+      } catch (error) {
+        logger.error('API key validation error', { error });
+        res.status(500).json({
+          error: 'Internal Server Error',
+          message: 'Failed to validate API key',
+        });
+        return;
+      }
+    }
+
+    next();
+  };
+}
+
+/**
+ * FIX #4: Concurrent import protection middleware (now uses atomic locking)
+ */
+async function checkConcurrentImport(req: Request, res: Response, next: NextFunction): Promise<void> {
   const graphId = req.body.targetGraphId;
-  if (graphId && activeImports.has(graphId)) {
-    res.status(409).json({
-      error: 'Conflict',
-      message: 'An import is already in progress for this graph. Please wait for it to complete.',
-    });
-    return;
+  if (graphId) {
+    const acquired = await acquireImportLock(graphId);
+    if (!acquired) {
+      res.status(409).json({
+        error: 'Conflict',
+        message: 'An import is already in progress for this graph. Please wait for it to complete.',
+      });
+      return;
+    }
+    // Store graphId for cleanup in finally block
+    (req as Request & { importLockGraphId?: string }).importLockGraphId = graphId;
   }
   next();
 }
@@ -135,6 +249,10 @@ export function createImportRouter(config: ImportRouterConfig): Router {
 
   // Apply content length validation (10MB max)
   router.use(validateContentLength(10 * 1024 * 1024));
+
+  // FIX #5: Apply authentication to all routes
+  const authMiddleware = createAuthMiddleware(config);
+  router.use(authMiddleware);
 
   /**
    * POST /api/import/validate
@@ -223,9 +341,11 @@ export function createImportRouter(config: ImportRouterConfig): Router {
    *   async?: boolean  // Force async execution
    * }
    * 
-   * Response: ImportResult or { jobId: string } for async
+   * Response: ImportResult or { jobId: string, async: true } for async
+   * FIX B#49: Consistent response shape
    */
   router.post('/', checkConcurrentImport, async (req: Request, res: Response, next: NextFunction) => {
+    const extReq = req as Request & { importLockGraphId?: string; userId?: string };
     try {
       const {
         data,
@@ -270,11 +390,13 @@ export function createImportRouter(config: ImportRouterConfig): Router {
         logger.warn('Manual conflict resolution selected but no manualResolutions provided');
       }
 
+      // FIX #6: Include userId in options for provenance
       const options: ImportOptions = {
         graphId: targetGraphId,
         mode,
         conflictResolution,
         manualResolutions,
+        userId: extReq.userId,
       };
 
       // Check if should use async import
@@ -287,24 +409,27 @@ export function createImportRouter(config: ImportRouterConfig): Router {
           conflictResolution,
         });
 
-        // Track active import
+        const { jobId } = await importService.executeImportAsync(data as AlthistoryExport, options);
+        
+        // FIX #3: Update lock with jobId for tracking
         if (targetGraphId) {
-          activeImports.add(targetGraphId);
-        }
-
-        try {
-          const { jobId } = await importService.executeImportAsync(data as AlthistoryExport, options);
-          res.status(202).json({ 
-            jobId,
-            message: 'Import started. Poll /api/import/jobs/:jobId for status.',
-            async: true,
-          });
-        } finally {
-          // Will be removed when job completes, but remove if creation fails
-          if (targetGraphId) {
-            // Note: job completion will handle cleanup in the service
+          const lockInfo = activeImports.get(targetGraphId);
+          if (lockInfo) {
+            lockInfo.jobId = jobId;
           }
         }
+        
+        // FIX B#49: Consistent async response shape
+        res.status(202).json({ 
+          success: true,
+          async: true,
+          jobId,
+          message: 'Import started. Poll /api/import/jobs/:jobId for status.',
+        });
+        
+        // FIX #3: Don't release lock here - will be released when job completes
+        // But we need to clear from request so finally block doesn't release it
+        extReq.importLockGraphId = undefined;
       } else {
         logger.info('Executing sync import', {
           mode,
@@ -312,33 +437,26 @@ export function createImportRouter(config: ImportRouterConfig): Router {
           conflictResolution,
         });
 
-        // Track active import
-        if (targetGraphId) {
-          activeImports.add(targetGraphId);
-        }
+        const result = await importService.executeImport(data as AlthistoryExport, options);
 
-        try {
-          const result = await importService.executeImport(data as AlthistoryExport, options);
+        // FIX B#49: Add async: false for consistent response shape
+        const response = { ...result, async: false };
 
-          // Set appropriate status code based on result
-          if (result.success) {
-            res.status(201).json(result);
-          } else {
-            res.status(400).json(result);
-          }
-        } finally {
-          if (targetGraphId) {
-            activeImports.delete(targetGraphId);
-          }
+        // Set appropriate status code based on result
+        if (result.success) {
+          res.status(201).json(response);
+        } else {
+          res.status(400).json(response);
         }
       }
     } catch (error) {
-      // Clean up on error
-      const targetGraphId = req.body.targetGraphId;
-      if (targetGraphId) {
-        activeImports.delete(targetGraphId);
-      }
       next(error);
+    } finally {
+      // FIX #3: Always release lock on completion/error
+      const graphId = extReq.importLockGraphId;
+      if (graphId) {
+        releaseImportLock(graphId);
+      }
     }
   });
 

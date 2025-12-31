@@ -161,18 +161,14 @@ export function ImportWizard({
   }, [])
 
   // Handle execute
+  // FIX #7: Use real progress from backend for async imports
   const handleExecute = useCallback(async () => {
     if (!state.data) return
 
     setExecuteProgress(0)
 
-    // Simulate progress (since we don't have real progress from backend)
-    const progressInterval = setInterval(() => {
-      setExecuteProgress((prev) => Math.min(prev + 10, 90))
-    }, 200)
-
     try {
-      const result = await executeMutation.mutateAsync({
+      const response = await executeMutation.mutateAsync({
         data: state.data,
         targetGraphId: state.targetGraphId,
         mode: state.mode,
@@ -182,11 +178,41 @@ export function ImportWizard({
           Object.keys(state.resolutions).length > 0 ? state.resolutions : undefined,
       })
 
-      clearInterval(progressInterval)
-      setExecuteProgress(100)
-      dispatch({ type: 'SET_RESULT', payload: result })
+      // Check if async import (has jobId)
+      if ('jobId' in response && response.jobId) {
+        // Poll for progress
+        const pollInterval = setInterval(async () => {
+          try {
+            const job = await fetch(`/api/import/jobs/${response.jobId}`).then(r => r.json())
+            if (job.progress !== undefined) {
+              setExecuteProgress(job.progress)
+            }
+            if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+              clearInterval(pollInterval)
+              if (job.status === 'completed' && job.result) {
+                dispatch({ type: 'SET_RESULT', payload: job.result })
+              } else if (job.status === 'failed') {
+                dispatch({
+                  type: 'SET_ERROR',
+                  payload: job.error || 'Import failed',
+                })
+              } else if (job.status === 'cancelled') {
+                dispatch({
+                  type: 'SET_ERROR',
+                  payload: 'Import was cancelled',
+                })
+              }
+            }
+          } catch {
+            // Ignore polling errors, will retry
+          }
+        }, 500)
+      } else {
+        // Sync import - result is immediate
+        setExecuteProgress(100)
+        dispatch({ type: 'SET_RESULT', payload: response as unknown as ImportResult })
+      }
     } catch (error) {
-      clearInterval(progressInterval)
       setExecuteProgress(0)
       dispatch({
         type: 'SET_ERROR',

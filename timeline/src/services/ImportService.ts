@@ -141,6 +141,8 @@ export interface ImportOptions {
   mode: ImportMode;
   conflictResolution: ConflictResolution | 'manual';
   manualResolutions?: Record<string, ConflictResolution>;
+  /** User performing the import (for provenance) */
+  userId?: string;
 }
 
 export interface ImportResult {
@@ -159,6 +161,7 @@ export interface ImportJob {
   id: string;
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
   progress: number;
+  progressMessage?: string;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
@@ -179,7 +182,9 @@ export class ImportService {
   private readonly jobRepository: JobRepository;
   private readonly dataDir: string;
   private readonly logger: ILogger;
-  private activeImports: Map<string, { cancel: boolean }> = new Map();
+  private activeImports: Map<string, { cancel: boolean; graphId?: string }> = new Map();
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  private isDestroyed = false;
 
   constructor(config: ImportServiceConfig) {
     this.dataDir = config.dataDir;
@@ -194,6 +199,53 @@ export class ImportService {
   async initialize(): Promise<void> {
     await this.graphRepository.initialize();
     await this.jobRepository.initialize();
+    
+    // FIX B#24: Start cleanup interval for stale jobs (runs every 5 minutes)
+    this.cleanupInterval = setInterval(() => this.cleanupStaleJobs(), 5 * 60 * 1000);
+  }
+
+  /**
+   * FIX B#24: Destroy the service and stop cleanup interval
+   */
+  async destroy(): Promise<void> {
+    this.isDestroyed = true;
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+    // Cancel any active imports
+    for (const [jobId, state] of this.activeImports) {
+      state.cancel = true;
+      this.logger.warn('Cancelling import on service destruction', { jobId });
+    }
+  }
+
+  /**
+   * Clean up stale jobs (jobs that have been processing for too long)
+   */
+  private async cleanupStaleJobs(): Promise<void> {
+    const staleThresholdMs = 30 * 60 * 1000; // 30 minutes
+    const now = Date.now();
+    
+    for (const [jobId, state] of this.activeImports) {
+      try {
+        const job = await this.jobRepository.findById(jobId);
+        if (job && job.startedAt) {
+          const startedAt = new Date(job.startedAt).getTime();
+          if (now - startedAt > staleThresholdMs) {
+            this.logger.warn('Cleaning up stale import job', { jobId, startedAt: job.startedAt });
+            state.cancel = true;
+            job.status = 'failed';
+            job.completedAt = new Date().toISOString();
+            job.error = 'Import timed out after 30 minutes';
+            await this.jobRepository.update(job);
+            this.activeImports.delete(jobId);
+          }
+        }
+      } catch (error) {
+        this.logger.error('Error cleaning up stale job', { jobId, error });
+      }
+    }
   }
 
   // ==========================================================================
@@ -233,14 +285,25 @@ export class ImportService {
   }
 
   /**
-   * Sanitize all string fields in an object
+   * Sanitize all string fields in an object (including arrays)
+   * FIX #2: Now properly sanitizes array values to prevent XSS
    */
   private sanitizeObject<T extends Record<string, unknown>>(obj: T): T {
     const sanitized = { ...obj };
     for (const [key, value] of Object.entries(sanitized)) {
       if (typeof value === 'string') {
         (sanitized as Record<string, unknown>)[key] = this.sanitizeString(value);
-      } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      } else if (Array.isArray(value)) {
+        // FIX #2: Sanitize array elements
+        (sanitized as Record<string, unknown>)[key] = value.map((item) => {
+          if (typeof item === 'string') {
+            return this.sanitizeString(item);
+          } else if (typeof item === 'object' && item !== null) {
+            return this.sanitizeObject(item as Record<string, unknown>);
+          }
+          return item;
+        });
+      } else if (typeof value === 'object' && value !== null) {
         (sanitized as Record<string, unknown>)[key] = this.sanitizeObject(value as Record<string, unknown>);
       }
     }
@@ -984,17 +1047,64 @@ export class ImportService {
 
   /**
    * Validate temporal constraints across the import data
-   * - Events within their arc boundaries
+   * - Events within their arc boundaries (FIX #1)
    * - Arc hierarchy consistency (parent contains child)
+   * - NaN date handling (FIX B#20)
    */
   validateTemporalConstraints(data: AlthistoryExport): ImportError[] {
     const errors: ImportError[] = [];
     const exportData = data.data;
 
-    // Build arc map
+    // Build arc map with parsed dates
     const arcMap = new Map<string, ExportedArc>();
+    const arcDates = new Map<string, { start: Date; end: Date }>();
     (exportData.arcs || []).forEach((arc) => {
       arcMap.set(arc.id, arc);
+      const start = new Date(arc.start_time);
+      const end = new Date(arc.end_time);
+      // FIX B#20: Only store valid dates
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        arcDates.set(arc.id, { start, end });
+      }
+    });
+
+    // Build event index for arc membership lookup
+    const eventArcMembership = new Map<string, string[]>();
+    (exportData.events || []).forEach((event) => {
+      if (event.metadata && (event.metadata as Record<string, unknown>).arc_ids) {
+        const arcIds = (event.metadata as Record<string, unknown>).arc_ids as string[];
+        eventArcMembership.set(event.id, arcIds);
+      }
+    });
+
+    // FIX #1: Validate events within arc boundaries
+    (exportData.events || []).forEach((event, index) => {
+      const eventTime = new Date(event.timestamp);
+      // FIX B#20: Skip NaN dates
+      if (isNaN(eventTime.getTime())) {
+        errors.push({
+          path: `$.data.events[${index}].timestamp`,
+          message: `Event "${event.id}" has invalid timestamp that cannot be parsed`,
+          code: 'INVALID_VALUE',
+        });
+        return;
+      }
+
+      // Check if event falls within any arc it's assigned to
+      const assignedArcs = eventArcMembership.get(event.id) || [];
+      for (const arcId of assignedArcs) {
+        const arcBounds = arcDates.get(arcId);
+        if (arcBounds) {
+          if (eventTime < arcBounds.start || eventTime > arcBounds.end) {
+            const arc = arcMap.get(arcId);
+            errors.push({
+              path: `$.data.events[${index}]`,
+              message: `Event "${event.id}" (${event.timestamp}) is outside arc "${arc?.name || arcId}" boundaries (${arc?.start_time} to ${arc?.end_time})`,
+              code: 'TEMPORAL_VIOLATION',
+            });
+          }
+        }
+      }
     });
 
     // Validate arc hierarchy (parent must contain child temporally)
@@ -1006,6 +1116,21 @@ export class ImportService {
           const childEnd = new Date(arc.end_time);
           const parentStart = new Date(parent.start_time);
           const parentEnd = new Date(parent.end_time);
+
+          // FIX B#20: Check for NaN before comparing
+          if (isNaN(childStart.getTime()) || isNaN(childEnd.getTime())) {
+            errors.push({
+              path: `$.data.arcs[${index}]`,
+              message: `Arc "${arc.name}" has invalid date that cannot be parsed`,
+              code: 'INVALID_VALUE',
+            });
+            return;
+          }
+
+          if (isNaN(parentStart.getTime()) || isNaN(parentEnd.getTime())) {
+            // Parent has invalid dates, already caught in format validation
+            return;
+          }
 
           if (childStart < parentStart || childEnd > parentEnd) {
             errors.push({
@@ -1277,13 +1402,14 @@ export class ImportService {
 
   /**
    * Execute the import asynchronously (for large imports)
+   * FIX #7: Real progress tracking
    */
   async executeImportAsync(
     importData: AlthistoryExport,
     options: ImportOptions
   ): Promise<{ jobId: string }> {
     // Create job
-    const job = await this.jobRepository.createJob({
+    const job = await this.jobRepository.create({
       type: 'import',
       status: 'pending',
       metadata: {
@@ -1292,30 +1418,51 @@ export class ImportService {
       },
     });
 
-    // Store cancel flag
-    this.activeImports.set(job.id, { cancel: false });
+    // Store cancel flag and graphId for cleanup
+    this.activeImports.set(job.id, { cancel: false, graphId: options.graphId });
 
     // Execute in background
     setImmediate(async () => {
       try {
-        await this.jobRepository.updateJob(job.id, {
-          status: 'processing',
-          startedAt: new Date().toISOString(),
-        });
+        const processingJob = await this.jobRepository.findById(job.id);
+        if (processingJob) {
+          processingJob.status = 'processing';
+          processingJob.startedAt = new Date().toISOString();
+          processingJob.progress = 0;
+          processingJob.progressMessage = 'Starting import...';
+          await this.jobRepository.update(processingJob);
+        }
 
         const result = await this.executeImportInternal(importData, options, job.id);
 
-        await this.jobRepository.updateJob(job.id, {
-          status: result.success ? 'completed' : 'failed',
-          completedAt: new Date().toISOString(),
-          result,
-        });
+        // Check if cancelled during execution
+        const state = this.activeImports.get(job.id);
+        const completedJob = await this.jobRepository.findById(job.id);
+        if (completedJob) {
+          if (state?.cancel) {
+            completedJob.status = 'cancelled';
+            completedJob.completedAt = new Date().toISOString();
+            completedJob.progress = 100;
+            completedJob.progressMessage = 'Import cancelled';
+          } else {
+            completedJob.status = result.success ? 'completed' : 'failed';
+            completedJob.completedAt = new Date().toISOString();
+            completedJob.result = result;
+            completedJob.progress = 100;
+            completedJob.progressMessage = result.success ? 'Import completed' : 'Import failed';
+          }
+          await this.jobRepository.update(completedJob);
+        }
       } catch (error) {
-        await this.jobRepository.updateJob(job.id, {
-          status: 'failed',
-          completedAt: new Date().toISOString(),
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
+        const failedJob = await this.jobRepository.findById(job.id);
+        if (failedJob) {
+          failedJob.status = 'failed';
+          failedJob.completedAt = new Date().toISOString();
+          failedJob.error = error instanceof Error ? error.message : 'Unknown error';
+          failedJob.progress = 100;
+          failedJob.progressMessage = 'Import failed with error';
+          await this.jobRepository.update(failedJob);
+        }
       } finally {
         this.activeImports.delete(job.id);
       }
@@ -1340,7 +1487,19 @@ export class ImportService {
    * Get import job status
    */
   async getImportJob(jobId: string): Promise<ImportJob | null> {
-    return this.jobRepository.getJob(jobId);
+    const job = await this.jobRepository.findById(jobId);
+    if (!job) return null;
+    return {
+      id: job.id,
+      status: job.status,
+      progress: job.progress || 0,
+      progressMessage: job.progressMessage,
+      createdAt: job.createdAt,
+      startedAt: job.startedAt,
+      completedAt: job.completedAt,
+      result: job.result as ImportResult | undefined,
+      error: job.error,
+    };
   }
 
   /**
@@ -1354,7 +1513,39 @@ export class ImportService {
   }
 
   /**
+   * Helper to update job progress
+   * FIX #7: Real progress tracking
+   */
+  private async updateJobProgress(
+    jobId: string | undefined,
+    progress: number,
+    message: string
+  ): Promise<void> {
+    if (!jobId) return;
+    try {
+      const job = await this.jobRepository.findById(jobId);
+      if (job) {
+        job.progress = progress;
+        job.progressMessage = message;
+        await this.jobRepository.update(job);
+      }
+    } catch (error) {
+      this.logger.warn('Failed to update job progress', { jobId, error });
+    }
+  }
+
+  /**
+   * FIX B#6: Check if import should be cancelled
+   */
+  private shouldCancel(jobId?: string): boolean {
+    if (!jobId) return false;
+    return this.activeImports.get(jobId)?.cancel === true;
+  }
+
+  /**
    * Internal import execution with optional job tracking
+   * FIX #7: Real progress tracking
+   * FIX B#6: Check cancellation flag during execution
    */
   private async executeImportInternal(
     importData: AlthistoryExport,
@@ -1379,12 +1570,13 @@ export class ImportService {
       jobId,
     });
 
-    // Check for cancellation
-    if (jobId && this.activeImports.get(jobId)?.cancel) {
+    // Check for cancellation at start
+    if (this.shouldCancel(jobId)) {
       return { ...emptyResult(), errors: [{ path: '$', message: 'Import cancelled', code: 'INVALID_FORMAT' }] };
     }
 
-    // Validate first
+    // Validate first (10% progress)
+    await this.updateJobProgress(jobId, 5, 'Validating format...');
     const validation = await this.validateFormat(importData);
     if (!validation.valid) {
       return {
@@ -1394,7 +1586,13 @@ export class ImportService {
       };
     }
 
-    // Additional temporal validation
+    // FIX B#6: Check cancellation between steps
+    if (this.shouldCancel(jobId)) {
+      return { ...emptyResult(), errors: [{ path: '$', message: 'Import cancelled', code: 'INVALID_FORMAT' }] };
+    }
+
+    // Additional temporal validation (20% progress)
+    await this.updateJobProgress(jobId, 15, 'Validating temporal constraints...');
     const temporalErrors = this.validateTemporalConstraints(importData);
     if (temporalErrors.length > 0) {
       return {
@@ -1404,37 +1602,58 @@ export class ImportService {
       };
     }
 
-    // Detect conflicts
+    // FIX B#6: Check cancellation
+    if (this.shouldCancel(jobId)) {
+      return { ...emptyResult(), errors: [{ path: '$', message: 'Import cancelled', code: 'INVALID_FORMAT' }] };
+    }
+
+    // Detect conflicts (30% progress)
+    await this.updateJobProgress(jobId, 25, 'Detecting conflicts...');
     const conflicts = options.graphId
       ? await this.detectConflicts(importData, options.graphId, options.mode)
       : [];
 
-    // Check for unresolved error-level conflicts
-    const unresolvedErrors = conflicts.filter((c) => {
-      if (c.severity !== 'error') return false;
-      if (options.conflictResolution === 'manual') {
-        return !options.manualResolutions?.[c.id];
+    // FIX #10: Check for unresolved error-level conflicts more thoroughly
+    const errorConflicts = conflicts.filter((c) => c.severity === 'error');
+    if (options.conflictResolution === 'manual') {
+      const unresolvedErrors = errorConflicts.filter((c) => !options.manualResolutions?.[c.id]);
+      if (unresolvedErrors.length > 0) {
+        return {
+          ...emptyResult(),
+          errors: unresolvedErrors.map((c) => ({
+            path: `conflict.${c.entityType}.${c.entityId}`,
+            message: `Unresolved conflict: ${c.message}`,
+            code: c.type.toUpperCase() as ImportErrorCode,
+          })),
+          warnings: validation.warnings,
+        };
       }
-      return false;
-    });
+    } else if (options.conflictResolution !== 'skip' && errorConflicts.length > 0) {
+      // For non-skip resolutions, still report unresolved paradoxes
+      const paradoxes = errorConflicts.filter((c) => c.type === 'causal-paradox');
+      if (paradoxes.length > 0 && options.conflictResolution !== 'rename') {
+        return {
+          ...emptyResult(),
+          errors: paradoxes.map((c) => ({
+            path: `conflict.${c.entityType}.${c.entityId}`,
+            message: c.message,
+            code: 'CAUSAL_PARADOX' as ImportErrorCode,
+          })),
+          warnings: validation.warnings,
+        };
+      }
+    }
 
-    if (unresolvedErrors.length > 0) {
-      return {
-        ...emptyResult(),
-        errors: unresolvedErrors.map((c) => ({
-          path: `conflict.${c.entityType}.${c.entityId}`,
-          message: c.message,
-          code: c.type.toUpperCase() as ImportErrorCode,
-        })),
-        warnings: validation.warnings,
-      };
+    // FIX B#6: Check cancellation
+    if (this.shouldCancel(jobId)) {
+      return { ...emptyResult(), errors: [{ path: '$', message: 'Import cancelled', code: 'INVALID_FORMAT' }] };
     }
 
     try {
       let targetGraphId = options.graphId;
-      let graphVersion = 0;
 
-      // Create new graph if needed
+      // Create new graph if needed (40% progress)
+      await this.updateJobProgress(jobId, 35, 'Preparing graph...');
       if (options.mode === 'create-new' || !targetGraphId) {
         const newGraph = await this.graphRepository.create({
           name: importData.metadata.graphName,
@@ -1454,13 +1673,20 @@ export class ImportService {
         }
       });
 
-      // Apply import with conflict resolutions and rollback support
+      // FIX B#6: Check cancellation before heavy operation
+      if (this.shouldCancel(jobId)) {
+        return { ...emptyResult(), errors: [{ path: '$', message: 'Import cancelled', code: 'INVALID_FORMAT' }] };
+      }
+
+      // Apply import with conflict resolutions and rollback support (50-90% progress)
+      await this.updateJobProgress(jobId, 50, 'Applying import...');
       const result = await this.applyImportWithRollback(
         targetGraphId,
         importData,
         options.mode,
         resolutions,
         conflicts,
+        options,
         jobId
       );
 
@@ -1470,6 +1696,8 @@ export class ImportService {
         skipped: result.skipped,
         deleted: result.deleted,
       });
+
+      await this.updateJobProgress(jobId, 95, 'Finalizing...');
 
       return {
         success: true,
@@ -1500,6 +1728,9 @@ export class ImportService {
 
   /**
    * Apply the import to the graph with rollback support
+   * FIX #6: Complete provenance recording
+   * FIX #9: Process crossGraphRefs
+   * FIX B#26, B#29: Preserve original metadata and timestamps
    */
   private async applyImportWithRollback(
     graphId: string,
@@ -1507,6 +1738,7 @@ export class ImportService {
     mode: ImportMode,
     resolutions: Map<string, ConflictResolution>,
     conflicts: ImportConflict[],
+    options: ImportOptions,
     jobId?: string
   ): Promise<{
     graphVersion: number;
@@ -1557,11 +1789,34 @@ export class ImportService {
       return idRemap.get(`${entityType}:${originalId}`) || originalId;
     };
 
+    // FIX #6: Build complete provenance data
+    const importTimestamp = new Date().toISOString();
+    const provenanceData = {
+      imported: true,
+      importedAt: importTimestamp,
+      sourceGraphId: importData.metadata.graphId,
+      sourceGraphVersion: importData.metadata.graphVersion,
+      importMode: mode,
+      importJobId: jobId,
+      importedBy: options.userId,
+    };
+
     // Prepare entities for import
     const eventsToImport: Array<{ id: string; data: ExportedEvent }> = [];
     const arcsToImport: Array<{ id: string; data: ExportedArc }> = [];
     const relationshipsToImport: Array<{ id: string; data: ExportedRelationship }> = [];
     const pressuresToImport: Array<{ id: string; data: ExportedPressure }> = [];
+
+    // FIX #9: Process cross-graph references
+    const crossGraphRefs = exportData.crossGraphRefs || [];
+    const crossGraphRefMap = new Map<string, { graphId: string; entityId: string; type: string }>();
+    crossGraphRefs.forEach((ref) => {
+      crossGraphRefMap.set(ref.localEntityId, {
+        graphId: ref.referencedGraphId,
+        entityId: ref.referencedEntityId,
+        type: ref.referencedEntityType,
+      });
+    });
 
     // Process events first to build ID remap
     (exportData.events || []).forEach((event) => {
@@ -1570,16 +1825,22 @@ export class ImportService {
       } else {
         const newId = getEntityId('event', event.id);
         const sanitizedEvent = this.sanitizeObject(event);
+        
+        // FIX B#26, B#29: Preserve original metadata and created_at
+        const originalMetadata = sanitizedEvent.metadata || {};
+        const originalCreatedAt = (originalMetadata as Record<string, unknown>).created_at;
+        
         eventsToImport.push({
           id: newId,
           data: {
             ...sanitizedEvent,
             id: newId,
             metadata: {
-              ...sanitizedEvent.metadata,
-              imported: true,
-              importedAt: new Date().toISOString(),
+              ...originalMetadata,
+              ...provenanceData,
               originalId: event.id !== newId ? event.id : undefined,
+              // FIX B#29: Preserve original created_at if it exists
+              originalCreatedAt: originalCreatedAt || sanitizedEvent.timestamp,
             },
           },
         });
@@ -1595,6 +1856,10 @@ export class ImportService {
         const newId = getEntityId('arc', arc.id);
         const sanitizedArc = this.sanitizeObject(arc);
         const parentId = arc.parent_arc_id ? getRemappedId('arc', arc.parent_arc_id) : null;
+        
+        // FIX B#26: Preserve original metadata
+        const originalMetadata = sanitizedArc.metadata || {};
+        
         arcsToImport.push({
           id: newId,
           data: {
@@ -1602,9 +1867,8 @@ export class ImportService {
             id: newId,
             parent_arc_id: parentId,
             metadata: {
-              ...sanitizedArc.metadata,
-              imported: true,
-              importedAt: new Date().toISOString(),
+              ...originalMetadata,
+              ...provenanceData,
               originalId: arc.id !== newId ? arc.id : undefined,
             },
           },
@@ -1614,19 +1878,32 @@ export class ImportService {
     });
 
     // Process relationships, updating event references
+    // FIX #9: Handle cross-graph references in relationships
     (exportData.causalRelationships || []).forEach((rel) => {
       if (shouldSkip('relationship', rel.id)) {
         skipped.relationships++;
       } else {
         const newId = getEntityId('relationship', rel.id);
         const sanitizedRel = this.sanitizeObject(rel);
+        
+        // FIX #9: Preserve cross-graph references, only remap local references
+        const causeEventId = rel.causeGraphId 
+          ? rel.cause_event_id  // Cross-graph reference, don't remap
+          : getRemappedId('event', rel.cause_event_id);
+        const effectEventId = rel.effectGraphId
+          ? rel.effect_event_id  // Cross-graph reference, don't remap
+          : getRemappedId('event', rel.effect_event_id);
+        
         relationshipsToImport.push({
           id: newId,
           data: {
             ...sanitizedRel,
             id: newId,
-            cause_event_id: getRemappedId('event', rel.cause_event_id),
-            effect_event_id: getRemappedId('event', rel.effect_event_id),
+            cause_event_id: causeEventId,
+            effect_event_id: effectEventId,
+            // Preserve cross-graph IDs
+            causeGraphId: rel.causeGraphId,
+            effectGraphId: rel.effectGraphId,
           },
         });
         imported.relationships++;

@@ -10,6 +10,7 @@ export interface IAsyncJob {
   type: JobType;
   status: JobStatus;
   progress: number;
+  progressMessage?: string;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
@@ -98,6 +99,7 @@ export class AsyncJob implements IAsyncJob {
   public readonly type: JobType;
   public status: JobStatus;
   public progress: number;
+  public progressMessage?: string;
   public readonly createdAt: string;
   public startedAt?: string;
   public completedAt?: string;
@@ -111,11 +113,11 @@ export class AsyncJob implements IAsyncJob {
   constructor(data: CreateJobData) {
     this.id = data.id || this.generateId();
     this.type = data.type;
-    this.status = 'pending';
+    this.status = data.status || 'pending';
     this.progress = 0;
     this.createdAt = new Date().toISOString();
     this.expiresAt = data.expiresAt || this.calculateExpiry();
-    this.parameters = data.parameters;
+    this.parameters = data.parameters || { type: data.type, metadata: data.metadata } as unknown as JobParameters;
     this.webhookUrl = data.webhookUrl;
     this.webhookSent = false;
   }
@@ -197,6 +199,7 @@ export class AsyncJob implements IAsyncJob {
       type: this.type,
       status: this.status,
       progress: this.progress,
+      progressMessage: this.progressMessage,
       createdAt: this.createdAt,
       startedAt: this.startedAt,
       completedAt: this.completedAt,
@@ -222,6 +225,7 @@ export class AsyncJob implements IAsyncJob {
     });
     job.status = data.status;
     job.progress = data.progress;
+    job.progressMessage = data.progressMessage;
     job.startedAt = data.startedAt;
     job.completedAt = data.completedAt;
     job.result = data.result;
@@ -245,7 +249,10 @@ export class AsyncJob implements IAsyncJob {
 export interface CreateJobData {
   id?: string;
   type: JobType;
-  parameters: JobParameters;
+  status?: JobStatus;
+  parameters?: JobParameters;
+  /** Generic metadata for jobs that don't fit standard parameters */
+  metadata?: Record<string, unknown>;
   webhookUrl?: string;
   expiresAt?: string;
 }
