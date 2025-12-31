@@ -6,11 +6,20 @@ import { temporalRoutes } from './routes/temporal';
 import { inferenceRoutes } from './routes/inference';
 import { graphRoutes } from './routes/graphs';
 import { exportRoutes } from './routes/export';
+import { createImportRouter } from './routes/import';
+import { loadConfig } from '../utils/config';
 
 /**
  * Main API router
  */
 export const apiRouter = Router();
+
+// Get config for data directory
+const config = loadConfig();
+const dataDir = config.localExecution.dataDirectory;
+
+// Create import router with config
+const importRoutes = createImportRouter({ dataDir });
 
 // Root API endpoint
 apiRouter.get('/', (req, res) => {
@@ -23,6 +32,7 @@ apiRouter.get('/', (req, res) => {
       health: '/api/health',
       graphs: '/api/graphs',
       export: '/api/export',
+      import: '/api/import',
       events: '/api/events',
       arcs: '/api/arcs',
       causal: '/api/causal',
@@ -36,8 +46,11 @@ apiRouter.get('/', (req, res) => {
 // Graph management API endpoints
 apiRouter.use('/graphs', graphRoutes);
 
-// Export/Import API endpoints
+// Export API endpoints
 apiRouter.use('/export', exportRoutes);
+
+// Import API endpoints
+apiRouter.use('/import', importRoutes);
 
 // Event API endpoints
 apiRouter.use('/events', eventRoutes);
@@ -72,6 +85,7 @@ apiRouter.get('/info', (req, res) => {
     endpoints: {
       graphs: '/api/graphs - Multi-graph management',
       export: '/api/export - Export graphs and manage export jobs',
+      import: '/api/import - Import data from export files',
       events: '/api/events - CRUD operations for historical events',
       arcs: '/api/arcs - CRUD operations for historical arcs/periods',
       causal: '/api/causal - Causal relationship analysis and management',
@@ -81,6 +95,7 @@ apiRouter.get('/info', (req, res) => {
     features: {
       graphs: ['Create', 'Read', 'Update', 'Delete', 'Branch', 'Merge', 'Version history', 'Rollback'],
       export: ['Async export jobs', 'Sync export', 'Filtered export', 'Download', 'Validate'],
+      import: ['Validate format', 'Preview changes', 'Conflict detection', 'Import with resolutions'],
       events: ['Create', 'Read', 'Update', 'Delete', 'Filter by time/actor/target', 'Statistics'],
       arcs: ['Create', 'Read', 'Update', 'Delete', 'Hierarchy validation', 'Child relationships'],
       causal: ['Create links', 'Find chains', 'Detect cycles', 'Get suggestions', 'Validate relationships'],

@@ -18,6 +18,7 @@ import {
 import { JobRepository, JobFilter, JobStats } from '../repositories/JobRepository';
 import { ExportService, ExportOptions } from './ExportService';
 import { GraphRepository } from '../repositories/GraphRepository';
+import { createLogger, ILogger } from '../utils/logger';
 
 export interface JobServiceConfig {
   dataDir: string;
@@ -48,6 +49,7 @@ export class JobService extends EventEmitter {
   
   private activeJobs: Map<string, Promise<void>> = new Map();
   private pollInterval?: NodeJS.Timeout;
+  private readonly logger: ILogger;
   private initialized = false;
   private running = false;
 
@@ -64,6 +66,7 @@ export class JobService extends EventEmitter {
       appVersion: config.appVersion,
     });
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
+    this.logger = createLogger('JobService');
   }
 
   /**
@@ -79,7 +82,7 @@ export class JobService extends EventEmitter {
     // Recover any stalled jobs from previous runs
     const recovered = await this.jobRepository.recoverStalledJobs(this.jobTimeoutMs);
     if (recovered > 0) {
-      console.log(`Recovered ${recovered} stalled jobs`);
+      this.logger.info('Recovered stalled jobs', { count: recovered });
     }
 
     this.initialized = true;
@@ -93,11 +96,11 @@ export class JobService extends EventEmitter {
     this.running = true;
 
     this.pollInterval = setInterval(() => {
-      this.processNextJobs().catch(console.error);
+      this.processNextJobs().catch((err) => this.logger.error('Job processing failed', err));
     }, this.pollIntervalMs);
 
     // Process immediately on start
-    this.processNextJobs().catch(console.error);
+    this.processNextJobs().catch((err) => this.logger.error('Initial job processing failed', err));
   }
 
   /**
@@ -378,6 +381,10 @@ export class JobService extends EventEmitter {
   private async sendWebhook(job: AsyncJob): Promise<void> {
     if (!job.webhookUrl || job.webhookSent) return;
 
+    // Create an AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
     try {
       const response = await fetch(job.webhookUrl, {
         method: 'POST',
@@ -392,16 +399,30 @@ export class JobService extends EventEmitter {
           error: job.error,
           completedAt: job.completedAt,
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         job.markWebhookSent();
         await this.jobRepository.update(job);
       } else {
-        console.error(`Webhook failed for job ${job.id}: ${response.status}`);
+        this.logger.error('Webhook request failed', undefined, {
+          jobId: job.id,
+          statusCode: response.status,
+        });
       }
     } catch (error) {
-      console.error(`Webhook error for job ${job.id}:`, error);
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        this.logger.error('Webhook timeout exceeded', undefined, {
+          jobId: job.id,
+          timeoutSeconds: 30,
+        });
+      } else {
+        this.logger.error('Webhook error', error, { jobId: job.id });
+      }
     }
   }
 }

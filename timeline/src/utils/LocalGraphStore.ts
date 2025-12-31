@@ -750,7 +750,7 @@ export class CypherQueryParser {
   }
 
   private static generateId(): string {
-    return `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `local_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   }
 }
 
@@ -1157,6 +1157,6 @@ export class LocalGraphStore {
    * Generate a unique ID
    */
   private generateId(): string {
-    return `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `local_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   }
 }

@@ -160,7 +160,7 @@ export class Graph implements IGraph {
   }
 
   private generateId(): string {
-    return `graph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `graph_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   }
 }
 
@@ -235,11 +235,12 @@ export interface CrossGraphCausalRelationship {
 
 export interface ReferenceNotification {
   id: string;
+  type: 'entity_modified' | 'entity_deleted' | 'graph_deleted';
   sourceGraphId: string;
-  sourceEntityId: string;
-  sourceEntityType: 'event' | 'arc';
   targetGraphId: string;
-  changeType: 'modified' | 'deleted';
+  entityId: string;
+  entityType: EntityType | 'event' | 'arc';
+  message: string;
   timestamp: string;
   acknowledged: boolean;
 }
@@ -301,6 +302,7 @@ export interface PackFile {
     end: number;
   };
   objects: Record<string, ContentObject>;
+  trees: Record<string, TreeObject>;
   versions: VersionRef[];
 }
 

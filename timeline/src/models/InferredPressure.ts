@@ -157,7 +157,7 @@ export class InferredPressure implements IInferredPressure {
    * Generates a unique ID for the pressure
    */
   private generateId(): string {
-    return `pressure_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `pressure_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   }
 }
 

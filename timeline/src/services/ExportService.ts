@@ -132,6 +132,9 @@ export interface ExportServiceConfig {
   appVersion?: string;
 }
 
+// Maximum size for in-memory exports (50MB)
+const MAX_IN_MEMORY_EXPORT_SIZE = 50 * 1024 * 1024;
+
 /**
  * Service for exporting graph data
  */
@@ -139,11 +142,13 @@ export class ExportService {
   private readonly graphRepository: GraphRepository;
   private readonly dataDir: string;
   private readonly appVersion: string;
+  private readonly maxInMemorySize: number;
 
   constructor(config: ExportServiceConfig) {
     this.dataDir = config.dataDir;
     this.appVersion = config.appVersion || '1.0.0';
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
+    this.maxInMemorySize = MAX_IN_MEMORY_EXPORT_SIZE;
   }
 
   /**
@@ -165,6 +170,15 @@ export class ExportService {
     const graph = await this.graphRepository.findById(options.graphId);
     if (!graph) {
       throw new Error(`Graph not found: ${options.graphId}`);
+    }
+
+    // Check estimated size before proceeding with in-memory export
+    const estimatedSize = await this.estimateExportSize(options);
+    if (estimatedSize > this.maxInMemorySize) {
+      throw new Error(
+        `Export too large for in-memory operation (estimated ${Math.round(estimatedSize / 1024 / 1024)}MB, max ${Math.round(this.maxInMemorySize / 1024 / 1024)}MB). ` +
+        `Use exportToFile() for large exports or create an async export job.`
+      );
     }
 
     // Get graph data

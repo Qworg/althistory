@@ -11,6 +11,7 @@ import {
   InsufficientStorageError,
   LocalStorageError 
 } from '../utils/errors';
+import { createLogger, ILogger } from '../utils/logger';
 
 /**
  * Backup metadata interface
@@ -70,9 +71,11 @@ export class BackupRecoveryService {
   private backupTimer?: NodeJS.Timeout;
   private backupDir: string;
   private backupConfig: BackupConfig;
+  private readonly logger: ILogger;
 
   constructor(graphStore?: LocalGraphStore) {
     this.graphStore = graphStore;
+    this.logger = createLogger('BackupRecoveryService');
     this.backupDir = path.join(this.config.localExecution.dataDirectory, 'backups');
     this.backupConfig = {
       enabled: this.config.localExecution.backupEnabled,
@@ -134,7 +137,7 @@ export class BackupRecoveryService {
 
       // Backup graph data
       if (finalComponents.graph && this.graphStore) {
-        console.log('Creating graph data backup...');
+        this.logger.info('Creating graph data backup');
         await this.graphStore.save(); // Ensure latest data is saved
         const graphDataPath = path.join(this.config.localExecution.dataDirectory, this.config.localExecution.graphFile);
         
@@ -142,21 +145,21 @@ export class BackupRecoveryService {
           const graphData = await fs.readFile(graphDataPath, 'utf8');
           backupData.graphData = JSON.parse(graphData);
         } catch (error) {
-          console.warn('No graph data file found, skipping graph backup');
+          this.logger.warn('No graph data file found, skipping graph backup');
           finalComponents.graph = false;
         }
       }
 
       // Backup cache data
       if (finalComponents.cache && this.cacheManager instanceof LocalCacheStore) {
-        console.log('Creating cache data backup...');
+        this.logger.info('Creating cache data backup');
         const cacheData = await this.exportCacheData();
         backupData.cacheData = cacheData;
       }
 
       // Backup configuration
       if (finalComponents.config) {
-        console.log('Creating configuration backup...');
+        this.logger.info('Creating configuration backup');
         backupData.configData = {
           localExecution: this.config.localExecution,
           performance: this.config.performance
@@ -196,7 +199,7 @@ export class BackupRecoveryService {
         components: finalComponents
       };
 
-      console.log(`✅ Backup created successfully: ${backupPath}`);
+      this.logger.info('Backup created successfully', { backupPath });
       
       // Clean up old backups
       await this.cleanupOldBackups();
@@ -243,47 +246,47 @@ export class BackupRecoveryService {
 
       // Verify backup integrity
       if (verifyIntegrity) {
-        console.log('🔍 Verifying backup integrity...');
+        this.logger.info('Verifying backup integrity');
         await this.verifyBackupIntegrity(backupPath);
       }
 
       // Create backup before restore
       if (createBackupBeforeRestore) {
-        console.log('💾 Creating pre-restore backup...');
+        this.logger.info('Creating pre-restore backup');
         const preRestoreBackup = await this.createBackup('pre-operation', `Before restore from ${backupId}`);
         preRestoreBackupId = preRestoreBackup.id;
       }
 
       // Load backup data
-      console.log('📦 Loading backup data...');
+      this.logger.info('Loading backup data');
       const backupContent = await fs.readFile(backupPath, 'utf8');
       const backupData = JSON.parse(backupContent);
 
       // Restore graph data
       if (components.graph && backupData.graphData) {
-        console.log('🔄 Restoring graph data...');
+        this.logger.info('Restoring graph data');
         await this.restoreGraphData(backupData.graphData);
       }
 
       // Restore cache data
       if (components.cache && backupData.cacheData) {
-        console.log('🔄 Restoring cache data...');
+        this.logger.info('Restoring cache data');
         await this.restoreCacheData(backupData.cacheData);
       }
 
       // Restore configuration
       if (components.config && backupData.configData) {
-        console.log('🔄 Restoring configuration...');
+        this.logger.info('Restoring configuration');
         await this.restoreConfigData(backupData.configData);
       }
 
-      console.log(`✅ Restore completed successfully from backup: ${backupId}`);
+      this.logger.info('Restore completed successfully', { backupId });
     } catch (error) {
-      console.error('❌ Restore failed:', error);
+      this.logger.error('Restore failed', error);
 
       // Attempt rollback if enabled and we have a pre-restore backup
       if (rollbackOnFailure && preRestoreBackupId) {
-        console.log('🔄 Attempting rollback...');
+        this.logger.info('Attempting rollback');
         try {
           await this.restoreFromBackup(preRestoreBackupId, {
             components,
@@ -291,9 +294,9 @@ export class BackupRecoveryService {
             createBackupBeforeRestore: false,
             rollbackOnFailure: false
           });
-          console.log('✅ Rollback completed successfully');
+          this.logger.info('Rollback completed successfully');
         } catch (rollbackError) {
-          console.error('❌ Rollback failed:', rollbackError);
+          this.logger.error('Rollback failed', rollbackError);
         }
       }
 
@@ -336,7 +339,7 @@ export class BackupRecoveryService {
             });
           }
         } catch (error) {
-          console.warn(`Failed to read backup metadata from ${file}:`, error);
+          this.logger.warn('Failed to read backup metadata', { file, error });
         }
       }
 
@@ -360,7 +363,7 @@ export class BackupRecoveryService {
     
     try {
       await fs.unlink(backupPath);
-      console.log(`🗑️ Backup deleted: ${backupId}`);
+      this.logger.info('Backup deleted', { backupId });
     } catch (error) {
       throw new BackupError(
         `Failed to delete backup: ${error}`,
@@ -440,14 +443,14 @@ export class BackupRecoveryService {
 
     this.backupTimer = setInterval(async () => {
       try {
-        console.log('🕐 Starting automatic backup...');
+        this.logger.info('Starting automatic backup');
         await this.createBackup('automatic', `Automatic backup at ${new Date().toISOString()}`);
       } catch (error) {
-        console.error('❌ Automatic backup failed:', error);
+        this.logger.error('Automatic backup failed', error);
       }
     }, this.backupConfig.interval);
 
-    console.log(`⏰ Automatic backups enabled (interval: ${this.backupConfig.interval}ms)`);
+    this.logger.info('Automatic backups enabled', { intervalMs: this.backupConfig.interval });
   }
 
   /**
@@ -457,7 +460,7 @@ export class BackupRecoveryService {
     if (this.backupTimer) {
       clearInterval(this.backupTimer);
       this.backupTimer = undefined;
-      console.log('🛑 Automatic backups stopped');
+      this.logger.info('Automatic backups stopped');
     }
   }
 
@@ -565,7 +568,7 @@ export class BackupRecoveryService {
         Object.assign(this.config.performance, configData.performance);
       }
 
-      console.log('⚙️ Configuration restored (requires restart to take full effect)');
+      this.logger.info('Configuration restored (requires restart to take full effect)');
     } catch (error) {
       throw new RecoveryError(
         `Failed to restore configuration: ${error}`,
@@ -596,9 +599,9 @@ export class BackupRecoveryService {
       
       // Placeholder for actual disk space check
       // In a real implementation, you'd use fs.statfs or similar
-      console.log('📊 Storage space check passed');
+      this.logger.debug('Storage space check passed');
     } catch (error) {
-      console.warn('⚠️ Could not verify storage space:', error);
+      this.logger.warn('Could not verify storage space', { error });
     }
   }
 
@@ -626,15 +629,15 @@ export class BackupRecoveryService {
         try {
           await this.deleteBackup(backupId);
         } catch (error) {
-          console.warn(`Failed to delete old backup ${backupId}:`, error);
+          this.logger.warn('Failed to delete old backup', { backupId, error });
         }
       }
 
       if (toDelete.length > 0) {
-        console.log(`🧹 Cleaned up ${toDelete.length} old backups`);
+        this.logger.info('Cleaned up old backups', { count: toDelete.length });
       }
     } catch (error) {
-      console.warn('Failed to cleanup old backups:', error);
+      this.logger.warn('Failed to cleanup old backups', { error });
     }
   }
 
@@ -643,7 +646,7 @@ export class BackupRecoveryService {
    */
   private generateBackupId(): string {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const random = Math.random().toString(36).substr(2, 6);
+    const random = Math.random().toString(36).substring(2, 8);
     return `backup_${timestamp}_${random}`;
   }
 
@@ -652,6 +655,6 @@ export class BackupRecoveryService {
    */
   async shutdown(): Promise<void> {
     this.stopAutomaticBackups();
-    console.log('🛑 Backup service shutdown complete');
+    this.logger.info('Backup service shutdown complete');
   }
 }

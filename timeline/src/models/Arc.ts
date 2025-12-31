@@ -182,7 +182,7 @@ export class Arc implements IArc {
    * Generates a unique ID for the arc
    */
   private generateId(): string {
-    return `arc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `arc_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   }
 }
 

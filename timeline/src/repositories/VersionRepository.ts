@@ -44,13 +44,41 @@ export interface ResolvedGraphData {
   pressures: Record<string, Record<string, unknown>>;
 }
 
+/**
+ * Simple async mutex for preventing concurrent commits to the same graph
+ */
+class GraphMutex {
+  private locks: Map<string, Promise<void>> = new Map();
+
+  async acquire(graphId: string): Promise<() => void> {
+    // Wait for any existing lock to release
+    while (this.locks.has(graphId)) {
+      await this.locks.get(graphId);
+    }
+
+    // Create a new lock
+    let release: () => void;
+    const lock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.locks.set(graphId, lock);
+
+    return () => {
+      this.locks.delete(graphId);
+      release!();
+    };
+  }
+}
+
 export class VersionRepository {
   private readonly dataDir: string;
   private readonly packThreshold: number;
+  private readonly commitMutex: GraphMutex;
 
   constructor(config: VersionRepositoryConfig) {
     this.dataDir = config.dataDir;
     this.packThreshold = config.packThreshold ?? 100;
+    this.commitMutex = new GraphMutex();
   }
 
   /**
@@ -86,6 +114,26 @@ export class VersionRepository {
    * Commit changes to create a new version
    */
   async commit(
+    graphId: string,
+    changes: EntityChanges,
+    operation: VersionOperation,
+    description?: string,
+    userId?: string
+  ): Promise<VersionRef> {
+    // Acquire mutex to prevent concurrent commits to the same graph
+    const release = await this.commitMutex.acquire(graphId);
+    
+    try {
+      return await this.commitInternal(graphId, changes, operation, description, userId);
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Internal commit implementation (must be called with mutex held)
+   */
+  private async commitInternal(
     graphId: string,
     changes: EntityChanges,
     operation: VersionOperation,
@@ -414,12 +462,21 @@ export class VersionRepository {
   async packVersions(graphId: string, startVersion: number, endVersion: number): Promise<void> {
     const versionsTopack: VersionRef[] = [];
     const objectsToInclude: Record<string, ContentObject> = {};
+    const treesToInclude: Record<string, TreeObject> = {};
 
     // Collect versions and their objects
     for (let v = startVersion; v <= endVersion; v++) {
       const vRef = await this.getVersionRef(graphId, v);
       if (vRef) {
         versionsTopack.push(vRef);
+
+        // Collect tree for this version
+        try {
+          const tree = await this.getTree(graphId, vRef.treeHash);
+          treesToInclude[vRef.treeHash] = tree;
+        } catch {
+          // Tree may already be in a pack
+        }
 
         // Collect objects referenced by this version
         for (const change of [...vRef.changes.added, ...vRef.changes.modified]) {
@@ -435,10 +492,11 @@ export class VersionRepository {
 
     // Create pack file
     const packFile: PackFile = {
-      id: `pack_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `pack_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       createdAt: new Date().toISOString(),
       versionRange: { start: startVersion, end: endVersion },
       objects: objectsToInclude,
+      trees: treesToInclude,
       versions: versionsTopack,
     };
 
@@ -648,12 +706,24 @@ export class VersionRepository {
   }
 
   private async getTreeFromPacks(graphId: string, hash: string): Promise<TreeObject | null> {
-    // Trees are stored as regular objects, but we need to cast
-    const obj = await this.getObjectFromPacks(graphId, hash);
-    if (obj) {
-      // This is a bit of a hack - trees aren't ContentObjects but stored similarly
-      return obj as unknown as TreeObject;
+    const packsDir = path.join(this.getGraphDir(graphId), 'packs');
+    
+    try {
+      const packFiles = await fs.promises.readdir(packsDir);
+      for (const packFile of packFiles) {
+        const packPath = path.join(packsDir, packFile);
+        const content = await fs.promises.readFile(packPath, 'utf-8');
+        const pack = JSON.parse(content) as PackFile;
+        
+        // Check the trees storage (new format)
+        if (pack.trees && pack.trees[hash]) {
+          return pack.trees[hash];
+        }
+      }
+    } catch {
+      // Packs dir might not exist
     }
+    
     return null;
   }
 

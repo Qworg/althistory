@@ -219,6 +219,22 @@ exportRoutes.get('/jobs/:jobId/download', async (req: RequestWithContainer, res:
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     
     const stream = fs.createReadStream(filePath);
+    
+    // Handle stream errors with proper cleanup
+    stream.on('error', (streamError) => {
+      stream.destroy();
+      if (!res.headersSent) {
+        next(streamError);
+      }
+    });
+    
+    // Clean up stream on client disconnect
+    res.on('close', () => {
+      if (!stream.destroyed) {
+        stream.destroy();
+      }
+    });
+    
     stream.pipe(res);
   } catch (error) {
     next(error);

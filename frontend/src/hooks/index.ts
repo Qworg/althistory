@@ -13,6 +13,7 @@ export { useTimelineEventHandlers } from './useTimelineEventHandlers'
 // Export graph management hooks
 export * from './useGraphs'
 export * from './useExport'
+export * from './useImport'
 
 // Export default exports
 export { default as useCausalPathExploration } from './useCausalPathExploration'

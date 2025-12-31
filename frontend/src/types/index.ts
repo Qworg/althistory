@@ -402,6 +402,103 @@ export interface ExportValidationResult {
   warnings: string[]
 }
 
+// Import Types
+export type ImportMode = 'merge' | 'replace' | 'create-new'
+export type ConflictResolution = 'skip' | 'overwrite' | 'rename'
+export type ImportConflictType = 'duplicate-id' | 'temporal-violation' | 'causal-paradox' | 'orphan-reference' | 'arc-boundary-violation'
+
+export interface ImportError {
+  path: string
+  message: string
+  code: string
+}
+
+export interface ImportWarning {
+  path: string
+  message: string
+  code: string
+}
+
+export interface ImportSummary {
+  eventCount: number
+  arcCount: number
+  relationshipCount: number
+  pressureCount: number
+  crossRefCount: number
+  temporalRange?: { start: string; end: string }
+  actors: string[]
+}
+
+export interface ImportValidationResult {
+  valid: boolean
+  errors: ImportError[]
+  warnings: ImportWarning[]
+  summary: ImportSummary
+}
+
+export interface ImportConflict {
+  id: string
+  type: ImportConflictType
+  severity: 'error' | 'warning'
+  entityType: 'event' | 'arc' | 'relationship' | 'pressure'
+  entityId: string
+  existingEntity?: Record<string, unknown>
+  incomingEntity: Record<string, unknown>
+  suggestedResolution: ConflictResolution
+  message: string
+}
+
+export interface EntityCounts {
+  events: number
+  arcs: number
+  relationships: number
+  pressures: number
+}
+
+export interface ImportPreview {
+  toCreate: EntityCounts
+  toUpdate: EntityCounts
+  toDelete: EntityCounts
+  conflicts: ImportConflict[]
+  warnings: ImportWarning[]
+}
+
+export interface ImportOptions {
+  graphId?: string
+  mode: ImportMode
+  conflictResolution: ConflictResolution | 'manual'
+  manualResolutions?: Record<string, ConflictResolution>
+}
+
+export interface ImportResult {
+  success: boolean
+  graphId: string
+  graphVersion: number
+  imported: EntityCounts
+  skipped: EntityCounts
+  deleted: EntityCounts
+  errors: ImportError[]
+  warnings: ImportWarning[]
+  jobId?: string
+}
+
+export interface ImportJob {
+  id: string
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
+  progress: number
+  createdAt: string
+  startedAt?: string
+  completedAt?: string
+  result?: ImportResult
+  error?: string
+}
+
+export interface AsyncImportResponse {
+  jobId: string
+  message: string
+  async: boolean
+}
+
 // Extended types for UI state management
 export interface UIState {
   sidebarCollapsed: boolean

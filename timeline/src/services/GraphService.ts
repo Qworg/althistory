@@ -25,6 +25,7 @@ import {
 } from '../repositories/GraphRepository';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 import { ValidationError, NotFoundError } from '../utils/errors';
+import { createLogger, ILogger } from '../utils/logger';
 
 export interface GraphServiceConfig {
   dataDir: string;
@@ -44,6 +45,44 @@ interface CrossGraphReference {
 }
 
 /**
+ * Simple in-memory rate limiter for expensive operations
+ */
+class OperationRateLimiter {
+  private operations: Map<string, number[]> = new Map();
+  private readonly maxOperations: number;
+  private readonly windowMs: number;
+
+  constructor(maxOperations: number = 10, windowMs: number = 60000) {
+    this.maxOperations = maxOperations;
+    this.windowMs = windowMs;
+  }
+
+  canProceed(operationType: string): boolean {
+    const now = Date.now();
+    const timestamps = this.operations.get(operationType) || [];
+    
+    // Remove old timestamps outside the window
+    const validTimestamps = timestamps.filter(t => now - t < this.windowMs);
+    this.operations.set(operationType, validTimestamps);
+
+    return validTimestamps.length < this.maxOperations;
+  }
+
+  recordOperation(operationType: string): void {
+    const timestamps = this.operations.get(operationType) || [];
+    timestamps.push(Date.now());
+    this.operations.set(operationType, timestamps);
+  }
+
+  getRemainingQuota(operationType: string): number {
+    const now = Date.now();
+    const timestamps = this.operations.get(operationType) || [];
+    const validTimestamps = timestamps.filter(t => now - t < this.windowMs);
+    return Math.max(0, this.maxOperations - validTimestamps.length);
+  }
+}
+
+/**
  * Service for managing graphs with business logic
  */
 export class GraphService {
@@ -53,12 +92,17 @@ export class GraphService {
   private crossGraphReferences: CrossGraphReference[] = [];
   private notificationsPath: string;
   private referencesPath: string;
+  private readonly rateLimiter: OperationRateLimiter;
+  private readonly logger: ILogger;
 
   constructor(config: GraphServiceConfig) {
     this.dataDir = config.dataDir;
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
     this.notificationsPath = path.join(config.dataDir, 'notifications.json');
     this.referencesPath = path.join(config.dataDir, 'cross-references.json');
+    // Allow 10 expensive operations per minute
+    this.rateLimiter = new OperationRateLimiter(10, 60000);
+    this.logger = createLogger('GraphService');
   }
 
   /**
@@ -321,6 +365,16 @@ export class GraphService {
     targetGraphId: string,
     request: MergeGraphRequest
   ): Promise<MergeResult> {
+    // Rate limit merge operations (expensive)
+    if (!this.rateLimiter.canProceed('merge')) {
+      throw new ValidationError(
+        'Too many merge operations. Please wait before trying again.',
+        'rateLimit',
+        `Remaining quota: ${this.rateLimiter.getRemainingQuota('merge')}`
+      );
+    }
+    this.rateLimiter.recordOperation('merge');
+
     const targetGraph = await this.graphRepository.findById(targetGraphId);
     if (!targetGraph) {
       throw new NotFoundError('Target graph not found', 'Graph', targetGraphId);
@@ -475,7 +529,7 @@ export class GraphService {
       // Keep unacknowledged notifications
       if (!n.acknowledged) return true;
       // Keep recent acknowledged notifications
-      return n.createdAt > cutoffStr;
+      return n.timestamp > cutoffStr;
     });
 
     const removed = originalLength - this.referenceNotifications.length;
@@ -610,14 +664,14 @@ export class GraphService {
       const affectedRefs = referencingGraphs.filter(r => r.sourceGraphId === sourceGraphId);
       
       const notification: ReferenceNotification = {
-        id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
         type: 'graph_deleted',
         sourceGraphId: graphId,
         targetGraphId: sourceGraphId,
         entityId: affectedRefs.map(r => r.sourceEntityId).join(','),
         entityType: 'event', // Use first type
         message: `Graph "${graphId}" has been deleted. ${affectedRefs.length} cross-graph reference(s) in this graph may be broken.`,
-        createdAt: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
         acknowledged: false,
       };
       
@@ -630,7 +684,10 @@ export class GraphService {
     }
 
     // Mark cross-graph references as broken (keep them for reference but note the deletion)
-    console.warn(`Graph ${graphId} deleted - ${referencingGraphs.length} cross-graph references affected`);
+    this.logger.warn('Graph deleted with cross-graph references affected', {
+      graphId,
+      affectedReferences: referencingGraphs.length,
+    });
   }
 
   private async checkCrossGraphReferences(
@@ -657,7 +714,7 @@ export class GraphService {
         
         // Create notification for the referencing graph
         const notification: ReferenceNotification = {
-          id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
           type: isDeleted ? 'entity_deleted' : 'entity_modified',
           sourceGraphId: graphId,
           targetGraphId: ref.sourceGraphId,
@@ -666,7 +723,7 @@ export class GraphService {
           message: isDeleted
             ? `Referenced ${ref.targetEntityType} "${ref.targetEntityId}" has been deleted in graph "${graphId}".`
             : `Referenced ${ref.targetEntityType} "${ref.targetEntityId}" has been modified in graph "${graphId}".`,
-          createdAt: new Date().toISOString(),
+          timestamp: new Date().toISOString(),
           acknowledged: false,
         };
         

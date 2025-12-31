@@ -29,7 +29,12 @@ import {
   CreateExportJobRequest,
   AlthistoryExport,
   ExportValidationResult,
-  GraphStatus
+  GraphStatus,
+  ImportValidationResult,
+  ImportPreview,
+  ImportResult,
+  ImportMode,
+  ConflictResolution
 } from '@/types'
 
 // API client configuration
@@ -623,6 +628,94 @@ class APIClient {
                 const response: AxiosResponse<{ success: boolean; data: { export: { total: number; pending: number; processing: number; completed: number; failed: number } } }> = 
                     await this.client.get('/export/stats')
                 return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+    }
+
+    // Import operations
+    import = {
+        validate: async (data: AlthistoryExport): Promise<ImportValidationResult> => {
+            try {
+                const response: AxiosResponse<ImportValidationResult> = 
+                    await this.client.post('/import/validate', data)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        preview: async (data: AlthistoryExport, targetGraphId?: string, mode: ImportMode = 'create-new'): Promise<ImportPreview> => {
+            try {
+                const response: AxiosResponse<ImportPreview> = 
+                    await this.client.post('/import/preview', { data, targetGraphId, mode })
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        execute: async (
+            data: AlthistoryExport, 
+            options: {
+                targetGraphId?: string
+                mode: ImportMode
+                conflictResolution: ConflictResolution | 'manual'
+                manualResolutions?: Record<string, ConflictResolution>
+                async?: boolean
+            }
+        ): Promise<ImportResult | { jobId: string; message: string; async: boolean }> => {
+            try {
+                const response = await this.client.post('/import', {
+                    data,
+                    targetGraphId: options.targetGraphId,
+                    mode: options.mode,
+                    conflictResolution: options.conflictResolution,
+                    manualResolutions: options.manualResolutions,
+                    async: options.async
+                })
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        getJob: async (jobId: string): Promise<{
+            id: string
+            status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
+            progress: number
+            createdAt: string
+            startedAt?: string
+            completedAt?: string
+            result?: ImportResult
+            error?: string
+        }> => {
+            try {
+                const response = await this.client.get(`/import/jobs/${jobId}`)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        cancelJob: async (jobId: string): Promise<{ message: string; jobId: string }> => {
+            try {
+                const response = await this.client.post(`/import/jobs/${jobId}/cancel`)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        validateIncremental: async (
+            graphId: string, 
+            additions: { events?: Event[]; arcs?: Arc[]; relationships?: CausalRelationship[] }
+        ): Promise<{ valid: boolean; conflicts: any[]; wouldCreate: any; errors?: any[] }> => {
+            try {
+                const response: AxiosResponse<{ valid: boolean; conflicts: any[]; wouldCreate: any; errors?: any[] }> = 
+                    await this.client.post('/import/validate-incremental', { graphId, additions })
+                return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
