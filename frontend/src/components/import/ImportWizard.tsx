@@ -9,7 +9,7 @@
  * 5. Execute - Run the import
  */
 
-import { useReducer, useCallback, useState } from 'react'
+import { useReducer, useCallback, useState, useEffect, useRef } from 'react'
 import {
   useValidateImport,
   usePreviewImport,
@@ -56,8 +56,29 @@ export function ImportWizard({
   })
 
   const [executeProgress, setExecuteProgress] = useState(0)
+  
+  // FIX #2: Track polling interval for cleanup
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const validateMutation = useValidateImport()
+  
+  // FIX #2: Cleanup polling interval on unmount or when wizard closes
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
+    }
+  }, [])
+  
+  // Also cleanup when wizard is closed
+  useEffect(() => {
+    if (!isOpen && pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
+  }, [isOpen])
   const previewMutation = usePreviewImport()
   const executeMutation = useExecuteImport()
 
@@ -161,9 +182,15 @@ export function ImportWizard({
   }, [])
 
   // Handle execute
-  // FIX #7: Use real progress from backend for async imports
+  // FIX #2: Properly track and cleanup polling interval
   const handleExecute = useCallback(async () => {
     if (!state.data) return
+
+    // Clear any existing poll interval
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
 
     setExecuteProgress(0)
 
@@ -180,15 +207,20 @@ export function ImportWizard({
 
       // Check if async import (has jobId)
       if ('jobId' in response && response.jobId) {
-        // Poll for progress
-        const pollInterval = setInterval(async () => {
+        const jobId = response.jobId
+        // Poll for progress - store interval in ref for cleanup
+        pollIntervalRef.current = setInterval(async () => {
           try {
-            const job = await fetch(`/api/import/jobs/${response.jobId}`).then(r => r.json())
+            const job = await fetch(`/api/import/jobs/${jobId}`).then(r => r.json())
             if (job.progress !== undefined) {
               setExecuteProgress(job.progress)
             }
             if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
-              clearInterval(pollInterval)
+              // Clear interval on completion
+              if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current)
+                pollIntervalRef.current = null
+              }
               if (job.status === 'completed' && job.result) {
                 dispatch({ type: 'SET_RESULT', payload: job.result })
               } else if (job.status === 'failed') {
@@ -213,6 +245,11 @@ export function ImportWizard({
         dispatch({ type: 'SET_RESULT', payload: response as unknown as ImportResult })
       }
     } catch (error) {
+      // Clear interval on error
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
       setExecuteProgress(0)
       dispatch({
         type: 'SET_ERROR',

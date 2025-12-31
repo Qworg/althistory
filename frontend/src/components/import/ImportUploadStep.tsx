@@ -11,13 +11,37 @@ export interface ImportUploadStepProps {
   onUpload: (data: AlthistoryExport) => void
   onError: (message: string) => void
   isLoading?: boolean
+  /** Maximum file size in bytes (default: 10MB) */
+  maxFileSize?: number
 }
 
-export function ImportUploadStep({ onUpload, onError, isLoading = false }: ImportUploadStepProps) {
+// FIX #4: Default max file size (10MB) - should match backend
+const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+export function ImportUploadStep({ 
+  onUpload, 
+  onError, 
+  isLoading = false,
+  maxFileSize = DEFAULT_MAX_FILE_SIZE,
+}: ImportUploadStepProps) {
   const [jsonInput, setJsonInput] = useState('')
   const [dragActive, setDragActive] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // FIX #4: Validate file size before reading
+  const validateFileSize = useCallback(
+    (file: File): boolean => {
+      if (file.size > maxFileSize) {
+        const maxSizeMB = Math.round(maxFileSize / 1024 / 1024)
+        const fileSizeMB = (file.size / 1024 / 1024).toFixed(2)
+        onError(`File too large (${fileSizeMB}MB). Maximum size is ${maxSizeMB}MB.`)
+        return false
+      }
+      return true
+    },
+    [maxFileSize, onError]
+  )
 
   const parseAndValidate = useCallback(
     (content: string, source: string) => {
@@ -53,6 +77,15 @@ export function ImportUploadStep({ onUpload, onError, isLoading = false }: Impor
       const file = event.target.files?.[0]
       if (!file) return
 
+      // FIX #4: Validate file size before reading
+      if (!validateFileSize(file)) {
+        // Reset the input so user can try again
+        if (fileInputRef.current) {
+          fileInputRef.current.value = ''
+        }
+        return
+      }
+
       setFileName(file.name)
       const reader = new FileReader()
       reader.onload = (e) => {
@@ -64,7 +97,7 @@ export function ImportUploadStep({ onUpload, onError, isLoading = false }: Impor
       }
       reader.readAsText(file)
     },
-    [parseAndValidate, onError]
+    [parseAndValidate, onError, validateFileSize]
   )
 
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -91,6 +124,11 @@ export function ImportUploadStep({ onUpload, onError, isLoading = false }: Impor
         return
       }
 
+      // FIX #4: Validate file size before reading
+      if (!validateFileSize(file)) {
+        return
+      }
+
       setFileName(file.name)
       const reader = new FileReader()
       reader.onload = (ev) => {
@@ -102,7 +140,7 @@ export function ImportUploadStep({ onUpload, onError, isLoading = false }: Impor
       }
       reader.readAsText(file)
     },
-    [parseAndValidate, onError]
+    [parseAndValidate, onError, validateFileSize]
   )
 
   const handlePaste = useCallback(() => {

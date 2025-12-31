@@ -475,4 +475,177 @@ describe('Import API Routes', () => {
       );
     });
   });
+
+  // FIX #7: Authentication tests
+  describe('Authentication', () => {
+    let authApp: Express;
+    let authTestDataDir: string;
+
+    const createValidExportForAuth = (): AlthistoryExport => ({
+      version: '1.0',
+      metadata: {
+        graphId: 'test-graph-id',
+        graphName: 'Test Graph',
+        description: 'A test graph',
+        exportedAt: new Date().toISOString(),
+        sourceVersion: '1.0.0',
+        graphVersion: 1,
+        checksum: '',
+      },
+      data: {
+        events: [
+          {
+            id: 'event-1',
+            description: 'Test event',
+            actor: 'Actor A',
+            target: 'Target B',
+            timestamp: '2023-01-01T00:00:00Z',
+          },
+        ],
+        arcs: [],
+        causalRelationships: [],
+        inferredPressures: [],
+      },
+    });
+
+    beforeEach(async () => {
+      authTestDataDir = path.join(os.tmpdir(), `import-auth-test-${Date.now()}`);
+      await fs.mkdir(authTestDataDir, { recursive: true });
+      await fs.mkdir(path.join(authTestDataDir, 'graphs'), { recursive: true });
+
+      authApp = express();
+      authApp.use(express.json({ limit: '50mb' }));
+      
+      // Create router with authentication ENABLED
+      authApp.use('/api/import', createImportRouter({ 
+        dataDir: authTestDataDir, 
+        disableRateLimit: true,
+        disableAuth: false, // Auth is enabled
+        validateApiKey: async (apiKey: string) => {
+          // Simple test validator
+          if (apiKey === 'valid-test-api-key') {
+            return { valid: true, userId: 'test-user-123' };
+          }
+          if (apiKey === 'valid-key-no-user') {
+            return { valid: true };
+          }
+          return { valid: false };
+        },
+      }));
+
+      // Error handler
+      authApp.use((err: any, req: any, res: any, _next: any) => {
+        const status = err.statusCode || 500;
+        res.status(status).json({
+          error: err.message,
+          code: err.code,
+        });
+      });
+    });
+
+    afterEach(async () => {
+      try {
+        await fs.rm(authTestDataDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
+    });
+
+    it('should reject requests without API key', async () => {
+      const validExport = createValidExportForAuth();
+
+      const response = await request(authApp)
+        .post('/api/import/validate')
+        .send(validExport)
+        .expect(401);
+
+      expect(response.body.error).toBe('Unauthorized');
+      expect(response.body.message).toContain('API key required');
+    });
+
+    it('should reject requests with invalid API key', async () => {
+      const validExport = createValidExportForAuth();
+
+      const response = await request(authApp)
+        .post('/api/import/validate')
+        .set('X-API-Key', 'invalid-api-key')
+        .send(validExport)
+        .expect(401);
+
+      expect(response.body.error).toBe('Unauthorized');
+      expect(response.body.message).toContain('Invalid API key');
+    });
+
+    it('should accept requests with valid API key via X-API-Key header', async () => {
+      const validExport = createValidExportForAuth();
+
+      const response = await request(authApp)
+        .post('/api/import/validate')
+        .set('X-API-Key', 'valid-test-api-key')
+        .send(validExport)
+        .expect(200);
+
+      expect(response.body.valid).toBe(true);
+    });
+
+    it('should accept requests with valid API key via Authorization Bearer header', async () => {
+      const validExport = createValidExportForAuth();
+
+      const response = await request(authApp)
+        .post('/api/import/validate')
+        .set('Authorization', 'Bearer valid-test-api-key')
+        .send(validExport)
+        .expect(200);
+
+      expect(response.body.valid).toBe(true);
+    });
+
+    it('should work with valid key that has no userId', async () => {
+      const validExport = createValidExportForAuth();
+
+      const response = await request(authApp)
+        .post('/api/import/validate')
+        .set('X-API-Key', 'valid-key-no-user')
+        .send(validExport)
+        .expect(200);
+
+      expect(response.body.valid).toBe(true);
+    });
+
+    it('should require auth on all import endpoints', async () => {
+      // Test /validate
+      await request(authApp)
+        .post('/api/import/validate')
+        .send({})
+        .expect(401);
+
+      // Test /preview
+      await request(authApp)
+        .post('/api/import/preview')
+        .send({})
+        .expect(401);
+
+      // Test / (execute)
+      await request(authApp)
+        .post('/api/import')
+        .send({})
+        .expect(401);
+
+      // Test /validate-incremental
+      await request(authApp)
+        .post('/api/import/validate-incremental')
+        .send({})
+        .expect(401);
+
+      // Test /jobs/:jobId
+      await request(authApp)
+        .get('/api/import/jobs/some-job-id')
+        .expect(401);
+
+      // Test /jobs/:jobId/cancel
+      await request(authApp)
+        .post('/api/import/jobs/some-job-id/cancel')
+        .expect(401);
+    });
+  });
 });

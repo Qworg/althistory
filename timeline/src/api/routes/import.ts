@@ -46,14 +46,50 @@ const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute per IP
 
-// FIX #4: Concurrent import protection with atomic locking using mutex pattern
-const activeImports = new Map<string, { startedAt: number; jobId?: string }>();
+// Concurrent import protection with atomic locking using mutex pattern
+// FIX: Added callback support for async job completion
+interface ImportLockInfo {
+  startedAt: number;
+  jobId?: string;
+  onComplete?: () => void;
+}
+const activeImports = new Map<string, ImportLockInfo>();
 const importLock = new Map<string, Promise<void>>();
 
+// FIX #6: Distributed lock interface for multi-instance deployments
+export interface DistributedLockProvider {
+  acquire(key: string, ttlMs: number): Promise<boolean>;
+  release(key: string): Promise<void>;
+  extend(key: string, ttlMs: number): Promise<boolean>;
+}
+
+let distributedLockProvider: DistributedLockProvider | null = null;
+
 /**
- * FIX #4: Atomic lock acquisition for concurrent import protection
+ * Set a distributed lock provider for multi-instance deployments
+ */
+export function setDistributedLockProvider(provider: DistributedLockProvider): void {
+  distributedLockProvider = provider;
+}
+
+/**
+ * Atomic lock acquisition for concurrent import protection
+ * Supports both local and distributed locking
  */
 async function acquireImportLock(graphId: string): Promise<boolean> {
+  const lockKey = `import:${graphId}`;
+  const ttlMs = 60 * 60 * 1000; // 1 hour TTL
+
+  // FIX #6: Use distributed lock if provider is set
+  if (distributedLockProvider) {
+    const acquired = await distributedLockProvider.acquire(lockKey, ttlMs);
+    if (acquired) {
+      activeImports.set(graphId, { startedAt: Date.now() });
+    }
+    return acquired;
+  }
+
+  // Local locking fallback
   // Wait for any pending lock operations
   const existingLock = importLock.get(graphId);
   if (existingLock) {
@@ -85,12 +121,42 @@ async function acquireImportLock(graphId: string): Promise<boolean> {
 /**
  * Release import lock
  */
-function releaseImportLock(graphId: string): void {
+async function releaseImportLock(graphId: string): Promise<void> {
+  const lockInfo = activeImports.get(graphId);
+  
+  // FIX #1: Call completion callback if registered
+  if (lockInfo?.onComplete) {
+    try {
+      lockInfo.onComplete();
+    } catch (error) {
+      logger.warn('Error in lock completion callback', { graphId, error });
+    }
+  }
+
   activeImports.delete(graphId);
+
+  // FIX #6: Release distributed lock if provider is set
+  if (distributedLockProvider) {
+    try {
+      await distributedLockProvider.release(`import:${graphId}`);
+    } catch (error) {
+      logger.warn('Failed to release distributed lock', { graphId, error });
+    }
+  }
 }
 
 /**
- * FIX #3: Clean up stale locks (called periodically)
+ * FIX #1: Register a callback for when an async import completes
+ */
+function registerLockCompletionCallback(graphId: string, callback: () => void): void {
+  const lockInfo = activeImports.get(graphId);
+  if (lockInfo) {
+    lockInfo.onComplete = callback;
+  }
+}
+
+/**
+ * Clean up stale locks (called periodically)
  */
 function cleanupStaleLocks(): void {
   const staleThresholdMs = 60 * 60 * 1000; // 1 hour
@@ -98,7 +164,7 @@ function cleanupStaleLocks(): void {
   for (const [graphId, info] of activeImports) {
     if (now - info.startedAt > staleThresholdMs) {
       logger.warn('Cleaning up stale import lock', { graphId, startedAt: info.startedAt });
-      activeImports.delete(graphId);
+      releaseImportLock(graphId);
     }
   }
 }
@@ -411,15 +477,38 @@ export function createImportRouter(config: ImportRouterConfig): Router {
 
         const { jobId } = await importService.executeImportAsync(data as AlthistoryExport, options);
         
-        // FIX #3: Update lock with jobId for tracking
+        // FIX #1: Register callback to release lock when async job completes
         if (targetGraphId) {
           const lockInfo = activeImports.get(targetGraphId);
           if (lockInfo) {
             lockInfo.jobId = jobId;
           }
+          // Register completion callback that will be called when job finishes
+          registerLockCompletionCallback(targetGraphId, () => {
+            logger.info('Async import completed, lock released', { graphId: targetGraphId, jobId });
+          });
+          
+          // Set up polling to check when job completes and release lock
+          const pollForCompletion = async () => {
+            try {
+              const job = await importService.getImportJob(jobId);
+              if (job && (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled')) {
+                await releaseImportLock(targetGraphId);
+              } else if (job && job.status === 'processing') {
+                // Still processing, check again in 1 second
+                setTimeout(pollForCompletion, 1000);
+              }
+            } catch (error) {
+              logger.warn('Error polling for job completion', { jobId, error });
+              // Release lock on error to prevent deadlock
+              await releaseImportLock(targetGraphId);
+            }
+          };
+          // Start polling after a short delay
+          setTimeout(pollForCompletion, 500);
         }
         
-        // FIX B#49: Consistent async response shape
+        // Consistent async response shape
         res.status(202).json({ 
           success: true,
           async: true,
@@ -427,8 +516,7 @@ export function createImportRouter(config: ImportRouterConfig): Router {
           message: 'Import started. Poll /api/import/jobs/:jobId for status.',
         });
         
-        // FIX #3: Don't release lock here - will be released when job completes
-        // But we need to clear from request so finally block doesn't release it
+        // Don't release lock here - polling will handle it when job completes
         extReq.importLockGraphId = undefined;
       } else {
         logger.info('Executing sync import', {

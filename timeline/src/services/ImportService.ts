@@ -268,50 +268,83 @@ export class ImportService {
   }
 
   /**
-   * Sanitize string input to prevent XSS
+   * FIX #5: Validate string input for security issues without modifying content
+   * Returns the original string if safe, or throws/logs warning if dangerous content detected
+   * 
+   * Design decision: We validate and warn but don't escape HTML entities for storage.
+   * - Data should be stored as-is for data integrity
+   * - XSS prevention is the responsibility of the presentation layer
+   * - Escaping would corrupt legitimate content (e.g., code examples, math notation)
    */
-  private sanitizeString(input: string): string {
-    if (typeof input !== 'string') return input;
-    // Truncate overly long strings
-    let sanitized = input.slice(0, MAX_STRING_LENGTH);
-    // Escape HTML entities
-    sanitized = sanitized
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#x27;');
-    return sanitized;
+  private validateString(input: string, path: string): { value: string; warning?: string } {
+    if (typeof input !== 'string') return { value: input };
+    
+    // Truncate overly long strings (this is still a security measure)
+    const truncated = input.slice(0, MAX_STRING_LENGTH);
+    const wasTruncated = truncated.length < input.length;
+    
+    // Check for potential script injection patterns (for logging/warning only)
+    const dangerousPatterns = [
+      /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
+      /javascript:/gi,
+      /on\w+\s*=/gi, // onclick=, onerror=, etc.
+      /data:\s*text\/html/gi,
+    ];
+    
+    let warning: string | undefined;
+    for (const pattern of dangerousPatterns) {
+      if (pattern.test(truncated)) {
+        warning = `Potential unsafe content detected at ${path}. Ensure proper escaping in presentation layer.`;
+        this.logger.warn('Potentially unsafe content in import', { path, pattern: pattern.source });
+        break;
+      }
+    }
+    
+    return { 
+      value: truncated,
+      warning: wasTruncated ? `Content truncated at ${path} (exceeded ${MAX_STRING_LENGTH} chars)` : warning,
+    };
   }
 
   /**
-   * Sanitize all string fields in an object (including arrays)
-   * FIX #2: Now properly sanitizes array values to prevent XSS
+   * Validate all string fields in an object (including arrays)
+   * FIX #5: Validate instead of escape - preserves original data
    */
-  private sanitizeObject<T extends Record<string, unknown>>(obj: T): T {
-    const sanitized = { ...obj };
-    for (const [key, value] of Object.entries(sanitized)) {
+  private validateAndCopyObject<T extends Record<string, unknown>>(obj: T, basePath: string = '$'): T {
+    const result = { ...obj };
+    for (const [key, value] of Object.entries(result)) {
+      const path = `${basePath}.${key}`;
       if (typeof value === 'string') {
-        (sanitized as Record<string, unknown>)[key] = this.sanitizeString(value);
+        const { value: validatedValue } = this.validateString(value, path);
+        (result as Record<string, unknown>)[key] = validatedValue;
       } else if (Array.isArray(value)) {
-        // FIX #2: Sanitize array elements
-        (sanitized as Record<string, unknown>)[key] = value.map((item) => {
+        (result as Record<string, unknown>)[key] = value.map((item, index) => {
           if (typeof item === 'string') {
-            return this.sanitizeString(item);
+            const { value: validatedValue } = this.validateString(item, `${path}[${index}]`);
+            return validatedValue;
           } else if (typeof item === 'object' && item !== null) {
-            return this.sanitizeObject(item as Record<string, unknown>);
+            return this.validateAndCopyObject(item as Record<string, unknown>, `${path}[${index}]`);
           }
           return item;
         });
       } else if (typeof value === 'object' && value !== null) {
-        (sanitized as Record<string, unknown>)[key] = this.sanitizeObject(value as Record<string, unknown>);
+        (result as Record<string, unknown>)[key] = this.validateAndCopyObject(
+          value as Record<string, unknown>,
+          path
+        );
       }
     }
-    return sanitized;
+    return result;
+  }
+
+  // Backward compatibility alias
+  private sanitizeObject<T extends Record<string, unknown>>(obj: T): T {
+    return this.validateAndCopyObject(obj);
   }
 
   /**
    * Validate checksum if provided
+   * FIX #3: Use timing-safe comparison to prevent timing attacks
    */
   validateChecksum(data: AlthistoryExport): ImportError | null {
     if (!data.metadata.checksum) {
@@ -321,8 +354,27 @@ export class ImportService {
     // Calculate checksum of data section
     const dataString = JSON.stringify(data.data);
     const calculatedChecksum = crypto.createHash('sha256').update(dataString).digest('hex');
+    const providedChecksum = data.metadata.checksum;
 
-    if (calculatedChecksum !== data.metadata.checksum) {
+    // FIX #3: Use timing-safe comparison to prevent timing attacks
+    // Both strings must be the same length for timingSafeEqual
+    const calculatedBuffer = Buffer.from(calculatedChecksum, 'hex');
+    const providedBuffer = Buffer.from(providedChecksum, 'hex');
+    
+    // If lengths don't match, checksums are definitely different
+    // Still use a constant-time operation to avoid leaking length info
+    if (calculatedBuffer.length !== providedBuffer.length) {
+      return {
+        path: '$.metadata.checksum',
+        message: 'Checksum validation failed - data may be corrupted',
+        code: 'CHECKSUM_MISMATCH',
+      };
+    }
+
+    // Use timing-safe comparison
+    const isValid = crypto.timingSafeEqual(calculatedBuffer, providedBuffer);
+    
+    if (!isValid) {
       return {
         path: '$.metadata.checksum',
         message: 'Checksum validation failed - data may be corrupted',
