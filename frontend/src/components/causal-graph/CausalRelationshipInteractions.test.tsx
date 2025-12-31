@@ -17,7 +17,7 @@ import {
 // Mock dependencies
 vi.mock('@/services/api')
 
-// Mock the global store with getState support
+// Mock the global store with getState support and selector support
 vi.mock('@/stores/globalStore', () => {
   const mockState = {
     events: [],
@@ -38,7 +38,13 @@ vi.mock('@/stores/globalStore', () => {
     addError: vi.fn()
   }
 
-  const mockFn = vi.fn(() => mockState)
+  // Support both selector and no-selector usage
+  const mockFn = vi.fn((selector?: (state: typeof mockState) => unknown) => {
+    if (typeof selector === 'function') {
+      return selector(mockState)
+    }
+    return mockState
+  })
   ;(mockFn as any).getState = () => mockState
   ;(mockFn as any)._mockState = mockState
 

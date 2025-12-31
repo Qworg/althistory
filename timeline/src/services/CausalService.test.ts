@@ -8,6 +8,16 @@ import { getDatabaseManager } from '@/utils/database';
 // Mock the database manager
 vi.mock('@/utils/database');
 
+// Mock the config to use cloud mode (Neo4j) for these tests
+vi.mock('@/utils/config', () => ({
+  loadConfig: vi.fn(() => ({
+    localExecution: {
+      enabled: false,
+      dataDirectory: './data'
+    }
+  }))
+}));
+
 // Mock the cache manager
 vi.mock('@/utils/cache', () => ({
   getCacheManager: vi.fn(() => ({

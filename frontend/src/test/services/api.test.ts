@@ -236,7 +236,7 @@ describe('APIClient', () => {
 
       const result = await apiClient.causal.getRelationships()
 
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/causal-relationships', {
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/causal/relationships', {
         params: undefined
       })
       expect(result).toEqual(mockRelationships)
@@ -248,7 +248,7 @@ describe('APIClient', () => {
 
       const result = await apiClient.causal.getRelationships('event1')
 
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/causal-relationships', {
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/causal/relationships', {
         params: { event_id: 'event1' }
       })
       expect(result).toEqual(mockRelationships)
@@ -261,16 +261,40 @@ describe('APIClient', () => {
         confidence: 0.9,
         relationship_type: 'direct' as const,
       }
-      mockAxiosInstance.post.mockResolvedValue({ data: { success: true, data: mockRelationship } })
+      // Mock the response from the backend format
+      mockAxiosInstance.post.mockResolvedValue({ 
+        data: { 
+          success: true, 
+          data: { 
+            cause: { id: 'event1' }, 
+            effect: { id: 'event2' }, 
+            relationship: {
+              strength: 0.8,
+              evidence: 'Test evidence',
+              confidence: 0.9,
+              type: 'direct',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            }
+          } 
+        } 
+      })
 
       const result = await apiClient.causal.createLink('event1', 'event2', relationshipData)
 
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/causal-relationships', {
-        cause_event_id: 'event1',
-        effect_event_id: 'event2',
-        ...relationshipData
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/causal/link', {
+        causeEventId: 'event1',
+        effectEventId: 'event2',
+        relationship: {
+          type: 'direct',
+          strength: 0.8,
+          confidence: 0.9,
+          evidence: 'Test evidence'
+        }
       })
-      expect(result).toEqual(mockRelationship)
+      expect(result.cause_event_id).toBe('event1')
+      expect(result.effect_event_id).toBe('event2')
+      expect(result.weight).toBe(0.8)
     })
 
     it('should find causal chain', async () => {
@@ -284,8 +308,9 @@ describe('APIClient', () => {
 
       const result = await apiClient.causal.findChain('event1', 3)
 
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/causal-relationships/chain', {
-        params: { start_event_id: 'event1', max_depth: 3 }
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/causal/chain/event1', {
+        params: { max_depth: 3 },
+        signal: undefined
       })
       expect(result).toEqual(mockChain)
     })
@@ -303,8 +328,9 @@ describe('APIClient', () => {
 
       const result = await apiClient.causal.getSuggestions('event1')
 
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/causal-relationships/suggestions', {
-        params: { event_id: 'event1' }
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/causal/suggestions', {
+        params: { event_id: 'event1' },
+        signal: undefined
       })
       expect(result).toEqual(mockSuggestions)
     })

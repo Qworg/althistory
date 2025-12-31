@@ -331,7 +331,8 @@ describe('CausalGraphComponent', () => {
             id: '1',
             event: mockEvents[0]
           }),
-          addClass: vi.fn()
+          addClass: vi.fn(),
+          renderedPosition: vi.fn(() => ({ x: 100, y: 100 }))
         }
       }
       handlers[0]!(mockEvent)

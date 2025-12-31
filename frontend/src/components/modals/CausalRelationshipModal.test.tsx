@@ -237,7 +237,7 @@ describe('CausalRelationshipModal', () => {
     await user.click(saveButton)
     
     await waitFor(() => {
-      expect(apiClient.causal.updateLink).toHaveBeenCalledWith('rel1', {
+      expect(apiClient.causal.updateLink).toHaveBeenCalledWith('event1', 'event2', {
         weight: 0.6,
         evidence: 'Strong evidence for this relationship',
         confidence: 0.9,
@@ -342,7 +342,7 @@ describe('CausalRelationshipModal', () => {
     await user.click(deleteButton)
     
     await waitFor(() => {
-      expect(apiClient.causal.deleteLink).toHaveBeenCalledWith('rel1')
+      expect(apiClient.causal.deleteLink).toHaveBeenCalledWith('event1', 'event2')
     })
     
     expect(mockGlobalStore.deleteCausalRelationship).toHaveBeenCalledWith('rel1')

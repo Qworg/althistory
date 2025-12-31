@@ -112,6 +112,7 @@ function wrapAsElement(item: any, mockData?: any): any {
     select: selectFn,
     unselect: unselectFn,
     renderedMidpoint: () => ({ x: 100, y: 100 }),
+    renderedPosition: () => ({ x: 100, y: 100 }),
     source: () => {
       // Return the source node for edges
       const sourceId = item.data?.source
@@ -186,6 +187,7 @@ export function createMockCollection(items: any[] = [], mockData?: any): MockCol
     }),
     id: vi.fn(() => items[0]?.data?.id || ''),
     renderedMidpoint: vi.fn(() => ({ x: 100, y: 100 })),
+    renderedPosition: vi.fn(() => ({ x: 100, y: 100 })),
     source: vi.fn(() => {
       // Return source node for edge collections (single edge)
       if (items.length === 1 && items[0]?.data?.source && mockData?.nodes) {
@@ -480,6 +482,7 @@ export function createMockNodeEvent(nodeData: any) {
       select: vi.fn(),
       unselect: vi.fn(),
       position: vi.fn(() => ({ x: 0, y: 0 })),
+      renderedPosition: vi.fn(() => ({ x: 100, y: 100 })),
       id: vi.fn(() => nodeData.id)
     }
   }
