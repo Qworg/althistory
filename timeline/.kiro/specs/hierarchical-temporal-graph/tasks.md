@@ -179,14 +179,14 @@
     - Write API integration tests for all Event endpoints with error scenarios
     - _Requirements: 1.1, 1.2, 1.3, 1.4_
 
-  - [ ] 8.2 Implement Arc API endpoints
+  - [x] 8.2 Implement Arc API endpoints
     - Create POST /arcs endpoint with temporal boundary validation
     - Implement GET /arcs with hierarchy and overlap queries
     - Add POST /arcs/:id/events endpoint for event assignment to arcs
     - Write API integration tests for Arc operations and constraint violations
     - _Requirements: 2.1, 2.2, 2.3, 2.4_
 
-  - [ ] 8.3 Implement Causal relationship API endpoints
+  - [x] 8.3 Implement Causal relationship API endpoints
     - Create POST /events/:id/causes endpoint for causal link creation
     - Implement GET /events/:id/causal-chain with depth parameter
     - Add validation middleware for causal relationship constraints

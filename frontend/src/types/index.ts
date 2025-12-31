@@ -239,6 +239,169 @@ export interface SessionData {
   }
 }
 
+// Graph Management Types
+export type GraphStatus = 'active' | 'archived' | 'deleted'
+
+export interface GraphMetadata {
+  eventCount: number
+  arcCount: number
+  relationshipCount: number
+  pressureCount: number
+  timeRange?: {
+    start: string
+    end: string
+  }
+  tags?: string[]
+}
+
+export interface Graph {
+  id: string
+  name: string
+  description?: string
+  status: GraphStatus
+  version: number
+  createdAt: string
+  updatedAt: string
+  metadata: GraphMetadata
+  parentGraphId?: string
+  branchName?: string
+}
+
+export interface GraphVersion {
+  version: number
+  commitHash: string
+  timestamp: string
+  message: string
+  author?: string
+  changes: {
+    eventsAdded: number
+    eventsModified: number
+    eventsDeleted: number
+    arcsAdded: number
+    arcsModified: number
+    arcsDeleted: number
+    relationshipsAdded: number
+    relationshipsModified: number
+    relationshipsDeleted: number
+  }
+}
+
+export interface CreateGraphRequest {
+  name: string
+  description?: string
+  tags?: string[]
+}
+
+export interface UpdateGraphRequest {
+  name?: string
+  description?: string
+  tags?: string[]
+  status?: GraphStatus
+}
+
+export interface BranchGraphRequest {
+  branchName: string
+  version?: number
+}
+
+export interface MergeGraphRequest {
+  sourceBranchId: string
+  strategy: 'ours' | 'theirs' | 'manual'
+  message?: string
+}
+
+// Export Types
+export type ExportJobStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
+
+export interface ExportFilters {
+  timeRange?: { start: string; end: string }
+  actors?: string[]
+  targets?: string[]
+  arcIds?: string[]
+  eventIds?: string[]
+}
+
+export interface ExportJob {
+  id: string
+  type: 'export'
+  status: ExportJobStatus
+  progress: number
+  createdAt: string
+  startedAt?: string
+  completedAt?: string
+  result?: {
+    outputPath?: string
+    summary?: Record<string, unknown>
+    errors?: string[]
+    warnings?: string[]
+  }
+  error?: string
+}
+
+export interface CreateExportJobRequest {
+  graphId: string
+  scope: 'full' | 'filtered'
+  filters?: ExportFilters
+  includeProvenance?: boolean
+  webhook?: string
+}
+
+export interface AlthistoryExport {
+  version: '1.0'
+  metadata: {
+    graphId: string
+    graphName: string
+    description?: string
+    exportedAt: string
+    sourceVersion: string
+    graphVersion: number
+    checksum: string
+    filters?: ExportFilters
+  }
+  data: {
+    events: Array<{
+      id: string
+      description: string
+      actor: string
+      target: string
+      timestamp: string
+      metadata?: Record<string, unknown>
+    }>
+    arcs: Array<{
+      id: string
+      name: string
+      description: string
+      start_time: string
+      end_time: string
+      level: number
+      parent_arc_id: string | null
+    }>
+    causalRelationships: Array<{
+      id: string
+      cause_event_id: string
+      effect_event_id: string
+      weight: number
+      evidence: string
+      confidence: number
+      relationship_type: 'direct' | 'indirect' | 'contributory'
+    }>
+    inferredPressures: Array<{
+      id: string
+      description: string
+      confidence_score: number
+      pressure_type: 'economic' | 'social' | 'environmental' | 'political'
+      evidence_event_ids: string[]
+      affected_arc_ids: string[]
+    }>
+  }
+}
+
+export interface ExportValidationResult {
+  valid: boolean
+  errors: string[]
+  warnings: string[]
+}
+
 // Extended types for UI state management
 export interface UIState {
   sidebarCollapsed: boolean

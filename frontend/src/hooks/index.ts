@@ -10,6 +10,10 @@ export { useDebounce } from './useDebounce'
 export { useTimelineScales } from './useTimelineScales'
 export { useTimelineEventHandlers } from './useTimelineEventHandlers'
 
+// Export graph management hooks
+export * from './useGraphs'
+export * from './useExport'
+
 // Export default exports
 export { default as useCausalPathExploration } from './useCausalPathExploration'
 export { default as useCausalSuggestions } from './useCausalSuggestions'

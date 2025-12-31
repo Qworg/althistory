@@ -4,6 +4,8 @@ import { arcRoutes } from './routes/arcs';
 import { causalRoutes } from './routes/causal';
 import { temporalRoutes } from './routes/temporal';
 import { inferenceRoutes } from './routes/inference';
+import { graphRoutes } from './routes/graphs';
+import { exportRoutes } from './routes/export';
 
 /**
  * Main API router
@@ -19,6 +21,8 @@ apiRouter.get('/', (req, res) => {
     endpoints: {
       info: '/api/info',
       health: '/api/health',
+      graphs: '/api/graphs',
+      export: '/api/export',
       events: '/api/events',
       arcs: '/api/arcs',
       causal: '/api/causal',
@@ -28,6 +32,12 @@ apiRouter.get('/', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+// Graph management API endpoints
+apiRouter.use('/graphs', graphRoutes);
+
+// Export/Import API endpoints
+apiRouter.use('/export', exportRoutes);
 
 // Event API endpoints
 apiRouter.use('/events', eventRoutes);
@@ -60,6 +70,8 @@ apiRouter.get('/info', (req, res) => {
     version: '1.0.0',
     description: 'API for capturing and analyzing historical events across multiple temporal scales',
     endpoints: {
+      graphs: '/api/graphs - Multi-graph management',
+      export: '/api/export - Export graphs and manage export jobs',
       events: '/api/events - CRUD operations for historical events',
       arcs: '/api/arcs - CRUD operations for historical arcs/periods',
       causal: '/api/causal - Causal relationship analysis and management',
@@ -67,6 +79,8 @@ apiRouter.get('/info', (req, res) => {
       inference: '/api/inference - Pattern detection and graph analysis'
     },
     features: {
+      graphs: ['Create', 'Read', 'Update', 'Delete', 'Branch', 'Merge', 'Version history', 'Rollback'],
+      export: ['Async export jobs', 'Sync export', 'Filtered export', 'Download', 'Validate'],
       events: ['Create', 'Read', 'Update', 'Delete', 'Filter by time/actor/target', 'Statistics'],
       arcs: ['Create', 'Read', 'Update', 'Delete', 'Hierarchy validation', 'Child relationships'],
       causal: ['Create links', 'Find chains', 'Detect cycles', 'Get suggestions', 'Validate relationships'],

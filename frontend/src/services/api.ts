@@ -18,7 +18,18 @@ import {
   Pattern,
   CopyResult,
   EntityFilter,
-  TimeRange
+  TimeRange,
+  Graph,
+  GraphVersion,
+  CreateGraphRequest,
+  UpdateGraphRequest,
+  BranchGraphRequest,
+  MergeGraphRequest,
+  ExportJob,
+  CreateExportJobRequest,
+  AlthistoryExport,
+  ExportValidationResult,
+  GraphStatus
 } from '@/types'
 
 // API client configuration
@@ -420,6 +431,197 @@ class APIClient {
         getCopyStatus: async (copyId: string): Promise<CopyResult> => {
             try {
                 const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.get(`/graph/copy/${copyId}`)
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+    }
+
+    // Graph Management operations
+    graphs = {
+        getAll: async (options?: { status?: GraphStatus; limit?: number; offset?: number }): Promise<{ graphs: Graph[]; total: number }> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: Graph[]; pagination: { total: number } }> = 
+                    await this.client.get('/graphs', { params: options })
+                return { graphs: response.data.data, total: response.data.pagination?.total || response.data.data.length }
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        getById: async (id: string): Promise<Graph> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: Graph }> = await this.client.get(`/graphs/${id}`)
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        create: async (data: CreateGraphRequest): Promise<Graph> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: Graph }> = await this.client.post('/graphs', data)
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        update: async (id: string, data: UpdateGraphRequest): Promise<Graph> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: Graph }> = await this.client.put(`/graphs/${id}`, data)
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        delete: async (id: string): Promise<void> => {
+            try {
+                await this.client.delete(`/graphs/${id}`)
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        // Branching
+        branch: async (id: string, data: BranchGraphRequest): Promise<Graph> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: Graph }> = 
+                    await this.client.post(`/graphs/${id}/branch`, data)
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        getBranches: async (id: string): Promise<Graph[]> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: Graph[] }> = 
+                    await this.client.get(`/graphs/${id}/branches`)
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        merge: async (id: string, data: MergeGraphRequest): Promise<Graph> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: Graph }> = 
+                    await this.client.post(`/graphs/${id}/merge`, data)
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        // Version history
+        getVersions: async (id: string, limit?: number): Promise<GraphVersion[]> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: GraphVersion[] }> = 
+                    await this.client.get(`/graphs/${id}/versions`, { params: { limit } })
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        rollback: async (id: string, version: number): Promise<Graph> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: Graph }> = 
+                    await this.client.post(`/graphs/${id}/rollback`, { version })
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        // Switch active graph
+        switch: async (id: string): Promise<void> => {
+            // Store current graph ID in local storage for the app to use
+            localStorage.setItem('active_graph_id', id)
+            // Emit event for components to react to
+            window.dispatchEvent(new CustomEvent('graph-switched', { detail: { graphId: id } }))
+        },
+    }
+
+    // Export operations
+    export = {
+        createJob: async (data: CreateExportJobRequest): Promise<{ jobId: string; estimatedSize?: number; estimatedTime?: number }> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: { jobId: string; estimatedSize?: number; estimatedTime?: number } }> = 
+                    await this.client.post('/export/jobs', data)
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        getJobs: async (options?: { status?: string; limit?: number; offset?: number }): Promise<ExportJob[]> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: ExportJob[] }> = 
+                    await this.client.get('/export/jobs', { params: options })
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        getJob: async (jobId: string): Promise<ExportJob> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: ExportJob }> = 
+                    await this.client.get(`/export/jobs/${jobId}`)
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        cancelJob: async (jobId: string): Promise<void> => {
+            try {
+                await this.client.delete(`/export/jobs/${jobId}`)
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        downloadJob: async (jobId: string): Promise<Blob> => {
+            try {
+                const response = await this.client.get(`/export/jobs/${jobId}/download`, {
+                    responseType: 'blob'
+                })
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        // Sync export for small graphs
+        exportSync: async (data: CreateExportJobRequest): Promise<{ export: AlthistoryExport; size: number }> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: AlthistoryExport; size: number }> = 
+                    await this.client.post('/export/sync', data)
+                return { export: response.data.data, size: response.data.size }
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        validate: async (exportData: AlthistoryExport): Promise<ExportValidationResult> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: ExportValidationResult }> = 
+                    await this.client.post('/export/validate', exportData)
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        getStats: async (): Promise<{ export: { total: number; pending: number; processing: number; completed: number; failed: number } }> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: { export: { total: number; pending: number; processing: number; completed: number; failed: number } } }> = 
+                    await this.client.get('/export/stats')
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
