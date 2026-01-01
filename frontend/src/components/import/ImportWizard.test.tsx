@@ -192,8 +192,8 @@ describe('ImportWizard', () => {
     it('should render close button', () => {
       renderComponent()
       
-      // Close button should be in the header
-      const closeButton = screen.getByRole('button', { name: '' }) // SVG close icon
+      // Close button should be in the header with aria-label
+      const closeButton = screen.getByRole('button', { name: /close import wizard/i })
       expect(closeButton).toBeInTheDocument()
     })
 

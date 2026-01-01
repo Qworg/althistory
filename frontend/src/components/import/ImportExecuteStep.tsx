@@ -15,6 +15,10 @@ export interface ImportExecuteStepProps {
   onExecute: () => void
   onBack: () => void
   onComplete: () => void
+  /** FIX #17: Optional cancel handler for async imports */
+  onCancel?: () => void
+  /** FIX #17: Whether cancellation is in progress */
+  isCancelling?: boolean
 }
 
 function CountSummary({ title, counts }: { title: string; counts: EntityCounts }) {
@@ -58,6 +62,8 @@ export function ImportExecuteStep({
   onExecute,
   onBack,
   onComplete,
+  onCancel,
+  isCancelling = false,
 }: ImportExecuteStepProps) {
   const hasStarted = isExecuting || result !== null || error !== null
   const isSuccess = result?.success === true
@@ -83,19 +89,51 @@ export function ImportExecuteStep({
       {/* Progress Bar (during execution) */}
       {isExecuting && (
         <div className="space-y-2">
-          <div className="flex justify-between text-sm text-gray-600">
-            <span>Progress</span>
-            <span>{progress}%</span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-3">
-            <div
-              className="bg-blue-500 h-3 rounded-full transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <p className="text-sm text-gray-500 text-center">
-            Processing entities...
-          </p>
+          {/* FIX #8: Handle indeterminate progress (-1) for sync imports */}
+          {progress === -1 ? (
+            <>
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>Processing...</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden" role="progressbar" aria-label="Import in progress">
+                <div
+                  className="bg-blue-500 h-3 rounded-full animate-pulse"
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <p className="text-sm text-gray-500 text-center">
+                Importing data...
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>Progress</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+                <div
+                  className="bg-blue-500 h-3 rounded-full transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <p className="text-sm text-gray-500 text-center">
+                {isCancelling ? 'Cancelling import...' : 'Processing entities...'}
+              </p>
+              {/* FIX #17: Cancel button for async imports */}
+              {onCancel && !isCancelling && (
+                <div className="flex justify-center mt-2">
+                  <button
+                    type="button"
+                    onClick={onCancel}
+                    className="inline-flex items-center px-3 py-1 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  >
+                    Cancel Import
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 

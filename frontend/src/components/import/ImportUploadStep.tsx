@@ -15,14 +15,18 @@ export interface ImportUploadStepProps {
   maxFileSize?: number
 }
 
-// FIX #4: Default max file size (10MB) - should match backend
-const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
+/**
+ * Default max file size (10MB) 
+ * FIX #14: This MUST match MAX_IMPORT_SIZE_BYTES in timeline/src/services/ImportService.ts
+ * and validateContentLength() in timeline/src/api/routes/import.ts
+ */
+export const MAX_IMPORT_FILE_SIZE = 10 * 1024 * 1024;
 
 export function ImportUploadStep({ 
   onUpload, 
   onError, 
   isLoading = false,
-  maxFileSize = DEFAULT_MAX_FILE_SIZE,
+  maxFileSize = MAX_IMPORT_FILE_SIZE,
 }: ImportUploadStepProps) {
   const [jsonInput, setJsonInput] = useState('')
   const [dragActive, setDragActive] = useState(false)

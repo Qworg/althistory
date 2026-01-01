@@ -22,6 +22,7 @@ import {
   ConflictResolution,
   ImportOptions,
   ImportJob,
+  MAX_IMPORT_SIZE_BYTES,
 } from '../../services/ImportService';
 import { AlthistoryExport } from '../../services/ExportService';
 import { ValidationError } from '../../utils/errors';
@@ -39,12 +40,49 @@ export interface ImportRouterConfig {
   disableAuth?: boolean;
   /** API key validator function */
   validateApiKey?: (apiKey: string) => Promise<{ valid: boolean; userId?: string }>;
+  /** FIX #6: CSRF token validator function (optional) */
+  validateCsrfToken?: (token: string, sessionId: string) => Promise<boolean>;
+  /** FIX #6: Disable CSRF validation (for testing or API-only use) */
+  disableCsrf?: boolean;
+  /** FIX B#53: Enable idempotency key support (disabled by default) */
+  enableIdempotency?: boolean;
+  /** FIX B#53: TTL for idempotency keys in ms (default: 24 hours) */
+  idempotencyTtlMs?: number;
 }
 
 // Rate limiting: track requests per IP
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute per IP
+
+// FIX B#53: Idempotency key storage
+interface IdempotencyEntry {
+  response: {
+    status: number;
+    body: unknown;
+  };
+  createdAt: number;
+  inProgress?: boolean;
+}
+const idempotencyMap = new Map<string, IdempotencyEntry>();
+const DEFAULT_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// FIX #8: Cleanup expired rate limit entries to prevent memory leak
+function cleanupExpiredRateLimits(): void {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitMap) {
+    if (now > entry.resetTime) {
+      rateLimitMap.delete(ip);
+    }
+  }
+}
+
+// Run rate limit cleanup every 5 minutes
+const rateLimitCleanupInterval = setInterval(cleanupExpiredRateLimits, 5 * 60 * 1000);
+// Ensure the interval doesn't prevent process exit
+if (rateLimitCleanupInterval.unref) {
+  rateLimitCleanupInterval.unref();
+}
 
 // Concurrent import protection with atomic locking using mutex pattern
 // FIX: Added callback support for async job completion
@@ -54,7 +92,51 @@ interface ImportLockInfo {
   onComplete?: () => void;
 }
 const activeImports = new Map<string, ImportLockInfo>();
-const importLock = new Map<string, Promise<void>>();
+// FIX #10: Use a proper mutex for lock acquisition to prevent race conditions
+const lockMutex = new Map<string, Promise<boolean>>();
+
+// FIX A#15: Cleanup stale mutex entries that might leak
+// Mutex entries are cleaned up synchronously before resolution (see acquireImportLock)
+// but we add a periodic cleanup as a safety net for edge cases
+function cleanupStaleMutexEntries(): void {
+  // If a mutex entry exists but the corresponding activeImports entry doesn't,
+  // it's likely a leaked entry that should be cleaned up
+  for (const graphId of lockMutex.keys()) {
+    if (!activeImports.has(graphId)) {
+      // This entry is orphaned - the lock was never acquired or was released
+      // but the mutex wasn't cleaned up. This shouldn't happen normally
+      // but we clean it up as a safety measure.
+      logger.debug('Cleaning up orphaned mutex entry', { graphId });
+      lockMutex.delete(graphId);
+    }
+  }
+}
+
+// FIX A#15: Run mutex cleanup every 5 minutes alongside rate limit cleanup
+const mutexCleanupInterval = setInterval(cleanupStaleMutexEntries, 5 * 60 * 1000);
+if (mutexCleanupInterval.unref) {
+  mutexCleanupInterval.unref();
+}
+
+// FIX B#53: Cleanup expired idempotency keys
+function cleanupExpiredIdempotencyKeys(ttlMs: number): void {
+  const now = Date.now();
+  for (const [key, entry] of idempotencyMap) {
+    // Remove entries that are expired and not in progress
+    if (!entry.inProgress && now - entry.createdAt > ttlMs) {
+      idempotencyMap.delete(key);
+    }
+  }
+}
+
+// Run idempotency cleanup every hour
+const idempotencyCleanupInterval = setInterval(
+  () => cleanupExpiredIdempotencyKeys(DEFAULT_IDEMPOTENCY_TTL_MS),
+  60 * 60 * 1000
+);
+if (idempotencyCleanupInterval.unref) {
+  idempotencyCleanupInterval.unref();
+}
 
 // FIX #6: Distributed lock interface for multi-instance deployments
 export interface DistributedLockProvider {
@@ -75,6 +157,8 @@ export function setDistributedLockProvider(provider: DistributedLockProvider): v
 /**
  * Atomic lock acquisition for concurrent import protection
  * Supports both local and distributed locking
+ * FIX #10: Use proper mutex to prevent TOCTOU race conditions
+ * FIX #4: Fixed race condition in mutex cleanup
  */
 async function acquireImportLock(graphId: string): Promise<boolean> {
   const lockKey = `import:${graphId}`;
@@ -89,33 +173,49 @@ async function acquireImportLock(graphId: string): Promise<boolean> {
     return acquired;
   }
 
-  // Local locking fallback
-  // Wait for any pending lock operations
-  const existingLock = importLock.get(graphId);
-  if (existingLock) {
-    await existingLock;
+  // FIX #10 + FIX #4: Use synchronous mutex pattern
+  // Keep looping until we can acquire or determine it's locked
+  while (true) {
+    // Check if there's a pending mutex operation
+    const existingMutex = lockMutex.get(graphId);
+    if (existingMutex) {
+      // Wait for it to complete, then retry
+      await existingMutex;
+      continue;
+    }
+
+    // Try to set our mutex - this is synchronous so no race here
+    // Create a deferred promise
+    let resolveAcquire!: (acquired: boolean) => void;
+    const acquirePromise = new Promise<boolean>((resolve) => {
+      resolveAcquire = resolve;
+    });
+    
+    // Check again in case another request got in (belt and suspenders)
+    if (lockMutex.has(graphId)) {
+      continue;
+    }
+    
+    lockMutex.set(graphId, acquirePromise);
+
+    // Now we have exclusive access
+    const alreadyLocked = activeImports.has(graphId);
+    
+    if (alreadyLocked) {
+      // Already locked by another request
+      // Delete mutex BEFORE resolving to prevent race
+      lockMutex.delete(graphId);
+      resolveAcquire(false);
+      return false;
+    }
+
+    // Acquire the lock
+    activeImports.set(graphId, { startedAt: Date.now() });
+    // Delete mutex BEFORE resolving to prevent race
+    lockMutex.delete(graphId);
+    resolveAcquire(true);
+    return true;
   }
-
-  // Check if already locked
-  if (activeImports.has(graphId)) {
-    return false;
-  }
-
-  // Create a new lock promise
-  let resolveLock: () => void;
-  const lockPromise = new Promise<void>((resolve) => {
-    resolveLock = resolve;
-  });
-  importLock.set(graphId, lockPromise);
-
-  // Acquire the lock
-  activeImports.set(graphId, { startedAt: Date.now() });
-  
-  // Resolve the lock promise
-  resolveLock!();
-  importLock.delete(graphId);
-
-  return true;
 }
 
 /**
@@ -211,7 +311,7 @@ function noRateLimit(_req: Request, _res: Response, next: NextFunction): void {
 }
 
 /**
- * Content length validation middleware
+ * Content length validation middleware (validates header)
  */
 function validateContentLength(maxBytes: number) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -226,6 +326,140 @@ function validateContentLength(maxBytes: number) {
     }
     next();
   };
+}
+
+/**
+ * FIX B#16: Validate actual body size middleware
+ * Content-Length header can be spoofed, so we also check the actual parsed body size
+ * This runs after body-parser has already parsed the body
+ */
+function validateActualBodySize(maxBytes: number) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    // body-parser already parsed the body into req.body
+    // We need to check its actual size
+    if (req.body) {
+      try {
+        // Re-stringify to get actual byte size
+        const bodyString = JSON.stringify(req.body);
+        const actualSize = Buffer.byteLength(bodyString, 'utf8');
+        
+        if (actualSize > maxBytes) {
+          logger.warn('Actual body size exceeds limit', {
+            reportedSize: req.headers['content-length'],
+            actualSize,
+            maxSize: maxBytes,
+          });
+          res.status(413).json({
+            error: 'Payload too large',
+            message: `Request body (${Math.round(actualSize / 1024 / 1024 * 100) / 100}MB) exceeds maximum size of ${maxBytes / 1024 / 1024}MB`,
+            maxSize: maxBytes,
+            actualSize,
+          });
+          return;
+        }
+      } catch (error) {
+        // If we can't stringify, let other validators handle it
+        logger.warn('Could not validate body size', { error });
+      }
+    }
+    next();
+  };
+}
+
+/**
+ * FIX B#53: Idempotency middleware factory
+ * Ensures that retries of the same request return the same response
+ */
+function createIdempotencyMiddleware(config: ImportRouterConfig) {
+  if (!config.enableIdempotency) {
+    return (_req: Request, _res: Response, next: NextFunction): void => {
+      next();
+    };
+  }
+
+  const ttlMs = config.idempotencyTtlMs ?? DEFAULT_IDEMPOTENCY_TTL_MS;
+
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const idempotencyKey = req.headers['idempotency-key'] as string;
+    
+    // If no idempotency key provided, proceed normally
+    if (!idempotencyKey) {
+      next();
+      return;
+    }
+
+    // Check if we have a cached response for this key
+    const existing = idempotencyMap.get(idempotencyKey);
+    
+    if (existing) {
+      // Check if the request is still in progress
+      if (existing.inProgress) {
+        res.status(409).json({
+          error: 'Conflict',
+          message: 'A request with this idempotency key is already in progress',
+          idempotencyKey,
+        });
+        return;
+      }
+
+      // Check if the cached response has expired
+      const now = Date.now();
+      if (now - existing.createdAt > ttlMs) {
+        // Expired, remove and process as new
+        idempotencyMap.delete(idempotencyKey);
+      } else {
+        // Return cached response
+        logger.info('Returning cached idempotent response', { idempotencyKey });
+        res.status(existing.response.status).json(existing.response.body);
+        return;
+      }
+    }
+
+    // Mark this key as in progress
+    idempotencyMap.set(idempotencyKey, {
+      response: { status: 0, body: null },
+      createdAt: Date.now(),
+      inProgress: true,
+    });
+
+    // Store the idempotency key on the request for use in the response handler
+    (req as Request & { idempotencyKey?: string }).idempotencyKey = idempotencyKey;
+
+    // Intercept the response to cache it
+    const originalJson = res.json.bind(res);
+    res.json = (body: unknown) => {
+      const entry = idempotencyMap.get(idempotencyKey);
+      if (entry) {
+        entry.response = {
+          status: res.statusCode,
+          body,
+        };
+        entry.inProgress = false;
+      }
+      return originalJson(body);
+    };
+
+    next();
+  };
+}
+
+/**
+ * FIX B#21: Request correlation ID middleware
+ * Adds a unique correlation ID to each request for distributed tracing and debugging
+ */
+function addCorrelationId(req: Request, res: Response, next: NextFunction): void {
+  // Use provided correlation ID or generate a new one
+  const correlationId = (req.headers['x-correlation-id'] as string) ||
+    (req.headers['x-request-id'] as string) ||
+    `import-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  // Store on request for use in handlers
+  (req as Request & { correlationId?: string }).correlationId = correlationId;
+  
+  // Add to response headers so client can trace the request
+  res.setHeader('X-Correlation-ID', correlationId);
+  
+  next();
 }
 
 /**
@@ -276,6 +510,63 @@ function createAuthMiddleware(config: ImportRouterConfig) {
 }
 
 /**
+ * FIX #6: CSRF protection middleware factory
+ * Validates CSRF token for state-changing operations
+ */
+function createCsrfMiddleware(config: ImportRouterConfig) {
+  if (config.disableCsrf) {
+    return (_req: Request, _res: Response, next: NextFunction): void => {
+      next();
+    };
+  }
+
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    // Only check for browser-based requests (not pure API calls)
+    // API keys from Authorization header are exempt as they're not vulnerable to CSRF
+    const hasApiKeyHeader = req.headers['x-api-key'] || req.headers['authorization'];
+    if (hasApiKeyHeader) {
+      // API-based authentication is not vulnerable to CSRF
+      next();
+      return;
+    }
+
+    // For cookie-based sessions, validate CSRF token
+    const csrfToken = req.headers['x-csrf-token'] as string;
+    const sessionId = req.cookies?.sessionId || req.headers['x-session-id'] as string;
+
+    if (!csrfToken) {
+      res.status(403).json({
+        error: 'Forbidden',
+        message: 'CSRF token required. Provide via X-CSRF-Token header.',
+      });
+      return;
+    }
+
+    if (config.validateCsrfToken) {
+      try {
+        const valid = await config.validateCsrfToken(csrfToken, sessionId || '');
+        if (!valid) {
+          res.status(403).json({
+            error: 'Forbidden',
+            message: 'Invalid CSRF token',
+          });
+          return;
+        }
+      } catch (error) {
+        logger.error('CSRF validation error', { error });
+        res.status(500).json({
+          error: 'Internal Server Error',
+          message: 'Failed to validate CSRF token',
+        });
+        return;
+      }
+    }
+
+    next();
+  };
+}
+
+/**
  * FIX #4: Concurrent import protection middleware (now uses atomic locking)
  */
 async function checkConcurrentImport(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -307,18 +598,30 @@ export function createImportRouter(config: ImportRouterConfig): Router {
     logger.error('Failed to initialize ImportService', err);
   });
 
+  // FIX B#21: Add correlation ID to all requests
+  router.use(addCorrelationId);
+
   // Apply rate limiting to all routes (unless disabled)
   const rateLimitMiddleware = config.disableRateLimit 
     ? noRateLimit 
     : createRateLimiter(config.rateLimitMaxRequests || DEFAULT_RATE_LIMIT_MAX_REQUESTS);
   router.use(rateLimitMiddleware);
 
-  // Apply content length validation (10MB max)
-  router.use(validateContentLength(10 * 1024 * 1024));
+  // FIX #14: Use shared constant for content length validation (header check)
+  router.use(validateContentLength(MAX_IMPORT_SIZE_BYTES));
+
+  // FIX B#16: Also validate actual body size (after body-parser)
+  router.use(validateActualBodySize(MAX_IMPORT_SIZE_BYTES));
 
   // FIX #5: Apply authentication to all routes
   const authMiddleware = createAuthMiddleware(config);
   router.use(authMiddleware);
+
+  // FIX #6: Apply CSRF protection to state-changing routes
+  const csrfMiddleware = createCsrfMiddleware(config);
+
+  // FIX B#53: Apply idempotency key support to state-changing routes
+  const idempotencyMiddleware = createIdempotencyMiddleware(config);
 
   /**
    * POST /api/import/validate
@@ -410,7 +713,9 @@ export function createImportRouter(config: ImportRouterConfig): Router {
    * Response: ImportResult or { jobId: string, async: true } for async
    * FIX B#49: Consistent response shape
    */
-  router.post('/', checkConcurrentImport, async (req: Request, res: Response, next: NextFunction) => {
+  // FIX #6: CSRF protection on state-changing endpoint
+  // FIX B#53: Idempotency key support for safe retries
+  router.post('/', csrfMiddleware, idempotencyMiddleware, checkConcurrentImport, async (req: Request, res: Response, next: NextFunction) => {
     const extReq = req as Request & { importLockGraphId?: string; userId?: string };
     try {
       const {
@@ -475,7 +780,16 @@ export function createImportRouter(config: ImportRouterConfig): Router {
           conflictResolution,
         });
 
-        const { jobId } = await importService.executeImportAsync(data as AlthistoryExport, options);
+        let jobId: string;
+        try {
+          const result = await importService.executeImportAsync(data as AlthistoryExport, options);
+          jobId = result.jobId;
+        } catch (asyncError) {
+          // FIX #3: If async job creation fails, ensure lock is released
+          logger.error('Async import setup failed', { targetGraphId, error: asyncError });
+          // Lock will be released in finally block since importLockGraphId is still set
+          throw asyncError;
+        }
         
         // FIX #1: Register callback to release lock when async job completes
         if (targetGraphId) {
@@ -497,6 +811,10 @@ export function createImportRouter(config: ImportRouterConfig): Router {
               } else if (job && job.status === 'processing') {
                 // Still processing, check again in 1 second
                 setTimeout(pollForCompletion, 1000);
+              } else if (!job) {
+                // FIX #3: Job not found, release lock to prevent deadlock
+                logger.warn('Job not found during polling, releasing lock', { jobId, targetGraphId });
+                await releaseImportLock(targetGraphId);
               }
             } catch (error) {
               logger.warn('Error polling for job completion', { jobId, error });

@@ -486,6 +486,8 @@ export interface ImportJob {
   id: string
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
   progress: number
+  /** Human-readable progress message from backend */
+  progressMessage?: string
   createdAt: string
   startedAt?: string
   completedAt?: string
@@ -494,10 +496,19 @@ export interface ImportJob {
 }
 
 export interface AsyncImportResponse {
+  success: true
   jobId: string
   message: string
-  async: boolean
+  async: true
 }
+
+/** Response shape for synchronous imports */
+export interface SyncImportResponse extends ImportResult {
+  async: false
+}
+
+/** Union type for execute import API response */
+export type ExecuteImportResponse = AsyncImportResponse | SyncImportResponse
 
 // Extended types for UI state management
 export interface UIState {

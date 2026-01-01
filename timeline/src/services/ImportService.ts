@@ -34,11 +34,18 @@ import * as crypto from 'crypto';
 // Constants
 // ============================================================================
 
-/** Maximum file size for imports (10MB) */
-const MAX_IMPORT_SIZE_BYTES = 10 * 1024 * 1024;
+/** 
+ * Maximum file size for imports (10MB) 
+ * FIX #14: This MUST match MAX_IMPORT_FILE_SIZE in frontend/src/components/import/ImportUploadStep.tsx
+ * and validateContentLength() in api/routes/import.ts
+ */
+export const MAX_IMPORT_SIZE_BYTES = 10 * 1024 * 1024;
 
-/** Threshold for async import (100 entities) */
-const ASYNC_IMPORT_THRESHOLD = 100;
+/** FIX A#9: Default threshold for async import (100 entities) */
+export const DEFAULT_ASYNC_IMPORT_THRESHOLD = 100;
+
+/** FIX B#4: Default stale job threshold (30 minutes) */
+export const DEFAULT_STALE_JOB_THRESHOLD_MS = 30 * 60 * 1000;
 
 /** Maximum string length for sanitization */
 const MAX_STRING_LENGTH = 10000;
@@ -171,6 +178,10 @@ export interface ImportJob {
 
 export interface ImportServiceConfig {
   dataDir: string;
+  /** FIX A#9: Configurable threshold for async import (default: 100 entities) */
+  asyncImportThreshold?: number;
+  /** FIX B#4: Configurable stale job threshold in ms (default: 30 minutes) */
+  staleJobThresholdMs?: number;
 }
 
 // ============================================================================
@@ -185,12 +196,20 @@ export class ImportService {
   private activeImports: Map<string, { cancel: boolean; graphId?: string }> = new Map();
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
   private isDestroyed = false;
+  /** FIX A#9: Configurable threshold for async import */
+  private readonly asyncImportThreshold: number;
+  /** FIX B#4: Configurable stale job threshold */
+  private readonly staleJobThresholdMs: number;
 
   constructor(config: ImportServiceConfig) {
     this.dataDir = config.dataDir;
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
     this.jobRepository = new JobRepository({ dataDir: config.dataDir });
     this.logger = createLogger('ImportService');
+    // FIX A#9: Use configured threshold or default
+    this.asyncImportThreshold = config.asyncImportThreshold ?? DEFAULT_ASYNC_IMPORT_THRESHOLD;
+    // FIX B#4: Use configured stale threshold or default
+    this.staleJobThresholdMs = config.staleJobThresholdMs ?? DEFAULT_STALE_JOB_THRESHOLD_MS;
   }
 
   /**
@@ -222,22 +241,23 @@ export class ImportService {
 
   /**
    * Clean up stale jobs (jobs that have been processing for too long)
+   * FIX B#4: Uses configurable stale job threshold
    */
   private async cleanupStaleJobs(): Promise<void> {
-    const staleThresholdMs = 30 * 60 * 1000; // 30 minutes
     const now = Date.now();
+    const thresholdMinutes = Math.round(this.staleJobThresholdMs / 60000);
     
     for (const [jobId, state] of this.activeImports) {
       try {
         const job = await this.jobRepository.findById(jobId);
         if (job && job.startedAt) {
           const startedAt = new Date(job.startedAt).getTime();
-          if (now - startedAt > staleThresholdMs) {
+          if (now - startedAt > this.staleJobThresholdMs) {
             this.logger.warn('Cleaning up stale import job', { jobId, startedAt: job.startedAt });
             state.cancel = true;
             job.status = 'failed';
             job.completedAt = new Date().toISOString();
-            job.error = 'Import timed out after 30 minutes';
+            job.error = `Import timed out after ${thresholdMinutes} minutes`;
             await this.jobRepository.update(job);
             this.activeImports.delete(jobId);
           }
@@ -268,42 +288,56 @@ export class ImportService {
   }
 
   /**
-   * FIX #5: Validate string input for security issues without modifying content
-   * Returns the original string if safe, or throws/logs warning if dangerous content detected
+   * FIX #5 + FIX #7: Validate and sanitize string input for security
    * 
-   * Design decision: We validate and warn but don't escape HTML entities for storage.
-   * - Data should be stored as-is for data integrity
-   * - XSS prevention is the responsibility of the presentation layer
-   * - Escaping would corrupt legitimate content (e.g., code examples, math notation)
+   * Defense in depth approach:
+   * - Truncate overly long strings
+   * - Detect and sanitize dangerous HTML/script patterns
+   * - Log warnings for suspicious content
+   * 
+   * FIX #7: Now sanitizes dangerous patterns rather than just warning
    */
   private validateString(input: string, path: string): { value: string; warning?: string } {
     if (typeof input !== 'string') return { value: input };
     
     // Truncate overly long strings (this is still a security measure)
-    const truncated = input.slice(0, MAX_STRING_LENGTH);
-    const wasTruncated = truncated.length < input.length;
+    let sanitized = input.slice(0, MAX_STRING_LENGTH);
+    const wasTruncated = sanitized.length < input.length;
     
-    // Check for potential script injection patterns (for logging/warning only)
-    const dangerousPatterns = [
-      /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
-      /javascript:/gi,
-      /on\w+\s*=/gi, // onclick=, onerror=, etc.
-      /data:\s*text\/html/gi,
+    // FIX #7: Dangerous patterns to sanitize (not just warn)
+    const dangerousPatterns: Array<{ pattern: RegExp; replacement: string; name: string }> = [
+      // Script tags - completely remove
+      { pattern: /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, replacement: '[script removed]', name: 'script tag' },
+      // javascript: URLs - escape the colon
+      { pattern: /javascript:/gi, replacement: 'javascript&#58;', name: 'javascript URL' },
+      // Event handlers - escape the equals sign
+      { pattern: /\bon(\w+)\s*=/gi, replacement: 'on$1&#61;', name: 'event handler' },
+      // data: URLs with HTML content
+      { pattern: /data:\s*text\/html/gi, replacement: 'data:text/plain', name: 'data URL' },
+      // SVG with embedded scripts
+      { pattern: /<svg[^>]*>.*?<script/gi, replacement: '<svg>[sanitized]', name: 'SVG script' },
     ];
     
-    let warning: string | undefined;
-    for (const pattern of dangerousPatterns) {
-      if (pattern.test(truncated)) {
-        warning = `Potential unsafe content detected at ${path}. Ensure proper escaping in presentation layer.`;
-        this.logger.warn('Potentially unsafe content in import', { path, pattern: pattern.source });
-        break;
+    const warnings: string[] = [];
+    
+    for (const { pattern, replacement, name } of dangerousPatterns) {
+      if (pattern.test(sanitized)) {
+        this.logger.warn('Dangerous content sanitized in import', { path, type: name });
+        warnings.push(`${name} sanitized at ${path}`);
+        // Reset lastIndex for global regex before using replace
+        pattern.lastIndex = 0;
+        sanitized = sanitized.replace(pattern, replacement);
       }
     }
     
-    return { 
-      value: truncated,
-      warning: wasTruncated ? `Content truncated at ${path} (exceeded ${MAX_STRING_LENGTH} chars)` : warning,
-    };
+    let warning: string | undefined;
+    if (wasTruncated) {
+      warning = `Content truncated at ${path} (exceeded ${MAX_STRING_LENGTH} chars)`;
+    } else if (warnings.length > 0) {
+      warning = warnings.join('; ');
+    }
+    
+    return { value: sanitized, warning };
   }
 
   /**
@@ -345,9 +379,12 @@ export class ImportService {
   /**
    * Validate checksum if provided
    * FIX #3: Use timing-safe comparison to prevent timing attacks
+   * FIX #9: Properly handle empty string checksum
    */
   validateChecksum(data: AlthistoryExport): ImportError | null {
-    if (!data.metadata.checksum) {
+    // FIX #9: Explicitly check for undefined/null, treat empty string as missing checksum
+    // Empty string should be treated as "no checksum provided", not as a valid checksum to validate against
+    if (data.metadata.checksum === undefined || data.metadata.checksum === null || data.metadata.checksum === '') {
       return null; // Checksum is optional
     }
 
@@ -458,6 +495,12 @@ export class ImportService {
     // Validate pressures - now treats missing references as errors
     this.validatePressures(exportData.inferredPressures, exportData.events, exportData.arcs, errors, warnings);
 
+    // FIX B#12: Validate IDs are unique across entity types
+    this.validateCrossEntityIdUniqueness(exportData, errors);
+
+    // FIX A#6: Validate entity metadata doesn't conflict with provenance fields
+    this.validateMetadataProvenanceConflicts(exportData, warnings);
+
     // Validate provenance (optional)
     if (importData.provenance) {
       this.validateProvenance(importData.provenance, warnings);
@@ -526,6 +569,136 @@ export class ImportService {
         code: 'MISSING_FIELD',
       });
     }
+  }
+
+  /**
+   * FIX B#12: Validate that IDs are unique across all entity types
+   * This prevents potential conflicts when entities might be referenced generically
+   */
+  private validateCrossEntityIdUniqueness(
+    exportData: ExportData,
+    errors: ImportError[]
+  ): void {
+    const allIds = new Map<string, { type: string; path: string }>();
+
+    // Collect all event IDs
+    (exportData.events || []).forEach((event, index) => {
+      if (event.id) {
+        const existing = allIds.get(event.id);
+        if (existing) {
+          errors.push({
+            path: `$.data.events[${index}].id`,
+            message: `ID '${event.id}' is already used by ${existing.type} at ${existing.path}`,
+            code: 'DUPLICATE_ID',
+          });
+        } else {
+          allIds.set(event.id, { type: 'event', path: `$.data.events[${index}]` });
+        }
+      }
+    });
+
+    // Collect all arc IDs
+    (exportData.arcs || []).forEach((arc, index) => {
+      if (arc.id) {
+        const existing = allIds.get(arc.id);
+        if (existing) {
+          errors.push({
+            path: `$.data.arcs[${index}].id`,
+            message: `ID '${arc.id}' is already used by ${existing.type} at ${existing.path}`,
+            code: 'DUPLICATE_ID',
+          });
+        } else {
+          allIds.set(arc.id, { type: 'arc', path: `$.data.arcs[${index}]` });
+        }
+      }
+    });
+
+    // Collect all relationship IDs
+    (exportData.causalRelationships || []).forEach((rel, index) => {
+      if (rel.id) {
+        const existing = allIds.get(rel.id);
+        if (existing) {
+          errors.push({
+            path: `$.data.causalRelationships[${index}].id`,
+            message: `ID '${rel.id}' is already used by ${existing.type} at ${existing.path}`,
+            code: 'DUPLICATE_ID',
+          });
+        } else {
+          allIds.set(rel.id, { type: 'relationship', path: `$.data.causalRelationships[${index}]` });
+        }
+      }
+    });
+
+    // Collect all pressure IDs
+    (exportData.inferredPressures || []).forEach((pressure, index) => {
+      if (pressure.id) {
+        const existing = allIds.get(pressure.id);
+        if (existing) {
+          errors.push({
+            path: `$.data.inferredPressures[${index}].id`,
+            message: `ID '${pressure.id}' is already used by ${existing.type} at ${existing.path}`,
+            code: 'DUPLICATE_ID',
+          });
+        } else {
+          allIds.set(pressure.id, { type: 'pressure', path: `$.data.inferredPressures[${index}]` });
+        }
+      }
+    });
+  }
+
+  /**
+   * FIX A#6: Check if entity metadata fields conflict with auto-added provenance fields
+   * This warns users that their metadata might be overwritten during import
+   */
+  private validateMetadataProvenanceConflicts(
+    exportData: ExportData,
+    warnings: ImportWarning[]
+  ): void {
+    // Provenance fields that are auto-added during import
+    const provenanceFields = [
+      'imported',
+      'importedAt',
+      'sourceGraphId',
+      'sourceGraphVersion',
+      'importMode',
+      'importJobId',
+      'importedBy',
+      'originalId',
+      'originalCreatedAt',
+    ];
+
+    const checkMetadata = (
+      metadata: Record<string, unknown> | undefined,
+      path: string
+    ): void => {
+      if (!metadata || typeof metadata !== 'object') return;
+
+      for (const field of provenanceFields) {
+        if (field in metadata) {
+          warnings.push({
+            path: `${path}.metadata.${field}`,
+            message: `Metadata field '${field}' may be overwritten with provenance data during import`,
+            code: 'DEPRECATED_FIELD',
+          });
+        }
+      }
+    };
+
+    // Check events
+    (exportData.events || []).forEach((event, index) => {
+      checkMetadata(
+        event.metadata as Record<string, unknown> | undefined,
+        `$.data.events[${index}]`
+      );
+    });
+
+    // Check arcs
+    (exportData.arcs || []).forEach((arc, index) => {
+      checkMetadata(
+        arc.metadata as Record<string, unknown> | undefined,
+        `$.data.arcs[${index}]`
+      );
+    });
   }
 
   private validateEvents(
@@ -641,8 +814,9 @@ export class ImportService {
     const seenIds = new Set<string>();
     const arcIds = new Set<string>();
     const arcLevels = new Map<string, number>();
+    const arcParents = new Map<string, string | null>();
 
-    // First pass: collect all arc IDs and levels
+    // First pass: collect all arc IDs, levels, and parent relationships
     arcs.forEach((arc) => {
       if (arc && typeof arc === 'object') {
         const a = arc as ExportedArc;
@@ -651,9 +825,45 @@ export class ImportService {
           if (typeof a.level === 'number') {
             arcLevels.set(a.id, a.level);
           }
+          arcParents.set(a.id, a.parent_arc_id || null);
         }
       }
     });
+
+    // FIX #3: Check for circular references in arc hierarchy
+    const detectCircularReference = (arcId: string): string[] | null => {
+      const visited = new Set<string>();
+      let current: string | null = arcId;
+      const path: string[] = [];
+      
+      while (current) {
+        if (visited.has(current)) {
+          // Found a cycle - return the path
+          path.push(current);
+          return path;
+        }
+        visited.add(current);
+        path.push(current);
+        current = arcParents.get(current) || null;
+      }
+      return null;
+    };
+
+    // Check each arc for circular references
+    for (const arcId of arcIds) {
+      const cycle = detectCircularReference(arcId);
+      if (cycle && cycle.length > 1 && cycle[0] === cycle[cycle.length - 1]) {
+        // Find the index of this arc for error path
+        const arcIndex = arcs.findIndex((a) => (a as ExportedArc).id === arcId);
+        errors.push({
+          path: `$.data.arcs[${arcIndex}]`,
+          message: `Circular arc reference detected: ${cycle.join(' → ')}`,
+          code: 'ARC_HIERARCHY_VIOLATION',
+        });
+        // Only report once per cycle
+        break;
+      }
+    }
 
     arcs.forEach((arc, index) => {
       const path = `$.data.arcs[${index}]`;
@@ -845,6 +1055,15 @@ export class ImportService {
           code: 'ORPHAN_REFERENCE',
         });
       }
+      
+      // FIX #2: Validate cross-graph reference format (actual graph existence checked async)
+      if (r.causeGraphId && typeof r.causeGraphId !== 'string') {
+        errors.push({
+          path: `${path}.causeGraphId`,
+          message: 'causeGraphId must be a string',
+          code: 'INVALID_TYPE',
+        });
+      }
 
       // Validate effect event reference
       if (!r.effect_event_id || typeof r.effect_event_id !== 'string') {
@@ -858,6 +1077,15 @@ export class ImportService {
           path: `${path}.effect_event_id`,
           message: `Relationship references non-existent effect event: ${r.effect_event_id}`,
           code: 'ORPHAN_REFERENCE',
+        });
+      }
+      
+      // FIX #2: Validate cross-graph reference format (actual graph existence checked async)
+      if (r.effectGraphId && typeof r.effectGraphId !== 'string') {
+        errors.push({
+          path: `${path}.effectGraphId`,
+          message: 'effectGraphId must be a string',
+          code: 'INVALID_TYPE',
         });
       }
 
@@ -1198,6 +1426,79 @@ export class ImportService {
     return errors;
   }
 
+  /**
+   * FIX #2: Validate cross-graph references
+   * Checks that referenced graphs actually exist
+   */
+  async validateCrossGraphReferences(data: AlthistoryExport): Promise<ImportError[]> {
+    const errors: ImportError[] = [];
+    const exportData = data.data;
+    const checkedGraphs = new Map<string, boolean>();
+
+    // Helper to check if graph exists (with caching)
+    const graphExists = async (graphId: string): Promise<boolean> => {
+      if (checkedGraphs.has(graphId)) {
+        return checkedGraphs.get(graphId)!;
+      }
+      try {
+        const graph = await this.graphRepository.findById(graphId);
+        const exists = graph !== null;
+        checkedGraphs.set(graphId, exists);
+        return exists;
+      } catch {
+        checkedGraphs.set(graphId, false);
+        return false;
+      }
+    };
+
+    // Check relationships with cross-graph references
+    for (let i = 0; i < (exportData.causalRelationships || []).length; i++) {
+      const rel = exportData.causalRelationships[i];
+      const path = `$.data.causalRelationships[${i}]`;
+
+      if (rel.causeGraphId) {
+        const exists = await graphExists(rel.causeGraphId);
+        if (!exists) {
+          errors.push({
+            path: `${path}.causeGraphId`,
+            message: `Cross-graph reference to non-existent graph: ${rel.causeGraphId}`,
+            code: 'ORPHAN_REFERENCE',
+          });
+        }
+      }
+
+      if (rel.effectGraphId) {
+        const exists = await graphExists(rel.effectGraphId);
+        if (!exists) {
+          errors.push({
+            path: `${path}.effectGraphId`,
+            message: `Cross-graph reference to non-existent graph: ${rel.effectGraphId}`,
+            code: 'ORPHAN_REFERENCE',
+          });
+        }
+      }
+    }
+
+    // Check crossGraphRefs if present
+    for (let i = 0; i < (exportData.crossGraphRefs || []).length; i++) {
+      const ref = exportData.crossGraphRefs[i];
+      const path = `$.data.crossGraphRefs[${i}]`;
+
+      if (ref.referencedGraphId) {
+        const exists = await graphExists(ref.referencedGraphId);
+        if (!exists) {
+          errors.push({
+            path: `${path}.referencedGraphId`,
+            message: `Cross-graph reference to non-existent graph: ${ref.referencedGraphId}`,
+            code: 'ORPHAN_REFERENCE',
+          });
+        }
+      }
+    }
+
+    return errors;
+  }
+
   // ==========================================================================
   // Conflict Detection
   // ==========================================================================
@@ -1442,6 +1743,7 @@ export class ImportService {
 
   /**
    * Check if import should be async based on entity count
+   * FIX A#9: Uses configurable async import threshold
    */
   shouldUseAsyncImport(data: AlthistoryExport): boolean {
     const totalEntities =
@@ -1449,7 +1751,7 @@ export class ImportService {
       (data.data.arcs?.length || 0) +
       (data.data.causalRelationships?.length || 0) +
       (data.data.inferredPressures?.length || 0);
-    return totalEntities > ASYNC_IMPORT_THRESHOLD;
+    return totalEntities > this.asyncImportThreshold;
   }
 
   /**
@@ -1659,6 +1961,22 @@ export class ImportService {
       return { ...emptyResult(), errors: [{ path: '$', message: 'Import cancelled', code: 'INVALID_FORMAT' }] };
     }
 
+    // FIX #2: Validate cross-graph references
+    await this.updateJobProgress(jobId, 20, 'Validating cross-graph references...');
+    const crossGraphErrors = await this.validateCrossGraphReferences(importData);
+    if (crossGraphErrors.length > 0) {
+      return {
+        ...emptyResult(),
+        errors: crossGraphErrors,
+        warnings: validation.warnings,
+      };
+    }
+
+    // FIX B#6: Check cancellation
+    if (this.shouldCancel(jobId)) {
+      return { ...emptyResult(), errors: [{ path: '$', message: 'Import cancelled', code: 'INVALID_FORMAT' }] };
+    }
+
     // Detect conflicts (30% progress)
     await this.updateJobProgress(jobId, 25, 'Detecting conflicts...');
     const conflicts = options.graphId
@@ -1822,14 +2140,45 @@ export class ImportService {
       return resolution === 'skip';
     };
 
+    // FIX #5: Collect all existing IDs to check for rename collisions
+    const existingIds = new Set<string>();
+    const newIds = new Set<string>();
+    
+    // FIX #5: Load existing IDs from graph if it exists
+    try {
+      const graphData = await this.graphRepository.resolveGraphData(graphId);
+      graphData.events.forEach(e => existingIds.add(e.id));
+      graphData.arcs.forEach(a => existingIds.add(a.id));
+      graphData.relationships.forEach(r => existingIds.add(r.id));
+      graphData.pressures.forEach(p => existingIds.add(p.id));
+    } catch {
+      // Graph doesn't exist yet, which is fine
+    }
+    
     // Helper to generate new ID if renaming, and track the mapping
+    // FIX #5: Check for collision and retry if needed
     const getEntityId = (entityType: string, originalId: string): string => {
       const key = `${entityType}-${originalId}`;
       const conflict = conflictMap.get(key);
       if (!conflict) return originalId;
       const resolution = resolutions.get(conflict.id);
       if (resolution === 'rename') {
-        const newId = `${originalId}_imported_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        let attempts = 0;
+        const maxAttempts = 10;
+        let newId: string;
+        
+        do {
+          // Use timestamp + random + attempt number for better uniqueness
+          newId = `${originalId}_imported_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${attempts}`;
+          attempts++;
+        } while ((existingIds.has(newId) || newIds.has(newId)) && attempts < maxAttempts);
+        
+        if (attempts >= maxAttempts) {
+          // Extremely unlikely, but use UUID-like suffix as last resort
+          newId = `${originalId}_imported_${crypto.randomUUID()}`;
+        }
+        
+        newIds.add(newId);
         idRemap.set(`${entityType}:${originalId}`, newId);
         return newId;
       }
