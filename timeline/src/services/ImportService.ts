@@ -225,6 +225,7 @@ export class ImportService {
 
   /**
    * FIX B#24: Destroy the service and stop cleanup interval
+   * CRITICAL #2: Mark active jobs as failed on shutdown
    */
   async destroy(): Promise<void> {
     this.isDestroyed = true;
@@ -232,11 +233,34 @@ export class ImportService {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
     }
-    // Cancel any active imports
+    // Cancel any active imports and mark jobs as failed
+    const failedJobs: string[] = [];
     for (const [jobId, state] of this.activeImports) {
       state.cancel = true;
       this.logger.warn('Cancelling import on service destruction', { jobId });
+      
+      // CRITICAL #2: Actually mark the job as failed in the repository
+      try {
+        const job = await this.jobRepository.findById(jobId);
+        if (job && job.status === 'processing') {
+          job.status = 'failed';
+          job.completedAt = new Date().toISOString();
+          job.error = 'Import service shutdown during processing';
+          job.progress = job.progress || 0;
+          job.progressMessage = 'Service shutdown';
+          await this.jobRepository.update(job);
+          failedJobs.push(jobId);
+        }
+      } catch (error) {
+        this.logger.error('Failed to mark job as failed during shutdown', { jobId, error });
+      }
     }
+    
+    if (failedJobs.length > 0) {
+      this.logger.info('Marked jobs as failed during shutdown', { count: failedJobs.length, jobIds: failedJobs });
+    }
+    
+    this.activeImports.clear();
   }
 
   /**

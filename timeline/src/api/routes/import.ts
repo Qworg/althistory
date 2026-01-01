@@ -218,30 +218,52 @@ async function acquireImportLock(graphId: string): Promise<boolean> {
   }
 }
 
+// CRITICAL #3: Track locks being released to prevent double-release race conditions
+const locksBeingReleased = new Set<string>();
+
 /**
  * Release import lock
+ * CRITICAL #3: Protected against double-release race conditions
  */
 async function releaseImportLock(graphId: string): Promise<void> {
-  const lockInfo = activeImports.get(graphId);
-  
-  // FIX #1: Call completion callback if registered
-  if (lockInfo?.onComplete) {
-    try {
-      lockInfo.onComplete();
-    } catch (error) {
-      logger.warn('Error in lock completion callback', { graphId, error });
-    }
+  // CRITICAL #3: Prevent double-release race condition
+  if (locksBeingReleased.has(graphId)) {
+    logger.debug('Lock release already in progress, skipping', { graphId });
+    return;
   }
-
-  activeImports.delete(graphId);
-
-  // FIX #6: Release distributed lock if provider is set
-  if (distributedLockProvider) {
-    try {
-      await distributedLockProvider.release(`import:${graphId}`);
-    } catch (error) {
-      logger.warn('Failed to release distributed lock', { graphId, error });
+  
+  const lockInfo = activeImports.get(graphId);
+  if (!lockInfo) {
+    logger.debug('Lock not found, nothing to release', { graphId });
+    return;
+  }
+  
+  // Mark as being released before async operations
+  locksBeingReleased.add(graphId);
+  
+  try {
+    // FIX #1: Call completion callback if registered
+    if (lockInfo.onComplete) {
+      try {
+        lockInfo.onComplete();
+      } catch (error) {
+        logger.warn('Error in lock completion callback', { graphId, error });
+      }
     }
+
+    activeImports.delete(graphId);
+
+    // FIX #6: Release distributed lock if provider is set
+    if (distributedLockProvider) {
+      try {
+        await distributedLockProvider.release(`import:${graphId}`);
+      } catch (error) {
+        logger.warn('Failed to release distributed lock', { graphId, error });
+      }
+    }
+  } finally {
+    // Always remove from tracking set
+    locksBeingReleased.delete(graphId);
   }
 }
 
