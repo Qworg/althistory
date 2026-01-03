@@ -9,14 +9,17 @@ import {
   DatabaseOptimizationService,
   GraphService,
   ExportService,
-  JobService
+  JobService,
+  AuthService,
+  RateLimitService
 } from '@/services';
 import { 
   EventRepository, 
   ArcRepository,
   GraphRepository,
   VersionRepository,
-  JobRepository
+  JobRepository,
+  ApiKeyRepository
 } from '@/repositories';
 import { AppConfig } from '@/utils/config';
 
@@ -47,6 +50,11 @@ export interface ServiceContainer {
   versionRepository: VersionRepository;
   jobRepository: JobRepository;
   
+  // Phase 3: Authentication & Batch API
+  authService: AuthService;
+  rateLimitService: RateLimitService;
+  apiKeyRepository: ApiKeyRepository;
+  
   // Infrastructure
   databaseManager: DatabaseManager | LocalDatabaseManager;
   config: AppConfig;
@@ -75,6 +83,11 @@ export class Container implements ServiceContainer {
   private _graphRepository?: GraphRepository;
   private _versionRepository?: VersionRepository;
   private _jobRepository?: JobRepository;
+  
+  // Phase 3: Authentication & Batch API
+  private _authService?: AuthService;
+  private _rateLimitService?: RateLimitService;
+  private _apiKeyRepository?: ApiKeyRepository;
 
   constructor(
     public readonly databaseManager: DatabaseManager | LocalDatabaseManager,
@@ -274,6 +287,44 @@ export class Container implements ServiceContainer {
     return this._jobService;
   }
 
+  // Phase 3: Authentication & Batch API
+
+  /**
+   * Get API key repository instance (singleton)
+   */
+  get apiKeyRepository(): ApiKeyRepository {
+    if (!this._apiKeyRepository) {
+      this._apiKeyRepository = new ApiKeyRepository({
+        dataDir: this.config.localExecution.dataDirectory,
+      });
+    }
+    return this._apiKeyRepository;
+  }
+
+  /**
+   * Get auth service instance (singleton)
+   */
+  get authService(): AuthService {
+    if (!this._authService) {
+      this._authService = new AuthService({
+        dataDir: this.config.localExecution.dataDirectory,
+      });
+    }
+    return this._authService;
+  }
+
+  /**
+   * Get rate limit service instance (singleton)
+   */
+  get rateLimitService(): RateLimitService {
+    if (!this._rateLimitService) {
+      this._rateLimitService = new RateLimitService({
+        dataDir: this.config.localExecution.dataDirectory,
+      });
+    }
+    return this._rateLimitService;
+  }
+
   /**
    * Initialize all services and perform health checks
    */
@@ -305,6 +356,11 @@ export class Container implements ServiceContainer {
         this.jobService.start();
       }
 
+      // Initialize Phase 3: Authentication services (all modes)
+      console.log('🔐 Initializing authentication services...');
+      await this.authService.initialize();
+      await this.rateLimitService.initialize();
+
       if (this.config.localExecution.enabled) {
         console.log('📦 Service container initialized successfully (Local Mode)');
       } else {
@@ -329,6 +385,11 @@ export class Container implements ServiceContainer {
       }
       if (this._jobRepository) {
         this._jobRepository.stop();
+      }
+
+      // Stop Phase 3: Authentication services
+      if (this._rateLimitService) {
+        this._rateLimitService.stop();
       }
 
       // Close database connections
@@ -368,7 +429,11 @@ export class Container implements ServiceContainer {
       jobService: !!this._jobService,
       graphRepository: !!this._graphRepository,
       versionRepository: !!this._versionRepository,
-      jobRepository: !!this._jobRepository
+      jobRepository: !!this._jobRepository,
+      // Phase 3: Authentication services
+      authService: !!this._authService,
+      rateLimitService: !!this._rateLimitService,
+      apiKeyRepository: !!this._apiKeyRepository
     };
 
     const allHealthy = dbHealth.neo4j && dbHealth.redis && Object.values(services).every(Boolean);

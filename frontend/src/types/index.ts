@@ -531,3 +531,73 @@ export interface UIState {
     } | null
   }
 }
+
+// API Key Management Types
+export type Permission =
+  | 'read:events'
+  | 'write:events'
+  | 'read:arcs'
+  | 'write:arcs'
+  | 'read:relationships'
+  | 'write:relationships'
+  | 'read:graphs'
+  | 'write:graphs'
+  | 'export'
+  | 'import'
+  | 'ingest'
+  | 'admin'
+
+export interface RateLimitConfig {
+  requestsPerMinute: number
+  requestsPerHour: number
+  requestsPerDay: number
+  batchSizeLimit: number
+  concurrentStreams: number
+}
+
+export interface ApiKey {
+  id: string
+  name: string
+  keyPrefix: string
+  permissions: Permission[]
+  rateLimit: RateLimitConfig
+  allowedGraphs: string[] | '*'
+  createdAt: string
+  lastUsedAt?: string
+  expiresAt?: string
+  isActive: boolean
+  metadata?: Record<string, unknown>
+}
+
+export interface CreateApiKeyRequest {
+  name: string
+  permissions: Permission[]
+  rateLimit?: Partial<RateLimitConfig>
+  allowedGraphs?: string[] | '*'
+  expiresAt?: string
+}
+
+export interface CreateApiKeyResponse {
+  id: string
+  key: string // Full key, shown only once
+  keyPrefix: string
+  name: string
+  permissions: Permission[]
+  rateLimit: RateLimitConfig
+  createdAt: string
+}
+
+export interface UpdateApiKeyRequest {
+  name?: string
+  permissions?: Permission[]
+  rateLimit?: Partial<RateLimitConfig>
+  allowedGraphs?: string[] | '*'
+  isActive?: boolean
+}
+
+export interface ApiKeyStats {
+  total: number
+  active: number
+  inactive: number
+  expired: number
+}

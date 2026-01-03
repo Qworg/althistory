@@ -14,6 +14,7 @@ import { AlthistoryExport } from '../../services/ExportService';
 describe('Import API Routes', () => {
   let app: Express;
   let testDataDir: string;
+  let importRouter: any;
 
   // Helper to create a valid export structure
   const createValidExport = (overrides: Partial<AlthistoryExport> = {}): AlthistoryExport => ({
@@ -81,7 +82,8 @@ describe('Import API Routes', () => {
 
     app = express();
     app.use(express.json({ limit: '50mb' }));
-    app.use('/api/import', createImportRouter({ dataDir: testDataDir, disableRateLimit: true, disableAuth: true, disableCsrf: true }));
+    importRouter = createImportRouter({ dataDir: testDataDir, disableRateLimit: true, disableAuth: true, disableCsrf: true });
+    app.use('/api/import', importRouter);
 
     // Error handler
     app.use((err: any, req: any, res: any, next: any) => {
@@ -95,6 +97,13 @@ describe('Import API Routes', () => {
 
   afterEach(async () => {
     try {
+      // Cleanup the import service first to stop background operations
+      if (importRouter?.cleanup) {
+        await importRouter.cleanup();
+      }
+      // Small delay to allow any in-flight async operations to complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+      // Then clean up the temp directory
       await fs.rm(testDataDir, { recursive: true, force: true });
     } catch {
       // Ignore cleanup errors

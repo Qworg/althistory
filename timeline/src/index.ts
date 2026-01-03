@@ -47,7 +47,7 @@ class Application {
       // Initialize database manager
       const dbManager = initializeDatabaseManager(this.config.database);
       
-      // Initialize service container
+      // Initialize service container (includes auth services)
       const container = initializeContainer(dbManager, this.config);
       await container.initialize();
 
@@ -86,7 +86,8 @@ class Application {
     this.app.use(cors({
       origin: process.env.CORS_ORIGIN || '*',
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-API-Key'],
+      exposedHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset', 'Retry-After'],
       credentials: true
     }));
 
@@ -114,8 +115,9 @@ class Application {
       this.app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 1000 })); // 1000 requests per 15 minutes
     }
     
-    // Authentication (placeholder for future implementation)
-    // this.app.use(authenticate);
+    // Global authentication middleware - validates API keys on all routes
+    // Note: Individual routes use requireAuth to enforce authentication
+    this.app.use(authenticate);
   }
 
   /**
@@ -201,7 +203,7 @@ class Application {
     
     server.close(async () => {
       try {
-        // Cleanup service container (includes database connections)
+        // Cleanup service container (includes database connections and auth services)
         await cleanupContainer();
         
         console.log('Application shut down successfully');

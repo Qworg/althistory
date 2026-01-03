@@ -7,6 +7,10 @@ import { inferenceRoutes } from './routes/inference';
 import { graphRoutes } from './routes/graphs';
 import { exportRoutes } from './routes/export';
 import { createImportRouter } from './routes/import';
+import { keyRoutes } from './routes/keys';
+import { batchRoutes } from './routes/batch';
+import { validateRoutes } from './routes/validate';
+import { suggestRoutes } from './routes/suggest';
 import { loadConfig } from '../utils/config';
 
 /**
@@ -37,7 +41,11 @@ apiRouter.get('/', (req, res) => {
       arcs: '/api/arcs',
       causal: '/api/causal',
       temporal: '/api/temporal',
-      inference: '/api/inference'
+      inference: '/api/inference',
+      keys: '/api/keys',
+      batch: '/api/batch',
+      validate: '/api/validate',
+      suggest: '/api/suggest'
     },
     timestamp: new Date().toISOString()
   });
@@ -67,6 +75,12 @@ apiRouter.use('/temporal', temporalRoutes);
 // Inference and pattern detection API endpoints
 apiRouter.use('/inference', inferenceRoutes);
 
+// Phase 3: Authentication & Batch API endpoints
+apiRouter.use('/keys', keyRoutes);
+apiRouter.use('/batch', batchRoutes);
+apiRouter.use('/validate', validateRoutes);
+apiRouter.use('/suggest', suggestRoutes);
+
 // Health check endpoint
 apiRouter.get('/health', (req, res) => {
   res.json({ 
@@ -90,7 +104,11 @@ apiRouter.get('/info', (req, res) => {
       arcs: '/api/arcs - CRUD operations for historical arcs/periods',
       causal: '/api/causal - Causal relationship analysis and management',
       temporal: '/api/temporal - Time-based queries and constraints',
-      inference: '/api/inference - Pattern detection and graph analysis'
+      inference: '/api/inference - Pattern detection and graph analysis',
+      keys: '/api/keys - API key management',
+      batch: '/api/batch - Batch operations',
+      validate: '/api/validate - Data validation',
+      suggest: '/api/suggest - AI-powered suggestions'
     },
     features: {
       graphs: ['Create', 'Read', 'Update', 'Delete', 'Branch', 'Merge', 'Version history', 'Rollback'],
@@ -100,7 +118,11 @@ apiRouter.get('/info', (req, res) => {
       arcs: ['Create', 'Read', 'Update', 'Delete', 'Hierarchy validation', 'Child relationships'],
       causal: ['Create links', 'Find chains', 'Detect cycles', 'Get suggestions', 'Validate relationships'],
       temporal: ['Timeline view', 'Constraint validation', 'Overlap detection', 'Gap analysis', 'Density analysis'],
-      inference: ['Cluster analysis', 'Pattern detection', 'Pressure inference', 'Actor relationships', 'Anomaly detection', 'Predictions']
+      inference: ['Cluster analysis', 'Pattern detection', 'Pressure inference', 'Actor relationships', 'Anomaly detection', 'Predictions'],
+      keys: ['Create', 'Read', 'Update', 'Revoke', 'Delete', 'Rate limiting'],
+      batch: ['Batch events', 'Batch arcs', 'Batch relationships', 'Atomic transactions'],
+      validate: ['Graph validation', 'Incremental validation', 'Temporal checks', 'Causal checks', 'Referential checks'],
+      suggest: ['Relationship suggestions', 'Arc suggestions', 'Completeness analysis', 'Pressure analysis']
     }
   });
 });

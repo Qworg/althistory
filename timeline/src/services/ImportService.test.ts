@@ -82,6 +82,13 @@ describe('ImportService', () => {
 
   afterEach(async () => {
     try {
+      // Destroy the import service first to stop any background operations
+      if (importService) {
+        await importService.destroy();
+      }
+      // Small delay to allow any in-flight async operations to complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+      // Then clean up the temp directory
       await fs.rm(testDataDir, { recursive: true, force: true });
     } catch {
       // Ignore cleanup errors

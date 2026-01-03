@@ -1033,6 +1033,11 @@ export function createImportRouter(config: ImportRouterConfig): Router {
     }
   });
 
+  // Attach cleanup function to router for testing purposes
+  (router as any).cleanup = async () => {
+    await importService.destroy();
+  };
+
   return router;
 }
 

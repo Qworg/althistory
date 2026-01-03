@@ -180,6 +180,13 @@ export class ApiKey implements IApiKey {
       }
     }
 
+    // Validate allowedGraphs - empty array would deny all graph access
+    if (data.allowedGraphs !== undefined && data.allowedGraphs !== '*') {
+      if (Array.isArray(data.allowedGraphs) && data.allowedGraphs.length === 0) {
+        errors.push('allowedGraphs cannot be an empty array (would deny all graph access). Use "*" for all graphs or specify graph IDs.');
+      }
+    }
+
     return {
       isValid: errors.length === 0,
       errors,
@@ -294,7 +301,9 @@ export class ApiKey implements IApiKey {
   }
 
   private generateId(): string {
-    return `key_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+    // Use crypto.randomUUID for cryptographically secure ID generation
+    const uuid = crypto.randomUUID();
+    return `key_${uuid}`;
   }
 }
 

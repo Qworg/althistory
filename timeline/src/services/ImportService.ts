@@ -1802,8 +1802,14 @@ export class ImportService {
     // Execute in background
     setImmediate(async () => {
       try {
+        // Check if service was destroyed before starting
+        if (this.isDestroyed) {
+          this.activeImports.delete(job.id);
+          return;
+        }
+        
         const processingJob = await this.jobRepository.findById(job.id);
-        if (processingJob) {
+        if (processingJob && !this.isDestroyed) {
           processingJob.status = 'processing';
           processingJob.startedAt = new Date().toISOString();
           processingJob.progress = 0;
@@ -1811,12 +1817,23 @@ export class ImportService {
           await this.jobRepository.update(processingJob);
         }
 
+        // Check again after the initial update
+        if (this.isDestroyed) {
+          this.activeImports.delete(job.id);
+          return;
+        }
+
         const result = await this.executeImportInternal(importData, options, job.id);
 
-        // Check if cancelled during execution
+        // Check if destroyed or cancelled during execution
+        if (this.isDestroyed) {
+          this.activeImports.delete(job.id);
+          return;
+        }
+        
         const state = this.activeImports.get(job.id);
         const completedJob = await this.jobRepository.findById(job.id);
-        if (completedJob) {
+        if (completedJob && !this.isDestroyed) {
           if (state?.cancel) {
             completedJob.status = 'cancelled';
             completedJob.completedAt = new Date().toISOString();
@@ -1832,8 +1849,14 @@ export class ImportService {
           await this.jobRepository.update(completedJob);
         }
       } catch (error) {
+        // Skip update if service is destroyed
+        if (this.isDestroyed) {
+          this.activeImports.delete(job.id);
+          return;
+        }
+        
         const failedJob = await this.jobRepository.findById(job.id);
-        if (failedJob) {
+        if (failedJob && !this.isDestroyed) {
           failedJob.status = 'failed';
           failedJob.completedAt = new Date().toISOString();
           failedJob.error = error instanceof Error ? error.message : 'Unknown error';

@@ -34,7 +34,12 @@ import {
   ImportPreview,
   ImportResult,
   ImportMode,
-  ConflictResolution
+  ConflictResolution,
+  ApiKey,
+  CreateApiKeyRequest,
+  CreateApiKeyResponse,
+  UpdateApiKeyRequest,
+  ApiKeyStats
 } from '@/types'
 
 // API client configuration
@@ -715,6 +720,83 @@ class APIClient {
             try {
                 const response: AxiosResponse<{ valid: boolean; conflicts: any[]; wouldCreate: any; errors?: any[] }> = 
                     await this.client.post('/import/validate-incremental', { graphId, additions })
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+    }
+
+    // API Key management operations
+    keys = {
+        getAll: async (options?: { activeOnly?: boolean }): Promise<{ keys: ApiKey[]; total: number }> => {
+            try {
+                const response: AxiosResponse<{ keys: ApiKey[]; total: number }> = 
+                    await this.client.get('/keys', { params: options })
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        getById: async (id: string): Promise<ApiKey> => {
+            try {
+                const response: AxiosResponse<ApiKey> = await this.client.get(`/keys/${id}`)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        create: async (data: CreateApiKeyRequest): Promise<CreateApiKeyResponse> => {
+            try {
+                const response: AxiosResponse<CreateApiKeyResponse> = 
+                    await this.client.post('/keys', data)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        update: async (id: string, data: UpdateApiKeyRequest): Promise<ApiKey> => {
+            try {
+                const response: AxiosResponse<ApiKey> = 
+                    await this.client.put(`/keys/${id}`, data)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        revoke: async (id: string): Promise<void> => {
+            try {
+                await this.client.post(`/keys/${id}/revoke`)
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        delete: async (id: string): Promise<void> => {
+            try {
+                await this.client.delete(`/keys/${id}`)
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        getStats: async (): Promise<ApiKeyStats> => {
+            try {
+                const response: AxiosResponse<ApiKeyStats> = 
+                    await this.client.get('/keys/stats')
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        getMe: async (): Promise<ApiKey> => {
+            try {
+                const response: AxiosResponse<ApiKey> = await this.client.get('/keys/me')
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)

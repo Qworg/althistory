@@ -1,14 +1,23 @@
-import { Request, Response, NextFunction } from 'express';
-import { AppError, ErrorHandler } from '@/utils/errors';
-import { getContainer } from '@/container';
+import { Request, Response, NextFunction, RequestHandler } from 'express';
+import { DatabaseConnectionError, ErrorHandler } from '@/utils/errors';
+import { getContainer, Container } from '@/container';
+import { ApiKey, Permission, RateLimitConfig } from '@/models/ApiKey';
 
 /**
  * Extended Request interface with container access
  */
 export interface RequestWithContainer extends Request {
-  container: ReturnType<typeof getContainer>;
+  container: Container;
   requestId: string;
   startTime: number;
+}
+
+/**
+ * Extended Request interface with authentication
+ */
+export interface AuthenticatedRequest extends RequestWithContainer {
+  apiKey?: ApiKey;
+  isAuthenticated: boolean;
 }
 
 /**
@@ -21,7 +30,7 @@ export function injectContainer(req: RequestWithContainer, res: Response, next: 
     req.startTime = Date.now();
     next();
   } catch (error) {
-    next(new AppError('Service container not available', 503, 'CONTAINER_UNAVAILABLE'));
+    next(new DatabaseConnectionError('Service container not available'));
   }
 }
 
@@ -218,34 +227,294 @@ export function validateJsonRequest(req: RequestWithContainer, res: Response, ne
 }
 
 /**
- * Authentication middleware (placeholder for future implementation)
+ * Authentication middleware - validates API key from X-API-Key header
  */
-export function authenticate(req: RequestWithContainer, res: Response, next: NextFunction): void {
-  // TODO: Implement authentication logic
-  // For now, we'll just pass through
+export function authenticate(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+  const requestId = req.requestId || 'unknown';
+
+  // Initialize authentication state
+  req.isAuthenticated = false;
+  req.apiKey = undefined;
+
+  // Get auth service from container
+  let authService;
+  try {
+    authService = req.container?.authService;
+  } catch {
+    // Container not initialized yet
+  }
+
+  // If auth service not available, skip authentication
+  if (!authService) {
+    console.warn(`[Auth] Auth service not available, skipping authentication for ${req.path}`);
+    next();
+    return;
+  }
+
+  const apiKeyHeader = req.get('X-API-Key');
+
+  if (!apiKeyHeader) {
+    // No API key provided - continue without authentication
+    // Protected routes should use requireAuth middleware
+    next();
+    return;
+  }
+
+  // Validate the API key
+  authService
+    .authenticate(apiKeyHeader)
+    .then((result) => {
+      if (result.authenticated && result.apiKey) {
+        req.isAuthenticated = true;
+        req.apiKey = result.apiKey;
+
+        // Log successful authentication
+        console.log(`[Auth] Key ${result.apiKey.keyPrefix}... authenticated for ${req.method} ${req.path}`);
+      } else {
+        console.warn(`[Auth] Invalid API key attempted for ${req.method} ${req.path}: ${result.error}`);
+      }
+      next();
+    })
+    .catch((error) => {
+      console.error(`[Auth] Authentication error for ${req.method} ${req.path}:`, error);
+      res.status(500).json({
+        error: {
+          message: 'Authentication service error',
+          timestamp: new Date().toISOString(),
+          path: req.path,
+          requestId
+        }
+      });
+    });
+}
+
+/**
+ * Require authentication middleware - must be used after authenticate()
+ */
+export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+  const requestId = req.requestId || 'unknown';
+
+  if (!req.isAuthenticated || !req.apiKey) {
+    res.status(401).json({
+      error: {
+        message: 'API key is required',
+        timestamp: new Date().toISOString(),
+        path: req.path,
+        requestId
+      }
+    });
+    return;
+  }
+
   next();
 }
 
 /**
- * Authorization middleware (placeholder for future implementation)
+ * Authorization middleware - checks if authenticated user has required permissions
  */
-export function authorize(permissions: string[]) {
-  return (req: RequestWithContainer, res: Response, next: NextFunction): void => {
-    // TODO: Implement authorization logic
-    // For now, we'll just pass through
+export function authorize(...permissions: Permission[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    const requestId = req.requestId || 'unknown';
+
+    if (!req.isAuthenticated || !req.apiKey) {
+      res.status(401).json({
+        error: {
+          message: 'Authentication required',
+          timestamp: new Date().toISOString(),
+          path: req.path,
+          requestId
+        }
+      });
+      return;
+    }
+
+    // Check if user has all required permissions
+    const missingPermissions = permissions.filter((p) => !req.apiKey!.hasPermission(p));
+
+    if (missingPermissions.length > 0) {
+      console.warn(
+        `[Auth] Key ${req.apiKey.keyPrefix}... missing permissions: ${missingPermissions.join(', ')} for ${req.method} ${req.path}`
+      );
+
+      res.status(403).json({
+        error: {
+          message: `Missing required permissions: ${missingPermissions.join(', ')}`,
+          timestamp: new Date().toISOString(),
+          path: req.path,
+          requestId
+        }
+      });
+      return;
+    }
+
     next();
   };
 }
 
 /**
- * Rate limiting middleware (placeholder for future implementation)
+ * Authorize any permission - checks if user has at least one of the specified permissions
  */
-export function rateLimit(options: { windowMs: number; max: number }) {
-  return (req: RequestWithContainer, res: Response, next: NextFunction): void => {
-    // TODO: Implement rate limiting logic using Redis
-    // For now, we'll just pass through
+export function authorizeAny(...permissions: Permission[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    const requestId = req.requestId || 'unknown';
+
+    if (!req.isAuthenticated || !req.apiKey) {
+      res.status(401).json({
+        error: {
+          message: 'Authentication required',
+          timestamp: new Date().toISOString(),
+          path: req.path,
+          requestId
+        }
+      });
+      return;
+    }
+
+    // Check if user has any of the required permissions
+    if (!req.apiKey.hasAnyPermission(permissions)) {
+      console.warn(
+        `[Auth] Key ${req.apiKey.keyPrefix}... requires one of: ${permissions.join(', ')} for ${req.method} ${req.path}`
+      );
+
+      res.status(403).json({
+        error: {
+          message: `Requires at least one permission: ${permissions.join(', ')}`,
+          timestamp: new Date().toISOString(),
+          path: req.path,
+          requestId
+        }
+      });
+      return;
+    }
+
     next();
   };
+}
+
+/**
+ * Graph access middleware - checks if authenticated user can access the specified graph
+ */
+export function authorizeGraphAccess(getGraphId: (req: AuthenticatedRequest) => string | undefined) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    const requestId = req.requestId || 'unknown';
+
+    if (!req.isAuthenticated || !req.apiKey) {
+      res.status(401).json({
+        error: {
+          message: 'Authentication required',
+          timestamp: new Date().toISOString(),
+          path: req.path,
+          requestId
+        }
+      });
+      return;
+    }
+
+    const graphId = getGraphId(req);
+    if (!graphId) {
+      next();
+      return;
+    }
+
+    if (!req.apiKey.canAccessGraph(graphId)) {
+      console.warn(
+        `[Auth] Key ${req.apiKey.keyPrefix}... denied access to graph ${graphId} for ${req.method} ${req.path}`
+      );
+
+      res.status(403).json({
+        error: {
+          message: `Access to graph '${graphId}' is not allowed`,
+          timestamp: new Date().toISOString(),
+          path: req.path,
+          requestId
+        }
+      });
+      return;
+    }
+
+    next();
+  };
+}
+
+/**
+ * Rate limiting middleware - enforces rate limits for authenticated requests
+ */
+export function rateLimit(customConfig?: Partial<RateLimitConfig>) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    const requestId = req.requestId || 'unknown';
+
+    // Get rate limit service from container
+    let rateLimitService;
+    try {
+      rateLimitService = req.container?.rateLimitService;
+    } catch {
+      // Container not initialized yet
+    }
+
+    // Skip rate limiting if service not available
+    if (!rateLimitService) {
+      next();
+      return;
+    }
+
+    // Skip rate limiting for unauthenticated requests
+    if (!req.isAuthenticated || !req.apiKey) {
+      next();
+      return;
+    }
+
+    const config = customConfig
+      ? { ...req.apiKey.rateLimit, ...customConfig }
+      : req.apiKey.rateLimit;
+
+    const result = rateLimitService.recordRequest(req.apiKey.id, config);
+
+    // Set rate limit headers
+    const headers = rateLimitService.getHeaders(result);
+    Object.entries(headers).forEach(([key, value]) => {
+      if (value !== undefined) {
+        res.setHeader(key, value);
+      }
+    });
+
+    if (!result.allowed) {
+      console.warn(
+        `[RateLimit] Key ${req.apiKey.keyPrefix}... exceeded ${result.limit} for ${req.method} ${req.path}`
+      );
+
+      res.status(429).json({
+        error: {
+          message: `Rate limit exceeded: ${result.limit}`,
+          retryAfter: result.retryAfter,
+          timestamp: new Date().toISOString(),
+          path: req.path,
+          requestId
+        }
+      });
+      return;
+    }
+
+    next();
+  };
+}
+
+/**
+ * Combined auth middleware - authenticate + requireAuth + rateLimit
+ */
+export function withAuth(...permissions: Permission[]) {
+  return [
+    authenticate,
+    requireAuth,
+    rateLimit(),
+    ...(permissions.length > 0 ? [authorize(...permissions)] : [])
+  ];
+}
+
+/**
+ * Optional auth middleware - authenticate but don't require it
+ */
+export function withOptionalAuth() {
+  return [authenticate, rateLimit()];
 }
 
 /**
@@ -253,4 +522,16 @@ export function rateLimit(options: { windowMs: number; max: number }) {
  */
 function generateRequestId(): string {
   return `req_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+}
+
+/**
+ * Type-safe async handler wrapper for route handlers
+ * Wraps async functions to ensure errors are passed to Express error handler
+ */
+export function asyncHandler<T extends AuthenticatedRequest = AuthenticatedRequest>(
+  fn: (req: T, res: Response, next: NextFunction) => Promise<unknown>
+): RequestHandler {
+  return (req, res, next) => {
+    Promise.resolve(fn(req as T, res, next)).catch(next);
+  };
 }

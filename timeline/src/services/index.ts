@@ -10,3 +10,7 @@ export * from './ApiService';
 export * from './GraphService';
 export * from './ExportService';
 export * from './JobService';
+
+// Phase 3: Authentication & Batch API services
+export * from './AuthService';
+export * from './RateLimitService';
