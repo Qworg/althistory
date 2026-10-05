@@ -277,10 +277,15 @@ storage engine underneath.
 paths, then grepping for remaining consumers. If only tests and CLI paths use them, keep them for that
 purpose; if nothing does, delete them. The goal is that no *handler* can reach an unscoped read.
 
-**Q3 — Legacy `data/graph.json`.** Recommend adoption (design §5.4): assign its contents to the active
-graph on first run, create a default graph if none exists, and leave the legacy file as a backup. It
-costs little and keeps local dev and existing fixtures working. Starting empty is also defensible with
-no users; either is fine, but adoption is the kinder default for whoever runs this locally next.
+**Q3 — Legacy `data/graph.json`. DECIDED: adopt.** Assign its contents to the active graph on first
+run, create a default graph if none exists, and leave the legacy file in place as a backup. Chosen over
+start-empty because the alternative is that a developer with a local dataset finds it *silently
+invisible* — the same class of bug this increment exists to remove, merely relocated. Adoption is
+guarded on "the per-graph file does not exist", so it runs once and never overwrites real data.
+
+Note the trap this creates: `GraphContextStore.getStore()` **creates** a store, so it must not be used
+to test for existence or the guard defeats itself. Existence is checked via the pure `getFilePath()`
+plus an fs check, before any store for that graph is loaded.
 
 **Q4 — Pressures.** Confirm the live side stores pressures per graph rather than globally.
 `EntityType` already includes `'pressure'`, so the version side does; the live side must match.
