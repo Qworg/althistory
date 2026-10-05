@@ -1044,6 +1044,18 @@ export class CypherQueryParser {
 }
 
 /**
+ * Additive construction options for `LocalGraphStore`.
+ *
+ * `dataFile` lets a caller bind a store to one specific file (for example the
+ * per-graph live store) without mutating the process-wide config object. When it
+ * is omitted the store keeps the historical behaviour of deriving its path from
+ * `localExecution.dataDirectory` and `localExecution.graphFile`.
+ */
+export interface LocalGraphStoreOptions {
+  dataFile?: string;
+}
+
+/**
  * Local graph store implementation with file-based persistence
  * Provides Neo4j-compatible interface for local execution
  */
@@ -1053,7 +1065,7 @@ export class LocalGraphStore {
   private dataFile: string;
   private backupTimer?: NodeJS.Timeout;
 
-  constructor() {
+  constructor(options: LocalGraphStoreOptions = {}) {
     this.graphData = {
       nodes: new Map(),
       relationships: new Map(),
@@ -1062,8 +1074,18 @@ export class LocalGraphStore {
       backups: []
     };
     
-    this.dataFile = path.join(this.config.localExecution.dataDirectory, this.config.localExecution.graphFile);
+    this.dataFile = options.dataFile
+      ?? path.join(this.config.localExecution.dataDirectory, this.config.localExecution.graphFile);
     this.setupBackupTimer();
+  }
+
+  /**
+   * Absolute or config-relative path this store reads from and writes to.
+   * Exposed so a scoped owner (for example `GraphContextStore`) and its tests
+   * can assert which file a store is bound to.
+   */
+  getDataFilePath(): string {
+    return this.dataFile;
   }
 
   /**
