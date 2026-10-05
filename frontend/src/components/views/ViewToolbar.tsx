@@ -10,7 +10,11 @@ import {
   ArcDetailPanel,
   CausalRelationshipModal
 } from '@/components/modals'
+import { PanelBase } from '@/components/modals/ModalBase'
+import { ExportPanel, VersionHistoryPanel } from '@/components/graphs'
+import { ImportWizard } from '@/components/import'
 import { useCreateEvent, useCreateArc, useCreateCausalLink } from '@/hooks/useAPI'
+import { useActiveGraphId, useGraphs, useSwitchGraph, useDeleteGraph } from '@/hooks/useGraphs'
 
 interface ViewToolbarProps {
   viewMode: ViewMode
@@ -37,6 +41,7 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
     sessionData,
     updateSessionData,
     setFilterPanelOpen,
+    addError,
     uiState
   } = useGlobalStore()
 
@@ -48,6 +53,9 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
   const [showCreateEventModal, setShowCreateEventModal] = useState(false)
   const [showCreateArcPanel, setShowCreateArcPanel] = useState(false)
   const [showCreateCausalLinkModal, setShowCreateCausalLinkModal] = useState(false)
+  const [showImportWizard, setShowImportWizard] = useState(false)
+  const [showExportPanel, setShowExportPanel] = useState(false)
+  const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [comparisonData, setComparisonData] = useState<{
     originalName: string
     copiedName: string
@@ -61,6 +69,33 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
   const createEventMutation = useCreateEvent()
   const createArcMutation = useCreateArc()
   const createCausalLinkMutation = useCreateCausalLink()
+
+  // Graph-level operations (copy switching/deletion and the import/export tools)
+  // all act on the active graph, so they share the same hooks as GraphSelector.
+  const activeGraphId = useActiveGraphId()
+  const { data: graphList } = useGraphs()
+  const switchGraphMutation = useSwitchGraph()
+  const deleteGraphMutation = useDeleteGraph()
+
+  // Copy operations are keyed by the target graph's *name* (the copy panels only
+  // know the name), so resolve it against the graph list before activating it.
+  const handleSwitchToGraph = useCallback((graphName: string) => {
+    const target = graphList?.graphs.find(graph => graph.name === graphName)
+    if (!target) {
+      addError({
+        message: `Cannot switch to graph "${graphName}": it is not in the graph list`,
+        type: 'validation'
+      })
+      return
+    }
+    switchGraphMutation.mutate(target.id)
+  }, [graphList, switchGraphMutation, addError])
+
+  // A copy's id is the id of the graph the copy created (see POST /graphs/copy),
+  // so deleting a copy is deleting that graph.
+  const handleDeleteCopy = useCallback((copyId: string) => {
+    deleteGraphMutation.mutate(copyId)
+  }, [deleteGraphMutation])
 
   // Timeline-specific actions
   const getTimelineActions = useCallback((): ToolbarAction[] => {
@@ -311,6 +346,39 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         shortcut: 'Ctrl+H'
       },
       {
+        id: 'import-data',
+        label: 'Import',
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+        ),
+        onClick: () => setShowImportWizard(true),
+        tooltip: 'Import graph data (Req 18)'
+      },
+      {
+        id: 'export-data',
+        label: 'Export',
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+        ),
+        onClick: () => setShowExportPanel(true),
+        tooltip: 'Export graph data (Req 5)'
+      },
+      {
+        id: 'version-history',
+        label: 'Versions',
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        ),
+        onClick: () => setShowVersionHistory(true),
+        tooltip: 'View version history and roll back (Req 17.5)'
+      },
+      {
         id: 'toggle-filters',
         label: uiState.filterPanelOpen ? 'Hide Filters' : 'Show Filters',
         icon: (
@@ -490,8 +558,7 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         isOpen={showProgressPanel}
         onClose={() => setShowProgressPanel(false)}
         onSwitchToGraph={(graphName) => {
-          console.log('Switch to graph:', graphName)
-          // TODO: Implement graph switching functionality
+          handleSwitchToGraph(graphName)
           setShowProgressPanel(false)
         }}
       />
@@ -501,8 +568,7 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         isOpen={showHistoryPanel}
         onClose={() => setShowHistoryPanel(false)}
         onSwitchToGraph={(graphName) => {
-          console.log('Switch to graph:', graphName)
-          // TODO: Implement graph switching functionality
+          handleSwitchToGraph(graphName)
           setShowHistoryPanel(false)
         }}
         onCompareGraphs={(originalName, copiedName) => {
@@ -510,13 +576,19 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           setShowComparisonModal(true)
           setShowHistoryPanel(false)
         }}
-        onDeleteCopy={(copyId) => {
-          console.log('Delete copy:', copyId)
-          // TODO: Implement copy deletion functionality
-        }}
+        onDeleteCopy={handleDeleteCopy}
       />
 
       {/* Graph Comparison Modal */}
+      {/*
+       * Not implemented in this phase: the modal needs each graph's full
+       * events/arcs/relationships, but there is no per-graph data endpoint to
+       * fetch them with (events/arcs are scoped by the X-Graph-Id header, which
+       * apiClient does not expose for reads yet), and a CopyOperation does not
+       * record its source graph id. The modal already renders an honest empty
+       * comparison rather than fabricating data; the fetch + copy-provenance
+       * work belongs to the graph-scoped read phase.
+       */}
       <GraphComparisonModal
         isOpen={showComparisonModal}
         onClose={() => {
@@ -525,10 +597,38 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         }}
         originalGraphName={comparisonData?.originalName || ''}
         copiedGraphName={comparisonData?.copiedName || ''}
-        // TODO: Load actual graph data for comparison
         originalData={undefined}
         copiedData={undefined}
       />
+
+      {/* Import Wizard (Req 18) */}
+      {showImportWizard && (
+        <ImportWizard
+          isOpen
+          onClose={() => setShowImportWizard(false)}
+          targetGraphId={activeGraphId ?? undefined}
+        />
+      )}
+
+      {/* Export Panel (Req 5) */}
+      <PanelBase
+        isOpen={showExportPanel}
+        onClose={() => setShowExportPanel(false)}
+        title="Export Graph"
+        width="28rem"
+      >
+        <ExportPanel />
+      </PanelBase>
+
+      {/* Version History Panel (Req 17.5) */}
+      <PanelBase
+        isOpen={showVersionHistory}
+        onClose={() => setShowVersionHistory(false)}
+        title="Version History"
+        width="28rem"
+      >
+        <VersionHistoryPanel />
+      </PanelBase>
 
       {/* Create Event Modal */}
       <EventDetailModal
