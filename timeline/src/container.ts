@@ -2,6 +2,7 @@ import * as path from 'path';
 import { DatabaseManager, LocalDatabaseManager, LocalSession } from '@/utils/database';
 import { LocalGraphStore } from '@/utils/LocalGraphStore';
 import { GraphContextStore, GRAPHS_LIVE_DIRECTORY } from '@/utils/GraphContextStore';
+import { adoptLegacyGraphStore } from '@/utils/legacyGraphAdoption';
 import { 
   TemporalService, 
   CausalService, 
@@ -483,6 +484,7 @@ export class Container implements ServiceContainer {
       // Initialize Phase 1 I/O services (local execution mode)
       if (this.config.localExecution.enabled) {
         await this.graphService.initialize();
+        await this.adoptLegacyLiveStore();
         await this.exportService.initialize();
         await this.jobService.initialize();
         this.jobService.start();
@@ -502,6 +504,26 @@ export class Container implements ServiceContainer {
       console.error('❌ Failed to initialize service container:', error);
       throw error;
     }
+  }
+
+  /**
+   * Adopt the historical single live-store file into the active graph, once.
+   *
+   * Runs after `graphService.initialize()` (and therefore after the graph
+   * repository is initialised) and only in local mode: in cloud mode live data
+   * does not live in a local file. See `adoptLegacyGraphStore` for the guard and
+   * failure policy.
+   */
+  private async adoptLegacyLiveStore(): Promise<void> {
+    const legacyFilePath = path.join(
+      this.config.localExecution.dataDirectory,
+      this.config.localExecution.graphFile
+    );
+    await adoptLegacyGraphStore({
+      legacyFilePath,
+      graphContextStore: this.graphContextStore,
+      graphRepository: this.graphRepository,
+    });
   }
 
   /**
