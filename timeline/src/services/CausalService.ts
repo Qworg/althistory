@@ -1,7 +1,7 @@
 import { Event } from '@/models';
 import { CausalRelationship, CausalPath, CausalCycle, CausalRelationshipType, CausalValidationResult } from '@/models/relationships';
-import { getDatabaseManager, DatabaseManager, LocalDatabaseManager } from '@/utils/database';
-import { LocalGraphStore, GraphProperties } from '@/utils/LocalGraphStore';
+import { getDatabaseManager, DatabaseManager, LocalDatabaseManager, LocalSession } from '@/utils/database';
+import { LocalGraphStore, GraphProperties, GraphParameters } from '@/utils/LocalGraphStore';
 import { CausalParadoxError, ValidationError, DatabaseError, NotFoundError } from '@/utils/errors';
 import { getCacheManager, CacheKeyGenerator } from '@/utils/cache';
 import { CacheInvalidationService } from './CacheInvalidationService';
@@ -80,11 +80,53 @@ export interface StoredCausalRelationship {
 }
 
 /**
+ * Additive construction options for graph-scoped causal access.
+ *
+ * Both fields are optional so every pre-existing `new CausalService()` caller
+ * keeps resolving the process-wide singleton. A request-scoped caller supplies
+ * the graph's live store and id so reads, writes and caches stay inside one
+ * graph.
+ */
+export interface CausalServiceOptions {
+  /** Live store this service is bound to. Defaults to the singleton's store. */
+  graphStore?: LocalGraphStore;
+  /** Graph id used to namespace cached results so they cannot cross graphs. */
+  graphId?: string;
+}
+
+/**
+ * The slice of a driver session this service uses. Both `neo4j-driver`'s
+ * `Session` and the local `LocalSession` satisfy it, so a graph-bound session
+ * and the singleton session can flow through one typed accessor without `any`.
+ */
+interface CausalSession {
+  run(query: string, parameters?: GraphParameters): Promise<CausalQueryResult>;
+  close(): Promise<void>;
+}
+
+/** Structural record surface shared by the Neo4j and local drivers. */
+interface CausalQueryRecord {
+  get(key: string): unknown;
+}
+
+/** Result set whose records expose {@link CausalQueryRecord}. */
+interface CausalQueryResult {
+  records: readonly CausalQueryRecord[];
+}
+
+/**
  * Service for managing causal relationships and chain analysis
  */
 export class CausalService {
   private cacheManager = getCacheManager();
   private cacheInvalidationService = new CacheInvalidationService();
+  private readonly graphStore?: LocalGraphStore;
+  private readonly graphId?: string;
+
+  constructor(options: CausalServiceOptions = {}) {
+    this.graphStore = options.graphStore;
+    this.graphId = options.graphId;
+  }
 
   /**
    * `getDatabaseManager()` is declared to return `DatabaseManager`, but when local
@@ -100,8 +142,14 @@ export class CausalService {
 
   /**
    * Resolve the LocalGraphStore for local-execution mode.
+   *
+   * A graph-scoped service returns the store it was constructed with; an
+   * unscoped service keeps resolving the process singleton.
    */
   private getLocalGraphStore(): LocalGraphStore {
+    if (this.graphStore) {
+      return this.graphStore;
+    }
     const dbManager = this.getDatabaseManagerOrThrow();
     if (!(dbManager instanceof LocalDatabaseManager)) {
       throw new DatabaseError(
@@ -110,6 +158,30 @@ export class CausalService {
       );
     }
     return dbManager.getGraphStore();
+  }
+
+  /**
+   * Resolve a session over the same store the service reads and writes through.
+   *
+   * The path and cycle queries are expressed in Cypher and run over whichever
+   * store is in scope. A graph-bound service must not borrow the process
+   * singleton's session: in local mode that session wraps the legacy global
+   * store, so the query would read another graph's relationships.
+   */
+  private getSession(): CausalSession {
+    if (this.graphStore) {
+      return new LocalSession(this.graphStore);
+    }
+    return getDatabaseManager().getNeo4jSession();
+  }
+
+  /**
+   * Namespace a cache key by graph so a cached chain or cycle set cannot be
+   * served to a different graph. The graph id is appended (not prefixed) so the
+   * existing `causal:*` invalidation patterns still match.
+   */
+  private scopedCacheKey(key: string): string {
+    return this.graphId ? `${key}:graph:${this.graphId}` : key;
   }
   /**
    * Create a causal link between two events
@@ -411,7 +483,7 @@ export class CausalService {
       throw new ValidationError('Max depth must be greater than 0', 'maxDepth', maxDepth);
     }
 
-    const cacheKey = CacheKeyGenerator.causalChain(startEvent.id, maxDepth);
+    const cacheKey = this.scopedCacheKey(CacheKeyGenerator.causalChain(startEvent.id, maxDepth));
     
     // Try to get from cache first
     const cachedResult = await this.cacheManager.get<CausalPath[]>(cacheKey);
@@ -419,7 +491,7 @@ export class CausalService {
       return cachedResult;
     }
 
-    const session = getDatabaseManager().getNeo4jSession();
+    const session = this.getSession();
     
     try {
       const query = `
@@ -487,7 +559,7 @@ export class CausalService {
    * Detect causal cycles that would create temporal paradoxes with caching
    */
   async detectCausalCycles(): Promise<CausalCycle[]> {
-    const cacheKey = CacheKeyGenerator.causalCycles();
+    const cacheKey = this.scopedCacheKey(CacheKeyGenerator.causalCycles());
     
     // Try to get from cache first
     const cachedResult = await this.cacheManager.get<CausalCycle[]>(cacheKey);
@@ -495,7 +567,7 @@ export class CausalService {
       return cachedResult;
     }
 
-    const session = getDatabaseManager().getNeo4jSession();
+    const session = this.getSession();
     
     try {
       const query = `

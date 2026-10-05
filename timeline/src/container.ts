@@ -1,4 +1,7 @@
+import * as path from 'path';
 import { DatabaseManager, LocalDatabaseManager, LocalSession } from '@/utils/database';
+import { LocalGraphStore } from '@/utils/LocalGraphStore';
+import { GraphContextStore, GRAPHS_LIVE_DIRECTORY } from '@/utils/GraphContextStore';
 import { 
   TemporalService, 
   CausalService, 
@@ -33,6 +36,26 @@ import { AppConfig } from '@/utils/config';
  */
 type Initializable = { initialize(): Promise<void> };
 
+/**
+ * Repositories bound to exactly one graph's live store.
+ *
+ * Returned by {@link Container.graphScopedRepositories}; because the store is
+ * captured at construction there is no unscoped read reachable through these
+ * objects.
+ */
+export interface GraphScopedRepositories {
+  eventRepository: EventRepository;
+  arcRepository: ArcRepository;
+}
+
+/**
+ * Upper bound on the container's per-graph repository cache. The stores
+ * themselves are bounded (and evicted) by `GraphContextStore`; this cap only
+ * keeps the thin repository wrappers from accumulating for graphs that are no
+ * longer requested.
+ */
+const GRAPH_SCOPED_REPOSITORY_CACHE_LIMIT = 32;
+
 function hasInitialize(value: object): value is Initializable {
   return 'initialize' in value;
 }
@@ -59,6 +82,10 @@ export interface ServiceContainer {
   // Repositories
   eventRepository: EventRepository;
   arcRepository: ArcRepository;
+
+  // Graph-scoped repositories and the live-store registry they draw from
+  graphContextStore: GraphContextStore;
+  graphScopedRepositories(graphId: string): Promise<GraphScopedRepositories>;
   
   // Phase 1 I/O repositories
   graphRepository: GraphRepository;
@@ -88,6 +115,11 @@ export class Container implements ServiceContainer {
   private _databaseOptimizationService?: DatabaseOptimizationService;
   private _eventRepository?: EventRepository;
   private _arcRepository?: ArcRepository;
+  private _graphContextStore?: GraphContextStore;
+  private readonly _graphScopedRepositories = new Map<
+    string,
+    { store: LocalGraphStore; repositories: GraphScopedRepositories }
+  >();
   
   // Phase 1 I/O services
   private _graphService?: GraphService;
@@ -226,6 +258,74 @@ export class Container implements ServiceContainer {
       );
     }
     return this._arcRepository;
+  }
+
+  /**
+   * Get the per-graph live-store registry (singleton).
+   *
+   * Owns one `LocalGraphStore` per graph under
+   * `<dataDirectory>/graphs-live/<graphId>.json`; the store's lifecycle (lazy
+   * load, LRU cache, shutdown) lives there, not in this container.
+   */
+  get graphContextStore(): GraphContextStore {
+    if (!this._graphContextStore) {
+      this._graphContextStore = new GraphContextStore({
+        dataDirectory: path.join(
+          this.config.localExecution.dataDirectory,
+          GRAPHS_LIVE_DIRECTORY
+        ),
+      });
+    }
+    return this._graphContextStore;
+  }
+
+  /**
+   * Get repositories bound to one graph's live store.
+   *
+   * The store is resolved through `GraphContextStore` (which caches and bounds
+   * the stores themselves) and wrapped in a dedicated `LocalDatabaseManager`, so
+   * every query the returned repositories issue is scoped to that graph's file.
+   * Wrappers are cached per store identity: when `GraphContextStore` evicts and
+   * later reloads a graph, the store instance changes, so the stale wrapper is
+   * replaced rather than left pointing at a shut-down store.
+   */
+  async graphScopedRepositories(graphId: string): Promise<GraphScopedRepositories> {
+    const store = await this.graphContextStore.getStore(graphId);
+
+    const cached = this._graphScopedRepositories.get(graphId);
+    if (cached && cached.store === store) {
+      return cached.repositories;
+    }
+
+    const databaseManager = new LocalDatabaseManager(store);
+    const repositories: GraphScopedRepositories = {
+      eventRepository: new EventRepository(
+        databaseManager,
+        this.validationService,
+        this.cacheInvalidationService
+      ),
+      arcRepository: new ArcRepository(
+        databaseManager,
+        this.validationService,
+        undefined,
+        this.cacheInvalidationService
+      ),
+    };
+
+    this._graphScopedRepositories.set(graphId, { store, repositories });
+    this.evictGraphScopedRepositoriesOverflow();
+    return repositories;
+  }
+
+  /** Drop oldest repository wrappers once the per-graph cache is over its bound. */
+  private evictGraphScopedRepositoriesOverflow(): void {
+    while (this._graphScopedRepositories.size > GRAPH_SCOPED_REPOSITORY_CACHE_LIMIT) {
+      const oldest = this._graphScopedRepositories.keys().next().value;
+      if (oldest === undefined) {
+        return;
+      }
+      this._graphScopedRepositories.delete(oldest);
+    }
   }
 
   // Phase 1 I/O Repositories
@@ -422,6 +522,12 @@ export class Container implements ServiceContainer {
       // Stop Phase 3: Authentication services
       if (this._rateLimitService) {
         this._rateLimitService.stop();
+      }
+
+      // Shut down graph-scoped live stores so pending writes are saved and
+      // their backup timers cleared before the process tears down.
+      if (this._graphContextStore) {
+        await this._graphContextStore.evictAll();
       }
 
       // Close database connections

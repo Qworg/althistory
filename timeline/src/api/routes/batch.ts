@@ -2,7 +2,7 @@
  * Batch operations API routes
  */
 
-import { Router, Response, RequestHandler } from 'express';
+import { Router, Request, Response, RequestHandler } from 'express';
 import {
   AuthenticatedRequest,
   authenticate,
@@ -10,16 +10,31 @@ import {
   authorize,
   rateLimit,
   authorizeGraphAccess,
+  resolveGraphContext,
   asyncHandler,
 } from '../middleware';
 import { Permission } from '@/models/ApiKey';
 import { IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
+import { CausalService } from '@/services/CausalService';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('BatchRoutes');
 
 export const batchRoutes = Router();
+
+/**
+ * `CausalService` bound to the graph this request resolved to.
+ *
+ * The container exposes `graphScopedRepositories` but not yet a scoped causal
+ * service, so build one from the same cached store those repositories use.
+ * Binding it keeps batch relationship reads, writes and caches inside the
+ * request's graph instead of the process-wide legacy store.
+ */
+async function graphScopedCausalService(req: Request): Promise<CausalService> {
+  const store = await req.container.graphContextStore.getStore(req.graphId);
+  return new CausalService({ graphStore: store, graphId: req.graphId });
+}
 
 // Batch operation types
 type ValidationMode = 'strict' | 'lenient' | 'skip';
@@ -134,7 +149,8 @@ batchRoutes.post(
   requireAuth as RequestHandler,
   authorize('write:events') as RequestHandler,
   rateLimit() as RequestHandler,
-  authorizeGraphAccess((req) => (req as AuthenticatedRequest).body?.graphId) as RequestHandler,
+  resolveGraphContext() as RequestHandler,
+  authorizeGraphAccess((req) => (req as AuthenticatedRequest).graphId) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const request = req.body as BatchEventRequest;
 
@@ -155,7 +171,7 @@ batchRoutes.post(
       validationWarnings: [],
     };
 
-    const eventRepository = req.container.eventRepository;
+    const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
 
     for (let i = 0; i < events.length; i++) {
       const eventData = events[i];
@@ -217,7 +233,8 @@ batchRoutes.post(
   requireAuth as RequestHandler,
   authorize('write:arcs') as RequestHandler,
   rateLimit() as RequestHandler,
-  authorizeGraphAccess((req) => (req as AuthenticatedRequest).body?.graphId) as RequestHandler,
+  resolveGraphContext() as RequestHandler,
+  authorizeGraphAccess((req) => (req as AuthenticatedRequest).graphId) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const request = req.body as BatchArcRequest;
 
@@ -238,7 +255,7 @@ batchRoutes.post(
       validationWarnings: [],
     };
 
-    const arcRepository = req.container.arcRepository;
+    const { arcRepository } = await req.container.graphScopedRepositories(req.graphId);
 
     for (let i = 0; i < arcs.length; i++) {
       const arcData = arcs[i];
@@ -299,7 +316,8 @@ batchRoutes.post(
   requireAuth as RequestHandler,
   authorize('write:relationships') as RequestHandler,
   rateLimit() as RequestHandler,
-  authorizeGraphAccess((req) => (req as AuthenticatedRequest).body?.graphId) as RequestHandler,
+  resolveGraphContext() as RequestHandler,
+  authorizeGraphAccess((req) => (req as AuthenticatedRequest).graphId) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const request = req.body as BatchRelationshipRequest;
 
@@ -320,8 +338,8 @@ batchRoutes.post(
       validationWarnings: [],
     };
 
-    const causalService = req.container.causalService;
-    const eventRepository = req.container.eventRepository;
+    const causalService = await graphScopedCausalService(req);
+    const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
 
     for (let i = 0; i < relationships.length; i++) {
       const relData = relationships[i];
@@ -427,9 +445,14 @@ batchRoutes.post(
   authenticate as RequestHandler,
   requireAuth as RequestHandler,
   rateLimit() as RequestHandler,
-  authorizeGraphAccess((req) => (req as AuthenticatedRequest).body?.graphId) as RequestHandler,
+  resolveGraphContext() as RequestHandler,
+  authorizeGraphAccess((req) => (req as AuthenticatedRequest).graphId) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const request = req.body as BatchTransactionRequest;
+    const { eventRepository, arcRepository } = await req.container.graphScopedRepositories(
+      req.graphId
+    );
+    const causalService = await graphScopedCausalService(req);
     
     // Dynamic permission check based on operation types
     const requiredPermissions = getRequiredPermissions(request.operations || []);
@@ -482,8 +505,8 @@ batchRoutes.post(
       try {
         switch (op.type) {
           case 'create_event': {
-            const event = await req.container.eventRepository.create(
-              op.data as unknown as Parameters<typeof req.container.eventRepository.create>[0]
+            const event = await eventRepository.create(
+              op.data as unknown as Parameters<typeof eventRepository.create>[0]
             );
             opResult = { success: true, id: event.id };
             createdIds.push({ type: 'event', id: event.id });
@@ -491,8 +514,8 @@ batchRoutes.post(
           }
 
           case 'create_arc': {
-            const arc = await req.container.arcRepository.create(
-              op.data as unknown as Parameters<typeof req.container.arcRepository.create>[0]
+            const arc = await arcRepository.create(
+              op.data as unknown as Parameters<typeof arcRepository.create>[0]
             );
             opResult = { success: true, id: arc.id };
             createdIds.push({ type: 'arc', id: arc.id });
@@ -501,28 +524,28 @@ batchRoutes.post(
 
           case 'update_event': {
             const { id: eventId, ...eventUpdates } = op.data as { id: string } & Record<string, unknown>;
-            const updatedEvent = await req.container.eventRepository.update(eventId, eventUpdates);
+            const updatedEvent = await eventRepository.update(eventId, eventUpdates);
             opResult = { success: !!updatedEvent, id: eventId };
             break;
           }
 
           case 'update_arc': {
             const { id: arcId, ...arcUpdates } = op.data as { id: string } & Record<string, unknown>;
-            const updatedArc = await req.container.arcRepository.update(arcId, arcUpdates);
+            const updatedArc = await arcRepository.update(arcId, arcUpdates);
             opResult = { success: !!updatedArc, id: arcId };
             break;
           }
 
           case 'delete_event': {
             const deleteEventId = (op.data as { id: string }).id;
-            const deletedEvent = await req.container.eventRepository.delete(deleteEventId);
+            const deletedEvent = await eventRepository.delete(deleteEventId);
             opResult = { success: deletedEvent, id: deleteEventId };
             break;
           }
 
           case 'delete_arc': {
             const deleteArcId = (op.data as { id: string }).id;
-            const deletedArc = await req.container.arcRepository.delete(deleteArcId);
+            const deletedArc = await arcRepository.delete(deleteArcId);
             opResult = { success: deletedArc, id: deleteArcId };
             break;
           }
@@ -536,11 +559,11 @@ batchRoutes.post(
               confidence?: number;
               relationship_type?: 'direct' | 'indirect' | 'contributory';
             };
-            const causeEvent = await req.container.eventRepository.findById(relData.cause_event_id);
-            const effectEvent = await req.container.eventRepository.findById(relData.effect_event_id);
+            const causeEvent = await eventRepository.findById(relData.cause_event_id);
+            const effectEvent = await eventRepository.findById(relData.effect_event_id);
             if (!causeEvent) throw new Error(`Cause event not found: ${relData.cause_event_id}`);
             if (!effectEvent) throw new Error(`Effect event not found: ${relData.effect_event_id}`);
-            await req.container.causalService.createCausalLink(causeEvent, effectEvent, {
+            await causalService.createCausalLink(causeEvent, effectEvent, {
               weight: relData.weight || 0.5,
               evidence: relData.evidence || '',
               confidence: relData.confidence || 0.5,
@@ -560,7 +583,7 @@ batchRoutes.post(
 
           case 'delete_relationship': {
             const deleteRelData = op.data as { cause_event_id: string; effect_event_id: string };
-            await req.container.causalService.deleteCausalLink(
+            await causalService.deleteCausalLink(
               deleteRelData.cause_event_id,
               deleteRelData.effect_event_id
             );
@@ -584,16 +607,16 @@ batchRoutes.post(
             try {
               switch (created.type) {
                 case 'event':
-                  await req.container.eventRepository.delete(created.id);
+                  await eventRepository.delete(created.id);
                   break;
                 case 'arc':
-                  await req.container.arcRepository.delete(created.id);
+                  await arcRepository.delete(created.id);
                   break;
                 case 'relationship': {
                   // Relationship ID format: cause_effect
                   const [causeId, effectId] = created.id.split('_');
                   if (causeId && effectId) {
-                    await req.container.causalService.deleteCausalLink(causeId, effectId);
+                    await causalService.deleteCausalLink(causeId, effectId);
                   }
                   break;
                 }

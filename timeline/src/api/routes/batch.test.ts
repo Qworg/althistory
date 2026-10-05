@@ -4,11 +4,25 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
-import express, { Request } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import { batchRoutes } from './batch';
 import { errorHandler } from '@/api/middleware';
 import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
+
+// The routes now build a graph-scoped `CausalService` per request from the
+// container's live store. Stub the class so these tests assert batch wiring
+// without a real Neo4j session or file store behind it.
+const { causalServiceMock } = vi.hoisted(() => ({
+  causalServiceMock: {
+    createCausalLink: vi.fn(),
+    deleteCausalLink: vi.fn(),
+  },
+}));
+
+vi.mock('@/services/CausalService', () => ({
+  CausalService: vi.fn().mockImplementation(() => causalServiceMock),
+}));
 
 // Mock the middleware module before importing routes
 vi.mock('@/api/middleware', async () => {
@@ -37,6 +51,18 @@ vi.mock('@/api/middleware', async () => {
     authorize: () => (req: any, res: any, next: any) => next(),
     rateLimit: () => (req: any, res: any, next: any) => next(),
     authorizeGraphAccess: () => (req: any, res: any, next: any) => next(),
+    // Mirror the real middleware's contract without booting the global
+    // container: a request is scoped by X-Graph-Id or rejected (never
+    // resolved to the global store). Graph resolution itself is covered by
+    // `graph-context.test.ts`.
+    resolveGraphContext: () => (req: Request, res: Response, next: NextFunction) => {
+      const graphId = req.get('X-Graph-Id');
+      if (!graphId) {
+        return res.status(404).json({ error: { message: 'No graph context available' } });
+      }
+      req.graphId = graphId;
+      next();
+    },
     asyncHandler: (fn: any) => (req: any, res: any, next: any) => {
       Promise.resolve(fn(req, res, next)).catch(next);
     },
@@ -47,10 +73,12 @@ vi.mock('@/api/middleware', async () => {
 let app: express.Application;
 let mockEventRepository: any;
 let mockArcRepository: any;
-let mockCausalService: any;
+/** Graph ids the routes asked the container to scope to, in call order. */
+let scopedGraphIds: string[];
 
 describe('Batch Routes', () => {
   beforeEach(() => {
+    scopedGraphIds = [];
     mockEventRepository = {
       create: vi.fn().mockImplementation((data: any) => {
         return Promise.resolve(new Event({ ...data, id: `evt-${Date.now()}` }));
@@ -80,9 +108,8 @@ describe('Batch Routes', () => {
       delete: vi.fn().mockResolvedValue(true),
     };
 
-    mockCausalService = {
-      createCausalLink: vi.fn().mockResolvedValue({}),
-    };
+    causalServiceMock.createCausalLink.mockReset().mockResolvedValue({});
+    causalServiceMock.deleteCausalLink.mockReset().mockResolvedValue('rel-1');
 
     // Create fresh app for each test
     app = express();
@@ -93,7 +120,14 @@ describe('Batch Routes', () => {
       req.container = {
         eventRepository: mockEventRepository,
         arcRepository: mockArcRepository,
-        causalService: mockCausalService,
+        graphContextStore: { getStore: vi.fn().mockResolvedValue({}) },
+        graphScopedRepositories: (graphId: string) => {
+          scopedGraphIds.push(graphId);
+          return Promise.resolve({
+            eventRepository: mockEventRepository,
+            arcRepository: mockArcRepository,
+          });
+        },
       } as any;
       next();
     });
@@ -119,6 +153,7 @@ describe('Batch Routes', () => {
       const response = await request(app)
         .post('/api/batch/events')
         .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
         .send({ events: [{ description: 'Test' }] })
         .expect(400);
 
@@ -129,6 +164,7 @@ describe('Batch Routes', () => {
       const response = await request(app)
         .post('/api/batch/events')
         .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
         .send({ graphId: 'test', events: [] })
         .expect(400);
 
@@ -139,6 +175,7 @@ describe('Batch Routes', () => {
       const response = await request(app)
         .post('/api/batch/events')
         .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
         .send({
           graphId: 'test-graph',
           events: [
@@ -157,6 +194,7 @@ describe('Batch Routes', () => {
       const response = await request(app)
         .post('/api/batch/events')
         .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
         .send({
           graphId: 'test-graph',
           validation: 'strict',
@@ -176,6 +214,7 @@ describe('Batch Routes', () => {
       const response = await request(app)
         .post('/api/batch/arcs')
         .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
         .send({
           graphId: 'test-graph',
           arcs: [
@@ -206,6 +245,7 @@ describe('Batch Routes', () => {
       const response = await request(app)
         .post('/api/batch/relationships')
         .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
         .send({
           graphId: 'test-graph',
           relationships: [
@@ -215,7 +255,7 @@ describe('Batch Routes', () => {
         .expect(201);
 
       expect(response.body.success).toBe(true);
-      expect(mockCausalService.createCausalLink).toHaveBeenCalled();
+      expect(causalServiceMock.createCausalLink).toHaveBeenCalled();
     });
 
     it('should fail for non-existent events', async () => {
@@ -224,6 +264,7 @@ describe('Batch Routes', () => {
       const response = await request(app)
         .post('/api/batch/relationships')
         .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
         .send({
           graphId: 'test-graph',
           relationships: [
@@ -241,6 +282,7 @@ describe('Batch Routes', () => {
       const response = await request(app)
         .post('/api/batch/transaction')
         .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
         .send({
           graphId: 'test-graph',
           operations: [
@@ -258,6 +300,42 @@ describe('Batch Routes', () => {
 
       expect(response.body.success).toBe(true);
       expect(response.body.results.length).toBe(2);
+    });
+  });
+
+  describe('graph context', () => {
+    it('scopes writes to the resolved graph id rather than the global store', async () => {
+      await request(app)
+        .post('/api/batch/events')
+        .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'graph-a')
+        .send({
+          graphId: 'graph-a',
+          events: [
+            { description: 'Event', actor: 'Actor', target: 'Target', timestamp: '1914-06-28T00:00:00.000Z' },
+          ],
+        })
+        .expect(201);
+
+      expect(scopedGraphIds).toEqual(['graph-a']);
+      expect(mockEventRepository.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a request with no graph context instead of falling back to global data', async () => {
+      const response = await request(app)
+        .post('/api/batch/events')
+        .set('X-API-Key', 'valid-write-key')
+        .send({
+          graphId: 'graph-a',
+          events: [
+            { description: 'Event', actor: 'Actor', target: 'Target', timestamp: '1914-06-28T00:00:00.000Z' },
+          ],
+        })
+        .expect(404);
+
+      expect(response.body.error.message).toBe('No graph context available');
+      expect(scopedGraphIds).toEqual([]);
+      expect(mockEventRepository.create).not.toHaveBeenCalled();
     });
   });
 });

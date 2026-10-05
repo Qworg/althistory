@@ -1,9 +1,14 @@
 import { Router, Response, NextFunction } from 'express';
 import { CreateEventRequest, UpdateEventRequest, TimeRange } from '@/models/Event';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
-import { RequestWithContainer } from '@/api/middleware';
+import { RequestWithContainer, resolveGraphContext } from '@/api/middleware';
 
 export const eventRoutes = Router();
+
+// Scope every route in this group to exactly one graph. `resolveGraphContext`
+// resolves X-Graph-Id (falling back to the active graph) and attaches a
+// non-optional `req.graphId`; the handlers below read from that scope only.
+eventRoutes.use(resolveGraphContext());
 
 /**
  * POST /events - Create a new event
@@ -27,8 +32,8 @@ eventRoutes.post('/', async (req: RequestWithContainer, res: Response, next: Nex
       eventData.timestamp = new Date(eventData.timestamp);
     }
 
-    // Use repository from container
-    const repository = req.container.eventRepository;
+    // Repositories bound to this request's graph; never the global store.
+    const { eventRepository: repository } = await req.container.graphScopedRepositories(req.graphId);
     const event = await repository.create(eventData);
 
     // Mirror the write into the active graph's version store so version history
@@ -55,8 +60,8 @@ eventRoutes.post('/', async (req: RequestWithContainer, res: Response, next: Nex
  */
 eventRoutes.get('/', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    // Use repository from container
-    const repository = req.container.eventRepository;
+    // Repositories bound to this request's graph; never the global store.
+    const { eventRepository: repository } = await req.container.graphScopedRepositories(req.graphId);
     
     // Parse query parameters
     const {
@@ -149,7 +154,7 @@ eventRoutes.get('/', async (req: RequestWithContainer, res: Response, next: Next
  */
 eventRoutes.get('/stats/count', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const repository = req.container.eventRepository;
+    const { eventRepository: repository } = await req.container.graphScopedRepositories(req.graphId);
     const { actor, startTime, endTime } = req.query;
 
     let count;
@@ -196,7 +201,7 @@ eventRoutes.get('/:id', async (req: RequestWithContainer, res: Response, next: N
       throw new ValidationError('Event ID is required', 'id', id);
     }
 
-    const repository = req.container.eventRepository;
+    const { eventRepository: repository } = await req.container.graphScopedRepositories(req.graphId);
     const event = await repository.findById(id);
     
     if (!event) {
@@ -230,7 +235,7 @@ eventRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: N
       updates.timestamp = new Date(updates.timestamp);
     }
 
-    const repository = req.container.eventRepository;
+    const { eventRepository: repository } = await req.container.graphScopedRepositories(req.graphId);
     
     // Check if event exists first
     const existingEvent = await repository.findById(id);
@@ -272,7 +277,7 @@ eventRoutes.delete('/:id', async (req: RequestWithContainer, res: Response, next
       throw new ValidationError('Event ID is required', 'id', id);
     }
 
-    const repository = req.container.eventRepository;
+    const { eventRepository: repository } = await req.container.graphScopedRepositories(req.graphId);
     
     // Check if event exists first
     const existingEvent = await repository.findById(id);

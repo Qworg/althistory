@@ -33,6 +33,10 @@ vi.mock('@/api/middleware', async () => {
       next();
     },
     rateLimit: () => (req: any, res: any, next: any) => next(),
+    resolveGraphContext: () => (req: any, _res: any, next: any) => {
+      req.graphId = req.get('X-Graph-Id') || 'test-graph';
+      next();
+    },
     authorizeGraphAccess: () => (req: any, res: any, next: any) => next(),
     authorize: () => (req: any, res: any, next: any) => next(),
     asyncHandler: (fn: any) => (req: any, res: any, next: any) => {
@@ -46,6 +50,7 @@ let app: express.Application;
 let mockEventRepository: any;
 let mockCausalService: any;
 let mockInferenceService: any;
+let mockGraphScopedRepositories: any;
 
 describe('Suggest Routes', () => {
   beforeEach(() => {
@@ -63,6 +68,10 @@ describe('Suggest Routes', () => {
       analyzeEventClusters: vi.fn().mockReturnValue([]),
     };
 
+    mockGraphScopedRepositories = vi.fn().mockResolvedValue({
+      eventRepository: mockEventRepository,
+    });
+
     // Create fresh app for each test
     app = express();
     app.use(express.json());
@@ -73,6 +82,7 @@ describe('Suggest Routes', () => {
         eventRepository: mockEventRepository,
         causalService: mockCausalService,
         inferenceService: mockInferenceService,
+        graphScopedRepositories: mockGraphScopedRepositories,
       } as any;
       next();
     });
@@ -229,21 +239,27 @@ describe('Suggest Routes', () => {
   });
 
   describe('POST /api/suggest/completeness', () => {
-    it('should require graphId', async () => {
+    it('reads events from the graph resolved by context, not a body graphId', async () => {
+      mockEventRepository.findAll.mockResolvedValue([
+        { id: 'e1', description: 'Event 1', actor: 'A', target: 'B', timestamp: '1914-06-28T00:00:00.000Z' },
+      ]);
+
       const response = await request(app)
         .post('/api/suggest/completeness')
         .set('X-API-Key', 'valid-read-key')
+        .set('X-Graph-Id', 'scoped-graph')
         .send({})
-        .expect(400);
+        .expect(200);
 
-      expect(response.body.error.message).toBe('graphId is required');
+      expect(mockGraphScopedRepositories).toHaveBeenCalledWith('scoped-graph');
+      expect(response.body.gaps).toBeDefined();
     });
 
     it('should analyze empty graph', async () => {
       const response = await request(app)
         .post('/api/suggest/completeness')
         .set('X-API-Key', 'valid-read-key')
-        .send({ graphId: 'empty-graph' })
+        .send({})
         .expect(200);
 
       expect(response.body.gaps).toBeDefined();
@@ -261,9 +277,10 @@ describe('Suggest Routes', () => {
       const response = await request(app)
         .post('/api/suggest/completeness')
         .set('X-API-Key', 'valid-read-key')
-        .send({ graphId: 'test-graph' })
+        .send({})
         .expect(200);
 
+      expect(mockGraphScopedRepositories).toHaveBeenCalledWith('test-graph');
       expect(response.body.overallCompleteness).toBeGreaterThan(0);
       expect(response.body.gaps.temporalGaps).toBeDefined();
       expect(response.body.gaps.actorGaps).toBeDefined();

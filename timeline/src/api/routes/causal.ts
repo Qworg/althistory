@@ -1,8 +1,43 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { ValidationError, NotFoundError } from '@/utils/errors';
 import { CausalRelationship, CausalRelationshipType } from '@/models/relationships';
+import { resolveGraphContext } from '@/api/middleware';
+import { EventRepository } from '@/repositories/EventRepository';
+import { CausalService } from '@/services/CausalService';
 
 export const causalRoutes = Router();
+
+// Resolve exactly one graph for every causal request before any handler runs.
+// Mounted on this router rather than globally so routes owned by other
+// migrations keep their current behaviour until they are converted in turn.
+causalRoutes.use(resolveGraphContext());
+
+/**
+ * Repository bound to the graph this request resolved to.
+ *
+ * `container.eventRepository` reads the process-wide legacy store; reaching for
+ * it from a handler is the cross-graph leak this migration removes. The scoped
+ * repositories come from the container's per-graph store cache, so this costs a
+ * map lookup, not a file read.
+ */
+async function graphScopedEventRepository(req: Request): Promise<EventRepository> {
+  const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+  return eventRepository;
+}
+
+/**
+ * `CausalService` bound to the graph this request resolved to.
+ *
+ * The container exposes `graphScopedRepositories`, but not yet a scoped causal
+ * service, so the wrapper is built here from the same cached store those
+ * repositories use. The store is shared, so the per-request service object is
+ * cheap; binding it is what keeps causal reads, writes and caches inside the
+ * request's graph.
+ */
+async function graphScopedCausalService(req: Request): Promise<CausalService> {
+  const store = await req.container.graphContextStore.getStore(req.graphId);
+  return new CausalService({ graphStore: store, graphId: req.graphId });
+}
 
 /**
  * Narrow an untrusted request-body value to a CausalRelationshipType.
@@ -49,8 +84,8 @@ causalRoutes.post('/link', async (req: Request, res: Response, next: NextFunctio
       );
     }
 
-    // Get events from repository
-    const eventRepository = req.container.eventRepository;
+    // Get events from the request's graph, never the process-wide store.
+    const eventRepository = await graphScopedEventRepository(req);
     const causeEvent = await eventRepository.findById(causeEventId);
     const effectEvent = await eventRepository.findById(effectEventId);
 
@@ -71,8 +106,8 @@ causalRoutes.post('/link', async (req: Request, res: Response, next: NextFunctio
       evidence: toEvidence(relationship.evidence)
     };
 
-    // Create causal link
-    const causalService = req.container.causalService;
+    // Create causal link in the request's graph.
+    const causalService = await graphScopedCausalService(req);
     const storedRelationship = await causalService.createCausalLink(
       causeEvent,
       effectEvent,
@@ -115,16 +150,16 @@ causalRoutes.get('/chain/:eventId', async (req: Request, res: Response, next: Ne
       throw new ValidationError('Max depth must be a number between 1 and 10', 'maxDepth', maxDepth);
     }
 
-    // Get the starting event
-    const eventRepository = req.container.eventRepository;
+    // Get the starting event from the request's graph.
+    const eventRepository = await graphScopedEventRepository(req);
     const startEvent = await eventRepository.findById(eventId);
     
     if (!startEvent) {
       throw new NotFoundError(`Event with ID ${eventId} not found`, 'Event', eventId);
     }
 
-    // Find causal chain
-    const causalService = req.container.causalService;
+    // Find causal chain within the request's graph.
+    const causalService = await graphScopedCausalService(req);
     const causalPaths = await causalService.findCausalChain(startEvent, parsedMaxDepth);
 
     res.json({
@@ -159,7 +194,7 @@ causalRoutes.get('/cycles', async (req: Request, res: Response, next: NextFuncti
       throw new ValidationError('Offset must be a non-negative number', 'offset', offset);
     }
 
-    const causalService = req.container.causalService;
+    const causalService = await graphScopedCausalService(req);
     const cycles = await causalService.detectCausalCycles();
 
     // Apply pagination
@@ -210,8 +245,8 @@ causalRoutes.get('/suggestions', async (req: Request, res: Response, next: NextF
 
     const inferenceService = req.container.inferenceService;
     // Get all events first, then use inference service to suggest causal links
-    const eventRepository = req.container.eventRepository;
-    const events = await eventRepository.findAll(100); // Get sample of events
+    const eventRepository = await graphScopedEventRepository(req);
+    const events = await eventRepository.findAll(100); // Get sample of this graph's events
     // Confidence lives on the suggested relationship, not on the suggestion wrapper.
     const suggestions = inferenceService.suggestCausalLinks(events).filter(
       s => s.suggested_relationship.confidence >= parsedMinConfidence
@@ -256,8 +291,8 @@ causalRoutes.post('/validate', async (req: Request, res: Response, next: NextFun
       );
     }
 
-    // Get events from repository
-    const eventRepository = req.container.eventRepository;
+    // Get events from the request's graph, never the process-wide store.
+    const eventRepository = await graphScopedEventRepository(req);
     const causeEvent = await eventRepository.findById(causeEventId);
     const effectEvent = await eventRepository.findById(effectEventId);
 
@@ -292,7 +327,7 @@ causalRoutes.post('/validate', async (req: Request, res: Response, next: NextFun
  */
 causalRoutes.get('/relationships', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const causalService = req.container.causalService;
+    const causalService = await graphScopedCausalService(req);
     const relationships = await causalService.getAllRelationships();
 
     res.json({
@@ -321,8 +356,8 @@ causalRoutes.get('/relationships/:eventId', async (req: Request, res: Response, 
       throw new ValidationError('Direction must be "cause", "effect", or "both"', 'direction', direction);
     }
 
-    // Get the event
-    const eventRepository = req.container.eventRepository;
+    // Get the event from the request's graph.
+    const eventRepository = await graphScopedEventRepository(req);
     const event = await eventRepository.findById(eventId);
     
     if (!event) {
@@ -375,8 +410,8 @@ causalRoutes.put('/link', async (req: Request, res: Response, next: NextFunction
       );
     }
 
-    // Get events from repository to verify they exist
-    const eventRepository = req.container.eventRepository;
+    // Get events from the request's graph to verify they exist.
+    const eventRepository = await graphScopedEventRepository(req);
     const causeEvent = await eventRepository.findById(causeEventId);
     const effectEvent = await eventRepository.findById(effectEventId);
 
@@ -387,8 +422,8 @@ causalRoutes.put('/link', async (req: Request, res: Response, next: NextFunction
       throw new NotFoundError(`Effect event with ID ${effectEventId} not found`, 'Event', effectEventId);
     }
 
-    // Update causal link
-    const causalService = req.container.causalService;
+    // Update causal link in the request's graph.
+    const causalService = await graphScopedCausalService(req);
     const updatedRelationship = await causalService.updateCausalLink(causeEventId, effectEventId, {
       weight: relationship.weight,
       confidence: relationship.confidence,
@@ -430,8 +465,8 @@ causalRoutes.delete('/link', async (req: Request, res: Response, next: NextFunct
       );
     }
 
-    // Get events from repository to verify they exist
-    const eventRepository = req.container.eventRepository;
+    // Get events from the request's graph to verify they exist.
+    const eventRepository = await graphScopedEventRepository(req);
     const causeEvent = await eventRepository.findById(causeEventId);
     const effectEvent = await eventRepository.findById(effectEventId);
 
@@ -442,8 +477,8 @@ causalRoutes.delete('/link', async (req: Request, res: Response, next: NextFunct
       throw new NotFoundError(`Effect event with ID ${effectEventId} not found`, 'Event', effectEventId);
     }
 
-    // Delete the causal link
-    const causalService = req.container.causalService;
+    // Delete the causal link from the request's graph.
+    const causalService = await graphScopedCausalService(req);
     const deletedRelationshipId = await causalService.deleteCausalLink(causeEventId, effectEventId);
 
     await req.container.graphWriteVersioningService.recordDeletion('relationship', deletedRelationshipId);

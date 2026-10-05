@@ -8,6 +8,7 @@ import {
   authenticate,
   requireAuth,
   rateLimit,
+  resolveGraphContext,
   authorizeGraphAccess,
   authorizeAny,
   asyncHandler,
@@ -37,7 +38,6 @@ interface ValidationRequest {
 }
 
 interface IncrementalValidationRequest {
-  graphId: string;
   additions?: {
     events?: IEvent[];
     arcs?: ValidationArc[];
@@ -397,16 +397,11 @@ validateRoutes.post(
   requireAuth as RequestHandler,
   authorizeAny('read:events', 'read:arcs', 'read:relationships') as RequestHandler,
   rateLimit() as RequestHandler,
-  authorizeGraphAccess((req) => req.body?.graphId) as RequestHandler,
+  resolveGraphContext(),
+  authorizeGraphAccess((req) => req.graphId) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const request = req.body as IncrementalValidationRequest;
-
-      if (!request.graphId) {
-        return res.status(400).json({
-          error: { message: 'graphId is required' },
-        });
-      }
 
       const response: IncrementalValidationResponse = {
         valid: true,
@@ -423,8 +418,12 @@ validateRoutes.post(
         return res.json(response);
       }
 
-      const eventRepository = req.container.eventRepository;
-      const arcRepository = req.container.arcRepository;
+      // Read and check against the graph this request is scoped to. The scoped
+      // repositories are bound to that graph's store, so no lookup can cross a
+      // graph boundary even for a duplicate id that exists elsewhere.
+      const { eventRepository, arcRepository } = await req.container.graphScopedRepositories(
+        req.graphId
+      );
 
       // Check for event conflicts
       if (additions.events) {
