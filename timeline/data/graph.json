@@ -1,0 +1,215 @@
+{
+  "nodes": {
+    "event_1766579606959_fz92qqr0f": {
+      "id": "event_1766579606959_fz92qqr0f",
+      "labels": [
+        "Event"
+      ],
+      "properties": {
+        "id": "event_1766579606959_fz92qqr0f",
+        "description": "A Child Is Born",
+        "actor": "Mary",
+        "target": "Jesus",
+        "timestamp": "2025-12-24T21:33:00.000Z",
+        "metadata": {}
+      }
+    },
+    "event_1766579631469_yi0o6iopc": {
+      "id": "event_1766579631469_yi0o6iopc",
+      "labels": [
+        "Event"
+      ],
+      "properties": {
+        "id": "event_1766579631469_yi0o6iopc",
+        "description": "A Child Is Born",
+        "actor": "Mary",
+        "target": "Jesus",
+        "timestamp": "2025-12-24T21:33:00.000Z",
+        "metadata": {}
+      }
+    },
+    "event_1766579690811_at9sihflw": {
+      "id": "event_1766579690811_at9sihflw",
+      "labels": [
+        "Event"
+      ],
+      "properties": {
+        "id": "event_1766579690811_at9sihflw",
+        "description": "A Child Is Born",
+        "actor": "Bob",
+        "target": "Tony",
+        "timestamp": "2025-12-23T21:33:00.000Z",
+        "metadata": {}
+      }
+    },
+    "event_1766579971855_f5gqt0bcu": {
+      "id": "event_1766579971855_f5gqt0bcu",
+      "labels": [
+        "Event"
+      ],
+      "properties": {
+        "id": "event_1766579971855_f5gqt0bcu",
+        "description": "A child dead",
+        "actor": "Death",
+        "target": "Tony",
+        "timestamp": "2025-12-24T21:37:00.000Z",
+        "metadata": {}
+      }
+    },
+    "arc_1766614274638_5tu16x8od": {
+      "id": "arc_1766614274638_5tu16x8od",
+      "labels": [
+        "Arc"
+      ],
+      "properties": {
+        "id": "arc_1766614274638_5tu16x8od",
+        "name": "Bob Arc",
+        "description": "Tom and Bob",
+        "start_time": "2025-12-23T18:00:00.000Z",
+        "end_time": "2025-12-25T09:23:00.000Z",
+        "level": 0,
+        "metadata": {}
+      }
+    },
+    "event_1767072257433_lvaw9cnop": {
+      "id": "event_1767072257433_lvaw9cnop",
+      "labels": [
+        "Event"
+      ],
+      "properties": {
+        "id": "event_1767072257433_lvaw9cnop",
+        "description": "Someone woke up",
+        "actor": "Jeff",
+        "target": "Jeff",
+        "timestamp": "2025-12-29T23:23:00.000Z",
+        "metadata": {}
+      }
+    }
+  },
+  "relationships": {
+    "local_1766844017430_dy1zyk1ea": {
+      "id": "local_1766844017430_dy1zyk1ea",
+      "type": "CAUSES",
+      "startNodeId": "event_1766579690811_at9sihflw",
+      "endNodeId": "event_1766579631469_yi0o6iopc",
+      "properties": {
+        "weight": 0.5,
+        "evidence": "User-created relationship",
+        "confidence": 0.7,
+        "relationship_type": "direct",
+        "created_at": "2025-12-27T14:00:17.430Z"
+      }
+    },
+    "local_1766844025225_5h86klfts": {
+      "id": "local_1766844025225_5h86klfts",
+      "type": "CAUSES",
+      "startNodeId": "event_1766579631469_yi0o6iopc",
+      "endNodeId": "event_1766579971855_f5gqt0bcu",
+      "properties": {
+        "weight": 0.5,
+        "evidence": "User-created relationship",
+        "confidence": 0.7,
+        "relationship_type": "direct",
+        "created_at": "2025-12-27T14:00:25.225Z"
+      }
+    },
+    "local_1766844815876_9i2e0bh5s": {
+      "id": "local_1766844815876_9i2e0bh5s",
+      "type": "CAUSES",
+      "startNodeId": "event_1766579606959_fz92qqr0f",
+      "endNodeId": "event_1766579971855_f5gqt0bcu",
+      "properties": {
+        "weight": 0.5,
+        "evidence": "User-created relationship",
+        "confidence": 0.7,
+        "relationship_type": "direct",
+        "created_at": "2025-12-27T14:13:35.876Z"
+      }
+    },
+    "local_1767072293349_q4aqexm5d": {
+      "id": "local_1767072293349_q4aqexm5d",
+      "type": "CAUSES",
+      "startNodeId": "event_1766579631469_yi0o6iopc",
+      "endNodeId": "event_1767072257433_lvaw9cnop",
+      "properties": {
+        "weight": 0.5,
+        "evidence": "User-created relationship",
+        "confidence": 0.7,
+        "relationship_type": "direct",
+        "created_at": "2025-12-30T05:24:53.349Z"
+      }
+    }
+  },
+  "nodesByLabel": {
+    "Event": [
+      "event_1766579606959_fz92qqr0f",
+      "event_1766579631469_yi0o6iopc",
+      "event_1766579690811_at9sihflw",
+      "event_1766579971855_f5gqt0bcu",
+      "event_1767072257433_lvaw9cnop"
+    ],
+    "Arc": [
+      "arc_1766614274638_5tu16x8od"
+    ]
+  },
+  "relationshipsByType": {
+    "CAUSES": [
+      "local_1766844017430_dy1zyk1ea",
+      "local_1766844025225_5h86klfts",
+      "local_1766844815876_9i2e0bh5s",
+      "local_1767072293349_q4aqexm5d"
+    ]
+  },
+  "backups": [
+    {
+      "timestamp": "2025-12-27T21:18:54.338Z",
+      "filename": "graph_backup_2025-12-27T21-18-54-338Z.json",
+      "size": 5146
+    },
+    {
+      "timestamp": "2025-12-27T21:23:54.350Z",
+      "filename": "graph_backup_2025-12-27T21-23-54-350Z.json",
+      "size": 5146
+    },
+    {
+      "timestamp": "2025-12-27T21:28:54.357Z",
+      "filename": "graph_backup_2025-12-27T21-28-54-357Z.json",
+      "size": 5146
+    },
+    {
+      "timestamp": "2025-12-27T21:33:54.378Z",
+      "filename": "graph_backup_2025-12-27T21-33-54-378Z.json",
+      "size": 5146
+    },
+    {
+      "timestamp": "2025-12-27T21:38:54.382Z",
+      "filename": "graph_backup_2025-12-27T21-38-54-382Z.json",
+      "size": 5146
+    },
+    {
+      "timestamp": "2025-12-27T21:43:54.403Z",
+      "filename": "graph_backup_2025-12-27T21-43-54-403Z.json",
+      "size": 5146
+    },
+    {
+      "timestamp": "2025-12-27T21:48:54.423Z",
+      "filename": "graph_backup_2025-12-27T21-48-54-423Z.json",
+      "size": 5146
+    },
+    {
+      "timestamp": "2025-12-27T22:54:01.681Z",
+      "filename": "graph_backup_2025-12-27T22-54-01-681Z.json",
+      "size": 5146
+    },
+    {
+      "timestamp": "2025-12-27T22:59:01.699Z",
+      "filename": "graph_backup_2025-12-27T22-59-01-699Z.json",
+      "size": 5146
+    },
+    {
+      "timestamp": "2025-12-27T23:41:50.638Z",
+      "filename": "graph_backup_2025-12-27T23-41-50-638Z.json",
+      "size": 5146
+    }
+  ]
+}
