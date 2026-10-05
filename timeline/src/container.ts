@@ -589,6 +589,25 @@ export class Container implements ServiceContainer {
 }
 
 /**
+ * The container as seen by request handlers: the full container minus the two
+ * process-wide, unscoped live-store repositories (`eventRepository` and
+ * `arcRepository`).
+ *
+ * This type exists so that graph scoping is *structural* rather than a
+ * convention: a handler that reaches for an unscoped repository through
+ * `req.container` is a compile error, so a forgotten scope cannot ship. It does
+ * not delete the accessors — non-request contexts (CLI paths, tests) still hold
+ * the full `Container` and may inspect the global store deliberately. Request
+ * handlers must obtain their repositories from
+ * `req.container.graphScopedRepositories(req.graphId)`.
+ *
+ * Widening this type back to `Container` defeats the guarantee; a cast that
+ * reaches an unscoped repository is a deliberate, visible act rather than a
+ * silent leak.
+ */
+export type RequestContainer = Omit<Container, 'eventRepository' | 'arcRepository'>;
+
+/**
  * Global container instance
  */
 let container: Container | null = null;

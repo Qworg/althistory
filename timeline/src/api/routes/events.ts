@@ -38,7 +38,7 @@ eventRoutes.post('/', async (req: RequestWithContainer, res: Response, next: Nex
 
     // Mirror the write into the active graph's version store so version history
     // and ExportService see UI-created events (not only imported ones).
-    await req.container.graphWriteVersioningService.recordEvent(event, 'create');
+    await req.container.graphWriteVersioningService.recordEvent(req.graphId, event, 'create');
     
     res.status(201).json({
       success: true,
@@ -249,7 +249,7 @@ eventRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: N
       throw new DatabaseError('Failed to update event', 'update');
     }
 
-    await req.container.graphWriteVersioningService.recordEvent(updatedEvent, 'update');
+    await req.container.graphWriteVersioningService.recordEvent(req.graphId, updatedEvent, 'update');
 
     res.json({
       success: true,
@@ -291,7 +291,7 @@ eventRoutes.delete('/:id', async (req: RequestWithContainer, res: Response, next
       throw new DatabaseError('Failed to delete event', 'delete');
     }
 
-    await req.container.graphWriteVersioningService.recordDeletion('event', id);
+    await req.container.graphWriteVersioningService.recordDeletion(req.graphId, 'event', id);
 
     res.json({
       success: true,

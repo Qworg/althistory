@@ -41,10 +41,10 @@ let mockRepository: MockRepository;
 
 /** Minimal stand-in for the version-store bridge the routes now call. */
 interface MockVersioningService {
-  recordEvent: (entity: unknown, operation: string) => Promise<void>;
-  recordArc: (entity: unknown, operation: string) => Promise<void>;
-  recordRelationship: (entity: unknown, operation: string) => Promise<void>;
-  recordDeletion: (type: string, id: string) => Promise<void>;
+  recordEvent: (graphId: string, entity: unknown, operation: string) => Promise<void>;
+  recordArc: (graphId: string, entity: unknown, operation: string) => Promise<void>;
+  recordRelationship: (graphId: string, entity: unknown, operation: string) => Promise<void>;
+  recordDeletion: (graphId: string, type: string, id: string) => Promise<void>;
 }
 let mockVersioningService: MockVersioningService;
 

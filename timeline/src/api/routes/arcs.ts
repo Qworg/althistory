@@ -43,7 +43,7 @@ arcRoutes.post('/', async (req: RequestWithContainer, res: Response, next: NextF
 
     // Mirror the write into the active graph's version store so version history
     // and ExportService see UI-created arcs (not only imported ones).
-    await req.container.graphWriteVersioningService.recordArc(arc, 'create');
+    await req.container.graphWriteVersioningService.recordArc(req.graphId, arc, 'create');
     
     res.status(201).json({
       success: true,
@@ -301,7 +301,7 @@ arcRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: Nex
       throw new DatabaseError('Failed to update arc', 'update');
     }
 
-    await req.container.graphWriteVersioningService.recordArc(updatedArc, 'update');
+    await req.container.graphWriteVersioningService.recordArc(req.graphId, updatedArc, 'update');
 
     res.json({
       success: true,
@@ -343,7 +343,7 @@ arcRoutes.delete('/:id', async (req: RequestWithContainer, res: Response, next: 
       throw new DatabaseError('Failed to delete arc', 'delete');
     }
 
-    await req.container.graphWriteVersioningService.recordDeletion('arc', id);
+    await req.container.graphWriteVersioningService.recordDeletion(req.graphId, 'arc', id);
 
     res.json({
       success: true,

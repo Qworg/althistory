@@ -8,9 +8,12 @@
  * ever wrote to. A graph built through the UI therefore exported as empty.
  *
  * This is the single place where a live entity is mapped onto the version-store
- * `{ type, id, data }` shape and committed to the ACTIVE graph. The data shapes
- * deliberately mirror ImportService.commitImport so that versions produced by an
- * import and by a live write are interchangeable.
+ * `{ type, id, data }` shape and committed to the graph the caller names. The
+ * graph id is an explicit parameter of every public method: the service does not
+ * consult the active-graph pointer, because a service that chooses its own target
+ * is exactly how a request scoped to graph B ended up versioning into graph A.
+ * The data shapes deliberately mirror ImportService.commitImport so that versions
+ * produced by an import and by a live write are interchangeable.
  */
 
 import { GraphRepository } from '@/repositories/GraphRepository';
@@ -21,7 +24,7 @@ import { Arc } from '@/models/Arc';
 import { createLogger, ILogger } from '@/utils/logger';
 import { StoredCausalRelationship } from './CausalService';
 
-/** A write to a live entity that should be reflected in the active graph's version. */
+/** A write to a live entity that should be reflected in one named graph's version. */
 export type EntityWriteOperation = 'create' | 'update';
 
 export interface GraphWriteVersioningConfig {
@@ -89,50 +92,59 @@ export class GraphWriteVersioningService {
     this.logger = config.logger ?? createLogger('GraphWriteVersioningService');
   }
 
-  /** Record a created or updated event against the active graph. */
-  async recordEvent(event: Event, operation: EntityWriteOperation): Promise<void> {
-    await this.commitWrite({
+  /** Record a created or updated event against one named graph. */
+  async recordEvent(
+    graphId: string,
+    event: Event,
+    operation: EntityWriteOperation
+  ): Promise<void> {
+    await this.commitWrite(graphId, {
       type: 'event',
       id: event.id,
       data: eventToVersionData(event),
     }, operation);
   }
 
-  /** Record a created or updated arc against the active graph. */
-  async recordArc(arc: Arc, operation: EntityWriteOperation): Promise<void> {
-    await this.commitWrite({
+  /** Record a created or updated arc against one named graph. */
+  async recordArc(
+    graphId: string,
+    arc: Arc,
+    operation: EntityWriteOperation
+  ): Promise<void> {
+    await this.commitWrite(graphId, {
       type: 'arc',
       id: arc.id,
       data: arcToVersionData(arc),
     }, operation);
   }
 
-  /** Record a created or updated causal relationship against the active graph. */
+  /** Record a created or updated causal relationship against one named graph. */
   async recordRelationship(
+    graphId: string,
     relationship: StoredCausalRelationship,
     operation: EntityWriteOperation
   ): Promise<void> {
-    await this.commitWrite({
+    await this.commitWrite(graphId, {
       type: 'relationship',
       id: relationship.id,
       data: relationshipToVersionData(relationship),
     }, operation);
   }
 
-  /** Record the deletion of an entity against the active graph. */
-  async recordDeletion(type: EntityType, id: string): Promise<void> {
-    await this.commitWrite({ type, id }, 'delete');
+  /** Record the deletion of an entity against one named graph. */
+  async recordDeletion(graphId: string, type: EntityType, id: string): Promise<void> {
+    await this.commitWrite(graphId, { type, id }, 'delete');
   }
 
   /**
    * The single shared commit path.
    *
-   * No-active-graph policy: a fresh install has no active graph, and entity writes
-   * are still legal before one is created. Rather than throwing a null dereference
-   * or silently inventing a graph, the write is skipped and a warning is logged.
-   * Auto-creating a graph here would make an unrelated event create a graph as a
-   * side effect, which is more surprising than skipping versioning until the user
-   * chooses a graph.
+   * Graph resolution policy: the target graph is a required argument. The service
+   * deliberately does not resolve the active graph itself — the caller's graph
+   * context (resolved by `resolveGraphContext` middleware and carried on
+   * `req.graphId`) is the only correct target for a write, and the active-graph
+   * pointer can name a different graph entirely. There is no fallback: a write
+   * for graph B versions into graph B even while graph A is active.
    *
    * Failure policy: a version-commit failure is propagated, never swallowed. The
    * live store has already been mutated by the caller, so propagating leaves the
@@ -144,18 +156,10 @@ export class GraphWriteVersioningService {
    * the import path.
    */
   private async commitWrite(
+    graphId: string,
     write: VersionEntityWrite,
     operation: EntityWriteOperation | 'delete'
   ): Promise<void> {
-    const activeGraph = await this.graphRepository.getActiveGraph();
-    if (!activeGraph) {
-      this.logger.warn(
-        `Skipping version commit (${operation} ${write.type} ${write.id}): no active graph`,
-        { entityType: write.type, entityId: write.id, operation }
-      );
-      return;
-    }
-
     const changes: EntityChanges = { added: [], modified: [], deleted: [] };
     if (operation === 'delete') {
       changes.deleted.push({ type: write.type, id: write.id });
@@ -171,14 +175,14 @@ export class GraphWriteVersioningService {
 
     try {
       await this.graphRepository.commitChanges(
-        activeGraph.id,
+        graphId,
         changes,
         operation,
         `${operation} ${write.type} ${write.id}`
       );
     } catch (error) {
       this.logger.error(
-        `Failed to commit ${operation} ${write.type} ${write.id} to graph ${activeGraph.id}`,
+        `Failed to commit ${operation} ${write.type} ${write.id} to graph ${graphId}`,
         error
       );
       throw error;

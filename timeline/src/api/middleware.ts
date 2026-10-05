@@ -2,7 +2,7 @@ import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { DatabaseConnectionError, ErrorHandler, NotFoundError } from '@/utils/errors';
 import { assertSafeGraphId } from '@/utils/GraphContextStore';
 import { getContainer } from '@/container';
-import type { Container } from '@/container';
+import type { RequestContainer } from '@/container';
 import { ApiKey, Permission, RateLimitConfig } from '@/models/ApiKey';
 
 /**
@@ -15,14 +15,18 @@ import { ApiKey, Permission, RateLimitConfig } from '@/models/ApiKey';
  * a NARROWER request type is not assignable to it (parameters are checked
  * contravariantly). That mismatch made every `router.get/post(...)` call fail
  * with TS2769 "No overload matches this call" across the route files, because
- * `Container` is a deep type and TypeScript gave up on the structural
+ * `RequestContainer` is a deep type and TypeScript gave up on the structural
  * comparison. With the augmentation below, handlers can simply use `Request`.
+ *
+ * `container` is typed as `RequestContainer` rather than `Container`: see the
+ * type's declaration for why handlers must not be able to reach an unscoped
+ * repository.
  */
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      container: Container;
+      container: RequestContainer;
       requestId: string;
       startTime: number;
       /**
