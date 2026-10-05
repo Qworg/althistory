@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import type { UseQueryResult } from '@tanstack/react-query'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { GraphManagerModal } from './GraphManagerModal'
+import type { ModalBaseProps } from '@/components/modals/ModalBase'
 import { 
   useGraphManagement, 
   useGraphVersions, 
@@ -12,7 +14,7 @@ import { Graph, GraphVersion } from '@/types'
 // Mock dependencies
 vi.mock('@/hooks/useGraphs')
 vi.mock('@/components/modals/ModalBase', () => ({
-  ModalBase: ({ isOpen, onClose, title, children }: any) => (
+  ModalBase: ({ isOpen, onClose, title, children }: ModalBaseProps) => (
     isOpen ? (
       <div data-testid="modal" role="dialog">
         <h2>{title}</h2>
@@ -97,18 +99,135 @@ const mockVersions: GraphVersion[] = [
   }
 ]
 
-const createMockGraphManagement = (overrides = {}) => ({
+type MockQuerySpec<TData> =
+  | { data: TData }
+  | { data?: undefined; loading: boolean }
+  | { error: Error }
+
+/** Builds a useQuery result shaped like the one the graph hooks return. */
+const createMockQueryResult = <TData,>(spec: MockQuerySpec<TData>): UseQueryResult<TData, Error> => {
+  const base = {
+    dataUpdatedAt: 0,
+    errorUpdateCount: 0,
+    errorUpdatedAt: 0,
+    failureCount: 0,
+    failureReason: null,
+    isEnabled: true,
+    isInitialLoading: false,
+    isPaused: false,
+    isRefetching: false,
+    isStale: false,
+    refetch: vi.fn(),
+  }
+
+  if ('error' in spec) {
+    return {
+      ...base,
+      data: undefined,
+      error: spec.error,
+      fetchStatus: 'idle',
+      isError: true,
+      isFetched: true,
+      isFetchedAfterMount: true,
+      isFetching: false,
+      isLoading: false,
+      isLoadingError: true,
+      isPending: false,
+      isPlaceholderData: false,
+      isRefetchError: false,
+      isSuccess: false,
+      status: 'error',
+      promise: new Promise<TData>(() => undefined),
+    }
+  }
+
+  if ('loading' in spec) {
+    return {
+      ...base,
+      data: undefined,
+      error: null,
+      fetchStatus: spec.loading ? 'fetching' : 'idle',
+      isError: false,
+      isFetched: false,
+      isFetchedAfterMount: false,
+      isFetching: spec.loading,
+      isLoading: spec.loading,
+      isLoadingError: false,
+      isPending: true,
+      isPlaceholderData: false,
+      isRefetchError: false,
+      isSuccess: false,
+      status: 'pending',
+      promise: new Promise<TData>(() => undefined),
+    }
+  }
+
+  return {
+    ...base,
+    data: spec.data,
+    error: null,
+    fetchStatus: 'idle',
+    isError: false,
+    isFetched: true,
+    isFetchedAfterMount: true,
+    isFetching: false,
+    isLoading: false,
+    isLoadingError: false,
+    isPending: false,
+    isPlaceholderData: false,
+    isRefetchError: false,
+    isSuccess: true,
+    status: 'success',
+    promise: Promise.resolve(spec.data),
+  }
+}
+
+/** The last of the queried elements, which the fixtures guarantee exists. */
+const lastOf = (elements: Element[], what: string): Element => {
+  const element = elements[elements.length - 1]
+  if (!element) {
+    throw new Error(`Expected ${what} to be rendered`)
+  }
+  return element
+}
+
+/** The graph at `index`, which the fixed fixture above guarantees exists. */
+const graphAt = (index: number): Graph => {
+  const graph = mockGraphs[index]
+  if (!graph) {
+    throw new Error(`Expected a graph at index ${index}`)
+  }
+  return graph
+}
+
+/** The value useGraphManagement resolves to. */
+type GraphManagement = ReturnType<typeof useGraphManagement>
+
+const createMockGraphManagement = (
+  overrides: Partial<GraphManagement> = {}
+): GraphManagement => ({
   activeGraphId: 'graph1',
-  activeGraph: mockGraphs[0],
+  activeGraph: graphAt(0),
   graphs: mockGraphs,
+  totalGraphs: mockGraphs.length,
+  isLoading: false,
+  isLoadingGraphs: false,
+  isLoadingActive: false,
+  error: null,
+  createGraph: vi.fn(),
   updateGraph: vi.fn(),
   deleteGraph: vi.fn(),
-  branchGraph: vi.fn().mockResolvedValue({ id: 'new-branch' }),
+  branchGraph: vi.fn().mockResolvedValue(graphAt(1)),
+  mergeGraph: vi.fn(),
+  rollbackGraph: vi.fn().mockResolvedValue(graphAt(0)),
   switchGraph: vi.fn(),
-  rollbackGraph: vi.fn().mockResolvedValue({}),
+  isCreating: false,
+  isUpdating: false,
   isDeleting: false,
   isBranching: false,
+  isMerging: false,
   isRollingBack: false,
+  isSwitching: false,
   ...overrides
 })
 
@@ -119,17 +238,9 @@ describe('GraphManagerModal', () => {
 
   beforeEach(() => {
     mockGraphManagement = createMockGraphManagement()
-    vi.mocked(useGraphManagement).mockReturnValue(mockGraphManagement as any)
-    vi.mocked(useGraphVersions).mockReturnValue({
-      data: mockVersions,
-      isLoading: false,
-      error: null
-    } as any)
-    vi.mocked(useGraphBranches).mockReturnValue({
-      data: [mockGraphs[1]],
-      isLoading: false,
-      error: null
-    } as any)
+    vi.mocked(useGraphManagement).mockReturnValue(mockGraphManagement)
+    vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({ data: mockVersions }))
+    vi.mocked(useGraphBranches).mockReturnValue(createMockQueryResult({ data: [graphAt(1)] }))
   })
 
   afterEach(() => {
@@ -254,10 +365,13 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      // Click on the active graph
-      const graphCards = screen.getAllByText('Main Timeline')
-      const graphCard = graphCards[0].closest('.p-4')
-      await user.click(graphCard!)
+      // Click on the active graph. The sidebar repeats its name, so pick the
+      // occurrence that lives inside the graph list card.
+      const graphCard = screen.getAllByText('Main Timeline').find(el => el.closest('.p-4'))
+      if (!graphCard) {
+        throw new Error('Expected the active graph card to be rendered')
+      }
+      await user.click(graphCard)
       
       expect(screen.queryByRole('button', { name: /Switch to Graph/i })).not.toBeInTheDocument()
     })
@@ -431,8 +545,7 @@ describe('GraphManagerModal', () => {
       await user.click(screen.getByRole('button', { name: /Delete/i }))
       
       // Click Cancel in dialog
-      const cancelButtons = screen.getAllByRole('button', { name: /Cancel/i })
-      await user.click(cancelButtons[cancelButtons.length - 1])
+      await user.click(lastOf(screen.getAllByRole('button', { name: /Cancel/i }), 'a cancel button'))
       
       expect(screen.queryByText(/Are you sure you want to delete/)).not.toBeInTheDocument()
     })
@@ -440,7 +553,7 @@ describe('GraphManagerModal', () => {
     it('should show loading state while deleting', async () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         isDeleting: true
-      }) as any)
+      }))
       
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
@@ -466,11 +579,7 @@ describe('GraphManagerModal', () => {
     })
 
     it('should show loading state while loading branches', async () => {
-      vi.mocked(useGraphBranches).mockReturnValue({
-        data: null,
-        isLoading: true,
-        error: null
-      } as any)
+      vi.mocked(useGraphBranches).mockReturnValue(createMockQueryResult({ loading: true }))
       
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="branches" />
@@ -480,11 +589,7 @@ describe('GraphManagerModal', () => {
     })
 
     it('should show empty state when no branches exist', async () => {
-      vi.mocked(useGraphBranches).mockReturnValue({
-        data: [],
-        isLoading: false,
-        error: null
-      } as any)
+      vi.mocked(useGraphBranches).mockReturnValue(createMockQueryResult({ data: [] }))
       
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="branches" />
@@ -554,7 +659,7 @@ describe('GraphManagerModal', () => {
     it('should show loading state while creating branch', async () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         isBranching: true
-      }) as any)
+      }))
       
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
@@ -573,8 +678,7 @@ describe('GraphManagerModal', () => {
       await user.click(screen.getByRole('button', { name: /Branch Current/i }))
       
       // Find the Cancel button in the branch dialog
-      const cancelButtons = screen.getAllByRole('button', { name: /Cancel/i })
-      await user.click(cancelButtons[cancelButtons.length - 1])
+      await user.click(lastOf(screen.getAllByRole('button', { name: /Cancel/i }), 'a cancel button'))
       
       expect(screen.queryByPlaceholderText('Branch name...')).not.toBeInTheDocument()
     })
@@ -592,11 +696,7 @@ describe('GraphManagerModal', () => {
     })
 
     it('should show loading state while loading versions', async () => {
-      vi.mocked(useGraphVersions).mockReturnValue({
-        data: null,
-        isLoading: true,
-        error: null
-      } as any)
+      vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({ loading: true }))
       
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
@@ -606,11 +706,7 @@ describe('GraphManagerModal', () => {
     })
 
     it('should show empty state when no versions exist', async () => {
-      vi.mocked(useGraphVersions).mockReturnValue({
-        data: [],
-        isLoading: false,
-        error: null
-      } as any)
+      vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({ data: [] }))
       
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
@@ -705,7 +801,7 @@ describe('GraphManagerModal', () => {
     it('should show loading state while rolling back', async () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         isRollingBack: true
-      }) as any)
+      }))
       
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
@@ -717,7 +813,7 @@ describe('GraphManagerModal', () => {
     it('should disable rollback buttons while rolling back', async () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         isRollingBack: true
-      }) as any)
+      }))
       
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
@@ -732,8 +828,8 @@ describe('GraphManagerModal', () => {
     it('should disable Branch Current button when no graph is active', () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         activeGraphId: null,
-        activeGraph: null
-      }) as any)
+        activeGraph: undefined
+      }))
       
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />

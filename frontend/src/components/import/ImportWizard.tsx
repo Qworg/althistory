@@ -302,7 +302,10 @@ export function ImportWizard({
         // FIX #1: Use type guard to safely extract ImportResult
         const syncResponse = typedResponse as SyncImportResponse
         // Extract ImportResult fields, excluding async flag
+        // `_async` is bound only to exclude the key from the rest object; it is
+        // deliberately never read, so discard it explicitly.
         const { async: _async, ...importResult } = syncResponse
+        void _async
         
         // Small delay to show completion transition
         await new Promise(resolve => setTimeout(resolve, 150))

@@ -1,11 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { useTimelineScales } from './useTimelineScales'
 import { Event, Arc } from '@/types'
-import * as d3 from 'd3'
 
 // Don't mock D3 - we want to test actual scale behavior
-// vi.mock('d3')
 
 describe('useTimelineScales', () => {
   const mockEvents: Event[] = [
@@ -371,7 +369,7 @@ describe('useTimelineScales', () => {
 
   describe('edge cases', () => {
     it('handles single event', () => {
-      const singleEvent: Event[] = [mockEvents[0]]
+      const singleEvent: Event[] = mockEvents.slice(0, 1)
 
       const { result } = renderHook(() =>
         useTimelineScales(singleEvent, [], 1000, 400, defaultMargin)
@@ -382,10 +380,9 @@ describe('useTimelineScales', () => {
     })
 
     it('handles events with same timestamp', () => {
-      const sameTimeEvents: Event[] = [
-        { ...mockEvents[0], timestamp: '2024-01-15T10:00:00Z' },
-        { ...mockEvents[1], id: 'event-2', timestamp: '2024-01-15T10:00:00Z' }
-      ]
+      const sameTimeEvents: Event[] = mockEvents
+        .slice(0, 2)
+        .map(event => ({ ...event, timestamp: '2024-01-15T10:00:00Z' }))
 
       const { result } = renderHook(() =>
         useTimelineScales(sameTimeEvents, [], 1000, 400, defaultMargin)
@@ -434,10 +431,10 @@ describe('useTimelineScales', () => {
     })
 
     it('handles dates spanning multiple years', () => {
-      const multiYearEvents: Event[] = [
-        { ...mockEvents[0], timestamp: '2020-01-01T00:00:00Z' },
-        { ...mockEvents[1], id: 'event-2', timestamp: '2030-12-31T23:59:59Z' }
-      ]
+      const multiYearEvents: Event[] = mockEvents.slice(0, 2).map((event, index) => ({
+        ...event,
+        timestamp: index === 0 ? '2020-01-01T00:00:00Z' : '2030-12-31T23:59:59Z'
+      }))
 
       const { result } = renderHook(() =>
         useTimelineScales(multiYearEvents, [], 1000, 400, defaultMargin)

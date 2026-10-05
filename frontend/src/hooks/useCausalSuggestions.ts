@@ -79,7 +79,7 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
 
   // Filter and sort suggestions
   const getFilteredSuggestions = useCallback((): SuggestionWithState[] => {
-    let filtered = suggestions.filter(suggestion => {
+    const filtered = suggestions.filter(suggestion => {
       // Confidence filter
       if (suggestion.confidence < filters.minConfidence) return false
       
@@ -102,7 +102,7 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
         case 'weight':
           comparison = a.suggested_weight - b.suggested_weight
           break
-        case 'timestamp':
+        case 'timestamp': {
           // Sort by cause event timestamp as proxy
           const aEvent = events.find(e => e.id === a.cause_event_id)
           const bEvent = events.find(e => e.id === b.cause_event_id)
@@ -110,6 +110,7 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
             comparison = new Date(aEvent.timestamp).getTime() - new Date(bEvent.timestamp).getTime()
           }
           break
+        }
       }
       
       return filters.sortOrder === 'desc' ? -comparison : comparison

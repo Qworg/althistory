@@ -1,7 +1,25 @@
 import React, { useCallback, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router'
 import { useGlobalStore } from '@/stores/globalStore'
-import { ViewMode } from '@/types'
+import { ViewMode, FilterState, SessionData } from '@/types'
+
+/**
+ * Blob `saveCurrentViewState` writes into `sessionData` under the dynamic key
+ * `${viewMode}State`. `SessionData` declares no fixed member for those keys, so
+ * reads go through this one documented, type-accurate view of the record.
+ */
+interface SavedViewState {
+  selectedEvents: string[]
+  selectedArcs: string[]
+  filters: FilterState
+  timestamp: number
+}
+
+const readSavedViewState = (
+  sessionData: SessionData,
+  stateKey: string
+): SavedViewState | undefined =>
+  (sessionData as unknown as Record<string, SavedViewState | undefined>)[stateKey]
 
 interface ViewSwitcherProps {
   className?: string
@@ -120,7 +138,7 @@ export function ViewSwitcher({
 
     // Restore state for target view if available
     const targetStateKey = `${targetMode}State`
-    const savedState = (sessionData as any)[targetStateKey]
+    const savedState = readSavedViewState(sessionData, targetStateKey)
     
     if (savedState && Date.now() - savedState.timestamp < 300000) { // 5 minutes
       // Restore selections and filters if they're recent

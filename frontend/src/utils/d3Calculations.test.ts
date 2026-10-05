@@ -16,6 +16,17 @@ import {
 import { Event, Arc } from '@/types'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
+/**
+ * `noUncheckedIndexedAccess` makes every indexed read `T | undefined`. These
+ * assertions are about elements the function under test is expected to have
+ * produced, so an absent element is a real failure and should be reported as
+ * one rather than silently yielding `undefined` to the expectation.
+ */
+const expectDefined = <T,>(value: T | undefined, message: string): T => {
+  if (value === undefined) throw new Error(message)
+  return value
+}
+
 describe('d3Calculations', () => {
   describe('createTimeScale', () => {
     it('creates a time scale with the given domain and range', () => {
@@ -54,10 +65,19 @@ describe('d3Calculations', () => {
 
       const scale = createTimeScale(domain, range)
 
-      // nice() should extend domain to cleaner boundaries
-      const niceDomain = scale.domain()
-      expect(niceDomain[0].getTime()).toBeLessThanOrEqual(new Date('2024-01-15').getTime())
-      expect(niceDomain[1].getTime()).toBeGreaterThanOrEqual(new Date('2024-01-20').getTime())
+      // nice() should extend domain to cleaner boundaries.
+      // Asserted against the *input* domain rather than `new Date('2024-01-15')`:
+      // a bare date parses as UTC midnight, which is a different instant from
+      // local midnight everywhere west of UTC, so the literal comparison only
+      // held in UTC and east of it.
+      const [niceStart, niceEnd] = scale.domain()
+      const start = expectDefined(niceStart, 'expected a start bound on the nice domain')
+      const end = expectDefined(niceEnd, 'expected an end bound on the nice domain')
+      expect(start.getTime()).toBeLessThanOrEqual(domain[0].getTime())
+      expect(end.getTime()).toBeGreaterThanOrEqual(domain[1].getTime())
+      // ...and it really did widen the domain in both directions
+      expect(start.getTime()).toBeLessThan(domain[0].getTime())
+      expect(end.getTime()).toBeGreaterThan(domain[1].getTime())
     })
   })
 
@@ -160,10 +180,11 @@ describe('d3Calculations', () => {
       const positions = calculateEventPositions(mockEvents, xScale, 200)
 
       expect(positions).toHaveLength(2)
-      expect(positions[0].id).toBe('1')
-      expect(positions[0].y).toBe(200)
-      expect(positions[0].event).toBe(mockEvents[0])
-      expect(typeof positions[0].x).toBe('number')
+      const first = expectDefined(positions[0], 'expected a position for event 1')
+      expect(first.id).toBe('1')
+      expect(first.y).toBe(200)
+      expect(first.event).toBe(mockEvents[0])
+      expect(typeof first.x).toBe('number')
     })
 
     it('returns empty array for no events', () => {
@@ -183,8 +204,8 @@ describe('d3Calculations', () => {
 
       const positions = calculateEventPositions(mockEvents, xScale, 200)
 
-      expect(positions[0].event).toBe(mockEvents[0])
-      expect(positions[1].event).toBe(mockEvents[1])
+      expect(expectDefined(positions[0], 'expected a position for event 1').event).toBe(mockEvents[0])
+      expect(expectDefined(positions[1], 'expected a position for event 2').event).toBe(mockEvents[1])
     })
   })
 
@@ -239,9 +260,9 @@ describe('d3Calculations', () => {
       const positions = calculateArcPositions(mockArcs, xScale, yScale)
 
       expect(positions).toHaveLength(2)
-      expect(positions[0].id).toBe('arc1')
-      expect(positions[0].y).toBe(10) // Level 0
-      expect(positions[1].y).toBe(40) // Level 1
+      expect(expectDefined(positions[0], 'expected a position for arc1').id).toBe('arc1')
+      expect(expectDefined(positions[0], 'expected a position for arc1').y).toBe(10) // Level 0
+      expect(expectDefined(positions[1], 'expected a position for arc2').y).toBe(40) // Level 1
     })
 
     it('calculates correct widths', () => {
@@ -252,8 +273,8 @@ describe('d3Calculations', () => {
 
       const positions = calculateArcPositions(mockArcs, xScale, yScale)
 
-      expect(positions[0].width).toBeGreaterThan(0)
-      expect(positions[1].width).toBeGreaterThan(0)
+      expect(expectDefined(positions[0], 'expected a position for arc1').width).toBeGreaterThan(0)
+      expect(expectDefined(positions[1], 'expected a position for arc2').width).toBeGreaterThan(0)
     })
 
     it('returns empty array for no arcs', () => {

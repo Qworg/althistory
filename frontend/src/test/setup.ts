@@ -1,16 +1,20 @@
-import { expect, afterEach, vi } from 'vitest'
+import { afterEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
-import * as matchers from '@testing-library/jest-dom/matchers'
+// Registers the jest-dom matchers on Vitest's `expect` and augments the
+// `Assertion` / `AsymmetricMatchersContaining` interfaces with their types
+// (this replaces the hand-written `src/test/vitest.d.ts` module augmentation).
+import '@testing-library/jest-dom/vitest'
 
-// extends Vitest's expect method with methods from react-testing-library
-expect.extend(matchers)
+// Mock ResizeObserver (not available in jsdom).
+// jsdom has no `ResizeObserver`, so the global is replaced by this stand-in,
+// which implements the same interface (each method stays a spy).
+class ResizeObserverMock implements ResizeObserver {
+  observe = vi.fn()
+  unobserve = vi.fn()
+  disconnect = vi.fn()
+}
 
-// Mock ResizeObserver (not available in jsdom)
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}))
+globalThis.ResizeObserver = ResizeObserverMock
 
 // runs a cleanup after each test case (e.g. clearing jsdom)
 afterEach(() => {

@@ -22,7 +22,9 @@ interface ViewStateMap {
 const STATE_EXPIRY_TIME = 30 * 60 * 1000 // 30 minutes
 
 export function useViewStateManager() {
-  const location = useLocation()
+  // Subscribe to the router location so the hook re-renders on navigation; the value
+  // itself is not read here.
+  useLocation()
   const {
     viewMode,
     selectedEvents,
@@ -78,9 +80,10 @@ export function useViewStateManager() {
   // Get current center point from session data
   const getCurrentCenterPoint = useCallback((): { x: number; y: number } | null => {
     switch (viewMode) {
-      case 'timeline':
+      case 'timeline': {
         const centerTime = sessionData.viewportState.timeline.centerTime
         return centerTime ? { x: new Date(centerTime).getTime(), y: 0 } : null
+      }
       case 'causal':
         // For causal graph, center point might be different
         return null

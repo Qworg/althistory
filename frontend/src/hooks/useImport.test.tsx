@@ -13,6 +13,7 @@ import {
   useExecuteImport,
   importReducer,
   initialImportState,
+  ExecuteImportResult,
   ImportWizardState,
   ImportAction,
 } from './useImport'
@@ -36,7 +37,26 @@ vi.mock('@/services/api', () => ({
   },
 }))
 
-const mockedApiClient = vi.mocked(apiClient)
+// Typed handles for the mocked API methods. `vi.mocked(apiClient)` only mocks
+// the top-level methods of the client, so `mocked.apiClient.import.validate`
+// stays a bare function type; going through the individual methods keeps the
+// MockInstance (mockResolvedValue / mockRejectedValue) in the type.
+const mockedValidate = vi.mocked(apiClient.import.validate)
+const mockedPreview = vi.mocked(apiClient.import.preview)
+const mockedExecute = vi.mocked(apiClient.import.execute)
+
+/**
+ * Narrows an execute mutation payload to its synchronous ImportResult shape.
+ * The endpoint only resolves a job acknowledgement for async imports, and every
+ * test below mocks the sync path, so an unexpected payload fails loudly instead
+ * of silently skipping the assertions that follow.
+ */
+function expectSyncImportResult(data: ExecuteImportResult | undefined): ImportResult {
+  if (data === undefined || !('success' in data)) {
+    throw new Error(`expected a synchronous ImportResult, got ${JSON.stringify(data)}`)
+  }
+  return data
+}
 
 // Helper to create a valid export structure
 const createValidExport = (): AlthistoryExport => ({
@@ -108,7 +128,7 @@ describe('useImport hooks', () => {
         },
       }
 
-      mockedApiClient.import.validate.mockResolvedValue(mockValidationResult)
+      mockedValidate.mockResolvedValue(mockValidationResult)
 
       const { result } = renderHook(() => useValidateImport(), {
         wrapper: createWrapper(),
@@ -125,7 +145,7 @@ describe('useImport hooks', () => {
       })
 
       expect(result.current.data).toEqual(mockValidationResult)
-      expect(mockedApiClient.import.validate).toHaveBeenCalledWith(exportData)
+      expect(mockedValidate).toHaveBeenCalledWith(exportData)
     })
 
     it('should handle validation errors', async () => {
@@ -149,7 +169,7 @@ describe('useImport hooks', () => {
         },
       }
 
-      mockedApiClient.import.validate.mockResolvedValue(mockValidationResult)
+      mockedValidate.mockResolvedValue(mockValidationResult)
 
       const { result } = renderHook(() => useValidateImport(), {
         wrapper: createWrapper(),
@@ -168,7 +188,7 @@ describe('useImport hooks', () => {
     })
 
     it('should handle API errors', async () => {
-      mockedApiClient.import.validate.mockRejectedValue(new Error('Network error'))
+      mockedValidate.mockRejectedValue(new Error('Network error'))
 
       const { result } = renderHook(() => useValidateImport(), {
         wrapper: createWrapper(),
@@ -196,7 +216,7 @@ describe('useImport hooks', () => {
         warnings: [],
       }
 
-      mockedApiClient.import.preview.mockResolvedValue(mockPreview)
+      mockedPreview.mockResolvedValue(mockPreview)
 
       const { result } = renderHook(() => usePreviewImport(), {
         wrapper: createWrapper(),
@@ -213,7 +233,7 @@ describe('useImport hooks', () => {
       })
 
       expect(result.current.data).toEqual(mockPreview)
-      expect(mockedApiClient.import.preview).toHaveBeenCalledWith(
+      expect(mockedPreview).toHaveBeenCalledWith(
         exportData,
         undefined,
         'create-new'
@@ -229,7 +249,7 @@ describe('useImport hooks', () => {
         warnings: [],
       }
 
-      mockedApiClient.import.preview.mockResolvedValue(mockPreview)
+      mockedPreview.mockResolvedValue(mockPreview)
 
       const { result } = renderHook(() => usePreviewImport(), {
         wrapper: createWrapper(),
@@ -249,7 +269,7 @@ describe('useImport hooks', () => {
         expect(result.current.isSuccess).toBe(true)
       })
 
-      expect(mockedApiClient.import.preview).toHaveBeenCalledWith(
+      expect(mockedPreview).toHaveBeenCalledWith(
         exportData,
         'existing-graph',
         'merge'
@@ -270,7 +290,7 @@ describe('useImport hooks', () => {
         warnings: [],
       }
 
-      mockedApiClient.import.execute.mockResolvedValue(mockResult)
+      mockedExecute.mockResolvedValue(mockResult)
 
       const { result } = renderHook(() => useExecuteImport(), {
         wrapper: createWrapper(),
@@ -291,7 +311,7 @@ describe('useImport hooks', () => {
       })
 
       expect(result.current.data).toEqual(mockResult)
-      expect(result.current.data?.success).toBe(true)
+      expect(expectSyncImportResult(result.current.data).success).toBe(true)
     })
 
     it('should handle manual conflict resolution', async () => {
@@ -306,7 +326,7 @@ describe('useImport hooks', () => {
         warnings: [],
       }
 
-      mockedApiClient.import.execute.mockResolvedValue(mockResult)
+      mockedExecute.mockResolvedValue(mockResult)
 
       const { result } = renderHook(() => useExecuteImport(), {
         wrapper: createWrapper(),
@@ -329,7 +349,7 @@ describe('useImport hooks', () => {
         expect(result.current.isSuccess).toBe(true)
       })
 
-      expect(mockedApiClient.import.execute).toHaveBeenCalledWith(
+      expect(mockedExecute).toHaveBeenCalledWith(
         expect.any(Object),
         expect.objectContaining({
           conflictResolution: 'manual',
@@ -359,7 +379,7 @@ describe('useImport hooks', () => {
         warnings: [],
       }
 
-      mockedApiClient.import.execute.mockResolvedValue(mockResult)
+      mockedExecute.mockResolvedValue(mockResult)
 
       const { result } = renderHook(() => useExecuteImport(), {
         wrapper: createWrapper(),
@@ -377,8 +397,9 @@ describe('useImport hooks', () => {
         expect(result.current.isSuccess).toBe(true)
       })
 
-      expect(result.current.data?.success).toBe(false)
-      expect(result.current.data?.errors).toHaveLength(1)
+      const data = expectSyncImportResult(result.current.data)
+      expect(data.success).toBe(false)
+      expect(data.errors).toHaveLength(1)
     })
   })
 })

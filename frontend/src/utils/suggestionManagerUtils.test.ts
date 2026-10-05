@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import type { SuggestionFeedback } from '@/hooks/useCausalSuggestions'
 import {
   relationshipExists,
   getConfidenceLevel,
@@ -48,6 +49,15 @@ const createSuggestion = (overrides: Partial<CausalSuggestion> = {}): CausalSugg
   reasoning: 'AI-generated reasoning',
   ...overrides
 })
+
+/**
+ * `SuggestionFeedback['rating']` is a closed union, so the "empty rating" cases
+ * below - which exist specifically to exercise the runtime falsy guard in
+ * `validateFeedback` - cannot be written without saying so. The one widening
+ * this needs is confined to this factory.
+ */
+const feedbackWithEmptyRating = (): SuggestionFeedback =>
+  ({ rating: '', comment: '' } as unknown as SuggestionFeedback)
 
 describe('Suggestion Manager Utils', () => {
   describe('relationshipExists', () => {
@@ -152,10 +162,7 @@ describe('Suggestion Manager Utils', () => {
     })
 
     it('requires rating', () => {
-      const errors = validateFeedback({
-        rating: '' as any,
-        comment: ''
-      })
+      const errors = validateFeedback(feedbackWithEmptyRating())
       expect(errors).toContain(VALIDATION_ERRORS.RATING_REQUIRED)
     })
 
@@ -198,7 +205,7 @@ describe('Suggestion Manager Utils', () => {
     })
 
     it('returns false for invalid feedback', () => {
-      expect(isFeedbackValid({ rating: '' as any })).toBe(false)
+      expect(isFeedbackValid(feedbackWithEmptyRating())).toBe(false)
     })
   })
 

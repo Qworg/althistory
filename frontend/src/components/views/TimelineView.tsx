@@ -7,6 +7,7 @@ import { useGlobalStore } from '@/stores/globalStore'
 import { Event, Arc, TimeRange } from '@/types'
 import { ContextMenu, ConfirmDialog } from '@/components/ui'
 import { EventDetailModal, ArcDetailPanel } from '@/components/modals'
+import type { UpdateArcRequest } from '@/types'
 
 type ContextMenuState = {
   type: 'event' | 'arc'
@@ -174,7 +175,7 @@ export function TimelineView() {
   }, [editModal, deleteEventMutation, selectedEvent])
 
   // Save arc changes
-  const handleArcSave = useCallback(async (updates: any) => {
+  const handleArcSave = useCallback(async (updates: UpdateArcRequest) => {
     if (editModal?.type === 'arc') {
       await updateArcMutation.mutateAsync({
         id: editModal.item.id,

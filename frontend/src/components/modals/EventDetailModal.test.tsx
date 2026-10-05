@@ -222,7 +222,7 @@ describe('EventDetailModal', () => {
 
     it('shows loading state during save', async () => {
       const user = userEvent.setup()
-      const onSave = vi.fn(() => new Promise(resolve => setTimeout(resolve, 100)))
+      const onSave = vi.fn(() => new Promise<void>(resolve => { setTimeout(resolve, 100) }))
       render(<EventDetailModal {...defaultProps} onSave={onSave} isOpen={true} />)
 
       // Fill in required fields
@@ -309,7 +309,9 @@ describe('EventDetailModal', () => {
 
       // Confirm deletion - find the Delete button in the confirmation dialog
       const confirmButtons = screen.getAllByRole('button', { name: /delete/i })
-      const confirmButton = confirmButtons[confirmButtons.length - 1] // Last one is in confirmation dialog
+      // Last one is in the confirmation dialog
+      const confirmButton = confirmButtons[confirmButtons.length - 1]
+      if (!confirmButton) throw new Error('expected a Delete button in the confirmation dialog')
       await user.click(confirmButton)
 
       await waitFor(() => {
@@ -329,6 +331,7 @@ describe('EventDetailModal', () => {
       // Cancel in confirmation dialog
       const cancelButtons = screen.getAllByRole('button', { name: /cancel/i })
       const cancelButton = cancelButtons[cancelButtons.length - 1]
+      if (!cancelButton) throw new Error('expected a Cancel button in the confirmation dialog')
       await user.click(cancelButton)
 
       expect(onDelete).not.toHaveBeenCalled()

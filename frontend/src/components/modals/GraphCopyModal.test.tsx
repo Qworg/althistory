@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { GraphCopyModal } from './GraphCopyModal'
 import { useGlobalStore } from '@/stores/globalStore'
 import { useGraphCopy } from '@/hooks/useGraphCopy'
-import { createMockEvent, createMockArc } from '@/test/fixtures/modalFixtures'
 import { Event, Arc } from '@/types'
 
 // Mock the hooks
@@ -62,7 +61,19 @@ const mockUseGlobalStore = {
   }
 }
 
-const mockUseGraphCopy = {
+type GlobalStoreState = ReturnType<typeof useGlobalStore>
+type GraphCopyHook = ReturnType<typeof useGraphCopy>
+
+/**
+ * The store double only carries the slice the modal reads, so the seam with the
+ * automocked `useGlobalStore` (typed against the full real store) is bridged
+ * once, below, rather than with an unchecked assertion at each call site.
+ */
+const asStore = (partial: Partial<GlobalStoreState>) => partial as GlobalStoreState
+
+// Typed in full: `vi.mocked(useGraphCopy)` is typed against the real hook's
+// return type, so every member has to be present even if unused here.
+const mockUseGraphCopy: GraphCopyHook = {
   copyState: {
     activeOperations: [],
     completedOperations: [],
@@ -74,10 +85,14 @@ const mockUseGraphCopy = {
   setCopyName: vi.fn(),
   setSelectedTimeRange: vi.fn(),
   setSelectedFilter: vi.fn(),
-  createFullCopy: vi.fn(),
-  createTimeRangeCopy: vi.fn(),
-  createFilteredCopy: vi.fn(),
-  isCreatingCopy: false
+  createFullCopy: vi.fn(() => Promise.resolve()),
+  createTimeRangeCopy: vi.fn(() => Promise.resolve()),
+  createFilteredCopy: vi.fn(() => Promise.resolve()),
+  cancelCopy: vi.fn(),
+  refreshCopyStatus: vi.fn(),
+  clearCompletedOperations: vi.fn(),
+  isCreatingCopy: false,
+  isRefreshingStatus: false
 }
 
 const createWrapper = () => {
@@ -100,8 +115,8 @@ describe('GraphCopyModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    ;(useGlobalStore as any).mockReturnValue(mockUseGlobalStore)
-    ;(useGraphCopy as any).mockReturnValue(mockUseGraphCopy)
+    vi.mocked(useGlobalStore).mockReturnValue(asStore(mockUseGlobalStore))
+    vi.mocked(useGraphCopy).mockReturnValue(mockUseGraphCopy)
   })
 
   it('should not render when closed', () => {
@@ -215,7 +230,7 @@ describe('GraphCopyModal', () => {
       ...mockUseGraphCopy.copyState,
       copyName: 'Test Copy'
     }
-    ;(useGraphCopy as any).mockReturnValue({
+    vi.mocked(useGraphCopy).mockReturnValue({
       ...mockUseGraphCopy,
       copyState: mockCopyStateWithName
     })
@@ -239,7 +254,7 @@ describe('GraphCopyModal', () => {
       ...mockUseGraphCopy.copyState,
       copyName: 'Test Copy'
     }
-    ;(useGraphCopy as any).mockReturnValue({
+    vi.mocked(useGraphCopy).mockReturnValue({
       ...mockUseGraphCopy,
       copyState: mockCopyStateWithName
     })
@@ -267,7 +282,7 @@ describe('GraphCopyModal', () => {
       ...mockUseGraphCopy.copyState,
       copyName: 'Test Copy'
     }
-    ;(useGraphCopy as any).mockReturnValue({
+    vi.mocked(useGraphCopy).mockReturnValue({
       ...mockUseGraphCopy,
       copyState: mockCopyStateWithName
     })
@@ -298,7 +313,7 @@ describe('GraphCopyModal', () => {
   })
 
   it('should show loading state when creating copy', () => {
-    ;(useGraphCopy as any).mockReturnValue({
+    vi.mocked(useGraphCopy).mockReturnValue({
       ...mockUseGraphCopy,
       isCreatingCopy: true
     })
@@ -412,8 +427,7 @@ describe('GraphCopyModal', () => {
       expect(closeButton).toBeInTheDocument()
     })
 
-    it('should have proper radiogroup for copy type selection', async () => {
-      const user = userEvent.setup()
+    it('should have proper radiogroup for copy type selection', () => {
       render(
         <GraphCopyModal isOpen={true} onClose={mockOnClose} />,
         { wrapper: createWrapper() }

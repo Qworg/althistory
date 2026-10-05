@@ -191,7 +191,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
         end_time: datetimeLocalToIso(formData.end_time)
       }
       await createArcMutation.mutateAsync(submitData)
-    } catch (error) {
+    } catch {
       setErrors({ general: 'Failed to create arc. Please try again.' })
     }
   }

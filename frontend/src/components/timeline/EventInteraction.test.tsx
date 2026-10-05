@@ -6,44 +6,67 @@ import { Event, Arc } from '../../types'
 
 // Mock D3 with proper scale implementation
 vi.mock('d3', () => {
+  // Mirror the real chained-scale contract (callable + mutators returning itself)
+  // so the mock keeps D3's shape without casts.
+  interface MockTimeScale {
+    (date: Date | number): number
+    domain: (...args: unknown[]) => MockTimeScale
+    range: (...args: unknown[]) => MockTimeScale
+    nice: (...args: unknown[]) => MockTimeScale
+    invert: (x: number) => Date
+    copy: () => MockTimeScale
+    ticks: (count?: number) => Date[]
+  }
+
+  interface MockZoomBehavior {
+    scaleExtent: (...args: unknown[]) => MockZoomBehavior
+    translateExtent: (...args: unknown[]) => MockZoomBehavior
+    extent: (...args: unknown[]) => MockZoomBehavior
+    on: (...args: unknown[]) => MockZoomBehavior
+    transform: Record<string, unknown>
+  }
+
   // Create mock scale inside the factory
-  const createMockScale = () => {
-    const scale = ((date: Date | number) => {
+  const createMockScale = (): MockTimeScale => {
+    const scale = (date: Date | number): number => {
       const time = new Date(date).getTime()
       const minTime = new Date('2024-01-01T00:00:00Z').getTime()
       const maxTime = new Date('2024-01-05T00:00:00Z').getTime()
       return ((time - minTime) / (maxTime - minTime)) * 728
-    }) as any
-    scale.domain = () => scale
-    scale.range = () => scale
-    scale.nice = () => scale
-    scale.invert = (x: number) => new Date(2024, 0, 1 + x / 182)
-    scale.copy = () => createMockScale()
-    scale.ticks = (count?: number) => {
-      const numTicks = count || 5
-      const ticks: Date[] = []
-      for (let i = 0; i < numTicks; i++) {
-        ticks.push(new Date(2024, 0, 1 + i))
-      }
-      return ticks
     }
-    return scale
+    const chainedScale: MockTimeScale = Object.assign(scale, {
+      domain: () => chainedScale,
+      range: () => chainedScale,
+      nice: () => chainedScale,
+      invert: (x: number) => new Date(2024, 0, 1 + x / 182),
+      copy: () => createMockScale(),
+      ticks: (count?: number) => {
+        const numTicks = count || 5
+        const ticks: Date[] = []
+        for (let i = 0; i < numTicks; i++) {
+          ticks.push(new Date(2024, 0, 1 + i))
+        }
+        return ticks
+      }
+    })
+    return chainedScale
   }
 
-  const createZoomBehavior = () => {
-    const zoom = (() => {}) as any
-    zoom.scaleExtent = () => zoom
-    zoom.translateExtent = () => zoom
-    zoom.extent = () => zoom
-    zoom.on = () => zoom
-    zoom.transform = {}
+  const createZoomBehavior = (): MockZoomBehavior => {
+    const zoom: MockZoomBehavior = {
+      scaleExtent: () => zoom,
+      translateExtent: () => zoom,
+      extent: () => zoom,
+      on: () => zoom,
+      transform: {}
+    }
     return zoom
   }
 
   return {
     scaleTime: () => createMockScale(),
     scaleLinear: () => createMockScale(),
-    timeFormat: () => ((date: Date) => date.toISOString().split('T')[0]),
+    timeFormat: () => (date: Date): string => date.toISOString().split('T')[0] ?? '',
     select: () => ({
       call: () => {},
       on: () => {}
@@ -68,6 +91,17 @@ vi.mock('@/hooks/useTimelineScales', () => ({
 // DEFERRED: These tests require comprehensive D3 zoom behavior mocking
 // See DEFERREDFIXES.md: "Timeline Component Infinite Loops (59 tests)"
 // D3 zoom API requires full mock implementation of scaleExtent, translateExtent, extent, transform
+
+// `noUncheckedIndexedAccess` types array access as `T | undefined`; these fixtures are
+// non-empty literals, so narrow them at the point of use instead of asserting non-null.
+const requireItem = <T,>(items: readonly T[], index: number, label: string): T => {
+  const item = items[index]
+  if (item === undefined) {
+    throw new Error(`Expected ${label}[${index}] to be defined`)
+  }
+  return item
+}
+
 describe.skip('Timeline Event Interactions', () => {
   const mockEvents: Event[] = [
     {
@@ -134,19 +168,26 @@ describe.skip('Timeline Event Interactions', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    // Add SVG methods that don't exist in JSDOM
-    // @ts-expect-error - JSDOM doesn't have these SVG methods
-    SVGElement.prototype.getScreenCTM = vi.fn(() => ({
-      inverse: () => ({
-        a: 1, b: 0, c: 0, d: 1, e: 0, f: 0
-      })
-    }))
-    // @ts-expect-error - JSDOM doesn't have these SVG methods
-    SVGElement.prototype.createSVGPoint = vi.fn(() => ({
-      x: 0,
-      y: 0,
-      matrixTransform: vi.fn(() => ({ x: 100, y: 200 }))
-    }))
+    // Add SVG methods that don't exist in JSDOM (getScreenCTM / createSVGPoint
+    // are not implemented by JSDOM, so they are installed as own properties).
+    Object.defineProperty(SVGElement.prototype, 'getScreenCTM', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => ({
+        inverse: () => ({
+          a: 1, b: 0, c: 0, d: 1, e: 0, f: 0
+        })
+      }))
+    })
+    Object.defineProperty(SVGElement.prototype, 'createSVGPoint', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => ({
+        x: 0,
+        y: 0,
+        matrixTransform: vi.fn(() => ({ x: 100, y: 200 }))
+      }))
+    })
   })
 
   afterEach(() => {
@@ -166,7 +207,7 @@ describe.skip('Timeline Event Interactions', () => {
       expect(eventMarker).toBeInTheDocument()
 
       fireEvent.click(eventMarker!)
-      expect(onEventSelect).toHaveBeenCalledWith(mockEvents[0])
+      expect(onEventSelect).toHaveBeenCalledWith(requireItem(mockEvents, 0, 'mockEvents'))
     })
 
     it('calls onEventSelect with correct event when clicking different events', () => {
@@ -178,17 +219,17 @@ describe.skip('Timeline Event Interactions', () => {
       // Click first event
       const event1Marker = document.querySelector('[data-event-id="event-1"] .event-marker')
       fireEvent.click(event1Marker!)
-      expect(onEventSelect).toHaveBeenLastCalledWith(mockEvents[0])
+      expect(onEventSelect).toHaveBeenLastCalledWith(requireItem(mockEvents, 0, 'mockEvents'))
 
       // Click second event
       const event2Marker = document.querySelector('[data-event-id="event-2"] .event-marker')
       fireEvent.click(event2Marker!)
-      expect(onEventSelect).toHaveBeenLastCalledWith(mockEvents[1])
+      expect(onEventSelect).toHaveBeenLastCalledWith(requireItem(mockEvents, 1, 'mockEvents'))
 
       // Click third event
       const event3Marker = document.querySelector('[data-event-id="event-3"] .event-marker')
       fireEvent.click(event3Marker!)
-      expect(onEventSelect).toHaveBeenLastCalledWith(mockEvents[2])
+      expect(onEventSelect).toHaveBeenLastCalledWith(requireItem(mockEvents, 2, 'mockEvents'))
 
       expect(onEventSelect).toHaveBeenCalledTimes(3)
     })
@@ -224,10 +265,10 @@ describe.skip('Timeline Event Interactions', () => {
       // Arc is enhanced with UI state, so check for core properties
       expect(onArcSelect).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: mockArcs[0].id,
-          name: mockArcs[0].name,
-          start_time: mockArcs[0].start_time,
-          end_time: mockArcs[0].end_time
+          id: requireItem(mockArcs, 0, 'mockArcs').id,
+          name: requireItem(mockArcs, 0, 'mockArcs').name,
+          start_time: requireItem(mockArcs, 0, 'mockArcs').start_time,
+          end_time: requireItem(mockArcs, 0, 'mockArcs').end_time
         })
       )
     })
@@ -241,13 +282,19 @@ describe.skip('Timeline Event Interactions', () => {
       const arc1Rect = document.querySelector('[data-arc-id="arc-1"] .arc-main')
       fireEvent.click(arc1Rect!)
       expect(onArcSelect).toHaveBeenLastCalledWith(
-        expect.objectContaining({ id: mockArcs[0].id, name: mockArcs[0].name })
+        expect.objectContaining({
+          id: requireItem(mockArcs, 0, 'mockArcs').id,
+          name: requireItem(mockArcs, 0, 'mockArcs').name
+        })
       )
 
       const arc2Rect = document.querySelector('[data-arc-id="arc-2"] .arc-main')
       fireEvent.click(arc2Rect!)
       expect(onArcSelect).toHaveBeenLastCalledWith(
-        expect.objectContaining({ id: mockArcs[1].id, name: mockArcs[1].name })
+        expect.objectContaining({
+          id: requireItem(mockArcs, 1, 'mockArcs').id,
+          name: requireItem(mockArcs, 1, 'mockArcs').name
+        })
       )
 
       expect(onArcSelect).toHaveBeenCalledTimes(2)
@@ -360,7 +407,7 @@ describe.skip('Timeline Event Interactions', () => {
 
       await waitFor(() => {
         expect(onEventCreate).toHaveBeenCalled()
-        const calledArg = onEventCreate.mock.calls[0][0]
+        const calledArg = onEventCreate.mock.calls[0]?.[0]
         expect(calledArg).toBeInstanceOf(Date)
       })
     })
@@ -388,7 +435,7 @@ describe.skip('Timeline Event Interactions', () => {
     it('event elements have ARIA labels with event info', () => {
       renderWithProviders(<Timeline {...defaultProps} />)
 
-      const event1 = mockEvents[0]
+      const event1 = requireItem(mockEvents, 0, 'mockEvents')
       const eventGroup = document.querySelector(`[data-event-id="${event1.id}"]`)
       const ariaLabel = eventGroup?.getAttribute('aria-label')
 

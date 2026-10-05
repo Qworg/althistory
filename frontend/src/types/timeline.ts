@@ -3,7 +3,7 @@
 // See: impl/deferredplans/ADR-001-d3-react-integration.md
 
 import React from 'react'
-import { Event, Arc, TimeRange } from './index'
+import { Event, Arc } from './index'
 import type { ScaleTime } from 'd3'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 

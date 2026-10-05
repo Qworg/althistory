@@ -6,64 +6,174 @@ import { Event, Arc } from '../../types'
 
 // Mock D3 with a simpler approach
 vi.mock('d3', () => {
-  const mockSelection = {
-    selectAll: vi.fn().mockReturnThis(),
-    select: vi.fn().mockReturnThis(),
-    append: vi.fn().mockReturnThis(),
-    insert: vi.fn().mockReturnThis(),
-    attr: vi.fn().mockReturnThis(),
-    style: vi.fn().mockReturnThis(),
-    text: vi.fn().mockReturnThis(),
-    html: vi.fn().mockReturnThis(),
-    call: vi.fn().mockReturnThis(),
-    on: vi.fn().mockReturnThis(),
-    remove: vi.fn().mockReturnThis(),
-    filter: vi.fn().mockReturnThis(),
-    transition: vi.fn().mockReturnThis(),
-    duration: vi.fn().mockReturnThis(),
-    ease: vi.fn().mockReturnThis(),
-    each: vi.fn().mockReturnThis(),
-    data: vi.fn(() => ({
-      enter: vi.fn().mockReturnValue(mockSelection),
-      exit: vi.fn().mockReturnValue(mockSelection),
-      merge: vi.fn().mockReturnValue(mockSelection)
-    })),
-    node: vi.fn(() => document.createElement('g'))
+  // The D3 surface Timeline touches is a chained-selection / chained-scale API:
+  // every mutator returns the same object so calls can be chained. These
+  // interfaces mirror that contract so the mock keeps the real shape without casts.
+
+  interface SelectionMock {
+    selectAll: (...args: unknown[]) => SelectionMock
+    select: (...args: unknown[]) => SelectionMock
+    append: (...args: unknown[]) => SelectionMock
+    insert: (...args: unknown[]) => SelectionMock
+    attr: (...args: unknown[]) => SelectionMock
+    style: (...args: unknown[]) => SelectionMock
+    text: (...args: unknown[]) => SelectionMock
+    html: (...args: unknown[]) => SelectionMock
+    call: (...args: unknown[]) => SelectionMock
+    on: (...args: unknown[]) => SelectionMock
+    remove: (...args: unknown[]) => SelectionMock
+    filter: (...args: unknown[]) => SelectionMock
+    transition: (...args: unknown[]) => SelectionMock
+    duration: (...args: unknown[]) => SelectionMock
+    ease: (...args: unknown[]) => SelectionMock
+    each: (...args: unknown[]) => SelectionMock
+    data: (...args: unknown[]) => {
+      enter: (...args: unknown[]) => SelectionMock
+      exit: (...args: unknown[]) => SelectionMock
+      merge: (...args: unknown[]) => SelectionMock
+    }
+    node: () => Element
   }
 
-  const mockScale = vi.fn(() => 100) as any
-  mockScale.domain = vi.fn().mockReturnValue(mockScale)
-  mockScale.range = vi.fn().mockReturnValue(mockScale)
-  mockScale.nice = vi.fn().mockReturnValue(mockScale)
-  mockScale.invert = vi.fn(() => new Date())
-  mockScale.copy = vi.fn().mockReturnValue(mockScale)
-  mockScale.ticks = vi.fn(() => [new Date('2024-01-01'), new Date('2024-01-02')])
+  interface ScaleMock {
+    (value: Date | number): number
+    domain: (...args: unknown[]) => ScaleMock
+    range: (...args: unknown[]) => ScaleMock
+    nice: (...args: unknown[]) => ScaleMock
+    invert: (x: number) => Date
+    copy: () => ScaleMock
+    ticks: (count?: number) => Date[]
+  }
 
-  const mockAxis = vi.fn()
-  mockAxis.tickFormat = vi.fn().mockReturnValue(mockAxis)
-  mockAxis.ticks = vi.fn().mockReturnValue(mockAxis)
-  mockAxis.tickSize = vi.fn().mockReturnValue(mockAxis)
+  interface AxisMock {
+    (...args: unknown[]): unknown
+    tickFormat: (...args: unknown[]) => AxisMock
+    ticks: (...args: unknown[]) => AxisMock
+    tickSize: (...args: unknown[]) => AxisMock
+  }
 
-  const mockZoom = vi.fn()
-  mockZoom.scaleExtent = vi.fn().mockReturnValue(mockZoom)
-  mockZoom.translateExtent = vi.fn().mockReturnValue(mockZoom)
-  mockZoom.extent = vi.fn().mockReturnValue(mockZoom)
-  mockZoom.transform = vi.fn().mockReturnValue(mockZoom)
-  mockZoom.on = vi.fn().mockReturnValue(mockZoom)
+  interface ZoomMock {
+    scaleExtent: (...args: unknown[]) => ZoomMock
+    translateExtent: (...args: unknown[]) => ZoomMock
+    extent: (...args: unknown[]) => ZoomMock
+    transform: (...args: unknown[]) => ZoomMock
+    on: (...args: unknown[]) => ZoomMock
+  }
 
-  const mockDrag = vi.fn()
-  mockDrag.on = vi.fn().mockReturnValue(mockDrag)
+  interface DragMock {
+    (...args: unknown[]): unknown
+    on: (...args: unknown[]) => DragMock
+  }
+
+  interface TimeIntervalMock {
+    every: (...args: unknown[]) => TimeIntervalMock
+    range: (...args: unknown[]) => Date[]
+    floor: (date: Date) => Date
+    ceil: (date: Date) => Date
+    round: (date: Date) => Date
+    offset: (date: Date) => Date
+    count: () => number
+  }
+
+  const createSelectionMock = (): SelectionMock => {
+    const selection: SelectionMock = {
+      selectAll: () => selection,
+      select: () => selection,
+      append: () => selection,
+      insert: () => selection,
+      attr: () => selection,
+      style: () => selection,
+      text: () => selection,
+      html: () => selection,
+      call: () => selection,
+      on: () => selection,
+      remove: () => selection,
+      filter: () => selection,
+      transition: () => selection,
+      duration: () => selection,
+      ease: () => selection,
+      each: () => selection,
+      data: () => ({
+        enter: () => selection,
+        exit: () => selection,
+        merge: () => selection
+      }),
+      node: () => document.createElement('g')
+    }
+    return selection
+  }
+
+  const mockSelection = createSelectionMock()
+
+  const createScaleMock = (): ScaleMock => {
+    const scale: ScaleMock = Object.assign(
+      (): number => 100,
+      {
+        domain: () => scale,
+        range: () => scale,
+        nice: () => scale,
+        invert: (): Date => new Date(),
+        copy: () => createScaleMock(),
+        ticks: (): Date[] => [new Date('2024-01-01'), new Date('2024-01-02')]
+      }
+    )
+    return scale
+  }
+
+  const mockScale = createScaleMock()
+
+  const createAxisMock = (): AxisMock => {
+    const axis: AxisMock = Object.assign(
+      (): unknown => undefined,
+      {
+        tickFormat: () => axis,
+        ticks: () => axis,
+        tickSize: () => axis
+      }
+    )
+    return axis
+  }
+
+  const mockAxis = createAxisMock()
+
+  const createZoomMock = (): ZoomMock => {
+    const zoom: ZoomMock = {
+      scaleExtent: () => zoom,
+      translateExtent: () => zoom,
+      extent: () => zoom,
+      transform: () => zoom,
+      on: () => zoom
+    }
+    return zoom
+  }
+
+  const mockZoom = createZoomMock()
+
+  const createDragMock = (): DragMock => {
+    const drag: DragMock = Object.assign(
+      (): unknown => undefined,
+      { on: () => drag }
+    )
+    return drag
+  }
+
+  const mockDrag = createDragMock()
 
   // Mock time intervals
-  const mockTimeInterval = {
-    every: vi.fn(() => mockTimeInterval),
-    range: vi.fn(() => []),
-    floor: vi.fn((d: Date) => d),
-    ceil: vi.fn((d: Date) => d),
-    round: vi.fn((d: Date) => d),
-    offset: vi.fn((d: Date) => d),
-    count: vi.fn(() => 0)
+  const createTimeIntervalMock = (): TimeIntervalMock => {
+    const interval: TimeIntervalMock = {
+      every: () => interval,
+      range: (): Date[] => [],
+      floor: (date: Date) => date,
+      ceil: (date: Date) => date,
+      round: (date: Date) => date,
+      offset: (date: Date) => date,
+      count: () => 0
+    }
+    return interval
   }
+
+  const mockTimeInterval = createTimeIntervalMock()
 
   return {
     select: vi.fn(() => mockSelection),
@@ -80,7 +190,7 @@ vi.mock('d3', () => {
     zoom: vi.fn(() => mockZoom),
     zoomIdentity: { k: 1, x: 0, y: 0 },
     drag: vi.fn(() => mockDrag),
-    pointer: vi.fn(() => [100, 100]),
+    pointer: vi.fn(() => [100, 100] as [number, number]),
     easeElastic: vi.fn(),
     easeBounce: vi.fn(),
     easeLinear: vi.fn()

@@ -185,7 +185,9 @@ describe('ActiveFilters', () => {
     render(<ActiveFilters {...mockProps} filters={filters} />)
 
     const removeButtons = screen.getAllByLabelText(/Remove filter/)
-    fireEvent.click(removeButtons[0]) // Remove search filter
+    const firstRemoveButton = removeButtons[0]
+    if (!firstRemoveButton) throw new Error('expected at least one Remove filter button')
+    fireEvent.click(firstRemoveButton) // Remove search filter
 
     expect(mockProps.onRemoveFilter).toHaveBeenCalledWith('searchQuery')
   })

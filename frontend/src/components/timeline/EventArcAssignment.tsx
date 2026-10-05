@@ -45,7 +45,7 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
     
     try {
       await onAssign(event.id, selectedArcId)
-    } catch (err) {
+    } catch {
       setError('Failed to assign event to arc. Please try again.')
     } finally {
       setIsLoading(false)

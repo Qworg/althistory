@@ -21,7 +21,11 @@ export const PressureConfidenceTracker: React.FC<PressureConfidenceTrackerProps>
     if (confidenceHistory.length < 2) return 'stable'
     
     const recent = confidenceHistory.slice(-3)
-    const trend = recent[recent.length - 1] - recent[0]
+    const firstValue = recent[0]
+    const lastValue = recent[recent.length - 1]
+    if (firstValue === undefined || lastValue === undefined) return 'stable'
+    
+    const trend = lastValue - firstValue
     
     if (trend > 0.1) return 'increasing'
     if (trend < -0.1) return 'decreasing'

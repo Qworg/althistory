@@ -1,24 +1,64 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ImportUploadStep } from './ImportUploadStep'
 import { AlthistoryExport } from '@/types'
 
-// Valid export data for testing
+/**
+ * Test FileReader.
+ *
+ * The component drives a real `new FileReader()` and reads the file through the
+ * `load` event (`event.target.result`). The stub therefore subclasses the DOM
+ * FileReader so it *is* a FileReader for every consumer, and finishes a read the
+ * way a browser does: by dispatching a `load` ProgressEvent on itself, with
+ * `result` set. Tests call `complete()` to supply the file contents.
+ */
+class FileReaderStub extends FileReader {
+  /** Every instance the component constructed, oldest first. */
+  static instances: FileReaderStub[] = []
+
+  constructor() {
+    super()
+    FileReaderStub.instances.push(this)
+  }
+
+  /** Contents come from `complete()` in the test, not from the Blob. */
+  override readAsText(): void {}
+
+  /** Complete the pending read as a browser would. */
+  complete(content: string): void {
+    Object.defineProperty(this, 'result', { value: content, configurable: true })
+    this.dispatchEvent(new ProgressEvent('load'))
+  }
+}
+
+/** Installs the stub for the current test; restored by `vi.unstubAllGlobals()`. */
+const stubFileReader = (): void => {
+  vi.stubGlobal('FileReader', FileReaderStub)
+}
+
+/** The FileReader the component built for the file it was just given. */
+const lastFileReader = (): FileReaderStub => {
+  const reader = FileReaderStub.instances[FileReaderStub.instances.length - 1]
+  if (!reader) {
+    throw new Error('ImportUploadStep did not construct a FileReader')
+  }
+  return reader
+}
+
+// Valid export data for testing. The metadata mirrors the format the export
+// service actually produces (see ExportService.ExportMetadata): graphId,
+// graphName, exportedAt, sourceVersion, graphVersion and checksum.
 const validExportData: AlthistoryExport = {
   version: '1.0',
   metadata: {
+    graphId: 'graph-1',
+    graphName: 'Test Graph',
+    description: 'Export fixture for ImportUploadStep tests',
     exportedAt: '2024-01-15T10:00:00Z',
-    exportedBy: 'test-user',
-    sourceGraphId: 'graph-1',
-    sourceGraphName: 'Test Graph',
-    schemaVersion: '1.0',
-    entityCounts: {
-      events: 5,
-      arcs: 2,
-      relationships: 3,
-      pressures: 1,
-    },
+    sourceVersion: '1.0.0',
+    graphVersion: 1,
+    checksum: '',
   },
   data: {
     events: [],
@@ -35,6 +75,12 @@ describe('ImportUploadStep', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    FileReaderStub.instances = []
+  })
+
+  afterEach(() => {
+    // Undo vi.stubGlobal('FileReader', ...) even if a test threw mid-way.
+    vi.unstubAllGlobals()
   })
 
   const renderComponent = (props = {}) => {
@@ -190,26 +236,16 @@ describe('ImportUploadStep', () => {
       expect(fileInput).toBeTruthy()
       
       // Mock FileReader
-      const originalFileReader = global.FileReader
-      const mockFileReader = {
-        readAsText: vi.fn(),
-        onload: null as ((e: any) => void) | null,
-        onerror: null as (() => void) | null,
-        result: fileContent,
-      }
-      global.FileReader = vi.fn(() => mockFileReader) as any
-      
+      stubFileReader()
+
       fireEvent.change(fileInput, { target: { files: [file] } })
       
-      // Trigger onload
-      mockFileReader.onload?.({ target: { result: fileContent } })
+      // Complete the read
+      lastFileReader().complete(fileContent)
       
       await waitFor(() => {
         expect(mockOnUpload).toHaveBeenCalledWith(validExportData)
       })
-      
-      // Restore FileReader
-      global.FileReader = originalFileReader
     })
 
     it('should show selected file name after upload', async () => {
@@ -221,14 +257,7 @@ describe('ImportUploadStep', () => {
       const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
       
       // Mock FileReader
-      const originalFileReader = global.FileReader
-      const mockFileReader = {
-        readAsText: vi.fn(),
-        onload: null as ((e: any) => void) | null,
-        onerror: null as (() => void) | null,
-        result: fileContent,
-      }
-      global.FileReader = vi.fn(() => mockFileReader) as any
+      stubFileReader()
       
       fireEvent.change(fileInput, { target: { files: [file] } })
       
@@ -236,9 +265,6 @@ describe('ImportUploadStep', () => {
         expect(screen.getByText(/Selected:/)).toBeInTheDocument()
         expect(screen.getByText('my-export.json')).toBeInTheDocument()
       })
-      
-      // Restore FileReader
-      global.FileReader = originalFileReader
     })
   })
 
@@ -292,28 +318,18 @@ describe('ImportUploadStep', () => {
       const file = new File([fileContent], 'test.json', { type: 'application/json' })
       
       // Mock FileReader
-      const originalFileReader = global.FileReader
-      const mockFileReader = {
-        readAsText: vi.fn(),
-        onload: null as ((e: any) => void) | null,
-        onerror: null as (() => void) | null,
-        result: fileContent,
-      }
-      global.FileReader = vi.fn(() => mockFileReader) as any
+      stubFileReader()
       
       fireEvent.drop(dropZone!, {
         dataTransfer: { files: [file] },
       })
       
-      // Trigger onload
-      mockFileReader.onload?.({ target: { result: fileContent } })
+      // Complete the read
+      lastFileReader().complete(fileContent)
       
       await waitFor(() => {
         expect(mockOnUpload).toHaveBeenCalledWith(validExportData)
       })
-      
-      // Restore FileReader
-      global.FileReader = originalFileReader
     })
   })
 
@@ -339,8 +355,7 @@ describe('ImportUploadStep', () => {
     it('should apply opacity to drop zone when loading', () => {
       renderComponent({ isLoading: true })
       
-      const dropZone = screen.getByText('Processing...').closest('div')?.parentElement?.parentElement
-      // Check for opacity class in the parent structure
+      // The drop zone carries the loading state as an opacity class
       const container = document.querySelector('.opacity-50')
       expect(container).toBeTruthy()
     })

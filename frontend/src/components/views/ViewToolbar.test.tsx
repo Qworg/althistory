@@ -1,13 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent, act } from '@testing-library/react'
+import { screen, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '../../test/utils'
 import { ViewToolbar } from './ViewToolbar'
-// @ts-ignore
 import { useGlobalStore } from '@/stores/globalStore'
 
 // Mock the global store
 vi.mock('@/stores/globalStore')
 const mockUseGlobalStore = vi.mocked(useGlobalStore)
+
+type GlobalStoreState = ReturnType<typeof useGlobalStore>
+
+/**
+ * `mockStore` below only carries the slice the toolbar reads, so the seam with
+ * the automocked `useGlobalStore` (typed against the full real store) is bridged
+ * once, here, instead of with an unchecked assertion at each call site.
+ */
+const asStore = (partial: Partial<GlobalStoreState>) => partial as GlobalStoreState
 
 describe('ViewToolbar', () => {
   const mockStore = {
@@ -59,7 +67,7 @@ describe('ViewToolbar', () => {
   }
 
   beforeEach(() => {
-    mockUseGlobalStore.mockReturnValue(mockStore as any)
+    mockUseGlobalStore.mockReturnValue(asStore(mockStore))
     vi.clearAllMocks()
   })
 
@@ -145,7 +153,7 @@ describe('ViewToolbar', () => {
         ...mockStore,
         selectedEvents: ['event1', 'event2']
       }
-      mockUseGlobalStore.mockReturnValue(storeWithSelection as any)
+      mockUseGlobalStore.mockReturnValue(asStore(storeWithSelection))
       
       renderWithProviders(<ViewToolbar viewMode="causal" />)
       
@@ -187,7 +195,7 @@ describe('ViewToolbar', () => {
         ...mockStore,
         selectedEvents: ['event1']
       }
-      mockUseGlobalStore.mockReturnValue(storeWithSelection as any)
+      mockUseGlobalStore.mockReturnValue(asStore(storeWithSelection))
       
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
       
@@ -213,7 +221,7 @@ describe('ViewToolbar', () => {
           actors: ['actor1']
         }
       }
-      mockUseGlobalStore.mockReturnValue(storeWithFilters as any)
+      mockUseGlobalStore.mockReturnValue(asStore(storeWithFilters))
       
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
       
@@ -277,7 +285,7 @@ describe('ViewToolbar', () => {
         ...mockStore,
         selectedEvents: ['event1']
       }
-      mockUseGlobalStore.mockReturnValue(storeWithSelection as any)
+      mockUseGlobalStore.mockReturnValue(asStore(storeWithSelection))
       
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
       

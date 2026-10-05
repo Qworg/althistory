@@ -1,4 +1,4 @@
-import React from 'react'
+import type { RefObject } from 'react'
 import { render, screen } from '@testing-library/react'
 import { vi } from 'vitest'
 import PressureIndicators from './PressureIndicators'
@@ -135,7 +135,7 @@ describe('PressureIndicators', () => {
   })
 
   it('handles missing SVG ref gracefully', () => {
-    const invalidSvgRef = { current: null }
+    const invalidSvgRef: RefObject<SVGSVGElement | null> = { current: null }
     
     expect(() => {
       render(<PressureIndicators {...defaultProps} svgRef={invalidSvgRef} />)

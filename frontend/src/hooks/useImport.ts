@@ -66,10 +66,22 @@ export function usePreviewImport(
 }
 
 /**
+ * Payload resolved by `POST /import`.
+ *
+ * The endpoint answers with a synchronous `ImportResult`, or with an async job
+ * acknowledgement when the backend escalates the import on its own — the route
+ * computes `shouldAsync = forceAsync || importService.shouldUseAsyncImport(data)`,
+ * so a caller that never asked for async can still receive a job id. The
+ * mutation data is therefore whatever the client method declares it resolves
+ * to, not `ImportResult` alone.
+ */
+export type ExecuteImportResult = Awaited<ReturnType<typeof apiClient.import.execute>>
+
+/**
  * Hook for executing import
  */
 export function useExecuteImport(
-  options?: UseMutationOptions<ImportResult, APIError, ExecuteImportOptions>
+  options?: UseMutationOptions<ExecuteImportResult, APIError, ExecuteImportOptions>
 ) {
   return useMutation({
     mutationFn: async ({

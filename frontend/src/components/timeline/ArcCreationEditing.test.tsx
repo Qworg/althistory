@@ -8,6 +8,16 @@ import EventArcAssignment from './EventArcAssignment'
 import { Timeline } from './Timeline'
 import { Event, Arc, TimeRange } from '@/types'
 
+// `noUncheckedIndexedAccess` types array access as `T | undefined`; the fixtures below
+// are non-empty literals, so narrow them at the point of use instead of asserting non-null.
+const requireItem = <T,>(items: readonly T[], index: number, label: string): T => {
+  const item = items[index]
+  if (item === undefined) {
+    throw new Error(`Expected ${label}[${index}] to be defined`)
+  }
+  return item
+}
+
 // Mock the useCreateArc hook with hoisted mock
 const mockMutateAsync = vi.fn()
 vi.mock('@/hooks/useAPI', () => ({
@@ -178,9 +188,10 @@ describe('Arc Creation and Editing', () => {
           })
         )
         // Verify time fields are valid ISO strings (timezone conversion may alter exact values)
-        const savedData = mockOnSave.mock.calls[0][0]
-        expect(savedData.start_time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
-        expect(savedData.end_time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
+        const savedData = mockOnSave.mock.calls[0]?.[0]
+        expect(savedData).toBeDefined()
+        expect(savedData?.start_time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
+        expect(savedData?.end_time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
       })
     })
 
@@ -341,7 +352,7 @@ describe('Arc Creation and Editing', () => {
   describe('Event Assignment', () => {
     it('should validate event containment in arc', () => {
       const arc = mockArc
-      const event = mockEvents[0]
+      const event = requireItem(mockEvents, 0, 'mockEvents')
       
       const arcStart = new Date(arc.start_time).getTime()
       const arcEnd = new Date(arc.end_time).getTime()
@@ -374,7 +385,6 @@ describe('Arc Creation and Editing', () => {
 
   describe('Arc Resize Validation', () => {
     it('should validate resize bounds against contained events', () => {
-      const arc = mockArc
       const containedEvents = mockEvents
       
       // Try to resize arc to exclude some events
@@ -390,8 +400,7 @@ describe('Arc Creation and Editing', () => {
     })
 
     it('should validate resize bounds against child arcs', () => {
-      const parentArc = mockArc
-      const childArc = mockChildArcs[0]
+      const childArc = requireItem(mockChildArcs, 0, 'mockChildArcs')
       
       // Try to resize parent to exclude child
       const newStart = new Date('2024-01-01T00:00:00Z')
@@ -405,7 +414,6 @@ describe('Arc Creation and Editing', () => {
     })
 
     it('should allow valid resize operations', () => {
-      const arc = mockArc
       const containedEvents = mockEvents
       
       // Resize to still contain all events
@@ -457,7 +465,6 @@ describe('Arc Creation and Editing', () => {
     })
 
     it('should validate required fields', async () => {
-      const user = userEvent.setup()
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } }
       })
@@ -529,7 +536,7 @@ describe('Arc Creation and Editing', () => {
   })
 
   describe('EventArcAssignment', () => {
-    const mockEvent = mockEvents[0]
+    const mockEvent = requireItem(mockEvents, 0, 'mockEvents')
     const mockOnAssign = vi.fn()
     const mockOnCancel = vi.fn()
 
@@ -619,7 +626,6 @@ describe('Arc Creation and Editing', () => {
     })
 
     it('should handle time range selection for arc creation', async () => {
-      const user = userEvent.setup()
       render(<Timeline {...timelineProps} />)
       
       const svg = screen.getByRole('img', { name: /timeline with/i })
@@ -631,10 +637,7 @@ describe('Arc Creation and Editing', () => {
 
     it('should validate arc resize operations', () => {
       // Test the validation logic directly
-      const arc = mockArc
-      const events = mockEvents
-      const arcs = [mockArc]
-      
+
       // Valid resize
       const validResize = {
         start: new Date('2024-01-01T00:00:00Z'),
@@ -687,9 +690,10 @@ describe('Arc Creation and Editing', () => {
           })
         )
         // Verify times are ISO strings (may differ due to timezone conversion)
-        const callArg = mockOnSave.mock.calls[0][0]
-        expect(callArg.start_time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
-        expect(callArg.end_time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
+        const callArg = mockOnSave.mock.calls[0]?.[0]
+        expect(callArg).toBeDefined()
+        expect(callArg?.start_time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
+        expect(callArg?.end_time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
       })
     })
 
@@ -755,7 +759,6 @@ describe('Arc Creation and Editing', () => {
     })
 
     it('should prevent invalid arc resize operations', () => {
-      const arc = mockArc
       const invalidBounds = {
         start: new Date('2024-01-31T23:59:59Z'),
         end: new Date('2024-01-01T00:00:00Z')

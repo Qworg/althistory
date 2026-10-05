@@ -1,8 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/services/api'
-import { Arc } from '@/types'
+import { Arc, ArcFilters } from '@/types'
 
-export function useArcs(filters?: Record<string, any>) {
+export function useArcs(filters?: ArcFilters) {
   return useQuery({
     queryKey: ['arcs', filters],
     queryFn: () => apiClient.arcs.getAll(filters),

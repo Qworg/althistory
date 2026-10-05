@@ -21,6 +21,12 @@ const successfulResult: ImportResult = {
     relationships: 1,
     pressures: 0,
   },
+  deleted: {
+    events: 0,
+    arcs: 0,
+    relationships: 0,
+    pressures: 0,
+  },
   errors: [],
   warnings: [
     { code: 'ORPHAN_REF', message: 'Orphan reference resolved', path: 'arcs[0]' },
@@ -38,6 +44,12 @@ const failedResult: ImportResult = {
     pressures: 0,
   },
   skipped: {
+    events: 0,
+    arcs: 0,
+    relationships: 0,
+    pressures: 0,
+  },
+  deleted: {
     events: 0,
     arcs: 0,
     relationships: 0,

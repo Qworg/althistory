@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import type { UseQueryResult } from '@tanstack/react-query'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ExportPanel } from './ExportPanel'
 import { useExportManagement } from '@/hooks/useExport'
 import { useActiveGraphId, useActiveGraph } from '@/hooks/useGraphs'
-import { ExportJob, Graph } from '@/types'
+import { AlthistoryExport, ExportJob, Graph } from '@/types'
 
 // Mock dependencies
 vi.mock('@/hooks/useExport')
@@ -13,8 +14,41 @@ vi.mock('@/hooks/useGraphs')
 // Mock URL and Blob APIs
 const mockCreateObjectURL = vi.fn().mockReturnValue('blob:test-url')
 const mockRevokeObjectURL = vi.fn()
-global.URL.createObjectURL = mockCreateObjectURL
-global.URL.revokeObjectURL = mockRevokeObjectURL
+globalThis.URL.createObjectURL = mockCreateObjectURL
+globalThis.URL.revokeObjectURL = mockRevokeObjectURL
+
+/** The value useExportManagement resolves to. */
+type ExportManagement = ReturnType<typeof useExportManagement>
+
+/** A resolved useQuery result, carrying the given graph data. */
+const createMockActiveGraphResult = (graph: Graph): ReturnType<typeof useActiveGraph> => ({
+  data: graph,
+  dataUpdatedAt: 0,
+  error: null,
+  errorUpdateCount: 0,
+  errorUpdatedAt: 0,
+  failureCount: 0,
+  failureReason: null,
+  fetchStatus: 'idle',
+  isEnabled: true,
+  isError: false,
+  isFetched: true,
+  isFetchedAfterMount: true,
+  isFetching: false,
+  isInitialLoading: false,
+  isLoading: false,
+  isLoadingError: false,
+  isPaused: false,
+  isPending: false,
+  isPlaceholderData: false,
+  isRefetchError: false,
+  isRefetching: false,
+  isStale: false,
+  isSuccess: true,
+  status: 'success',
+  promise: Promise.resolve(graph),
+  refetch: vi.fn()
+}) satisfies UseQueryResult<Graph, Error>
 
 const mockActiveGraph: Graph = {
   id: 'graph1',
@@ -54,30 +88,47 @@ const mockCompletedJob: ExportJob = {
   }
 }
 
-const createMockExportManagement = (overrides = {}) => ({
-  activeJob: null,
+const mockExportData: AlthistoryExport = {
+  version: '1.0',
+  metadata: {
+    graphId: 'graph1',
+    graphName: 'Main Timeline',
+    exportedAt: '2024-01-15T10:00:00Z',
+    sourceVersion: '1.0.0',
+    graphVersion: 3,
+    checksum: 'abc123'
+  },
+  data: { events: [], arcs: [], causalRelationships: [], inferredPressures: [] }
+}
+
+const createMockExportManagement = (
+  overrides: Partial<ExportManagement> = {}
+): ExportManagement => ({
+  jobs: [],
+  activeJob: undefined,
+  activeJobId: null,
   stats: {
     total: 5,
+    pending: 0,
+    processing: 0,
     completed: 4,
     failed: 1
   },
+  isLoading: false,
   isCreating: false,
   isDownloading: false,
-  isSyncExporting: false,
+  isCancelling: false,
   isValidating: false,
+  isSyncExporting: false,
   createExport: vi.fn().mockResolvedValue({ jobId: 'new-job' }),
-  syncExport: vi.fn().mockResolvedValue({
-    export: {
-      version: '1.0',
-      metadata: {},
-      data: { events: [], arcs: [], causalRelationships: [], inferredPressures: [] }
-    }
-  }),
+  syncExport: vi.fn().mockResolvedValue({ export: mockExportData, size: 1024 }),
   downloadExport: vi.fn().mockResolvedValue(new Blob()),
   cancelExport: vi.fn().mockResolvedValue(undefined),
   validateExport: vi.fn().mockResolvedValue({ valid: true, errors: [], warnings: [] }),
+  setActiveJobId: vi.fn(),
   hasActiveJobs: false,
   completedJobs: [mockCompletedJob],
+  failedJobs: [],
   ...overrides
 })
 
@@ -89,12 +140,8 @@ describe('ExportPanel', () => {
     mockExportManagement = createMockExportManagement()
     
     vi.mocked(useActiveGraphId).mockReturnValue('graph1')
-    vi.mocked(useActiveGraph).mockReturnValue({
-      data: mockActiveGraph,
-      isLoading: false,
-      error: null
-    } as any)
-    vi.mocked(useExportManagement).mockReturnValue(mockExportManagement as any)
+    vi.mocked(useActiveGraph).mockReturnValue(createMockActiveGraphResult(mockActiveGraph))
+    vi.mocked(useExportManagement).mockReturnValue(mockExportManagement)
   })
 
   afterEach(() => {
@@ -127,7 +174,7 @@ describe('ExportPanel', () => {
     it('should show "Exporting..." badge when jobs are active', () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         hasActiveJobs: true
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -192,7 +239,7 @@ describe('ExportPanel', () => {
     it('should show loading state during quick export', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         isSyncExporting: true
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -204,7 +251,7 @@ describe('ExportPanel', () => {
     it('should disable button during quick export', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         isSyncExporting: true
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -232,7 +279,7 @@ describe('ExportPanel', () => {
       
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         syncExport: vi.fn().mockRejectedValue(new Error('Export failed'))
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -404,7 +451,7 @@ describe('ExportPanel', () => {
     it('should show loading state while creating export', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         isCreating: true
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -416,7 +463,7 @@ describe('ExportPanel', () => {
     it('should disable button while creating export', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         isCreating: true
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -431,7 +478,7 @@ describe('ExportPanel', () => {
       
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         createExport: vi.fn().mockRejectedValue(new Error('Creation failed'))
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -450,7 +497,7 @@ describe('ExportPanel', () => {
     it('should show progress bar when there is an active job', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         activeJob: mockPendingJob
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -463,7 +510,7 @@ describe('ExportPanel', () => {
     it('should display progress bar with correct width', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         activeJob: mockPendingJob
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -476,7 +523,7 @@ describe('ExportPanel', () => {
     it('should show Cancel button during export', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         activeJob: mockPendingJob
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -490,7 +537,7 @@ describe('ExportPanel', () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         activeJob: mockPendingJob,
         cancelExport: cancelFn
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -506,7 +553,7 @@ describe('ExportPanel', () => {
     it('should not show progress when job status is completed', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         activeJob: { ...mockCompletedJob, status: 'completed' as const }
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -562,7 +609,7 @@ describe('ExportPanel', () => {
     it('should disable download button while downloading', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         isDownloading: true
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -577,7 +624,7 @@ describe('ExportPanel', () => {
       
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         downloadExport: vi.fn().mockRejectedValue(new Error('Download failed'))
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -600,7 +647,7 @@ describe('ExportPanel', () => {
       
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         completedJobs: manyJobs
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -613,7 +660,7 @@ describe('ExportPanel', () => {
     it('should not show recent exports section when no completed jobs', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         completedJobs: []
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -643,7 +690,7 @@ describe('ExportPanel', () => {
     it('should show loading state while validating', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         isValidating: true
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -655,7 +702,7 @@ describe('ExportPanel', () => {
     it('should disable button while validating', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         isValidating: true
-      }) as any)
+      }))
       
       render(<ExportPanel />)
       
@@ -709,8 +756,8 @@ describe('ExportPanel', () => {
 
     it('should not display stats when not available', async () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
-        stats: null
-      }) as any)
+        stats: undefined
+      }))
       
       render(<ExportPanel />)
       

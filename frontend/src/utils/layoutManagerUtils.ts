@@ -1,4 +1,29 @@
 import React from 'react'
+import type { LayoutOptions as CytoscapeLayoutOptions } from 'cytoscape'
+
+/**
+ * A bag of Cytoscape layout options.
+ *
+ * Cytoscape's own `LayoutOptions` is a large discriminated union keyed on
+ * `name`, and these helpers deliberately return *partial* bags (the defaults are
+ * merged with caller-supplied overrides, and several entries are explicitly
+ * `undefined` so Cytoscape picks its own value). Modelling that as
+ * `Record<string, unknown>` keeps the merges honest and assignable, where the
+ * union would force a cast at every call site.
+ */
+export type LayoutOptions = Record<string, unknown>
+
+/**
+ * Bridge a partial `LayoutOptions` bag to Cytoscape's own `LayoutOptions`.
+ *
+ * Cytoscape types `Core#layout()` as taking a discriminated union of *complete*
+ * layout option sets, which these bags deliberately are not. Keeping the single
+ * documented widening here means call sites stay cast-free and the mismatch is
+ * stated in exactly one place.
+ */
+export function toCytoscapeLayoutOptions(options: LayoutOptions): CytoscapeLayoutOptions {
+  return options as unknown as CytoscapeLayoutOptions
+}
 
 export interface LayoutConfig {
   name: string
@@ -7,7 +32,7 @@ export interface LayoutConfig {
   category: 'force' | 'hierarchical' | 'circular' | 'grid'
   shortcutKey?: string | null
   icon?: React.ReactNode
-  options: Record<string, any>
+  options: LayoutOptions
 }
 
 /**
@@ -106,7 +131,7 @@ export function getCategoryLabel(category: string): string {
 /**
  * Default layout options for each layout type
  */
-export const DEFAULT_LAYOUT_OPTIONS: Record<string, Record<string, any>> = {
+export const DEFAULT_LAYOUT_OPTIONS: Record<string, LayoutOptions> = {
   cose: {
     name: 'cose',
     animationDuration: 1000,
@@ -219,7 +244,7 @@ export const DEFAULT_LAYOUT_OPTIONS: Record<string, Record<string, any>> = {
 /**
  * Get default options for a layout type
  */
-export function getDefaultLayoutOptions(layoutName: string): Record<string, any> {
+export function getDefaultLayoutOptions(layoutName: string): LayoutOptions {
   return DEFAULT_LAYOUT_OPTIONS[layoutName] ?? { name: layoutName }
 }
 
@@ -228,8 +253,8 @@ export function getDefaultLayoutOptions(layoutName: string): Record<string, any>
  */
 export function mergeLayoutOptions(
   layoutName: string,
-  customOptions?: Record<string, any>
-): Record<string, any> {
+  customOptions?: LayoutOptions
+): LayoutOptions {
   const defaults = getDefaultLayoutOptions(layoutName)
   return { ...defaults, ...customOptions }
 }
@@ -237,7 +262,7 @@ export function mergeLayoutOptions(
 /**
  * Get preview-optimized layout options (faster animation, no fit)
  */
-export function getPreviewLayoutOptions(layoutName: string): Record<string, any> {
+export function getPreviewLayoutOptions(layoutName: string): LayoutOptions {
   const defaults = getDefaultLayoutOptions(layoutName)
   return {
     ...defaults,

@@ -43,12 +43,22 @@ const mockRelationship: CausalRelationship = {
   updated_at: '2023-01-01T12:00:00Z'
 }
 
+/**
+ * The modal only reads `events` and calls the three relationship/error actions,
+ * so the store double is partial. The seam with the automocked
+ * `useGlobalStore` (typed against the full real store) is bridged once, below,
+ * with the reason rather than via an unchecked assertion at the call site.
+ */
 const mockGlobalStore = {
   events: mockEvents,
   updateCausalRelationship: vi.fn(),
   deleteCausalRelationship: vi.fn(),
   addError: vi.fn()
 }
+
+type GlobalStoreState = ReturnType<typeof useGlobalStore>
+
+const asStore = (partial: Partial<GlobalStoreState>) => partial as GlobalStoreState
 
 describe('CausalRelationshipModal', () => {
   const user = userEvent.setup()
@@ -57,7 +67,7 @@ describe('CausalRelationshipModal', () => {
   const mockOnDelete = vi.fn()
 
   beforeEach(() => {
-    vi.mocked(useGlobalStore).mockReturnValue(mockGlobalStore as any)
+    vi.mocked(useGlobalStore).mockReturnValue(asStore(mockGlobalStore))
     vi.mocked(apiClient.causal.updateLink).mockResolvedValue({
       ...mockRelationship,
       weight: 0.6

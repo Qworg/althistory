@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router'
 
 export interface FilterState {
@@ -47,6 +47,19 @@ export function FilterPanel({
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
 
+  // The URL -> filters sync below needs the *current* filters and callback, but
+  // must stay keyed on `searchParams` alone: listing them would make every filter
+  // change re-hydrate from the URL, which feeds straight back into
+  // onFiltersChange. Refs keep the effect reading fresh values without changing
+  // when it runs.
+  const filtersRef = useRef(filters)
+  const onFiltersChangeRef = useRef(onFiltersChange)
+
+  useEffect(() => {
+    filtersRef.current = filters
+    onFiltersChangeRef.current = onFiltersChange
+  }, [filters, onFiltersChange])
+
   // Sync filters with URL parameters
   useEffect(() => {
     const urlFilters: Partial<FilterState> = {}
@@ -79,7 +92,7 @@ export function FilterPanel({
     }
     
     if (Object.keys(urlFilters).length > 0) {
-      onFiltersChange({ ...filters, ...urlFilters })
+      onFiltersChangeRef.current({ ...filtersRef.current, ...urlFilters })
     }
   }, [searchParams])
 
@@ -115,7 +128,7 @@ export function FilterPanel({
     setSearchParams(newParams, { replace: true })
   }, [filters, setSearchParams])
 
-  const handleFilterChange = (key: keyof FilterState, value: any) => {
+  const handleFilterChange = (key: keyof FilterState, value: unknown) => {
     onFiltersChange({
       ...filters,
       [key]: value

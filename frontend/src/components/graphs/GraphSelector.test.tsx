@@ -60,14 +60,48 @@ const mockGraphs: Graph[] = [
   }
 ]
 
-const createMockGraphManagement = (overrides = {}) => ({
+/** The value useGraphManagement resolves to. */
+type GraphManagement = ReturnType<typeof useGraphManagement>
+
+const mockNewGraph: Graph = {
+  id: 'new-graph',
+  name: 'New Graph',
+  status: 'active',
+  version: 1,
+  createdAt: '2024-01-20T00:00:00Z',
+  updatedAt: '2024-01-20T00:00:00Z',
+  metadata: {
+    eventCount: 0,
+    arcCount: 0,
+    relationshipCount: 0,
+    pressureCount: 0
+  }
+}
+
+const createMockGraphManagement = (
+  overrides: Partial<GraphManagement> = {}
+): GraphManagement => ({
   activeGraphId: 'graph1',
   activeGraph: mockGraphs[0],
   graphs: mockGraphs,
-  switchGraph: vi.fn(),
-  createGraph: vi.fn().mockResolvedValue({ id: 'new-graph', name: 'New Graph' }),
+  totalGraphs: mockGraphs.length,
   isLoading: false,
+  isLoadingGraphs: false,
+  isLoadingActive: false,
+  error: null,
+  createGraph: vi.fn().mockResolvedValue(mockNewGraph),
+  updateGraph: vi.fn(),
+  deleteGraph: vi.fn(),
+  branchGraph: vi.fn().mockResolvedValue(mockGraphs[1]),
+  mergeGraph: vi.fn(),
+  rollbackGraph: vi.fn().mockResolvedValue(mockGraphs[0]),
+  switchGraph: vi.fn(),
   isCreating: false,
+  isUpdating: false,
+  isDeleting: false,
+  isBranching: false,
+  isMerging: false,
+  isRollingBack: false,
   isSwitching: false,
   ...overrides
 })
@@ -79,7 +113,7 @@ describe('GraphSelector', () => {
 
   beforeEach(() => {
     mockGraphManagement = createMockGraphManagement()
-    vi.mocked(useGraphManagement).mockReturnValue(mockGraphManagement as any)
+    vi.mocked(useGraphManagement).mockReturnValue(mockGraphManagement)
   })
 
   afterEach(() => {
@@ -102,8 +136,8 @@ describe('GraphSelector', () => {
     it('should show "Select Graph" when no graph is active', () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         activeGraphId: null,
-        activeGraph: null
-      }) as any)
+        activeGraph: undefined
+      }))
       
       render(<GraphSelector />)
       
@@ -130,8 +164,8 @@ describe('GraphSelector', () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         graphs: [],
         activeGraphId: null,
-        activeGraph: null
-      }) as any)
+        activeGraph: undefined
+      }))
       
       render(<GraphSelector />)
       
@@ -145,7 +179,7 @@ describe('GraphSelector', () => {
     it('should still show "New Graph" button when no graphs exist', async () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         graphs: []
-      }) as any)
+      }))
       
       render(<GraphSelector />)
       
@@ -272,7 +306,7 @@ describe('GraphSelector', () => {
     it('should disable button when loading', () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         isLoading: true
-      }) as any)
+      }))
       
       render(<GraphSelector />)
       
@@ -284,7 +318,7 @@ describe('GraphSelector', () => {
     it('should show "Switching..." when switching graphs', () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         isSwitching: true
-      }) as any)
+      }))
       
       render(<GraphSelector />)
       
@@ -294,7 +328,7 @@ describe('GraphSelector', () => {
     it('should disable button when switching graphs', () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         isSwitching: true
-      }) as any)
+      }))
       
       render(<GraphSelector />)
       
@@ -387,7 +421,7 @@ describe('GraphSelector', () => {
     it('should show loading state while creating graph', async () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         isCreating: true
-      }) as any)
+      }))
       
       render(<GraphSelector />)
       
@@ -525,7 +559,7 @@ describe('GraphSelector', () => {
       
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         createGraph: vi.fn().mockRejectedValue(new Error('Network error'))
-      }) as any)
+      }))
       
       render(<GraphSelector />)
       

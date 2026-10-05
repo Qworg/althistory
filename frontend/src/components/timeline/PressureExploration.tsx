@@ -15,7 +15,6 @@ export interface PressureExplorationProps {
 
 export const PressureExploration: React.FC<PressureExplorationProps> = ({
   arcId,
-  selectedEvents = new Set(),
   onEventHighlight,
   onEventSelect,
   className = ''

@@ -3,8 +3,7 @@ import * as d3 from 'd3'
 import { Arc } from '@/types'
 import { 
   PressureWithContext, 
-  PressureIndicatorData,
-  PressureTooltipData 
+  PressureIndicatorData
 } from '@/types/pressure'
 import { 
   generatePressureIndicators,
@@ -20,7 +19,7 @@ export interface PressureIndicatorsProps {
   timeScale: (date: Date) => number
   yScale: (level: number) => number
   arcLevelMap: Map<string, number>
-  svgRef: React.RefObject<SVGSVGElement>
+  svgRef: React.RefObject<SVGSVGElement | null>
   onPressureClick?: (pressure: PressureWithContext) => void
   onPressureHover?: (pressure: PressureWithContext | null) => void
   showTooltips?: boolean
@@ -57,15 +56,17 @@ export const PressureIndicators: React.FC<PressureIndicatorsProps> = ({
   useEffect(() => {
     if (!svgRef.current || !indicatorsRef.current) return
 
-    const svg = d3.select(svgRef.current)
-    const indicatorsGroup = d3.select(indicatorsRef.current)
+    const svg = d3.select<SVGSVGElement, unknown>(svgRef.current)
+    // Bind the datum type to the selection so the key function below and every
+    // downstream `.attr(..., d => ...)` see PressureIndicatorData instead of unknown.
+    const indicatorsGroup = d3.select<SVGGElement, PressureIndicatorData>(indicatorsRef.current)
 
     // Clear existing indicators
     indicatorsGroup.selectAll('.pressure-indicator').remove()
 
     // Create indicator groups
     const indicators = indicatorsGroup
-      .selectAll('.pressure-indicator')
+      .selectAll<SVGGElement, PressureIndicatorData>('.pressure-indicator')
       .data(indicatorData, (d: PressureIndicatorData) => d.id)
       .enter()
       .append('g')
@@ -137,7 +138,7 @@ export const PressureIndicators: React.FC<PressureIndicatorsProps> = ({
 
         onPressureHover?.(d.pressure)
       })
-      .on('mouseleave', function(event, d) {
+      .on('mouseleave', function(_event, d) {
         // Remove highlight
         d3.select(this)
           .select('.pressure-bar')
@@ -154,7 +155,10 @@ export const PressureIndicators: React.FC<PressureIndicatorsProps> = ({
       })
 
     // Add gradient definitions for confidence indicators
-    const defs = svg.select('defs').empty() ? svg.append('defs') : svg.select('defs')
+    // Hoist the select so both ternary branches share one concrete Selection type
+    // (a union of two different Selection types would collapse the selectAll overloads).
+    const existingDefs = svg.select<SVGDefsElement>('defs')
+    const defs = existingDefs.empty() ? svg.append<SVGDefsElement>('defs') : existingDefs
     
     defs.selectAll('#confidenceGradient').remove()
     const gradient = defs.append('linearGradient')

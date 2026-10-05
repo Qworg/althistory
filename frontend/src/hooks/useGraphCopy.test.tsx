@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, act, waitFor } from '@testing-library/react'
+import { renderHook, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useGraphCopy } from './useGraphCopy'
 import { apiClient } from '@/services/api'
@@ -34,6 +34,17 @@ const mockStoreReturn = {
   removeLoadingOperation: mockRemoveLoadingOperation
 }
 
+const mockUseGlobalStore = vi.mocked(useGlobalStore)
+
+type GlobalStoreState = ReturnType<typeof useGlobalStore>
+
+/**
+ * `mockStoreReturn` only carries the three store actions `useGraphCopy` calls, so the seam
+ * with the automocked `useGlobalStore` (typed against the full real store) is bridged once,
+ * here, instead of with an unchecked assertion at each call site.
+ */
+const asStore = (partial: Partial<GlobalStoreState>) => partial as GlobalStoreState
+
 const createWrapper = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -52,7 +63,7 @@ const createWrapper = () => {
 describe('useGraphCopy', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    ;(useGlobalStore as any).mockReturnValue(mockStoreReturn)
+    mockUseGlobalStore.mockReturnValue(asStore(mockStoreReturn))
   })
 
   afterEach(() => {
@@ -154,7 +165,7 @@ describe('useGraphCopy', () => {
       created_at: '2023-01-01T00:00:00Z'
     }
 
-    ;(apiClient.graph.copyFull as any).mockResolvedValue(mockCopyResult)
+    vi.mocked(apiClient.graph.copyFull).mockResolvedValue(mockCopyResult)
 
     const { result } = renderHook(() => useGraphCopy(), {
       wrapper: createWrapper()
@@ -197,7 +208,7 @@ describe('useGraphCopy', () => {
       end: new Date('2023-12-31')
     }
 
-    ;(apiClient.graph.copyByTimeRange as any).mockResolvedValue(mockCopyResult)
+    vi.mocked(apiClient.graph.copyByTimeRange).mockResolvedValue(mockCopyResult)
 
     const { result } = renderHook(() => useGraphCopy(), {
       wrapper: createWrapper()
@@ -240,7 +251,7 @@ describe('useGraphCopy', () => {
       confidence_threshold: 0.7
     }
 
-    ;(apiClient.graph.copyByFilter as any).mockResolvedValue(mockCopyResult)
+    vi.mocked(apiClient.graph.copyByFilter).mockResolvedValue(mockCopyResult)
 
     const { result } = renderHook(() => useGraphCopy(), {
       wrapper: createWrapper()
@@ -331,7 +342,7 @@ describe('useGraphCopy', () => {
 
   it('should handle API errors', async () => {
     const error = new Error('API Error')
-    ;(apiClient.graph.copyFull as any).mockRejectedValue(error)
+    vi.mocked(apiClient.graph.copyFull).mockRejectedValue(error)
 
     const { result } = renderHook(() => useGraphCopy(), {
       wrapper: createWrapper()
@@ -346,7 +357,7 @@ describe('useGraphCopy', () => {
     await act(async () => {
       try {
         await result.current.createFullCopy()
-      } catch (e) {
+      } catch {
         // Expected to throw
       }
     })

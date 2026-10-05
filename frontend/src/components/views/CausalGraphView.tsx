@@ -183,8 +183,11 @@ export function CausalGraphView() {
     }
   }, [editModal, updateCausalLinkMutation])
 
-  // Delete relationship from modal
-  const handleRelationshipDelete = useCallback(async (_relationshipId: string) => {
+  // Delete relationship from modal. The id is not needed: the relationship to
+  // delete is already carried on `editModal`, so the parameter is simply omitted
+  // (the handler stays assignable to the `(relationshipId: string) => void`
+  // prop it is passed as).
+  const handleRelationshipDelete = useCallback(async () => {
     if (editModal?.type === 'relationship') {
       const rel = editModal.item as CausalRelationship
       await deleteCausalLinkMutation.mutateAsync({
