@@ -364,7 +364,14 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
 
   const viewSpecificActions = getViewSpecificActions()
   const commonActions = getCommonActions()
-  const allActions = [...viewSpecificActions, ...commonActions]
+
+  // Memoised so the keyboard-shortcut effect below is not re-subscribed on every
+  // render; both builders are themselves useCallback'd and rebuild exactly when
+  // the state their actions depend on changes.
+  const allActions = React.useMemo<Array<ToolbarAction>>(
+    () => [...getViewSpecificActions(), ...getCommonActions()],
+    [getViewSpecificActions, getCommonActions]
+  )
 
   // Handle keyboard shortcuts
   React.useEffect(() => {

@@ -277,7 +277,7 @@ describe('useTimelineEventHandlers', () => {
       })
 
       expect(onEventCreate).toHaveBeenCalledTimes(1)
-      expect(onEventCreate.mock.calls[0][0]).toBeInstanceOf(Date)
+      expect(onEventCreate.mock.calls[0]?.[0]).toBeInstanceOf(Date)
     })
 
     it('does not call onEventCreate when callback is undefined', () => {
@@ -418,7 +418,7 @@ describe('useTimelineEventHandlers', () => {
     })
 
     it('updates handler when xScale changes', () => {
-      const onEventCreate = vi.fn()
+      const onEventCreate = vi.fn<(date: Date) => void>()
       const xScale1 = d3.scaleTime()
         .domain([new Date('2024-01-01'), new Date('2024-02-01')])
         .range([0, 800])
@@ -443,7 +443,7 @@ describe('useTimelineEventHandlers', () => {
         result.current.handleSvgDoubleClick(mockEvent)
       })
 
-      const firstDate = onEventCreate.mock.calls[0][0] as Date
+      const firstDate = onEventCreate.mock.calls[0]?.[0]
 
       rerender({ xScale: xScale2 })
 
@@ -451,10 +451,10 @@ describe('useTimelineEventHandlers', () => {
         result.current.handleSvgDoubleClick(mockEvent)
       })
 
-      const secondDate = onEventCreate.mock.calls[1][0] as Date
+      const secondDate = onEventCreate.mock.calls[1]?.[0]
 
       // Different scales should produce different dates for same position
-      expect(firstDate.getMonth()).not.toBe(secondDate.getMonth())
+      expect(firstDate?.getMonth()).not.toBe(secondDate?.getMonth())
     })
 
     it('updates when margin changes', () => {

@@ -1,34 +1,69 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useGlobalStore } from '@/stores/globalStore'
 import { Event, Arc, CausalRelationship } from '@/types'
+import type { PersistenceManager } from '@/utils/persistence'
 
-// Mock the persistence utilities
-vi.mock('@/utils/persistence', () => ({
-  userPreferencesPersistence: {
+type PersistenceUtilsModule = typeof import('@/utils/persistence')
+
+/** The two managers `@/stores/globalStore` imports from the persistence module. */
+type PersistenceManagerExports = Pick<
+  PersistenceUtilsModule,
+  'userPreferencesPersistence' | 'sessionDataPersistence'
+>
+
+/**
+ * The public surface of the real `PersistenceManager`. `Pick<_, keyof _>` drops the private
+ * `config` field, so a public method added to the class later becomes a compile error in the
+ * mock below instead of an `undefined` at runtime.
+ */
+type PersistenceManagerApi = Pick<PersistenceManager, keyof PersistenceManager>
+
+// Mock the persistence utilities, typed against the real module so a new manager method is a
+// compile error here rather than a silent runtime miss.
+vi.mock('@/utils/persistence', () => {
+  const createPersistenceStub = (): PersistenceManagerApi => ({
     save: vi.fn(),
-    load: vi.fn(() => null),
+    load: <T>(): T | null => null,
     clear: vi.fn(),
-  },
-  sessionDataPersistence: {
-    save: vi.fn(),
-    load: vi.fn(() => null),
-    clear: vi.fn(),
-  },
-}))
+  })
+
+  return {
+    userPreferencesPersistence: createPersistenceStub(),
+    sessionDataPersistence: createPersistenceStub(),
+  } satisfies Record<keyof PersistenceManagerExports, PersistenceManagerApi>
+})
+
+type GlobalStoreState = ReturnType<typeof useGlobalStore.getState>
+
+/**
+ * The slice reset before every test. Typing it as a `Pick` of the real store state means a
+ * renamed or removed field fails to compile here instead of leaving stale data behind.
+ */
+const RESET_STATE: Pick<
+  GlobalStoreState,
+  | 'events'
+  | 'arcs'
+  | 'causalRelationships'
+  | 'inferredPressures'
+  | 'selectedEvents'
+  | 'selectedArcs'
+  | 'errors'
+  | 'loadingOperations'
+> = {
+  events: [],
+  arcs: [],
+  causalRelationships: [],
+  inferredPressures: [],
+  selectedEvents: [],
+  selectedArcs: [],
+  errors: [],
+  loadingOperations: new Set<string>(),
+}
 
 describe('GlobalStore', () => {
   beforeEach(() => {
     // Reset store state before each test
-    useGlobalStore.setState({
-      events: [],
-      arcs: [],
-      causalRelationships: [],
-      inferredPressures: [],
-      selectedEvents: [],
-      selectedArcs: [],
-      errors: [],
-      loadingOperations: new Set(),
-    })
+    useGlobalStore.setState(RESET_STATE)
   })
 
   describe('Event Management', () => {
@@ -65,7 +100,7 @@ describe('GlobalStore', () => {
       useGlobalStore.getState().updateEvent('1', { description: 'Updated event' })
       
       const events = useGlobalStore.getState().events
-      expect(events[0].description).toBe('Updated event')
+      expect(events[0]?.description).toBe('Updated event')
     })
 
     it('should delete an event', () => {
@@ -127,7 +162,7 @@ describe('GlobalStore', () => {
       useGlobalStore.getState().updateArc('1', { name: 'Updated arc' })
       
       const arcs = useGlobalStore.getState().arcs
-      expect(arcs[0].name).toBe('Updated arc')
+      expect(arcs[0]?.name).toBe('Updated arc')
     })
 
     it('should delete an arc', () => {
@@ -223,12 +258,14 @@ describe('GlobalStore', () => {
       
       const errors = useGlobalStore.getState().errors
       expect(errors).toHaveLength(1)
-      expect(errors[0].message).toBe('Test error')
-      expect(errors[0].type).toBe('network')
-      expect(errors[0].id).toBeDefined()
-      expect(errors[0].timestamp).toBeInstanceOf(Date)
+      const [firstError] = errors
+      if (!firstError) throw new Error('expected the store to record one error')
+      expect(firstError.message).toBe('Test error')
+      expect(firstError.type).toBe('network')
+      expect(firstError.id).toBeDefined()
+      expect(firstError.timestamp).toBeInstanceOf(Date)
       
-      useGlobalStore.getState().removeError(errors[0].id)
+      useGlobalStore.getState().removeError(firstError.id)
       expect(useGlobalStore.getState().errors).toHaveLength(0)
     })
 
@@ -307,7 +344,7 @@ describe('GlobalStore', () => {
       useGlobalStore.getState().updateCausalRelationship('1', { weight: 0.9 })
       
       const relationships = useGlobalStore.getState().causalRelationships
-      expect(relationships[0].weight).toBe(0.9)
+      expect(relationships[0]?.weight).toBe(0.9)
     })
 
     it('should delete a causal relationship', () => {

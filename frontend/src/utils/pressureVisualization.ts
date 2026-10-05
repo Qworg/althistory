@@ -13,12 +13,14 @@ export function processPressuresWithContext(
   pressures: InferredPressure[],
   arcs: Arc[],
   events: Event[],
-  _selectedPressures: Set<string> = new Set(),
+  // Retained for call-site arity (the real selection filter is still a backend
+  // concern); deliberately no default so it is never "assigned" an unused value.
+  _selectedPressures?: Set<string>,
   highlightedPressures: Set<string> = new Set()
 ): PressureWithContext[] {
   return pressures.map(pressure => {
     // Find arcs affected by this pressure (simplified - in real implementation would come from backend)
-    const affectedArcs = arcs.filter(_arc => {
+    const affectedArcs = arcs.filter(() => {
       // For now, assume pressure affects arcs that contain events in the same time period
       // In a real implementation, this would be determined by the backend inference engine
       return true // Placeholder logic

@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { Event, Arc } from '@/types'
-import { 
-  calculateArcHierarchy, 
-  processArcsWithUIState, 
-  formatDuration,
-  ArcWithUIState 
+import {
+  calculateArcHierarchy,
+  processArcsWithUIState,
+  formatDuration
 } from './arcHierarchyUtils'
 
 describe('Arc Hierarchy Utilities', () => {
@@ -167,8 +166,8 @@ describe('Arc Hierarchy Utilities', () => {
     it('should handle expanded arcs and show children', () => {
       const expandedArcs = new Set(['arc1', 'arc2'])
       const processedArcs = processArcsWithUIState(mockArcs, mockEvents, expandedArcs, new Set())
-      const { arcHierarchy, maxLevel } = calculateArcHierarchy(processedArcs)
-      
+      const { arcHierarchy } = calculateArcHierarchy(processedArcs)
+
       // Should include children of expanded arcs
       expect(arcHierarchy.length).toBeGreaterThan(2)
       

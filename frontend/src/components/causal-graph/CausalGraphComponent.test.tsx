@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
+import type { Core, CytoscapeOptions } from 'cytoscape'
 import { CausalGraphComponent } from './CausalGraphComponent'
 import { useGlobalStore } from '@/stores/globalStore'
 import { Event, CausalRelationship } from '@/types'
@@ -11,12 +12,41 @@ import {
   getEventHandlers
 } from '@/test/helpers/cytoscapeTestHelpers'
 
+/**
+ * Shape of the store double created by the `vi.mock` factory below. Only the
+ * members the component and these tests actually touch are modelled; `_mockState`
+ * is the back door the tests use to swap the data per test case.
+ */
+interface MockStoreState {
+  events: Event[]
+  causalRelationships: CausalRelationship[]
+  selectedEvents: string[]
+  sessionData: {
+    viewportState: {
+      causalGraph: {
+        layout: string
+        nodePositions: Record<string, { x: number; y: number }>
+      }
+    }
+  }
+  updateSessionData: ReturnType<typeof vi.fn>
+  addCausalRelationship: ReturnType<typeof vi.fn>
+  addError: ReturnType<typeof vi.fn>
+}
+
+/** The mocked `useGlobalStore`, which supports both selector and plain calls. */
+interface MockStoreHook {
+  (selector?: (state: MockStoreState) => unknown): unknown
+  getState: () => MockStoreState
+  _mockState: MockStoreState
+}
+
 // Mock Cytoscape - the factory will be set up in beforeEach
 vi.mock('cytoscape')
 
 // Mock the global store with getState support and selector support
 vi.mock('@/stores/globalStore', () => {
-  const mockState = {
+  const mockState: MockStoreState = {
     events: [],
     causalRelationships: [],
     selectedEvents: [],
@@ -39,9 +69,9 @@ vi.mock('@/stores/globalStore', () => {
       return selector(mockState)
     }
     return mockState
-  })
-  ;(mockFn as any).getState = () => mockState
-  ;(mockFn as any)._mockState = mockState
+  }) as unknown as MockStoreHook
+  mockFn.getState = () => mockState
+  mockFn._mockState = mockState
 
   return {
     useGlobalStore: mockFn
@@ -128,7 +158,17 @@ vi.mock('@/services/api', () => ({
 // Import cytoscape after mocking
 import cytoscape from 'cytoscape'
 
-const mockUseGlobalStore = useGlobalStore as any
+const mockUseGlobalStore = useGlobalStore as unknown as MockStoreHook
+
+/**
+ * `cytoscape` is an overloaded entry point (factory, registry accessor, registry
+ * registrar). `vi.mocked` can only preserve the *last* overload, which returns
+ * `void`, so the factory overload is restated here to give `mockReturnValue` the
+ * right signature.
+ */
+const mockedCytoscape = vi.mocked(cytoscape) as unknown as Mock<
+  (options?: CytoscapeOptions) => Core
+>
 // Get reference to the mock state for tests that need to check/modify it
 const getMockStoreState = () => mockUseGlobalStore._mockState
 
@@ -178,10 +218,10 @@ describe('CausalGraphComponent', () => {
     })
 
     // Set up cytoscape mock to return our instance
-    vi.mocked(cytoscape).mockReturnValue(mockCy as any)
+    mockedCytoscape.mockReturnValue(mockCy as unknown as Core)
 
     // Update the mock state with test data
-    const mockState = (mockUseGlobalStore as any)._mockState
+    const mockState = mockUseGlobalStore._mockState
     if (mockState) {
       mockState.events = mockEvents
       mockState.causalRelationships = mockCausalRelationships
@@ -488,7 +528,7 @@ describe('CausalGraphComponent', () => {
 
       // Mock nodes with positions
       mockCy.nodes.mockReturnValue({
-        forEach: (callback: any) => {
+        forEach: (callback: (node: { id: () => string; position: () => { x: number; y: number } }) => void) => {
           callback({
             id: () => '1',
             position: () => ({ x: 100, y: 200 })

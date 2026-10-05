@@ -1,4 +1,3 @@
-import React from 'react'
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import { vi } from 'vitest'
 import PressureConfidenceTracker from './PressureConfidenceTracker'
@@ -51,8 +50,9 @@ describe('PressureConfidenceTracker', () => {
     expect(screen.getByText('60%')).toBeInTheDocument() // Min value
     expect(screen.getByText('Max')).toBeInTheDocument()
     // Max value is 75%, same as current confidence - get parent container (.bg-gray-50)
-    const maxSection = screen.getByText('Max').closest('.bg-gray-50')
-    expect(within(maxSection!).getByText('75%')).toBeInTheDocument()
+    const maxSection = screen.getByText('Max').closest<HTMLElement>('.bg-gray-50')
+    if (maxSection === null) throw new Error('Expected a Max statistics section')
+    expect(within(maxSection).getByText('75%')).toBeInTheDocument()
     expect(screen.getByText('Volatility')).toBeInTheDocument()
   })
 

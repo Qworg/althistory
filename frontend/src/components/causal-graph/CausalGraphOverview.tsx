@@ -321,7 +321,6 @@ export function CausalGraphOverview({
       mainCytoscapeInstance.off('pan zoom resize', handleViewportChange)
       mainCytoscapeInstance.off('layoutstop', handleViewportChange)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mainCytoscapeInstance, isInitialized, showMinimap]) // Removed callback deps - using refs instead
 
   // Cleanup

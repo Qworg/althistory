@@ -109,8 +109,20 @@ export const ExportPanel = memo(function ExportPanel({
     }
   }, [validateExport])
 
-  const handleFilterChange = useCallback((key: keyof ExportFilters, value: any) => {
+  const handleFilterChange = useCallback(<K extends keyof ExportFilters>(key: K, value: ExportFilters[K]) => {
     setFilters(prev => ({ ...prev, [key]: value }))
+  }, [])
+
+  // The two time-range bounds are edited independently while ExportFilters
+  // requires both, so the not-yet-entered bound falls back to an empty string.
+  const handleTimeRangeChange = useCallback((bound: 'start' | 'end', value: string) => {
+    setFilters(prev => {
+      const previous = prev.timeRange
+      const timeRange = bound === 'start'
+        ? { start: value, end: previous?.end ?? '' }
+        : { start: previous?.start ?? '', end: value }
+      return { ...prev, timeRange }
+    })
   }, [])
 
   if (!activeGraphId) {
@@ -242,19 +254,13 @@ export const ExportPanel = memo(function ExportPanel({
                         <input
                           type="date"
                           value={filters.timeRange?.start || ''}
-                          onChange={(e) => handleFilterChange('timeRange', {
-                            ...filters.timeRange,
-                            start: e.target.value,
-                          })}
+                          onChange={(e) => handleTimeRangeChange('start', e.target.value)}
                           className="flex-1 px-2 py-1 border rounded text-sm"
                         />
                         <input
                           type="date"
                           value={filters.timeRange?.end || ''}
-                          onChange={(e) => handleFilterChange('timeRange', {
-                            ...filters.timeRange,
-                            end: e.target.value,
-                          })}
+                          onChange={(e) => handleTimeRangeChange('end', e.target.value)}
                           className="flex-1 px-2 py-1 border rounded text-sm"
                         />
                       </div>

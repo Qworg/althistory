@@ -3,6 +3,9 @@ import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { usePressures } from './usePressures'
 import { useInferredPressures } from './useAPI'
 import { useGlobalStore } from '@/stores/globalStore'
+import { InferredPressure } from '@/types'
+import { PressureWithContext } from '@/types/pressure'
+import { APIError } from '@/services/api'
 
 // Mock dependencies
 vi.mock('./useAPI')
@@ -11,8 +14,103 @@ vi.mock('@/stores/globalStore')
 const mockUseInferredPressures = vi.mocked(useInferredPressures)
 const mockUseGlobalStore = vi.mocked(useGlobalStore)
 
+type GlobalStoreState = ReturnType<typeof useGlobalStore>
+
+/**
+ * `mockGlobalStoreState` below only carries the slice `usePressures` reads, so the seam
+ * with the automocked `useGlobalStore` (typed against the full real store) is bridged
+ * once, here, instead of with an unchecked assertion at each call site.
+ */
+const asStore = (partial: Partial<GlobalStoreState>) => partial as GlobalStoreState
+
+type InferredPressuresQueryResult = ReturnType<typeof useInferredPressures>
+
+type QueryResultState =
+  | { kind: 'success'; data: InferredPressure[] }
+  | { kind: 'loading' }
+  | { kind: 'error'; error: APIError }
+
+/**
+ * Builds the `useQuery` result the hook destructures. Every member of `UseQueryResult` is
+ * filled in, so a field added to the type later is a compile error here rather than an
+ * `undefined` at runtime; the `kind` discriminant keeps `data`/`error` in the combination
+ * TanStack Query actually produces for that state.
+ */
+const createQueryResult = (state: QueryResultState): InferredPressuresQueryResult => {
+  const base = {
+    dataUpdatedAt: 0,
+    errorUpdateCount: 0,
+    errorUpdatedAt: 0,
+    fetchFailureCount: 0,
+    fetchFailureReason: null,
+    failureCount: 0,
+    failureReason: null,
+    isFetched: true,
+    isFetchedAfterMount: false,
+    isFetching: false,
+    isEnabled: true,
+    fetchStatus: 'idle',
+    isStale: false,
+    isLoadingError: false,
+    isPaused: false,
+    isPlaceholderData: false,
+    isRefetchError: false,
+    isRefetching: false,
+    promise: Promise.resolve([]),
+    refetch: vi.fn(),
+  } as const
+
+  switch (state.kind) {
+    case 'success':
+      return {
+        ...base,
+        data: state.data,
+        error: null,
+        isError: false,
+        isInitialLoading: false,
+        isLoading: false,
+        isPending: false,
+        isSuccess: true,
+        status: 'success',
+      }
+    case 'loading':
+      return {
+        ...base,
+        data: undefined,
+        error: null,
+        isError: false,
+        isFetched: false,
+        isInitialLoading: true,
+        isLoading: true,
+        isPending: true,
+        isSuccess: false,
+        status: 'pending',
+      }
+    case 'error':
+      return {
+        ...base,
+        data: undefined,
+        error: state.error,
+        isError: true,
+        isInitialLoading: false,
+        isLoading: false,
+        isLoadingError: true,
+        isPending: false,
+        isSuccess: false,
+        status: 'error',
+      }
+  }
+}
+
+/** First processed pressure, failing loudly when the hook produced none. */
+const firstPressure = (pressures: PressureWithContext[]): PressureWithContext => {
+  const [first] = pressures
+  if (!first) throw new Error('expected the hook to produce at least one pressure')
+  return first
+}
+
 describe('usePressures', () => {
-  const mockPressures = [
+  const mockPressures: InferredPressure[] = [
     {
       id: 'pressure-1',
       description: 'Economic pressure from trade sanctions',
@@ -66,13 +164,10 @@ describe('usePressures', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     
-    mockUseGlobalStore.mockReturnValue(mockGlobalStoreState as any)
-    mockUseInferredPressures.mockReturnValue({
-      data: mockPressures,
-      isLoading: false,
-      error: null,
-      refetch: vi.fn()
-    } as any)
+    mockUseGlobalStore.mockReturnValue(asStore(mockGlobalStoreState))
+    mockUseInferredPressures.mockReturnValue(
+      createQueryResult({ kind: 'success', data: mockPressures })
+    )
   })
 
   it('initializes with default state', () => {
@@ -92,9 +187,9 @@ describe('usePressures', () => {
     const { result } = renderHook(() => usePressures())
 
     expect(result.current.pressuresWithContext).toHaveLength(2)
-    expect(result.current.pressuresWithContext[0]).toHaveProperty('affectedArcs')
-    expect(result.current.pressuresWithContext[0]).toHaveProperty('evidenceEvents')
-    expect(result.current.pressuresWithContext[0]).toHaveProperty('influenceStrength')
+    expect(firstPressure(result.current.pressuresWithContext)).toHaveProperty('affectedArcs')
+    expect(firstPressure(result.current.pressuresWithContext)).toHaveProperty('evidenceEvents')
+    expect(firstPressure(result.current.pressuresWithContext)).toHaveProperty('influenceStrength')
   })
 
   it('filters pressures by confidence threshold', () => {
@@ -109,7 +204,7 @@ describe('usePressures', () => {
 
     // Only pressure with confidence >= 0.5 should be visible
     expect(result.current.visiblePressures).toHaveLength(1)
-    expect(result.current.visiblePressures[0].confidence_score).toBe(0.8)
+    expect(result.current.visiblePressures[0]?.confidence_score).toBe(0.8)
   })
 
   it('groups pressures by type', () => {
@@ -136,7 +231,7 @@ describe('usePressures', () => {
   it('handles pressure selection', () => {
     const { result } = renderHook(() => usePressures())
 
-    const pressure = result.current.pressuresWithContext[0]
+    const pressure = firstPressure(result.current.pressuresWithContext)
 
     act(() => {
       result.current.selectPressure(pressure)
@@ -149,7 +244,7 @@ describe('usePressures', () => {
   it('handles pressure evidence highlighting', () => {
     const { result } = renderHook(() => usePressures())
 
-    const pressure = result.current.pressuresWithContext[0]
+    const pressure = firstPressure(result.current.pressuresWithContext)
 
     act(() => {
       result.current.highlightPressureEvidence(pressure)
@@ -161,7 +256,7 @@ describe('usePressures', () => {
   it('clears pressure highlight', () => {
     const { result } = renderHook(() => usePressures())
 
-    const pressure = result.current.pressuresWithContext[0]
+    const pressure = firstPressure(result.current.pressuresWithContext)
 
     act(() => {
       result.current.highlightPressureEvidence(pressure)
@@ -179,7 +274,7 @@ describe('usePressures', () => {
   it('handles evidence modal', () => {
     const { result } = renderHook(() => usePressures())
 
-    const pressure = result.current.pressuresWithContext[0]
+    const pressure = firstPressure(result.current.pressuresWithContext)
 
     act(() => {
       result.current.showEvidenceModalAction(pressure)
@@ -238,12 +333,7 @@ describe('usePressures', () => {
   })
 
   it('handles loading state', () => {
-    mockUseInferredPressures.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-      error: null,
-      refetch: vi.fn()
-    } as any)
+    mockUseInferredPressures.mockReturnValue(createQueryResult({ kind: 'loading' }))
 
     const { result } = renderHook(() => usePressures())
 
@@ -251,13 +341,10 @@ describe('usePressures', () => {
   })
 
   it('handles error state', () => {
-    const mockError = new Error('Failed to fetch pressures')
-    mockUseInferredPressures.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      error: mockError,
-      refetch: vi.fn()
-    } as any)
+    const mockError = new APIError('Failed to fetch pressures', 500)
+    mockUseInferredPressures.mockReturnValue(
+      createQueryResult({ kind: 'error', error: mockError })
+    )
 
     const { result } = renderHook(() => usePressures())
 

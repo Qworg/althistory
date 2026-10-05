@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { act } from 'react'
+import type { Core } from 'cytoscape'
 import { CausalGraphLayoutManager } from './CausalGraphLayoutManager'
 import { useGlobalStore } from '@/stores/globalStore'
 import {
@@ -16,6 +17,17 @@ import {
 // Mock the global store
 vi.mock('@/stores/globalStore')
 const mockUseGlobalStore = vi.mocked(useGlobalStore)
+
+type GlobalStoreState = ReturnType<typeof useGlobalStore>
+
+/**
+ * `createMockCytoscape()` is a loose `vi.fn()`-based test double, not a real
+ * Cytoscape `Core`, and `mockStore` only carries the two members this component
+ * touches. Both seams are bridged once, explicitly and with the reason, rather
+ * than sprinkling unchecked assertions at every use site.
+ */
+const asCore = (mock: MockCytoscape) => mock as unknown as Core
+const asStore = (partial: Partial<GlobalStoreState>) => partial as GlobalStoreState
 
 describe('CausalGraphLayoutManager', () => {
   let mockCytoscapeInstance: MockCytoscape
@@ -35,7 +47,7 @@ describe('CausalGraphLayoutManager', () => {
   beforeEach(() => {
     // Create a fresh mock instance for each test
     mockCytoscapeInstance = createMockCytoscape()
-    mockUseGlobalStore.mockReturnValue(mockStore as any)
+    mockUseGlobalStore.mockReturnValue(asStore(mockStore))
     vi.clearAllMocks()
   })
 
@@ -46,7 +58,7 @@ describe('CausalGraphLayoutManager', () => {
   const renderLayoutManager = (props = {}) => {
     return render(
       <CausalGraphLayoutManager
-        cytoscapeInstance={mockCytoscapeInstance as any}
+        cytoscapeInstance={asCore(mockCytoscapeInstance)}
         {...props}
       />
     )

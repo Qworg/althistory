@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/services/api'
-import { Event } from '@/types'
+import { Event, EventFilters } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 
-export function useEvents(filters?: Record<string, any>) {
+export function useEvents(filters?: EventFilters) {
   return useQuery({
     queryKey: ['events', filters],
     queryFn: () => apiClient.events.getAll(filters),

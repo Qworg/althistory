@@ -7,6 +7,15 @@ import { useGlobalStore } from '@/stores/globalStore'
 vi.mock('@/stores/globalStore')
 const mockUseGlobalStore = vi.mocked(useGlobalStore)
 
+type GlobalStoreState = ReturnType<typeof useGlobalStore>
+
+/**
+ * `mockStore` below only carries the slice the hook reads, so the seam with the
+ * automocked `useGlobalStore` (typed against the full real store) is bridged once,
+ * here, instead of with an unchecked assertion at each call site.
+ */
+const asStore = (partial: Partial<GlobalStoreState>) => partial as GlobalStoreState
+
 // Mock react-router
 vi.mock('react-router', () => ({
   useLocation: () => ({ pathname: '/timeline' })
@@ -22,6 +31,19 @@ const mockSessionStorage = {
 Object.defineProperty(window, 'sessionStorage', {
   value: mockSessionStorage
 })
+
+/**
+ * A real `<main>` element whose scroll offsets behave like the plain object the hook
+ * used to be handed: jsdom keeps `scrollLeft`/`scrollTop` at 0, so the two accessors are
+ * redefined as writable own properties. Own data properties shadow the prototype
+ * accessors, which keeps this cast-free while preserving read/write behaviour.
+ */
+const createMockMainElement = (scrollLeft: number, scrollTop: number): HTMLElement => {
+  const element = document.createElement('main')
+  Object.defineProperty(element, 'scrollLeft', { value: scrollLeft, writable: true })
+  Object.defineProperty(element, 'scrollTop', { value: scrollTop, writable: true })
+  return element
+}
 
 describe('useViewStateManager', () => {
   const mockStore = {
@@ -58,16 +80,12 @@ describe('useViewStateManager', () => {
 
   beforeEach(() => {
     vi.useFakeTimers()
-    mockUseGlobalStore.mockReturnValue(mockStore as any)
+    mockUseGlobalStore.mockReturnValue(asStore(mockStore))
     vi.clearAllMocks()
     mockSessionStorage.getItem.mockReturnValue(null)
 
     // Mock DOM elements
-    const mockMainElement = {
-      scrollLeft: 100,
-      scrollTop: 200
-    }
-    vi.spyOn(document, 'querySelector').mockReturnValue(mockMainElement as any)
+    vi.spyOn(document, 'querySelector').mockReturnValue(createMockMainElement(100, 200))
   })
 
   afterEach(() => {
@@ -243,7 +261,7 @@ describe('useViewStateManager', () => {
   })
 
   it('saves state before page unload', () => {
-    const { result } = renderHook(() => useViewStateManager())
+    renderHook(() => useViewStateManager())
     
     // Simulate beforeunload event
     const beforeUnloadEvent = new Event('beforeunload')
@@ -253,11 +271,8 @@ describe('useViewStateManager', () => {
   })
 
   it('restores scroll position with delay', () => {
-    const mockMainElement = {
-      scrollLeft: 0,
-      scrollTop: 0
-    }
-    vi.spyOn(document, 'querySelector').mockReturnValue(mockMainElement as any)
+    const mockMainElement = createMockMainElement(0, 0)
+    vi.spyOn(document, 'querySelector').mockReturnValue(mockMainElement)
 
     const savedState = {
       selectedEvents: [],

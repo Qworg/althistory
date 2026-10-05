@@ -11,7 +11,6 @@ import {
   ExportJob,
   CreateExportJobRequest,
   AlthistoryExport,
-  ExportValidationResult,
   ExportFilters
 } from '@/types'
 

@@ -6,6 +6,31 @@ import { useEvents } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { Event, Arc } from '@/types'
+import type { ActorEventData, ActorTimelineProps } from '@/components/timeline/ActorTimeline'
+import type { ActorSelectorProps } from '@/components/actor/ActorSelector'
+import type { ActorStatsProps } from '@/components/actor/ActorStats'
+
+type GlobalStoreState = ReturnType<typeof useGlobalStore>
+type EventsQuery = ReturnType<typeof useEvents>
+type ArcsQuery = ReturnType<typeof useArcs>
+
+/**
+ * The view reads only `data`, `isLoading` and `error` off the query results, but
+ * `vi.mocked` types the automocked hooks against the full TanStack Query result,
+ * which a hand-written literal cannot satisfy. The seam is narrowed once, here,
+ * with the fields the component actually consumes, instead of being asserted
+ * away at every call site.
+ */
+const eventsResult = (fields: Pick<EventsQuery, 'data' | 'isLoading' | 'error'>): EventsQuery =>
+  fields as EventsQuery
+const arcsResult = (fields: Pick<ArcsQuery, 'data' | 'isLoading' | 'error'>): ArcsQuery =>
+  fields as ArcsQuery
+
+/**
+ * `mockGlobalStore` carries only `activeFilters`, the single slice this view
+ * reads, so the partial store is bridged to the automocked hook once, here.
+ */
+const asStore = (partial: Partial<GlobalStoreState>) => partial as GlobalStoreState
 
 // Mock the hooks
 vi.mock('@/hooks/useEvents')
@@ -14,15 +39,15 @@ vi.mock('@/stores/globalStore')
 
 // Mock the child components
 vi.mock('@/components/timeline/ActorTimeline', () => ({
-  ActorTimeline: ({ events, actor, onEventSelect }: any) => (
+  ActorTimeline: ({ events, actor, onEventSelect }: ActorTimelineProps) => (
     <div data-testid="actor-timeline">
       <div data-testid="timeline-actor">{actor}</div>
       <div data-testid="timeline-events-count">{events.length}</div>
-      {events.map((event: any) => (
+      {events.map((event: ActorEventData) => (
         <button
           key={event.id}
           data-testid={`timeline-event-${event.id}`}
-          onClick={() => onEventSelect(event)}
+          onClick={() => onEventSelect?.(event)}
         >
           {event.description} ({event.role})
         </button>
@@ -32,7 +57,7 @@ vi.mock('@/components/timeline/ActorTimeline', () => ({
 }))
 
 vi.mock('@/components/actor/ActorSelector', () => ({
-  ActorSelector: ({ actors, selectedActor, onActorSelect }: any) => (
+  ActorSelector: ({ actors, selectedActor, onActorSelect }: ActorSelectorProps) => (
     <div data-testid="actor-selector">
       <select
         data-testid="actor-select"
@@ -51,7 +76,7 @@ vi.mock('@/components/actor/ActorSelector', () => ({
 }))
 
 vi.mock('@/components/actor/ActorStats', () => ({
-  ActorStats: ({ actor, stats }: any) => (
+  ActorStats: ({ actor, stats }: ActorStatsProps) => (
     <div data-testid="actor-stats">
       <div data-testid="stats-actor">{actor}</div>
       <div data-testid="stats-event-count">{stats.eventCount}</div>
@@ -159,21 +184,19 @@ describe('ActorPerspectiveView', () => {
     vi.clearAllMocks()
     
     // Mock the hooks with default values
-    vi.mocked(useEvents).mockReturnValue({
+    vi.mocked(useEvents).mockReturnValue(eventsResult({
       data: mockEvents,
       isLoading: false,
-      error: null,
-      refetch: vi.fn()
-    } as any)
+      error: null
+    }))
     
-    vi.mocked(useArcs).mockReturnValue({
+    vi.mocked(useArcs).mockReturnValue(arcsResult({
       data: mockArcs,
       isLoading: false,
-      error: null,
-      refetch: vi.fn()
-    } as any)
+      error: null
+    }))
     
-    vi.mocked(useGlobalStore).mockReturnValue(mockGlobalStore as any)
+    vi.mocked(useGlobalStore).mockReturnValue(asStore(mockGlobalStore))
   })
 
   describe('Initial Render', () => {
@@ -199,12 +222,11 @@ describe('ActorPerspectiveView', () => {
     })
 
     it('displays loading state correctly', () => {
-      vi.mocked(useEvents).mockReturnValue({
+      vi.mocked(useEvents).mockReturnValue(eventsResult({
         data: undefined,
         isLoading: true,
-        error: null,
-        refetch: vi.fn()
-      } as any)
+        error: null
+      }))
 
       renderWithQueryClient(<ActorPerspectiveView />)
       
@@ -258,12 +280,11 @@ describe('ActorPerspectiveView', () => {
 
     it('shows empty state when selected actor has no events', async () => {
       // Mock events without the selected actor
-      vi.mocked(useEvents).mockReturnValue({
+      vi.mocked(useEvents).mockReturnValue(eventsResult({
         data: [],
         isLoading: false,
-        error: null,
-        refetch: vi.fn()
-      } as any)
+        error: null
+      }))
 
       renderWithQueryClient(<ActorPerspectiveView />)
       
@@ -466,12 +487,11 @@ describe('ActorPerspectiveView', () => {
 
   describe('Error Handling', () => {
     it('handles empty events array gracefully', () => {
-      vi.mocked(useEvents).mockReturnValue({
+      vi.mocked(useEvents).mockReturnValue(eventsResult({
         data: [],
         isLoading: false,
-        error: null,
-        refetch: vi.fn()
-      } as any)
+        error: null
+      }))
 
       renderWithQueryClient(<ActorPerspectiveView />)
       
@@ -479,12 +499,11 @@ describe('ActorPerspectiveView', () => {
     })
 
     it('handles undefined events gracefully', () => {
-      vi.mocked(useEvents).mockReturnValue({
+      vi.mocked(useEvents).mockReturnValue(eventsResult({
         data: undefined,
         isLoading: false,
-        error: null,
-        refetch: vi.fn()
-      } as any)
+        error: null
+      }))
 
       renderWithQueryClient(<ActorPerspectiveView />)
       

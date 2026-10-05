@@ -1,17 +1,27 @@
-import { renderHook, act, waitFor } from '@testing-library/react'
+import { renderHook, act } from '@testing-library/react'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import useCausalPathExploration from './useCausalPathExploration'
 import { useGlobalStore } from '@/stores/globalStore'
-import { apiClient } from '@/services/api'
 import { Event, CausalRelationship, CausalPath } from '@/types'
 
 // Mock the global store
 vi.mock('@/stores/globalStore')
 const mockUseGlobalStore = vi.mocked(useGlobalStore)
 
-// Mock the API client
-vi.mock('@/services/api')
-const mockApiClient = vi.mocked(apiClient)
+// Mock the API client. `apiClient` is a class instance, so `vi.mocked()` on the instance
+// cannot recover the `mockResolvedValue` surface of `causal.findChain`; the hook only ever
+// calls that one method, so it is mocked by hand through a hoisted, explicitly typed stub.
+const { mockFindChain } = vi.hoisted(() => ({
+  mockFindChain: vi.fn<(startEventId: string, maxDepth?: number, signal?: AbortSignal) => Promise<CausalPath[]>>(),
+}))
+
+vi.mock('@/services/api', () => ({
+  apiClient: {
+    causal: {
+      findChain: mockFindChain,
+    },
+  },
+}))
 
 // Mock data
 const mockEvents: Event[] = [
@@ -205,7 +215,7 @@ describe('useCausalPathExploration', () => {
     })
 
     // Mock API client
-    mockApiClient.causal.findChain.mockResolvedValue([mockCausalPath])
+    mockFindChain.mockResolvedValue([mockCausalPath])
   })
 
   afterEach(() => {
@@ -229,7 +239,7 @@ describe('useCausalPathExploration', () => {
       await result.current.startExploration('1')
     })
 
-    expect(mockApiClient.causal.findChain).toHaveBeenCalledWith('1', 3)
+    expect(mockFindChain).toHaveBeenCalledWith('1', 3)
     expect(result.current.availablePaths).toHaveLength(1)
     expect(result.current.navigationState.isNavigating).toBe(true)
     expect(result.current.currentHighlight).not.toBeNull()
@@ -250,15 +260,15 @@ describe('useCausalPathExploration', () => {
   it('should filter paths based on options', async () => {
     const lowConfidencePath: CausalPath = {
       events: mockEvents.slice(0, 2),
-      relationships: [{
-        ...mockRelationships[0],
+      relationships: mockRelationships.slice(0, 1).map(relationship => ({
+        ...relationship,
         confidence: 0.05 // Below default threshold
-      }],
+      })),
       totalWeight: 0.5,
       confidence: 0.05
     }
     
-    mockApiClient.causal.findChain.mockResolvedValue([mockCausalPath, lowConfidencePath])
+    mockFindChain.mockResolvedValue([mockCausalPath, lowConfidencePath])
     
     const { result } = renderHook(() => useCausalPathExploration())
     
@@ -268,7 +278,7 @@ describe('useCausalPathExploration', () => {
 
     // Should filter out low confidence path
     expect(result.current.availablePaths).toHaveLength(1)
-    expect(result.current.availablePaths[0].events).toHaveLength(3)
+    expect(result.current.availablePaths[0]?.events).toHaveLength(3)
   })
 
   it('should navigate between paths', async () => {
@@ -279,7 +289,7 @@ describe('useCausalPathExploration', () => {
       confidence: 0.7
     }
 
-    mockApiClient.causal.findChain.mockResolvedValue([mockCausalPath, secondPath])
+    mockFindChain.mockResolvedValue([mockCausalPath, secondPath])
 
     const { result } = renderHook(() => useCausalPathExploration())
 
@@ -425,7 +435,7 @@ describe('useCausalPathExploration', () => {
   })
 
   it('should handle API errors', async () => {
-    mockApiClient.causal.findChain.mockRejectedValue(new Error('API Error'))
+    mockFindChain.mockRejectedValue(new Error('API Error'))
     
     const { result } = renderHook(() => useCausalPathExploration())
     

@@ -1,12 +1,13 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router'
+import type { Core } from 'cytoscape'
 import { CausalGraphLayoutManager } from '@/components/causal-graph/CausalGraphLayoutManager'
 import { CausalSuggestionManager } from '@/components/causal-graph/CausalSuggestionManager'
 import { useGlobalStore } from '@/stores/globalStore'
-import { createMockCytoscape } from '@/test/__mocks__/cytoscape'
+import { createMockCytoscape, type MockCytoscape } from '@/test/__mocks__/cytoscape'
 import {
   generateEventSequence,
   generateSuggestion,
@@ -17,7 +18,14 @@ import {
 
 // Mock the global store
 vi.mock('@/stores/globalStore')
-const mockUseGlobalStore = vi.mocked(useGlobalStore)
+const mockUseGlobalStore = vi.mocked(useGlobalStore) as unknown as Mock<() => GlobalStoreState>
+
+/**
+ * The store module is not exported with its state type, so it is derived from the
+ * hook itself. Both components under test call `useGlobalStore()` without a
+ * selector, which is the overload this handle restates.
+ */
+type GlobalStoreState = ReturnType<typeof useGlobalStore>
 
 // Mock the API client - use inline mock to avoid hoisting issues
 vi.mock('@/services/api', () => ({
@@ -51,6 +59,14 @@ function TestProviders({ children }: { children: React.ReactNode }) {
   )
 }
 
+/**
+ * `CausalGraphLayoutManager` is typed against a real Cytoscape `Core`, while the
+ * test double implements only the subset of that API the component exercises
+ * (`layout`, `fit`, `zoom`, `center`, ...). This adapter is the single, explicit
+ * place where that difference is bridged.
+ */
+const asCytoscapeCore = (instance: MockCytoscape): Core => instance as unknown as Core
+
 describe('Causal Graph Integration Tests', () => {
   beforeEach(() => {
     resetIdCounter()
@@ -78,13 +94,13 @@ describe('Causal Graph Integration Tests', () => {
 
     beforeEach(() => {
       mockCytoscapeInstance = createMockCytoscape()
-      mockUseGlobalStore.mockReturnValue(mockStore as any)
+      mockUseGlobalStore.mockReturnValue(mockStore as GlobalStoreState)
     })
 
     it('renders layout manager with all categories', () => {
       render(
         <TestProviders>
-          <CausalGraphLayoutManager cytoscapeInstance={mockCytoscapeInstance as any} />
+          <CausalGraphLayoutManager cytoscapeInstance={asCytoscapeCore(mockCytoscapeInstance)} />
         </TestProviders>
       )
 
@@ -101,7 +117,7 @@ describe('Causal Graph Integration Tests', () => {
       render(
         <TestProviders>
           <CausalGraphLayoutManager
-            cytoscapeInstance={mockCytoscapeInstance as any}
+            cytoscapeInstance={asCytoscapeCore(mockCytoscapeInstance)}
             onLayoutChange={onLayoutChange}
           />
         </TestProviders>
@@ -123,7 +139,7 @@ describe('Causal Graph Integration Tests', () => {
     it('responds to layout keyboard shortcuts', async () => {
       render(
         <TestProviders>
-          <CausalGraphLayoutManager cytoscapeInstance={mockCytoscapeInstance as any} />
+          <CausalGraphLayoutManager cytoscapeInstance={asCytoscapeCore(mockCytoscapeInstance)} />
         </TestProviders>
       )
 
@@ -137,7 +153,7 @@ describe('Causal Graph Integration Tests', () => {
     it('responds to fit keyboard shortcut', async () => {
       render(
         <TestProviders>
-          <CausalGraphLayoutManager cytoscapeInstance={mockCytoscapeInstance as any} />
+          <CausalGraphLayoutManager cytoscapeInstance={asCytoscapeCore(mockCytoscapeInstance)} />
         </TestProviders>
       )
 
@@ -149,7 +165,7 @@ describe('Causal Graph Integration Tests', () => {
     it('responds to reset keyboard shortcut', async () => {
       render(
         <TestProviders>
-          <CausalGraphLayoutManager cytoscapeInstance={mockCytoscapeInstance as any} />
+          <CausalGraphLayoutManager cytoscapeInstance={asCytoscapeCore(mockCytoscapeInstance)} />
         </TestProviders>
       )
 
@@ -162,7 +178,7 @@ describe('Causal Graph Integration Tests', () => {
     it('shows loading state during layout transition', async () => {
       render(
         <TestProviders>
-          <CausalGraphLayoutManager cytoscapeInstance={mockCytoscapeInstance as any} />
+          <CausalGraphLayoutManager cytoscapeInstance={asCytoscapeCore(mockCytoscapeInstance)} />
         </TestProviders>
       )
 
@@ -175,7 +191,7 @@ describe('Causal Graph Integration Tests', () => {
   describe('Suggestion Manager Integration', () => {
     const testEvents = generateEventSequence(5)
 
-    const mockStore = {
+    const mockStore: Partial<GlobalStoreState> = {
       events: testEvents,
       causalRelationships: [],
       addCausalRelationship: vi.fn(),
@@ -183,7 +199,7 @@ describe('Causal Graph Integration Tests', () => {
     }
 
     beforeEach(() => {
-      mockUseGlobalStore.mockReturnValue(mockStore as any)
+      mockUseGlobalStore.mockReturnValue(mockStore as GlobalStoreState)
     })
 
     it('does not render when no focus event is provided', () => {

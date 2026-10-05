@@ -2,7 +2,10 @@
 export interface PersistenceConfig {
   key: string
   version: number
-  migrate?: (persistedState: any, version: number) => any
+  // Generic over the persisted state so a migration is typed as "same shape in,
+  // same shape out" - `load<T>()` can then hand the result straight back to the
+  // caller without an assertion.
+  migrate?: <T>(persistedState: T, version: number) => T
 }
 
 export class PersistenceManager {
@@ -65,7 +68,9 @@ export class PersistenceManager {
 export const userPreferencesPersistence = new PersistenceManager({
   key: 'timeline-interface-preferences',
   version: 1,
-  migrate: (state, version) => {
+  // No migration needed yet: the version parameter is omitted because nothing
+  // reads it, and this manager has nothing to migrate.
+  migrate: (state) => {
     // Handle future migrations here
     return state
   }
@@ -74,7 +79,9 @@ export const userPreferencesPersistence = new PersistenceManager({
 export const sessionDataPersistence = new PersistenceManager({
   key: 'timeline-interface-session',
   version: 1,
-  migrate: (state, _version) => {
+  // No migration needed yet: the version parameter is omitted because nothing
+  // reads it, and this manager has nothing to migrate.
+  migrate: (state) => {
     // Handle future migrations here
     return state
   }

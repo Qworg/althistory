@@ -35,6 +35,9 @@ import {
   ImportResult,
   ImportMode,
   ConflictResolution,
+  ImportConflict,
+  ImportError,
+  EntityCounts,
   ApiKey,
   CreateApiKeyRequest,
   CreateApiKeyResponse,
@@ -45,13 +48,53 @@ import {
 // API client configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
 
+// Shape of the error bodies the API returns alongside a non-2xx status.
+// `data` is `any` on an AxiosResponse, so it is narrowed to this shape here.
+interface APIErrorPayload {
+  message?: string
+  code?: string
+  details?: unknown
+}
+
+// Shape of the `relationship` object returned by POST/PUT /causal/link.
+// The server echoes the stored link back in its own column names rather than the
+// CausalRelationshipData shape we send, and it is not consistent about it:
+// create reads `strength`/`type`, update reads `weight`/`relationship_type`.
+// Every field is therefore optional and both spellings are declared.
+interface LinkRelationshipPayload {
+  type?: CausalRelationship['relationship_type']
+  relationship_type?: CausalRelationship['relationship_type']
+  weight?: number
+  strength?: number
+  confidence?: number
+  evidence?: string
+  created_at?: string
+  updated_at?: string
+}
+
+interface CausalLinkResponseData {
+  cause: Event
+  effect: Event
+  relationship: LinkRelationshipPayload
+}
+
+// Result of POST /import/validate-incremental. Conflicts and errors reuse the
+// shared import types; `wouldCreate` reports the per-entity counts that a
+// subsequent import would add.
+export interface IncrementalValidationResponse {
+  valid: boolean
+  conflicts: ImportConflict[]
+  wouldCreate: EntityCounts
+  errors?: ImportError[]
+}
+
 // Custom error class for API errors
 export class APIError extends Error {
   constructor(
     message: string,
     public status: number,
     public code?: string,
-    public details?: any
+    public details?: unknown
   ) {
     super(message)
     this.name = 'APIError'
@@ -63,9 +106,10 @@ function handleAPIError(error: AxiosError): never {
   if (error.response) {
     // Server responded with error status
     const { status, data } = error.response
-    const message = (data as any)?.message || error.message
-    const code = (data as any)?.code
-    const details = (data as any)?.details
+    const payload = data as APIErrorPayload
+    const message = payload?.message || error.message
+    const code = payload?.code
+    const details = payload?.details
     throw new APIError(message, status, code, details)
   } else if (error.request) {
     // Network error
@@ -269,7 +313,7 @@ class APIClient {
                         evidence: relationshipData.evidence
                     }
                 }
-                const response: AxiosResponse<{ success: boolean; data: { cause: Event; effect: Event; relationship: any } }> = await this.client.post('/causal/link', data)
+                const response: AxiosResponse<{ success: boolean; data: CausalLinkResponseData }> = await this.client.post('/causal/link', data)
                 // Transform response back to frontend format
                 const now = new Date().toISOString()
                 const result: CausalRelationship = {
@@ -301,7 +345,7 @@ class APIClient {
                         evidence: data.evidence
                     }
                 }
-                const response: AxiosResponse<{ success: boolean; data: { cause: Event; effect: Event; relationship: any } }> = await this.client.put('/causal/link', requestData)
+                const response: AxiosResponse<{ success: boolean; data: CausalLinkResponseData }> = await this.client.put('/causal/link', requestData)
                 // Transform response back to frontend format
                 const now = new Date().toISOString()
                 const result: CausalRelationship = {
@@ -716,9 +760,9 @@ class APIClient {
         validateIncremental: async (
             graphId: string, 
             additions: { events?: Event[]; arcs?: Arc[]; relationships?: CausalRelationship[] }
-        ): Promise<{ valid: boolean; conflicts: any[]; wouldCreate: any; errors?: any[] }> => {
+        ): Promise<IncrementalValidationResponse> => {
             try {
-                const response: AxiosResponse<{ valid: boolean; conflicts: any[]; wouldCreate: any; errors?: any[] }> = 
+                const response: AxiosResponse<IncrementalValidationResponse> =
                     await this.client.post('/import/validate-incremental', { graphId, additions })
                 return response.data
             } catch (error) {

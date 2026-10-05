@@ -9,7 +9,9 @@ import { CopyOperation } from '@/types'
 // Mock the useGraphCopy hook
 vi.mock('@/hooks/useGraphCopy')
 
-const mockOperations: CopyOperation[] = [
+// Tuple-typed so that the fixture indices below are not widened to
+// `CopyOperation | undefined` by noUncheckedIndexedAccess.
+const mockOperations: [CopyOperation, CopyOperation, CopyOperation] = [
   {
     id: '1',
     name: 'Test Copy 1',
@@ -52,17 +54,34 @@ const mockOperations: CopyOperation[] = [
   }
 ]
 
-const mockUseGraphCopy = {
-  copyState: {
-    activeOperations: [mockOperations[2]], // in_progress operation
-    completedOperations: [mockOperations[0], mockOperations[1]], // completed and failed
-    selectedTimeRange: null,
-    selectedFilter: null,
-    copyName: '',
-    isCreatingCopy: false
-  },
-  clearCompletedOperations: vi.fn()
+const mockCopyState: ReturnType<typeof useGraphCopy>['copyState'] = {
+  activeOperations: [mockOperations[2]], // in_progress operation
+  completedOperations: [mockOperations[0], mockOperations[1]], // completed and failed
+  selectedTimeRange: null,
+  selectedFilter: null,
+  copyName: '',
+  isCreatingCopy: false
 }
+
+// Full typed stand-in for UseGraphCopyReturn: the panel only touches copyState
+// and clearCompletedOperations, but the automocked module is still typed against
+// the real hook's return type, so every member has to be present.
+const createMockUseGraphCopy = (copyState: ReturnType<typeof useGraphCopy>['copyState']) => ({
+  copyState,
+  setCopyName: vi.fn(),
+  setSelectedTimeRange: vi.fn(),
+  setSelectedFilter: vi.fn(),
+  createFullCopy: vi.fn(() => Promise.resolve()),
+  createTimeRangeCopy: vi.fn(() => Promise.resolve()),
+  createFilteredCopy: vi.fn(() => Promise.resolve()),
+  cancelCopy: vi.fn(),
+  refreshCopyStatus: vi.fn(),
+  clearCompletedOperations: vi.fn(),
+  isCreatingCopy: false,
+  isRefreshingStatus: false
+})
+
+const mockUseGraphCopy = createMockUseGraphCopy(mockCopyState)
 
 const createWrapper = () => {
   const queryClient = new QueryClient({
@@ -87,7 +106,7 @@ describe('CopyHistoryPanel', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    ;(useGraphCopy as any).mockReturnValue(mockUseGraphCopy)
+    vi.mocked(useGraphCopy).mockReturnValue(mockUseGraphCopy)
   })
 
   it('should not render when closed', () => {
@@ -279,7 +298,9 @@ describe('CopyHistoryPanel', () => {
     )
 
     const deleteButtons = screen.getAllByText('Delete')
-    await user.click(deleteButtons[0])
+    const firstDeleteButton = deleteButtons[0]
+    if (!firstDeleteButton) throw new Error('expected at least one Delete button')
+    await user.click(firstDeleteButton)
 
     // Operations are sorted by created_at desc, so first row is most recent (id: '3')
     expect(mockOnDeleteCopy).toHaveBeenCalled()
@@ -379,8 +400,19 @@ describe('CopyHistoryPanel', () => {
       { wrapper: createWrapper() }
     )
 
-    // Check time range display
-    expect(screen.getByText(/1\/1\/2023 - 12\/31\/2023/)).toBeInTheDocument()
+    // Check time range display.
+    // The panel formats each endpoint with `Date.prototype.toLocaleDateString()`
+    // in the runtime locale, and the fixture endpoints are UTC instants
+    // (`new Date('2023-12-31')` is 2023-12-31T00:00:00Z). West of UTC that
+    // instant lands on the previous local calendar day, so the old literal
+    // "1/1/2023 - 12/31/2023" only ever held in UTC and east of it. Derive the
+    // expected string from the same instants through the same formatter: it is
+    // locale- and timezone-stable while still pinning the range, the order and
+    // the " - " separator the panel renders.
+    const timeRange = mockOperations[1].parameters.timeRange
+    if (!timeRange) throw new Error('fixture operation is missing parameters.timeRange')
+    const expectedRange = `${timeRange.start.toLocaleDateString()} - ${timeRange.end.toLocaleDateString()}`
+    expect(screen.getByText(expectedRange)).toBeInTheDocument()
     
     // Check filter display
     expect(screen.getByText(/Filtered: 2 actors, 1 targets/)).toBeInTheDocument()

@@ -174,11 +174,15 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
     }
   }
 
-  const handleInputChange = (field: keyof CausalRelationshipData, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }))
+  /**
+   * Typed per-field setter: `value` is constrained to the declared type of the
+   * field being written, so callers cannot store a number in `evidence` etc.
+   */
+  function handleInputChange<K extends keyof CausalRelationshipData>(
+    field: K,
+    value: CausalRelationshipData[K]
+  ) {
+    setFormData(prev => ({ ...prev, [field]: value }))
   }
 
   // Show modal if open and either in edit mode (has relationship) or create mode (has both event IDs)

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import type { UseQueryResult } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { VersionHistoryPanel } from './VersionHistoryPanel'
@@ -12,6 +13,107 @@ import { GraphVersion, Graph } from '@/types'
 
 // Mock dependencies
 vi.mock('@/hooks/useGraphs')
+
+type MockQuerySpec<TData> =
+  | { data: TData }
+  | { data?: undefined; loading: boolean }
+  | { error: Error }
+
+/** Builds a useQuery result shaped like the one the graph hooks return. */
+const createMockQueryResult = <TData,>(spec: MockQuerySpec<TData>): UseQueryResult<TData, Error> => {
+  const base = {
+    dataUpdatedAt: 0,
+    errorUpdateCount: 0,
+    errorUpdatedAt: 0,
+    failureCount: 0,
+    failureReason: null,
+    isEnabled: true,
+    isInitialLoading: false,
+    isPaused: false,
+    isRefetching: false,
+    isStale: false,
+    refetch: vi.fn(),
+  }
+
+  if ('error' in spec) {
+    return {
+      ...base,
+      data: undefined,
+      error: spec.error,
+      fetchStatus: 'idle',
+      isError: true,
+      isFetched: true,
+      isFetchedAfterMount: true,
+      isFetching: false,
+      isLoading: false,
+      isLoadingError: true,
+      isPending: false,
+      isPlaceholderData: false,
+      isRefetchError: false,
+      isSuccess: false,
+      status: 'error',
+      promise: new Promise<TData>(() => undefined),
+    }
+  }
+
+  if ('loading' in spec) {
+    return {
+      ...base,
+      data: undefined,
+      error: null,
+      fetchStatus: spec.loading ? 'fetching' : 'idle',
+      isError: false,
+      isFetched: false,
+      isFetchedAfterMount: false,
+      isFetching: spec.loading,
+      isLoading: spec.loading,
+      isLoadingError: false,
+      isPending: true,
+      isPlaceholderData: false,
+      isRefetchError: false,
+      isSuccess: false,
+      status: 'pending',
+      promise: new Promise<TData>(() => undefined),
+    }
+  }
+
+  return {
+    ...base,
+    data: spec.data,
+    error: null,
+    fetchStatus: 'idle',
+    isError: false,
+    isFetched: true,
+    isFetchedAfterMount: true,
+    isFetching: false,
+    isLoading: false,
+    isLoadingError: false,
+    isPending: false,
+    isPlaceholderData: false,
+    isRefetchError: false,
+    isSuccess: true,
+    status: 'success',
+    promise: Promise.resolve(spec.data),
+  }
+}
+
+/** The first rollback button currently rendered, or a failure if there is none. */
+const getRollbackButton = () => {
+  const button = document.querySelector('[title="Rollback to this version"]')
+  if (!button) {
+    throw new Error('Expected a rollback button to be rendered')
+  }
+  return button
+}
+
+/** The version at `index`, which the fixed fixture above guarantees exists. */
+const versionAt = (index: number): GraphVersion => {
+  const version = mockVersions[index]
+  if (!version) {
+    throw new Error(`Expected a version at index ${index}`)
+  }
+  return version
+}
 
 const mockActiveGraph: Graph = {
   id: 'graph1',
@@ -86,11 +188,32 @@ const mockVersions: GraphVersion[] = [
   }
 ]
 
-const createMockRollbackMutation = (overrides = {}) => ({
-  mutateAsync: vi.fn().mockResolvedValue({}),
+/** The value useRollbackGraph resolves to. */
+type RollbackMutation = ReturnType<typeof useRollbackGraph>
+
+/** An idle rollback mutation, before any overrides are applied. */
+const baseRollbackMutation = (): RollbackMutation => ({
+  data: undefined,
+  error: null,
+  failureCount: 0,
+  failureReason: null,
+  context: undefined,
+  isError: false,
+  isIdle: true,
+  isPaused: false,
   isPending: false,
-  ...overrides
+  isSuccess: false,
+  status: 'idle',
+  submittedAt: 0,
+  variables: undefined,
+  mutate: vi.fn(),
+  mutateAsync: vi.fn().mockResolvedValue(mockActiveGraph),
+  reset: vi.fn()
 })
+
+const createMockRollbackMutation = (
+  overrides: Partial<RollbackMutation> = {}
+): RollbackMutation => Object.assign(baseRollbackMutation(), overrides)
 
 describe('VersionHistoryPanel', () => {
   const user = userEvent.setup()
@@ -101,17 +224,9 @@ describe('VersionHistoryPanel', () => {
     mockRollbackMutation = createMockRollbackMutation()
     
     vi.mocked(useActiveGraphId).mockReturnValue('graph1')
-    vi.mocked(useActiveGraph).mockReturnValue({
-      data: mockActiveGraph,
-      isLoading: false,
-      error: null
-    } as any)
-    vi.mocked(useGraphVersions).mockReturnValue({
-      data: mockVersions,
-      isLoading: false,
-      error: null
-    } as any)
-    vi.mocked(useRollbackGraph).mockReturnValue(mockRollbackMutation as any)
+    vi.mocked(useActiveGraph).mockReturnValue(createMockQueryResult({ data: mockActiveGraph }))
+    vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({ data: mockVersions }))
+    vi.mocked(useRollbackGraph).mockReturnValue(mockRollbackMutation)
   })
 
   afterEach(() => {
@@ -185,11 +300,7 @@ describe('VersionHistoryPanel', () => {
 
   describe('Loading State', () => {
     it('should display loading spinner when loading', () => {
-      vi.mocked(useGraphVersions).mockReturnValue({
-        data: null,
-        isLoading: true,
-        error: null
-      } as any)
+      vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({ loading: true }))
       
       render(<VersionHistoryPanel />)
       
@@ -197,11 +308,7 @@ describe('VersionHistoryPanel', () => {
     })
 
     it('should display spinner animation', () => {
-      vi.mocked(useGraphVersions).mockReturnValue({
-        data: null,
-        isLoading: true,
-        error: null
-      } as any)
+      vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({ loading: true }))
       
       render(<VersionHistoryPanel />)
       
@@ -212,11 +319,9 @@ describe('VersionHistoryPanel', () => {
 
   describe('Error State', () => {
     it('should display error message when loading fails', () => {
-      vi.mocked(useGraphVersions).mockReturnValue({
-        data: null,
-        isLoading: false,
-        error: new Error('Network error')
-      } as any)
+      vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({
+        error: new Error('Network error'),
+      }))
       
       render(<VersionHistoryPanel />)
       
@@ -226,11 +331,7 @@ describe('VersionHistoryPanel', () => {
 
   describe('Empty State', () => {
     it('should display empty message when no versions exist', () => {
-      vi.mocked(useGraphVersions).mockReturnValue({
-        data: [],
-        isLoading: false,
-        error: null
-      } as any)
+      vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({ data: [] }))
       
       render(<VersionHistoryPanel />)
       
@@ -238,11 +339,7 @@ describe('VersionHistoryPanel', () => {
     })
 
     it('should display empty message when versions is null', () => {
-      vi.mocked(useGraphVersions).mockReturnValue({
-        data: null,
-        isLoading: false,
-        error: null
-      } as any)
+      vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({ loading: false }))
       
       render(<VersionHistoryPanel />)
       
@@ -269,14 +366,12 @@ describe('VersionHistoryPanel', () => {
     })
 
     it('should display "No commit message" when message is empty', () => {
-      vi.mocked(useGraphVersions).mockReturnValue({
+      vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({
         data: [{
-          ...mockVersions[0],
-          message: ''
+          ...versionAt(0),
+          message: '',
         }],
-        isLoading: false,
-        error: null
-      } as any)
+      }))
       
       render(<VersionHistoryPanel />)
       
@@ -309,11 +404,9 @@ describe('VersionHistoryPanel', () => {
 
     it('should show "Latest" badge for latest version when not current', () => {
       // Set active graph to version 2
-      vi.mocked(useActiveGraph).mockReturnValue({
+      vi.mocked(useActiveGraph).mockReturnValue(createMockQueryResult({
         data: { ...mockActiveGraph, version: 2 },
-        isLoading: false,
-        error: null
-      } as any)
+      }))
       
       render(<VersionHistoryPanel />)
       
@@ -372,9 +465,9 @@ describe('VersionHistoryPanel', () => {
     })
 
     it('should not display badge when no changes for a type', () => {
-      vi.mocked(useGraphVersions).mockReturnValue({
+      vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({
         data: [{
-          ...mockVersions[0],
+          ...versionAt(0),
           changes: {
             eventsAdded: 0,
             eventsModified: 0,
@@ -387,9 +480,7 @@ describe('VersionHistoryPanel', () => {
             relationshipsDeleted: 0
           }
         }],
-        isLoading: false,
-        error: null
-      } as any)
+      }))
       
       render(<VersionHistoryPanel />)
       
@@ -423,8 +514,7 @@ describe('VersionHistoryPanel', () => {
     it('should show confirmation buttons when rollback is clicked', async () => {
       render(<VersionHistoryPanel />)
       
-      const rollbackButtons = document.querySelectorAll('[title="Rollback to this version"]')
-      await user.click(rollbackButtons[0])
+      await user.click(getRollbackButton())
       
       expect(screen.getByRole('button', { name: 'Yes' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'No' })).toBeInTheDocument()
@@ -433,8 +523,7 @@ describe('VersionHistoryPanel', () => {
     it('should call rollback mutation when confirmed', async () => {
       render(<VersionHistoryPanel />)
       
-      const rollbackButtons = document.querySelectorAll('[title="Rollback to this version"]')
-      await user.click(rollbackButtons[0])
+      await user.click(getRollbackButton())
       
       await user.click(screen.getByRole('button', { name: 'Yes' }))
       
@@ -449,8 +538,7 @@ describe('VersionHistoryPanel', () => {
     it('should cancel rollback when No is clicked', async () => {
       render(<VersionHistoryPanel />)
       
-      const rollbackButtons = document.querySelectorAll('[title="Rollback to this version"]')
-      await user.click(rollbackButtons[0])
+      await user.click(getRollbackButton())
       
       await user.click(screen.getByRole('button', { name: 'No' }))
       
@@ -462,12 +550,11 @@ describe('VersionHistoryPanel', () => {
     it('should show loading state while rolling back', async () => {
       vi.mocked(useRollbackGraph).mockReturnValue(createMockRollbackMutation({
         isPending: true
-      }) as any)
+      }))
       
       render(<VersionHistoryPanel />)
       
-      const rollbackButtons = document.querySelectorAll('[title="Rollback to this version"]')
-      await user.click(rollbackButtons[0])
+      await user.click(getRollbackButton())
       
       expect(screen.getByText('...')).toBeInTheDocument()
     })
@@ -475,12 +562,11 @@ describe('VersionHistoryPanel', () => {
     it('should disable confirmation buttons while rolling back', async () => {
       vi.mocked(useRollbackGraph).mockReturnValue(createMockRollbackMutation({
         isPending: true
-      }) as any)
+      }))
       
       render(<VersionHistoryPanel />)
       
-      const rollbackButtons = document.querySelectorAll('[title="Rollback to this version"]')
-      await user.click(rollbackButtons[0])
+      await user.click(getRollbackButton())
       
       const yesButton = screen.getByRole('button', { name: '...' })
       expect(yesButton).toBeDisabled()
@@ -489,8 +575,7 @@ describe('VersionHistoryPanel', () => {
     it('should hide confirmation after successful rollback', async () => {
       render(<VersionHistoryPanel />)
       
-      const rollbackButtons = document.querySelectorAll('[title="Rollback to this version"]')
-      await user.click(rollbackButtons[0])
+      await user.click(getRollbackButton())
       await user.click(screen.getByRole('button', { name: 'Yes' }))
       
       await waitFor(() => {
@@ -503,12 +588,11 @@ describe('VersionHistoryPanel', () => {
       
       vi.mocked(useRollbackGraph).mockReturnValue(createMockRollbackMutation({
         mutateAsync: vi.fn().mockRejectedValue(new Error('Rollback failed'))
-      }) as any)
+      }))
       
       render(<VersionHistoryPanel />)
       
-      const rollbackButtons = document.querySelectorAll('[title="Rollback to this version"]')
-      await user.click(rollbackButtons[0])
+      await user.click(getRollbackButton())
       await user.click(screen.getByRole('button', { name: 'Yes' }))
       
       await waitFor(() => {
@@ -532,8 +616,7 @@ describe('VersionHistoryPanel', () => {
     it('should not prevent rollback click from bubbling', async () => {
       render(<VersionHistoryPanel onVersionSelect={mockOnVersionSelect} />)
       
-      const rollbackButtons = document.querySelectorAll('[title="Rollback to this version"]')
-      await user.click(rollbackButtons[0])
+      await user.click(getRollbackButton())
       
       // Version select should not be called when clicking rollback
       expect(mockOnVersionSelect).not.toHaveBeenCalled()

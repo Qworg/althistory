@@ -1,12 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { UseMutationResult } from '@tanstack/react-query'
 import { ImportWizard } from './ImportWizard'
 import {
   useValidateImport,
   usePreviewImport,
   useExecuteImport,
 } from '@/hooks/useImport'
+import type {
+  ValidateImportOptions,
+  PreviewImportOptions,
+  ExecuteImportOptions,
+} from '@/hooks/useImport'
+import type { APIError } from '@/services/api'
 import { ImportValidationResult, ImportPreview, ImportResult, AlthistoryExport } from '@/types'
 
 // Mock the hooks
@@ -69,17 +76,12 @@ vi.mock('@/hooks/useImport', () => ({
 const validExportData: AlthistoryExport = {
   version: '1.0',
   metadata: {
+    graphId: 'graph-1',
+    graphName: 'Test Graph',
     exportedAt: '2024-01-15T10:00:00Z',
-    exportedBy: 'test-user',
-    sourceGraphId: 'graph-1',
-    sourceGraphName: 'Test Graph',
-    schemaVersion: '1.0',
-    entityCounts: {
-      events: 5,
-      arcs: 2,
-      relationships: 3,
-      pressures: 1,
-    },
+    sourceVersion: '1.0.0',
+    graphVersion: 1,
+    checksum: 'd3adb33f',
   },
   data: {
     events: [],
@@ -98,6 +100,7 @@ const validValidationResult: ImportValidationResult = {
     arcCount: 2,
     relationshipCount: 3,
     pressureCount: 1,
+    crossRefCount: 3,
     actors: ['Actor A'],
     temporalRange: { start: '1900-01-01', end: '2000-12-31' },
   },
@@ -117,17 +120,55 @@ const successfulImportResult: ImportResult = {
   graphVersion: 1,
   imported: { events: 5, arcs: 2, relationships: 3, pressures: 1 },
   skipped: { events: 0, arcs: 0, relationships: 0, pressures: 0 },
+  deleted: { events: 0, arcs: 0, relationships: 0, pressures: 0 },
   errors: [],
   warnings: [],
 }
 
-// Helper to create mock mutation
-const createMockMutation = (overrides = {}) => ({
-  mutateAsync: vi.fn(),
-  isPending: false,
-  isError: false,
+// Helpers to create mock mutations typed against the real hook return types, so
+// the mocks stay in sync with `useValidateImport` / `usePreviewImport` /
+// `useExecuteImport` without any casts.
+const createIdleMutation = <TData, TError, TVariables>(
+  resolvedValue: TData
+): UseMutationResult<TData, TError, TVariables> => ({
+  context: undefined,
+  data: undefined,
   error: null,
-  ...overrides,
+  failureCount: 0,
+  failureReason: null,
+  isPaused: false,
+  status: 'idle',
+  variables: undefined,
+  submittedAt: 0,
+  isError: false,
+  isIdle: true,
+  isPending: false,
+  isSuccess: false,
+  mutate: vi.fn(),
+  mutateAsync: vi.fn().mockResolvedValue(resolvedValue),
+  reset: vi.fn(),
+})
+
+const createPendingMutation = <TData, TError, TVariables>(
+  resolvedValue: TData,
+  variables: TVariables
+): UseMutationResult<TData, TError, TVariables> => ({
+  context: undefined,
+  data: undefined,
+  error: null,
+  failureCount: 0,
+  failureReason: null,
+  isPaused: false,
+  status: 'pending',
+  variables,
+  submittedAt: 0,
+  isError: false,
+  isIdle: false,
+  isPending: true,
+  isSuccess: false,
+  mutate: vi.fn(),
+  mutateAsync: vi.fn().mockResolvedValue(resolvedValue),
+  reset: vi.fn(),
 })
 
 describe('ImportWizard', () => {
@@ -135,26 +176,28 @@ describe('ImportWizard', () => {
   const mockOnClose = vi.fn()
   const mockOnImportComplete = vi.fn()
 
-  let mockValidateMutation: ReturnType<typeof createMockMutation>
-  let mockPreviewMutation: ReturnType<typeof createMockMutation>
-  let mockExecuteMutation: ReturnType<typeof createMockMutation>
+  let mockValidateMutation: ReturnType<typeof useValidateImport>
+  let mockPreviewMutation: ReturnType<typeof usePreviewImport>
+  let mockExecuteMutation: ReturnType<typeof useExecuteImport>
 
   beforeEach(() => {
     vi.clearAllMocks()
-    
-    mockValidateMutation = createMockMutation({
-      mutateAsync: vi.fn().mockResolvedValue(validValidationResult),
-    })
-    mockPreviewMutation = createMockMutation({
-      mutateAsync: vi.fn().mockResolvedValue(validPreviewResult),
-    })
-    mockExecuteMutation = createMockMutation({
-      mutateAsync: vi.fn().mockResolvedValue(successfulImportResult),
-    })
-    
-    vi.mocked(useValidateImport).mockReturnValue(mockValidateMutation as any)
-    vi.mocked(usePreviewImport).mockReturnValue(mockPreviewMutation as any)
-    vi.mocked(useExecuteImport).mockReturnValue(mockExecuteMutation as any)
+
+    mockValidateMutation = createIdleMutation<
+      ImportValidationResult,
+      APIError,
+      ValidateImportOptions
+    >(validValidationResult)
+    mockPreviewMutation = createIdleMutation<ImportPreview, APIError, PreviewImportOptions>(
+      validPreviewResult
+    )
+    mockExecuteMutation = createIdleMutation<ImportResult, APIError, ExecuteImportOptions>(
+      successfulImportResult
+    )
+
+    vi.mocked(useValidateImport).mockReturnValue(mockValidateMutation)
+    vi.mocked(usePreviewImport).mockReturnValue(mockPreviewMutation)
+    vi.mocked(useExecuteImport).mockReturnValue(mockExecuteMutation)
   })
 
   const renderComponent = (props = {}) => {
@@ -249,11 +292,15 @@ describe('ImportWizard', () => {
     })
 
     it('should show loading state when validating', () => {
-      mockValidateMutation.isPending = true
-      vi.mocked(useValidateImport).mockReturnValue(mockValidateMutation as any)
-      
+      mockValidateMutation = createPendingMutation<
+        ImportValidationResult,
+        APIError,
+        ValidateImportOptions
+      >(validValidationResult, { data: validExportData })
+      vi.mocked(useValidateImport).mockReturnValue(mockValidateMutation)
+
       renderComponent()
-      
+
       expect(screen.getByRole('button', { name: 'Processing...' })).toBeInTheDocument()
     })
   })

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Event } from '@/types'
+import { Arc, CausalRelationship, Event } from '@/types'
 
 // Helper to convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
 const isoToDatetimeLocal = (isoString: string): string => {
@@ -36,8 +36,8 @@ interface EventDetailModalProps {
   onClose: () => void
   onSave: (updates: Partial<Event>) => Promise<void>
   onDelete?: () => Promise<void>
-  relatedArcs?: any[]
-  causalRelationships?: any[]
+  relatedArcs?: Arc[]
+  causalRelationships?: CausalRelationship[]
   className?: string
 }
 

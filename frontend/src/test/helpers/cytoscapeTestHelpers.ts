@@ -1,12 +1,28 @@
-import { vi } from 'vitest'
+import { expect, vi } from 'vitest'
 import {
   createMockCytoscape,
   triggerCytoscapeEvent,
   createMockNodeEvent,
   createMockEdgeEvent,
-  MockCytoscape
+  type MockCytoscape
 } from '../__mocks__/cytoscape'
-import { Event, CausalRelationship } from '@/types'
+import { Event, CausalRelationship, SessionData } from '@/types'
+
+/**
+ * Handler list recorded by the mock, taken from the mock's own types so this
+ * helper never has to restate (or drift from) the mocked signature.
+ */
+type RecordedEventHandlers = NonNullable<
+  ReturnType<MockCytoscape['_mockData']['eventHandlers']['get']>
+>
+
+/** Store slice accepted by {@link createMockStoreState}. */
+export interface MockStoreStateOverrides {
+  events: Event[]
+  causalRelationships: CausalRelationship[]
+  selectedEvents: string[]
+  sessionData: Pick<SessionData['viewportState'], 'causalGraph'>
+}
 
 /**
  * Sets up a complete Cytoscape mock with realistic test data
@@ -207,12 +223,7 @@ export function createMockRelationships(events: Event[]): CausalRelationship[] {
 /**
  * Creates a mock store state for Cytoscape-related tests
  */
-export function createMockStoreState(overrides: Partial<{
-  events: Event[]
-  causalRelationships: CausalRelationship[]
-  selectedEvents: string[]
-  sessionData: any
-}> = {}) {
+export function createMockStoreState(overrides: Partial<MockStoreStateOverrides> = {}) {
   const events = overrides.events || createMockEvents()
   const relationships = overrides.causalRelationships || createMockRelationships(events)
 
@@ -242,7 +253,7 @@ export async function waitForEventHandler(
   event: string,
   selector?: string,
   timeout: number = 1000
-): Promise<Function[]> {
+): Promise<RecordedEventHandlers> {
   const key = selector ? `${event}:${selector}` : event
   const startTime = Date.now()
 
@@ -262,6 +273,6 @@ export {
   createMockCytoscape,
   triggerCytoscapeEvent,
   createMockNodeEvent,
-  createMockEdgeEvent,
-  MockCytoscape
+  createMockEdgeEvent
 } from '../__mocks__/cytoscape'
+export type { MockCytoscape } from '../__mocks__/cytoscape'

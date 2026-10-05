@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react'
-import { Core } from 'cytoscape'
+import type { Core, Layouts, NodeSingular } from 'cytoscape'
 import { useGlobalStore } from '@/stores/globalStore'
 import {
   getLayoutFromShortcut,
@@ -14,7 +14,9 @@ import {
   PREVIEW_TIMEOUT_MS,
   FIT_PADDING,
   DEFAULT_ZOOM,
-  LayoutConfig
+  LayoutConfig,
+  LayoutOptions,
+  toCytoscapeLayoutOptions
 } from '@/utils/layoutManagerUtils'
 
 export type { LayoutConfig }
@@ -177,7 +179,7 @@ const layoutConfigs: LayoutConfig[] = [
       clockwise: true,
       equidistant: false,
       minNodeSpacing: 10,
-      concentric: (node: any) => node.degree(), // Use node degree for concentricity
+      concentric: (node: NodeSingular) => node.degree(), // Use node degree for concentricity
       levelWidth: () => 1
     }
   },
@@ -241,8 +243,8 @@ export function CausalGraphLayoutManager({
   // Refs for preventing race conditions and cleanup
   const isTransitioningRef = useRef(false)
   const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const currentLayoutRef = useRef<any>(null)
-  const previewLayoutRef = useRef<any>(null)
+  const currentLayoutRef = useRef<Layouts | null>(null)
+  const previewLayoutRef = useRef<Layouts | null>(null)
 
   const currentLayout = sessionData.viewportState.causalGraph.layout || 'cose'
 
@@ -264,7 +266,7 @@ export function CausalGraphLayoutManager({
   }, [])
 
   // Apply layout with smooth transition
-  const applyLayout = useCallback(async (layoutName: string, options?: any) => {
+  const applyLayout = useCallback(async (layoutName: string, options?: LayoutOptions) => {
     // Use ref to prevent race conditions (state may be stale in callbacks)
     if (!cytoscapeInstance || isTransitioningRef.current) return
 
@@ -289,7 +291,7 @@ export function CausalGraphLayoutManager({
       })
 
       // Apply the layout
-      const layout = cytoscapeInstance.layout(layoutOptions)
+      const layout = cytoscapeInstance.layout(toCytoscapeLayoutOptions(layoutOptions))
       currentLayoutRef.current = layout
 
       // Run layout and wait for completion with timeout to prevent hanging
@@ -360,7 +362,7 @@ export function CausalGraphLayoutManager({
 
     // Create a temporary preview with reduced animation
     const previewOptions = getPreviewLayoutOptions(layoutName)
-    const layout = cytoscapeInstance.layout(previewOptions as any)
+    const layout = cytoscapeInstance.layout(toCytoscapeLayoutOptions(previewOptions))
     previewLayoutRef.current = layout
     layout.run()
 

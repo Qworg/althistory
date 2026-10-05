@@ -7,11 +7,21 @@ import {
   PressureVisualizationConfig,
   DEFAULT_PRESSURE_COLORS 
 } from '@/types/pressure'
+import { InferredPressure } from '@/types'
 import { 
   processPressuresWithContext,
   filterPressuresByConfidence,
   groupPressuresByType 
 } from '@/utils/pressureVisualization'
+
+/**
+ * TanStack Query v5 dropped the per-query `onSuccess` callback from `useQuery`
+ * options (it survives only on the query cache config), so the callback below is
+ * not part of the declared option type any more. It is kept exactly as it was at
+ * runtime and typed explicitly, so the call site stays visible until it is
+ * migrated to an effect that syncs the store.
+ */
+type InferredPressuresQueryOptions = NonNullable<Parameters<typeof useInferredPressures>[1]>
 
 /**
  * Hook for managing pressure data and visualization state
@@ -39,16 +49,20 @@ export function usePressures(arcId?: string) {
   })
 
   // Fetch pressure data
+  const pressureQueryOptions: InferredPressuresQueryOptions & {
+    onSuccess?: (data: InferredPressure[]) => void
+  } = {
+    onSuccess: (data) => {
+      setInferredPressures(data)
+    }
+  }
+
   const { 
     data: pressureData, 
     isLoading, 
     error, 
     refetch 
-  } = useInferredPressures(arcId, {
-    onSuccess: (data) => {
-      setInferredPressures(data)
-    }
-  })
+  } = useInferredPressures(arcId, pressureQueryOptions)
 
   // Process pressures with context
   const pressuresWithContext = useMemo(() => {

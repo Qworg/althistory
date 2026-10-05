@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useRef } from 'react'
-import { Core } from 'cytoscape'
+import type { Core, Css } from 'cytoscape'
 import { CausalPath } from '@/types'
 
 export interface CausalPathHighlighterProps {
@@ -11,18 +11,119 @@ export interface CausalPathHighlighterProps {
   onPathAnimationComplete?: () => void
 }
 
+// Only the style properties this component actually writes. Cytoscape models
+// these as (already-optional) members of Css.Node / Css.Edge, so the style bags
+// below stay assignable to Element#style() without a cast.
+type NodeHighlightStyle = Pick<
+  Css.Node,
+  | 'background-color'
+  | 'border-color'
+  | 'border-width'
+  | 'height'
+  | 'opacity'
+  | 'overlay-color'
+  | 'overlay-opacity'
+  | 'width'
+  | 'z-index'
+>
+
+type EdgeHighlightStyle = Pick<
+  Css.Edge,
+  | 'line-color'
+  | 'opacity'
+  | 'overlay-color'
+  | 'overlay-opacity'
+  | 'target-arrow-color'
+  | 'width'
+  | 'z-index'
+>
+
 export interface PathHighlightStyle {
   node: {
-    highlighted: any
-    current: any
-    visited: any
-    unvisited: any
+    highlighted: NodeHighlightStyle
+    current: NodeHighlightStyle
+    visited: NodeHighlightStyle
+    unvisited: NodeHighlightStyle
   }
   edge: {
-    highlighted: any
-    current: any
-    visited: any
-    unvisited: any
+    highlighted: EdgeHighlightStyle
+    current: EdgeHighlightStyle
+    visited: EdgeHighlightStyle
+    unvisited: EdgeHighlightStyle
+  }
+}
+
+// Module-level rather than per-render: the object is constant, and building it
+// inside the component made every consumer of it a fresh reference on every
+// render, which defeated useCallback/useEffect memoisation.
+const highlightStyles: PathHighlightStyle = {
+  node: {
+    highlighted: {
+      'background-color': '#F59E0B',
+      'border-color': '#D97706',
+      'border-width': 4,
+      'z-index': 100,
+      'overlay-opacity': 0.2,
+      'overlay-color': '#F59E0B'
+    },
+    current: {
+      'background-color': '#EF4444',
+      'border-color': '#DC2626',
+      'border-width': 5,
+      'z-index': 150,
+      'overlay-opacity': 0.3,
+      'overlay-color': '#EF4444',
+      'width': 'mapData(weight, 0, 1, 40, 80)',
+      'height': 'mapData(weight, 0, 1, 40, 80)'
+    },
+    visited: {
+      'background-color': '#10B981',
+      'border-color': '#059669',
+      'border-width': 3,
+      'z-index': 80,
+      'opacity': 0.9
+    },
+    unvisited: {
+      'background-color': '#6B7280',
+      'border-color': '#4B5563',
+      'border-width': 2,
+      'z-index': 60,
+      'opacity': 0.6
+    }
+  },
+  edge: {
+    highlighted: {
+      'line-color': '#F59E0B',
+      'target-arrow-color': '#F59E0B',
+      'width': 'mapData(weight, 0, 1, 4, 12)',
+      'opacity': 1,
+      'z-index': 100,
+      'overlay-opacity': 0.2,
+      'overlay-color': '#F59E0B'
+    },
+    current: {
+      'line-color': '#EF4444',
+      'target-arrow-color': '#EF4444',
+      'width': 'mapData(weight, 0, 1, 6, 16)',
+      'opacity': 1,
+      'z-index': 150,
+      'overlay-opacity': 0.3,
+      'overlay-color': '#EF4444'
+    },
+    visited: {
+      'line-color': '#10B981',
+      'target-arrow-color': '#10B981',
+      'width': 'mapData(weight, 0, 1, 3, 10)',
+      'opacity': 0.9,
+      'z-index': 80
+    },
+    unvisited: {
+      'line-color': '#6B7280',
+      'target-arrow-color': '#6B7280',
+      'width': 'mapData(weight, 0, 1, 2, 6)',
+      'opacity': 0.4,
+      'z-index': 60
+    }
   }
 }
 
@@ -34,80 +135,8 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
   animationDuration = 500,
   onPathAnimationComplete
 }) => {
-  const animationRef = useRef<any>(null)
+  const animationRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previousPathRef = useRef<CausalPath | null>(null)
-
-  // Define highlight styles
-  const highlightStyles: PathHighlightStyle = {
-    node: {
-      highlighted: {
-        'background-color': '#F59E0B',
-        'border-color': '#D97706',
-        'border-width': 4,
-        'z-index': 100,
-        'overlay-opacity': 0.2,
-        'overlay-color': '#F59E0B'
-      },
-      current: {
-        'background-color': '#EF4444',
-        'border-color': '#DC2626',
-        'border-width': 5,
-        'z-index': 150,
-        'overlay-opacity': 0.3,
-        'overlay-color': '#EF4444',
-        'width': 'mapData(weight, 0, 1, 40, 80)',
-        'height': 'mapData(weight, 0, 1, 40, 80)'
-      },
-      visited: {
-        'background-color': '#10B981',
-        'border-color': '#059669',
-        'border-width': 3,
-        'z-index': 80,
-        'opacity': 0.9
-      },
-      unvisited: {
-        'background-color': '#6B7280',
-        'border-color': '#4B5563',
-        'border-width': 2,
-        'z-index': 60,
-        'opacity': 0.6
-      }
-    },
-    edge: {
-      highlighted: {
-        'line-color': '#F59E0B',
-        'target-arrow-color': '#F59E0B',
-        'width': 'mapData(weight, 0, 1, 4, 12)',
-        'opacity': 1,
-        'z-index': 100,
-        'overlay-opacity': 0.2,
-        'overlay-color': '#F59E0B'
-      },
-      current: {
-        'line-color': '#EF4444',
-        'target-arrow-color': '#EF4444',
-        'width': 'mapData(weight, 0, 1, 6, 16)',
-        'opacity': 1,
-        'z-index': 150,
-        'overlay-opacity': 0.3,
-        'overlay-color': '#EF4444'
-      },
-      visited: {
-        'line-color': '#10B981',
-        'target-arrow-color': '#10B981',
-        'width': 'mapData(weight, 0, 1, 3, 10)',
-        'opacity': 0.9,
-        'z-index': 80
-      },
-      unvisited: {
-        'line-color': '#6B7280',
-        'target-arrow-color': '#6B7280',
-        'width': 'mapData(weight, 0, 1, 2, 6)',
-        'opacity': 0.4,
-        'z-index': 60
-      }
-    }
-  }
 
   // Clear all path highlights
   const clearHighlights = useCallback(() => {
@@ -217,7 +246,7 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
         duration: animationDuration
       })
     }
-  }, [cytoscapeInstance, clearHighlights, highlightStyles, applyCumulativeStrength, animationDuration])
+  }, [cytoscapeInstance, clearHighlights, applyCumulativeStrength, animationDuration])
 
   // Highlight path with step progression
   const highlightPathWithSteps = useCallback((path: CausalPath, stepIndex: number) => {
@@ -286,7 +315,7 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
         })
       }
     }
-  }, [cytoscapeInstance, clearHighlights, highlightStyles, applyCumulativeStrength, animationDuration, onPathAnimationComplete])
+  }, [cytoscapeInstance, clearHighlights, applyCumulativeStrength, animationDuration, onPathAnimationComplete])
 
   // Stop any ongoing animation
   const stopAnimation = useCallback(() => {

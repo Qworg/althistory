@@ -24,6 +24,12 @@ const warningConflict: ImportConflict = {
   entityId: 'arc-1',
   severity: 'warning',
   message: 'Arc dates may overlap with existing arcs',
+  incomingEntity: {
+    id: 'arc-1',
+    name: 'Imported arc',
+    start_time: '1900-01-01T00:00:00Z',
+    end_time: '1950-01-01T00:00:00Z',
+  },
   suggestedResolution: 'overwrite',
 }
 
@@ -34,6 +40,11 @@ const anotherErrorConflict: ImportConflict = {
   entityId: 'rel-1',
   severity: 'error',
   message: 'Causal relationship creates paradox',
+  incomingEntity: {
+    id: 'rel-1',
+    cause_event_id: 'event-1',
+    effect_event_id: 'event-2',
+  },
   suggestedResolution: 'rename',
 }
 

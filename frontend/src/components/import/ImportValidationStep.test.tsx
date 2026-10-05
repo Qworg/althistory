@@ -14,6 +14,7 @@ const validValidation: ImportValidationResult = {
     arcCount: 3,
     relationshipCount: 5,
     pressureCount: 2,
+    crossRefCount: 5,
     actors: ['Actor A', 'Actor B', 'Actor C'],
     temporalRange: {
       start: '1900-01-01T00:00:00Z',
@@ -48,8 +49,9 @@ const invalidValidation: ImportValidationResult = {
     arcCount: 2,
     relationshipCount: 3,
     pressureCount: 1,
+    crossRefCount: 1,
     actors: ['Actor A'],
-    temporalRange: null,
+    temporalRange: undefined,
   },
 }
 
@@ -68,8 +70,9 @@ const validationWithWarningsOnly: ImportValidationResult = {
     arcCount: 1,
     relationshipCount: 2,
     pressureCount: 0,
+    crossRefCount: 0,
     actors: [],
-    temporalRange: null,
+    temporalRange: undefined,
   },
 }
 
@@ -255,7 +258,7 @@ describe('ImportValidationStep', () => {
   })
 
   describe('Summary Edge Cases', () => {
-    it('should not show temporal range when null', () => {
+    it('should not show temporal range when absent', () => {
       renderComponent(validationWithWarningsOnly)
       
       expect(screen.queryByText('Time Range')).not.toBeInTheDocument()

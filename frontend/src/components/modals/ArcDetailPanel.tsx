@@ -168,7 +168,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
         })
       }
       onClose()
-    } catch (error) {
+    } catch {
       setErrors({ general: `Failed to ${isCreateMode ? 'create' : 'save'} arc. Please try again.` })
     } finally {
       setIsLoading(false)
@@ -188,7 +188,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
     try {
       await onDelete()
       onClose()
-    } catch (error) {
+    } catch {
       setErrors({ general: 'Failed to delete arc. Please try again.' })
     } finally {
       setIsLoading(false)

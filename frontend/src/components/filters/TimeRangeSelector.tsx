@@ -88,12 +88,16 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
         break
       case 'first_half':
         start = eventDateRange.min
-        const midpoint = new Date((eventDateRange.min.getTime() + eventDateRange.max.getTime()) / 2)
-        end = midpoint
+        {
+          const midpoint = new Date((eventDateRange.min.getTime() + eventDateRange.max.getTime()) / 2)
+          end = midpoint
+        }
         break
       case 'second_half':
-        const midpoint2 = new Date((eventDateRange.min.getTime() + eventDateRange.max.getTime()) / 2)
-        start = midpoint2
+        {
+          const midpoint2 = new Date((eventDateRange.min.getTime() + eventDateRange.max.getTime()) / 2)
+          start = midpoint2
+        }
         end = eventDateRange.max
         break
       default:

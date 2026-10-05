@@ -2,7 +2,7 @@ import { FilterState } from './FilterPanel'
 
 interface ActiveFiltersProps {
   filters: FilterState
-  onRemoveFilter: (key: keyof FilterState, value?: any) => void
+  onRemoveFilter: (key: keyof FilterState, value?: unknown) => void
   onClearAll: () => void
   className?: string
 }
@@ -10,7 +10,9 @@ interface ActiveFiltersProps {
 interface FilterTag {
   key: keyof FilterState
   label: string
-  value?: any
+  // The removed entry: a single value (string/number) for scalar filters, an
+  // element for multi-select ones. Only ever compared and rendered.
+  value?: unknown
   removable: boolean
 }
 

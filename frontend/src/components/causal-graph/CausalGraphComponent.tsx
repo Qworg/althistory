@@ -4,6 +4,7 @@ import '@/utils/cytoscapeSetup' // Register layout extensions (dagre, cose-bilke
 import { Event, CausalRelationship, CausalRelationshipData, CausalPath, CausalSuggestion } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
+import { toCytoscapeLayoutOptions } from '@/utils/layoutManagerUtils'
 import CausalPathHighlighter from './CausalPathHighlighter'
 import CausalChainNavigationControls from './CausalChainNavigationControls'
 import CausalSuggestionManager from './CausalSuggestionManager'
@@ -92,8 +93,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     if (import.meta.env.DEV) {
       console.log(`[CausalGraph] Render #${renderCountRef.current}`)
       if (renderCountRef.current > 50) {
-        console.error('[CausalGraph] INFINITE LOOP DETECTED - pausing execution')
-        debugger
+        console.error('[CausalGraph] Excessive render count detected')
       }
     }
   })
@@ -164,6 +164,64 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   }, [linkCreationSource])
 
   // Initialize Cytoscape instance
+  // Validate temporal ordering for causal relationships
+  const validateTemporalOrdering = useCallback((causeEvent: Event, effectEvent: Event): boolean => {
+    const causeTime = new Date(causeEvent.timestamp)
+    const effectTime = new Date(effectEvent.timestamp)
+    return causeTime <= effectTime
+  }, [])
+
+  // Create causal relationship with validation
+  const createCausalRelationship = useCallback(async (
+    causeEvent: Event, 
+    effectEvent: Event, 
+    relationshipData: CausalRelationshipData
+  ) => {
+    try {
+      // Validate temporal ordering
+      if (!validateTemporalOrdering(causeEvent, effectEvent)) {
+        addError({
+          message: 'Cause event must occur before or at the same time as effect event',
+          type: 'validation'
+        })
+        return
+      }
+
+      // Check if relationship already exists
+      const existingRelationship = causalRelationships.find(rel => 
+        rel.cause_event_id === causeEvent.id && rel.effect_event_id === effectEvent.id
+      )
+      
+      if (existingRelationship) {
+        addError({
+          message: 'Causal relationship already exists between these events',
+          type: 'validation'
+        })
+        return
+      }
+
+      // Create relationship via API
+      const newRelationship = await apiClient.causal.createLink(
+        causeEvent.id, 
+        effectEvent.id, 
+        relationshipData
+      )
+      
+      // Update global state
+      addCausalRelationship(newRelationship)
+      
+      // Notify parent component
+      onCausalLinkCreate?.(causeEvent, effectEvent)
+      
+    } catch (error) {
+      console.error('Failed to create causal relationship:', error)
+      addError({
+        message: 'Failed to create causal relationship',
+        type: 'network'
+      })
+    }
+  }, [validateTemporalOrdering, causalRelationships, addCausalRelationship, addError, onCausalLinkCreate])
+
   const initializeCytoscape = useCallback(() => {
     if (!containerRef.current || cyRef.current) return
 
@@ -322,7 +380,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         }
       ],
       
-      layout: {
+      layout: toCytoscapeLayoutOptions({
         name: savedLayout,
         animationDuration: 500,
         fit: true,
@@ -338,7 +396,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         initialTemp: 200,
         coolingFactor: 0.95,
         minTemp: 1.0
-      } as any, // Type assertion for layout options
+      }),
       
       // Interaction options
       minZoom: 0.1,
@@ -509,65 +567,13 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     })
 
     cyRef.current = cy
-  }, [onNodeClick, onNodeHover, onEdgeClick, onEdgeHover, updateSessionData])
+  }, [
+    onNodeClick, onNodeHover, onEdgeClick, onEdgeHover, updateSessionData,
+    createCausalRelationship, enablePathExploration, enableSuggestions, loadSuggestions,
+    navigationState.isNavigating, onNodeContextMenu, onRelationshipContextMenu,
+    onRelationshipEdit, startExploration
+  ])
 
-  // Validate temporal ordering for causal relationships
-  const validateTemporalOrdering = useCallback((causeEvent: Event, effectEvent: Event): boolean => {
-    const causeTime = new Date(causeEvent.timestamp)
-    const effectTime = new Date(effectEvent.timestamp)
-    return causeTime <= effectTime
-  }, [])
-
-  // Create causal relationship with validation
-  const createCausalRelationship = useCallback(async (
-    causeEvent: Event, 
-    effectEvent: Event, 
-    relationshipData: CausalRelationshipData
-  ) => {
-    try {
-      // Validate temporal ordering
-      if (!validateTemporalOrdering(causeEvent, effectEvent)) {
-        addError({
-          message: 'Cause event must occur before or at the same time as effect event',
-          type: 'validation'
-        })
-        return
-      }
-
-      // Check if relationship already exists
-      const existingRelationship = causalRelationships.find(rel => 
-        rel.cause_event_id === causeEvent.id && rel.effect_event_id === effectEvent.id
-      )
-      
-      if (existingRelationship) {
-        addError({
-          message: 'Causal relationship already exists between these events',
-          type: 'validation'
-        })
-        return
-      }
-
-      // Create relationship via API
-      const newRelationship = await apiClient.causal.createLink(
-        causeEvent.id, 
-        effectEvent.id, 
-        relationshipData
-      )
-      
-      // Update global state
-      addCausalRelationship(newRelationship)
-      
-      // Notify parent component
-      onCausalLinkCreate?.(causeEvent, effectEvent)
-      
-    } catch (error) {
-      console.error('Failed to create causal relationship:', error)
-      addError({
-        message: 'Failed to create causal relationship',
-        type: 'network'
-      })
-    }
-  }, [validateTemporalOrdering, causalRelationships, addCausalRelationship, addError, onCausalLinkCreate])
 
   // Transform data for Cytoscape
   // NOTE: linkCreationSource is intentionally NOT a dependency here to prevent
@@ -629,12 +635,12 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     )
 
     if (!hasPositions) {
-      cyRef.current.layout({
+      cyRef.current.layout(toCytoscapeLayoutOptions({
         name: causalGraphState.layout || 'cose',
         animationDuration: 500,
         fit: true,
         padding: 50
-      } as any).run()
+      })).run()
     } else {
       cyRef.current.fit(undefined, 50)
     }
@@ -668,12 +674,12 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   const changeLayout = useCallback((layoutName: string) => {
     if (!cyRef.current || !isInitialized) return
 
-    const layout = cyRef.current.layout({
+    const layout = cyRef.current.layout(toCytoscapeLayoutOptions({
       name: layoutName,
       animationDuration: 1000,
       fit: true,
       padding: 50
-    } as any)
+    }))
 
     layout.run()
 

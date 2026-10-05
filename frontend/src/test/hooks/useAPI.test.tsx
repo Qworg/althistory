@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi, afterEach, type Mock } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
@@ -42,6 +42,24 @@ const mockStore = {
   addError: mockAddError,
 }
 
+/**
+ * The store double only carries the four actions these hooks select. `GlobalState`
+ * is derived from the hook itself (it is not exported from the store module).
+ */
+type GlobalStoreState = ReturnType<typeof useGlobalStore>
+
+/**
+ * `useGlobalStore` is a bound Zustand store: its type demands the whole store
+ * API as the return value, while the hooks under test only use the selector
+ * form. This handle restates that single overload so the mock below stays typed.
+ */
+type SelectorOnlyStoreHook = <T>(selector: (state: GlobalStoreState) => T) => T
+
+const mockUseGlobalStore = vi.mocked(useGlobalStore) as unknown as Mock<SelectorOnlyStoreHook>
+
+const selectFromMockStore = <T,>(selector: (state: GlobalStoreState) => T): T =>
+  selector(mockStore as GlobalStoreState)
+
 describe('useAPI hooks', () => {
   let queryClient: QueryClient
 
@@ -53,9 +71,7 @@ describe('useAPI hooks', () => {
       },
     })
     
-    vi.mocked(useGlobalStore).mockImplementation((selector: any) => {
-      return selector(mockStore)
-    })
+    mockUseGlobalStore.mockImplementation(selectFromMockStore)
     
     vi.clearAllMocks()
   })

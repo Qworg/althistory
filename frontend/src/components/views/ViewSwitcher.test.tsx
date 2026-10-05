@@ -8,6 +8,15 @@ import { useGlobalStore } from '@/stores/globalStore'
 vi.mock('@/stores/globalStore')
 const mockUseGlobalStore = vi.mocked(useGlobalStore)
 
+type GlobalStoreState = ReturnType<typeof useGlobalStore>
+
+/**
+ * `mockStore` below only carries the slice the switcher reads, so the seam with
+ * the automocked `useGlobalStore` (typed against the full real store) is bridged
+ * once, here, instead of with an unchecked assertion at each call site.
+ */
+const asStore = (partial: Partial<GlobalStoreState>) => partial as GlobalStoreState
+
 // Mock react-router
 const mockNavigate = vi.fn()
 vi.mock('react-router', async () => {
@@ -65,7 +74,7 @@ describe('ViewSwitcher', () => {
   }
 
   beforeEach(() => {
-    mockUseGlobalStore.mockReturnValue(mockStore as any)
+    mockUseGlobalStore.mockReturnValue(asStore(mockStore))
     vi.clearAllMocks()
   })
 
@@ -192,7 +201,7 @@ describe('ViewSwitcher', () => {
       selectedEvents: ['event1', 'event2'],
       selectedArcs: ['arc1'],
     }
-    mockUseGlobalStore.mockReturnValue(storeWithSelections as any)
+    mockUseGlobalStore.mockReturnValue(asStore(storeWithSelections))
     
     renderViewSwitcher()
     

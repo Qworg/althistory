@@ -271,7 +271,7 @@ describe('ArcDetailPanel', () => {
 
     it('shows loading state during save', async () => {
       const user = userEvent.setup()
-      const onSave = vi.fn(() => new Promise(resolve => setTimeout(resolve, 100)))
+      const onSave = vi.fn(() => new Promise<void>(resolve => { setTimeout(resolve, 100) }))
       const arc = createMockArc()
 
       renderWithProviders(
