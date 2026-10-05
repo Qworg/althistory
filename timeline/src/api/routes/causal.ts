@@ -73,7 +73,15 @@ causalRoutes.post('/link', async (req: Request, res: Response, next: NextFunctio
 
     // Create causal link
     const causalService = req.container.causalService;
-    await causalService.createCausalLink(causeEvent, effectEvent, transformedRelationship);
+    const storedRelationship = await causalService.createCausalLink(
+      causeEvent,
+      effectEvent,
+      transformedRelationship
+    );
+
+    // Mirror the write into the active graph's version store so version history
+    // and ExportService see UI-created causal links (not only imported ones).
+    await req.container.graphWriteVersioningService.recordRelationship(storedRelationship, 'create');
 
     res.status(201).json({
       success: true,
@@ -388,6 +396,8 @@ causalRoutes.put('/link', async (req: Request, res: Response, next: NextFunction
       relationship_type: relationship.type || relationship.relationship_type
     });
 
+    await req.container.graphWriteVersioningService.recordRelationship(updatedRelationship, 'update');
+
     res.json({
       success: true,
       data: {
@@ -434,7 +444,9 @@ causalRoutes.delete('/link', async (req: Request, res: Response, next: NextFunct
 
     // Delete the causal link
     const causalService = req.container.causalService;
-    await causalService.deleteCausalLink(causeEventId, effectEventId);
+    const deletedRelationshipId = await causalService.deleteCausalLink(causeEventId, effectEventId);
+
+    await req.container.graphWriteVersioningService.recordDeletion('relationship', deletedRelationshipId);
 
     res.json({
       success: true,

@@ -8,6 +8,7 @@ export * from './CacheInvalidationService';
 export * from './DatabaseOptimizationService';
 export * from './ApiService';
 export * from './GraphService';
+export * from './GraphWriteVersioningService';
 export * from './ExportService';
 export * from './JobService';
 

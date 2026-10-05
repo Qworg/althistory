@@ -99,6 +99,27 @@ history and an empty export**. This invalidates Requirements 1.3, 2.1, 3, 4.4 an
 
 This is why the multi-graph UI cannot work even once mounted (Phase 3), so it must land before it.
 
+**Design (investigated):**
+- `GraphRepository.commitChanges(graphId, {added, modified, deleted}, operation, description, userId)`
+  takes full entity data inline and writes content-addressed objects via `VersionRepository`.
+  `ImportService.commitImport` is the working reference for using it.
+- `ExportService` reads **exclusively** from `graphRepository.checkout()` (lines 184, 259) — never the
+  live store. So it only ever sees imported data. That is the user-visible bug.
+- An active-graph concept already exists: `GraphRepository.getActiveGraph()` (line 208) backed by
+  `index.activeGraphId`.
+- **Root cause behind B3 and M2:** `Event` and `Arc` carry **no `graphId`** — entities are global in
+  the live store. So "which graph does this write belong to?" has no structural answer yet; only the
+  active-graph notion can approximate it.
+
+**Increment 1 (this phase):** commit entity changes to the active graph on normal write paths, so
+version history and export stop being empty for UI-created data. This is the user-visible fix and is
+bounded to the write routes plus one shared helper.
+
+**Increment 2 (follow-on):** real graph-scoped isolation (M2) — requires `graphId` on entities or a
+scoped live store, plus filtering reads in `suggest.ts`/`validate.ts`/`batch.ts`, which today use
+`eventRepository.findAll()` and only check `graphId` for authorisation. Until this lands, switching
+graphs still shows the same global data, so Req 1.3/2.1 are only partly satisfied.
+
 ### 2.2 Multi-graph read/write isolation (M2)
 `suggest.ts` and `validate.ts` call `eventRepository.findAll()` — the global store — and use `graphId`
 only for an authorisation check, not data scoping. `batch.ts` only stamps `graphId` into `metadata`.

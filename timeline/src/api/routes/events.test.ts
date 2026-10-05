@@ -16,13 +16,26 @@ vi.mock('@/container', () => ({
 
 let mockRepository: any;
 
+/** Minimal stand-in for the version-store bridge the routes now call. */
+interface MockVersioningService {
+  recordEvent: (entity: unknown, operation: string) => Promise<void>;
+  recordArc: (entity: unknown, operation: string) => Promise<void>;
+  recordRelationship: (entity: unknown, operation: string) => Promise<void>;
+  recordDeletion: (type: string, id: string) => Promise<void>;
+}
+let mockVersioningService: MockVersioningService;
+
 const app = express();
 app.use(express.json());
 
 // Mock container injection middleware
 app.use((req: RequestWithContainer, res, next) => {
   req.container = {
-    eventRepository: mockRepository
+    eventRepository: mockRepository,
+    // The create/update/delete handlers mirror writes into the active graph's
+    // version store. Unit tests stub that collaborator; the version-commit
+    // behaviour itself is covered by the request-level integration test.
+    graphWriteVersioningService: mockVersioningService
   } as any;
   req.requestId = 'test-request-id';
   req.startTime = Date.now();
@@ -48,6 +61,13 @@ describe('Event API Endpoints', () => {
       count: vi.fn(),
       countByActor: vi.fn(),
       countByTimeRange: vi.fn()
+    };
+
+    mockVersioningService = {
+      recordEvent: vi.fn().mockResolvedValue(undefined),
+      recordArc: vi.fn().mockResolvedValue(undefined),
+      recordRelationship: vi.fn().mockResolvedValue(undefined),
+      recordDeletion: vi.fn().mockResolvedValue(undefined)
     };
 
     // Mock the constructor to return our mock

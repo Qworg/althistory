@@ -62,6 +62,24 @@ function isCausalRelationshipType(value: string): value is CausalRelationshipTyp
 }
 
 /**
+ * A causal relationship as stored in the live store, including its identity.
+ *
+ * `createCausalLink` / `updateCausalLink` return this (local mode uses the
+ * `LocalGraphStore` edge id; cloud mode has no comparable id, so it falls back
+ * to a deterministic `cause->effect` key). Callers that bridge the live store to
+ * the version store need the id, which the plain `CausalRelationship` lacks.
+ */
+export interface StoredCausalRelationship {
+  id: string;
+  cause_event_id: string;
+  effect_event_id: string;
+  weight: number;
+  evidence: string;
+  confidence: number;
+  relationship_type: CausalRelationshipType;
+}
+
+/**
  * Service for managing causal relationships and chain analysis
  */
 export class CausalService {
@@ -97,7 +115,7 @@ export class CausalService {
    * Create a causal link between two events
    * Validates the relationship and prevents temporal paradoxes
    */
-  async createCausalLink(cause: Event, effect: Event, relationship: CausalRelationship): Promise<void> {
+  async createCausalLink(cause: Event, effect: Event, relationship: CausalRelationship): Promise<StoredCausalRelationship> {
     // Validate the causal relationship
     const validation = this.validateCausalRelationship(cause, effect, relationship);
     if (!validation.isValid) {
@@ -113,16 +131,18 @@ export class CausalService {
     this.preventTemporalParadox(cause, effect);
 
     // Create the relationship in the database
-    await this.storeCausalRelationship(cause, effect, relationship);
+    const storedRelationship = await this.storeCausalRelationship(cause, effect, relationship);
 
     // Invalidate related cache entries
     await this.cacheInvalidationService.invalidateCausalCache();
+
+    return storedRelationship;
   }
 
   /**
    * Delete a causal link between two events
    */
-  async deleteCausalLink(causeEventId: string, effectEventId: string): Promise<void> {
+  async deleteCausalLink(causeEventId: string, effectEventId: string): Promise<string> {
     const config = loadConfig();
 
     if (config.localExecution.enabled) {
@@ -140,6 +160,11 @@ export class CausalService {
 
       await graphStore.deleteRelationship(relationship.id);
       await graphStore.save();
+
+      // Invalidate related cache entries
+      await this.cacheInvalidationService.invalidateCausalCache();
+
+      return relationship.id;
     } else {
       // Cloud mode: use Neo4j
       const session = getDatabaseManager().getNeo4jSession();
@@ -177,6 +202,11 @@ export class CausalService {
 
     // Invalidate related cache entries
     await this.cacheInvalidationService.invalidateCausalCache();
+
+    // Cloud mode has no persistent edge id, so use a deterministic key. The
+    // version store is a local-mode feature, so this value is only used when a
+    // caller bridges the two stores in a hybrid setup.
+    return `${causeEventId}->${effectEventId}`;
   }
 
   /**
@@ -186,7 +216,7 @@ export class CausalService {
     causeEventId: string,
     effectEventId: string,
     updates: Partial<CausalRelationship>
-  ): Promise<CausalRelationship> {
+  ): Promise<StoredCausalRelationship> {
     // Validate update values
     if (updates.weight !== undefined && (updates.weight < 0 || updates.weight > 1)) {
       throw new ValidationError('Weight must be between 0.0 and 1.0', 'weight', updates.weight);
@@ -199,7 +229,7 @@ export class CausalService {
     }
 
     const config = loadConfig();
-    let updatedRelationship: CausalRelationship;
+    let updatedRelationship: StoredCausalRelationship;
 
     if (config.localExecution.enabled) {
       // Local mode: use LocalGraphStore
@@ -226,6 +256,9 @@ export class CausalService {
 
       const properties = updated ? updated.properties : relationship.properties;
       updatedRelationship = {
+        id: relationship.id,
+        cause_event_id: causeEventId,
+        effect_event_id: effectEventId,
         weight: readNumberProperty(properties, 'weight', updates.weight ?? 0),
         evidence: readStringProperty(properties, 'evidence', updates.evidence ?? ''),
         confidence: readNumberProperty(properties, 'confidence', updates.confidence ?? 0),
@@ -279,6 +312,9 @@ export class CausalService {
 
         const rel = result.records[0].get('r');
         updatedRelationship = {
+          id: `${causeEventId}->${effectEventId}`,
+          cause_event_id: causeEventId,
+          effect_event_id: effectEventId,
           weight: rel.properties.weight,
           evidence: rel.properties.evidence,
           confidence: rel.properties.confidence,
@@ -599,7 +635,7 @@ export class CausalService {
   /**
    * Stores the causal relationship in the database (supports local and cloud modes)
    */
-  private async storeCausalRelationship(cause: Event, effect: Event, relationship: CausalRelationship): Promise<void> {
+  private async storeCausalRelationship(cause: Event, effect: Event, relationship: CausalRelationship): Promise<StoredCausalRelationship> {
     const config = loadConfig();
 
     if (config.localExecution.enabled) {
@@ -639,6 +675,16 @@ export class CausalService {
       }
 
       await graphStore.save();
+
+      return {
+        id: result.id,
+        cause_event_id: cause.id,
+        effect_event_id: effect.id,
+        weight: relationship.weight,
+        evidence: relationship.evidence,
+        confidence: relationship.confidence,
+        relationship_type: relationship.relationship_type
+      };
     } else {
       // Cloud mode: use Neo4j
       const session = getDatabaseManager().getNeo4jSession();
@@ -672,6 +718,18 @@ export class CausalService {
             'createCausalRelationship'
           );
         }
+
+        // Cloud mode has no persistent edge id; callers that bridge to the
+        // version store only do so in local mode.
+        return {
+          id: `${cause.id}->${effect.id}`,
+          cause_event_id: cause.id,
+          effect_event_id: effect.id,
+          weight: relationship.weight,
+          evidence: relationship.evidence,
+          confidence: relationship.confidence,
+          relationship_type: relationship.relationship_type
+        };
       } catch (error) {
         if (error instanceof DatabaseError) {
           throw error;

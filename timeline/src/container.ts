@@ -11,7 +11,8 @@ import {
   ExportService,
   JobService,
   AuthService,
-  RateLimitService
+  RateLimitService,
+  GraphWriteVersioningService
 } from '@/services';
 import { 
   EventRepository, 
@@ -53,6 +54,7 @@ export interface ServiceContainer {
   graphService: GraphService;
   exportService: ExportService;
   jobService: JobService;
+  graphWriteVersioningService: GraphWriteVersioningService;
   
   // Repositories
   eventRepository: EventRepository;
@@ -91,6 +93,7 @@ export class Container implements ServiceContainer {
   private _graphService?: GraphService;
   private _exportService?: ExportService;
   private _jobService?: JobService;
+  private _graphWriteVersioningService?: GraphWriteVersioningService;
   
   // Phase 1 I/O repositories
   private _graphRepository?: GraphRepository;
@@ -275,6 +278,21 @@ export class Container implements ServiceContainer {
       });
     }
     return this._graphService;
+  }
+
+  /**
+   * Get the live-store-to-version-store bridge (singleton).
+   *
+   * Entity writes (event/arc/causal) go through this so the active graph's
+   * version history and ExportService see UI-created data, not just imports.
+   */
+  get graphWriteVersioningService(): GraphWriteVersioningService {
+    if (!this._graphWriteVersioningService) {
+      this._graphWriteVersioningService = new GraphWriteVersioningService({
+        graphRepository: this.graphRepository,
+      });
+    }
+    return this._graphWriteVersioningService;
   }
 
   /**
