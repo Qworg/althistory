@@ -29,7 +29,7 @@ describe('ViewToolbar', () => {
       targets: [],
       eventTypes: [],
       arcLevels: [],
-      causalWeightRange: null,
+      causalWeightRange: [0, 1] as [number, number],
       confidenceThreshold: 0,
       searchQuery: '',
     },
@@ -237,6 +237,21 @@ describe('ViewToolbar', () => {
       
       const clearFiltersButton = screen.getByRole('button', { name: /clear filters/i })
       expect(clearFiltersButton).toBeDisabled()
+    })
+
+    it('treats a causal weight range narrower than the default as filtering', () => {
+      const storeWithWeight = {
+        ...mockStore,
+        activeFilters: {
+          ...mockStore.activeFilters,
+          causalWeightRange: [0.2, 1] as [number, number]
+        }
+      }
+      mockUseGlobalStore.mockReturnValue(asStore(storeWithWeight))
+
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+
+      expect(screen.getByRole('button', { name: /clear filters/i })).not.toBeDisabled()
     })
   })
 

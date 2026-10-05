@@ -302,6 +302,38 @@ describe('GraphCopyModal', () => {
     expect(mockUseGraphCopy.createFilteredCopy).toHaveBeenCalled()
   })
 
+  it('should create a filtered copy with the chosen filters in one flow', async () => {
+    const user = userEvent.setup()
+
+    vi.mocked(useGraphCopy).mockReturnValue({
+      ...mockUseGraphCopy,
+      copyState: {
+        ...mockUseGraphCopy.copyState,
+        copyName: 'Filtered Copy'
+      }
+    })
+
+    render(
+      <GraphCopyModal isOpen={true} onClose={mockOnClose} />,
+      { wrapper: createWrapper() }
+    )
+
+    // Select filtered copy, choose filters, then create - without pressing
+    // "Use Current Filters". The chosen filter must reach createFilteredCopy.
+    await user.click(screen.getByLabelText(/Filtered Copy/))
+    await user.selectOptions(screen.getByLabelText('Actors'), ['Actor A'])
+    await user.selectOptions(screen.getByLabelText('Targets'), ['Target X'])
+
+    await user.click(screen.getByText('Create Copy'))
+
+    expect(mockUseGraphCopy.createFilteredCopy).toHaveBeenCalledWith({
+      actors: ['Actor A'],
+      targets: ['Target X'],
+      event_types: [],
+      confidence_threshold: 0.5
+    })
+  })
+
   it('should disable create button when copy name is empty', () => {
     render(
       <GraphCopyModal isOpen={true} onClose={mockOnClose} />,

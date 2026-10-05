@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { CausalGraphComponent } from '@/components/causal-graph'
 import { Event, CausalRelationship } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
+import { filterCausalRelationships, filterEvents } from '@/components/filters/filterUtils'
 import { useEvents, useCausalRelationships, useDeleteCausalLink, useUpdateCausalLink, useDeleteEvent, useUpdateEvent } from '@/hooks/useAPI'
 import { ContextMenu, ConfirmDialog } from '@/components/ui'
 import { EventDetailModal, CausalRelationshipModal } from '@/components/modals'
@@ -40,22 +41,34 @@ export function CausalGraphView() {
   const {
     events,
     causalRelationships,
+    activeFilters,
     setEvents,
     setCausalRelationships
   } = useGlobalStore()
 
+  // Apply the global filters client-side (see filterUtils for why). Narrowing
+  // the store collections is what `CausalGraphComponent` renders.
+  const filteredEvents = useMemo(
+    () => filterEvents(fetchedEvents, activeFilters),
+    [fetchedEvents, activeFilters]
+  )
+  const filteredRelationships = useMemo(
+    () => filterCausalRelationships(fetchedRelationships, activeFilters),
+    [fetchedRelationships, activeFilters]
+  )
+
   // Sync fetched data to global store
   useEffect(() => {
     if (fetchedEvents.length > 0) {
-      setEvents(fetchedEvents)
+      setEvents(filteredEvents)
     }
-  }, [fetchedEvents, setEvents])
+  }, [fetchedEvents.length, filteredEvents, setEvents])
 
   useEffect(() => {
     if (fetchedRelationships.length > 0) {
-      setCausalRelationships(fetchedRelationships)
+      setCausalRelationships(filteredRelationships)
     }
-  }, [fetchedRelationships, setCausalRelationships])
+  }, [fetchedRelationships.length, filteredRelationships, setCausalRelationships])
 
   const isLoading = eventsLoading || relationshipsLoading
 

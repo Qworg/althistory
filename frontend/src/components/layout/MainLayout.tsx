@@ -5,6 +5,7 @@ import { MobileBottomBar } from './MobileBottomBar'
 import { useViewStateManager } from '@/hooks/useViewStateManager'
 import { useViewShortcuts } from '@/hooks/useViewShortcuts'
 import { useGlobalStore } from '@/stores/globalStore'
+import { ActiveFiltersBar, FilterPanelContainer } from '@/components/filters/FilterPanelContainer'
 
 interface MainLayoutProps {
   children: ReactNode
@@ -12,7 +13,7 @@ interface MainLayoutProps {
 
 export function MainLayout({ children }: MainLayoutProps) {
   const [isMobile, setIsMobile] = useState(false)
-  const { userPreferences } = useGlobalStore()
+  const { userPreferences, uiState } = useGlobalStore()
   const { layoutMode } = userPreferences
 
   // Initialize view state management
@@ -102,10 +103,13 @@ export function MainLayout({ children }: MainLayoutProps) {
         >
           <div className="h-full">
             <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 h-full">
+              <ActiveFiltersBar className="mb-4" />
               {children}
             </div>
           </div>
         </main>
+
+        {uiState.filterPanelOpen && <FilterPanelContainer />}
       </div>
 
       {isMobile && <MobileBottomBar />}

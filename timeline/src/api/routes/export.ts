@@ -5,10 +5,18 @@
  * Uses dependency injection via the container pattern.
  */
 
-import { Router, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction, RequestHandler } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import { RequestWithContainer } from '../middleware';
+import {
+  RequestWithContainer,
+  AuthenticatedRequest,
+  authenticate,
+  requireAuth,
+  authorize,
+  rateLimit,
+  authorizeGraphAccess,
+} from '../middleware';
 import { 
   CreateExportJobRequest, 
   JobStatusResponse,
@@ -20,9 +28,21 @@ import { ValidationError, NotFoundError } from '../../utils/errors';
 export const exportRoutes = Router();
 
 /**
+ * Auth/permission middleware for the export routes, mirroring the pattern used
+ * by `batch.ts` and `keys.ts`: 401 for anonymous callers, 403 when the key
+ * lacks the `export` permission.
+ */
+const exportAuth: RequestHandler[] = [
+  authenticate as RequestHandler,
+  requireAuth as RequestHandler,
+  authorize('export') as RequestHandler,
+  rateLimit() as RequestHandler,
+];
+
+/**
  * POST /export/jobs - Create a new export job
  */
-exportRoutes.post('/jobs', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+exportRoutes.post('/jobs', ...exportAuth, authorizeGraphAccess((req) => (req as AuthenticatedRequest).body?.graphId) as RequestHandler, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.jobService;
 
@@ -62,7 +82,7 @@ exportRoutes.post('/jobs', async (req: RequestWithContainer, res: Response, next
 /**
  * GET /export/jobs - List export jobs
  */
-exportRoutes.get('/jobs', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+exportRoutes.get('/jobs', ...exportAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.jobService;
 
@@ -114,7 +134,7 @@ exportRoutes.get('/jobs', async (req: RequestWithContainer, res: Response, next:
 /**
  * GET /export/jobs/:jobId - Get export job status
  */
-exportRoutes.get('/jobs/:jobId', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+exportRoutes.get('/jobs/:jobId', ...exportAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.jobService;
 
@@ -150,7 +170,7 @@ exportRoutes.get('/jobs/:jobId', async (req: RequestWithContainer, res: Response
 /**
  * DELETE /export/jobs/:jobId - Cancel or delete an export job
  */
-exportRoutes.delete('/jobs/:jobId', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+exportRoutes.delete('/jobs/:jobId', ...exportAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.jobService;
 
@@ -185,7 +205,7 @@ exportRoutes.delete('/jobs/:jobId', async (req: RequestWithContainer, res: Respo
 /**
  * GET /export/jobs/:jobId/download - Download the export file
  */
-exportRoutes.get('/jobs/:jobId/download', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+exportRoutes.get('/jobs/:jobId/download', ...exportAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.jobService;
 
@@ -245,7 +265,7 @@ exportRoutes.get('/jobs/:jobId/download', async (req: RequestWithContainer, res:
  * POST /export/sync - Synchronous export for small graphs
  * Returns the export data directly instead of creating a job
  */
-exportRoutes.post('/sync', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+exportRoutes.post('/sync', ...exportAuth, authorizeGraphAccess((req) => (req as AuthenticatedRequest).body?.graphId) as RequestHandler, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.exportService;
 
@@ -303,7 +323,7 @@ exportRoutes.post('/sync', async (req: RequestWithContainer, res: Response, next
 /**
  * POST /export/validate - Validate an export file
  */
-exportRoutes.post('/validate', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+exportRoutes.post('/validate', ...exportAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.exportService;
 
@@ -328,7 +348,7 @@ exportRoutes.post('/validate', async (req: RequestWithContainer, res: Response, 
 /**
  * GET /export/stats - Get export job statistics
  */
-exportRoutes.get('/stats', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+exportRoutes.get('/stats', ...exportAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.jobService;
 

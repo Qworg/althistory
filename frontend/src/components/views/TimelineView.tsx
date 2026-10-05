@@ -1,9 +1,10 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Timeline } from '@/components/timeline/Timeline'
 import { useEvents } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
 import { useDeleteEvent, useUpdateEvent, useDeleteArc, useUpdateArc } from '@/hooks/useAPI'
 import { useGlobalStore } from '@/stores/globalStore'
+import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
 import { Event, Arc, TimeRange } from '@/types'
 import { ContextMenu, ConfirmDialog } from '@/components/ui'
 import { EventDetailModal, ArcDetailPanel } from '@/components/modals'
@@ -26,9 +27,20 @@ type EditModalState = {
 } | null
 
 export function TimelineView() {
-  const { data: events = [], isLoading: eventsLoading } = useEvents()
-  const { data: arcs = [], isLoading: arcsLoading } = useArcs()
-  const { sessionData } = useGlobalStore()
+  const { data: fetchedEvents = [], isLoading: eventsLoading } = useEvents()
+  const { data: fetchedArcs = [], isLoading: arcsLoading } = useArcs()
+  const { sessionData, activeFilters } = useGlobalStore()
+
+  // The backend event/arc routes do not accept the UI's filter vocabulary (see
+  // filterUtils), so the active filters are applied to the fetched collections.
+  const events = useMemo(
+    () => filterEvents(fetchedEvents, activeFilters),
+    [fetchedEvents, activeFilters]
+  )
+  const arcs = useMemo(
+    () => filterArcs(fetchedArcs, activeFilters),
+    [fetchedArcs, activeFilters]
+  )
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
   const [selectedArc, setSelectedArc] = useState<Arc | null>(null)
 

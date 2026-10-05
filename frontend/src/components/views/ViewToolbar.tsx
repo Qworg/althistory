@@ -266,9 +266,12 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
   // Common actions available in all views
   const getCommonActions = useCallback((): ToolbarAction[] => {
     const hasSelection = selectedEvents.length > 0 || selectedArcs.length > 0
-    const hasFilters = Object.values(activeFilters).some(value => 
-      Array.isArray(value) ? value.length > 0 : value !== null && value !== '' && value !== 0
-    )
+    const hasFilters = Object.entries(activeFilters).some(([key, value]) => {
+      if (key === 'causalWeightRange') {
+        return Array.isArray(value) && (value[0] !== 0 || value[1] !== 1)
+      }
+      return Array.isArray(value) ? value.length > 0 : value !== null && value !== '' && value !== 0
+    })
 
     return [
       {

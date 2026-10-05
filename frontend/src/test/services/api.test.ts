@@ -350,9 +350,9 @@ describe('APIClient', () => {
 
       const result = await apiClient.graph.copyFull('Test Copy')
 
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/graph/copy', {
-        target_name: 'Test Copy',
-        copy_type: 'full'
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/graphs/copy', {
+        targetName: 'Test Copy',
+        copyType: 'full'
       })
       expect(result).toEqual(mockCopyResult)
     })
@@ -366,11 +366,13 @@ describe('APIClient', () => {
 
       const result = await apiClient.graph.copyByTimeRange(timeRange, 'Test Copy')
 
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/graph/copy', {
-        target_name: 'Test Copy',
-        copy_type: 'time_range',
-        start_time: timeRange.start.toISOString(),
-        end_time: timeRange.end.toISOString()
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/graphs/copy', {
+        targetName: 'Test Copy',
+        copyType: 'time_range',
+        timeRange: {
+          start: timeRange.start.toISOString(),
+          end: timeRange.end.toISOString()
+        }
       })
       expect(result).toEqual(mockCopyResult)
     })
@@ -380,7 +382,7 @@ describe('APIClient', () => {
 
       const result = await apiClient.graph.getCopyStatus('copy1')
 
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/graph/copy/copy1')
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/graphs/copy/copy1')
       expect(result).toEqual(mockCopyResult)
     })
   })

@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '../../test/utils'
 import { MainLayout } from './MainLayout'
+import { useGlobalStore } from '@/stores/globalStore'
 
 // Mock window.innerWidth for responsive tests
 const mockInnerWidth = (width: number) => {
@@ -24,6 +25,12 @@ describe('MainLayout', () => {
     // Mock addEventListener and removeEventListener
     vi.spyOn(window, 'addEventListener')
     vi.spyOn(window, 'removeEventListener')
+  })
+
+  afterEach(() => {
+    useGlobalStore.setState(state => ({
+      uiState: { ...state.uiState, filterPanelOpen: true }
+    }))
   })
 
   it('renders children correctly', () => {
@@ -126,5 +133,31 @@ describe('MainLayout', () => {
     // In sidebar mode on desktop, user menu should be in sidebar only
     const userMenus = screen.getAllByLabelText('User menu')
     expect(userMenus).toHaveLength(1)
+  })
+
+  it('mounts the filter panel when the toolbar toggle is open', () => {
+    useGlobalStore.setState(state => ({
+      uiState: { ...state.uiState, filterPanelOpen: true }
+    }))
+    renderWithRouter(
+      <MainLayout>
+        <div>Test Content</div>
+      </MainLayout>
+    )
+
+    expect(screen.getByLabelText('Filter panel')).toBeInTheDocument()
+  })
+
+  it('unmounts the filter panel when the toolbar toggle is closed', () => {
+    useGlobalStore.setState(state => ({
+      uiState: { ...state.uiState, filterPanelOpen: false }
+    }))
+    renderWithRouter(
+      <MainLayout>
+        <div>Test Content</div>
+      </MainLayout>
+    )
+
+    expect(screen.queryByLabelText('Filter panel')).not.toBeInTheDocument()
   })
 })

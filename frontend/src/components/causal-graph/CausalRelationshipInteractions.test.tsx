@@ -303,13 +303,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     })
   })
 
-  // Note: These tests are skipped because Cytoscape event handlers capture state via closures,
-  // and the mock doesn't properly handle the re-registration of handlers when React state changes.
-  // The handlers retain stale state (isCreatingLink=false) even after clicking "Create Link".
-  // This is a known architectural limitation - fixing requires using refs instead of state for
-  // values that event handlers need to access, or implementing a more sophisticated mock.
-  // See DEFERREDFIXES.md for details.
-  it.skip('should call onCausalLinkCreate when causal link is created', async () => {
+  it('should call onCausalLinkCreate when causal link is created', async () => {
     const onCausalLinkCreate = vi.fn()
     render(<CausalGraphComponent onCausalLinkCreate={onCausalLinkCreate} />)
 
@@ -333,11 +327,12 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     // Use the most recently registered handler (last in the array)
     const handler = allHandlers[allHandlers.length - 1]!
 
-    // Simulate clicking on source node
+    // Simulate clicking on the earlier source node (event3 @ 09:00)
     await act(async () => {
       handler({
         target: {
-          data: () => ({ id: 'event1', event: mockEvents[0] })
+          data: () => ({ id: 'event3', event: mockEvents[2] }),
+          hasClass: () => false
         }
       })
     })
@@ -347,19 +342,20 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
       expect(screen.getByText(/Select target event/)).toBeInTheDocument()
     })
 
-    // Simulate clicking on target node (new event, not part of existing relationship)
+    // Simulate clicking on a later target node (event1 @ 10:00)
     await act(async () => {
       handler({
         target: {
-          data: () => ({ id: 'event3', event: mockEvents[2] })
+          data: () => ({ id: 'event1', event: mockEvents[0] }),
+          hasClass: () => false
         }
       })
     })
 
     await waitFor(() => {
       expect(apiClient.causal.createLink).toHaveBeenCalledWith(
-        'event1',
         'event3',
+        'event1',
         expect.objectContaining({
           weight: 0.5,
           evidence: 'User-created relationship',
@@ -370,10 +366,10 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     })
 
     expect(mockGlobalStore.addCausalRelationship).toHaveBeenCalled()
-    expect(onCausalLinkCreate).toHaveBeenCalledWith(mockEvents[0], mockEvents[2])
+    expect(onCausalLinkCreate).toHaveBeenCalledWith(mockEvents[2], mockEvents[0])
   })
 
-  it.skip('should validate temporal ordering when creating causal links', async () => {
+  it('should validate temporal ordering when creating causal links', async () => {
     render(<CausalGraphComponent />)
 
     // Start link creation mode FIRST
@@ -392,7 +388,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     await act(async () => {
       handler({
         target: {
-          data: () => ({ id: 'event2', event: mockEvents[1] }) // 11:00
+          data: () => ({ id: 'event2', event: mockEvents[1] }), // 11:00
+          hasClass: () => false
         }
       })
     })
@@ -400,7 +397,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     await act(async () => {
       handler({
         target: {
-          data: () => ({ id: 'event3', event: mockEvents[2] }) // 09:00 (earlier)
+          data: () => ({ id: 'event3', event: mockEvents[2] }), // 09:00 (earlier)
+          hasClass: () => false
         }
       })
     })
@@ -415,7 +413,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     expect(apiClient.causal.createLink).not.toHaveBeenCalled()
   })
 
-  it.skip('should prevent duplicate causal relationships', async () => {
+  it('should prevent duplicate causal relationships', async () => {
     render(<CausalGraphComponent />)
 
     // Start link creation mode FIRST
@@ -434,7 +432,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     await act(async () => {
       handler({
         target: {
-          data: () => ({ id: 'event1', event: mockEvents[0] })
+          data: () => ({ id: 'event1', event: mockEvents[0] }),
+          hasClass: () => false
         }
       })
     })
@@ -442,7 +441,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     await act(async () => {
       handler({
         target: {
-          data: () => ({ id: 'event2', event: mockEvents[1] })
+          data: () => ({ id: 'event2', event: mockEvents[1] }),
+          hasClass: () => false
         }
       })
     })
@@ -457,7 +457,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     expect(apiClient.causal.createLink).not.toHaveBeenCalled()
   })
 
-  it.skip('should show relationship tooltip on edge hover', async () => {
+  it('should show relationship tooltip on edge hover', async () => {
     render(<CausalGraphComponent />)
 
     await waitFor(() => {
@@ -485,7 +485,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
       expect(screen.getByText('Causal Relationship')).toBeInTheDocument()
       expect(screen.getByText('0.80')).toBeInTheDocument() // Weight
       expect(screen.getByText('0.90')).toBeInTheDocument() // Confidence
-      expect(screen.getByText('Direct')).toBeInTheDocument() // Type
+      expect(screen.getByText('direct')).toBeInTheDocument() // Type (rendered lower-case; CSS capitalizes it)
       expect(screen.getByText('Strong evidence')).toBeInTheDocument() // Evidence
     })
   })
@@ -512,7 +512,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     expect(onRelationshipEdit).toHaveBeenCalledWith(mockCausalRelationships[0])
   })
 
-  it.skip('should handle API errors gracefully', async () => {
+  it('should handle API errors gracefully', async () => {
     vi.mocked(apiClient.causal.createLink).mockRejectedValue(new Error('Network error'))
 
     render(<CausalGraphComponent />)
@@ -533,7 +533,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     await act(async () => {
       handler({
         target: {
-          data: () => ({ id: 'event3', event: mockEvents[2] })
+          data: () => ({ id: 'event3', event: mockEvents[2] }),
+          hasClass: () => false
         }
       })
     })
@@ -541,7 +542,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     await act(async () => {
       handler({
         target: {
-          data: () => ({ id: 'event1', event: mockEvents[0] })
+          data: () => ({ id: 'event1', event: mockEvents[0] }),
+          hasClass: () => false
         }
       })
     })
@@ -554,7 +556,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     })
   })
 
-  it.skip('should update node highlighting during link creation', async () => {
+  it('should update node highlighting during link creation', async () => {
     render(<CausalGraphComponent />)
 
     // Start link creation mode FIRST
@@ -584,7 +586,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     })
   })
 
-  it.skip('should cancel link creation on background click', async () => {
+  it('should keep link creation mode active after a background click', async () => {
     render(<CausalGraphComponent />)
 
     // Start link creation mode FIRST
@@ -599,13 +601,15 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     const allHandlers = getEventHandlers(mockCy, 'tap')
     const handler = allHandlers[allHandlers.length - 1]!
 
-    // Simulate background click
+    // Simulate background click. The component deliberately ignores background
+    // taps while a link is being created (spurious taps fired during React
+    // re-renders would otherwise cancel the interaction); Escape and the
+    // Cancel Link button are the supported cancellation paths.
     await act(async () => {
       handler({ target: mockCy })
     })
 
-    await waitFor(() => {
-      expect(screen.getByText('Create Link')).toBeInTheDocument()
-    })
+    expect(screen.getByText('Cancel Link')).toBeInTheDocument()
+    expect(screen.queryByText('Create Link')).not.toBeInTheDocument()
   })
 })
