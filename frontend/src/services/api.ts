@@ -624,8 +624,14 @@ class APIClient {
     export = {
         createJob: async (data: CreateExportJobRequest): Promise<{ jobId: string; estimatedSize?: number; estimatedTime?: number }> => {
             try {
+                // The graph is carried by the `X-Graph-Id` header, which the API
+                // resolves once (falling back to the active graph). The body no
+                // longer supplies the scope.
+                const { graphId, ...body } = data
                 const response: AxiosResponse<{ success: boolean; data: { jobId: string; estimatedSize?: number; estimatedTime?: number } }> = 
-                    await this.client.post('/export/jobs', data)
+                    await this.client.post('/export/jobs', body, {
+                        headers: { 'X-Graph-Id': graphId },
+                    })
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -674,8 +680,13 @@ class APIClient {
         // Sync export for small graphs
         exportSync: async (data: CreateExportJobRequest): Promise<{ export: AlthistoryExport; size: number }> => {
             try {
+                // Scope is the `X-Graph-Id` header; the body carries only the
+                // export options (see `createJob`).
+                const { graphId, ...body } = data
                 const response: AxiosResponse<{ success: boolean; data: AlthistoryExport; size: number }> = 
-                    await this.client.post('/export/sync', data)
+                    await this.client.post('/export/sync', body, {
+                        headers: { 'X-Graph-Id': graphId },
+                    })
                 return { export: response.data.data, size: response.data.size }
             } catch (error) {
                 handleAPIError(error as AxiosError)

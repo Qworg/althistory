@@ -10,12 +10,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   RequestWithContainer,
-  AuthenticatedRequest,
   authenticate,
   requireAuth,
   authorize,
   rateLimit,
   authorizeGraphAccess,
+  resolveGraphContext,
+  asRequestHandler,
 } from '../middleware';
 import { 
   CreateExportJobRequest, 
@@ -42,16 +43,20 @@ const exportAuth: RequestHandler[] = [
 /**
  * POST /export/jobs - Create a new export job
  */
-exportRoutes.post('/jobs', ...exportAuth, authorizeGraphAccess((req) => (req as AuthenticatedRequest).body?.graphId) as RequestHandler, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+exportRoutes.post(
+  '/jobs',
+  ...exportAuth,
+  resolveGraphContext(),
+  asRequestHandler(authorizeGraphAccess((req) => req.graphId)),
+  async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.jobService;
 
     const request: CreateExportJobRequest = req.body;
 
-    // Validate request
-    if (!request.graphId || request.graphId.trim().length === 0) {
-      throw new ValidationError('Graph ID is required', 'graphId');
-    }
+    // The resolved request scope is authoritative; a body graphId may only
+    // agree with it (see `reconcileGraphId`).
+    reconcileGraphId(request, req.graphId);
 
     if (!request.scope || !['full', 'filtered'].includes(request.scope)) {
       throw new ValidationError('Scope must be "full" or "filtered"', 'scope', request.scope);
@@ -66,7 +71,7 @@ exportRoutes.post('/jobs', ...exportAuth, authorizeGraphAccess((req) => (req as 
       validateFilters(request.filters);
     }
 
-    const result = await service.createExportJob(request);
+    const result = await service.createExportJob({ ...request, graphId: req.graphId });
 
     res.status(202).json({
       success: true,
@@ -265,16 +270,20 @@ exportRoutes.get('/jobs/:jobId/download', ...exportAuth, async (req: RequestWith
  * POST /export/sync - Synchronous export for small graphs
  * Returns the export data directly instead of creating a job
  */
-exportRoutes.post('/sync', ...exportAuth, authorizeGraphAccess((req) => (req as AuthenticatedRequest).body?.graphId) as RequestHandler, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+exportRoutes.post(
+  '/sync',
+  ...exportAuth,
+  resolveGraphContext(),
+  asRequestHandler(authorizeGraphAccess((req) => req.graphId)),
+  async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.exportService;
 
     const request: CreateExportJobRequest = req.body;
 
-    // Validate request
-    if (!request.graphId || request.graphId.trim().length === 0) {
-      throw new ValidationError('Graph ID is required', 'graphId');
-    }
+    // The resolved request scope is authoritative; a body graphId may only
+    // agree with it (see `reconcileGraphId`).
+    reconcileGraphId(request, req.graphId);
 
     if (!request.scope || !['full', 'filtered'].includes(request.scope)) {
       throw new ValidationError('Scope must be "full" or "filtered"', 'scope', request.scope);
@@ -287,7 +296,7 @@ exportRoutes.post('/sync', ...exportAuth, authorizeGraphAccess((req) => (req as 
 
     // Check estimated size - only allow sync for small exports
     const estimatedSize = await service.estimateExportSize({
-      graphId: request.graphId,
+      graphId: req.graphId,
       scope: request.scope,
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
@@ -303,7 +312,7 @@ exportRoutes.post('/sync', ...exportAuth, authorizeGraphAccess((req) => (req as 
     }
 
     const result = await service.exportGraph({
-      graphId: request.graphId,
+      graphId: req.graphId,
       scope: request.scope,
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
@@ -373,6 +382,34 @@ exportRoutes.get('/stats', ...exportAuth, async (req: RequestWithContainer, res:
 });
 
 // Helper functions
+
+/**
+ * Reconcile the legacy body `graphId` with the resolved request scope.
+ *
+ * `X-Graph-Id` (resolved by `resolveGraphContext` and attached as
+ * `req.graphId`) is the single source of truth for which graph a request is
+ * about. A body `graphId` is still accepted for callers that predate the
+ * header, but it must agree with the resolved scope: a contradiction is a 400
+ * rather than a silent re-scope, because authorisation has already been checked
+ * against the resolved graph. An omitted body id is not a contradiction — the
+ * header supplies it.
+ */
+function reconcileGraphId(request: CreateExportJobRequest, resolvedGraphId: string): void {
+  const bodyGraphId: unknown = request.graphId;
+
+  if (bodyGraphId === undefined || bodyGraphId === '') {
+    request.graphId = resolvedGraphId;
+    return;
+  }
+
+  if (bodyGraphId !== resolvedGraphId) {
+    throw new ValidationError(
+      `graphId '${String(bodyGraphId)}' in the request body contradicts the resolved graph scope '${resolvedGraphId}'`,
+      'graphId',
+      bodyGraphId
+    );
+  }
+}
 
 function validateFilters(filters: ExportFilters): void {
   if (filters.timeRange) {

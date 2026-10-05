@@ -58,6 +58,30 @@ export interface AuthenticatedRequest extends RequestWithContainer {
 }
 
 /**
+ * Adapt a middleware declared against `AuthenticatedRequest` to Express's
+ * `RequestHandler`.
+ *
+ * `authenticate`, `rateLimit` and `authorizeGraphAccess` describe their request
+ * parameter with the narrower `AuthenticatedRequest`, and `strictFunctionTypes`
+ * rejects a handler whose parameter is a subtype of the one Express declares.
+ * The extra fields only exist because `authenticate` runs earlier in the chain
+ * and sets them, so the narrowing is safe at runtime. Ideally the middleware
+ * itself would declare plain `Request` (see the `declare global namespace
+ * Express` augmentation above); until then the cast lives here, in one place.
+ *
+ * Lives next to the middleware rather than in `src/index.ts` so that route
+ * modules can adapt a middleware without importing the application entrypoint
+ * (which would create an import cycle through `api/routes`). Re-exported from
+ * `src/index.ts` for existing callers.
+ */
+export function asRequestHandler(
+  middleware: (req: AuthenticatedRequest, res: Response, next: NextFunction) => void
+): RequestHandler {
+  return (req: Request, res: Response, next: NextFunction) =>
+    middleware(req as AuthenticatedRequest, res, next);
+}
+
+/**
  * Container injection middleware
  */
 export function injectContainer(req: RequestWithContainer, res: Response, next: NextFunction): void {

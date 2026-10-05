@@ -1,5 +1,4 @@
 import express from 'express';
-import type { Request, RequestHandler, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import type { Server } from 'http';
@@ -15,27 +14,11 @@ import {
   injectContainer,
   authenticate,
   rateLimit,
-  AuthenticatedRequest
+  asRequestHandler,
 } from '@/api/middleware';
 
-/**
- * Adapt a middleware declared against `AuthenticatedRequest` to Express's
- * `RequestHandler`.
- *
- * `authenticate` and `rateLimit` describe their request parameter with the
- * narrower `AuthenticatedRequest`, and `strictFunctionTypes` rejects a handler
- * whose parameter is a subtype of the one Express declares. The extra fields
- * only exist because `authenticate` runs earlier in the chain and sets them, so
- * the narrowing is safe at runtime. Ideally the middleware itself would declare
- * plain `Request` (see `declare global namespace Express` in
- * `src/api/middleware.ts`); until then the cast lives here, in one place.
- */
-export function asRequestHandler(
-  middleware: (req: AuthenticatedRequest, res: Response, next: NextFunction) => void
-): RequestHandler {
-  return (req: Request, res: Response, next: NextFunction) =>
-    middleware(req as AuthenticatedRequest, res, next);
-}
+// Re-exported for callers that imported the adapter from the entrypoint.
+export { asRequestHandler };
 
 /**
  * Main application class

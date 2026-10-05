@@ -302,4 +302,58 @@ describe('Graph routes (request-level)', () => {
       expect(response.body.success).toBe(true);
     });
   });
+
+  describe('export graph scoping (X-Graph-Id)', () => {
+    it('uses the header as the scope for a sync export with no body graphId', async () => {
+      const response = await request(app)
+        .post('/api/export/sync')
+        .set('X-API-Key', writeKey)
+        .set('X-Graph-Id', sourceGraph.id)
+        .send({ scope: 'full' })
+        .expect(200);
+      expect(response.body.success).toBe(true);
+    });
+
+    it('uses the header as the scope for an export job with no body graphId', async () => {
+      const response = await request(app)
+        .post('/api/export/jobs')
+        .set('X-API-Key', writeKey)
+        .set('X-Graph-Id', sourceGraph.id)
+        .send({ scope: 'full' })
+        .expect(202);
+      expect(response.body.success).toBe(true);
+    });
+
+    it('accepts a body graphId that agrees with the header', async () => {
+      const response = await request(app)
+        .post('/api/export/sync')
+        .set('X-API-Key', writeKey)
+        .set('X-Graph-Id', sourceGraph.id)
+        .send({ graphId: sourceGraph.id, scope: 'full' })
+        .expect(200);
+      expect(response.body.success).toBe(true);
+    });
+
+    it('rejects a sync export whose body graphId contradicts the header', async () => {
+      const other = await container.graphService.createGraph({ name: 'Route Test Contradiction Sync' });
+      const response = await request(app)
+        .post('/api/export/sync')
+        .set('X-API-Key', writeKey)
+        .set('X-Graph-Id', sourceGraph.id)
+        .send({ graphId: other.id, scope: 'full' })
+        .expect(400);
+      expect(response.body.error.message).toContain('contradicts');
+    });
+
+    it('rejects an export job whose body graphId contradicts the header', async () => {
+      const other = await container.graphService.createGraph({ name: 'Route Test Contradiction Job' });
+      const response = await request(app)
+        .post('/api/export/jobs')
+        .set('X-API-Key', writeKey)
+        .set('X-Graph-Id', sourceGraph.id)
+        .send({ graphId: other.id, scope: 'full' })
+        .expect(400);
+      expect(response.body.error.message).toContain('contradicts');
+    });
+  });
 });
