@@ -1,6 +1,17 @@
 import { getDatabaseManager } from '@/utils/database';
 import { loadConfig } from '@/utils/config';
 import { DatabaseError, PerformanceError } from '@/utils/errors';
+import type { QueryResult, Record as Neo4jRecord } from 'neo4j-driver';
+
+/**
+ * Structural subset of the Neo4j PROFILE plan tree that this service reads.
+ * The driver types the plan as `ProfiledPlan | false`, but tests and the
+ * LocalSession path supply plain objects, so only these two fields are relied on.
+ */
+type QueryProfileNode = {
+  operatorType?: string;
+  children?: QueryProfileNode[];
+};
 
 /**
  * Query performance metrics
@@ -79,7 +90,7 @@ export class DatabaseOptimizationService {
   /**
    * Analyze query performance and suggest optimizations
    */
-  async analyzeQueryPerformance(query: string, parameters: Record<string, any> = {}): Promise<QueryPerformanceMetrics> {
+  async analyzeQueryPerformance(query: string, parameters: Record<string, unknown> = {}): Promise<QueryPerformanceMetrics> {
     const session = getDatabaseManager().getNeo4jSession();
     
     try {
@@ -142,18 +153,27 @@ export class DatabaseOptimizationService {
   /**
    * Execute query with automatic performance monitoring and optimization
    */
+  async executeOptimizedQuery(
+    query: string,
+    parameters?: Record<string, unknown>
+  ): Promise<{ results: Neo4jRecord[], metrics: QueryPerformanceMetrics }>;
   async executeOptimizedQuery<T>(
-    query: string, 
-    parameters: Record<string, any> = {},
-    mapper?: (record: any) => T
-  ): Promise<{ results: T[], metrics: QueryPerformanceMetrics }> {
+    query: string,
+    parameters: Record<string, unknown>,
+    mapper: (record: Neo4jRecord) => T
+  ): Promise<{ results: T[], metrics: QueryPerformanceMetrics }>;
+  async executeOptimizedQuery<T>(
+    query: string,
+    parameters: Record<string, unknown> = {},
+    mapper?: (record: Neo4jRecord) => T
+  ): Promise<{ results: Neo4jRecord[] | T[], metrics: QueryPerformanceMetrics }> {
     const session = getDatabaseManager().getNeo4jSession();
     
     try {
       const startTime = Date.now();
       
       // Add query timeout
-      const timeoutPromise = new Promise((_, reject) => {
+      const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
           reject(new PerformanceError(
             'Query timeout exceeded',
@@ -166,7 +186,7 @@ export class DatabaseOptimizationService {
 
       // Execute query with timeout
       const queryPromise = session.run(query, parameters);
-      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      const result: QueryResult = await Promise.race([queryPromise, timeoutPromise]);
       
       const executionTime = Date.now() - startTime;
       
@@ -347,7 +367,7 @@ export class DatabaseOptimizationService {
   /**
    * Extract plan description from Neo4j profile
    */
-  private extractPlanDescription(profile: any): string {
+  private extractPlanDescription(profile: QueryProfileNode | false | null | undefined): string {
     if (!profile) return 'No profile available';
     
     try {
@@ -360,14 +380,14 @@ export class DatabaseOptimizationService {
   /**
    * Extract indexes used from Neo4j profile
    */
-  private extractIndexesUsed(profile: any): string[] {
+  private extractIndexesUsed(profile: QueryProfileNode | false | null | undefined): string[] {
     if (!profile) return [];
     
     try {
       const indexes: string[] = [];
       
       // Recursively search for index usage in profile tree
-      const searchProfile = (node: any) => {
+      const searchProfile = (node: QueryProfileNode): void => {
         if (node.operatorType && node.operatorType.includes('Index')) {
           indexes.push(node.operatorType);
         }

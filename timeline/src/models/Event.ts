@@ -18,7 +18,7 @@ export interface IEvent {
   timestamp: Date;
   
   /** Additional metadata for the event */
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -30,7 +30,7 @@ export class Event implements IEvent {
   public readonly actor: string;
   public readonly target: string;
   public readonly timestamp: Date;
-  public readonly metadata?: Record<string, any>;
+  public readonly metadata?: Record<string, unknown>;
 
   constructor(data: CreateEventRequest & { id?: string }) {
     // Generate ID if not provided
@@ -140,7 +140,7 @@ export interface CreateEventRequest {
   actor: string;
   target: string;
   timestamp: Date;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -151,7 +151,7 @@ export interface UpdateEventRequest {
   actor?: string;
   target?: string;
   timestamp?: Date;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**

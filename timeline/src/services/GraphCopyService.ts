@@ -26,6 +26,12 @@ export interface EntityFilter {
 }
 
 /**
+ * Query parameters built by `getNodesMatchingFilter`: scalars for the graph id
+ * and arrays for the `IN` predicates.
+ */
+type EntityFilterQueryParameters = string | number | string[] | number[];
+
+/**
  * Integrity report for copy validation
  */
 export interface IntegrityReport {
@@ -657,7 +663,7 @@ export class GraphCopyService {
    */
   private async getNodesMatchingFilter(graphId: string, filter: EntityFilter): Promise<string[]> {
     const conditions: string[] = [];
-    const parameters: Record<string, any> = { graphId };
+    const parameters: Record<string, EntityFilterQueryParameters> = { graphId };
 
     // Build filter conditions
     if (filter.actors && filter.actors.length > 0) {

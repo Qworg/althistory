@@ -1,8 +1,130 @@
-import { Session, Record as Neo4jRecord, Integer } from 'neo4j-driver';
-import { Event, IEvent, CreateEventRequest, UpdateEventRequest, TimeRange } from '../models/Event';
+import { Session, Integer } from 'neo4j-driver';
+import { Event, CreateEventRequest, UpdateEventRequest, TimeRange } from '../models/Event';
 import { DatabaseManager, LocalDatabaseManager, LocalSession } from '../utils/database';
 
 type AnySession = Session | LocalSession;
+
+/**
+ * The read surface both record classes share.
+ *
+ * `Session.run` and `LocalSession.run` return different record classes, and both
+ * declare `get` as an overload set. Calling `get` on the union therefore only
+ * resolves the positional overload, so every read goes through this interface
+ * instead: the lookup stays string-keyed and the value arrives as `unknown` and
+ * is validated once, here, rather than at each use site.
+ */
+interface QueryRecord {
+  get(key: string): unknown;
+}
+
+/** Result set whose records expose {@link QueryRecord}. */
+interface QueryResultLike {
+  records: readonly QueryRecord[];
+}
+
+/** A node as projected by `RETURN e`. */
+interface GraphNode {
+  properties: Record<string, unknown>;
+}
+
+/** A Cypher integer column (`count(...)`); LocalGraphStore returns plain numbers. */
+interface IntegerLike {
+  toNumber(): number;
+}
+
+function isIntegerLike(value: unknown): value is IntegerLike {
+  return typeof value === 'object' && value !== null
+    && 'toNumber' in value && typeof value.toNumber === 'function';
+}
+
+function isPropertyBag(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isGraphNode(value: unknown): value is GraphNode {
+  return isPropertyBag(value) && 'properties' in value && isPropertyBag(value.properties);
+}
+
+/** Reads a named column from a record. */
+function readField(record: QueryRecord, key: string): unknown {
+  return record.get(key);
+}
+
+/** Reads a named column from the first record of a result set. */
+function readFirstField(result: QueryResultLike, key: string): unknown {
+  const record = result.records[0];
+  return record === undefined ? undefined : readField(record, key);
+}
+
+/**
+ * Reads a numeric column. Cypher returns `count(...)` as an `Integer`, while
+ * LocalGraphStore stores the JS number it was given, so both encodings occur.
+ */
+function readNumber(value: unknown, field: string): number {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (isIntegerLike(value)) {
+    return value.toNumber();
+  }
+  throw new TypeError(`Record property "${field}" must be a number`);
+}
+
+/**
+ * Reads a count column, defaulting to 0 when the result set is empty.
+ */
+function readCount(result: QueryResultLike, key: string): number {
+  const value = readFirstField(result, key);
+  if (value === undefined || value === null) {
+    return 0;
+  }
+  return readNumber(value, key);
+}
+
+/**
+ * Reads a required string column.
+ */
+function readString(value: unknown, field: string): string {
+  if (typeof value !== 'string') {
+    throw new TypeError(`Record property "${field}" must be a string`);
+  }
+  return value;
+}
+
+/**
+ * Reads an optional string column. A missing or non-string value becomes
+ * `undefined`, which the model then handles exactly as a missing column.
+ */
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Reads the metadata property bag. Falsy metadata becomes an empty object; a
+ * truthy non-object is rejected rather than silently coerced.
+ */
+function readMetadata(value: unknown, field: string): Record<string, unknown> {
+  if (!value) {
+    return {};
+  }
+  if (!isPropertyBag(value)) {
+    throw new TypeError(`Record property "${field}" must be an object`);
+  }
+  return value;
+}
+
+/**
+ * Reads a temporal column. The driver projects `datetime(...)` as a DateTime
+ * object and LocalGraphStore keeps the ISO string it was handed; `String(value)`
+ * performs the same `toString()` conversion the previous implementation used for
+ * both encodings.
+ */
+function readDate(value: unknown, field: string): Date {
+  if (value === null || value === undefined) {
+    throw new TypeError(`Record property "${field}" is missing`);
+  }
+  return new Date(String(value));
+}
 
 /**
  * Repository for Event operations using Neo4j or LocalGraphStore
@@ -10,7 +132,13 @@ type AnySession = Session | LocalSession;
 export class EventRepository {
   protected databaseManager: DatabaseManager | LocalDatabaseManager;
 
-  constructor(databaseManager: DatabaseManager | LocalDatabaseManager, validationService?: any, cacheService?: any) {
+  constructor(
+    databaseManager: DatabaseManager | LocalDatabaseManager,
+    // Kept for the DI container in src/container.ts, which still passes these.
+    // The repository never reads them, so they are typed as `unknown`.
+    _validationService?: unknown,
+    _cacheService?: unknown
+  ) {
     this.databaseManager = databaseManager;
   }
 
@@ -99,7 +227,7 @@ export class EventRepository {
       ORDER BY e.timestamp ASC
     `;
 
-    const parameters: Record<string, any> = {};
+    const parameters: Record<string, unknown> = {};
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -129,7 +257,7 @@ export class EventRepository {
       ORDER BY e.timestamp ASC
     `;
 
-    const parameters: Record<string, any> = {
+    const parameters: Record<string, unknown> = {
       startTime: timeRange.start.toISOString(),
       endTime: timeRange.end.toISOString()
     };
@@ -161,7 +289,7 @@ export class EventRepository {
       ORDER BY e.timestamp ASC
     `;
 
-    const parameters: Record<string, any> = { actor };
+    const parameters: Record<string, unknown> = { actor };
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -190,7 +318,7 @@ export class EventRepository {
       ORDER BY e.timestamp ASC
     `;
 
-    const parameters: Record<string, any> = { target };
+    const parameters: Record<string, unknown> = { target };
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -222,7 +350,7 @@ export class EventRepository {
       ORDER BY e.timestamp ASC
     `;
 
-    const parameters: Record<string, any> = {
+    const parameters: Record<string, unknown> = {
       actor,
       startTime: timeRange.start.toISOString(),
       endTime: timeRange.end.toISOString()
@@ -306,8 +434,7 @@ export class EventRepository {
     const session = this.getSession();
     try {
       const result = await session.run(query, { id });
-      const deletedCount = result.records[0]?.get('deletedCount')?.toNumber?.() || result.records[0]?.get('deletedCount') || 0;
-      return deletedCount > 0;
+      return readCount(result, 'deletedCount') > 0;
     } catch (error) {
       throw new Error(`Failed to delete event: ${error}`);
     } finally {
@@ -327,7 +454,7 @@ export class EventRepository {
     const session = this.getSession();
     try {
       const result = await session.run(query);
-      return result.records[0]?.get('total')?.toNumber?.() || result.records[0]?.get('total') || 0;
+      return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count events: ${error}`);
     } finally {
@@ -347,7 +474,7 @@ export class EventRepository {
     const session = this.getSession();
     try {
       const result = await session.run(query, { actor });
-      return result.records[0]?.get('total')?.toNumber?.() || result.records[0]?.get('total') || 0;
+      return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count events by actor: ${error}`);
     } finally {
@@ -373,7 +500,7 @@ export class EventRepository {
     const session = this.getSession();
     try {
       const result = await session.run(query, parameters);
-      return result.records[0]?.get('total')?.toNumber?.() || result.records[0]?.get('total') || 0;
+      return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count events by time range: ${error}`);
     } finally {
@@ -393,7 +520,7 @@ export class EventRepository {
     const session = this.getSession();
     try {
       const result = await session.run(query, { id });
-      return result.records[0]?.get('exists') || false;
+      return Boolean(readFirstField(result, 'exists'));
     } catch (error) {
       throw new Error(`Failed to check if event exists: ${error}`);
     } finally {
@@ -411,22 +538,21 @@ export class EventRepository {
   /**
    * Map Neo4j record to Event instance
    */
-  protected mapRecordToEvent(record: any): Event {
-    const node = record.get('e');
+  protected mapRecordToEvent(record: QueryRecord): Event {
+    const node = readField(record, 'e');
+    if (!isGraphNode(node)) {
+      throw new TypeError('Query record does not contain a node');
+    }
     const properties = node.properties;
 
-    // Convert Neo4j DateTime to JavaScript Date
-    const timestamp = properties.timestamp.toString ? 
-      new Date(properties.timestamp.toString()) : 
-      new Date(properties.timestamp);
-
     return new Event({
-      id: properties.id,
-      description: properties.description,
-      actor: properties.actor,
-      target: properties.target,
-      timestamp,
-      metadata: properties.metadata || {}
+      id: readOptionalString(properties.id),
+      description: readString(properties.description, 'description'),
+      actor: readString(properties.actor, 'actor'),
+      target: readString(properties.target, 'target'),
+      // Convert Neo4j DateTime to JavaScript Date
+      timestamp: readDate(properties.timestamp, 'timestamp'),
+      metadata: readMetadata(properties.metadata, 'metadata')
     });
   }
 }
@@ -460,7 +586,7 @@ export class AdvancedEventRepository extends EventRepository {
    */
   async search(filters: EventSearchFilters, options: EventQueryOptions = {}): Promise<Event[]> {
     const conditions: string[] = [];
-    const parameters: Record<string, any> = {};
+    const parameters: Record<string, unknown> = {};
 
     // Build WHERE conditions
     if (filters.actor) {

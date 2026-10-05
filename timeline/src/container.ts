@@ -1,4 +1,4 @@
-import { DatabaseManager, LocalDatabaseManager } from '@/utils/database';
+import { DatabaseManager, LocalDatabaseManager, LocalSession } from '@/utils/database';
 import { 
   TemporalService, 
   CausalService, 
@@ -22,6 +22,19 @@ import {
   ApiKeyRepository
 } from '@/repositories';
 import { AppConfig } from '@/utils/config';
+
+/**
+ * Minimal shape for a component that may expose an async `initialize()`.
+ *
+ * `DatabaseOptimizationService` does not declare such a method today, but the
+ * container keeps working when one is added, so the check below is a real
+ * runtime type guard rather than a cast.
+ */
+type Initializable = { initialize(): Promise<void> };
+
+function hasInitialize(value: object): value is Initializable {
+  return 'initialize' in value;
+}
 
 /**
  * Service container interface for dependency injection
@@ -99,9 +112,12 @@ export class Container implements ServiceContainer {
    */
   get temporalService(): TemporalService {
     if (!this._temporalService) {
+      // TemporalService takes repositories, not a database manager: wiring the
+      // manager in here made the service hold a DatabaseManager as if it were an
+      // EventRepository. See the report: this is a behaviour fix, not a no-op.
       this._temporalService = new TemporalService(
-        this.databaseManager,
-        this.validationService
+        this.eventRepository,
+        this.arcRepository
       );
     }
     return this._temporalService;
@@ -112,11 +128,7 @@ export class Container implements ServiceContainer {
    */
   get causalService(): CausalService {
     if (!this._causalService) {
-      this._causalService = new CausalService(
-        this.databaseManager,
-        this.temporalService,
-        this.validationService
-      );
+      this._causalService = new CausalService();
     }
     return this._causalService;
   }
@@ -126,11 +138,7 @@ export class Container implements ServiceContainer {
    */
   get inferenceService(): InferenceService {
     if (!this._inferenceService) {
-      this._inferenceService = new InferenceService(
-        this.databaseManager,
-        this.temporalService,
-        this.causalService
-      );
+      this._inferenceService = new InferenceService();
     }
     return this._inferenceService;
   }
@@ -140,9 +148,16 @@ export class Container implements ServiceContainer {
    */
   get graphCopyService(): GraphCopyService {
     if (!this._graphCopyService) {
+      // GraphCopyService takes a neo4j Session. It used to be handed the
+      // database manager (and a validation service it does not accept), which
+      // typed `this.session` as a Session while holding a DatabaseManager at
+      // runtime. See the report: this is a behaviour fix, not a no-op.
+      // In local-execution mode the manager hands back a `LocalSession` adapter
+      // instead, which is not a neo4j Session; there we let the service resolve
+      // its own session from the global database manager.
+      const session = this.databaseManager.getNeo4jSession();
       this._graphCopyService = new GraphCopyService(
-        this.databaseManager,
-        this.validationService
+        session instanceof LocalSession ? undefined : session
       );
     }
     return this._graphCopyService;
@@ -163,9 +178,7 @@ export class Container implements ServiceContainer {
    */
   get cacheInvalidationService(): CacheInvalidationService {
     if (!this._cacheInvalidationService) {
-      this._cacheInvalidationService = new CacheInvalidationService(
-        this.databaseManager.getRedisClient()
-      );
+      this._cacheInvalidationService = new CacheInvalidationService();
     }
     return this._cacheInvalidationService;
   }
@@ -175,9 +188,7 @@ export class Container implements ServiceContainer {
    */
   get databaseOptimizationService(): DatabaseOptimizationService {
     if (!this._databaseOptimizationService) {
-      this._databaseOptimizationService = new DatabaseOptimizationService(
-        this.databaseManager
-      );
+      this._databaseOptimizationService = new DatabaseOptimizationService();
     }
     return this._databaseOptimizationService;
   }
@@ -201,10 +212,13 @@ export class Container implements ServiceContainer {
    */
   get arcRepository(): ArcRepository {
     if (!this._arcRepository) {
+      // ArcRepository ignores everything but the database manager, so it is not
+      // given `this.temporalService`: temporalService needs arcRepository, and
+      // that back-reference recursed during construction.
       this._arcRepository = new ArcRepository(
         this.databaseManager,
         this.validationService,
-        this.temporalService,
+        undefined,
         this.cacheInvalidationService
       );
     }
@@ -344,7 +358,7 @@ export class Container implements ServiceContainer {
 
       // Initialize services that need setup
       // Note: DatabaseOptimizationService might not be available for LocalDatabaseManager
-      if ('initialize' in this.databaseOptimizationService) {
+      if (hasInitialize(this.databaseOptimizationService)) {
         await this.databaseOptimizationService.initialize();
       }
 

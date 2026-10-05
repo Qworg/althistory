@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { ArcRepository, AdvancedArcRepository } from './ArcRepository';
+// Type-only exports are not part of the runtime module namespace, so the interface
+// checks below import them with `import type` rather than through a dynamic import.
+import type { ArcQueryOptions, ArcSearchFilters, ArcHierarchyNode } from './ArcRepository';
+import { Arc } from '../models/Arc';
 
 describe('ArcRepository Unit Tests', () => {
   describe('Class Structure', () => {
@@ -33,28 +37,31 @@ describe('ArcRepository Unit Tests', () => {
   });
 
   describe('Interface Definitions', () => {
-    it('should have proper query options interface', async () => {
-      const { ArcQueryOptions } = await import('./ArcRepository');
-      
+    it('should have proper query options interface', () => {
       // Test that the interface can be used
-      const options: typeof ArcQueryOptions = {};
+      const options: ArcQueryOptions = {};
       expect(options).toBeDefined();
     });
 
-    it('should have proper search filters interface', async () => {
-      const { ArcSearchFilters } = await import('./ArcRepository');
-      
+    it('should have proper search filters interface', () => {
       // Test that the interface can be used
-      const filters: typeof ArcSearchFilters = {};
+      const filters: ArcSearchFilters = {};
       expect(filters).toBeDefined();
     });
 
-    it('should have proper hierarchy node interface', async () => {
-      const { ArcHierarchyNode } = await import('./ArcRepository');
-      
+    it('should have proper hierarchy node interface', () => {
       // Test that the interface can be used
-      const node: typeof ArcHierarchyNode = {};
+      const node: ArcHierarchyNode = {
+        arc: new Arc({
+          name: 'Hierarchy Node Arc',
+          start_time: new Date('2023-01-01T00:00:00Z'),
+          end_time: new Date('2023-12-31T23:59:59Z'),
+          level: 0
+        }),
+        children: []
+      };
       expect(node).toBeDefined();
+      expect(node.children).toEqual([]);
     });
   });
 

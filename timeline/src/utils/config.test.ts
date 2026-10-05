@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { loadConfig, AppConfig, LocalExecutionConfig } from './config';
+import { loadConfig } from './config';
 import { ConfigurationError } from './errors';
 
 describe('Configuration System', () => {

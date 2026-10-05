@@ -3,7 +3,7 @@ import { JobService, JobProgress } from './JobService';
 import { JobRepository, JobStats } from '../repositories/JobRepository';
 import { GraphRepository } from '../repositories/GraphRepository';
 import { ExportService } from './ExportService';
-import { AsyncJob, IAsyncJob, ExportJobParams } from '../models/AsyncJob';
+import { AsyncJob, IAsyncJob } from '../models/AsyncJob';
 import { Graph, IGraph } from '../models/Graph';
 
 // Mock repositories and services

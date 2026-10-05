@@ -174,7 +174,6 @@ describe('TemporalService Performance Tests', () => {
       };
 
       // Mock Date.now() to simulate slow query (more reliable than real setTimeout)
-      const originalDateNow = Date.now;
       let callCount = 0;
       vi.spyOn(Date, 'now').mockImplementation(() => {
         callCount++;
@@ -259,7 +258,7 @@ describe('TemporalService Performance Tests', () => {
       vi.mocked(mockEventRepository.findByTimeRange).mockResolvedValue(hugeDataset);
 
       // Act
-      const result = await temporalService.findEventsInRange(timeRange);
+      await temporalService.findEventsInRange(timeRange);
 
       // Assert
       // Should apply default pagination limit to prevent excessive memory usage

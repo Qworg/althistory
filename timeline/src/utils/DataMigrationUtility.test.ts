@@ -328,7 +328,7 @@ describe('DataMigrationUtility', () => {
       const validation = await (migrationUtility as any).validateExportData(invalidData);
 
       expect(validation.isValid).toBe(false);
-      expect(validation.errors.some(error => error.includes('non-existent nodes'))).toBe(true);
+      expect(validation.errors.some((error: string) => error.includes('non-existent nodes'))).toBe(true);
     });
   });
 

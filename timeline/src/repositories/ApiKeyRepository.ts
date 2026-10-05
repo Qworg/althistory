@@ -336,8 +336,8 @@ export class ApiKeyRepository {
         console.log('   ' + maskedKey);
         console.log('   ⚠️  Full key written to: ./data/keys/admin-key.txt');
         // Write full key to secure file
-        const keyFilePath = require('path').join(this.keysDir, 'admin-key.txt');
-        require('fs').writeFileSync(keyFilePath, response.key, { mode: 0o600 });
+        const keyFilePath = path.join(this.keysDir, 'admin-key.txt');
+        fs.writeFileSync(keyFilePath, response.key, { mode: 0o600 });
       } else {
         console.log('   ' + response.key);
       }

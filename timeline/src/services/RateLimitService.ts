@@ -106,14 +106,13 @@ export class RateLimitService {
       name: string;
       window: RateLimitWindow;
       limit: number;
-      windowMs: number;
     }> = [
-      { name: 'minute', window: state.minute, limit: config.requestsPerMinute, windowMs: 60 * 1000 },
-      { name: 'hour', window: state.hour, limit: config.requestsPerHour, windowMs: 60 * 60 * 1000 },
-      { name: 'day', window: state.day, limit: config.requestsPerDay, windowMs: 24 * 60 * 60 * 1000 },
+      { name: 'minute', window: state.minute, limit: config.requestsPerMinute },
+      { name: 'hour', window: state.hour, limit: config.requestsPerHour },
+      { name: 'day', window: state.day, limit: config.requestsPerDay },
     ];
 
-    for (const { name, window, limit, windowMs } of windows) {
+    for (const { name, window, limit } of windows) {
       if (window.count >= limit) {
         const retryAfter = Math.ceil((window.resetAt - now) / 1000);
         return {

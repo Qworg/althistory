@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useEvents, useArcs, useCausalRelationships } from './useApiData';
+import { useEvents, useArcs, useCausalRelationships, Event as ApiEvent, Arc as ApiArc, CausalRelationship as ApiCausalRelationship } from './useApiData';
 import { TimelineData } from '@/components/timeline/types';
 import { CausalGraphData } from '@/components/causal/types';
 import { IEvent } from '@/models/Event';
@@ -22,6 +22,30 @@ export interface VisualizationFilters {
   target?: string;
   minCausalWeight?: number;
   arcLevel?: number;
+}
+
+/**
+ * The API serialises dates as ISO strings; the models use `Date`. Convert once
+ * here so the rest of the visualization stack can rely on real `Date` objects.
+ */
+function toIEvent(event: ApiEvent): IEvent {
+  return {
+    id: event.id,
+    description: event.description,
+    actor: event.actor,
+    target: event.target,
+    timestamp: new Date(event.timestamp)
+  };
+}
+
+function toIArc(arc: ApiArc): IArc {
+  return {
+    id: arc.id,
+    name: arc.name,
+    start_time: new Date(arc.start_time),
+    end_time: new Date(arc.end_time),
+    level: arc.level
+  };
 }
 
 /**
@@ -55,8 +79,8 @@ export function useTimelineData(
   // Calculate overall time range from data
   useEffect(() => {
     if (eventsQuery.data?.data && arcsQuery.data?.data) {
-      const events = eventsQuery.data.data as IEvent[];
-      const arcs = arcsQuery.data.data as IArc[];
+      const events = eventsQuery.data.data.map(toIEvent);
+      const arcs = arcsQuery.data.data.map(toIArc);
       
       if (events.length === 0 && arcs.length === 0) {
         setTimeRange(null);
@@ -67,13 +91,13 @@ export function useTimelineData(
       
       // Add event timestamps
       events.forEach(event => {
-        allDates.push(new Date(event.timestamp));
+        allDates.push(event.timestamp);
       });
       
       // Add arc start and end times
       arcs.forEach(arc => {
-        allDates.push(new Date(arc.start_time));
-        allDates.push(new Date(arc.end_time));
+        allDates.push(arc.start_time);
+        allDates.push(arc.end_time);
       });
 
       if (allDates.length > 0) {
@@ -102,19 +126,12 @@ export function useTimelineData(
       return null;
     }
 
-    const events = eventsQuery.data.data as IEvent[];
-    const arcs = arcsQuery.data.data as IArc[];
+    const events = eventsQuery.data.data.map(toIEvent);
+    const arcs = arcsQuery.data.data.map(toIArc);
 
     return {
-      events: events.map(event => ({
-        ...event,
-        timestamp: new Date(event.timestamp)
-      })),
-      arcs: arcs.map(arc => ({
-        ...arc,
-        start_time: new Date(arc.start_time),
-        end_time: new Date(arc.end_time)
-      })),
+      events,
+      arcs,
       timeRange
     };
   }, [eventsQuery.data, arcsQuery.data, timeRange]);
@@ -173,29 +190,27 @@ export function useCausalGraphData(
       return null;
     }
 
-    const events = eventsQuery.data.data as IEvent[];
-    const relationships = relationshipsQuery.data.data || [];
+    const events = eventsQuery.data.data.map(toIEvent);
+    const relationships: ApiCausalRelationship[] = relationshipsQuery.data.data || [];
 
     // Filter events that have causal relationships
     const eventIds = new Set([
-      ...relationships.map((r: any) => r.source),
-      ...relationships.map((r: any) => r.target)
+      ...relationships.map(r => r.source),
+      ...relationships.map(r => r.target)
     ]);
 
     const filteredEvents = events.filter(event => eventIds.has(event.id));
 
     return {
-      events: filteredEvents.map(event => ({
-        ...event,
-        timestamp: new Date(event.timestamp)
-      })),
-      relationships: relationships.map((rel: any) => ({
+      events: filteredEvents,
+      relationships: relationships.map(rel => ({
         id: rel.id || `${rel.source}-${rel.target}`,
         source: rel.source,
         target: rel.target,
         weight: rel.weight,
         evidence: rel.evidence || '',
-        confidence: rel.confidence || rel.weight
+        confidence: rel.confidence || rel.weight,
+        relationship_type: rel.relationship_type ?? 'direct'
       }))
     };
   }, [eventsQuery.data, relationshipsQuery.data]);
@@ -261,7 +276,10 @@ export function useRealTimeUpdates(
   onArcUpdate?: (arc: IArc) => void
 ) {
   const [isConnected, setIsConnected] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  // `_setLastUpdate` is intentionally unused: it is only called by the WebSocket
+  // handler below, which is still commented out. Keep the state (and therefore
+  // the `lastUpdate` field of the hook's result) until that handler lands.
+  const [lastUpdate, _setLastUpdate] = useState<Date | null>(null);
 
   // For now, we'll use polling. In a real implementation, 
   // this would use WebSocket connections

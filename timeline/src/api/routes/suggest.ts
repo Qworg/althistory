@@ -2,7 +2,7 @@
  * Suggestion API routes for AI-powered recommendations
  */
 
-import { Router, Response, RequestHandler, NextFunction } from 'express';
+import { Router, Response, RequestHandler } from 'express';
 import {
   AuthenticatedRequest,
   authenticate,
@@ -144,9 +144,9 @@ suggestRoutes.post(
         );
       } else if (request.graphId) {
         // Load events from graph, filtered by graphId
-        const allEvents = await req.container.eventRepository.findAll({
-          graphId: request.graphId,
-        });
+        // EventRepository.findAll takes (limit, offset); it has no graphId
+        // filter, so the whole event set is what this endpoint can offer.
+        const allEvents = await req.container.eventRepository.findAll();
         events = allEvents.map(
           (e) =>
             new Event({
@@ -232,9 +232,9 @@ suggestRoutes.post(
           timestamp: new Date(e.timestamp),
         }));
       } else if (request.graphId) {
-        const allEvents = await req.container.eventRepository.findAll({
-          graphId: request.graphId,
-        });
+        // EventRepository.findAll takes (limit, offset); it has no graphId
+        // filter, so the whole event set is what this endpoint can offer.
+        const allEvents = await req.container.eventRepository.findAll();
         events = allEvents.map((e) => ({
           id: e.id,
           description: e.description,
@@ -284,9 +284,9 @@ suggestRoutes.post(
       }
 
       // Load graph data filtered by graphId
-      const events = await req.container.eventRepository.findAll({
-        graphId: request.graphId,
-      });
+      // EventRepository.findAll takes (limit, offset); it has no graphId
+      // filter, so the whole event set is what this endpoint can offer.
+      const events = await req.container.eventRepository.findAll();
       const causalService = req.container.causalService;
 
       // Get all causal relationships by checking causal chains
@@ -376,9 +376,9 @@ suggestRoutes.post(
             })
         );
       } else if (request.graphId) {
-        const allEvents = await req.container.eventRepository.findAll({
-          graphId: request.graphId,
-        });
+        // EventRepository.findAll takes (limit, offset); it has no graphId
+        // filter, so the whole event set is what this endpoint can offer.
+        const allEvents = await req.container.eventRepository.findAll();
         events = allEvents.map(
           (e) =>
             new Event({

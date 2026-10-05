@@ -4,10 +4,9 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
-import express from 'express';
+import express, { Request } from 'express';
 import { validateRoutes } from './validate';
-import { errorHandler, AuthenticatedRequest } from '@/api/middleware';
-import { ApiKey, Permission } from '@/models/ApiKey';
+import { errorHandler } from '@/api/middleware';
 
 // Mock the middleware module before importing routes
 vi.mock('@/api/middleware', async () => {
@@ -62,7 +61,7 @@ describe('Validate Routes', () => {
     // Create fresh app for each test
     app = express();
     app.use(express.json());
-    app.use((req: AuthenticatedRequest, res, next) => {
+    app.use((req: Request, res, next) => {
       req.requestId = 'test-request-id';
       req.startTime = Date.now();
       req.container = {

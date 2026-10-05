@@ -7,13 +7,13 @@ type ViewMode = 'timeline' | 'causal' | 'split' | 'tabs';
 interface VisualizationDashboardProps {
   initialViewMode?: ViewMode;
   realTimeUpdates?: boolean;
+  /** Reserved for polling; not wired up yet. */
   refreshInterval?: number;
 }
 
 export const VisualizationDashboard: React.FC<VisualizationDashboardProps> = ({
   initialViewMode = 'timeline',
-  realTimeUpdates = false,
-  refreshInterval
+  realTimeUpdates = false
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [showFilters, setShowFilters] = useState(false);

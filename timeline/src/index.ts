@@ -1,6 +1,8 @@
 import express from 'express';
+import type { Request, RequestHandler, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import type { Server } from 'http';
 import { loadConfig, initializeDatabaseManager } from '@/utils';
 import { initializeContainer, cleanupContainer } from '@/container';
 import { apiRouter } from '@/api/routes';
@@ -12,8 +14,28 @@ import {
   validateJsonRequest,
   injectContainer,
   authenticate,
-  rateLimit
+  rateLimit,
+  AuthenticatedRequest
 } from '@/api/middleware';
+
+/**
+ * Adapt a middleware declared against `AuthenticatedRequest` to Express's
+ * `RequestHandler`.
+ *
+ * `authenticate` and `rateLimit` describe their request parameter with the
+ * narrower `AuthenticatedRequest`, and `strictFunctionTypes` rejects a handler
+ * whose parameter is a subtype of the one Express declares. The extra fields
+ * only exist because `authenticate` runs earlier in the chain and sets them, so
+ * the narrowing is safe at runtime. Ideally the middleware itself would declare
+ * plain `Request` (see `declare global namespace Express` in
+ * `src/api/middleware.ts`); until then the cast lives here, in one place.
+ */
+export function asRequestHandler(
+  middleware: (req: AuthenticatedRequest, res: Response, next: NextFunction) => void
+): RequestHandler {
+  return (req: Request, res: Response, next: NextFunction) =>
+    middleware(req as AuthenticatedRequest, res, next);
+}
 
 /**
  * Main application class
@@ -111,13 +133,16 @@ class Application {
     this.app.use(validateJsonRequest);
     
     // Rate limiting (can be enabled per environment)
+    // Note: this middleware derives its limits from the API key's
+    // RateLimitConfig (requestsPerMinute/Hour/Day); it has no window-based
+    // configuration, so nothing is passed here.
     if (this.config.nodeEnv === 'production') {
-      this.app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 1000 })); // 1000 requests per 15 minutes
+      this.app.use(asRequestHandler(rateLimit()));
     }
     
     // Global authentication middleware - validates API keys on all routes
     // Note: Individual routes use requireAuth to enforce authentication
-    this.app.use(authenticate);
+    this.app.use(asRequestHandler(authenticate));
   }
 
   /**
@@ -127,7 +152,7 @@ class Application {
     // Health check endpoint (before API routes for monitoring)
     this.app.get('/health', async (req, res) => {
       try {
-        const container = (req as any).container;
+        const container = req.container;
         const health = await container.getHealthStatus();
         
         res.status(health.status === 'healthy' ? 200 : 503).json({
@@ -198,7 +223,7 @@ class Application {
   /**
    * Graceful shutdown
    */
-  private async shutdown(server: any): Promise<void> {
+  private async shutdown(server: Server): Promise<void> {
     console.log('Shutting down gracefully...');
     
     server.close(async () => {

@@ -10,7 +10,6 @@ import {
   PressureValidationResult
 } from '@/models';
 import { CausalRelationship, CausalValidationResult } from '@/models/relationships';
-import { ValidationError } from '@/utils/errors';
 
 /**
  * Service for validating domain objects and business rules
@@ -272,12 +271,13 @@ export class ValidationService {
       errors.push('Inferred pressure ID is required');
     }
 
+    // `InferredPressure` carries no metadata field, so only the fields the model
+    // actually defines are forwarded to the create-request validator.
     const createRequest: CreateInferredPressureRequest = {
       description: pressure.description,
       confidence_score: pressure.confidence_score,
       pressure_type: pressure.pressure_type,
-      evidence: pressure.evidence,
-      metadata: pressure.metadata
+      evidence: pressure.evidence
     };
 
     const createValidation = this.validateCreateInferredPressure(createRequest);

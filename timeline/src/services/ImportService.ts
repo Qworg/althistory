@@ -21,13 +21,13 @@ import { ResolvedGraphData, EntityChanges } from '../repositories/VersionReposit
 import {
   AlthistoryExport,
   ExportData,
+  ExportMetadata,
   ExportedEvent,
   ExportedArc,
   ExportedRelationship,
   ExportedPressure,
 } from './ExportService';
 import { createLogger, ILogger } from '../utils/logger';
-import { ValidationError } from '../utils/errors';
 import * as crypto from 'crypto';
 
 // ============================================================================
@@ -183,6 +183,21 @@ export interface ImportServiceConfig {
   /** FIX B#4: Configurable stale job threshold in ms (default: 30 minutes) */
   staleJobThresholdMs?: number;
 }
+
+/**
+ * An entity read back from the version store: opaque fields, plus the id that the
+ * import pipeline matches and reports on.
+ */
+type StoredEntity = Record<string, unknown> & { id: string };
+
+/**
+ * A graph's current contents as entity lists. The version store keeps entities in
+ * id-keyed maps (see ResolvedGraphData); conflict detection, preview and
+ * replace-mode deletes all work in terms of lists.
+ */
+type ExistingGraphData = {
+  [K in keyof ResolvedGraphData]: StoredEntity[];
+};
 
 // ============================================================================
 // ImportService Implementation
@@ -368,8 +383,17 @@ export class ImportService {
    * Validate all string fields in an object (including arrays)
    * FIX #5: Validate instead of escape - preserves original data
    */
-  private validateAndCopyObject<T extends Record<string, unknown>>(obj: T, basePath: string = '$'): T {
-    const result = { ...obj };
+  /**
+   * Copy an object, validating/sanitizing every string it contains.
+   *
+   * `T` is deliberately unconstrained. The previous `T extends Record<string, unknown>`
+   * constraint was unusable: a domain interface such as ExportedEvent has no implicit
+   * index signature, so every real call site failed to type-check, and inference then
+   * fell back to Record<string, unknown>, which erased the entity's own fields from the
+   * result. Sanitizing preserves the shape, so the type is carried through unchanged.
+   */
+  private validateAndCopyObject<T>(obj: T, basePath: string = '$'): T {
+    const result = { ...obj } as Record<string, unknown>;
     for (const [key, value] of Object.entries(result)) {
       const path = `${basePath}.${key}`;
       if (typeof value === 'string') {
@@ -392,11 +416,11 @@ export class ImportService {
         );
       }
     }
-    return result;
+    return result as T;
   }
 
   // Backward compatibility alias
-  private sanitizeObject<T extends Record<string, unknown>>(obj: T): T {
+  private sanitizeObject<T>(obj: T): T {
     return this.validateAndCopyObject(obj);
   }
 
@@ -404,8 +428,13 @@ export class ImportService {
    * Validate checksum if provided
    * FIX #3: Use timing-safe comparison to prevent timing attacks
    * FIX #9: Properly handle empty string checksum
+   *
+   * Accepts the structural minimum this method actually reads (the metadata's
+   * `checksum` and the `data` section that gets stringified), so that
+   * validateFormat can hand it already-narrowed untrusted input. Widening the
+   * accepted type keeps every AlthistoryExport caller valid.
    */
-  validateChecksum(data: AlthistoryExport): ImportError | null {
+  validateChecksum(data: { metadata: ExportMetadata; data: unknown }): ImportError | null {
     // FIX #9: Explicitly check for undefined/null, treat empty string as missing checksum
     // Empty string should be treated as "no checksum provided", not as a valid checksum to validate against
     if (data.metadata.checksum === undefined || data.metadata.checksum === null || data.metadata.checksum === '') {
@@ -500,8 +529,15 @@ export class ImportService {
     const exportData = importData.data as ExportData;
 
     // Validate checksum if provided
-    if (importData.metadata && (importData.metadata as Record<string, unknown>).checksum) {
-      const checksumError = this.validateChecksum(importData as AlthistoryExport);
+    const metadata = importData.metadata;
+    if (metadata && typeof metadata === 'object' && 'checksum' in metadata && metadata.checksum) {
+      // `metadata` is verified above to be an object carrying a checksum, which is
+      // all validateChecksum requires; the remaining ExportMetadata fields are
+      // reported separately by validateMetadata.
+      const checksumError = this.validateChecksum({
+        metadata: metadata as ExportMetadata,
+        data: exportData,
+      });
       if (checksumError) {
         errors.push(checksumError);
       }
@@ -540,10 +576,13 @@ export class ImportService {
     return this.createValidationResult(errors.length === 0, errors, warnings, summary);
   }
 
+  // NOTE: `_warnings` is accepted for symmetry with the other validate* helpers
+  // (validateEvents / validateRelationships do emit warnings); metadata checks
+  // currently only ever produce errors.
   private validateMetadata(
     metadata: unknown,
     errors: ImportError[],
-    warnings: ImportWarning[]
+    _warnings: ImportWarning[]
   ): void {
     if (!metadata || typeof metadata !== 'object') {
       errors.push({
@@ -821,10 +860,12 @@ export class ImportService {
     });
   }
 
+  // NOTE: `_warnings` is accepted for symmetry with the other validate* helpers;
+  // arc checks currently only ever produce errors.
   private validateArcs(
     arcs: unknown,
     errors: ImportError[],
-    warnings: ImportWarning[]
+    _warnings: ImportWarning[]
   ): void {
     if (!Array.isArray(arcs)) {
       errors.push({
@@ -1162,12 +1203,14 @@ export class ImportService {
     });
   }
 
+  // NOTE: `_warnings` is accepted for symmetry with the other validate* helpers;
+  // pressure checks currently only ever produce errors.
   private validatePressures(
     pressures: unknown,
     events: unknown,
     arcs: unknown,
     errors: ImportError[],
-    warnings: ImportWarning[]
+    _warnings: ImportWarning[]
   ): void {
     if (!pressures || !Array.isArray(pressures)) {
       // Pressures are optional
@@ -1284,7 +1327,9 @@ export class ImportService {
     let maxDate: Date | null = null;
     const actors = new Set<string>();
 
-    events.forEach((e) => {
+    // Plain `for...of` loops (not forEach callbacks) so that the minDate/maxDate
+    // assignments are visible to control-flow analysis at the read below.
+    for (const e of events) {
       if (e.timestamp) {
         const date = new Date(e.timestamp);
         if (!isNaN(date.getTime())) {
@@ -1293,9 +1338,9 @@ export class ImportService {
         }
       }
       if (e.actor) actors.add(e.actor);
-    });
+    }
 
-    arcs.forEach((a) => {
+    for (const a of arcs) {
       if (a.start_time) {
         const date = new Date(a.start_time);
         if (!isNaN(date.getTime())) {
@@ -1308,7 +1353,7 @@ export class ImportService {
           if (!maxDate || date > maxDate) maxDate = date;
         }
       }
-    });
+    }
 
     return {
       eventCount: events.length,
@@ -1504,8 +1549,9 @@ export class ImportService {
     }
 
     // Check crossGraphRefs if present
-    for (let i = 0; i < (exportData.crossGraphRefs || []).length; i++) {
-      const ref = exportData.crossGraphRefs[i];
+    const crossGraphRefs = exportData.crossGraphRefs || [];
+    for (let i = 0; i < crossGraphRefs.length; i++) {
+      const ref = crossGraphRefs[i];
       const path = `$.data.crossGraphRefs[${i}]`;
 
       if (ref.referencedGraphId) {
@@ -1526,6 +1572,36 @@ export class ImportService {
   // ==========================================================================
   // Conflict Detection
   // ==========================================================================
+
+  /**
+   * Load a graph's current contents as entity lists.
+   *
+   * This replaces the previous `graphRepository.resolveGraphData(...)` calls. No such
+   * method exists on GraphRepository, so every call site threw a TypeError that the
+   * surrounding catch swallowed: conflict detection, preview and replace-mode deletes
+   * all behaved as though the target graph were permanently empty. `checkout` is the
+   * repository's read path for the latest version (the same one GraphService.getGraphData
+   * uses) and yields an empty graph when the graph has no versions.
+   */
+  private async loadExistingGraph(graphId: string): Promise<ExistingGraphData> {
+    const data = await this.graphRepository.checkout(graphId);
+    return {
+      events: this.toEntityList(data.events),
+      arcs: this.toEntityList(data.arcs),
+      relationships: this.toEntityList(data.relationships),
+      pressures: this.toEntityList(data.pressures),
+    };
+  }
+
+  /**
+   * Flatten an id-keyed entity map into a list. Entities without a string id are
+   * dropped: every consumer below only ever matches and reports on `id`.
+   */
+  private toEntityList(entities: Record<string, Record<string, unknown>>): StoredEntity[] {
+    return Object.values(entities).filter(
+      (entity): entity is StoredEntity => typeof entity.id === 'string'
+    );
+  }
 
   /**
    * Detect conflicts between import data and existing graph data
@@ -1553,7 +1629,7 @@ export class ImportService {
     };
 
     try {
-      const graphData = await this.graphRepository.resolveGraphData(targetGraphId);
+      const graphData = await this.loadExistingGraph(targetGraphId);
       const exportData = importData.data;
 
       // Check for duplicate event IDs
@@ -1567,7 +1643,7 @@ export class ImportService {
             severity: mode === 'replace' ? 'warning' : 'error',
             entityType: 'event',
             entityId: event.id,
-            existingEntity: existing as unknown as Record<string, unknown>,
+            existingEntity: existing,
             incomingEntity: event as unknown as Record<string, unknown>,
             suggestedResolution: mode === 'merge' ? 'skip' : 'overwrite',
             message: `Event with ID "${event.id}" already exists`,
@@ -1586,7 +1662,7 @@ export class ImportService {
             severity: mode === 'replace' ? 'warning' : 'error',
             entityType: 'arc',
             entityId: arc.id,
-            existingEntity: existing as unknown as Record<string, unknown>,
+            existingEntity: existing,
             incomingEntity: arc as unknown as Record<string, unknown>,
             suggestedResolution: mode === 'merge' ? 'skip' : 'overwrite',
             message: `Arc with ID "${arc.id}" already exists`,
@@ -1605,7 +1681,7 @@ export class ImportService {
             severity: mode === 'replace' ? 'warning' : 'error',
             entityType: 'relationship',
             entityId: rel.id,
-            existingEntity: existing as unknown as Record<string, unknown>,
+            existingEntity: existing,
             incomingEntity: rel as unknown as Record<string, unknown>,
             suggestedResolution: mode === 'merge' ? 'skip' : 'overwrite',
             message: `Relationship with ID "${rel.id}" already exists`,
@@ -1616,7 +1692,13 @@ export class ImportService {
       // Check for causal paradoxes with existing data
       const allEvents = new Map<string, Date>();
       graphData.events.forEach((e) => {
-        allEvents.set(e.id, new Date(e.timestamp));
+        // Stored timestamps are opaque; a value Date cannot read yields an Invalid
+        // Date, which never compares greater than anything, so skipping it detects
+        // exactly the same paradoxes as before.
+        const { timestamp } = e;
+        if (typeof timestamp === 'string' || typeof timestamp === 'number') {
+          allEvents.set(e.id, new Date(timestamp));
+        }
       });
       (exportData.events || []).forEach((e) => {
         if (!allEvents.has(e.id)) {
@@ -1678,7 +1760,7 @@ export class ImportService {
     // Load existing data if merging/replacing
     if (options.graphId && options.mode !== 'create-new') {
       try {
-        const graphData = await this.graphRepository.resolveGraphData(options.graphId);
+        const graphData = await this.loadExistingGraph(options.graphId);
         graphData.events.forEach((e) => existingIds.events.add(e.id));
         graphData.arcs.forEach((a) => existingIds.arcs.add(a.id));
         graphData.relationships.forEach((r) => existingIds.relationships.add(r.id));
@@ -2193,7 +2275,7 @@ export class ImportService {
     
     // FIX #5: Load existing IDs from graph if it exists
     try {
-      const graphData = await this.graphRepository.resolveGraphData(graphId);
+      const graphData = await this.loadExistingGraph(graphId);
       graphData.events.forEach(e => existingIds.add(e.id));
       graphData.arcs.forEach(a => existingIds.add(a.id));
       graphData.relationships.forEach(r => existingIds.add(r.id));
@@ -2383,7 +2465,7 @@ export class ImportService {
     });
 
     // Load existing data for delete calculation in replace mode
-    let entitiesToDelete: {
+    const entitiesToDelete: {
       events: string[];
       arcs: string[];
       relationships: string[];
@@ -2392,7 +2474,7 @@ export class ImportService {
 
     if (mode === 'replace') {
       try {
-        const graphData = await this.graphRepository.resolveGraphData(graphId);
+        const graphData = await this.loadExistingGraph(graphId);
         const incomingEventIds = new Set(eventsToImport.map((e) => e.id));
         const incomingArcIds = new Set(arcsToImport.map((a) => a.id));
         const incomingRelIds = new Set(relationshipsToImport.map((r) => r.id));

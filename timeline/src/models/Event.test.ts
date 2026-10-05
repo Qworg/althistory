@@ -1,5 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { Event, IEvent, CreateEventRequest, TimeRange, EventValidationResult } from './Event';
+import { Event, IEvent, CreateEventRequest, TimeRange } from './Event';
+
+/**
+ * Builds a value of type `T` from an untyped input.
+ *
+ * These suites exercise RUNTIME validation, so they must hand the validator a
+ * value that contradicts the declared type — `description` claims to be a
+ * string but is really the number 123. Name T as the type the field DECLARES,
+ * and pass the wrong runtime value. The cast is the point of the test, not a
+ * shortcut around it, so it is named here rather than scattered as `as any`.
+ */
+const invalid = <T>(value: unknown): T => value as T;
+
 
 describe('Event Model', () => {
   const validEventData: CreateEventRequest = {
@@ -75,7 +87,8 @@ describe('Event Model', () => {
     });
 
     it('should reject missing timestamp', () => {
-      const { timestamp, ...dataWithoutTimestamp } = validEventData;
+      // Drop the property by renaming the binding to an intentionally-ignored one.
+      const { timestamp: _timestamp, ...dataWithoutTimestamp } = validEventData;
       const result = Event.validate(dataWithoutTimestamp);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Timestamp is required');
@@ -88,19 +101,19 @@ describe('Event Model', () => {
     });
 
     it('should reject invalid metadata type', () => {
-      const result = Event.validate({ ...validEventData, metadata: 'invalid' as any });
+      const result = Event.validate({ ...validEventData, metadata: invalid<Record<string, unknown>>('invalid') });
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Metadata must be an object');
     });
 
     it('should reject array as metadata', () => {
-      const result = Event.validate({ ...validEventData, metadata: [] as any });
+      const result = Event.validate({ ...validEventData, metadata: invalid<Record<string, unknown>>([]) });
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Metadata must be an object');
     });
 
     it('should reject null as metadata', () => {
-      const result = Event.validate({ ...validEventData, metadata: null as any });
+      const result = Event.validate({ ...validEventData, metadata: invalid<Record<string, unknown>>(null) });
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Metadata must be an object');
     });

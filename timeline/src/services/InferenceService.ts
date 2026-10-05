@@ -14,15 +14,6 @@ interface EventCluster {
 }
 
 /**
- * Pattern detection result
- */
-interface PatternDetectionResult {
-  clusters: EventCluster[];
-  pressures: InferredPressure[];
-  causalSuggestions: CausalSuggestion[];
-}
-
-/**
  * Service for pattern detection and pressure inference
  */
 export class InferenceService {
@@ -544,7 +535,7 @@ export class InferenceService {
   /**
    * Calculate influence strength between a pressure and an arc
    */
-  private calculateInfluenceStrength(pressure: InferredPressure, arcId: string): number {
+  private calculateInfluenceStrength(pressure: InferredPressure, _arcId: string): number {
     // Base influence on pressure confidence
     let influence = pressure.confidence_score * 0.7;
     

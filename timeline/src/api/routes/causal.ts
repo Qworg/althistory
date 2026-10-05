@@ -1,14 +1,32 @@
-import { Router, Response, NextFunction } from 'express';
-import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
-import { RequestWithContainer } from '@/api/middleware';
+import { Router, Request, Response, NextFunction } from 'express';
+import { ValidationError, NotFoundError } from '@/utils/errors';
 import { CausalRelationship, CausalRelationshipType } from '@/models/relationships';
 
 export const causalRoutes = Router();
 
 /**
+ * Narrow an untrusted request-body value to a CausalRelationshipType.
+ * Anything outside the closed set falls back to 'direct', matching the
+ * defaults batch.ts already applies when creating relationships.
+ */
+function toCausalRelationshipType(value: unknown): CausalRelationshipType {
+  return value === 'direct' || value === 'indirect' || value === 'contributory' ? value : 'direct';
+}
+
+/** Narrow an untrusted value to a finite number, falling back to `fallback`. */
+function toScore(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+/** Narrow an untrusted value to a string, falling back to ''. */
+function toEvidence(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/**
  * POST /causal/link - Create a causal link between two events
  */
-causalRoutes.post('/link', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+causalRoutes.post('/link', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { causeEventId, effectEventId, relationship } = req.body;
     
@@ -46,16 +64,16 @@ causalRoutes.post('/link', async (req: RequestWithContainer, res: Response, next
     // Transform relationship fields to match CausalService expectations
     // Route accepts: type, strength, confidence, evidence
     // Service expects: relationship_type, weight, confidence, evidence
-    const transformedRelationship = {
-      relationship_type: relationship.type || relationship.relationship_type,
-      weight: relationship.strength ?? relationship.weight,
-      confidence: relationship.confidence,
-      evidence: relationship.evidence || ''
+    const transformedRelationship: CausalRelationship = {
+      relationship_type: toCausalRelationshipType(relationship.type || relationship.relationship_type),
+      weight: toScore(relationship.strength ?? relationship.weight, 0.5),
+      confidence: toScore(relationship.confidence, 0.5),
+      evidence: toEvidence(relationship.evidence)
     };
 
     // Create causal link
     const causalService = req.container.causalService;
-    await causalService.createCausalLink(causeEvent, effectEvent, transformedRelationship as any);
+    await causalService.createCausalLink(causeEvent, effectEvent, transformedRelationship);
 
     res.status(201).json({
       success: true,
@@ -75,7 +93,7 @@ causalRoutes.post('/link', async (req: RequestWithContainer, res: Response, next
 /**
  * GET /causal/chain/:eventId - Find causal chain starting from an event
  */
-causalRoutes.get('/chain/:eventId', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+causalRoutes.get('/chain/:eventId', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventId } = req.params;
     const { maxDepth = '5' } = req.query;
@@ -118,7 +136,7 @@ causalRoutes.get('/chain/:eventId', async (req: RequestWithContainer, res: Respo
 /**
  * GET /causal/cycles - Detect causal cycles in the graph
  */
-causalRoutes.get('/cycles', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+causalRoutes.get('/cycles', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { limit = '10', offset = '0' } = req.query;
     
@@ -158,7 +176,7 @@ causalRoutes.get('/cycles', async (req: RequestWithContainer, res: Response, nex
 /**
  * GET /causal/suggestions - Get causal relationship suggestions
  */
-causalRoutes.get('/suggestions', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+causalRoutes.get('/suggestions', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { 
       minConfidence = '0.5',
@@ -186,7 +204,10 @@ causalRoutes.get('/suggestions', async (req: RequestWithContainer, res: Response
     // Get all events first, then use inference service to suggest causal links
     const eventRepository = req.container.eventRepository;
     const events = await eventRepository.findAll(100); // Get sample of events
-    const suggestions = inferenceService.suggestCausalLinks(events).filter(s => s.confidence >= parsedMinConfidence);
+    // Confidence lives on the suggested relationship, not on the suggestion wrapper.
+    const suggestions = inferenceService.suggestCausalLinks(events).filter(
+      s => s.suggested_relationship.confidence >= parsedMinConfidence
+    );
 
     // Apply pagination
     const paginatedSuggestions = suggestions.slice(parsedOffset, parsedOffset + parsedLimit);
@@ -213,7 +234,7 @@ causalRoutes.get('/suggestions', async (req: RequestWithContainer, res: Response
 /**
  * POST /causal/validate - Validate a proposed causal relationship
  */
-causalRoutes.post('/validate', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+causalRoutes.post('/validate', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { causeEventId, effectEventId, relationship } = req.body;
     
@@ -261,7 +282,7 @@ causalRoutes.post('/validate', async (req: RequestWithContainer, res: Response, 
 /**
  * GET /causal/relationships - Get all causal relationships
  */
-causalRoutes.get('/relationships', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+causalRoutes.get('/relationships', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const causalService = req.container.causalService;
     const relationships = await causalService.getAllRelationships();
@@ -279,7 +300,7 @@ causalRoutes.get('/relationships', async (req: RequestWithContainer, res: Respon
 /**
  * GET /causal/relationships/:eventId - Get all causal relationships for an event
  */
-causalRoutes.get('/relationships/:eventId', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+causalRoutes.get('/relationships/:eventId', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventId } = req.params;
     const { direction = 'both' } = req.query; // 'cause', 'effect', or 'both'
@@ -300,11 +321,8 @@ causalRoutes.get('/relationships/:eventId', async (req: RequestWithContainer, re
       throw new NotFoundError(`Event with ID ${eventId} not found`, 'Event', eventId);
     }
 
-    const causalService = req.container.causalService;
-    let relationships: any = {};
-
     // For now, return basic structure - would need to implement relationship finding
-    relationships = {
+    const relationships: { asCause: unknown[]; asEffect: unknown[]; note: string } = {
       asCause: [],
       asEffect: [],
       note: 'Relationship finding not yet implemented - would require additional service methods'
@@ -327,7 +345,7 @@ causalRoutes.get('/relationships/:eventId', async (req: RequestWithContainer, re
 /**
  * PUT /causal/link - Update a causal link between two events
  */
-causalRoutes.put('/link', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+causalRoutes.put('/link', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { causeEventId, effectEventId, relationship } = req.body;
 
@@ -388,7 +406,7 @@ causalRoutes.put('/link', async (req: RequestWithContainer, res: Response, next:
 /**
  * DELETE /causal/link - Remove a causal link between two events
  */
-causalRoutes.delete('/link', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+causalRoutes.delete('/link', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { causeEventId, effectEventId } = req.body;
 

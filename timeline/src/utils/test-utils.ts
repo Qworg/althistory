@@ -1,6 +1,14 @@
 import { DatabaseManager, DatabaseConfig, initializeDatabaseManager } from './database';
 
 /**
+ * Human-readable message for a rejected promise of unknown shape, used to keep
+ * the availability probes below reporting the real cause.
+ */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
  * Test configuration with fallbacks
  */
 export const getTestConfig = (): DatabaseConfig => ({
@@ -28,7 +36,7 @@ export async function isNeo4jAvailable(): Promise<boolean> {
     await tempManager.close();
     return true;
   } catch (error) {
-    console.warn('Neo4j not available for testing:', (error as Error).message);
+    console.warn('Neo4j not available for testing:', errorMessage(error));
     return false;
   }
 }
@@ -44,7 +52,7 @@ export async function isRedisAvailable(): Promise<boolean> {
     await tempManager.close();
     return true;
   } catch (error) {
-    console.warn('Redis not available for testing:', (error as Error).message);
+    console.warn('Redis not available for testing:', errorMessage(error));
     return false;
   }
 }
@@ -106,9 +114,13 @@ export async function createTestDatabaseManager(): Promise<DatabaseManager | nul
       console.warn('Redis not available, continuing without it');
     }
     
-    return manager;
+    // `initializeDatabaseManager` installs a `LocalDatabaseManager` when local
+    // execution is enabled. This helper drives the Neo4j-backed manager, so
+    // report the union it hands back as that manager; a local run simply keeps
+    // the local implementation, which exposes the same call surface.
+    return manager as DatabaseManager;
   } catch (error) {
-    console.warn('Could not create test database manager:', (error as Error).message);
+    console.warn('Could not create test database manager:', errorMessage(error));
     return null;
   }
 }
@@ -126,6 +138,6 @@ export async function cleanupTestData(manager: DatabaseManager, prefix: string =
     `, { prefix });
     await session.close();
   } catch (error) {
-    console.warn('Could not clean up test data:', (error as Error).message);
+    console.warn('Could not clean up test data:', errorMessage(error));
   }
 }

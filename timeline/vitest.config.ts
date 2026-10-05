@@ -11,17 +11,22 @@ export default defineConfig({
     testTimeout: 30000, // Increase timeout for database operations
     hookTimeout: 30000, // Increase hook timeout
     teardownTimeout: 30000, // Increase teardown timeout
-    // Skip integration tests if databases are not available
+    // Integration and e2e suites run as part of the default test run. They
+    // exercise local-execution mode (file-backed graph store) or boot the app
+    // in-process via supertest, so they need no external services.
+    //
+    // Still excluded: suites that genuinely require a running Neo4j/Redis (the
+    // database suite and the three repository/service suites that each have a
+    // *.unit.test.ts sibling covering the same code), and the load tests, which
+    // are run separately via `npm run test:load`.
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
-      '**/tests/integration/**', // Exclude integration tests by default
-      '**/tests/e2e/**', // Exclude e2e tests by default
-      '**/*.load.test.ts', // Exclude load tests by default
-      'src/utils/database.test.ts', // Exclude database tests (requires Neo4j)
-      'src/repositories/EventRepository.test.ts', // Integration test, use EventRepository.unit.test.ts
-      'src/repositories/ArcRepository.test.ts', // Integration test, use ArcRepository.unit.test.ts
-      'src/services/GraphCopyService.test.ts' // Integration test, use GraphCopyService.unit.test.ts
+      '**/*.load.test.ts', // Load tests: run via `npm run test:load`
+      'src/utils/database.test.ts', // Requires Neo4j
+      'src/repositories/EventRepository.test.ts', // Requires Neo4j; see EventRepository.unit.test.ts
+      'src/repositories/ArcRepository.test.ts', // Requires Neo4j; see ArcRepository.unit.test.ts
+      'src/services/GraphCopyService.test.ts' // Requires Neo4j; see GraphCopyService.unit.test.ts
     ]
   },
   resolve: {

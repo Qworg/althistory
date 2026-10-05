@@ -1,7 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { LocalGraphStore, CypherQueryParser } from './LocalGraphStore';
+import type { GraphNode, GraphRelationship, LocalRecordValue } from './LocalGraphStore';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+
+/**
+ * `LocalRecordValue` is a union of graph nodes, relationships and plain
+ * property values. Both GraphNode and GraphRelationship carry `properties`, so a
+ * type predicate is enough to narrow to the two of them without casting.
+ */
+const hasProperties = (
+  value: LocalRecordValue
+): value is GraphNode | GraphRelationship =>
+  typeof value === 'object' && value !== null && 'properties' in value;
 
 describe('LocalGraphStore', () => {
   let graphStore: LocalGraphStore;
@@ -249,6 +260,9 @@ describe('LocalGraphStore', () => {
 
       expect(result.records).toHaveLength(1);
       const node = result.records[0].get('e');
+      if (!hasProperties(node)) {
+        throw new Error('expected the record to hold a node or relationship');
+      }
       expect(node.properties.description).toBe('Test Event 1');
     });
 
@@ -426,7 +440,11 @@ describe('CypherQueryParser', () => {
     const result = CypherQueryParser.execute(query, parameters, graphData);
     
     expect(result.records).toHaveLength(1);
-    expect(result.records[0].get('e').properties.actor).toBe('Actor1');
+    const record = result.records[0].get('e');
+    if (!hasProperties(record)) {
+      throw new Error('expected the record to hold a node or relationship');
+    }
+    expect(record.properties.actor).toBe('Actor1');
   });
 
   it('should handle unsupported query types', () => {

@@ -2,7 +2,7 @@
  * Validation API routes for checking data integrity
  */
 
-import { Router, Response, RequestHandler, NextFunction } from 'express';
+import { Router, Response, RequestHandler } from 'express';
 import {
   AuthenticatedRequest,
   authenticate,

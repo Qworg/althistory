@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import express, { Express } from 'express';
+import express, { ErrorRequestHandler, Express } from 'express';
 import request from 'supertest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -85,14 +85,17 @@ describe('Import API Routes', () => {
     importRouter = createImportRouter({ dataDir: testDataDir, disableRateLimit: true, disableAuth: true, disableCsrf: true });
     app.use('/api/import', importRouter);
 
-    // Error handler
-    app.use((err: any, req: any, res: any, next: any) => {
+    // Express recognises an error middleware by its 4-argument arity, so all four
+    // parameters must be declared even though next is unused.
+    const testErrorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
       const status = err.statusCode || 500;
       res.status(status).json({
         error: err.message,
         code: err.code,
       });
-    });
+    };
+
+    app.use(testErrorHandler);
   });
 
   afterEach(async () => {

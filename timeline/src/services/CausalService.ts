@@ -1,10 +1,65 @@
 import { Event } from '@/models';
-import { CausalRelationship, CausalPath, CausalCycle, CausalSuggestion, CausalValidationResult } from '@/models/relationships';
-import { getDatabaseManager, LocalDatabaseManager } from '@/utils/database';
+import { CausalRelationship, CausalPath, CausalCycle, CausalRelationshipType, CausalValidationResult } from '@/models/relationships';
+import { getDatabaseManager, DatabaseManager, LocalDatabaseManager } from '@/utils/database';
+import { LocalGraphStore, GraphProperties } from '@/utils/LocalGraphStore';
 import { CausalParadoxError, ValidationError, DatabaseError, NotFoundError } from '@/utils/errors';
 import { getCacheManager, CacheKeyGenerator } from '@/utils/cache';
 import { CacheInvalidationService } from './CacheInvalidationService';
 import { loadConfig } from '@/utils/config';
+
+/**
+ * Property bag accepted by `LocalGraphStore.updateRelationship` for a CAUSES edge.
+ * Only the properties being changed are set, plus the `updated_at` stamp.
+ */
+type RelationshipUpdateProperties = {
+  weight?: number;
+  confidence?: number;
+  evidence?: string;
+  relationship_type?: string;
+  updated_at?: string;
+};
+
+/**
+ * Query parameters for the dynamic Neo4j SET clause built in updateCausalLink.
+ */
+type RelationshipQueryParams = RelationshipUpdateProperties & {
+  causeEventId: string;
+  effectEventId: string;
+  relationshipType?: string;
+};
+
+/**
+ * Shape of the relationship maps returned by the causal-cycle Cypher query.
+ */
+type StoredRelationshipProperties = {
+  weight: number;
+  evidence: string;
+  confidence: number;
+  relationship_type: CausalRelationshipType;
+};
+
+/**
+ * Property bags are untyped by nature, so read the values this service knows how
+ * to handle and fall back when the stored value has a different shape.
+ */
+function readNumberProperty(properties: GraphProperties, key: string, fallback: number): number {
+  const value = properties[key];
+  return typeof value === 'number' ? value : fallback;
+}
+
+function readStringProperty(properties: GraphProperties, key: string, fallback: string): string {
+  const value = properties[key];
+  return typeof value === 'string' ? value : fallback;
+}
+
+function readRelationshipTypeProperty(properties: GraphProperties, fallback: CausalRelationshipType): CausalRelationshipType {
+  const value = properties.relationship_type;
+  return typeof value === 'string' && isCausalRelationshipType(value) ? value : fallback;
+}
+
+function isCausalRelationshipType(value: string): value is CausalRelationshipType {
+  return value === 'direct' || value === 'indirect' || value === 'contributory';
+}
 
 /**
  * Service for managing causal relationships and chain analysis
@@ -12,6 +67,32 @@ import { loadConfig } from '@/utils/config';
 export class CausalService {
   private cacheManager = getCacheManager();
   private cacheInvalidationService = new CacheInvalidationService();
+
+  /**
+   * `getDatabaseManager()` is declared to return `DatabaseManager`, but when local
+   * execution is enabled the singleton it holds is a `LocalDatabaseManager`
+   * (see `initializeDatabaseManager`). This widens the type to the union the
+   * singleton can actually hold, so callers can narrow it with a real runtime
+   * check instead of an unchecked assertion. (Widening has to happen in a return
+   * position: annotating a `const` does not widen the initializer's flow type.)
+   */
+  private getDatabaseManagerOrThrow(): DatabaseManager | LocalDatabaseManager {
+    return getDatabaseManager();
+  }
+
+  /**
+   * Resolve the LocalGraphStore for local-execution mode.
+   */
+  private getLocalGraphStore(): LocalGraphStore {
+    const dbManager = this.getDatabaseManagerOrThrow();
+    if (!(dbManager instanceof LocalDatabaseManager)) {
+      throw new DatabaseError(
+        'Local execution is enabled but the database manager is not a LocalDatabaseManager',
+        'getLocalGraphStore'
+      );
+    }
+    return dbManager.getGraphStore();
+  }
   /**
    * Create a causal link between two events
    * Validates the relationship and prevents temporal paradoxes
@@ -46,8 +127,7 @@ export class CausalService {
 
     if (config.localExecution.enabled) {
       // Local mode: use LocalGraphStore
-      const dbManager = getDatabaseManager() as LocalDatabaseManager;
-      const graphStore = dbManager.getGraphStore();
+      const graphStore = this.getLocalGraphStore();
 
       const relationship = await graphStore.findRelationshipByNodes(causeEventId, effectEventId, 'CAUSES');
       if (!relationship) {
@@ -123,8 +203,7 @@ export class CausalService {
 
     if (config.localExecution.enabled) {
       // Local mode: use LocalGraphStore
-      const dbManager = getDatabaseManager() as LocalDatabaseManager;
-      const graphStore = dbManager.getGraphStore();
+      const graphStore = this.getLocalGraphStore();
 
       const relationship = await graphStore.findRelationshipByNodes(causeEventId, effectEventId, 'CAUSES');
       if (!relationship) {
@@ -135,7 +214,7 @@ export class CausalService {
         );
       }
 
-      const updateProps: Record<string, any> = {};
+      const updateProps: RelationshipUpdateProperties = {};
       if (updates.weight !== undefined) updateProps.weight = updates.weight;
       if (updates.confidence !== undefined) updateProps.confidence = updates.confidence;
       if (updates.evidence !== undefined) updateProps.evidence = updates.evidence;
@@ -145,11 +224,15 @@ export class CausalService {
       const updated = await graphStore.updateRelationship(relationship.id, updateProps);
       await graphStore.save();
 
+      const properties = updated ? updated.properties : relationship.properties;
       updatedRelationship = {
-        weight: updated!.properties.weight,
-        evidence: updated!.properties.evidence,
-        confidence: updated!.properties.confidence,
-        relationship_type: updated!.properties.relationship_type
+        weight: readNumberProperty(properties, 'weight', updates.weight ?? 0),
+        evidence: readStringProperty(properties, 'evidence', updates.evidence ?? ''),
+        confidence: readNumberProperty(properties, 'confidence', updates.confidence ?? 0),
+        relationship_type: readRelationshipTypeProperty(
+          properties,
+          updates.relationship_type ?? 'direct'
+        )
       };
     } else {
       // Cloud mode: use Neo4j
@@ -158,7 +241,7 @@ export class CausalService {
       try {
         // Build SET clauses dynamically
         const setClauses: string[] = [];
-        const params: Record<string, any> = { causeEventId, effectEventId };
+        const params: RelationshipQueryParams = { causeEventId, effectEventId };
 
         if (updates.weight !== undefined) {
           setClauses.push('r.weight = $weight');
@@ -237,18 +320,17 @@ export class CausalService {
 
     if (config.localExecution.enabled) {
       // Local mode: use LocalGraphStore
-      const dbManager = getDatabaseManager() as LocalDatabaseManager;
-      const graphStore = dbManager.getGraphStore();
+      const graphStore = this.getLocalGraphStore();
 
       const relationships = await graphStore.findRelationshipsByType('CAUSES');
       return relationships.map(rel => ({
         id: rel.id,
         cause_event_id: rel.startNodeId,
         effect_event_id: rel.endNodeId,
-        weight: rel.properties.weight || 0.5,
-        confidence: rel.properties.confidence || 0.7,
-        evidence: rel.properties.evidence || '',
-        relationship_type: rel.properties.relationship_type || 'direct'
+        weight: readNumberProperty(rel.properties, 'weight', 0.5),
+        confidence: readNumberProperty(rel.properties, 'confidence', 0.7),
+        evidence: readStringProperty(rel.properties, 'evidence', ''),
+        relationship_type: readStringProperty(rel.properties, 'relationship_type', 'direct')
       }));
     } else {
       // Cloud mode: use Neo4j
@@ -407,7 +489,7 @@ export class CausalService {
 
       const cycles: CausalCycle[] = result.records.map(record => {
         const eventIds = record.get('eventIds') as string[];
-        const relationshipData = record.get('relationships') as any[];
+        const relationshipData = record.get('relationships') as StoredRelationshipProperties[];
         const paradoxSeverity = record.get('paradoxSeverity') as number;
 
         const relationships: CausalRelationship[] = relationshipData.map(rel => ({
@@ -522,8 +604,7 @@ export class CausalService {
 
     if (config.localExecution.enabled) {
       // Local mode: use LocalGraphStore
-      const dbManager = getDatabaseManager() as LocalDatabaseManager;
-      const graphStore = dbManager.getGraphStore();
+      const graphStore = this.getLocalGraphStore();
 
       // Verify both events exist
       const causeNode = await graphStore.getNode(cause.id);

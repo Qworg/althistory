@@ -1,15 +1,22 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { ValidationError, NotFoundError } from '@/utils/errors';
-import { RequestWithContainer } from '@/api/middleware';
 import { TimeRange } from '@/models/Event';
 import { PressureType } from '@/models/InferredPressure';
 
 export const inferenceRoutes = Router();
 
+/** Pressure types accepted by the inference API. Mirrors `PressureType`. */
+const VALID_PRESSURE_TYPES: readonly PressureType[] = ['social', 'economic', 'political', 'environmental'];
+
+/** Type guard for a string arriving from the query string. */
+function isPressureType(value: string): value is PressureType {
+  return (VALID_PRESSURE_TYPES as readonly string[]).includes(value);
+}
+
 /**
  * POST /inference/analyze-clusters - Analyze event clusters to identify patterns
  */
-inferenceRoutes.post('/analyze-clusters', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+inferenceRoutes.post('/analyze-clusters', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventIds, timeRange } = req.body;
     
@@ -74,7 +81,7 @@ inferenceRoutes.post('/analyze-clusters', async (req: RequestWithContainer, res:
 /**
  * POST /inference/detect-patterns - Detect patterns in event data
  */
-inferenceRoutes.post('/detect-patterns', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+inferenceRoutes.post('/detect-patterns', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { 
       timeRange, 
@@ -125,9 +132,12 @@ inferenceRoutes.post('/detect-patterns', async (req: RequestWithContainer, res: 
     const pressures = inferenceService.analyzeEventClusters(events);
     const causalSuggestions = inferenceService.suggestCausalLinks(events);
     
+    // Confidence lives on the suggested relationship, not on the suggestion wrapper.
     const patterns = {
       pressures: pressures.map(p => p.toJSON()),
-      causalSuggestions: causalSuggestions.filter(s => s.confidence >= minConfidence),
+      causalSuggestions: causalSuggestions.filter(
+        s => s.suggested_relationship.confidence >= minConfidence
+      ),
       eventCount: events.length,
       parameters: { minClusterSize, minConfidence }
     };
@@ -152,10 +162,10 @@ inferenceRoutes.post('/detect-patterns', async (req: RequestWithContainer, res: 
 /**
  * GET /inference/pressures - Get inferred pressures
  */
-inferenceRoutes.get('/pressures', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+inferenceRoutes.get('/pressures', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
-      type, // 'social', 'economic', 'political', 'environmental', 'technological'
+      type, // 'social', 'economic', 'political', 'environmental'
       minStrength = '0.1',
       minConfidence = '0.3',
       limit = '50',
@@ -185,11 +195,14 @@ inferenceRoutes.get('/pressures', async (req: RequestWithContainer, res: Respons
     }
 
     // Validate pressure type if specified
+    let typeFilter: PressureType | undefined;
     if (type) {
-      const validTypes: PressureType[] = ['social', 'economic', 'political', 'environmental', 'technological'];
-      if (!validTypes.includes(type as PressureType)) {
-        throw new ValidationError(`Type must be one of: ${validTypes.join(', ')}`, 'type', type);
+      // A repeated query param arrives as an array; that is never a valid type.
+      const requestedType = typeof type === 'string' ? type : '';
+      if (!isPressureType(requestedType)) {
+        throw new ValidationError(`Type must be one of: ${VALID_PRESSURE_TYPES.join(', ')}`, 'type', type);
       }
+      typeFilter = requestedType;
     }
 
     // Get all events and analyze clusters to infer pressures
@@ -200,12 +213,15 @@ inferenceRoutes.get('/pressures', async (req: RequestWithContainer, res: Respons
     let pressures = inferenceService.analyzeEventClusters(events);
     
     // Filter by type if specified
-    if (type) {
-      pressures = pressures.filter(p => p.type === type);
+    if (typeFilter) {
+      pressures = pressures.filter(p => p.pressure_type === typeFilter);
     }
     
-    // Filter by strength and confidence
-    pressures = pressures.filter(p => p.strength >= parsedMinStrength && p.confidence >= parsedMinConfidence);
+    // Filter by strength and confidence. InferredPressure carries a single
+    // score, `confidence_score`, so both thresholds are applied to it.
+    pressures = pressures.filter(
+      p => p.confidence_score >= parsedMinStrength && p.confidence_score >= parsedMinConfidence
+    );
     
     // Apply pagination
     const paginatedPressures = pressures.slice(parsedOffset, parsedOffset + parsedLimit);
@@ -234,7 +250,7 @@ inferenceRoutes.get('/pressures', async (req: RequestWithContainer, res: Respons
 /**
  * GET /inference/actor-relationships - Analyze relationships between actors
  */
-inferenceRoutes.get('/actor-relationships', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+inferenceRoutes.get('/actor-relationships', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       actors, // array of actor names
@@ -316,7 +332,7 @@ inferenceRoutes.get('/actor-relationships', async (req: RequestWithContainer, re
 /**
  * POST /inference/similarity - Find events similar to a given event
  */
-inferenceRoutes.post('/similarity', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+inferenceRoutes.post('/similarity', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventId, threshold = 0.5, limit = 10 } = req.body;
     
@@ -378,7 +394,7 @@ inferenceRoutes.post('/similarity', async (req: RequestWithContainer, res: Respo
 /**
  * GET /inference/anomalies - Detect anomalous events or patterns
  */
-inferenceRoutes.get('/anomalies', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+inferenceRoutes.get('/anomalies', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       timeRange,
@@ -459,7 +475,7 @@ inferenceRoutes.get('/anomalies', async (req: RequestWithContainer, res: Respons
 /**
  * POST /inference/predict - Make predictions based on current patterns
  */
-inferenceRoutes.post('/predict', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+inferenceRoutes.post('/predict', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { 
       baseTimeRange,

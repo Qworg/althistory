@@ -3,6 +3,7 @@ import { TemporalConstraintError, PerformanceError } from '@/utils/errors';
 import { EventRepository } from '@/repositories/EventRepository';
 import { ArcRepository } from '@/repositories/ArcRepository';
 import { getCacheManager, CacheKeyGenerator } from '@/utils/cache';
+import { getDatabaseManager } from '@/utils/database';
 import { loadConfig } from '@/utils/config';
 
 /**
@@ -15,8 +16,13 @@ export class TemporalService {
   private config = loadConfig();
 
   constructor(eventRepository?: EventRepository, arcRepository?: ArcRepository) {
-    this.eventRepository = eventRepository || new EventRepository();
-    this.arcRepository = arcRepository || new ArcRepository();
+    // Repositories require a database manager. Only reach for the singleton when
+    // the caller did not inject a repository, so constructing the service with
+    // both repositories never touches the database.
+    this.eventRepository =
+      eventRepository || new EventRepository(getDatabaseManager());
+    this.arcRepository =
+      arcRepository || new ArcRepository(getDatabaseManager());
   }
   /**
    * Validate that an event falls within an arc's temporal boundaries

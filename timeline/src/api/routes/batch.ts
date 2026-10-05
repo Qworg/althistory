@@ -2,7 +2,7 @@
  * Batch operations API routes
  */
 
-import { Router, Response, RequestHandler, NextFunction } from 'express';
+import { Router, Response, RequestHandler } from 'express';
 import {
   AuthenticatedRequest,
   authenticate,
@@ -17,7 +17,7 @@ import { IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
 import { createLogger } from '@/utils/logger';
 
-const logger = createLogger({ component: 'BatchRoutes' });
+const logger = createLogger('BatchRoutes');
 
 export const batchRoutes = Router();
 
@@ -54,7 +54,16 @@ interface BatchRelationshipRequest {
 }
 
 interface BatchOperation {
-  type: 'create_event' | 'create_arc' | 'update_event' | 'update_arc' | 'delete_event' | 'delete_arc' | 'create_relationship' | 'delete_relationship';
+  type:
+    | 'create_event'
+    | 'create_arc'
+    | 'update_event'
+    | 'update_arc'
+    | 'delete_event'
+    | 'delete_arc'
+    | 'create_relationship'
+    | 'update_relationship'
+    | 'delete_relationship';
   data: Record<string, unknown>;
 }
 
@@ -472,47 +481,53 @@ batchRoutes.post(
 
       try {
         switch (op.type) {
-          case 'create_event':
+          case 'create_event': {
             const event = await req.container.eventRepository.create(
               op.data as unknown as Parameters<typeof req.container.eventRepository.create>[0]
             );
             opResult = { success: true, id: event.id };
             createdIds.push({ type: 'event', id: event.id });
             break;
+          }
 
-          case 'create_arc':
+          case 'create_arc': {
             const arc = await req.container.arcRepository.create(
               op.data as unknown as Parameters<typeof req.container.arcRepository.create>[0]
             );
             opResult = { success: true, id: arc.id };
             createdIds.push({ type: 'arc', id: arc.id });
             break;
+          }
 
-          case 'update_event':
+          case 'update_event': {
             const { id: eventId, ...eventUpdates } = op.data as { id: string } & Record<string, unknown>;
             const updatedEvent = await req.container.eventRepository.update(eventId, eventUpdates);
             opResult = { success: !!updatedEvent, id: eventId };
             break;
+          }
 
-          case 'update_arc':
+          case 'update_arc': {
             const { id: arcId, ...arcUpdates } = op.data as { id: string } & Record<string, unknown>;
             const updatedArc = await req.container.arcRepository.update(arcId, arcUpdates);
             opResult = { success: !!updatedArc, id: arcId };
             break;
+          }
 
-          case 'delete_event':
+          case 'delete_event': {
             const deleteEventId = (op.data as { id: string }).id;
             const deletedEvent = await req.container.eventRepository.delete(deleteEventId);
             opResult = { success: deletedEvent, id: deleteEventId };
             break;
+          }
 
-          case 'delete_arc':
+          case 'delete_arc': {
             const deleteArcId = (op.data as { id: string }).id;
             const deletedArc = await req.container.arcRepository.delete(deleteArcId);
             opResult = { success: deletedArc, id: deleteArcId };
             break;
+          }
 
-          case 'create_relationship':
+          case 'create_relationship': {
             const relData = op.data as {
               cause_event_id: string;
               effect_event_id: string;
@@ -535,15 +550,23 @@ batchRoutes.post(
             opResult = { success: true, id: relId };
             createdIds.push({ type: 'relationship', id: relId });
             break;
+          }
 
-          case 'delete_relationship':
+          case 'update_relationship': {
+            // Permission accounting above recognises this operation, but the
+            // transaction executor has no implementation for it yet.
+            throw new Error(`Operation type not supported in transactions: ${op.type}`);
+          }
+
+          case 'delete_relationship': {
             const deleteRelData = op.data as { cause_event_id: string; effect_event_id: string };
-            await req.container.causalService.removeCausalLink(
+            await req.container.causalService.deleteCausalLink(
               deleteRelData.cause_event_id,
               deleteRelData.effect_event_id
             );
             opResult = { success: true, id: `${deleteRelData.cause_event_id}_${deleteRelData.effect_event_id}` };
             break;
+          }
 
           default:
             throw new Error(`Unknown operation type: ${op.type}`);
@@ -566,13 +589,14 @@ batchRoutes.post(
                 case 'arc':
                   await req.container.arcRepository.delete(created.id);
                   break;
-                case 'relationship':
+                case 'relationship': {
                   // Relationship ID format: cause_effect
                   const [causeId, effectId] = created.id.split('_');
                   if (causeId && effectId) {
-                    await req.container.causalService.removeCausalLink(causeId, effectId);
+                    await req.container.causalService.deleteCausalLink(causeId, effectId);
                   }
                   break;
+                }
               }
             } catch (rollbackError) {
               logger.error('Rollback failed', rollbackError, { type: created.type, id: created.id });

@@ -60,7 +60,7 @@ export class ValidationError extends AppError {
   constructor(
     message: string,
     public readonly field?: string,
-    public readonly value?: any,
+    public readonly value?: unknown,
     public readonly validationErrors?: string[]
   ) {
     super(message);
@@ -304,7 +304,7 @@ export class ErrorHandler {
   static formatErrorResponse(error: Error): {
     message: string;
     statusCode: number;
-    details?: any;
+    details?: unknown;
   } {
     if (error instanceof AppError) {
       return {
@@ -324,8 +324,8 @@ export class ErrorHandler {
   /**
    * Get error-specific details for debugging
    */
-  private static getErrorDetails(error: AppError): any {
-    const details: any = {};
+  private static getErrorDetails(error: AppError): Record<string, unknown> | undefined {
+    const details: Record<string, unknown> = {};
 
     if (error instanceof TemporalConstraintError) {
       details.eventId = error.eventId;

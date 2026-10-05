@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { EventRepository, AdvancedEventRepository } from './EventRepository';
-import { Event, CreateEventRequest, TimeRange } from '../models/Event';
-import { DatabaseManager, initializeDatabaseManager, DatabaseConfig } from '../utils/database';
+import { CreateEventRequest, TimeRange } from '../models/Event';
+import { DatabaseManager, LocalDatabaseManager, initializeDatabaseManager, DatabaseConfig } from '../utils/database';
 import { initializeSchema } from '../utils/schema';
 
 // Test configuration
@@ -20,7 +20,9 @@ const testConfig: DatabaseConfig = {
 };
 
 describe('EventRepository Integration Tests', () => {
-  let databaseManager: DatabaseManager;
+  // initializeDatabaseManager() returns a LocalDatabaseManager when the app runs in
+  // local-execution mode, so the test variable has to allow both implementations.
+  let databaseManager: DatabaseManager | LocalDatabaseManager;
   let eventRepository: EventRepository;
 
   beforeAll(async () => {
@@ -30,7 +32,7 @@ describe('EventRepository Integration Tests', () => {
   });
 
   beforeEach(async () => {
-    eventRepository = new EventRepository();
+    eventRepository = new EventRepository(databaseManager);
     
     // Clean up existing test data
     const session = databaseManager.getNeo4jSession();
@@ -280,7 +282,7 @@ describe('EventRepository Integration Tests', () => {
 });
 
 describe('AdvancedEventRepository Integration Tests', () => {
-  let databaseManager: DatabaseManager;
+  let databaseManager: DatabaseManager | LocalDatabaseManager;
   let advancedRepository: AdvancedEventRepository;
 
   beforeAll(async () => {
@@ -289,7 +291,7 @@ describe('AdvancedEventRepository Integration Tests', () => {
   });
 
   beforeEach(async () => {
-    advancedRepository = new AdvancedEventRepository();
+    advancedRepository = new AdvancedEventRepository(databaseManager);
     
     // Clean up and create test data
     const session = databaseManager.getNeo4jSession();
@@ -319,7 +321,8 @@ describe('AdvancedEventRepository Integration Tests', () => {
     ];
 
     for (const eventData of testEvents) {
-      const event = new Event({ ...eventData, id: `advanced_${Date.now()}_${Math.random()}` });
+      // The Event instance is not needed here: create() builds its own Event from the
+      // request and persists it, so constructing one up front would be dead work.
       await advancedRepository.create(eventData);
     }
   });

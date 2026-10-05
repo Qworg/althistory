@@ -7,7 +7,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { GraphRepository } from '../repositories/GraphRepository';
 import { ResolvedGraphData } from '../repositories/VersionRepository';
-import { IGraph } from '../models/Graph';
 import { ExportFilters } from '../models/AsyncJob';
 
 /**

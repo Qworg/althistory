@@ -7,8 +7,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { JobRepository, JobFilter, JobStats } from './JobRepository';
-import { AsyncJob, IAsyncJob, JobType, JobStatus, CreateJobData, ExportJobParams } from '../models/AsyncJob';
+import { JobRepository } from './JobRepository';
+import { AsyncJob, IAsyncJob, CreateJobData } from '../models/AsyncJob';
 
 // Mock the fs module
 vi.mock('fs', () => ({
@@ -491,7 +491,7 @@ describe('JobRepository Unit Tests', () => {
 
   describe('getNextPending()', () => {
     it('should return oldest pending job', async () => {
-      const job1 = await repository.create({
+      await repository.create({
         type: 'export',
         parameters: { type: 'export', graphId: 'g1', scope: 'full', includeProvenance: false },
       });
@@ -736,7 +736,7 @@ describe('JobRepository Unit Tests', () => {
 
       job.start();
       // Manually set startedAt to past time
-      (job as any).startedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 1 hour ago
+      job.startedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 1 hour ago
       await repository.update(job);
 
       const stalled = await repository.findStalledJobs(30 * 60 * 1000); // 30 min threshold
@@ -760,7 +760,7 @@ describe('JobRepository Unit Tests', () => {
     });
 
     it('should not include non-processing jobs', async () => {
-      const job = await repository.create({
+      await repository.create({
         type: 'export',
         parameters: { type: 'export', graphId: 'g1', scope: 'full', includeProvenance: false },
       });
@@ -778,7 +778,7 @@ describe('JobRepository Unit Tests', () => {
 
       job.start();
       // Set startedAt to 31 minutes ago (default is 30 min)
-      (job as any).startedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+      job.startedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
       await repository.update(job);
 
       const stalled = await repository.findStalledJobs();
@@ -795,7 +795,7 @@ describe('JobRepository Unit Tests', () => {
       });
 
       job.start();
-      (job as any).startedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      job.startedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       await repository.update(job);
 
       const count = await repository.recoverStalledJobs(30 * 60 * 1000);
@@ -817,11 +817,11 @@ describe('JobRepository Unit Tests', () => {
       });
 
       job1.start();
-      (job1 as any).startedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      job1.startedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       await repository.update(job1);
 
       job2.start();
-      (job2 as any).startedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      job2.startedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       await repository.update(job2);
 
       const count = await repository.recoverStalledJobs(30 * 60 * 1000);

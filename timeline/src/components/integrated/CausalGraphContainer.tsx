@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { useEvents, useCausalRelationships } from '@/hooks/useApiData';
 
 interface CausalGraphContainerProps {
+  /** Reserved for wiring up event selection; not rendered yet. */
   onEventSelect?: (eventId: string) => void;
 }
 
-export const CausalGraphContainer: React.FC<CausalGraphContainerProps> = ({ onEventSelect }) => {
+export const CausalGraphContainer: React.FC<CausalGraphContainerProps> = () => {
   const [minWeight, setMinWeight] = useState(0);
   const { data: eventsData, loading: eventsLoading, error: eventsError } = useEvents();
   const { data: relationshipsData, loading: relationshipsLoading, error: relationshipsError } = useCausalRelationships();

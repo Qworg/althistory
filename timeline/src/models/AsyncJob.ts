@@ -84,11 +84,24 @@ export interface ExtractionContext {
   instructions?: string;
 }
 
+/**
+ * A job error or warning. Export and ingest jobs report plain strings; the
+ * import job stores its own ImportResult here, whose errors and warnings carry
+ * `path`, `message` and `code`.
+ *
+ * The value is passed through to API responses unchanged (see the export and
+ * import routes, which return `job.result` verbatim), so this type describes
+ * what is actually stored rather than forcing the import path into a lossy
+ * string shape or lying about the runtime shape.
+ */
+export type JobErrorEntry = string | { path: string; message: string; code: string };
+export type JobWarningEntry = string | { path: string; message: string; code: string };
+
 export interface JobResult {
   outputPath?: string;
   summary?: Record<string, unknown>;
-  errors?: string[];
-  warnings?: string[];
+  errors?: JobErrorEntry[];
+  warnings?: JobWarningEntry[];
 }
 
 /**

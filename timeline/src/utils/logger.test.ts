@@ -1,10 +1,43 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Logger, createLogger, SilentLogger, silentLogger, LogEntry, LogLevel } from './logger';
+import type { MockInstance } from 'vitest';
+import { Logger, SilentLogger, silentLogger, LogEntry, ILogger } from './logger';
+
+/**
+ * Signature of the spied `console` methods, so the mock instances keep the
+ * argument types of what they replace instead of collapsing to `unknown`.
+ */
+type ConsoleSpy = MockInstance<[message?: unknown, ...optionalParams: unknown[]], void>;
+
+/**
+ * Shape of a JSON log line as emitted by `Logger` in JSON format.
+ */
+interface JsonLogEntry {
+  level?: string;
+  message?: string;
+  timestamp?: string;
+  context?: Record<string, unknown>;
+  error?: {
+    name?: string;
+    message?: string;
+    stack?: string;
+  };
+}
 
 describe('Logger', () => {
-  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
-  let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
-  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+  let consoleLogSpy: ConsoleSpy;
+  let consoleWarnSpy: ConsoleSpy;
+  let consoleErrorSpy: ConsoleSpy;
+
+  /**
+   * Parse the first argument captured by a console spy. `console.log` receives
+   * untyped arguments, so the payload has to be checked before parsing.
+   */
+  const parseLoggedJson = (value: unknown): JsonLogEntry => {
+    if (typeof value !== 'string') {
+      throw new TypeError(`Expected a logged string, received ${typeof value}`);
+    }
+    return JSON.parse(value) as JsonLogEntry;
+  };
 
   beforeEach(() => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -75,7 +108,7 @@ describe('Logger', () => {
       
       expect(consoleLogSpy).toHaveBeenCalled();
       const output = consoleLogSpy.mock.calls[0][0];
-      const parsed = JSON.parse(output);
+      const parsed = parseLoggedJson(output);
       
       expect(parsed.level).toBe('info');
       expect(parsed.message).toBe('test message');
@@ -89,11 +122,11 @@ describe('Logger', () => {
       logger.error('error occurred', error);
       
       const output = consoleErrorSpy.mock.calls[0][0];
-      const parsed = JSON.parse(output);
+      const parsed = parseLoggedJson(output);
       
-      expect(parsed.error.name).toBe('Error');
-      expect(parsed.error.message).toBe('test error');
-      expect(parsed.error.stack).toBeDefined();
+      expect(parsed.error?.name).toBe('Error');
+      expect(parsed.error?.message).toBe('test error');
+      expect(parsed.error?.stack).toBeDefined();
     });
   });
 
@@ -249,7 +282,9 @@ describe('Logger', () => {
 
   describe('SilentLogger', () => {
     it('should not output anything', () => {
-      const silent = new SilentLogger();
+      // Exercise SilentLogger through the ILogger contract it implements: its
+      // no-op methods accept the same arguments a real logger receives.
+      const silent: ILogger = new SilentLogger();
       silent.debug('debug');
       silent.info('info');
       silent.warn('warn');
@@ -261,7 +296,7 @@ describe('Logger', () => {
     });
 
     it('should return itself when creating child', () => {
-      const silent = new SilentLogger();
+      const silent: ILogger = new SilentLogger();
       const child = silent.child({ component: 'test' });
       expect(child).toBe(silent);
     });

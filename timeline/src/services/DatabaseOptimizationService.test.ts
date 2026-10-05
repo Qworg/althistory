@@ -39,8 +39,9 @@ describe('DatabaseOptimizationService', () => {
       expect(mockSession.close).toHaveBeenCalled();
 
       // Check some specific index creations
-      const calls = mockSession.run.mock.calls;
-      const indexQueries = calls.map(call => call[0]);
+      const indexQueries: string[] = mockSession.run.mock.calls.map(
+        (call: [string]) => call[0]
+      );
 
       expect(indexQueries.some(query => 
         query.includes('event_timestamp_actor')
@@ -159,8 +160,7 @@ describe('DatabaseOptimizationService', () => {
 
       await expect(service.executeOptimizedQuery(
         'MATCH (e:Event) RETURN e',
-        {},
-        undefined
+        {}
       )).rejects.toThrow('Query timeout exceeded');
     });
   });

@@ -2,7 +2,7 @@
  * API key management routes
  */
 
-import { Router, Response, RequestHandler, NextFunction } from 'express';
+import { Router, Response, RequestHandler } from 'express';
 import {
   AuthenticatedRequest,
   authenticate,
@@ -14,7 +14,7 @@ import {
 import { CreateApiKeyRequest, UpdateApiKeyRequest, Permission } from '@/models/ApiKey';
 import { createLogger } from '@/utils/logger';
 
-const logger = createLogger({ component: 'KeyRoutes' });
+const logger = createLogger('KeyRoutes');
 
 export const keyRoutes = Router();
 

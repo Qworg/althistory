@@ -38,8 +38,12 @@ if (!process.env.REDIS_PORT) {
 
 // Global test timeout for database operations
 const originalTimeout = setTimeout;
-global.setTimeout = (fn: any, delay: number) => {
-  // Reduce timeouts in test environment to fail faster
-  const testDelay = Math.min(delay, 5000);
-  return originalTimeout(fn, testDelay);
-};
+// `Object.assign` keeps the *type* of the global identical to Node's
+// `setTimeout` (which carries extra members such as `__promisify__`, so a bare
+// replacement arrow function is not assignable) while installing the capped
+// implementation as the callable.
+global.setTimeout = Object.assign(
+  (callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) =>
+    originalTimeout(callback, Math.min(delay ?? 0, 5000), ...args),
+  setTimeout
+);

@@ -1,14 +1,10 @@
-import { Session } from 'neo4j-driver';
 import { RedisClientType } from 'redis';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { getDatabaseManager } from './database';
 import { getCacheManager, RedisCache } from './cache';
-import { LocalGraphStore, GraphNode, GraphRelationship } from './LocalGraphStore';
+import { GraphNode, GraphRelationship, GraphProperties } from './LocalGraphStore';
 import { loadConfig } from './config';
-import { Event } from '../models/Event';
-import { Arc } from '../models/Arc';
-import { InferredPressure } from '../models/InferredPressure';
 
 /**
  * Export format for graph data migration
@@ -27,11 +23,27 @@ export interface GraphExportData {
 }
 
 /**
+ * Neo4j driver `Integer` value: the driver returns these for integers unless
+ * lossless integers are disabled.
+ */
+interface Neo4jIntegerLike {
+  toNumber(): number;
+}
+
+function isNeo4jIntegerLike(value: GraphProperties[string]): value is GraphProperties[string] & Neo4jIntegerLike {
+  return typeof value === 'object' && value !== null && 'toNumber' in value && typeof value.toNumber === 'function';
+}
+
+/**
  * Cache export entry format
  */
 export interface CacheExportEntry {
   key: string;
-  value: any;
+  /**
+   * Opaque cached payload. Cache values are arbitrary application data, so the
+   * export format carries them without interpreting their shape.
+   */
+  value: unknown;
   expiration: number;
   accessTime?: number;
 }
@@ -497,26 +509,36 @@ export class DataMigrationUtility {
   /**
    * Convert Neo4j properties to plain JavaScript objects
    */
-  private convertNeo4jProperties(properties: Record<string, any>): Record<string, any> {
-    const converted: Record<string, any> = {};
-    
+  private convertNeo4jProperties(properties: GraphProperties): GraphProperties {
+    const converted: GraphProperties = {};
+
     for (const [key, value] of Object.entries(properties)) {
-      if (value && typeof value === 'object') {
-        // Handle Neo4j Integer objects first (they also have toString)
-        if (value.toNumber && typeof value.toNumber === 'function') {
-          converted[key] = value.toNumber();
-        } else if (value.toString && typeof value.toString === 'function') {
-          // Handle Neo4j DateTime objects
-          converted[key] = value.toString();
-        } else {
-          converted[key] = value;
-        }
-      } else {
-        converted[key] = value;
-      }
+      converted[key] = this.convertNeo4jProperty(value);
     }
-    
+
     return converted;
+  }
+
+  /**
+   * Flatten a Neo4j property value to a plain JavaScript value: driver
+   * `Integer`s become numbers, temporal/spatial values become their string
+   * form, and everything else is returned untouched.
+   */
+  private convertNeo4jProperty(value: GraphProperties[string]): GraphProperties[string] {
+    if (value === null || typeof value !== 'object') {
+      return value;
+    }
+
+    // Neo4j Integer objects first (they also expose toString)
+    if (isNeo4jIntegerLike(value)) {
+      return value.toNumber();
+    }
+
+    if (typeof value.toString === 'function') {
+      return value.toString();
+    }
+
+    return value;
   }
 
   /**

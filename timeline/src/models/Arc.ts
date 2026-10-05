@@ -21,7 +21,7 @@ export interface IArc {
   level: number;
   
   /** Additional metadata for the arc */
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -34,7 +34,7 @@ export class Arc implements IArc {
   public readonly start_time: Date;
   public readonly end_time: Date;
   public readonly level: number;
-  public readonly metadata?: Record<string, any>;
+  public readonly metadata?: Record<string, unknown>;
 
   constructor(data: CreateArcRequest & { id?: string }) {
     // Generate ID if not provided
@@ -195,7 +195,7 @@ export interface CreateArcRequest {
   start_time: Date;
   end_time: Date;
   level: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -207,7 +207,7 @@ export interface UpdateArcRequest {
   start_time?: Date;
   end_time?: Date;
   level?: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**

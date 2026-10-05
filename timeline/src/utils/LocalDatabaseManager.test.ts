@@ -86,8 +86,10 @@ describe('LocalDatabaseManager', () => {
       expect(initialStats.inUse).toBe(0);
       expect(initialStats.total).toBe(1);
 
-      const session1 = dbManager.getNeo4jSession();
-      const session2 = dbManager.getNeo4jSession();
+      // Opening sessions is the side effect under test; the handles themselves
+      // are not needed here.
+      const _session1 = dbManager.getNeo4jSession();
+      const _session2 = dbManager.getNeo4jSession();
 
       const statsAfterSessions = dbManager.getConnectionPoolStats();
       expect(statsAfterSessions.inUse).toBe(2);
@@ -209,8 +211,10 @@ describe('LocalDatabaseManager', () => {
     it('should update statistics when creating sessions', () => {
       const initialStats = dbManager.getConnectionPoolStats();
       
-      const session1 = dbManager.getNeo4jSession();
-      const session2 = dbManager.getNeo4jSession();
+      // Opening sessions is the side effect under test; the handles themselves
+      // are not needed here.
+      const _session1 = dbManager.getNeo4jSession();
+      const _session2 = dbManager.getNeo4jSession();
       
       const updatedStats = dbManager.getConnectionPoolStats();
       expect(updatedStats.inUse).toBe(initialStats.inUse + 2);

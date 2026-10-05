@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { BackupRecoveryService, BackupMetadata } from './BackupRecoveryService';
-import { LocalGraphStore } from '../utils/LocalGraphStore';
 import { LocalCacheStore, getCacheManager } from '../utils/cache';
 import { loadConfig } from '../utils/config';
 import { BackupError, RecoveryError, DataCorruptionError } from '../utils/errors';

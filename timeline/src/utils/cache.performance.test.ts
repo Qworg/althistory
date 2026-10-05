@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { RedisCache, MemoryCache, CacheKeyGenerator } from './cache';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { MemoryCache, CacheKeyGenerator } from './cache';
 import { performance } from 'perf_hooks';
 
 describe('Cache Performance Tests', () => {
@@ -282,7 +282,7 @@ describe('Cache Performance Tests', () => {
       
       // Test retrieving large dataset
       const getStart = performance.now();
-      const retrieved = await cache.get(cacheKey);
+      const retrieved = await cache.get<typeof largeDataset>(cacheKey);
       const getEnd = performance.now();
       
       // Both operations should be reasonably fast
@@ -290,6 +290,10 @@ describe('Cache Performance Tests', () => {
       expect(getEnd - getStart).toBeLessThan(50);  // Less than 50ms to retrieve
       
       // Data should be intact
+      expect(retrieved).not.toBeNull();
+      if (!retrieved) {
+        throw new Error(`Expected the cached dataset for ${cacheKey} to be retrievable`);
+      }
       expect(retrieved).toHaveLength(10000);
       expect(retrieved[0].id).toBe('event-0');
       expect(retrieved[9999].id).toBe('event-9999');

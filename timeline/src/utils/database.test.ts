@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { DatabaseManager, DatabaseConfig, initializeDatabaseManager, getDatabaseManager } from './database';
+import { DatabaseManager, getDatabaseManager } from './database';
 import { SchemaManager, initializeSchema, validateSchema } from './schema';
-import { getTestConfig, isNeo4jAvailable, isRedisAvailable, createTestDatabaseManager } from './test-utils';
+import { getTestConfig, isNeo4jAvailable, createTestDatabaseManager } from './test-utils';
 
 describe('DatabaseManager', () => {
   let databaseManager: DatabaseManager | null = null;
@@ -75,6 +75,11 @@ describe('DatabaseManager', () => {
 
   describe('Redis Connection', () => {
     it('should initialize Redis connection successfully', async () => {
+      if (!databaseManager) {
+        console.warn('Database manager not available, skipping test');
+        return;
+      }
+
       try {
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Redis connection timeout')), 2000);
@@ -92,6 +97,11 @@ describe('DatabaseManager', () => {
     }, 3000);
 
     it('should provide a valid Redis client', async () => {
+      if (!databaseManager) {
+        console.warn('Database manager not available, skipping test');
+        return;
+      }
+
       try {
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Redis operation timeout')), 2000);
@@ -124,6 +134,11 @@ describe('DatabaseManager', () => {
 
   describe('Health Check', () => {
     it('should perform health check on both connections', async () => {
+      if (!databaseManager) {
+        console.warn('Database manager not available, skipping test');
+        return;
+      }
+
       try {
         await databaseManager.initializeNeo4j();
         await databaseManager.initializeRedis();

@@ -355,7 +355,6 @@ arcRoutes.post('/:id/validate-hierarchy', async (req: RequestWithContainer, res:
     }
 
     const repository = req.container.arcRepository;
-    const temporalService = req.container.temporalService;
     
     // Get the arc
     const arc = await repository.findById(id);
