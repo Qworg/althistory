@@ -574,26 +574,47 @@ export class MemoryCache implements CacheManager {
     totalOperations: 0
   };
   private responseTimes: number[] = [];
+  /**
+   * Write position for the responseTimes ring buffer. Once the buffer is full
+   * we overwrite the oldest entry in place; slicing a 1000-element array on
+   * every read (the previous approach) made each cached read O(n).
+   */
+  private responseTimesIndex = 0;
+
+  /**
+   * Whether every read records a response time. Defaults to true, which is the
+   * production behaviour. Passing false skips the timing work entirely, which
+   * is what makes the cost of metrics tracking measurable in
+   * cache.performance.test.ts — without it, a "metrics disabled" run and a
+   * "metrics enabled" run do identical work and any measured difference is
+   * pure scheduler noise.
+   */
+  private readonly trackMetrics: boolean;
+
+  constructor(options: { trackMetrics?: boolean } = {}) {
+    this.trackMetrics = options.trackMetrics !== false;
+  }
 
   /**
    * Get value from cache with performance tracking
    */
   async get<T>(key: string): Promise<T | null> {
-    const startTime = Date.now();
+    const track = this.trackMetrics;
+    const startTime = track ? Date.now() : 0;
     const item = this.cache.get(key);
-    
+
     if (!item) {
-      this.updateMetrics(startTime, false);
+      if (track) this.updateMetrics(startTime, false);
       return null;
     }
 
     if (Date.now() > item.expiration) {
       this.cache.delete(key);
-      this.updateMetrics(startTime, false);
+      if (track) this.updateMetrics(startTime, false);
       return null;
     }
 
-    this.updateMetrics(startTime, true);
+    if (track) this.updateMetrics(startTime, true);
     return item.value;
   }
 
@@ -641,7 +662,15 @@ export class MemoryCache implements CacheManager {
    * Get cache performance metrics
    */
   getMetrics(): CacheMetrics {
-    return { ...this.metrics };
+    // Average is computed on demand rather than maintained on every read: it
+    // used to reduce over the whole buffer per read, which cost O(n) per
+    // cached lookup.
+    return {
+      ...this.metrics,
+      averageResponseTime: this.responseTimes.length === 0
+        ? 0
+        : this.responseTimes.reduce((sum, time) => sum + time, 0) / this.responseTimes.length
+    };
   }
 
   /**
@@ -656,6 +685,7 @@ export class MemoryCache implements CacheManager {
       totalOperations: 0
     };
     this.responseTimes = [];
+    this.responseTimesIndex = 0;
   }
 
   /**
@@ -670,12 +700,16 @@ export class MemoryCache implements CacheManager {
    */
   private updateMetrics(startTime: number, isHit: boolean): void {
     const responseTime = Date.now() - startTime;
-    this.responseTimes.push(responseTime);
-    
-    // Keep only last 1000 response times for rolling average
-    if (this.responseTimes.length > 1000) {
-      this.responseTimes = this.responseTimes.slice(-1000);
+
+    // Keep only the last 1000 response times for the rolling average, using a
+    // ring buffer so a full buffer costs O(1) per write instead of allocating
+    // and copying a fresh 1000-element array on every single read.
+    if (this.responseTimes.length < 1000) {
+      this.responseTimes.push(responseTime);
+    } else {
+      this.responseTimes[this.responseTimesIndex] = responseTime;
     }
+    this.responseTimesIndex = (this.responseTimesIndex + 1) % 1000;
 
     this.metrics.totalOperations++;
     
@@ -686,7 +720,6 @@ export class MemoryCache implements CacheManager {
     }
 
     this.metrics.hitRate = this.metrics.hits / this.metrics.totalOperations;
-    this.metrics.averageResponseTime = this.responseTimes.reduce((sum, time) => sum + time, 0) / this.responseTimes.length;
   }
 }
 

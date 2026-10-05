@@ -152,41 +152,80 @@ describe('Cache Performance Tests', () => {
     });
 
     it('should track metrics without significant performance impact', async () => {
-      const operations = 1000;
-      
-      // Baseline: operations without metrics
-      cache.resetMetrics();
-      const baselineStart = performance.now();
-      
-      for (let i = 0; i < operations; i++) {
-        await cache.set(`baseline-${i}`, { data: i });
-        await cache.get(`baseline-${i}`);
+      // 1000 operations measured only ~0.5ms of CPU, which is small enough that
+      // the ratio of baseline to tracked is dominated by timer noise. Size the
+      // workload so both sides are measured well clear of that floor.
+      const operations = 20000;
+      const rounds = 3;
+
+      // MemoryCache is an in-memory Map, so this workload is CPU-bound and the
+      // meaningful cost is CPU time, not wall-clock. Wall-clock additionally
+      // counts time the process spends descheduled, so a busy machine (or
+      // running the backend and frontend suites concurrently) inflates the
+      // ratio without any real slowdown. process.cpuUsage() counts only work
+      // actually performed.
+      const runLoop = async (target: MemoryCache): Promise<number> => {
+        const cpuStart = process.cpuUsage();
+        for (let i = 0; i < operations; i++) {
+          await target.set(`key-${i}`, { data: i });
+          await target.get(`key-${i}`);
+        }
+        const cpuEnd = process.cpuUsage(cpuStart);
+        return (cpuEnd.user + cpuEnd.system) / 1e6; // seconds
+      };
+
+      // Two independent caches: identical in every way except whether reads
+      // record a response time.
+      const withoutMetrics = new MemoryCache({ trackMetrics: false });
+      const withMetrics = new MemoryCache({ trackMetrics: true });
+
+      // Warm up both paths so V8 has optimised them before we measure.
+      await runLoop(withoutMetrics);
+      await runLoop(withMetrics);
+
+      // Discard the warm-up so the counters below reflect the measured rounds.
+      withoutMetrics.resetMetrics();
+      withMetrics.resetMetrics();
+
+      // Interleave the two variants and take the minimum of each. Interleaving
+      // keeps heap growth comparable between them, and a fresh cache per round
+      // stops the Map and the responseTimes array from growing across rounds.
+      // Noise can only ever make a measurement slower, so the minimum is the
+      // least-contaminated estimate of the true cost.
+      let baselineDuration = Infinity;
+      let metricsDuration = Infinity;
+
+      for (let round = 0; round < rounds; round++) {
+        await withoutMetrics.clear();
+        await withMetrics.clear();
+
+        const baseline = await runLoop(withoutMetrics);
+        await withoutMetrics.clear();
+        await withMetrics.clear();
+        const tracked = await runLoop(withMetrics);
+
+        baselineDuration = Math.min(baselineDuration, baseline);
+        metricsDuration = Math.min(metricsDuration, tracked);
       }
-      
-      const baselineEnd = performance.now();
-      const baselineDuration = baselineEnd - baselineStart;
-      
-      // With metrics tracking
-      cache.resetMetrics();
-      const metricsStart = performance.now();
-      
-      for (let i = 0; i < operations; i++) {
-        await cache.set(`metrics-${i}`, { data: i });
-        await cache.get(`metrics-${i}`);
-      }
-      
-      const metricsEnd = performance.now();
-      const metricsDuration = metricsEnd - metricsStart;
-      
-      // Metrics tracking should not add more than 100% overhead
-      // Note: Using higher threshold for CI environments with variable load
+
+      // Regression guard, not a precise benchmark.
+      //
+      // Measured overhead on an idle machine is ~0.13 (median), and ~0.25 at
+      // worst; under heavy CPU contention the ratio scatters up to ~1.1 in
+      // either direction. The previous bound of 1.0 therefore failed roughly
+      // 1 run in 10 on a loaded CI box, purely from scheduling noise.
+      //
+      // 3.0 is still ~20x the measured median, and it still catches the
+      // regression this guard exists for: the previous implementation copied a
+      // 1000-element array on every read and measured 22.4, so reintroducing
+      // any O(n)-per-read behaviour still fails loudly.
       const overhead = (metricsDuration - baselineDuration) / baselineDuration;
-      expect(overhead).toBeLessThan(1.0);
-      
-      // Verify metrics are accurate
-      const metrics = cache.getMetrics();
-      expect(metrics.totalOperations).toBe(operations);
-      expect(metrics.hits).toBe(operations);
+      expect(overhead).toBeLessThan(3.0);
+
+      // Verify metrics are accurate on the tracking cache
+      const metrics = withMetrics.getMetrics();
+      expect(metrics.totalOperations).toBe(operations * rounds);
+      expect(metrics.hits).toBe(operations * rounds);
       expect(metrics.hitRate).toBe(1.0);
     });
 
