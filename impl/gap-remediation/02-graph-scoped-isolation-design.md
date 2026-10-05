@@ -235,14 +235,52 @@ a silent leak.
 
 ---
 
-## 9. Open questions
+## 9. Decisions and remaining questions
 
-1. **Header vs path scoping.** Recommended header (§5.1) for minimal blast radius; path-based
-   `/api/graphs/:graphId/...` is more canonical. Worth confirming, since it is a public API shape and
-   changing it later is a breaking change.
-2. **Remove the global repository accessors entirely, or keep them for non-request use?** Depends on
-   whether any test or CLI path genuinely needs unscoped access. Grep-driven during task 3.
-3. **Legacy adoption vs start-empty** (§5.4). Adoption keeps local dev and fixtures working; starting
-   empty is simpler and, with no users, defensible.
-4. **Should pressures be versioned per graph too?** `EntityType` already includes `'pressure'`, so the
-   version side does; confirm the live side stores them per store rather than globally.
+### Resolved
+
+**Q1 — Header, not path. DECIDED.** Scoping is an `X-Graph-Id` header, falling back to the active
+graph, then 404. Rationale: it applies uniformly to every verb without changing any URL or frontend
+call site, it is explicit per request so it cannot race across concurrent requests the way ambient
+active-graph scoping would, and the SPA already models a single active graph. The path form
+(`/api/graphs/:graphId/events`) is more canonical REST but is public API shape and breaking to change
+later; it remains a clean follow-on precisely because scoping moves into middleware either way.
+
+### Storage backend is orthogonal to this decision
+
+Worth stating explicitly, because "graph" is overloaded in this repo:
+
+- **A *managed graph*** (this document) is a saved dataset — a workspace with its own version history,
+  the unit `graphId` addresses. Like a document or a git branch.
+- **A *causal graph*** is the visualisation of causal relationships between events, rendered in the
+  frontend with Cytoscape. Unrelated concept, different meaning of the same word.
+
+The header decision does not depend on which storage backend serves a managed graph. It answers "which
+graph does this request target"; how a store implements that scoping sits behind the interface in
+§5.2. That is deliberate — it is what makes changing the backend later cheap.
+
+If the backend does move to a graph database (the codebase already depends on `neo4j-driver` and
+`redis`; cloud mode exists in config but the I/O services are not initialised there — gap M4), then:
+
+- `GraphContextStore` (§5.2) gains a second implementation: resolve a scoped session/query instead of
+a scoped file. Its interface and every call site are unchanged.
+- **One database per graph is the closest analogue** to one file per graph, but is edition-dependent
+(Neo4j Community allows a single user database; multiple databases need Enterprise). So scoping by
+label or property is the safer assumption, which is exactly Option A from §4 — acceptable in the
+cloud path *because* the interface, not the call site, enforces it.
+- No route, middleware, or frontend change. The wire contract (`X-Graph-Id`) is unaffected by the
+storage engine underneath.
+
+### Remaining (recommendations below; implementer may deviate with a stated reason)
+
+**Q2 — Global repository accessors.** Recommend keeping them but removing them from request-reachable
+paths, then grepping for remaining consumers. If only tests and CLI paths use them, keep them for that
+purpose; if nothing does, delete them. The goal is that no *handler* can reach an unscoped read.
+
+**Q3 — Legacy `data/graph.json`.** Recommend adoption (design §5.4): assign its contents to the active
+graph on first run, create a default graph if none exists, and leave the legacy file as a backup. It
+costs little and keeps local dev and existing fixtures working. Starting empty is also defensible with
+no users; either is fine, but adoption is the kinder default for whoever runs this locally next.
+
+**Q4 — Pressures.** Confirm the live side stores pressures per graph rather than globally.
+`EntityType` already includes `'pressure'`, so the version side does; the live side must match.
