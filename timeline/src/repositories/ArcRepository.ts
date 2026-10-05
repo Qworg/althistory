@@ -1,9 +1,131 @@
-import { Session, Record as Neo4jRecord, Integer } from 'neo4j-driver';
-import { Arc, IArc, CreateArcRequest, UpdateArcRequest } from '../models/Arc';
+import { Session, Integer } from 'neo4j-driver';
+import { Arc, CreateArcRequest, UpdateArcRequest } from '../models/Arc';
 import { TimeRange } from '../models/Event';
 import { DatabaseManager, LocalDatabaseManager, LocalSession } from '../utils/database';
 
 type AnySession = Session | LocalSession;
+
+/**
+ * The read surface both record classes share.
+ *
+ * `Session.run` and `LocalSession.run` return different record classes, and both
+ * declare `get` as an overload set. Calling `get` on the union therefore only
+ * resolves the positional overload, so every read goes through this interface
+ * instead: the lookup stays string-keyed and the value arrives as `unknown` and
+ * is validated once, here, rather than at each use site.
+ */
+interface QueryRecord {
+  get(key: string): unknown;
+}
+
+/** Result set whose records expose {@link QueryRecord}. */
+interface QueryResultLike {
+  records: readonly QueryRecord[];
+}
+
+/** A node as projected by `RETURN a` / `RETURN child` / `RETURN parent`. */
+interface GraphNode {
+  properties: Record<string, unknown>;
+}
+
+/** A Cypher integer column (`count(...)`); LocalGraphStore returns plain numbers. */
+interface IntegerLike {
+  toNumber(): number;
+}
+
+function isIntegerLike(value: unknown): value is IntegerLike {
+  return typeof value === 'object' && value !== null
+    && 'toNumber' in value && typeof value.toNumber === 'function';
+}
+
+function isPropertyBag(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isGraphNode(value: unknown): value is GraphNode {
+  return isPropertyBag(value) && 'properties' in value && isPropertyBag(value.properties);
+}
+
+/** Reads a named column from a record. */
+function readField(record: QueryRecord, key: string): unknown {
+  return record.get(key);
+}
+
+/** Reads a named column from the first record of a result set. */
+function readFirstField(result: QueryResultLike, key: string): unknown {
+  const record = result.records[0];
+  return record === undefined ? undefined : readField(record, key);
+}
+
+/**
+ * Reads a numeric column. Cypher returns `count(...)` as an `Integer`, while
+ * LocalGraphStore stores the JS number it was given, so both encodings occur.
+ */
+function readNumber(value: unknown, field: string): number {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (isIntegerLike(value)) {
+    return value.toNumber();
+  }
+  throw new TypeError(`Record property "${field}" must be a number`);
+}
+
+/**
+ * Reads a count column, defaulting to 0 when the result set is empty.
+ */
+function readCount(result: QueryResultLike, key: string): number {
+  const value = readFirstField(result, key);
+  if (value === undefined || value === null) {
+    return 0;
+  }
+  return readNumber(value, key);
+}
+
+/**
+ * Reads a required string column.
+ */
+function readString(value: unknown, field: string): string {
+  if (typeof value !== 'string') {
+    throw new TypeError(`Record property "${field}" must be a string`);
+  }
+  return value;
+}
+
+/**
+ * Reads an optional string column. A missing or non-string value becomes
+ * `undefined`, which the model then handles exactly as a missing column.
+ */
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Reads the metadata property bag. Falsy metadata becomes an empty object; a
+ * truthy non-object is rejected rather than silently coerced.
+ */
+function readMetadata(value: unknown, field: string): Record<string, unknown> {
+  if (!value) {
+    return {};
+  }
+  if (!isPropertyBag(value)) {
+    throw new TypeError(`Record property "${field}" must be an object`);
+  }
+  return value;
+}
+
+/**
+ * Reads a temporal column. The driver projects `datetime(...)` as a DateTime
+ * object and LocalGraphStore keeps the ISO string it was handed; `String(value)`
+ * performs the same `toString()` conversion the previous implementation used for
+ * both encodings.
+ */
+function readDate(value: unknown, field: string): Date {
+  if (value === null || value === undefined) {
+    throw new TypeError(`Record property "${field}" is missing`);
+  }
+  return new Date(String(value));
+}
 
 /**
  * Repository for Arc operations using Neo4j or LocalGraphStore
@@ -11,7 +133,14 @@ type AnySession = Session | LocalSession;
 export class ArcRepository {
   protected databaseManager: DatabaseManager | LocalDatabaseManager;
 
-  constructor(databaseManager: DatabaseManager | LocalDatabaseManager, validationService?: any, temporalService?: any, cacheService?: any) {
+  constructor(
+    databaseManager: DatabaseManager | LocalDatabaseManager,
+    // Kept for the DI container in src/container.ts, which still passes these.
+    // The repository never reads them, so they are typed as `unknown`.
+    _validationService?: unknown,
+    _temporalService?: unknown,
+    _cacheService?: unknown
+  ) {
     this.databaseManager = databaseManager;
   }
 
@@ -105,7 +234,7 @@ export class ArcRepository {
       ORDER BY a.level ASC, a.start_time ASC
     `;
 
-    const parameters: Record<string, any> = {};
+    const parameters: Record<string, unknown> = {};
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -134,7 +263,7 @@ export class ArcRepository {
       ORDER BY a.start_time ASC
     `;
 
-    const parameters: Record<string, any> = { level };
+    const parameters: Record<string, unknown> = { level };
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -164,7 +293,7 @@ export class ArcRepository {
       ORDER BY a.start_time ASC
     `;
 
-    const parameters: Record<string, any> = {
+    const parameters: Record<string, unknown> = {
       startTime: timeRange.start.toISOString(),
       endTime: timeRange.end.toISOString()
     };
@@ -197,7 +326,7 @@ export class ArcRepository {
       ORDER BY a.level ASC, a.start_time ASC
     `;
 
-    const parameters: Record<string, any> = {
+    const parameters: Record<string, unknown> = {
       startTime: timeRange.start.toISOString(),
       endTime: timeRange.end.toISOString()
     };
@@ -235,7 +364,7 @@ export class ArcRepository {
       ${limit !== undefined ? 'SKIP $offset LIMIT $limit' : ''}
     `;
 
-    const parameters: Record<string, any> = { parentId: parentArcId };
+    const parameters: Record<string, unknown> = { parentId: parentArcId };
 
     if (limit !== undefined) {
       parameters.limit = Integer.fromNumber(limit);
@@ -371,8 +500,7 @@ export class ArcRepository {
     const session = this.getSession();
     try {
       const result = await session.run(query, { id });
-      const deletedCount = result.records[0]?.get('deletedCount')?.toNumber?.() || result.records[0]?.get('deletedCount') || 0;
-      return deletedCount > 0;
+      return readCount(result, 'deletedCount') > 0;
     } catch (error) {
       throw new Error(`Failed to delete arc: ${error}`);
     } finally {
@@ -392,7 +520,7 @@ export class ArcRepository {
     const session = this.getSession();
     try {
       const result = await session.run(query);
-      return result.records[0]?.get('total')?.toNumber?.() || result.records[0]?.get('total') || 0;
+      return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count arcs: ${error}`);
     } finally {
@@ -412,7 +540,7 @@ export class ArcRepository {
     const session = this.getSession();
     try {
       const result = await session.run(query, { level });
-      return result.records[0]?.get('total')?.toNumber?.() || result.records[0]?.get('total') || 0;
+      return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count arcs by level: ${error}`);
     } finally {
@@ -432,7 +560,7 @@ export class ArcRepository {
     const session = this.getSession();
     try {
       const result = await session.run(query, { id });
-      return result.records[0]?.get('exists') || false;
+      return Boolean(readFirstField(result, 'exists'));
     } catch (error) {
       throw new Error(`Failed to check if arc exists: ${error}`);
     } finally {
@@ -477,10 +605,10 @@ export class ArcRepository {
       const result = await session.run(query, parameters);
 
       if (result.records.length > 0) {
-        const conflict = result.records[0];
+        const conflict: QueryRecord = result.records[0];
         throw new Error(
-          `Temporal boundary violation: Arc conflicts with existing arc "${conflict.get('conflictName')}" ` +
-          `(ID: ${conflict.get('conflictId')}, Level: ${conflict.get('conflictLevel')})`
+          `Temporal boundary violation: Arc conflicts with existing arc "${readField(conflict, 'conflictName')}" ` +
+          `(ID: ${readField(conflict, 'conflictId')}, Level: ${readField(conflict, 'conflictLevel')})`
         );
       }
     } catch (error) {
@@ -510,27 +638,24 @@ export class ArcRepository {
   /**
    * Map Neo4j record to Arc instance
    */
-  protected mapRecordToArc(record: any): Arc {
-    const node = record.get('a') || record.get('child') || record.get('parent');
+  protected mapRecordToArc(record: QueryRecord): Arc {
+    const node = readField(record, 'a') || readField(record, 'child') || readField(record, 'parent');
+    if (!isGraphNode(node)) {
+      throw new TypeError('Query record does not contain a node');
+    }
     const properties = node.properties;
 
-    // Convert Neo4j DateTime to JavaScript Date
-    const start_time = properties.start_time.toString ?
-      new Date(properties.start_time.toString()) :
-      new Date(properties.start_time);
-
-    const end_time = properties.end_time.toString ?
-      new Date(properties.end_time.toString()) :
-      new Date(properties.end_time);
-
     return new Arc({
-      id: properties.id,
-      name: properties.name,
-      description: properties.description || undefined,
-      start_time,
-      end_time,
-      level: properties.level.toNumber ? properties.level.toNumber() : properties.level,
-      metadata: properties.metadata || {}
+      id: readOptionalString(properties.id),
+      name: readString(properties.name, 'name'),
+      description: properties.description
+        ? readString(properties.description, 'description')
+        : undefined,
+      // Convert Neo4j DateTime to JavaScript Date
+      start_time: readDate(properties.start_time, 'start_time'),
+      end_time: readDate(properties.end_time, 'end_time'),
+      level: readNumber(properties.level, 'level'),
+      metadata: readMetadata(properties.metadata, 'metadata')
     });
   }
 }
@@ -566,7 +691,7 @@ export class AdvancedArcRepository extends ArcRepository {
    */
   async search(filters: ArcSearchFilters, options: ArcQueryOptions = {}): Promise<Arc[]> {
     const conditions: string[] = [];
-    const parameters: Record<string, any> = {};
+    const parameters: Record<string, unknown> = {};
 
     // Build WHERE conditions
     if (filters.name) {

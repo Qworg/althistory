@@ -2,14 +2,12 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { loadConfig } from '../utils/config';
-import { LocalGraphStore } from '../utils/LocalGraphStore';
+import { LocalGraphStore, GraphProperties } from '../utils/LocalGraphStore';
 import { getCacheManager, LocalCacheStore } from '../utils/cache';
-import { 
-  BackupError, 
-  RecoveryError, 
-  DataCorruptionError, 
-  InsufficientStorageError,
-  LocalStorageError 
+import {
+  BackupError,
+  RecoveryError,
+  DataCorruptionError
 } from '../utils/errors';
 import { createLogger, ILogger } from '../utils/logger';
 
@@ -58,6 +56,63 @@ export interface RecoveryOptions {
   verifyIntegrity?: boolean;
   createBackupBeforeRestore?: boolean;
   rollbackOnFailure?: boolean;
+}
+
+/**
+ * Node entry as serialised into a backup file.
+ */
+type BackupGraphNode = {
+  labels: string[];
+  properties: GraphProperties;
+};
+
+/**
+ * Relationship entry as serialised into a backup file.
+ */
+type BackupGraphRelationship = {
+  startNodeId: string;
+  endNodeId: string;
+  type: string;
+  properties: GraphProperties;
+};
+
+/**
+ * Graph section of a backup file. Collections may be stored either as arrays or
+ * as maps keyed by id, so both shapes are accepted when restoring.
+ */
+type BackupGraphData = {
+  nodes?: BackupGraphNode[] | Record<string, BackupGraphNode>;
+  relationships?: BackupGraphRelationship[] | Record<string, BackupGraphRelationship>;
+};
+
+/**
+ * Full on-disk payload written by `createBackup` and read back by
+ * `restoreFromBackup`.
+ */
+type BackupPayload = {
+  metadata: {
+    id: string;
+    timestamp: Date;
+    type: BackupMetadata['type'];
+    description?: string;
+    version: string;
+    components: Partial<BackupMetadata['components']>;
+    checksum?: string;
+    size?: number;
+  };
+  graphData?: BackupGraphData;
+  cacheData?: Record<string, unknown>;
+  configData?: {
+    localExecution?: unknown;
+    performance?: unknown;
+  };
+};
+
+/**
+ * Narrow an unknown value to a plain object so its properties can be read.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 /**
@@ -117,7 +172,7 @@ export class BackupRecoveryService {
       const backupPath = path.join(this.backupDir, `${backupId}.backup`);
       const tempPath = `${backupPath}.tmp`;
 
-      const backupData: any = {
+      const backupData: BackupPayload = {
         metadata: {
           id: backupId,
           timestamp: new Date(),
@@ -175,7 +230,8 @@ export class BackupRecoveryService {
       
       // Add checksum to metadata
       backupData.metadata.checksum = checksum;
-      backupData.metadata.size = Buffer.byteLength(backupContent);
+      const size = Buffer.byteLength(backupContent);
+      backupData.metadata.size = size;
 
       // Write final backup with checksum
       await fs.writeFile(tempPath, JSON.stringify(backupData, null, 2));
@@ -193,7 +249,7 @@ export class BackupRecoveryService {
         timestamp: backupData.metadata.timestamp,
         type,
         description,
-        size: backupData.metadata.size,
+        size,
         checksum,
         version: backupData.metadata.version,
         components: finalComponents
@@ -467,7 +523,7 @@ export class BackupRecoveryService {
   /**
    * Export cache data for backup
    */
-  private async exportCacheData(): Promise<{ [key: string]: any }> {
+  private async exportCacheData(): Promise<Record<string, unknown>> {
     if (!(this.cacheManager instanceof LocalCacheStore)) {
       return {};
     }
@@ -480,7 +536,7 @@ export class BackupRecoveryService {
   /**
    * Restore graph data from backup
    */
-  private async restoreGraphData(graphData: any): Promise<void> {
+  private async restoreGraphData(graphData: BackupGraphData): Promise<void> {
     if (!this.graphStore) {
       throw new RecoveryError('Graph store not available for restore', 'manual');
     }
@@ -491,16 +547,20 @@ export class BackupRecoveryService {
 
       // Restore nodes
       if (graphData.nodes) {
-        const nodes = typeof graphData.nodes === 'object' ? Object.values(graphData.nodes) : graphData.nodes;
-        for (const nodeData of nodes as any[]) {
+        const nodes = Array.isArray(graphData.nodes)
+          ? graphData.nodes
+          : Object.values(graphData.nodes);
+        for (const nodeData of nodes) {
           await this.graphStore.createNode(nodeData.labels, nodeData.properties);
         }
       }
 
       // Restore relationships
       if (graphData.relationships) {
-        const rels = typeof graphData.relationships === 'object' ? Object.values(graphData.relationships) : graphData.relationships;
-        for (const relData of rels as any[]) {
+        const rels = Array.isArray(graphData.relationships)
+          ? graphData.relationships
+          : Object.values(graphData.relationships);
+        for (const relData of rels) {
           await this.graphStore.createRelationship(
             relData.startNodeId,
             relData.endNodeId,
@@ -526,7 +586,7 @@ export class BackupRecoveryService {
   /**
    * Restore cache data from backup
    */
-  private async restoreCacheData(cacheData: any): Promise<void> {
+  private async restoreCacheData(cacheData: Record<string, unknown>): Promise<void> {
     if (!(this.cacheManager instanceof LocalCacheStore)) {
       return;
     }
@@ -537,9 +597,15 @@ export class BackupRecoveryService {
 
       // Restore cache entries
       for (const [key, entry] of Object.entries(cacheData)) {
-        const cacheEntry = entry as any;
-        if (cacheEntry.expiration > Date.now()) {
-          await this.cacheManager.set(key, cacheEntry.value, cacheEntry.expiration - Date.now());
+        if (entry === null || entry === undefined) {
+          throw new TypeError(`Cannot read properties of ${String(entry)} (reading 'expiration')`);
+        }
+        if (!isRecord(entry)) {
+          continue;
+        }
+        const expiration = entry.expiration;
+        if (typeof expiration === 'number' && expiration > Date.now()) {
+          await this.cacheManager.set(key, entry.value, expiration - Date.now());
         }
       }
     } catch (error) {
@@ -556,8 +622,13 @@ export class BackupRecoveryService {
   /**
    * Restore configuration from backup
    */
-  private async restoreConfigData(configData: any): Promise<void> {
+  private async restoreConfigData(configData: unknown): Promise<void> {
     try {
+      if (!isRecord(configData)) {
+        this.logger.warn('Backup contains no usable configuration section');
+        return;
+      }
+
       // Update local execution config
       if (configData.localExecution) {
         Object.assign(this.config.localExecution, configData.localExecution);
@@ -593,12 +664,9 @@ export class BackupRecoveryService {
    */
   private async checkStorageSpace(): Promise<void> {
     try {
-      const stats = await fs.stat(this.backupDir);
-      // This is a simplified check - in production you'd want to check actual disk space
-      const estimatedBackupSize = 50 * 1024 * 1024; // 50MB estimate
-      
-      // Placeholder for actual disk space check
-      // In a real implementation, you'd use fs.statfs or similar
+      // Confirm the backup directory exists. A real capacity check would use
+      // fs.statfs; the size threshold itself is not enforced yet.
+      await fs.stat(this.backupDir);
       this.logger.debug('Storage space check passed');
     } catch (error) {
       this.logger.warn('Could not verify storage space', { error });

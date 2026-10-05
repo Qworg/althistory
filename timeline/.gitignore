@@ -77,3 +77,8 @@ pids
 # Temporary folders
 tmp/
 temp/
+# Test-run artifacts: suites that fall back to the default local data dir write
+# here. They must never be committed.
+/data/
+/probe-data/
+test-*-data/

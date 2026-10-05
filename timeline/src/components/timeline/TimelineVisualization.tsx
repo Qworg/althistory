@@ -53,7 +53,9 @@ export const TimelineVisualization: React.FC<TimelineVisualizationProps> = ({
   const svgRef = useRef<SVGSVGElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [expandedArcs, setExpandedArcs] = useState<Set<string>>(new Set());
-  const [currentZoom, setCurrentZoom] = useState<d3.ZoomTransform | null>(null);
+  // The zoom transform is only recorded so that zooming re-renders the timeline;
+  // the component never reads it back.
+  const [, setCurrentZoom] = useState<d3.ZoomTransform | null>(null);
   
   // Merge user config with defaults
   const config: TimelineConfig = { ...DEFAULT_CONFIG, ...userConfig };
@@ -251,17 +253,17 @@ export const TimelineVisualization: React.FC<TimelineVisualizationProps> = ({
         const newTimeScale = transform.rescaleX(timeScale);
         
         // Update arc positions
-        g.selectAll('.arc-rect')
-          .attr('x', (d: any) => newTimeScale(d.start_time))
-          .attr('width', (d: any) => newTimeScale(d.end_time) - newTimeScale(d.start_time));
+        g.selectAll<SVGRectElement, ArcRenderData>('.arc-rect')
+          .attr('x', d => newTimeScale(d.start_time))
+          .attr('width', d => newTimeScale(d.end_time) - newTimeScale(d.start_time));
         
         // Update event positions
-        g.selectAll('.event-circle')
-          .attr('cx', (d: any) => newTimeScale(d.timestamp));
+        g.selectAll<SVGCircleElement, EventRenderData>('.event-circle')
+          .attr('cx', d => newTimeScale(d.timestamp));
         
         // Update time axis
         const xAxis = d3.axisBottom(newTimeScale);
-        g.select('.x-axis').call(xAxis as any);
+        g.select<SVGGElement>('.x-axis').call(xAxis);
         
         // Notify zoom handler
         const domain = newTimeScale.domain();
@@ -308,7 +310,7 @@ export const TimelineVisualization: React.FC<TimelineVisualizationProps> = ({
         d3.select(event.currentTarget).attr('opacity', 1);
         interactions.onArcHover?.(d);
       })
-      .on('mouseout', (event, d) => {
+      .on('mouseout', (event) => {
         d3.select(event.currentTarget).attr('opacity', 0.7);
         interactions.onArcHover?.(null);
       });
@@ -350,7 +352,7 @@ export const TimelineVisualization: React.FC<TimelineVisualizationProps> = ({
         showEventTooltip(event, d);
         interactions.onEventHover?.(d);
       })
-      .on('mouseout', (event, d) => {
+      .on('mouseout', (event) => {
         const circle = d3.select(event.currentTarget);
         circle.attr('r', config.eventRadius);
         
@@ -394,7 +396,7 @@ export const TimelineVisualization: React.FC<TimelineVisualizationProps> = ({
       const eventsInArc = getEventsInArc(parentArc);
 
       // Render child arcs with slight offset
-      childArcs.forEach((childArc, index) => {
+      childArcs.forEach((childArc) => {
         const childRenderData = arcRenderData.find(arc => arc.id === childArc.id);
         if (!childRenderData) return;
 

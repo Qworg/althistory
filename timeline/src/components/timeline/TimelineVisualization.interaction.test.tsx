@@ -1,14 +1,41 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TimelineVisualization } from './TimelineVisualization';
 import { TimelineData } from './types';
 import { Arc } from '../../models/Arc';
 import { Event } from '../../models/Event';
 
+/**
+ * Shape of the stand-in for a d3 selection: every method returns the selection
+ * itself so calls can be chained, exactly like the real API.
+ */
+interface MockSelection {
+  selectAll(): MockSelection;
+  remove(): MockSelection;
+  data(): MockSelection;
+  enter(): MockSelection;
+  append(): MockSelection;
+  attr(): MockSelection;
+  style(): MockSelection;
+  on(): MockSelection;
+  text(): MockSelection;
+  call(): MockSelection;
+  select(): MockSelection;
+  each(): MockSelection;
+}
+
+/** Shape of the stand-in for a d3 time scale (callable, chainable). */
+interface MockScale {
+  (date: Date): number;
+  domain(): MockScale;
+  range(): MockScale;
+  rescaleX(): MockScale;
+}
+
 // Mock D3 with interaction support
 vi.mock('d3', () => {
-  const mockSelection = {
+  const mockSelection: MockSelection = {
     selectAll: vi.fn(() => mockSelection),
     remove: vi.fn(() => mockSelection),
     data: vi.fn(() => mockSelection),
@@ -23,10 +50,14 @@ vi.mock('d3', () => {
     each: vi.fn(() => mockSelection)
   };
 
-  const mockScale = vi.fn((date: Date) => date.getTime() / 1000000);
-  mockScale.domain = vi.fn(() => mockScale);
-  mockScale.range = vi.fn(() => mockScale);
-  mockScale.rescaleX = vi.fn(() => mockScale);
+  const mockScale: MockScale = Object.assign(
+    vi.fn((date: Date) => date.getTime() / 1000000),
+    {
+      domain: vi.fn(() => mockScale),
+      range: vi.fn(() => mockScale),
+      rescaleX: vi.fn(() => mockScale)
+    }
+  );
 
   return {
     select: vi.fn(() => mockSelection),

@@ -5,29 +5,32 @@ import { Event, CreateEventRequest } from '@/models/Event';
 import { Arc, CreateArcRequest } from '@/models/Arc';
 import { EventRepository } from '@/repositories/EventRepository';
 import { ArcRepository } from '@/repositories/ArcRepository';
+import type { CacheManager } from '@/utils/cache';
+import { LocalDatabaseManager } from '@/utils/database';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as os from 'os';
 
 describe('Local Execution Integration Tests', () => {
   let container: Container;
   let eventRepository: EventRepository;
   let arcRepository: ArcRepository;
-  const testDataDir = './test-integration-data';
+  // The local graph store persists to <LOCAL_DATA_DIR>/<LOCAL_GRAPH_FILE>, so
+  // the data directory has to be unique per run: a shared (or leftover) one
+  // loads the previous run's nodes into this one.
+  const graphFileName = 'integration-test-graph.json';
+  let testDataDir: string;
 
   beforeAll(async () => {
+    testDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'local-execution-integration-'));
+
     // Force local execution mode
     process.env.LOCAL_EXECUTION_ENABLED = 'true';
     process.env.LOCAL_DATA_DIR = testDataDir;
-    process.env.LOCAL_GRAPH_FILE = 'integration-test-graph.json';
+    process.env.LOCAL_GRAPH_FILE = graphFileName;
     process.env.LOCAL_BACKUP_ENABLED = 'false';
-    process.env.LOCAL_MAX_MEMORY_MB = '10';
-    
-    // Ensure test directory exists
-    try {
-      await fs.mkdir(testDataDir, { recursive: true });
-    } catch (error) {
-      // Directory might already exist
-    }
+    // config.ts rejects anything below 64 MB
+    process.env.LOCAL_MAX_MEMORY_MB = '64';
 
     const config = loadConfig();
     const dbManager = initializeDatabaseManager(config.database);
@@ -41,24 +44,28 @@ describe('Local Execution Integration Tests', () => {
 
   afterAll(async () => {
     await cleanupContainer();
-    
+
     // Clean up test directory
     try {
-      await fs.rmdir(testDataDir, { recursive: true });
+      await fs.rm(testDataDir, { recursive: true, force: true });
     } catch (error) {
       console.warn('Could not clean up test directory:', error);
     }
   });
 
   beforeEach(async () => {
-    // Clear any existing data before each test
+    // Clear any existing data before each test.
+    // `MATCH (n) DETACH DELETE n` is a silent no-op in local mode: the local
+    // query parser only understands `MATCH (n:Label { .. }) DELETE n` (see
+    // CypherQueryParser.executeDelete), so it matched nothing, reported no
+    // error, and left every earlier test's nodes in the store — which is how
+    // arcs created by previous tests leaked into findOverlappingArcs.
+    // Clear through the store API that query was standing in for.
     const dbManager = container.databaseManager;
-    const session = dbManager.getNeo4jSession();
-    try {
-      await session.run('MATCH (n) DETACH DELETE n');
-    } finally {
-      await session.close();
+    if (!(dbManager instanceof LocalDatabaseManager)) {
+      throw new Error('expected a LocalDatabaseManager in local execution mode');
     }
+    await dbManager.getGraphStore().clear();
   });
 
   describe('Repository Layer Integration', () => {
@@ -76,13 +83,14 @@ describe('Local Execution Integration Tests', () => {
         expect(createdEvent).toBeInstanceOf(Event);
         expect(createdEvent.description).toBe(eventData.description);
         expect(createdEvent.actor).toBe(eventData.actor);
-        expect(createdEvent.id).toMatch(/^local_\d+_[a-z0-9]+$/);
+        expect(createdEvent.id).toMatch(/^event_\d+_[a-z0-9]+$/);
       });
 
       it('should find events by ID using local storage', async () => {
         const eventData: CreateEventRequest = {
           description: 'Findable event',
           actor: 'Finder Actor',
+          target: 'Finder Target',
           timestamp: new Date('2023-01-02T10:00:00Z')
         };
 
@@ -98,6 +106,7 @@ describe('Local Execution Integration Tests', () => {
         const eventData: CreateEventRequest = {
           description: 'Original description',
           actor: 'Original Actor',
+          target: 'Original Target',
           timestamp: new Date('2023-01-03T10:00:00Z')
         };
 
@@ -119,6 +128,7 @@ describe('Local Execution Integration Tests', () => {
         const eventData: CreateEventRequest = {
           description: 'To be deleted',
           actor: 'Delete Actor',
+          target: 'Delete Target',
           timestamp: new Date('2023-01-04T10:00:00Z')
         };
 
@@ -137,18 +147,21 @@ describe('Local Execution Integration Tests', () => {
         await eventRepository.create({
           description: 'Event 1',
           actor,
+          target: 'Event 1 Target',
           timestamp: new Date('2023-01-05T10:00:00Z')
         });
         
         await eventRepository.create({
           description: 'Event 2',
           actor,
+          target: 'Event 2 Target',
           timestamp: new Date('2023-01-05T11:00:00Z')
         });
         
         await eventRepository.create({
           description: 'Event 3',
           actor: 'Different Actor',
+          target: 'Event 3 Target',
           timestamp: new Date('2023-01-05T12:00:00Z')
         });
 
@@ -164,24 +177,28 @@ describe('Local Execution Integration Tests', () => {
         await eventRepository.create({
           description: 'Before range',
           actor: 'Time Actor',
+          target: 'Before range Target',
           timestamp: new Date(baseTime.getTime() - 60000) // 1 minute before
         });
         
         await eventRepository.create({
           description: 'In range 1',
           actor: 'Time Actor',
+          target: 'In range 1 Target',
           timestamp: new Date(baseTime.getTime() + 30000) // 30 seconds after
         });
         
         await eventRepository.create({
           description: 'In range 2',
           actor: 'Time Actor',
+          target: 'In range 2 Target',
           timestamp: new Date(baseTime.getTime() + 60000) // 1 minute after
         });
         
         await eventRepository.create({
           description: 'After range',
           actor: 'Time Actor',
+          target: 'After range Target',
           timestamp: new Date(baseTime.getTime() + 120000) // 2 minutes after
         });
 
@@ -205,40 +222,46 @@ describe('Local Execution Integration Tests', () => {
         sourceEvent = await eventRepository.create({
           description: 'Source event for arc',
           actor: 'Arc Actor',
+          target: 'Source Target',
           timestamp: new Date('2023-01-10T10:00:00Z')
         });
         
         targetEvent = await eventRepository.create({
           description: 'Target event for arc',
           actor: 'Arc Actor',
+          target: 'Target Target',
           timestamp: new Date('2023-01-10T11:00:00Z')
         });
       });
 
       it('should create arcs using local storage', async () => {
         const arcData: CreateArcRequest = {
-          startEventId: sourceEvent.id,
-          endEventId: targetEvent.id,
           name: 'Integration Test Arc',
-          weight: 0.8,
-          confidence: 0.9
+          start_time: sourceEvent.timestamp,
+          end_time: targetEvent.timestamp,
+          level: 0,
+          metadata: { weight: 0.8, confidence: 0.9 }
         };
 
         const createdArc = await arcRepository.create(arcData);
         
         expect(createdArc).toBeInstanceOf(Arc);
         expect(createdArc.name).toBe(arcData.name);
-        expect(createdArc.startEventId).toBe(sourceEvent.id);
-        expect(createdArc.endEventId).toBe(targetEvent.id);
-        expect(createdArc.weight).toBe(0.8);
-        expect(createdArc.confidence).toBe(0.9);
+        expect(createdArc.start_time).toEqual(sourceEvent.timestamp);
+        expect(createdArc.end_time).toEqual(targetEvent.timestamp);
+        expect(createdArc.metadata).toMatchObject({ weight: 0.8, confidence: 0.9 });
+
+        // An arc is a temporal period, so both events fall inside it.
+        expect(container.temporalService.validateEventInArc(sourceEvent, createdArc)).toBe(true);
+        expect(container.temporalService.validateEventInArc(targetEvent, createdArc)).toBe(true);
       });
 
       it('should find arcs by ID using local storage', async () => {
         const arcData: CreateArcRequest = {
-          startEventId: sourceEvent.id,
-          endEventId: targetEvent.id,
-          name: 'Findable Arc'
+          name: 'Findable Arc',
+          start_time: sourceEvent.timestamp,
+          end_time: targetEvent.timestamp,
+          level: 0
         };
 
         const createdArc = await arcRepository.create(arcData);
@@ -249,61 +272,77 @@ describe('Local Execution Integration Tests', () => {
         expect(foundArc?.name).toBe(arcData.name);
       });
 
-      it('should find arcs by event using local storage', async () => {
-        await arcRepository.create({
-          startEventId: sourceEvent.id,
-          endEventId: targetEvent.id,
-          name: 'Arc 1'
+      it('should find arcs spanning event timestamps using local storage', async () => {
+        const parentArc = await arcRepository.create({
+          name: 'Arc 1',
+          start_time: sourceEvent.timestamp,
+          end_time: targetEvent.timestamp,
+          level: 0
         });
-        
+
         const anotherEvent = await eventRepository.create({
           description: 'Another event',
           actor: 'Another Actor',
-          timestamp: new Date('2023-01-10T12:00:00Z')
-        });
-        
-        await arcRepository.create({
-          startEventId: sourceEvent.id,
-          endEventId: anotherEvent.id,
-          name: 'Arc 2'
+          target: 'Another Target',
+          timestamp: new Date('2023-01-10T10:30:00Z')
         });
 
-        const arcsFromSource = await arcRepository.findByEventId(sourceEvent.id);
-        const arcsToTarget = await arcRepository.findByEventId(targetEvent.id);
-        
-        expect(arcsFromSource).toHaveLength(2);
-        expect(arcsToTarget).toHaveLength(1);
+        const childArc = await arcRepository.create({
+          name: 'Arc 2',
+          start_time: sourceEvent.timestamp,
+          end_time: anotherEvent.timestamp,
+          level: 1
+        });
+
+        // Both arcs overlap the instant the source event was recorded.
+        const arcsOverlappingSource = await arcRepository.findOverlappingArcs({
+          start: sourceEvent.timestamp,
+          end: new Date(sourceEvent.timestamp.getTime() + 1000)
+        });
+        expect(arcsOverlappingSource.map(a => a.id).sort()).toEqual(
+          [parentArc.id, childArc.id].sort()
+        );
+
+        // Only the parent arc still covers the instant the target event was recorded.
+        const arcsCoveringTarget = await arcRepository.findContainingArcs({
+          start: targetEvent.timestamp,
+          end: targetEvent.timestamp
+        });
+        expect(arcsCoveringTarget).toHaveLength(1);
+        expect(arcsCoveringTarget[0].id).toBe(parentArc.id);
+
+        expect(await arcRepository.findDirectChildren(parentArc.id)).toHaveLength(1);
       });
 
       it('should update arcs using local storage', async () => {
         const arcData: CreateArcRequest = {
-          startEventId: sourceEvent.id,
-          endEventId: targetEvent.id,
           name: 'Original Arc Name',
-          weight: 0.5
+          start_time: sourceEvent.timestamp,
+          end_time: targetEvent.timestamp,
+          level: 0,
+          metadata: { weight: 0.5 }
         };
 
         const createdArc = await arcRepository.create(arcData);
         
         const updateData = {
           name: 'Updated Arc Name',
-          weight: 0.9,
-          confidence: 0.95
+          metadata: { weight: 0.9, confidence: 0.95 }
         };
         
         const updatedArc = await arcRepository.update(createdArc.id, updateData);
         
         expect(updatedArc).not.toBeNull();
         expect(updatedArc?.name).toBe(updateData.name);
-        expect(updatedArc?.weight).toBe(updateData.weight);
-        expect(updatedArc?.confidence).toBe(updateData.confidence);
+        expect(updatedArc?.metadata).toMatchObject(updateData.metadata);
       });
 
       it('should delete arcs using local storage', async () => {
         const arcData: CreateArcRequest = {
-          startEventId: sourceEvent.id,
-          endEventId: targetEvent.id,
-          name: 'Arc to delete'
+          name: 'Arc to delete',
+          start_time: sourceEvent.timestamp,
+          end_time: targetEvent.timestamp,
+          level: 0
         };
 
         const createdArc = await arcRepository.create(arcData);
@@ -327,18 +366,21 @@ describe('Local Execution Integration Tests', () => {
       await eventRepository.create({
         description: 'Early event',
         actor: 'Temporal Actor',
+        target: 'Early Target',
         timestamp: new Date(baseTime.getTime() - 86400000) // 1 day before
       });
       
       await eventRepository.create({
         description: 'Middle event',
         actor: 'Temporal Actor',
+        target: 'Middle Target',
         timestamp: baseTime
       });
       
       await eventRepository.create({
         description: 'Late event',
         actor: 'Temporal Actor',
+        target: 'Late Target',
         timestamp: new Date(baseTime.getTime() + 86400000) // 1 day after
       });
 
@@ -347,7 +389,7 @@ describe('Local Execution Integration Tests', () => {
         end: new Date(baseTime.getTime() + 43200000)   // 12 hours after
       };
       
-      const eventsInRange = await temporalService.getEventsInTimeRange(timeRange);
+      const eventsInRange = await temporalService.findEventsInRange(timeRange);
       
       expect(eventsInRange).toHaveLength(1);
       expect(eventsInRange[0].description).toBe('Middle event');
@@ -360,34 +402,47 @@ describe('Local Execution Integration Tests', () => {
       const event1 = await eventRepository.create({
         description: 'Cause event',
         actor: 'Causal Actor',
+        target: 'Cause Target',
         timestamp: new Date('2023-02-02T10:00:00Z')
       });
       
       const event2 = await eventRepository.create({
         description: 'Effect event',
         actor: 'Causal Actor',
+        target: 'Effect Target',
         timestamp: new Date('2023-02-02T11:00:00Z')
       });
-      
-      await arcRepository.create({
-        startEventId: event1.id,
-        endEventId: event2.id,
-        name: 'Causal relationship',
-        weight: 0.8
+
+      // Causal links between events are relationships, not arcs; the causal
+      // service owns them.
+      await causalService.createCausalLink(event1, event2, {
+        weight: 0.8,
+        evidence: 'integration test',
+        confidence: 0.9,
+        relationship_type: 'direct'
       });
 
-      const causalChain = await causalService.getCausalChain(event1.id);
+      const relationships = await causalService.getAllRelationships();
+      const link = relationships.find(r => r.cause_event_id === event1.id);
       
-      expect(causalChain).toHaveProperty('events');
-      expect(causalChain).toHaveProperty('arcs');
-      expect(causalChain.events.some(e => e.id === event1.id)).toBe(true);
-      expect(causalChain.events.some(e => e.id === event2.id)).toBe(true);
+      expect(link).toBeDefined();
+      expect(link?.effect_event_id).toBe(event2.id);
+      expect(link?.weight).toBe(0.8);
+      expect(link?.confidence).toBe(0.9);
     });
   });
 
   describe('Cache Integration', () => {
     it('should use local cache for repository operations', async () => {
-      const cacheManager = container.databaseManager.getRedisClient();
+      // This suite runs in local-execution mode, where the container is backed by a
+      // LocalDatabaseManager whose getRedisClient() returns a CacheManager. The
+      // production DatabaseManager returns a raw Redis client instead, so
+      // container.databaseManager is a union and needs narrowing, not casting.
+      const dbManager = container.databaseManager;
+      if (!(dbManager instanceof LocalDatabaseManager)) {
+        throw new Error('expected a LocalDatabaseManager in local execution mode');
+      }
+      const cacheManager: CacheManager = dbManager.getRedisClient();
       
       // Clear cache
       await cacheManager.clear();
@@ -396,24 +451,41 @@ describe('Local Execution Integration Tests', () => {
       const event = await eventRepository.create({
         description: 'Cached event',
         actor: 'Cache Actor',
+        target: 'Cache Target',
         timestamp: new Date('2023-02-03T10:00:00Z')
       });
-      
-      // Check if event is cached
-      const cacheKey = `event:${event.id}`;
-      const cachedEvent = await cacheManager.get(cacheKey);
       
       // Note: Caching behavior depends on repository implementation
       // This test verifies that cache is accessible and functional
       expect(cacheManager.isConnected()).toBe(true);
+
+      // The local cache itself must round-trip values keyed by event id.
+      const cacheKey = `event:${event.id}`;
+      await cacheManager.set(cacheKey, { description: event.description });
+      expect(await cacheManager.get(cacheKey)).toEqual({ description: event.description });
     });
 
     it('should invalidate cache when data changes', async () => {
       const cacheInvalidationService = container.cacheInvalidationService;
-      
+
+      // Invalidation is keyed by entity, so pass real entities.
+      const event = await eventRepository.create({
+        description: 'Cache invalidation event',
+        actor: 'Cache Actor',
+        target: 'Cache Target',
+        timestamp: new Date('2023-02-05T10:00:00Z')
+      });
+
+      const arc = await arcRepository.create({
+        name: 'Cache invalidation arc',
+        start_time: event.timestamp,
+        end_time: new Date('2023-02-05T11:00:00Z'),
+        level: 0
+      });
+
       // This test verifies that cache invalidation service works with local cache
-      await cacheInvalidationService.invalidateEventCache('test-event-id');
-      await cacheInvalidationService.invalidateArcCache('test-arc-id');
+      await cacheInvalidationService.invalidateEventCache(event);
+      await cacheInvalidationService.invalidateArcCache(arc);
       
       // Should not throw error
       expect(true).toBe(true);
@@ -422,8 +494,41 @@ describe('Local Execution Integration Tests', () => {
 
   describe('Health and Statistics', () => {
     it('should report healthy status for local components', async () => {
+      // Container services are lazy singletons: getHealthStatus only reports a
+      // service as up once its getter has been resolved (src/tests/unit/
+      // container.test.ts pins that behaviour), so a container nothing has
+      // asked for yet reports 'unhealthy'. Resolve the whole roster first —
+      // that also proves local mode can construct each one — so the status
+      // below reflects the local components rather than whichever getter an
+      // earlier test happened to touch.
+      const singletons = {
+        temporalService: container.temporalService,
+        causalService: container.causalService,
+        inferenceService: container.inferenceService,
+        graphCopyService: container.graphCopyService,
+        validationService: container.validationService,
+        cacheInvalidationService: container.cacheInvalidationService,
+        databaseOptimizationService: container.databaseOptimizationService,
+        eventRepository: container.eventRepository,
+        arcRepository: container.arcRepository,
+        graphService: container.graphService,
+        exportService: container.exportService,
+        jobService: container.jobService,
+        graphRepository: container.graphRepository,
+        versionRepository: container.versionRepository,
+        jobRepository: container.jobRepository,
+        authService: container.authService,
+        rateLimitService: container.rateLimitService,
+        apiKeyRepository: container.apiKeyRepository
+      };
+
       const health = await container.getHealthStatus();
-      
+
+      // Every service the health check reports on must be one this container
+      // can build, and every one of them must be up.
+      expect(Object.keys(singletons).sort()).toEqual(Object.keys(health.services).sort());
+      expect(Object.keys(singletons).every(name => health.services[name] === true)).toBe(true);
+
       expect(health.status).toBe('healthy');
       expect(health.database).toHaveProperty('neo4j', true);
       expect(health.database).toHaveProperty('redis', true);
@@ -447,6 +552,7 @@ describe('Local Execution Integration Tests', () => {
       const event = await eventRepository.create({
         description: 'Persistent event',
         actor: 'Persistence Actor',
+        target: 'Persistence Target',
         timestamp: new Date('2023-02-04T10:00:00Z')
       });
 
@@ -455,7 +561,7 @@ describe('Local Execution Integration Tests', () => {
       await dbManager.close();
       
       // Check if graph file was created
-      const graphFile = path.join(testDataDir, 'integration-test-graph.json');
+      const graphFile = path.join(testDataDir, graphFileName);
       const fileExists = await fs.access(graphFile).then(() => true).catch(() => false);
       
       expect(fileExists).toBe(true);

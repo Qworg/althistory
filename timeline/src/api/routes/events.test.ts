@@ -516,9 +516,10 @@ describe('Event API Endpoints', () => {
     });
 
     it('should validate empty ID', async () => {
-      const response = await request(app)
+      // The 404 comes from Express, not the handler; only the status is asserted.
+      await request(app)
         .delete('/events/')
-        .expect(404); // Route not found
+        .expect(404);
     });
   });
 
@@ -614,13 +615,17 @@ describe('Event API Endpoints', () => {
         .post('/events')
         .set('Content-Type', 'application/json')
         .send('{ invalid json }')
-        .expect(500); // JSON parsing errors return 500
-      
+        // body-parser reports a malformed body with type 'entity.parse.failed'.
+        // The shared errorHandler maps that to 400: the request was malformed,
+        // the server is not broken, so 500 was misleading.
+        .expect(400);
+
       expect(response.body.error).toBeDefined();
+      expect(response.body.error.message).toBeDefined();
     });
 
     it('should handle large payloads gracefully', async () => {
-      const largeMetadata = {};
+      const largeMetadata: Record<string, string> = {};
       for (let i = 0; i < 100; i++) { // Reduced size to avoid payload limit
         largeMetadata[`key${i}`] = `value${i}`.repeat(10);
       }

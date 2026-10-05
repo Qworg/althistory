@@ -1,10 +1,25 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import neo4j, { Driver, Session } from 'neo4j-driver';
+import { createClient, RedisClientType } from 'redis';
 import { Container } from '@/container';
 import { DatabaseManager } from '@/utils/database';
 import { AppConfig } from '@/utils/config';
 
 // Mock database manager for unit testing
 class MockDatabaseManager extends DatabaseManager {
+  // Services capture a Redis client and a Neo4j session at construction time.
+  // These unit tests never issue a command or a query, so unconnected
+  // clients (built by the real factories, never connected) satisfy both
+  // contracts without opening a socket.
+  private readonly mockRedisClient: RedisClientType = createClient({
+    socket: { host: 'localhost', port: 6379 }
+  });
+
+  private readonly mockDriver: Driver = neo4j.driver(
+    'bolt://localhost:7687',
+    neo4j.auth.basic('neo4j', 'password')
+  );
+
   constructor() {
     super({
       neo4j: {
@@ -27,16 +42,16 @@ class MockDatabaseManager extends DatabaseManager {
     // Mock implementation
   }
 
-  getNeo4jSession() {
-    return {} as any;
+  getNeo4jSession(): Session {
+    return this.mockDriver.session({ database: 'test' });
   }
 
-  getRedisClient() {
-    return {} as any;
+  getRedisClient(): RedisClientType {
+    return this.mockRedisClient;
   }
 
   async close(): Promise<void> {
-    // Mock implementation
+    await this.mockDriver.close();
   }
 
   async healthCheck() {
@@ -69,6 +84,16 @@ describe('Container Unit Tests', () => {
         queryTimeoutMs: 2000,
         maxQueryResults: 10000,
         cacheExpirationMs: 300000
+      },
+      localExecution: {
+        enabled: false,
+        dataDirectory: './data',
+        graphFile: 'graph.json',
+        cacheSize: 1000,
+        persistenceInterval: 30000,
+        backupEnabled: false,
+        backupInterval: 300000,
+        maxMemoryUsage: 512
       }
     };
 

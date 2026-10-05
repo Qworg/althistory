@@ -125,7 +125,11 @@ export const CausalGraphVisualization: React.FC<CausalGraphVisualizationProps> =
   const applyForceLayout = useCallback(() => {
     if (!cyRef.current) return;
 
-    const layout = cyRef.current.layout({
+    // Cytoscape's layout options are a discriminated union keyed on a literal
+    // `name`, while `CausalGraphConfig.layout.name` is only typed as `string`.
+    // Annotating the object (instead of inlining it) states the options once and
+    // keeps the excess-property check from rejecting the cose-specific keys.
+    const coseLayoutOptions: Omit<cytoscape.CoseLayoutOptions, 'name'> & { name: string } = {
       name: config.layout.name,
       animate: true,
       animationDuration: config.layout.animationDuration,
@@ -139,7 +143,9 @@ export const CausalGraphVisualization: React.FC<CausalGraphVisualizationProps> =
       initialTemp: 200,
       coolingFactor: 0.95,
       minTemp: 1.0
-    });
+    };
+
+    const layout = cyRef.current.layout(coseLayoutOptions);
 
     layout.run();
   }, [config.layout]);
@@ -160,9 +166,9 @@ export const CausalGraphVisualization: React.FC<CausalGraphVisualizationProps> =
     cyRef.current.edges().style({
       'line-color': config.edgeStyle.color,
       'target-arrow-color': config.edgeStyle.color,
-      'width': (ele: any) => Math.max(
+      'width': (ele: EdgeSingular) => Math.max(
         config.edgeStyle.minWidth,
-        ele.data('weight') * config.edgeStyle.maxWidth
+        Number(ele.data('weight')) * config.edgeStyle.maxWidth
       )
     });
 
@@ -218,9 +224,9 @@ export const CausalGraphVisualization: React.FC<CausalGraphVisualizationProps> =
         {
           selector: 'edge',
           style: {
-            'width': (ele: any) => Math.max(
+            'width': (ele: EdgeSingular) => Math.max(
               config.edgeStyle.minWidth,
-              ele.data('weight') * config.edgeStyle.maxWidth
+              Number(ele.data('weight')) * config.edgeStyle.maxWidth
             ),
             'line-color': config.edgeStyle.color,
             'target-arrow-color': config.edgeStyle.color,

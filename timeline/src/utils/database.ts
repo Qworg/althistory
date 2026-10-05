@@ -1,8 +1,10 @@
 import neo4j, { Driver, Session, auth } from 'neo4j-driver';
+import type { Record as Neo4jRecord } from 'neo4j-driver';
 import { createClient, RedisClientType } from 'redis';
 import { DatabaseConnectionError } from './errors';
-import { LocalGraphStore, LocalQueryResult } from './LocalGraphStore';
-import { getCacheManager } from './cache';
+import { LocalGraphStore, LocalQueryResult, LocalQueryRecord, GraphParameters } from './LocalGraphStore';
+import { getCacheManager, CacheManager } from './cache';
+import { loadConfig } from './config';
 
 /**
  * Database configuration interface
@@ -155,17 +157,17 @@ export class DatabaseManager {
    */
   async executeQuery<T>(
     query: string,
-    parameters: Record<string, any> = {},
+    parameters: GraphParameters = {},
     options?: {
       timeout?: number;
       database?: string;
       readOnly?: boolean;
-      mapper?: (record: any) => T;
+      mapper?: (record: Neo4jRecord) => T;
     }
   ): Promise<T[]> {
     const session = options?.readOnly ? 
-      this.getReadOnlySession(options.database) : 
-      this.getNeo4jSession(options.database);
+      this.getReadOnlySession(options?.database) : 
+      this.getNeo4jSession(options?.database);
     
     try {
       const timeout = options?.timeout || 30000; // 30 second default timeout
@@ -201,7 +203,7 @@ export class DatabaseManager {
    * Close all database connections
    */
   async close(): Promise<void> {
-    const promises: Promise<any>[] = [];
+    const promises: Promise<unknown>[] = [];
 
     if (this.neo4jDriver) {
       promises.push(this.neo4jDriver.close());
@@ -293,18 +295,22 @@ export class DatabaseManager {
 
 
 /**
- * Singleton database manager instance
+ * Singleton database manager instance.
+ *
+ * Local execution installs a `LocalDatabaseManager` (see
+ * `initializeDatabaseManager`), so the singleton really holds either
+ * implementation.
  */
-let databaseManager: DatabaseManager | null = null;
+let databaseManager: DatabaseManager | LocalDatabaseManager | null = null;
 
 /**
  * Initialize database manager with configuration
  */
 export function initializeDatabaseManager(config: DatabaseConfig): DatabaseManager | LocalDatabaseManager {
-  const appConfig = require('./config').loadConfig();
+  const appConfig = loadConfig();
   
   if (appConfig.localExecution.enabled) {
-    databaseManager = new LocalDatabaseManager() as any;
+    databaseManager = new LocalDatabaseManager();
   } else {
     databaseManager = new DatabaseManager(config);
   }
@@ -319,7 +325,11 @@ export function getDatabaseManager(): DatabaseManager {
   if (!databaseManager) {
     throw new Error('Database manager not initialized. Call initializeDatabaseManager first.');
   }
-  return databaseManager;
+  // The singleton is a union because local execution installs a
+  // `LocalDatabaseManager`, which does not implement the Neo4j-backed
+  // `DatabaseManager` surface. Callers that run in local mode narrow with
+  // `instanceof LocalDatabaseManager` before using the local-only API.
+  return databaseManager as DatabaseManager;
 }
 
 /**
@@ -337,7 +347,7 @@ export class LocalSession {
   /**
    * Run a query against the local graph store
    */
-  async run(query: string, parameters: Record<string, any> = {}): Promise<LocalQueryResult> {
+  async run(query: string, parameters: GraphParameters = {}): Promise<LocalQueryResult> {
     if (!this.isOpen) {
       throw new Error('Session is closed');
     }
@@ -406,9 +416,13 @@ export class LocalDatabaseManager {
   }
 
   /**
-   * Get a local session (Neo4j Session-compatible)
+   * Get a local session (Neo4j Session-compatible).
+   *
+   * `database` and `options` are accepted for signature compatibility with
+   * `DatabaseManager.getNeo4jSession`, but the local store has a single
+   * implicit database and no session-level read/write mode, so they are unused.
    */
-  getNeo4jSession(database?: string, options?: { 
+  getNeo4jSession(_database?: string, _options?: { 
     defaultAccessMode?: 'READ' | 'WRITE';
     bookmarks?: string[];
     fetchSize?: number;
@@ -429,12 +443,12 @@ export class LocalDatabaseManager {
    */
   async executeQuery<T>(
     query: string,
-    parameters: Record<string, any> = {},
+    parameters: GraphParameters = {},
     options?: {
       timeout?: number;
       database?: string;
       readOnly?: boolean;
-      mapper?: (record: any) => T;
+      mapper?: (record: LocalQueryRecord) => T;
     }
   ): Promise<T[]> {
     const session = this.getNeo4jSession(options?.database);
@@ -444,7 +458,7 @@ export class LocalDatabaseManager {
       
       return options?.mapper ? 
         result.records.map(options.mapper) : 
-        result.records as any as T[];
+        result.records as T[];
     } finally {
       await session.close();
       this.connectionStats.inUse = Math.max(0, this.connectionStats.inUse - 1);
@@ -454,7 +468,7 @@ export class LocalDatabaseManager {
   /**
    * Get cache manager (Redis client replacement)
    */
-  getRedisClient(): any {
+  getRedisClient(): CacheManager {
     return this.cacheManager;
   }
 

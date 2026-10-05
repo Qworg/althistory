@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { GraphCopyService, CopyResult, IntegrityReport, CopyProgress } from './GraphCopyService';
+import { GraphCopyService, CopyResult, CopyProgress } from './GraphCopyService';
 import { Session, Integer } from 'neo4j-driver';
 
 describe('GraphCopyService Unit Tests', () => {

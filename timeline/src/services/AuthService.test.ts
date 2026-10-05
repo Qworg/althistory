@@ -295,9 +295,9 @@ describe('AuthService', () => {
       });
 
       it('should filter active only', async () => {
-        const response = await authService.createApiKey({ name: 'Active Key', permissions: ['read:events'] });
-        const response2 = await authService.createApiKey({ name: 'Revoked Key', permissions: ['read:events'] });
-        await authService.revokeApiKey(response2.id);
+        await authService.createApiKey({ name: 'Active Key', permissions: ['read:events'] });
+        const revokedKey = await authService.createApiKey({ name: 'Revoked Key', permissions: ['read:events'] });
+        await authService.revokeApiKey(revokedKey.id);
 
         const activeKeys = await authService.listApiKeys({ activeOnly: true });
         expect(activeKeys.every((k) => k.isActive)).toBe(true);

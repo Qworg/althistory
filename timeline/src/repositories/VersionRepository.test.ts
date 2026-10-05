@@ -7,8 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'crypto';
-import { VersionRepository, EntityChanges, ResolvedGraphData } from './VersionRepository';
+import { VersionRepository, EntityChanges } from './VersionRepository';
 import { ContentObject, TreeObject, VersionRef, PackFile } from '../models/Graph';
 
 // Mock the fs module
@@ -638,6 +637,7 @@ describe('VersionRepository Unit Tests', () => {
         objects: {
           'packed-hash': { type: 'event', data: { id: 'e1' } },
         },
+        trees: {},
         versions: [],
       };
 
@@ -862,6 +862,7 @@ describe('VersionRepository Unit Tests', () => {
         createdAt: new Date().toISOString(),
         versionRange: { start: 0, end: 5 },
         objects: { 'packed-hash': { type: 'event', data: {} } },
+        trees: {},
         versions: [],
       };
 

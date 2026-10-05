@@ -4,8 +4,9 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { loadConfig, initializeDatabaseManager } from '@/utils';
-import { initializeContainer, cleanupContainer } from '@/container';
+import { initializeContainer, cleanupContainer, Container } from '@/container';
 import { apiRouter } from '@/api/routes';
+import { asRequestHandler } from '@/index';
 import { 
   errorHandler, 
   notFoundHandler, 
@@ -19,7 +20,7 @@ import * as fs from 'fs/promises';
 
 describe('Local API Integration Tests', () => {
   let app: express.Application;
-  let container: any;
+  let container: Container;
   const testDataDir = './test-api-data';
 
   beforeAll(async () => {
@@ -28,7 +29,8 @@ describe('Local API Integration Tests', () => {
     process.env.LOCAL_DATA_DIR = testDataDir;
     process.env.LOCAL_GRAPH_FILE = 'api-test-graph.json';
     process.env.LOCAL_BACKUP_ENABLED = 'false';
-    process.env.LOCAL_MAX_MEMORY_MB = '10';
+    // config.ts rejects anything below 64 MB
+    process.env.LOCAL_MAX_MEMORY_MB = '64';
     
     // Ensure test directory exists
     try {
@@ -55,17 +57,26 @@ describe('Local API Integration Tests', () => {
     app.use(requestLogger);
     app.use(requestTimeout(30000)); // 30 second timeout
     app.use(validateJsonRequest);
-    app.use(rateLimit);
-    app.use(injectContainer(container));
+    // rateLimit is a FACTORY: it takes an optional config and returns the
+    // middleware. Passing `rateLimit` itself to app.use() makes Express invoke
+    // it as middleware, so it returns the inner handler without ever calling
+    // next() and every request hangs until requestTimeout fires. This mirrors
+    // src/index.ts, which wires it as `asRequestHandler(rateLimit())`.
+    // The adapter is needed as well as the call: rateLimit's handler declares
+    // an AuthenticatedRequest, which is narrower than Express's Request and so
+    // is not assignable without it.
+    app.use(asRequestHandler(rateLimit()));
+    // injectContainer is itself an Express middleware: it pulls the globally
+    // registered container (set by initializeContainer above) off the request.
+    app.use(injectContainer);
     
     // Mount API routes
     app.use('/api', apiRouter);
-    
-    // Apply error handling middleware
-    app.use(notFoundHandler);
-    app.use(errorHandler);
 
-    // Health check endpoint
+    // Health check endpoint.
+    // Registered BEFORE notFoundHandler: that handler terminates the chain for
+    // anything still unmatched, so a /health route added after it can never
+    // run and every health request 404s.
     app.get('/health', async (req, res) => {
       try {
         const health = await container.getHealthStatus();
@@ -74,6 +85,10 @@ describe('Local API Integration Tests', () => {
         res.status(500).json({ error: 'Health check failed' });
       }
     });
+
+    // Apply error handling middleware
+    app.use(notFoundHandler);
+    app.use(errorHandler);
   });
 
   afterAll(async () => {
@@ -88,13 +103,22 @@ describe('Local API Integration Tests', () => {
   });
 
   beforeEach(async () => {
-    // Clear any existing data before each test
-    const dbManager = container.databaseManager;
-    const session = dbManager.getNeo4jSession();
-    try {
-      await session.run('MATCH (n) DETACH DELETE n');
-    } finally {
-      await session.close();
+    // Clear any existing data before each test.
+    //
+    // This used to run `MATCH (n) DETACH DELETE n` through a session, but the
+    // suite forces LOCAL_EXECUTION_ENABLED, so there is no Neo4j behind
+    // getNeo4jSession() and the cleanup silently did nothing — which is why
+    // events accumulated and pagination assertions saw 6 rows where 3 were
+    // expected. Clearing through the repositories works in both local and
+    // Neo4j-backed modes.
+    const existingEvents = await container.eventRepository.findAll();
+    for (const event of existingEvents) {
+      await container.eventRepository.delete(event.id);
+    }
+
+    const existingArcs = await container.arcRepository.findAll();
+    for (const arc of existingArcs) {
+      await container.arcRepository.delete(arc.id);
     }
   });
 
@@ -166,9 +190,11 @@ describe('Local API Integration Tests', () => {
           .send(incompleteEventData)
           .expect(400);
 
-        expect(response.body).toHaveProperty('success', false);
+        // Routes signal failures by throwing ValidationError/NotFoundError, which the
+        // shared errorHandler renders as an { error: { message, ... } } envelope.
+        // There is no `success: false` field on the error contract.
         expect(response.body).toHaveProperty('error');
-        expect(response.body.error).toContain('Missing required fields');
+        expect(response.body.error.message).toContain('Missing required fields');
       });
 
       it('should handle invalid timestamp format', async () => {
@@ -184,7 +210,11 @@ describe('Local API Integration Tests', () => {
           .send(eventData)
           .expect(400);
 
-        expect(response.body).toHaveProperty('success', false);
+        // Routes signal failures by throwing ValidationError/NotFoundError, which the
+        // shared errorHandler renders as an { error: { message, ... } } envelope.
+        // There is no `success: false` field on the error contract.
+        expect(response.body).toHaveProperty('error');
+        expect(response.body.error).toHaveProperty('message');
       });
 
       it('should convert string timestamps to Date objects', async () => {
@@ -237,7 +267,11 @@ describe('Local API Integration Tests', () => {
           .get('/api/events/non-existent-id')
           .expect(404);
 
-        expect(response.body).toHaveProperty('success', false);
+        // Routes signal failures by throwing ValidationError/NotFoundError, which the
+        // shared errorHandler renders as an { error: { message, ... } } envelope.
+        // There is no `success: false` field on the error contract.
+        expect(response.body).toHaveProperty('error');
+        expect(response.body.error).toHaveProperty('message');
         expect(response.body).toHaveProperty('error');
       });
     });
@@ -291,7 +325,7 @@ describe('Local API Integration Tests', () => {
 
         expect(response.body.success).toBe(true);
         expect(response.body.data).toHaveLength(2);
-        expect(response.body.data.every((event: any) => event.actor === 'Actor A')).toBe(true);
+        expect(response.body.data.every((event: { actor?: string }) => event.actor === 'Actor A')).toBe(true);
       });
 
       it('should filter events by time range', async () => {
@@ -367,7 +401,11 @@ describe('Local API Integration Tests', () => {
           .send(updateData)
           .expect(404);
 
-        expect(response.body).toHaveProperty('success', false);
+        // Routes signal failures by throwing ValidationError/NotFoundError, which the
+        // shared errorHandler renders as an { error: { message, ... } } envelope.
+        // There is no `success: false` field on the error contract.
+        expect(response.body).toHaveProperty('error');
+        expect(response.body.error).toHaveProperty('message');
       });
     });
 
@@ -406,7 +444,11 @@ describe('Local API Integration Tests', () => {
           .delete('/api/events/non-existent-id')
           .expect(404);
 
-        expect(response.body).toHaveProperty('success', false);
+        // Routes signal failures by throwing ValidationError/NotFoundError, which the
+        // shared errorHandler renders as an { error: { message, ... } } envelope.
+        // There is no `success: false` field on the error contract.
+        expect(response.body).toHaveProperty('error');
+        expect(response.body.error).toHaveProperty('message');
       });
     });
   });

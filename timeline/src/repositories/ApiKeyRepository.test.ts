@@ -7,7 +7,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { ApiKeyRepository, ApiKeyRepositoryConfig } from './ApiKeyRepository';
-import { PERMISSION_GROUPS } from '../models/ApiKey';
 
 describe('ApiKeyRepository', () => {
   let repository: ApiKeyRepository;
@@ -325,7 +324,7 @@ describe('ApiKeyRepository', () => {
     });
 
     it('should filter by active status', async () => {
-      const response = await repository.create({ name: 'Active Key', permissions: ['read:events'] });
+      await repository.create({ name: 'Active Key', permissions: ['read:events'] });
       await repository.create({ name: 'Revoked Key', permissions: ['read:events'] });
 
       // Revoke the second key

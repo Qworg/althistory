@@ -4,10 +4,9 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
-import express from 'express';
+import express, { Request } from 'express';
 import { batchRoutes } from './batch';
-import { errorHandler, AuthenticatedRequest } from '@/api/middleware';
-import { ApiKey, Permission, PERMISSION_GROUPS } from '@/models/ApiKey';
+import { errorHandler } from '@/api/middleware';
 import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
 
@@ -88,7 +87,7 @@ describe('Batch Routes', () => {
     // Create fresh app for each test
     app = express();
     app.use(express.json());
-    app.use((req: AuthenticatedRequest, res, next) => {
+    app.use((req: Request, res, next) => {
       req.requestId = 'test-request-id';
       req.startTime = Date.now();
       req.container = {

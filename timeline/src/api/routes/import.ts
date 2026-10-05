@@ -15,13 +15,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import {
   ImportService,
-  ImportValidationResult,
-  ImportPreview,
-  ImportResult,
   ImportMode,
   ConflictResolution,
   ImportOptions,
-  ImportJob,
   MAX_IMPORT_SIZE_BYTES,
 } from '../../services/ImportService';
 import { AlthistoryExport } from '../../services/ExportService';
@@ -174,8 +170,9 @@ async function acquireImportLock(graphId: string): Promise<boolean> {
   }
 
   // FIX #10 + FIX #4: Use synchronous mutex pattern
-  // Keep looping until we can acquire or determine it's locked
-  while (true) {
+  // Keep looping until we can acquire or determine it's locked.
+  // Every exit from this loop is an explicit `return`.
+  for (;;) {
     // Check if there's a pending mutex operation
     const existingMutex = lockMutex.get(graphId);
     if (existingMutex) {
@@ -611,6 +608,12 @@ async function checkConcurrentImport(req: Request, res: Response, next: NextFunc
 /**
  * Create the import router
  */
+/**
+ * The router produced by {@link createImportRouter}, carrying the test-only
+ * `cleanup` hook that shuts the backing ImportService down.
+ */
+export type ImportRouter = Router & { cleanup?: () => Promise<void> };
+
 export function createImportRouter(config: ImportRouterConfig): Router {
   const router = Router();
   const importService = new ImportService({ dataDir: config.dataDir });
@@ -1034,7 +1037,7 @@ export function createImportRouter(config: ImportRouterConfig): Router {
   });
 
   // Attach cleanup function to router for testing purposes
-  (router as any).cleanup = async () => {
+  (router as ImportRouter).cleanup = async () => {
     await importService.destroy();
   };
 

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { EventRepository, AdvancedEventRepository } from './EventRepository';
+// Type-only exports are not part of the runtime module namespace, so the interface
+// checks below import them with `import type` rather than through a dynamic import.
+import type { EventQueryOptions, EventSearchFilters } from './EventRepository';
 
 describe('EventRepository Unit Tests', () => {
   describe('Class Structure', () => {
@@ -30,19 +33,15 @@ describe('EventRepository Unit Tests', () => {
   });
 
   describe('Interface Definitions', () => {
-    it('should have proper query options interface', async () => {
-      const { EventQueryOptions } = await import('./EventRepository');
-      
+    it('should have proper query options interface', () => {
       // Test that the interface can be used
-      const options: typeof EventQueryOptions = {};
+      const options: EventQueryOptions = {};
       expect(options).toBeDefined();
     });
 
-    it('should have proper search filters interface', async () => {
-      const { EventSearchFilters } = await import('./EventRepository');
-      
+    it('should have proper search filters interface', () => {
       // Test that the interface can be used
-      const filters: typeof EventSearchFilters = {};
+      const filters: EventSearchFilters = {};
       expect(filters).toBeDefined();
     });
   });

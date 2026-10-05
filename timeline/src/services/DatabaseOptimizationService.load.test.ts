@@ -11,14 +11,14 @@ describe('Database Optimization Load Tests', () => {
   let optimizationService: DatabaseOptimizationService;
   let eventRepository: EventRepository;
   let arcRepository: ArcRepository;
-  let testEvents: Event[] = [];
-  let testArcs: Arc[] = [];
+  const testEvents: Event[] = [];
+  const testArcs: Arc[] = [];
 
   beforeAll(async () => {
     // Initialize services
     optimizationService = new DatabaseOptimizationService();
-    eventRepository = new EventRepository();
-    arcRepository = new ArcRepository();
+    eventRepository = new EventRepository(getDatabaseManager());
+    arcRepository = new ArcRepository(getDatabaseManager());
 
     // Create optimized indexes before load testing
     await optimizationService.createOptimizedIndexes();
@@ -151,7 +151,7 @@ describe('Database Optimization Load Tests', () => {
       expect(averageTimePerQuery).toBeLessThan(1000); // Average less than 1 second
       
       // Verify all queries returned results
-      results.forEach((events, index) => {
+      results.forEach((events) => {
         expect(Array.isArray(events)).toBe(true);
         expect(events.length).toBeLessThanOrEqual(100);
       });

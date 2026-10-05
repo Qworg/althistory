@@ -2,9 +2,11 @@ import React from 'react';
 import { useEvents, useArcs } from '@/hooks/useApiData';
 
 interface TimelineContainerProps {
+  /** Reserved for wiring up event selection; not rendered yet. */
   onEventSelect?: (eventId: string) => void;
   initialFilters?: {
     actor?: string;
+    target?: string;
     timeRange?: {
       start: Date;
       end: Date;
@@ -13,7 +15,6 @@ interface TimelineContainerProps {
 }
 
 export const TimelineContainer: React.FC<TimelineContainerProps> = ({ 
-  onEventSelect, 
   initialFilters 
 }) => {
   const { data: eventsData, loading: eventsLoading, error: eventsError, refetch: refetchEvents } = useEvents(initialFilters);

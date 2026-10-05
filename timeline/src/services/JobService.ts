@@ -5,10 +5,8 @@
 import { EventEmitter } from 'events';
 import { 
   AsyncJob, 
-  JobType, 
   JobStatus,
   JobResult,
-  CreateJobData,
   ExportJobParams,
   ImportJobParams,
   IngestJobParams,

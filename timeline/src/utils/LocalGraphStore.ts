@@ -1,9 +1,34 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { loadConfig } from './config';
-import { IEvent } from '../models/Event';
-import { IArc } from '../models/Arc';
-import { InferredPressure } from '../models/InferredPressure';
+
+/**
+ * A value the local store persists in a property bag or receives as a Cypher
+ * parameter.
+ *
+ * The store round-trips the whole graph through JSON, so this union describes
+ * exactly what survives a save/load cycle: scalars, `Date` (serialised as an ISO
+ * string on write), and nested arrays/objects built from the same values.
+ */
+export type GraphPropertyValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | Date
+  | GraphPropertyValue[]
+  | { [key: string]: GraphPropertyValue };
+
+/**
+ * Property bag attached to a node or a relationship
+ */
+export type GraphProperties = Record<string, GraphPropertyValue>;
+
+/**
+ * Named parameter values bound to a Cypher query
+ */
+export type GraphParameters = GraphProperties;
 
 /**
  * Local graph node representation
@@ -11,7 +36,7 @@ import { InferredPressure } from '../models/InferredPressure';
 export interface GraphNode {
   id: string;
   labels: string[];
-  properties: Record<string, any>;
+  properties: GraphProperties;
 }
 
 /**
@@ -22,7 +47,7 @@ export interface GraphRelationship {
   type: string;
   startNodeId: string;
   endNodeId: string;
-  properties: Record<string, any>;
+  properties: GraphProperties;
 }
 
 /**
@@ -46,14 +71,20 @@ export interface GraphBackup {
 }
 
 /**
+ * A value a query record can hold: a whole node, a whole relationship, or one
+ * of the scalar/nested property values above.
+ */
+export type LocalRecordValue = GraphNode | GraphRelationship | GraphPropertyValue;
+
+/**
  * Query result similar to Neo4j Record
  */
 export interface LocalQueryRecord {
   keys: string[];
-  get(key: string): any;
-  get(index: number): any;
+  get(key: string): LocalRecordValue | undefined;
+  get(index: number): LocalRecordValue | undefined;
   has(key: string): boolean;
-  values: any[];
+  values: LocalRecordValue[];
 }
 
 /**
@@ -63,7 +94,7 @@ export interface LocalQueryResult {
   records: LocalQueryRecord[];
   summary: {
     query: string;
-    parameters: Record<string, any>;
+    parameters: GraphParameters;
     counters: {
       nodesCreated: number;
       relationshipsCreated: number;
@@ -81,7 +112,7 @@ export class CypherQueryParser {
   /**
    * Parse and execute a simple Cypher query
    */
-  static execute(query: string, parameters: Record<string, any>, graphData: GraphData): LocalQueryResult {
+  static execute(query: string, parameters: GraphParameters, graphData: GraphData): LocalQueryResult {
     const trimmedQuery = query.trim();
 
     // Handle CREATE queries
@@ -107,7 +138,7 @@ export class CypherQueryParser {
     throw new Error(`Unsupported query type: ${query}`);
   }
 
-  private static executeCreate(query: string, parameters: Record<string, any>, graphData: GraphData): LocalQueryResult {
+  private static executeCreate(query: string, parameters: GraphParameters, graphData: GraphData): LocalQueryResult {
     const counters = { nodesCreated: 0, relationshipsCreated: 0, nodesDeleted: 0, relationshipsDeleted: 0, propertiesSet: 0 };
     const records: LocalQueryRecord[] = [];
     
@@ -120,7 +151,9 @@ export class CypherQueryParser {
       const props = this.parseProperties(propsStr, parameters);
       
       const node: GraphNode = {
-        id: props.id || this.generateId(),
+        // Only a string id can address a node; anything else falls back to a
+        // generated id, as a non-string id could never be looked up again.
+        id: typeof props.id === 'string' ? props.id : this.generateId(),
         labels: [label],
         properties: props
       };
@@ -149,14 +182,16 @@ export class CypherQueryParser {
     if (relMatch) {
       const [, startVar, type, propsStr, endVar] = relMatch;
       const props = propsStr ? this.parseProperties(propsStr, parameters) : {};
-      
+
       // For relationship creation, we need to find the nodes first
       // This is a simplified implementation
+      const startId = parameters[`${startVar}_id`];
+      const endId = parameters[`${endVar}_id`];
       const relationship: GraphRelationship = {
         id: this.generateId(),
         type,
-        startNodeId: parameters[`${startVar}_id`] || startVar,
-        endNodeId: parameters[`${endVar}_id`] || endVar,
+        startNodeId: typeof startId === 'string' ? startId : startVar,
+        endNodeId: typeof endId === 'string' ? endId : endVar,
         properties: props
       };
       
@@ -181,7 +216,7 @@ export class CypherQueryParser {
     };
   }
 
-  private static executeMatch(query: string, parameters: Record<string, any>, graphData: GraphData): LocalQueryResult {
+  private static executeMatch(query: string, parameters: GraphParameters, graphData: GraphData): LocalQueryResult {
     const records: LocalQueryRecord[] = [];
     const counters = { nodesCreated: 0, relationshipsCreated: 0, nodesDeleted: 0, relationshipsDeleted: 0, propertiesSet: 0 };
 
@@ -190,6 +225,14 @@ export class CypherQueryParser {
 
     // Normalize query: replace newlines and multiple spaces with single space
     const normalizedQuery = queryWithoutComments.replace(/\s+/g, ' ').trim();
+
+    // Two correlated patterns (MATCH (a:Label { .. }) MATCH (b:Label) WHERE
+    // b.x >= a.x ...) are handled separately; they do not fit the single-pattern
+    // regexes below.
+    const correlatedResult = this.executeCorrelatedMatch(normalizedQuery, parameters, graphData);
+    if (correlatedResult) {
+      return correlatedResult;
+    }
 
     // Parse MATCH patterns - supports:
     // 1. MATCH (n:Label) WHERE conditions RETURN fields ORDER BY ... SKIP ... LIMIT ...
@@ -241,9 +284,16 @@ export class CypherQueryParser {
         matchingNodes.sort((a, b) => {
           const aVal = a.properties[orderProperty];
           const bVal = b.properties[orderProperty];
-          if (aVal < bVal) return isDesc ? 1 : -1;
-          if (aVal > bVal) return isDesc ? -1 : 1;
-          return 0;
+          if (aVal === bVal) {
+            return 0;
+          }
+          // compareOrder returns null for values that are not ordered against
+          // each other (NaN), which sorts as "equal" just as `<`/`>` did.
+          const order = this.compareOrder(aVal, bVal);
+          if (order === null || order === 0) {
+            return 0;
+          }
+          return isDesc ? -order : order;
         });
       }
 
@@ -251,14 +301,9 @@ export class CypherQueryParser {
       const skipMatch = normalizedQuery.match(/SKIP\s+(\$?\w+)/i);
       if (skipMatch) {
         const skipValue = skipMatch[1];
-        let skip: number;
-        if (skipValue.startsWith('$')) {
-          const paramName = skipValue.substring(1);
-          const paramValue = parameters[paramName];
-          skip = typeof paramValue === 'object' && paramValue.toNumber ? paramValue.toNumber() : parseInt(paramValue);
-        } else {
-          skip = parseInt(skipValue);
-        }
+        const skip = skipValue.startsWith('$')
+          ? this.toIntegerParameter(parameters[skipValue.substring(1)])
+          : parseInt(skipValue);
         if (!isNaN(skip) && skip > 0) {
           matchingNodes = matchingNodes.slice(skip);
         }
@@ -268,14 +313,9 @@ export class CypherQueryParser {
       const limitMatch = normalizedQuery.match(/LIMIT\s+(\$?\w+)/i);
       if (limitMatch) {
         const limitValue = limitMatch[1];
-        let limit: number;
-        if (limitValue.startsWith('$')) {
-          const paramName = limitValue.substring(1);
-          const paramValue = parameters[paramName];
-          limit = typeof paramValue === 'object' && paramValue.toNumber ? paramValue.toNumber() : parseInt(paramValue);
-        } else {
-          limit = parseInt(limitValue);
-        }
+        const limit = limitValue.startsWith('$')
+          ? this.toIntegerParameter(parameters[limitValue.substring(1)])
+          : parseInt(limitValue);
         if (!isNaN(limit) && limit > 0) {
           matchingNodes = matchingNodes.slice(0, limit);
         }
@@ -302,7 +342,7 @@ export class CypherQueryParser {
           const returnFields = returnClause.split(',').map(f => f.trim());
 
           for (const node of matchingNodes) {
-            const values: any[] = [];
+            const values: LocalRecordValue[] = [];
             const keys: string[] = [];
 
             for (const field of returnFields) {
@@ -345,7 +385,155 @@ export class CypherQueryParser {
     };
   }
 
-  private static executeSet(query: string, parameters: Record<string, any>, graphData: GraphData): LocalQueryResult {
+  /**
+   * Execute `MATCH (a:Label { .. }) MATCH (b:Label) [WHERE ..] RETURN b [ORDER BY ..] [SKIP ..] [LIMIT ..]`.
+   *
+   * Repositories derive relations that Cypher expresses by correlating two node
+   * patterns — ArcRepository.findDirectChildren and findParentArcs bound a
+   * parent arc by id and then correlated every other arc against it by time
+   * range and level. The single-pattern matcher below cannot express that, so
+   * these queries silently produced no rows in local execution mode.
+   *
+   * Returns null when the query is not this shape, leaving the caller to fall
+   * back to the single-pattern matcher.
+   */
+  private static executeCorrelatedMatch(
+    query: string,
+    parameters: GraphParameters,
+    graphData: GraphData
+  ): LocalQueryResult | null {
+    const head = query.match(
+      /^MATCH\s*\((\w+):(\w+)\s*\{([^}]+)\}\)\s*MATCH\s*\((\w+):(\w+)\)/i
+    );
+    if (!head) {
+      return null;
+    }
+
+    const [, outerVar, outerLabel, propsStr, innerVar, innerLabel] = head;
+    const remainder = query.slice(head[0].length);
+    const returnIndex = remainder.search(/\bRETURN\b/i);
+    if (returnIndex < 0) {
+      return null;
+    }
+
+    const whereClause = remainder.slice(0, returnIndex).match(/\bWHERE\s+([\s\S]+)$/i);
+    const returnTail = remainder.slice(returnIndex).replace(/^\bRETURN\b/i, '').trim();
+
+    // ORDER BY / SKIP / LIMIT trail the RETURN clause; strip them off in the
+    // same order the single-pattern matcher applies them (sort, then skip,
+    // then limit).
+    let returnClause = returnTail;
+    let orderByProperty: string | undefined;
+    let orderByDescending = false;
+    let skip: number | undefined;
+    let limit: number | undefined;
+
+    const orderMatch = returnClause.match(/\s*ORDER\s+BY\s+\w+\.(\w+)(?:\s+(ASC|DESC))?\s*$/i);
+    if (orderMatch) {
+      orderByProperty = orderMatch[1];
+      orderByDescending = orderMatch[2]?.toUpperCase() === 'DESC';
+      returnClause = returnClause.slice(0, orderMatch.index);
+    }
+
+    const limitMatch = returnClause.match(/\s*LIMIT\s+(\$?\w+)\s*$/i);
+    if (limitMatch) {
+      limit = this.toIntegerParameter(
+        limitMatch[1].startsWith('$') ? parameters[limitMatch[1].substring(1)] : parseInt(limitMatch[1])
+      );
+      returnClause = returnClause.slice(0, limitMatch.index);
+    }
+
+    const skipMatch = returnClause.match(/\s*SKIP\s+(\$?\w+)\s*$/i);
+    if (skipMatch) {
+      skip = this.toIntegerParameter(
+        skipMatch[1].startsWith('$') ? parameters[skipMatch[1].substring(1)] : parseInt(skipMatch[1])
+      );
+      returnClause = returnClause.slice(0, skipMatch.index);
+    }
+
+    returnClause = returnClause.trim();
+    if (!returnClause) {
+      return null;
+    }
+
+    const outerNodes: GraphNode[] = [];
+    for (const nodeId of graphData.nodesByLabel.get(outerLabel) || new Set<string>()) {
+      const node = graphData.nodes.get(nodeId);
+      if (node && this.nodeMatchesProperties(node, this.parseProperties(propsStr, parameters))) {
+        outerNodes.push(node);
+      }
+    }
+
+    const innerNodes: GraphNode[] = [];
+    for (const nodeId of graphData.nodesByLabel.get(innerLabel) || new Set<string>()) {
+      const node = graphData.nodes.get(nodeId);
+      if (node) {
+        innerNodes.push(node);
+      }
+    }
+
+    let bindings: Map<string, GraphNode>[] = [];
+    for (const outer of outerNodes) {
+      for (const inner of innerNodes) {
+        const scope = new Map<string, GraphNode>([
+          [outerVar, outer],
+          [innerVar, inner]
+        ]);
+        if (whereClause && !this.evaluateWhereClause(whereClause[1], inner.properties, parameters, scope)) {
+          continue;
+        }
+        bindings.push(scope);
+      }
+    }
+
+    if (orderByProperty) {
+      bindings.sort((a, b) => {
+        const order = this.compareOrder(a.get(innerVar)?.properties[orderByProperty], b.get(innerVar)?.properties[orderByProperty]);
+        if (order === null || order === 0) {
+          return 0;
+        }
+        return orderByDescending ? -order : order;
+      });
+    }
+    if (skip !== undefined && skip > 0) {
+      bindings = bindings.slice(skip);
+    }
+    if (limit !== undefined && limit > 0) {
+      bindings = bindings.slice(0, limit);
+    }
+
+    const records: LocalQueryRecord[] = [];
+    for (const scope of bindings) {
+      const values: LocalRecordValue[] = [];
+      const keys: string[] = [];
+
+      for (const field of returnClause.split(',').map(f => f.trim())) {
+        const aliasMatch = field.match(/^(.+?)\s+as\s+(\w+)$/i);
+        const fieldName = aliasMatch ? aliasMatch[1].trim() : field;
+        const keyName = aliasMatch ? aliasMatch[2] : field;
+        const [referencedVar, property] = fieldName.split('.');
+        const node = scope.get(referencedVar);
+        if (!node) {
+          continue;
+        }
+        keys.push(keyName);
+        values.push(property ? node.properties[property] : node);
+      }
+
+      records.push(this.createRecord(keys, values));
+    }
+
+    return {
+      records,
+      summary: {
+        query,
+        parameters,
+        counters: { nodesCreated: 0, relationshipsCreated: 0, nodesDeleted: 0, relationshipsDeleted: 0, propertiesSet: 0 }
+      }
+    };
+  }
+
+  private static executeSet(query: string, parameters: GraphParameters, graphData: GraphData): LocalQueryResult {
     const counters = { nodesCreated: 0, relationshipsCreated: 0, nodesDeleted: 0, relationshipsDeleted: 0, propertiesSet: 0 };
     const records: LocalQueryRecord[] = [];
 
@@ -381,7 +569,7 @@ export class CypherQueryParser {
           const assignMatch = assignment.match(/(\w+)\.(\w+)\s*=\s*(.+)/);
           if (assignMatch) {
             const [, , property, rawValue] = assignMatch;
-            let value: any;
+            let value: GraphPropertyValue;
 
             // Parse the value
             if (rawValue.startsWith('datetime($')) {
@@ -427,7 +615,7 @@ export class CypherQueryParser {
     };
   }
 
-  private static executeDelete(query: string, parameters: Record<string, any>, graphData: GraphData): LocalQueryResult {
+  private static executeDelete(query: string, parameters: GraphParameters, graphData: GraphData): LocalQueryResult {
     const counters = { nodesCreated: 0, relationshipsCreated: 0, nodesDeleted: 0, relationshipsDeleted: 0, propertiesSet: 0 };
 
     // Normalize query: replace newlines and multiple spaces with single space
@@ -438,7 +626,7 @@ export class CypherQueryParser {
     const match = normalizedQuery.match(deletePattern);
     
     if (match) {
-      const [, variable, label, propsStr] = match;
+      const [, , label, propsStr] = match;
       const props = this.parseProperties(propsStr, parameters);
       
       // Find matching nodes
@@ -497,8 +685,8 @@ export class CypherQueryParser {
     };
   }
 
-  private static parseProperties(propsStr: string, parameters: Record<string, any>): Record<string, any> {
-    const props: Record<string, any> = {};
+  private static parseProperties(propsStr: string, parameters: GraphParameters): GraphProperties {
+    const props: GraphProperties = {};
 
     // Simple property parsing: key: $param, key: value, or key: function($param)
     // Matches: $param, 'string', "string", numbers, true/false, datetime($param), etc.
@@ -526,7 +714,8 @@ export class CypherQueryParser {
         // Handle object/map values like metadata: $metadata
         // This is a simplification - in practice, this might be a JSON object
         try {
-          props[key] = JSON.parse(value);
+          const parsed: GraphPropertyValue = JSON.parse(value);
+          props[key] = parsed;
         } catch {
           props[key] = {};
         }
@@ -540,7 +729,20 @@ export class CypherQueryParser {
     return props;
   }
 
-  private static evaluateWhereClause(whereClause: string, properties: Record<string, any>, parameters: Record<string, any>): boolean {
+  /**
+   * Evaluate a WHERE clause for a single node.
+   *
+   * `scope` carries the other variables bound by a correlated query
+   * (`MATCH (a:Arc {id: $id}) MATCH (b:Arc) WHERE b.x >= a.x`), so that
+   * conditions can compare two variables. It is empty for single-pattern
+   * queries, where every reference resolves against `properties`.
+   */
+  private static evaluateWhereClause(
+    whereClause: string,
+    properties: GraphProperties,
+    parameters: GraphParameters,
+    scope: Map<string, GraphNode> = new Map()
+  ): boolean {
     // Enhanced WHERE clause evaluation supporting complex conditions
     // Supports: AND, OR, NOT, comparison operators, datetime() functions
 
@@ -548,7 +750,7 @@ export class CypherQueryParser {
     // Note: This is a simplified implementation that handles common patterns
     const orParts = this.splitByTopLevelOr(whereClause);
     if (orParts.length > 1) {
-      return orParts.some(part => this.evaluateWhereClause(part.trim(), properties, parameters));
+      return orParts.some(part => this.evaluateWhereClause(part.trim(), properties, parameters, scope));
     }
 
     // Handle AND conditions
@@ -563,7 +765,7 @@ export class CypherQueryParser {
       // Handle NOT conditions: NOT (condition)
       const notMatch = trimmedPart.match(/^NOT\s*\((.+)\)$/i);
       if (notMatch) {
-        if (this.evaluateWhereClause(notMatch[1], properties, parameters)) {
+        if (this.evaluateWhereClause(notMatch[1], properties, parameters, scope)) {
           return false;
         }
         continue;
@@ -571,21 +773,24 @@ export class CypherQueryParser {
 
       // Handle parenthesized conditions
       if (trimmedPart.startsWith('(') && trimmedPart.endsWith(')')) {
-        if (!this.evaluateWhereClause(trimmedPart.slice(1, -1), properties, parameters)) {
+        if (!this.evaluateWhereClause(trimmedPart.slice(1, -1), properties, parameters, scope)) {
           return false;
         }
         continue;
       }
 
-      // Handle comparison: n.property op value
+      // Handle comparison: <variable>.<property> op <value>
       // Supports: =, !=, <>, <, >, <=, >=
-      // Value can be: $param, datetime($param), 'string', "string", number
+      // Value can be: $param, datetime($param), 'string', "string", number, or
+      // another variable's property (optionally offset, e.g. `parent.level + 1`)
       const comparisonMatch = trimmedPart.match(/(\w+)\.(\w+)\s*(<>|!=|<=|>=|[=<>])\s*(.+)/);
       if (comparisonMatch) {
-        const [, , property, operator, rawValue] = comparisonMatch;
+        const [, variable, property, operator, rawValue] = comparisonMatch;
 
-        const compareValue = this.parseComparisonValue(rawValue.trim(), parameters);
-        const propertyValue = this.normalizePropertyValue(properties[property]);
+        const compareValue = this.parseOperand(rawValue.trim(), parameters, scope);
+        const propertyValue = this.normalizePropertyValue(
+          scope.get(variable)?.properties[property] ?? properties[property]
+        );
 
         if (!this.compareValues(propertyValue, operator, compareValue)) {
           return false;
@@ -596,9 +801,11 @@ export class CypherQueryParser {
       // Handle datetime comparison: datetime($param) op n.property
       const datetimeFirstMatch = trimmedPart.match(/datetime\(\$(\w+)\)\s*(<>|!=|<=|>=|[=<>])\s*(\w+)\.(\w+)/);
       if (datetimeFirstMatch) {
-        const [, paramName, operator, , property] = datetimeFirstMatch;
+        const [, paramName, operator, variable, property] = datetimeFirstMatch;
         const compareValue = this.normalizePropertyValue(parameters[paramName]);
-        const propertyValue = this.normalizePropertyValue(properties[property]);
+        const propertyValue = this.normalizePropertyValue(
+          scope.get(variable)?.properties[property] ?? properties[property]
+        );
 
         if (!this.compareValues(compareValue, operator, propertyValue)) {
           return false;
@@ -608,6 +815,40 @@ export class CypherQueryParser {
     }
 
     return true;
+  }
+
+  /**
+   * Resolve the right-hand side of a WHERE comparison. `$param`, literals and
+   * `datetime($param)` come from `parameters`; `other.prop` and
+   * `other.prop + n` resolve through the query scope.
+   */
+  private static parseOperand(
+    rawValue: string,
+    parameters: GraphParameters,
+    scope: Map<string, GraphNode>
+  ): GraphPropertyValue {
+    const arithmeticMatch = rawValue.match(/^(\w+)\.(\w+)\s*([+-])\s*(\d+(?:\.\d+)?)$/);
+    if (arithmeticMatch) {
+      const [, variable, property, operator, amount] = arithmeticMatch;
+      const bound = scope.get(variable);
+      if (bound) {
+        const base = Number(this.normalizePropertyValue(bound.properties[property]));
+        const offset = Number(amount);
+        return operator === '+' ? base + offset : base - offset;
+      }
+    }
+
+    const referenceMatch = rawValue.match(/^(\w+)\.(\w+)$/);
+    if (referenceMatch) {
+      const bound = scope.get(referenceMatch[1]);
+      if (bound) {
+        // Normalize so a stored date string compares against another the same
+        // way it does against a `datetime($param)` operand.
+        return this.normalizePropertyValue(bound.properties[referenceMatch[2]]);
+      }
+    }
+
+    return this.parseComparisonValue(rawValue, parameters);
   }
 
   private static splitByTopLevelOr(clause: string): string[] {
@@ -662,7 +903,7 @@ export class CypherQueryParser {
     return parts.length > 0 ? parts : [clause];
   }
 
-  private static parseComparisonValue(rawValue: string, parameters: Record<string, any>): any {
+  private static parseComparisonValue(rawValue: string, parameters: GraphParameters): GraphPropertyValue {
     // Handle datetime($param)
     const datetimeMatch = rawValue.match(/^datetime\(\$(\w+)\)$/);
     if (datetimeMatch) {
@@ -688,7 +929,7 @@ export class CypherQueryParser {
     return rawValue;
   }
 
-  private static normalizePropertyValue(value: any): any {
+  private static normalizePropertyValue(value: GraphPropertyValue): GraphPropertyValue {
     // Convert date strings to Date objects for comparison
     if (typeof value === 'string') {
       // Check if it's an ISO date string
@@ -703,27 +944,75 @@ export class CypherQueryParser {
     return value;
   }
 
-  private static compareValues(left: any, operator: string, right: any): boolean {
+  /**
+   * Three-way comparison used for ordering, mirroring the JavaScript relational
+   * semantics the query engine previously relied on: two strings compare
+   * lexicographically, everything else is coerced numerically, and `null` means
+   * "not comparable" (what `NaN` comparisons used to produce).
+   */
+  private static compareOrder(left: GraphPropertyValue, right: GraphPropertyValue): number | null {
+    if (typeof left === 'string' && typeof right === 'string') {
+      if (left < right) return -1;
+      if (left > right) return 1;
+      return 0;
+    }
+    const leftNumber = Number(left);
+    const rightNumber = Number(right);
+    if (Number.isNaN(leftNumber) || Number.isNaN(rightNumber)) {
+      return null;
+    }
+    if (leftNumber < rightNumber) return -1;
+    if (leftNumber > rightNumber) return 1;
+    return 0;
+  }
+
+  /**
+   * Read a numeric Cypher parameter used by SKIP/LIMIT. Neo4j integers reach the
+   * engine either as plain numbers/strings or as driver `Integer`-like values
+   * that expose `toNumber()`; anything else is not a usable offset.
+   */
+  private static toIntegerParameter(value: GraphPropertyValue): number {
+    if (typeof value === 'number') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      return parseInt(value);
+    }
+    if (isIntegerLikeValue(value)) {
+      return value.toNumber();
+    }
+    return Number.NaN;
+  }
+
+  private static compareValues(left: GraphPropertyValue, operator: string, right: GraphPropertyValue): boolean {
     switch (operator) {
       case '=':
         return left === right;
       case '!=':
       case '<>':
         return left !== right;
-      case '<':
-        return left < right;
-      case '>':
-        return left > right;
-      case '<=':
-        return left <= right;
-      case '>=':
-        return left >= right;
+      case '<': {
+        const order = this.compareOrder(left, right);
+        return order !== null && order < 0;
+      }
+      case '>': {
+        const order = this.compareOrder(left, right);
+        return order !== null && order > 0;
+      }
+      case '<=': {
+        const order = this.compareOrder(left, right);
+        return order !== null && order <= 0;
+      }
+      case '>=': {
+        const order = this.compareOrder(left, right);
+        return order !== null && order >= 0;
+      }
       default:
         return true;
     }
   }
 
-  private static nodeMatchesProperties(node: GraphNode, targetProps: Record<string, any>): boolean {
+  private static nodeMatchesProperties(node: GraphNode, targetProps: GraphProperties): boolean {
     for (const [key, value] of Object.entries(targetProps)) {
       if (node.properties[key] !== value) {
         return false;
@@ -732,11 +1021,11 @@ export class CypherQueryParser {
     return true;
   }
 
-  private static createRecord(keys: string[], values: any[]): LocalQueryRecord {
+  private static createRecord(keys: string[], values: LocalRecordValue[]): LocalQueryRecord {
     return {
       keys,
       values,
-      get(keyOrIndex: string | number): any {
+      get(keyOrIndex: string | number): LocalRecordValue | undefined {
         if (typeof keyOrIndex === 'string') {
           const index = keys.indexOf(keyOrIndex);
           return index >= 0 ? values[index] : undefined;
@@ -780,8 +1069,10 @@ export class LocalGraphStore {
   /**
    * Create a new node
    */
-  async createNode(labels: string[], properties: Record<string, any>): Promise<GraphNode> {
-    const id = properties.id || this.generateId();
+  async createNode(labels: string[], properties: GraphProperties): Promise<GraphNode> {
+    // Only a string id can address a node; anything else falls back to a
+    // generated id, as a non-string id could never be looked up again.
+    const id = typeof properties.id === 'string' ? properties.id : this.generateId();
     const node: GraphNode = {
       id,
       labels,
@@ -811,7 +1102,7 @@ export class LocalGraphStore {
   /**
    * Update a node's properties
    */
-  async updateNode(id: string, properties: Record<string, any>): Promise<GraphNode | null> {
+  async updateNode(id: string, properties: GraphProperties): Promise<GraphNode | null> {
     const node = this.graphData.nodes.get(id);
     if (!node) {
       return null;
@@ -864,7 +1155,7 @@ export class LocalGraphStore {
     startNodeId: string,
     endNodeId: string,
     type: string,
-    properties: Record<string, any> = {}
+    properties: GraphProperties = {}
   ): Promise<GraphRelationship | null> {
     // Verify both nodes exist
     if (!this.graphData.nodes.has(startNodeId) || !this.graphData.nodes.has(endNodeId)) {
@@ -929,7 +1220,7 @@ export class LocalGraphStore {
   /**
    * Execute a Cypher query
    */
-  async executeQuery(query: string, parameters: Record<string, any> = {}): Promise<LocalQueryResult> {
+  async executeQuery(query: string, parameters: GraphParameters = {}): Promise<LocalQueryResult> {
     try {
       return CypherQueryParser.execute(query, parameters, this.graphData);
     } catch (error) {
@@ -1001,7 +1292,7 @@ export class LocalGraphStore {
   /**
    * Update a relationship's properties
    */
-  async updateRelationship(id: string, properties: Record<string, any>): Promise<GraphRelationship | null> {
+  async updateRelationship(id: string, properties: GraphProperties): Promise<GraphRelationship | null> {
     const relationship = this.graphData.relationships.get(id);
     if (!relationship) {
       return null;
@@ -1056,18 +1347,30 @@ export class LocalGraphStore {
       this.graphData.nodes = new Map(Object.entries(parsed.nodes || {}));
       this.graphData.relationships = new Map(Object.entries(parsed.relationships || {}));
       this.graphData.nodesByLabel = new Map(
-        Object.entries(parsed.nodesByLabel || {}).map(([k, v]: [string, any]) => [k, new Set(v)])
+        Object.entries(parsed.nodesByLabel || {}).map(([label, ids]) => [label, new Set(this.toIdList(ids))])
       );
       this.graphData.relationshipsByType = new Map(
-        Object.entries(parsed.relationshipsByType || {}).map(([k, v]: [string, any]) => [k, new Set(v)])
+        Object.entries(parsed.relationshipsByType || {}).map(([type, ids]) => [type, new Set(this.toIdList(ids))])
       );
       this.graphData.backups = parsed.backups || [];
     } catch (error) {
-      if ((error as any).code !== 'ENOENT') {
+      if (!isFileNotFoundError(error)) {
         console.error('Failed to load graph data:', error);
       }
       // File might not exist on first run, which is fine
     }
+  }
+
+  /**
+   * Read an id list out of the persisted graph file. The file is JSON, so the
+   * entries are expected to be arrays of strings; anything else is treated as an
+   * empty index rather than seeding the in-memory map with unusable values.
+   */
+  private toIdList(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter((entry): entry is string => typeof entry === 'string');
   }
 
   /**
@@ -1159,4 +1462,24 @@ export class LocalGraphStore {
   private generateId(): string {
     return `local_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   }
+}
+/**
+ * `true` when the rejection came from the filesystem because the path does not
+ * exist, which is the expected "first run" case when loading persisted state.
+ */
+function isFileNotFoundError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+}
+
+/**
+ * Neo4j `Integer`-like value. Cypher parameters such as `SKIP $offset` arrive in
+ * this shape when they come from the driver rather than as plain JavaScript
+ * numbers.
+ */
+interface IntegerLikeValue {
+  toNumber(): number;
+}
+
+function isIntegerLikeValue(value: GraphPropertyValue): value is GraphPropertyValue & IntegerLikeValue {
+  return typeof value === 'object' && value !== null && 'toNumber' in value && typeof value.toNumber === 'function';
 }

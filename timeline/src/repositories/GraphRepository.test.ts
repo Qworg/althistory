@@ -4,12 +4,12 @@
  * Tests for multi-graph management with Git-like versioning
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { GraphRepository, GraphListOptions } from './GraphRepository';
-import { VersionRepository, EntityChanges } from './VersionRepository';
-import { Graph, IGraph, GraphMetadata, VersionRef } from '../models/Graph';
+import { GraphRepository } from './GraphRepository';
+import { EntityChanges } from './VersionRepository';
+import { Graph, IGraph, VersionRef } from '../models/Graph';
 
 // Mock the fs module
 vi.mock('fs', () => ({

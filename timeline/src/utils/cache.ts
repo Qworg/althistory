@@ -28,6 +28,26 @@ export interface CacheMetrics {
 }
 
 /**
+ * In-memory entry of the file-backed local store. `value` stays opaque because
+ * the cache is a type-erased key/value store; `CacheManager.get<T>` is where a
+ * caller re-attaches the type it stored. `accessTime` backs LRU eviction.
+ */
+interface LocalCacheEntry {
+  value: unknown;
+  expiration: number;
+  accessTime: number;
+}
+
+/**
+ * In-memory entry of the development/test store, which does not track access
+ * times because it has no eviction policy.
+ */
+interface MemoryCacheEntry {
+  value: unknown;
+  expiration: number;
+}
+
+/**
  * Redis-based cache implementation with performance monitoring
  */
 export class RedisCache implements CacheManager {
@@ -240,7 +260,7 @@ export class RedisCache implements CacheManager {
  * Provides Redis-compatible interface with file persistence and advanced cleanup
  */
 export class LocalCacheStore implements CacheManager {
-  private cache = new Map<string, { value: any; expiration: number; accessTime: number }>();
+  private cache = new Map<string, LocalCacheEntry>();
   private config = loadConfig();
   private metrics: CacheMetrics = {
     hits: 0,
@@ -283,7 +303,9 @@ export class LocalCacheStore implements CacheManager {
     // Update access time for LRU tracking
     item.accessTime = Date.now();
     this.updateMetrics(startTime, true);
-    return item.value;
+    // The cache stores values without knowing their type; `get<T>` is the
+    // boundary where the caller declares the shape it stored.
+    return item.value as T;
   }
 
   /**
@@ -375,7 +397,7 @@ export class LocalCacheStore implements CacheManager {
   /**
    * Estimate memory size of cache item
    */
-  private estimateItemSize(key: string, item: any): number {
+  private estimateItemSize(key: string, item: LocalCacheEntry): number {
     try {
       const serialized = JSON.stringify({ key, ...item });
       return Buffer.byteLength(serialized, 'utf8');
@@ -515,7 +537,7 @@ export class LocalCacheStore implements CacheManager {
       this.updateMemoryUsage();
     } catch (error) {
       // File might not exist on first run, which is fine
-      if ((error as any).code !== 'ENOENT') {
+      if (!isFileNotFoundError(error)) {
         console.error('Failed to load cache:', error);
       }
     }
@@ -564,7 +586,7 @@ export class LocalCacheStore implements CacheManager {
  * In-memory cache implementation for development/testing
  */
 export class MemoryCache implements CacheManager {
-  private cache = new Map<string, { value: any; expiration: number }>();
+  private cache = new Map<string, MemoryCacheEntry>();
   private config = loadConfig();
   private metrics: CacheMetrics = {
     hits: 0,
@@ -615,7 +637,9 @@ export class MemoryCache implements CacheManager {
     }
 
     if (track) this.updateMetrics(startTime, true);
-    return item.value;
+    // The cache stores values without knowing their type; `get<T>` is the
+    // boundary where the caller declares the shape it stored.
+    return item.value as T;
   }
 
   /**
@@ -886,4 +910,11 @@ export async function shutdownCache(): Promise<void> {
     await cacheManager.shutdown();
   }
   cacheManager = null;
+}
+/**
+ * `true` when the rejection came from the filesystem because the path does not
+ * exist, which is the expected "first run" case when loading persisted cache.
+ */
+function isFileNotFoundError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }

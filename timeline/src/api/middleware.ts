@@ -1,16 +1,41 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { DatabaseConnectionError, ErrorHandler } from '@/utils/errors';
-import { getContainer, Container } from '@/container';
+import { getContainer } from '@/container';
+import type { Container } from '@/container';
 import { ApiKey, Permission, RateLimitConfig } from '@/models/ApiKey';
 
 /**
- * Extended Request interface with container access
+ * The container-injection and request-timing middleware run before every route,
+ * so these fields are present on every Request that reaches a handler.
+ *
+ * Declaring them by augmenting the Express namespace (rather than only as a
+ * narrower RequestWithContainer) matters for assignability: Express types a
+ * handler's `req` parameter as the base `Request`, and a handler that declares
+ * a NARROWER request type is not assignable to it (parameters are checked
+ * contravariantly). That mismatch made every `router.get/post(...)` call fail
+ * with TS2769 "No overload matches this call" across the route files, because
+ * `Container` is a deep type and TypeScript gave up on the structural
+ * comparison. With the augmentation below, handlers can simply use `Request`.
  */
-export interface RequestWithContainer extends Request {
-  container: Container;
-  requestId: string;
-  startTime: number;
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      container: Container;
+      requestId: string;
+      startTime: number;
+    }
+  }
 }
+
+/**
+ * Extended Request interface with container access.
+ *
+ * @deprecated Prefer plain `Request` in handlers; the fields are now declared
+ * on the base Express Request via the augmentation above. Kept as an alias for
+ * existing callers and for documentation.
+ */
+export type RequestWithContainer = Request;
 
 /**
  * Extended Request interface with authentication
@@ -41,7 +66,9 @@ export function errorHandler(
   error: Error,
   req: RequestWithContainer,
   res: Response,
-  next: NextFunction
+  // Express identifies an error handler by its arity, so `next` must stay in the
+  // signature even though this handler responds directly instead of delegating.
+  _next: NextFunction
 ): void {
   const requestId = req.requestId || 'unknown';
   const duration = req.startTime ? Date.now() - req.startTime : 0;
@@ -69,8 +96,26 @@ export function errorHandler(
   console.error('Request error:', JSON.stringify(errorLog, null, 2));
 
   const errorResponse = ErrorHandler.formatErrorResponse(error);
-  
-  res.status(errorResponse.statusCode).json({
+
+  // body-parser (behind express.json / express.urlencoded) reports a malformed
+  // body or an oversized payload as an error carrying a `type` discriminator.
+  // Without this mapping those fall through to the generic branch and surface
+  // as 500, telling the client the server broke when in fact its request was
+  // malformed. Map them to the status codes they actually warrant.
+  const bodyParserStatus: Record<string, number> = {
+    'entity.parse.failed': 400,
+    'entity.too.large': 413,
+    'encoding.unsupported': 415
+  };
+  // body-parser attaches the discriminator to the error itself, not to the
+  // formatted response, so read it off the error with a type guard.
+  const errorType =
+    typeof error === 'object' && error !== null && 'type' in error && typeof error.type === 'string'
+      ? error.type
+      : undefined;
+  const statusCode = (errorType !== undefined ? bodyParserStatus[errorType] : undefined) ?? errorResponse.statusCode;
+
+  res.status(statusCode).json({
     error: {
       message: errorResponse.message,
       details: errorResponse.details,

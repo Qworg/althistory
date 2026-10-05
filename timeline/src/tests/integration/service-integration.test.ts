@@ -3,6 +3,7 @@ import { Container, initializeContainer, cleanupContainer } from '@/container';
 import { loadConfig, initializeDatabaseManager } from '@/utils';
 import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
+import type { CausalPath } from '@/models/relationships';
 
 describe('Service Integration Tests', () => {
   let container: Container;
@@ -117,6 +118,9 @@ describe('Service Integration Tests', () => {
       // Test temporal validation
       const isValid = temporalService.validateEventInArc(event, arc);
       expect(typeof isValid).toBe('boolean');
+
+      expect(validationService.validateEvent(event).isValid).toBe(true);
+      expect(validationService.validateArc(arc).isValid).toBe(true);
     });
 
     it('should support causal relationship workflow', async () => {
@@ -143,6 +147,15 @@ describe('Service Integration Tests', () => {
       // Test temporal paradox prevention
       const hasParadox = temporalService.preventTemporalParadox(causeEvent, effectEvent);
       expect(typeof hasParadox).toBe('boolean');
+
+      // Causal strength is computed from a path without touching the store.
+      const path: CausalPath = {
+        events: [causeEvent.id, effectEvent.id],
+        total_strength: 0,
+        relationship_weights: [0.8],
+        depth: 1
+      };
+      expect(causalService.calculateCausalStrength(path)).toBeGreaterThan(0);
     });
 
     it('should support inference workflow', async () => {
@@ -187,14 +200,17 @@ describe('Service Integration Tests', () => {
     it('should handle service errors gracefully', async () => {
       // Test error propagation through service layers
       const validationService = container.validationService;
-      
-      try {
-        // This should trigger validation error
-        validationService.validateEvent({} as any);
-      } catch (error) {
-        expect(error).toBeDefined();
-        expect(error instanceof Error).toBe(true);
-      }
+
+      // `Event`'s constructor rejects incomplete input, so the value the
+      // validator is meant to reject is described directly and narrowed here.
+      const incompleteEvent = { id: 'incomplete-event' } as Event;
+
+      // The validator reports problems in its result rather than throwing.
+      expect(() => validationService.validateEvent(incompleteEvent)).not.toThrow();
+
+      const result = validationService.validateEvent(incompleteEvent);
+      expect(result.isValid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
     });
 
     it('should maintain service availability during errors', async () => {
@@ -225,6 +241,15 @@ describe('Service Integration Tests', () => {
       });
 
       validationService.validateEvent(event);
+
+      const arc = new Arc({
+        id: 'perf-test-arc',
+        name: 'Performance test arc',
+        start_time: new Date(event.timestamp.getTime() - 3600000),
+        end_time: new Date(event.timestamp.getTime() + 3600000),
+        level: 0
+      });
+      temporalService.validateEventInArc(event, arc);
       
       const duration = Date.now() - startTime;
       

@@ -2,8 +2,8 @@
  * Tests for ImportService
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ImportService, ImportValidationResult, ImportConflict } from './ImportService';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { ImportService } from './ImportService';
 import { AlthistoryExport } from './ExportService';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -1303,6 +1303,7 @@ describe('ImportService', () => {
           crossGraphRefs: [
             {
               localEntityId: 'event-1',
+              localEntityType: 'event',
               referencedGraphId: 'non-existent-graph',
               referencedEntityId: 'remote-event',
               referencedEntityType: 'event',

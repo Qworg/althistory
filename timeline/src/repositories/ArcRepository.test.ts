@@ -32,9 +32,22 @@ describe('ArcRepository Integration Tests', () => {
       return;
     }
     
-    arcRepository = new ArcRepository();
+    arcRepository = new ArcRepository(databaseManager);
     await cleanupTestData(databaseManager, 'test_');
   });
+
+  /**
+   * Narrowing accessor for the repository created in beforeEach. Every test in this
+   * block is an integration test that needs a live Neo4j connection, so a missing
+   * repository means the setup above did not run - report that explicitly instead
+   * of failing later with a TypeError on a null receiver.
+   */
+  function requireArcRepository(): ArcRepository {
+    if (!arcRepository) {
+      throw new Error('ArcRepository is not initialised: the beforeAll/beforeEach setup did not run');
+    }
+    return arcRepository;
+  }
 
   afterAll(async () => {
     if (arcRepository) {
@@ -63,7 +76,7 @@ describe('ArcRepository Integration Tests', () => {
         level: 0
       };
 
-      const arc = await arcRepository.create(arcData);
+      const arc = await requireArcRepository().create(arcData);
       
       expect(arc).toBeDefined();
       expect(arc.id).toBeDefined();
@@ -82,7 +95,7 @@ describe('ArcRepository Integration Tests', () => {
         level: 0
       };
 
-      await expect(arcRepository.create(invalidArcData)).rejects.toThrow();
+      await expect(requireArcRepository().create(invalidArcData)).rejects.toThrow();
     });
 
     it('should find arc by ID', async () => {
@@ -94,10 +107,10 @@ describe('ArcRepository Integration Tests', () => {
         level: 0
       };
 
-      const createdArc = await arcRepository.create(arcData);
+      const createdArc = await requireArcRepository().create(arcData);
       
       // Find the arc
-      const foundArc = await arcRepository.findById(createdArc.id);
+      const foundArc = await requireArcRepository().findById(createdArc.id);
       
       expect(foundArc).toBeDefined();
       expect(foundArc!.id).toBe(createdArc.id);
@@ -105,7 +118,7 @@ describe('ArcRepository Integration Tests', () => {
     });
 
     it('should return null for non-existent arc', async () => {
-      const foundArc = await arcRepository.findById('non-existent-id');
+      const foundArc = await requireArcRepository().findById('non-existent-id');
       expect(foundArc).toBeNull();
     });
 
@@ -119,7 +132,7 @@ describe('ArcRepository Integration Tests', () => {
         level: 0
       };
 
-      const createdArc = await arcRepository.create(arcData);
+      const createdArc = await requireArcRepository().create(arcData);
       
       // Update the arc
       const updates = {
@@ -127,7 +140,7 @@ describe('ArcRepository Integration Tests', () => {
         description: 'Updated description'
       };
 
-      const updatedArc = await arcRepository.update(createdArc.id, updates);
+      const updatedArc = await requireArcRepository().update(createdArc.id, updates);
       
       expect(updatedArc).toBeDefined();
       expect(updatedArc!.name).toBe(updates.name);
@@ -144,14 +157,14 @@ describe('ArcRepository Integration Tests', () => {
         level: 0
       };
 
-      const createdArc = await arcRepository.create(arcData);
+      const createdArc = await requireArcRepository().create(arcData);
       
       // Delete the arc
-      const deleted = await arcRepository.delete(createdArc.id);
+      const deleted = await requireArcRepository().delete(createdArc.id);
       expect(deleted).toBe(true);
       
       // Verify it's gone
-      const foundArc = await arcRepository.findById(createdArc.id);
+      const foundArc = await requireArcRepository().findById(createdArc.id);
       expect(foundArc).toBeNull();
     });
   });
@@ -187,17 +200,17 @@ describe('ArcRepository Integration Tests', () => {
       ];
 
       for (const arcData of testArcs) {
-        await arcRepository.create(arcData);
+        await requireArcRepository().create(arcData);
       }
     });
 
     it('should find all arcs', async () => {
-      const arcs = await arcRepository.findAll();
+      const arcs = await requireArcRepository().findAll();
       expect(arcs.length).toBeGreaterThanOrEqual(4);
     });
 
     it('should find arcs by level', async () => {
-      const level1Arcs = await arcRepository.findByLevel(1);
+      const level1Arcs = await requireArcRepository().findByLevel(1);
       expect(level1Arcs.length).toBe(2);
       expect(level1Arcs.every(a => a.level === 1)).toBe(true);
     });
@@ -208,7 +221,7 @@ describe('ArcRepository Integration Tests', () => {
         end: new Date('2023-09-01T00:00:00Z')
       };
 
-      const overlappingArcs = await arcRepository.findOverlappingArcs(timeRange);
+      const overlappingArcs = await requireArcRepository().findOverlappingArcs(timeRange);
       expect(overlappingArcs.length).toBeGreaterThan(0);
       
       // Verify all returned arcs actually overlap
@@ -224,7 +237,7 @@ describe('ArcRepository Integration Tests', () => {
         end: new Date('2023-03-01T00:00:00Z')
       };
 
-      const containingArcs = await arcRepository.findContainingArcs(timeRange);
+      const containingArcs = await requireArcRepository().findContainingArcs(timeRange);
       expect(containingArcs.length).toBeGreaterThan(0);
       
       // Verify all returned arcs actually contain the time range
@@ -235,8 +248,8 @@ describe('ArcRepository Integration Tests', () => {
     });
 
     it('should support pagination', async () => {
-      const page1 = await arcRepository.findAll(2, 0);
-      const page2 = await arcRepository.findAll(2, 2);
+      const page1 = await requireArcRepository().findAll(2, 0);
+      const page2 = await requireArcRepository().findAll(2, 2);
       
       expect(page1.length).toBeLessThanOrEqual(2);
       expect(page2.length).toBeLessThanOrEqual(2);
@@ -251,34 +264,34 @@ describe('ArcRepository Integration Tests', () => {
 
   describe('Hierarchy Operations', () => {
     let rootArc: Arc;
-    let childArc1: Arc;
-    let childArc2: Arc;
+    // The two child arcs and the grandchild are created here to populate the
+    // hierarchy; only rootArc and grandchildArc are inspected by the tests below.
     let grandchildArc: Arc;
 
     beforeEach(async () => {
       // Create hierarchy
-      rootArc = await arcRepository.create({
+      rootArc = await requireArcRepository().create({
         name: 'Hierarchy Root',
         start_time: new Date('2023-01-01T00:00:00Z'),
         end_time: new Date('2023-12-31T23:59:59Z'),
         level: 0
       });
 
-      childArc1 = await arcRepository.create({
+      await requireArcRepository().create({
         name: 'Hierarchy Child 1',
         start_time: new Date('2023-01-01T00:00:00Z'),
         end_time: new Date('2023-06-30T23:59:59Z'),
         level: 1
       });
 
-      childArc2 = await arcRepository.create({
+      await requireArcRepository().create({
         name: 'Hierarchy Child 2',
         start_time: new Date('2023-07-01T00:00:00Z'),
         end_time: new Date('2023-12-31T23:59:59Z'),
         level: 1
       });
 
-      grandchildArc = await arcRepository.create({
+      grandchildArc = await requireArcRepository().create({
         name: 'Hierarchy Grandchild',
         start_time: new Date('2023-01-01T00:00:00Z'),
         end_time: new Date('2023-03-31T23:59:59Z'),
@@ -287,19 +300,19 @@ describe('ArcRepository Integration Tests', () => {
     });
 
     it('should find nested arcs', async () => {
-      const nestedArcs = await arcRepository.findNestedArcs(rootArc.id);
+      const nestedArcs = await requireArcRepository().findNestedArcs(rootArc.id);
       expect(nestedArcs.length).toBe(3); // 2 children + 1 grandchild
       expect(nestedArcs.every(a => a.level > rootArc.level)).toBe(true);
     });
 
     it('should find direct children', async () => {
-      const directChildren = await arcRepository.findDirectChildren(rootArc.id);
+      const directChildren = await requireArcRepository().findDirectChildren(rootArc.id);
       expect(directChildren.length).toBe(2);
       expect(directChildren.every(a => a.level === rootArc.level + 1)).toBe(true);
     });
 
     it('should find parent arcs', async () => {
-      const parents = await arcRepository.findParentArcs(grandchildArc.id);
+      const parents = await requireArcRepository().findParentArcs(grandchildArc.id);
       expect(parents.length).toBe(2); // Root and child
       expect(parents.every(a => a.level < grandchildArc.level)).toBe(true);
     });
@@ -324,20 +337,20 @@ describe('ArcRepository Integration Tests', () => {
       ];
 
       for (const arcData of testArcs) {
-        await arcRepository.create(arcData);
+        await requireArcRepository().create(arcData);
       }
     });
 
     it('should count total arcs', async () => {
-      const count = await arcRepository.count();
+      const count = await requireArcRepository().count();
       expect(count).toBeGreaterThanOrEqual(2);
     });
 
     it('should count arcs by level', async () => {
-      const level0Count = await arcRepository.countByLevel(0);
+      const level0Count = await requireArcRepository().countByLevel(0);
       expect(level0Count).toBeGreaterThanOrEqual(1);
       
-      const level1Count = await arcRepository.countByLevel(1);
+      const level1Count = await requireArcRepository().countByLevel(1);
       expect(level1Count).toBeGreaterThanOrEqual(1);
     });
 
@@ -349,12 +362,12 @@ describe('ArcRepository Integration Tests', () => {
         level: 0
       };
 
-      const arc = await arcRepository.create(arcData);
+      const arc = await requireArcRepository().create(arcData);
       
-      const exists = await arcRepository.exists(arc.id);
+      const exists = await requireArcRepository().exists(arc.id);
       expect(exists).toBe(true);
       
-      const notExists = await arcRepository.exists('non-existent-id');
+      const notExists = await requireArcRepository().exists('non-existent-id');
       expect(notExists).toBe(false);
     });
   });
@@ -379,7 +392,7 @@ describe('AdvancedArcRepository Integration Tests', () => {
       return;
     }
     
-    advancedRepository = new AdvancedArcRepository();
+    advancedRepository = new AdvancedArcRepository(databaseManager);
     await cleanupTestData(databaseManager, 'advanced_');
 
     // Create test arcs for advanced search
@@ -408,10 +421,20 @@ describe('AdvancedArcRepository Integration Tests', () => {
     ];
 
     for (const arcData of testArcs) {
-      const arc = new Arc({ ...arcData, id: `advanced_${Date.now()}_${Math.random()}` });
-      await advancedRepository.create(arcData);
+      await requireAdvancedRepository().create(arcData);
     }
   });
+
+  /**
+   * Narrowing accessor for the repository created in beforeEach; see the note on
+   * requireArcRepository() above.
+   */
+  function requireAdvancedRepository(): AdvancedArcRepository {
+    if (!advancedRepository) {
+      throw new Error('AdvancedArcRepository is not initialised: the beforeAll/beforeEach setup did not run');
+    }
+    return advancedRepository;
+  }
 
   afterAll(async () => {
     if (advancedRepository) {
@@ -428,7 +451,7 @@ describe('AdvancedArcRepository Integration Tests', () => {
 
   describe('Advanced Search', () => {
     it('should search by name', async () => {
-      const arcs = await advancedRepository.search({
+      const arcs = await requireAdvancedRepository().search({
         name: 'Political'
       });
 
@@ -437,7 +460,7 @@ describe('AdvancedArcRepository Integration Tests', () => {
     });
 
     it('should search by level range', async () => {
-      const arcs = await advancedRepository.search({
+      const arcs = await requireAdvancedRepository().search({
         minLevel: 1,
         maxLevel: 1
       });
@@ -447,7 +470,7 @@ describe('AdvancedArcRepository Integration Tests', () => {
     });
 
     it('should search by description', async () => {
-      const arcs = await advancedRepository.search({
+      const arcs = await requireAdvancedRepository().search({
         description: 'economic'
       });
 
@@ -461,7 +484,7 @@ describe('AdvancedArcRepository Integration Tests', () => {
         end: new Date('2023-08-01T00:00:00Z')
       };
 
-      const arcs = await advancedRepository.search({
+      const arcs = await requireAdvancedRepository().search({
         timeRange
       });
 
@@ -473,7 +496,7 @@ describe('AdvancedArcRepository Integration Tests', () => {
     });
 
     it('should support custom ordering', async () => {
-      const arcs = await advancedRepository.search({}, {
+      const arcs = await requireAdvancedRepository().search({}, {
         orderBy: 'level',
         orderDirection: 'DESC'
       });
@@ -487,8 +510,8 @@ describe('AdvancedArcRepository Integration Tests', () => {
     });
 
     it('should support pagination in search', async () => {
-      const page1 = await advancedRepository.search({}, { limit: 2, offset: 0 });
-      const page2 = await advancedRepository.search({}, { limit: 2, offset: 2 });
+      const page1 = await requireAdvancedRepository().search({}, { limit: 2, offset: 0 });
+      const page2 = await requireAdvancedRepository().search({}, { limit: 2, offset: 2 });
 
       expect(page1.length).toBeLessThanOrEqual(2);
       expect(page2.length).toBeLessThanOrEqual(2);
@@ -500,21 +523,21 @@ describe('AdvancedArcRepository Integration Tests', () => {
 
     beforeEach(async () => {
       // Create a hierarchy for tree testing
-      rootArc = await advancedRepository.create({
+      rootArc = await requireAdvancedRepository().create({
         name: 'Tree Root',
         start_time: new Date('2023-01-01T00:00:00Z'),
         end_time: new Date('2023-12-31T23:59:59Z'),
         level: 0
       });
 
-      await advancedRepository.create({
+      await requireAdvancedRepository().create({
         name: 'Tree Child 1',
         start_time: new Date('2023-01-01T00:00:00Z'),
         end_time: new Date('2023-06-30T23:59:59Z'),
         level: 1
       });
 
-      await advancedRepository.create({
+      await requireAdvancedRepository().create({
         name: 'Tree Child 2',
         start_time: new Date('2023-07-01T00:00:00Z'),
         end_time: new Date('2023-12-31T23:59:59Z'),
@@ -523,7 +546,7 @@ describe('AdvancedArcRepository Integration Tests', () => {
     });
 
     it('should get hierarchy tree', async () => {
-      const tree = await advancedRepository.getHierarchyTree(rootArc.id);
+      const tree = await requireAdvancedRepository().getHierarchyTree(rootArc.id);
       
       expect(tree.arc.id).toBe(rootArc.id);
       expect(tree.children.length).toBe(2);
@@ -531,7 +554,7 @@ describe('AdvancedArcRepository Integration Tests', () => {
     });
 
     it('should respect max depth in hierarchy tree', async () => {
-      const tree = await advancedRepository.getHierarchyTree(rootArc.id, 0);
+      const tree = await requireAdvancedRepository().getHierarchyTree(rootArc.id, 0);
       
       expect(tree.arc.id).toBe(rootArc.id);
       expect(tree.children.length).toBe(0); // Max depth 0 means no children

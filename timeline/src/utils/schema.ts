@@ -52,9 +52,10 @@ export class SchemaManager {
       try {
         await this.session.run(constraint);
         console.log(`Created constraint: ${constraint.split(' ')[2]}`);
-      } catch (error: any) {
+      } catch (error) {
         // Ignore constraint already exists errors
-        if (!error.message.includes('already exists') && !error.message.includes('An equivalent constraint already exists')) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes('already exists') && !message.includes('An equivalent constraint already exists')) {
           console.error(`Failed to create constraint: ${constraint}`, error);
           throw error;
         }
@@ -89,9 +90,10 @@ export class SchemaManager {
       try {
         await this.session.run(index);
         console.log(`Created index: ${index.split(' ')[2]}`);
-      } catch (error: any) {
+      } catch (error) {
         // Ignore index already exists errors
-        if (!error.message.includes('already exists') && !error.message.includes('An equivalent index already exists')) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes('already exists') && !message.includes('An equivalent index already exists')) {
           console.error(`Failed to create index: ${index}`, error);
           throw error;
         }

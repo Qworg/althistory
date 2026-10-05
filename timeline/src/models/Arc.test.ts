@@ -1,5 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { Arc, IArc, CreateArcRequest, UpdateArcRequest, ArcValidationResult } from './Arc';
+import { Arc, IArc, CreateArcRequest } from './Arc';
+
+/**
+ * Builds a value of type `T` from an untyped input.
+ *
+ * These suites exercise RUNTIME validation, so they must hand the validator a
+ * value that contradicts the declared type — `description` claims to be a
+ * string but is really the number 123. Name T as the type the field DECLARES,
+ * and pass the wrong runtime value. The cast is the point of the test, not a
+ * shortcut around it, so it is named here rather than scattered as `as any`.
+ */
+const invalid = <T>(value: unknown): T => value as T;
+
 
 describe('Arc Model', () => {
   const validArcData: CreateArcRequest = {
@@ -31,7 +43,8 @@ describe('Arc Model', () => {
     });
 
     it('should create an arc without description', () => {
-      const { description, ...dataWithoutDescription } = validArcData;
+      // Drop the property by renaming the binding to an intentionally-ignored one.
+      const { description: _description, ...dataWithoutDescription } = validArcData;
       const arc = new Arc(dataWithoutDescription);
       
       expect(arc.description).toBeUndefined();
@@ -39,7 +52,7 @@ describe('Arc Model', () => {
     });
 
     it('should create an arc without metadata', () => {
-      const { metadata, ...dataWithoutMetadata } = validArcData;
+      const { metadata: _metadata, ...dataWithoutMetadata } = validArcData;
       const arc = new Arc(dataWithoutMetadata);
       
       expect(arc.metadata).toBeUndefined();
@@ -74,14 +87,14 @@ describe('Arc Model', () => {
     });
 
     it('should reject missing start_time', () => {
-      const { start_time, ...dataWithoutStartTime } = validArcData;
+      const { start_time: _startTime, ...dataWithoutStartTime } = validArcData;
       const result = Arc.validate(dataWithoutStartTime);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Start time is required');
     });
 
     it('should reject missing end_time', () => {
-      const { end_time, ...dataWithoutEndTime } = validArcData;
+      const { end_time: _endTime, ...dataWithoutEndTime } = validArcData;
       const result = Arc.validate(dataWithoutEndTime);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('End time is required');
@@ -121,7 +134,7 @@ describe('Arc Model', () => {
     });
 
     it('should reject missing level', () => {
-      const { level, ...dataWithoutLevel } = validArcData;
+      const { level: _level, ...dataWithoutLevel } = validArcData;
       const result = Arc.validate(dataWithoutLevel);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Level is required');
@@ -140,25 +153,25 @@ describe('Arc Model', () => {
     });
 
     it('should reject invalid description type', () => {
-      const result = Arc.validate({ ...validArcData, description: 123 as any });
+      const result = Arc.validate({ ...validArcData, description: invalid<string>(123) });
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Description must be a string');
     });
 
     it('should reject invalid metadata type', () => {
-      const result = Arc.validate({ ...validArcData, metadata: 'invalid' as any });
+      const result = Arc.validate({ ...validArcData, metadata: invalid<Record<string, unknown>>('invalid') });
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Metadata must be an object');
     });
 
     it('should reject array as metadata', () => {
-      const result = Arc.validate({ ...validArcData, metadata: [] as any });
+      const result = Arc.validate({ ...validArcData, metadata: invalid<Record<string, unknown>>([]) });
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Metadata must be an object');
     });
 
     it('should reject null as metadata', () => {
-      const result = Arc.validate({ ...validArcData, metadata: null as any });
+      const result = Arc.validate({ ...validArcData, metadata: invalid<Record<string, unknown>>(null) });
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Metadata must be an object');
     });
@@ -375,7 +388,7 @@ describe('Arc Model', () => {
     });
 
     it('should convert arc without optional fields to JSON', () => {
-      const { description, metadata, ...minimalData } = validArcData;
+      const { description: _description, metadata: _metadata, ...minimalData } = validArcData;
       const arc = new Arc(minimalData);
       const json = arc.toJSON();
 

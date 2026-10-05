@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
-import { GraphCopyService, CopyResult, IntegrityReport, CopyProgress } from './GraphCopyService';
-import { EventRepository } from '../repositories/EventRepository';
-import { ArcRepository } from '../repositories/ArcRepository';
+import { GraphCopyService, CopyResult, CopyProgress } from './GraphCopyService';
 import { Event } from '../models/Event';
 import { Arc } from '../models/Arc';
 import { getDatabaseManager, initializeDatabaseManager } from '../utils/database';
@@ -9,8 +7,6 @@ import { Session } from 'neo4j-driver';
 
 describe('GraphCopyService Integration Tests', () => {
   let graphCopyService: GraphCopyService;
-  let eventRepository: EventRepository;
-  let arcRepository: ArcRepository;
   let session: Session;
 
   beforeAll(async () => {
@@ -35,8 +31,6 @@ describe('GraphCopyService Integration Tests', () => {
   beforeEach(async () => {
     session = getDatabaseManager().getNeo4jSession();
     graphCopyService = new GraphCopyService(session);
-    eventRepository = new EventRepository(session);
-    arcRepository = new ArcRepository(session);
 
     // Clean up test data
     await session.run('MATCH (n) WHERE n.graphId IN ["test-source", "test-target"] DETACH DELETE n');

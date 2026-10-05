@@ -1,17 +1,12 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   ExportService,
-  ExportOptions,
   AlthistoryExport,
-  ExportedEvent,
-  ExportedArc,
-  ExportedRelationship,
 } from './ExportService';
 import { GraphRepository } from '../repositories/GraphRepository';
 import { Graph, IGraph } from '../models/Graph';
 import { ResolvedGraphData } from '../repositories/VersionRepository';
 import * as fs from 'fs';
-import * as crypto from 'crypto';
 
 // Mock the GraphRepository
 vi.mock('../repositories/GraphRepository');

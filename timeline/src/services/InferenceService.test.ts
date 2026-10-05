@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { InferenceService } from './InferenceService';
 import { Event } from '@/models/Event';
-import { InferredPressure, PressureType } from '@/models/InferredPressure';
+import { InferredPressure } from '@/models/InferredPressure';
 
 describe('InferenceService - Pattern Detection', () => {
   let inferenceService: InferenceService;

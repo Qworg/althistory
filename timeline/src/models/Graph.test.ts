@@ -1,12 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, MockInstance } from 'vitest';
 import {
   Graph,
   IGraph,
   CreateGraphData,
-  UpdateGraphData,
   GraphStatus,
   GraphMetadata,
-  GraphValidationResult,
 } from './Graph';
 
 describe('Graph Model', () => {
@@ -28,8 +26,10 @@ describe('Graph Model', () => {
   };
 
   // Mock Date.now for predictable ID generation
-  let dateNowSpy: ReturnType<typeof vi.spyOn>;
-  let mathRandomSpy: ReturnType<typeof vi.spyOn>;
+  // Date.now and Math.random are both zero-argument functions returning number, which
+  // is what their spy instances expose.
+  let dateNowSpy: MockInstance<[], number>;
+  let mathRandomSpy: MockInstance<[], number>;
 
   beforeEach(() => {
     dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(1704067200000);

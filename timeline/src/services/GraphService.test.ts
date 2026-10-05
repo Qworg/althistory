@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { GraphService } from './GraphService';
 import { GraphRepository } from '../repositories/GraphRepository';
-import { Graph, IGraph, MergeConflict } from '../models/Graph';
+import { Graph, IGraph } from '../models/Graph';
 import { ValidationError, NotFoundError } from '../utils/errors';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 

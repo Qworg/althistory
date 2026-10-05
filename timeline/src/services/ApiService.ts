@@ -1,4 +1,38 @@
 /**
+ * Value types accepted in a query-string parameter bag.
+ */
+type QueryParamValue = string | number | boolean | undefined;
+
+type QueryParams = Record<string, QueryParamValue>;
+
+/**
+ * Narrow an unknown value to a plain object so its properties can be read.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Pull `error.message` out of an error response body, if it has that shape.
+ */
+function extractErrorMessage(payload: unknown): string | undefined {
+  if (!isRecord(payload) || !isRecord(payload.error)) {
+    return undefined;
+  }
+  return typeof payload.error.message === 'string' ? payload.error.message : undefined;
+}
+
+/**
+ * Build a query string from a parameter bag. Values are stringified the same way
+ * `URLSearchParams` would stringify them for a record.
+ */
+function toSearchParams(params: QueryParams): URLSearchParams {
+  return new URLSearchParams(
+    Object.entries(params).map(([key, value]) => [key, String(value)])
+  );
+}
+
+/**
  * API service for communicating with the backend
  */
 export class ApiService {
@@ -33,9 +67,9 @@ export class ApiService {
       const response = await fetch(url, config);
       
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData: unknown = await response.json().catch(() => ({}));
         throw new ApiError(
-          errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`,
+          extractErrorMessage(errorData) ?? `HTTP ${response.status}: ${response.statusText}`,
           response.status,
           errorData
         );
@@ -58,15 +92,15 @@ export class ApiService {
   /**
    * GET request
    */
-  async get<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
-    const url = params ? `${endpoint}?${new URLSearchParams(params)}` : endpoint;
+  async get<T>(endpoint: string, params?: QueryParams): Promise<T> {
+    const url = params ? `${endpoint}?${toSearchParams(params)}` : endpoint;
     return this.request<T>(url, { method: 'GET' });
   }
 
   /**
    * POST request
    */
-  async post<T>(endpoint: string, data?: any): Promise<T> {
+  async post<T>(endpoint: string, data?: unknown): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'POST',
       body: data ? JSON.stringify(data) : undefined,
@@ -76,7 +110,7 @@ export class ApiService {
   /**
    * PUT request
    */
-  async put<T>(endpoint: string, data?: any): Promise<T> {
+  async put<T>(endpoint: string, data?: unknown): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'PUT',
       body: data ? JSON.stringify(data) : undefined,
@@ -106,11 +140,11 @@ export class ApiService {
     return this.get(`/events/${id}`);
   }
 
-  async createEvent(eventData: any) {
+  async createEvent(eventData: unknown) {
     return this.post('/events', eventData);
   }
 
-  async updateEvent(id: string, eventData: any) {
+  async updateEvent(id: string, eventData: unknown) {
     return this.put(`/events/${id}`, eventData);
   }
 
@@ -141,11 +175,11 @@ export class ApiService {
     return this.get(`/arcs/${id}`);
   }
 
-  async createArc(arcData: any) {
+  async createArc(arcData: unknown) {
     return this.post('/arcs', arcData);
   }
 
-  async updateArc(id: string, arcData: any) {
+  async updateArc(id: string, arcData: unknown) {
     return this.put(`/arcs/${id}`, arcData);
   }
 
@@ -163,7 +197,7 @@ export class ApiService {
     return this.get('/causal/relationships', params);
   }
 
-  async createCausalRelationship(relationshipData: any) {
+  async createCausalRelationship(relationshipData: unknown) {
     return this.post('/causal/relationships', relationshipData);
   }
 
@@ -191,7 +225,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public statusCode: number,
-    public details?: any
+    public details?: unknown
   ) {
     super(message);
     this.name = 'ApiError';

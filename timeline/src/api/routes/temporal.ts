@@ -1,14 +1,32 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { ValidationError, NotFoundError } from '@/utils/errors';
-import { RequestWithContainer } from '@/api/middleware';
-import { TimeRange } from '@/models/Event';
+import { TimeRange, IEvent } from '@/models/Event';
+import { IArc } from '@/models/Arc';
 
 export const temporalRoutes = Router();
+
+/** Aggregated timeline payload returned by GET /temporal/timeline. */
+interface TimelineView {
+  events: IEvent[];
+  arcs: IArc[];
+  granularity: string;
+  timeRange: TimeRange;
+}
+
+/** Density metrics returned by GET /temporal/density. */
+interface DensityView {
+  granularity: string;
+  timeRange: TimeRange;
+  type: string;
+  eventCount?: number;
+  eventDensity?: number;
+  arcCount?: number;
+}
 
 /**
  * GET /temporal/timeline - Get timeline view of events and arcs
  */
-temporalRoutes.get('/timeline', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+temporalRoutes.get('/timeline', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       startTime,
@@ -59,15 +77,16 @@ temporalRoutes.get('/timeline', async (req: RequestWithContainer, res: Response,
     const eventRepository = req.container.eventRepository;
     const arcRepository = req.container.arcRepository;
     
-    let timeline: any = { events: [], arcs: [], granularity, timeRange };
-    
-    if (includeEvents === 'true') {
-      timeline.events = (await eventRepository.findByTimeRange(timeRange, parsedLimit, parsedOffset)).map(e => e.toJSON());
-    }
-    
-    if (includeArcs === 'true') {
-      timeline.arcs = (await arcRepository.findOverlappingArcs(timeRange, parsedLimit, parsedOffset)).map(a => a.toJSON());
-    }
+    const timeline: TimelineView = {
+      events: includeEvents === 'true'
+        ? (await eventRepository.findByTimeRange(timeRange, parsedLimit, parsedOffset)).map(e => e.toJSON())
+        : [],
+      arcs: includeArcs === 'true'
+        ? (await arcRepository.findOverlappingArcs(timeRange, parsedLimit, parsedOffset)).map(a => a.toJSON())
+        : [],
+      granularity: granularity as string,
+      timeRange
+    };
 
     res.json({
       success: true,
@@ -92,7 +111,7 @@ temporalRoutes.get('/timeline', async (req: RequestWithContainer, res: Response,
 /**
  * POST /temporal/validate-event - Validate if an event can exist within specified arcs
  */
-temporalRoutes.post('/validate-event', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+temporalRoutes.post('/validate-event', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventId, arcIds } = req.body;
     
@@ -154,7 +173,7 @@ temporalRoutes.post('/validate-event', async (req: RequestWithContainer, res: Re
 /**
  * POST /temporal/validate-arc-nesting - Validate arc hierarchy nesting
  */
-temporalRoutes.post('/validate-arc-nesting', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+temporalRoutes.post('/validate-arc-nesting', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { parentArcId, childArcId } = req.body;
     
@@ -208,7 +227,7 @@ temporalRoutes.post('/validate-arc-nesting', async (req: RequestWithContainer, r
 /**
  * GET /temporal/overlaps - Find overlapping arcs within a time range
  */
-temporalRoutes.get('/overlaps', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+temporalRoutes.get('/overlaps', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       startTime,
@@ -281,7 +300,7 @@ temporalRoutes.get('/overlaps', async (req: RequestWithContainer, res: Response,
 /**
  * GET /temporal/gaps - Find temporal gaps between events or arcs
  */
-temporalRoutes.get('/gaps', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+temporalRoutes.get('/gaps', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       startTime,
@@ -355,7 +374,7 @@ temporalRoutes.get('/gaps', async (req: RequestWithContainer, res: Response, nex
 /**
  * GET /temporal/density - Get temporal density analysis
  */
-temporalRoutes.get('/density', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+temporalRoutes.get('/density', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       startTime,
@@ -394,7 +413,7 @@ temporalRoutes.get('/density', async (req: RequestWithContainer, res: Response, 
     const eventRepository = req.container.eventRepository;
     const arcRepository = req.container.arcRepository;
     
-    let density: any = { granularity, timeRange, type };
+    const density: DensityView = { granularity: granularity as string, timeRange, type: type as string };
     
     if (type === 'events' || type === 'both') {
       const events = await eventRepository.findByTimeRange(timeRange);
@@ -425,7 +444,7 @@ temporalRoutes.get('/density', async (req: RequestWithContainer, res: Response, 
 /**
  * GET /temporal/constraints - Check temporal constraints for the entire graph
  */
-temporalRoutes.get('/constraints', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+temporalRoutes.get('/constraints', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { includeDetails = 'false' } = req.query;
 

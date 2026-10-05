@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CacheInvalidationService } from './CacheInvalidationService';
 import { Event, Arc } from '@/models';
 import { InferredPressure } from '@/models/InferredPressure';
-import { getCacheManager } from '@/utils/cache';
 
 // Create mock functions
 const mockInvalidateByPatterns = vi.fn();

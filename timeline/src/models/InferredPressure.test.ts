@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { 
-  InferredPressure, 
-  IInferredPressure, 
-  CreateInferredPressureRequest, 
-  UpdateInferredPressureRequest,
-  PressureType,
-  PressureValidationResult 
+import {
+  InferredPressure,
+  IInferredPressure,
+  CreateInferredPressureRequest,
+  PressureType
 } from './InferredPressure';
 
 describe('InferredPressure Model', () => {
@@ -103,7 +101,8 @@ describe('InferredPressure Model', () => {
     });
 
     it('should reject missing confidence_score', () => {
-      const { confidence_score, ...dataWithoutScore } = validPressureData;
+      // Drop the property by renaming the binding to an intentionally-ignored one.
+      const { confidence_score: _confidenceScore, ...dataWithoutScore } = validPressureData;
       const result = InferredPressure.validate(dataWithoutScore);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Confidence score is required');
@@ -136,7 +135,7 @@ describe('InferredPressure Model', () => {
     });
 
     it('should reject missing pressure_type', () => {
-      const { pressure_type, ...dataWithoutType } = validPressureData;
+      const { pressure_type: _pressureType, ...dataWithoutType } = validPressureData;
       const result = InferredPressure.validate(dataWithoutType);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Pressure type is required');
@@ -149,7 +148,7 @@ describe('InferredPressure Model', () => {
     });
 
     it('should reject missing evidence', () => {
-      const { evidence, ...dataWithoutEvidence } = validPressureData;
+      const { evidence: _evidence, ...dataWithoutEvidence } = validPressureData;
       const result = InferredPressure.validate(dataWithoutEvidence);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Evidence is required');
