@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import { DatabaseConnectionError, ErrorHandler } from '@/utils/errors';
+import { DatabaseConnectionError, ErrorHandler, NotFoundError } from '@/utils/errors';
+import { assertSafeGraphId } from '@/utils/GraphContextStore';
 import { getContainer } from '@/container';
 import type { Container } from '@/container';
 import { ApiKey, Permission, RateLimitConfig } from '@/models/ApiKey';
@@ -24,6 +25,13 @@ declare global {
       container: Container;
       requestId: string;
       startTime: number;
+      /**
+       * The graph this request is scoped to, resolved by
+       * `resolveGraphContext` before any handler runs. Non-optional by design: a
+       * handler must never observe a request whose graph scope is unknown,
+       * because an unscoped read is the bug this field exists to prevent.
+       */
+      graphId: string;
     }
   }
 }
@@ -57,6 +65,79 @@ export function injectContainer(req: RequestWithContainer, res: Response, next: 
   } catch (error) {
     next(new DatabaseConnectionError('Service container not available'));
   }
+}
+
+/**
+ * The slice of `GraphRepository` that graph-context resolution needs.
+ *
+ * Declared structurally rather than as the concrete class so the resolver can
+ * be exercised in isolation with a small fake, and so a future backing store
+ * only has to satisfy these two lookups (design §9, storage-backend note).
+ */
+export interface GraphLookup {
+  findById(id: string): Promise<{ id: string } | null>;
+  getActiveGraph(): Promise<{ id: string } | null>;
+}
+
+/** Resolves the graph lookup for a request. Injectable for tests and wiring. */
+export type GraphLookupResolver = (req: Request) => GraphLookup;
+
+/** Request header that explicitly scopes a request to one graph. */
+export const GRAPH_ID_HEADER = 'X-Graph-Id';
+
+/**
+ * Resolve exactly one graph for every request and attach it as `req.graphId`.
+ *
+ * Resolution order (design §5.1, Q1):
+ *   1. A valid `X-Graph-Id` header, verified to name an existing graph.
+ *   2. Otherwise the repository's active graph.
+ *   3. Otherwise fail with 404 — never fall back to unscoped/global data.
+ *
+ * A header that is present but malformed is a 400, and a header that names a
+ * missing graph is a 404; neither case consults the active graph, because
+ * silently re-scoping a request to a graph the caller did not name is the same
+ * class of bug as the unscoped fallback. Errors are thrown and rendered by the
+ * shared `errorHandler`, so all responses keep the established
+ * `{ error: { message, ... } }` shape.
+ */
+export function resolveGraphContext(
+  resolveGraphLookup: GraphLookupResolver = () => getContainer().graphRepository
+): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    void (async () => {
+      try {
+        const lookup = resolveGraphLookup(req);
+        const headerValue = req.get(GRAPH_ID_HEADER);
+
+        let graphId: string;
+        if (headerValue !== undefined) {
+          // Present-but-invalid is a client error. Validate before any lookup so
+          // a malformed scope can never reach the active-graph fallback.
+          assertSafeGraphId(headerValue);
+
+          const graph = await lookup.findById(headerValue);
+          if (!graph) {
+            throw new NotFoundError(`Graph '${headerValue}' not found`, 'graph', headerValue);
+          }
+          graphId = graph.id;
+        } else {
+          const activeGraph = await lookup.getActiveGraph();
+          if (!activeGraph) {
+            throw new NotFoundError(
+              'No graph context available: send an X-Graph-Id header or activate a graph',
+              'graph'
+            );
+          }
+          graphId = activeGraph.id;
+        }
+
+        req.graphId = graphId;
+        next();
+      } catch (error) {
+        next(error);
+      }
+    })();
+  };
 }
 
 /**
