@@ -38,6 +38,16 @@ interface GlobalState {
   
   // Error handling
   errors: ErrorState[]
+
+  // Offline connectivity (Req 14.2). `isOnline` mirrors the browser's
+  // connectivity state; `pendingMutationCount` mirrors the durable offline
+  // mutation queue. Neither is persisted by this store -- the queue module owns
+  // its own storage.
+  isOnline: boolean
+  pendingMutationCount: number
+  // True while a replay pass is walking the queue. The indicator uses it to say
+  // "Syncing" only when a pass is actually running.
+  syncInProgress: boolean
   
   // Data manipulation actions
   setEvents: (events: Event[]) => void
@@ -88,6 +98,11 @@ interface GlobalState {
   addError: (error: Omit<ErrorState, 'id' | 'timestamp'>) => void
   clearErrors: () => void
   removeError: (id: string) => void
+
+  // Offline connectivity actions
+  setOnline: (online: boolean) => void
+  setPendingMutationCount: (count: number) => void
+  setSyncInProgress: (inProgress: boolean) => void
   
   // Persistence actions
   savePreferences: () => void
@@ -180,6 +195,9 @@ export const useGlobalStore = create<GlobalState>()(
       isLoading: false,
       loadingOperations: new Set(),
       errors: [],
+      isOnline: true,
+      pendingMutationCount: 0,
+      syncInProgress: false,
 
       // Data manipulation actions
       setEvents: (events) => set({ events }),
@@ -350,6 +368,11 @@ export const useGlobalStore = create<GlobalState>()(
       removeError: (id) => set((state) => ({
         errors: state.errors.filter(error => error.id !== id)
       })),
+
+      // Offline connectivity actions
+      setOnline: (online) => set({ isOnline: online }),
+      setPendingMutationCount: (count) => set({ pendingMutationCount: count }),
+      setSyncInProgress: (inProgress) => set({ syncInProgress: inProgress }),
       
       // Persistence actions
       savePreferences: () => {

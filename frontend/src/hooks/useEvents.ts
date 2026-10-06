@@ -1,5 +1,6 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, UseMutationOptions } from '@tanstack/react-query'
 import { apiClient } from '@/services/api'
+import { submitMutation, type OfflineWriteOutcome } from '@/offline/offlineSync'
 import { Event, EventFilters } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 
@@ -18,17 +19,27 @@ export function useEvent(id: string) {
   })
 }
 
-export function useCreateEvent() {
+export function useCreateEvent(
+  options?: UseMutationOptions<OfflineWriteOutcome<Event>, Error, Omit<Event, 'id' | 'created_at' | 'updated_at'>>,
+) {
   const queryClient = useQueryClient()
   const { addEvent } = useGlobalStore()
 
   return useMutation({
+    // Offline-aware: the create is persisted in the durable offline queue and
+    // replayed on reconnect when it cannot be sent now. See src/offline/README.md.
     mutationFn: (data: Omit<Event, 'id' | 'created_at' | 'updated_at'>) =>
-      apiClient.events.create(data),
-    onSuccess: (newEvent) => {
+      submitMutation<Event>(
+        { method: 'POST', url: '/events', body: data },
+        { send: () => apiClient.events.create(data) },
+      ),
+    onSuccess: (outcome) => {
+      // Queued writes have no server entity: never add one to local state.
+      if (outcome.delivery === 'queued') return
       queryClient.invalidateQueries({ queryKey: ['events'] })
-      addEvent(newEvent)
+      addEvent(outcome.value)
     },
+    ...options,
   })
 }
 
@@ -38,10 +49,14 @@ export function useUpdateEvent() {
 
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Event> }) =>
-      apiClient.events.update(id, data),
-    onSuccess: (updatedEvent) => {
+      submitMutation<Event>(
+        { method: 'PUT', url: `/events/${id}`, body: data, entityKey: `event:${id}` },
+        { send: () => apiClient.events.update(id, data) },
+      ),
+    onSuccess: (outcome) => {
+      if (outcome.delivery === 'queued') return
       queryClient.invalidateQueries({ queryKey: ['events'] })
-      updateEvent(updatedEvent.id, updatedEvent)
+      updateEvent(outcome.value.id, outcome.value)
     },
   })
 }
@@ -51,8 +66,13 @@ export function useDeleteEvent() {
   const { deleteEvent } = useGlobalStore()
 
   return useMutation({
-    mutationFn: (id: string) => apiClient.events.delete(id),
-    onSuccess: (_, id) => {
+    mutationFn: (id: string) =>
+      submitMutation<void>(
+        { method: 'DELETE', url: `/events/${id}`, entityKey: `event:${id}` },
+        { send: () => apiClient.events.delete(id) },
+      ),
+    onSuccess: (outcome, id) => {
+      if (outcome.delivery === 'queued') return
       queryClient.invalidateQueries({ queryKey: ['events'] })
       deleteEvent(id)
     },

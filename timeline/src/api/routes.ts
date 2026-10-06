@@ -11,6 +11,7 @@ import { keyRoutes } from './routes/keys';
 import { batchRoutes } from './routes/batch';
 import { validateRoutes } from './routes/validate';
 import { suggestRoutes } from './routes/suggest';
+import { createIngestRouter } from './routes/ingest';
 import { loadConfig } from '../utils/config';
 
 /**
@@ -25,6 +26,9 @@ const dataDir = config.localExecution.dataDirectory;
 // Create import router with config
 const importRoutes = createImportRouter({ dataDir });
 
+// Create ingestion router with config. Ingestion reuses the import pipeline.
+const ingestRoutes = createIngestRouter({ dataDir });
+
 // Root API endpoint
 apiRouter.get('/', (req, res) => {
   res.json({
@@ -37,6 +41,7 @@ apiRouter.get('/', (req, res) => {
       graphs: '/api/graphs',
       export: '/api/export',
       import: '/api/import',
+      ingest: '/api/ingest',
       events: '/api/events',
       arcs: '/api/arcs',
       causal: '/api/causal',
@@ -59,6 +64,9 @@ apiRouter.use('/export', exportRoutes);
 
 // Import API endpoints
 apiRouter.use('/import', importRoutes);
+
+// Web ingestion API endpoints (Wikipedia, Wikidata, free text, LLM)
+apiRouter.use('/ingest', ingestRoutes);
 
 // Event API endpoints
 apiRouter.use('/events', eventRoutes);
@@ -100,6 +108,7 @@ apiRouter.get('/info', (req, res) => {
       graphs: '/api/graphs - Multi-graph management',
       export: '/api/export - Export graphs and manage export jobs',
       import: '/api/import - Import data from export files',
+      ingest: '/api/ingest - Extract entities from Wikipedia, Wikidata and text for review',
       events: '/api/events - CRUD operations for historical events',
       arcs: '/api/arcs - CRUD operations for historical arcs/periods',
       causal: '/api/causal - Causal relationship analysis and management',
@@ -114,6 +123,7 @@ apiRouter.get('/info', (req, res) => {
       graphs: ['Create', 'Read', 'Update', 'Delete', 'Branch', 'Merge', 'Version history', 'Rollback'],
       export: ['Async export jobs', 'Sync export', 'Filtered export', 'Download', 'Validate'],
       import: ['Validate format', 'Preview changes', 'Conflict detection', 'Import with resolutions'],
+      ingest: ['Wikipedia extraction', 'Wikidata SPARQL', 'Text extraction', 'LLM-assisted extraction', 'Review and approve'],
       events: ['Create', 'Read', 'Update', 'Delete', 'Filter by time/actor/target', 'Statistics'],
       arcs: ['Create', 'Read', 'Update', 'Delete', 'Hierarchy validation', 'Child relationships'],
       causal: ['Create links', 'Find chains', 'Detect cycles', 'Get suggestions', 'Validate relationships'],

@@ -10,6 +10,12 @@ import { TimelineEvent } from './TimelineEvent'
 import { TimelineArc, type ArcResizeEdge } from './TimelineArc'
 import { useTimelineScales } from '@/hooks/useTimelineScales'
 import { useTimelineEventHandlers } from '@/hooks/useTimelineEventHandlers'
+import {
+  computeTimeWindow,
+  filterArcsInWindow,
+  filterEventsInWindow,
+  filterPressuresInWindow
+} from './timelineVirtualization'
 
 export interface TimelineProps {
   events: Event[]
@@ -168,13 +174,29 @@ const Timeline = memo(function Timeline({
     }
   }, [fitToViewTrigger, originalExtent])
 
+  // The visible range is the single source of truth for the viewport: the x
+  // scale is built from it and the render window is derived from it, so panning
+  // and zooming move both together.
+  const currentRange = visibleTimeRange || originalExtent
+
   // Create xScale based on visible range (or original if not set)
   const xScale = useMemo(() => {
-    const range = visibleTimeRange || originalExtent
     return d3.scaleTime()
-      .domain([range.start, range.end])
+      .domain([currentRange.start, currentRange.end])
       .range([0, innerWidth])
-  }, [visibleTimeRange, originalExtent, innerWidth])
+  }, [currentRange, innerWidth])
+
+  // Windowing: render only the marks whose time falls inside the current
+  // viewport (plus a fixed multiple of the visible span either side). This
+  // culls marks that are drawn off-screen and invisible under the clip path.
+  //
+  // It is NOT a bound on the mounted count independent of the dataset: the
+  // window admits (local mark density) x (window span), which stays
+  // proportional to N. d3-zoom is capped at 20x below, so even fully zoomed a
+  // uniform dataset of N events still mounts about N/10. Nothing is culled
+  // while the window still covers the whole extent (about 2x with the default
+  // overscan, a little earlier off-centre). See timelineVirtualization.ts.
+  const timeWindow = useMemo(() => computeTimeWindow(currentRange), [currentRange])
 
   // Stable ref for time range callback to avoid infinite loops (Phase 2.3)
   // See: impl/deferredplans/ADR-001-d3-react-integration.md
@@ -206,13 +228,42 @@ const Timeline = memo(function Timeline({
   const expandedArcIdsRef = useRef(expandedArcIds)
   expandedArcIdsRef.current = expandedArcIds
 
-  // Arc hierarchy and levels
+  // Arc hierarchy and levels.
+  //
+  // OUTSTANDING COST PROBLEM, not fixed here: this runs over the WHOLE arc and
+  // event sets before any windowing, and it reruns whenever arcs, events or the
+  // selection/expansion sets change -- i.e. on every arc click and every
+  // expand/collapse. Measured on this machine (vitest, node): 300 arcs against
+  // 10,000 events costs ~1.0s in processArcsWithUIState (it parses two Dates
+  // per arc-event pair) plus ~20ms in calculateArcHierarchy; 2,000 arcs with no
+  // events costs ~3.0s in calculateArcHierarchy alone (its overlap scan re-parses
+  // bounds and does a linear lookup per comparison). Either way a click that
+  // moves the selection blocks the main thread for that long. Windowing does not
+  // help: the full sets are still processed upstream of the window, and only the
+  // number of DOM nodes is reduced. Both need pre-parsed timestamps and an
+  // index/incremental pass; until then this is a known limit, not a solved one.
   const { arcHierarchy } = useMemo(() => {
     const withState = processArcsWithUIState(arcs, events, expandedArcIds, selectedArcIds)
     return calculateArcHierarchy(withState)
   }, [arcs, events, expandedArcIds, selectedArcIds])
 
   const arcLevelMap = useMemo(() => new Map(arcHierarchy.map(a => [a.id, a.renderLevel])), [arcHierarchy])
+
+  const visibleEvents = useMemo(
+    () => filterEventsInWindow(events, timeWindow),
+    [events, timeWindow]
+  )
+  const visibleArcs = useMemo(
+    () => filterArcsInWindow(arcHierarchy, timeWindow),
+    [arcHierarchy, timeWindow]
+  )
+  // Pressure indicators are a DOM group per (pressure, affected arc) pair, so
+  // they need their own windowing pass or the pressure node count keeps scaling
+  // with the full arc set however far the view is zoomed in.
+  const visiblePressures = useMemo(
+    () => filterPressuresInWindow(pressures, timeWindow),
+    [pressures, timeWindow]
+  )
 
   // Y scale for arc levels - constant function, memoized once
   const yScale = useMemo(() => {
@@ -558,7 +609,7 @@ const Timeline = memo(function Timeline({
             />
 
             {/* Arcs - using memoized TimelineArc component */}
-            {arcHierarchy.map(arc => {
+            {visibleArcs.map(arc => {
               const x1 = xScale(new Date(arc.start_time))
               const x2 = xScale(new Date(arc.end_time))
               const y = yScale(arc.renderLevel)
@@ -582,7 +633,7 @@ const Timeline = memo(function Timeline({
             })}
 
             {/* Events - using memoized TimelineEvent component */}
-            {events.map(ev => {
+            {visibleEvents.map(ev => {
               const x = xScale(new Date(ev.timestamp))
               return (
                 <TimelineEvent
@@ -600,10 +651,10 @@ const Timeline = memo(function Timeline({
             })}
 
             {/* Pressure indicators */}
-            {showPressureIndicators && pressures.length > 0 && (
+            {showPressureIndicators && visiblePressures.length > 0 && (
               <PressureIndicators
-                pressures={pressures}
-                arcs={arcs}
+                pressures={visiblePressures}
+                arcs={visibleArcs}
                 timeScale={timeScaleWrapper}
                 yScale={yScaleWrapper}
                 arcLevelMap={arcLevelMap}
@@ -619,7 +670,7 @@ const Timeline = memo(function Timeline({
           <g transform={`translate(0,${innerHeight})`}>
             <line x1={0} y1={0} x2={innerWidth} y2={0} stroke="#9ca3af" strokeWidth={1} />
             {(() => {
-              const range = visibleTimeRange || originalExtent
+              const range = currentRange
               const timeSpanMs = range.end.getTime() - range.start.getTime()
               const maxTicks = Math.min(10, Math.floor(innerWidth / 80))
               // Use count-based ticks for reliability, format based on time span

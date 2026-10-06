@@ -1,3 +1,8 @@
+// DEAD CODE -- not imported anywhere (the live hooks are `useAPI.ts`,
+// `useEvents.ts` and `useArcs.ts`, which route writes through `submitMutation`
+// in `@/offline/offlineSync.ts`). Kept only because this refactor never deleted
+// it. The writes below call the API client directly, so they are NOT
+// offline-queued: do not wire new callers to this file.
 import { 
   useQuery, 
   useMutation, 

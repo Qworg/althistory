@@ -1,0 +1,54 @@
+{
+  "parse": {
+    "title": "Battle of Hastings",
+    "pageid": 44667,
+    "wikitext": "{{Infobox military conflict\n| image       = Bayeux Tapestry scene57 Harold death.jpg\n| image_size  = 300\n| part_of     = the [[Norman Conquest]]\n| caption     = ''Harold rex interfectus est'': \"King [[Harold Godwinson|Harold]] is killed\". Scene from the [[Bayeux Tapestry]] depicting the Battle of Hastings and the death of Harold.\n| conflict    = Battle of Hastings\n| date        = 14 October 1066\n| location    = [[Rape of Hastings|Hailesaltede]], near [[Hastings]], Sussex, England<br>(today [[Battle, East Sussex]], England)\n| result      = Norman victory\n| combatant1  = [[Duchy of Normandy]]\n| combatant2  = [[Kingdom of England]]\n| commander1  = {{Plainlist|\n* [[William the Conqueror|William of Normandy]]\n* [[Alan Rufus|Alan the Red]]\n* [[William FitzOsbern, 1st Earl of Hereford|William fitzOsbern]]\n* [[Eustace II of Boulogne|Eustace II, Count of Boulogne]]\n}}\n| commander2  = {{Plainlist|\n* [[Harold Godwinson]]{{KIA}}\n* [[Gyrth Godwinson]]{{KIA}}\n* [[Leofwine Godwinson]]{{KIA}}\n}}\n| strength1   = Unknown, estimates range from 7,000 to 12,000\n| strength2   = Unknown, estimates range from 5,000 to 13,000\n| campaignbox = {{Campaignbox Norman Conquest}}\n{{Location map many | United Kingdom East Sussex\n| width = 308\n| float = right\n| caption = Site of the Battle of Hastings in East Sussex\n| label1 = Battle\n| label1_size = 100\n| mark1 = Battle icon active (crossed swords).svg\n| mark1size = 20\n| lat1_deg = 50.914507\n| lon1_deg = 0.487790\n<!-- Hastings -->\n| label2 = Hastings\n| label2_size = 75\n| position2 = right\n| lat2_deg = 50.8563015\n| lon2_deg = 0.5728745\n<!-- Eastbourne -->\n| label3 = Eastbourne\n| label3_size = 75\n| position3 = bottom\n| mark3 = Black pog.svg\n| lat3_deg = 50.77\n| lon3_deg = 0.28\n<!-- Rye -->\n| label4 = Rye\n| label4_size = 75\n| position4 = right\n| mark4 = Black pog.svg\n| lat4_deg = 50.95\n| lon4_deg = 0.73\n<!-- Newhaven -->\n| label5 = Newhaven\n| label5_size = 75\n| position5 = top\n| mark5 = Black pog.svg\n| lat5_deg = 50.80\n| lon5_deg = 0.06\n<!-- Lewes -->\n| label6 = Lewes\n| label6_size = 75\n| position6 = left\n| mark6 = Black pog.svg\n| lat6_deg = 50.875627\n| lon6_deg = 0.017855\n<!-- Crowborough -->\n| label7 = Crowborough\n| label7_size = 75\n| position7 = right\n| mark7 = Black pog.svg\n| lat7_deg = 51.06\n| lon7_deg = 0.16\n<!-- Hailsham -->\n| label8 = Hailsham\n| label8_size = 75\n| position8 = bottom\n| mark8 = Black pog.svg\n| lat8_deg = 50.86\n| lon8_deg = 0.26\n<!-- Bexhill-on-Sea -->\n| label9 = Bexhill-on-Sea\n| label9_size = 75\n| position9 = bottom\n| mark9 = Black pog.svg\n| lat9_deg = 50.85\n| lon9_deg = 0.47\n<!-- Heathfield -->\n| label10 = Heathfield\n| label10_size = 75\n| position10 = bottom\n| mark10 = Black pog.svg\n| lat10_deg = 50.97\n| lon10_deg = 0.26\n<!-- Uckfield -->\n| label11 = Uckfield\n| label11_size = 75\n| position11 = left\n| mark11 = Black pog.svg\n| lat11_deg = 50.97\n| lon11_deg = 0.\n<!-- Seaford -->\n| label12 = Seaford\n| label12_size = 75\n| position12 = bottom\n| mark12 = Black pog.svg\n| lat12_deg = 50.77\n| lon12_deg = 0.10\n<!-- Peacehaven -->\n| label13 = Peacehaven\n| label13_size = 75\n| position13 = left\n| mark13 = Black pog.svg\n| lat13_deg = 50.80\n| lon13_deg = 0.00\n}}\n}}\n\nThe '''Battle of Hastings'''{{efn|{{langx|ang|Gefeoht æt Hæstingum}}; {{langx|nrf|Batâle dé Hastings}}}} was fought on 14 October 1066 between the Norman-French army of [[William the Conqueror|William, Duke of Normandy]], and an English army under the [[Anglo-Saxons|Anglo-Saxon]] King [[Harold Godwinson]], beginning the [[Norman Conquest]] of [[England]]. It took place approximately {{convert|7|mi|km|abbr=on}} northwest of [[Hastings]], close to the present-day town of [[Battle, East Sussex]], and was a decisive [[Normans|Norman]] victory.\n\nThe background to the battle was the death of the childless King [[Edward the Confessor]] in January 1066, which set up a succession struggle among several claimants to his throne. Harold was crowned king shortly after Edward's death, but faced invasions by William, his own brother [[Tostig Godwinson|Tostig]], and the Norwegian king [[Harald Hardrada]] (Harold III of Norway). Hardrada and Tostig defeated a hastily gathered army of Englishmen at the [[Battle of Fulford]] on 20 September 1066. They were in turn defeated by Harold at the [[Battle of Stamford Bridge]] on 25 September. The deaths of Tostig and Hardrada at Stamford Bridge left William as Harold's only serious opponent. While Harold and his forces were recovering, William landed his invasion forces in the south of England at [[Pevensey]] on 28 September and established a beachhead for his conquest of the kingdom. Harold was forced to march south swiftly, gathering forces as he went.\n",
+    "links": [
+      {
+        "ns": 0,
+        "title": "William the Conqueror",
+        "exists": true
+      },
+      {
+        "ns": 0,
+        "title": "Harold Godwinson",
+        "exists": true
+      },
+      {
+        "ns": 0,
+        "title": "Norman conquest of England",
+        "exists": true
+      },
+      {
+        "ns": 0,
+        "title": "Duchy of Normandy",
+        "exists": true
+      },
+      {
+        "ns": 0,
+        "title": "Kingdom of England",
+        "exists": true
+      },
+      {
+        "ns": 4,
+        "title": "Wikipedia:Featured articles*",
+        "exists": true
+      },
+      {
+        "ns": 6,
+        "title": "File:Bayeux Tapestry scene57 Harold death.jpg",
+        "exists": true
+      },
+      {
+        "ns": 10,
+        "title": "Template:Infobox military conflict",
+        "exists": true
+      },
+      {
+        "ns": 14,
+        "title": "Category:Battles of the Norman conquest of England",
+        "exists": true
+      }
+    ]
+  }
+}
