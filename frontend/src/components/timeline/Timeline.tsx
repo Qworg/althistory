@@ -10,6 +10,11 @@ import { TimelineEvent } from './TimelineEvent'
 import { TimelineArc, type ArcResizeEdge } from './TimelineArc'
 import { useTimelineScales } from '@/hooks/useTimelineScales'
 import { useTimelineEventHandlers } from '@/hooks/useTimelineEventHandlers'
+import {
+  computeTimeWindow,
+  filterArcsInWindow,
+  filterEventsInWindow
+} from './timelineVirtualization'
 
 export interface TimelineProps {
   events: Event[]
@@ -168,13 +173,22 @@ const Timeline = memo(function Timeline({
     }
   }, [fitToViewTrigger, originalExtent])
 
+  // The visible range is the single source of truth for the viewport: the x
+  // scale is built from it and the render window is derived from it, so panning
+  // and zooming move both together.
+  const currentRange = visibleTimeRange || originalExtent
+
   // Create xScale based on visible range (or original if not set)
   const xScale = useMemo(() => {
-    const range = visibleTimeRange || originalExtent
     return d3.scaleTime()
-      .domain([range.start, range.end])
+      .domain([currentRange.start, currentRange.end])
       .range([0, innerWidth])
-  }, [visibleTimeRange, originalExtent, innerWidth])
+  }, [currentRange, innerWidth])
+
+  // Windowing: render only the marks whose time falls inside the current
+  // viewport (plus a fixed multiple of the visible span either side). The node
+  // count therefore tracks the span in view, not the size of `events`/`arcs`.
+  const timeWindow = useMemo(() => computeTimeWindow(currentRange), [currentRange])
 
   // Stable ref for time range callback to avoid infinite loops (Phase 2.3)
   // See: impl/deferredplans/ADR-001-d3-react-integration.md
@@ -213,6 +227,15 @@ const Timeline = memo(function Timeline({
   }, [arcs, events, expandedArcIds, selectedArcIds])
 
   const arcLevelMap = useMemo(() => new Map(arcHierarchy.map(a => [a.id, a.renderLevel])), [arcHierarchy])
+
+  const visibleEvents = useMemo(
+    () => filterEventsInWindow(events, timeWindow),
+    [events, timeWindow]
+  )
+  const visibleArcs = useMemo(
+    () => filterArcsInWindow(arcHierarchy, timeWindow),
+    [arcHierarchy, timeWindow]
+  )
 
   // Y scale for arc levels - constant function, memoized once
   const yScale = useMemo(() => {
@@ -558,7 +581,7 @@ const Timeline = memo(function Timeline({
             />
 
             {/* Arcs - using memoized TimelineArc component */}
-            {arcHierarchy.map(arc => {
+            {visibleArcs.map(arc => {
               const x1 = xScale(new Date(arc.start_time))
               const x2 = xScale(new Date(arc.end_time))
               const y = yScale(arc.renderLevel)
@@ -582,7 +605,7 @@ const Timeline = memo(function Timeline({
             })}
 
             {/* Events - using memoized TimelineEvent component */}
-            {events.map(ev => {
+            {visibleEvents.map(ev => {
               const x = xScale(new Date(ev.timestamp))
               return (
                 <TimelineEvent
@@ -619,7 +642,7 @@ const Timeline = memo(function Timeline({
           <g transform={`translate(0,${innerHeight})`}>
             <line x1={0} y1={0} x2={innerWidth} y2={0} stroke="#9ca3af" strokeWidth={1} />
             {(() => {
-              const range = visibleTimeRange || originalExtent
+              const range = currentRange
               const timeSpanMs = range.end.getTime() - range.start.getTime()
               const maxTicks = Math.min(10, Math.floor(innerWidth / 80))
               // Use count-based ticks for reliability, format based on time span

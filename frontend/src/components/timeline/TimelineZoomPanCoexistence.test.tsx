@@ -81,8 +81,12 @@ function lastReportedDomain(spy: { mock: { calls: unknown[][] } }): TimeRange {
   return last[0] as TimeRange
 }
 
-/** Zooms the real d3-zoom behaviour in, so a pan is no longer clamped to zero. */
-function zoomIn(): void {
+/**
+ * Zooms the real d3-zoom behaviour in, so a pan is no longer clamped to zero.
+ * `deltaY` controls how far: a smaller magnitude zooms less, which keeps more
+ * of the timeline inside the virtualisation window.
+ */
+function zoomIn(deltaY: number = -120): void {
   const svg = requireSvg()
   expect(zoomScale(svg)).toBe(1)
   // The zoom handler updates React state, so flush it before the gesture under
@@ -90,7 +94,7 @@ function zoomIn(): void {
   act(() => {
     svg.dispatchEvent(
       new WheelEvent('wheel', {
-        deltaY: -120,
+        deltaY,
         clientX: 400,
         clientY: 200,
         ctrlKey: true,
@@ -169,7 +173,11 @@ describe('real d3-zoom coexistence', () => {
       />
     )
 
-    zoomIn()
+    // A gentler wheel delta than the pan test uses: this case needs a mark that
+    // is inside the virtualisation window. The window includes half a visible
+    // span of overscan, so k ~ 1.32 keeps e1 mounted (the aggressive k ~ 5.28
+    // used by the pan test would scroll it out of the window).
+    zoomIn(-20)
     onTimeRangeChange.mockClear()
 
     const mark = document.querySelector('[data-event-id="e1"]')
