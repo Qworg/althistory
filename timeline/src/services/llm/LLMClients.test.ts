@@ -56,6 +56,28 @@ describe('OpenAIClient', () => {
     expect(events[0].tempId).toContain('llm-');
   });
 
+  it('leaves a model event with an empty actor or target unselected', async () => {
+    mocks.openAiCreate.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content:
+              '{"events":[{"description":"Something happened","actor":"","target":"","timestamp":"1066-10-14T00:00:00Z","confidence":0.5}]}',
+          },
+        },
+      ],
+    });
+    const client = new OpenAIClient({ apiKey: 'k' });
+
+    const events = await client.extractEvents('text');
+
+    // Kept so the reviewer can complete it, but not selected: `validateExtraction`
+    // and `ImportService` reject an empty actor or target, and the approval
+    // default imports the selected rows.
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ actor: '', target: '', selected: false });
+  });
+
   it('requests a JSON response from the configured model', async () => {
     mocks.openAiCreate.mockResolvedValue(openAiFixture);
     const client = new OpenAIClient({ apiKey: 'secret-key', model: 'gpt-4o-mini' });

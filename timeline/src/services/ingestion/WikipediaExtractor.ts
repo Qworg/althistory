@@ -7,15 +7,34 @@
  *     more reliable structured source;
  *   - dates in cleaned prose, using the shared text patterns.
  *
- * Link following crawls linked main-namespace articles breadth-first, bounded
- * by `linkDepth` (max 3, per the spec) and `maxPages`, with an optional regex
- * filter applied to link titles. Only the root page's infoboxes are used;
- * followed pages contribute prose events, which keeps page parsing cheap and
- * avoids duplicating the same infobox fields.
+ * Infobox parsing is template-aware. Fields are split on top-level `|` only, so
+ * a value that contains a nested template or a piped wikilink is read whole
+ * instead of being cut at the first `|`: the recorded "Battle of Hastings"
+ * infobox has `| location = [[Rape of Hastings|Hailesaltede]], ...` and
+ * `| commander1 = {{Plainlist|...}}`. Date-bearing templates
+ * (`{{birth date|df=y|1815|12|10}}`, `{{death date and age|...}}`,
+ * `{{start date|...}}`) are rendered to `D Month YYYY` text before the shared
+ * date patterns run, because real articles carry an infobox date both as plain
+ * text (`| date = 14 October 1066`) and as one of those templates (the recorded
+ * "Ada Lovelace" infobox is the template case).
+ *
+ * Link following crawls linked articles breadth-first, bounded by `linkDepth`
+ * (max 3, per the spec) and `maxPages`. Links are restricted to the article
+ * (main) namespace by the parser, which keeps only link entries reporting
+ * `ns: 0`: a Category, Template, File, Wikipedia or other project page is not an
+ * article to follow. (The namespace cannot be filtered server-side here:
+ * `action=parse&prop=links` rejects a `plnamespace` parameter as unrecognized,
+ * so the client-side filter is the whole of the check.) The optional `linkFilter`
+ * regex is compiled from user input, so it first passes
+ * {@link assertSafeLinkFilter}; that guard is a heuristic narrowing against the
+ * classic catastrophic-backtracking shapes, not a proof that every accepted
+ * pattern runs in linear time. Only the root page's infoboxes are used; followed
+ * pages contribute prose events, which keeps page parsing cheap and avoids
+ * duplicating the same infobox fields.
  *
  * All fetching goes through the injected {@link HttpClient}; the recorded
- * fixture in `fixtures/wikipedia-battle-of-hastings.json` exercises this class
- * with no network.
+ * fixtures in `fixtures/wikipedia-battle-of-hastings.json` and
+ * `fixtures/wikipedia-ada-lovelace.json` exercise this class with no network.
  */
 
 import { DataSource } from '../ExportService';
@@ -35,6 +54,89 @@ const MAX_LINK_DEPTH = 3;
 const DEFAULT_MAX_PAGES = 5;
 const HARD_PAGE_LIMIT = 50;
 
+/** MediaWiki namespace 0 is the article (main) namespace. */
+const MAIN_NAMESPACE = 0;
+
+/** Longest accepted user-supplied `linkFilter` pattern. */
+const MAX_LINK_FILTER_LENGTH = 200;
+
+/**
+ * Templates that render to a date built from their positional arguments, in
+ * `year|month|day` order (the order MediaWiki's date templates use, e.g.
+ * `{{Start date|1066|10|14}}`, `{{Death date and age|1955|4|18|1879|3|14}}`).
+ * `Death date and age` / `Birth date and age` put the sought date first, so the
+ * leading three numbers are the right ones.
+ */
+const DATE_TEMPLATE_NAMES = new Set([
+  'birth date',
+  'birth date and age',
+  'birth-date',
+  'birth-date and age',
+  'death date',
+  'death date and age',
+  'death-date',
+  'death-date and age',
+  'start date',
+  'start date and age',
+  'start-date',
+  'end date',
+  'end date and age',
+  'end-date',
+  'date',
+  'dts',
+  'film date',
+  'birth year and age',
+  'death year and age',
+]);
+
+/**
+ * Templates that only wrap or format their arguments. In prose these keep their
+ * content (`{{nowrap|in 1066}}` -> `in 1066`, `{{née|Byron}}` -> `née Byron`);
+ * every other unknown template is dropped in prose mode so citation templates
+ * and footnotes (`{{sfn|...}}`, `{{efn|...}}`) do not leak into descriptions.
+ * The list is curated and deliberately small: a template belongs here only if
+ * dropping it would silently delete text a reader would have seen.
+ */
+const TRANSPARENT_TEMPLATE_NAMES = new Set([
+  'nowrap',
+  'nobr',
+  'nowraplinks',
+  'small',
+  'smaller',
+  'big',
+  'lang',
+  'circa',
+  'quote',
+  'blockquote',
+  'center',
+]);
+
+/**
+ * Templates whose rendering is a fixed word followed by their content, e.g.
+ * `{{née|Byron}}` -> `née Byron`. The word is part of the render, so these are
+ * not in {@link TRANSPARENT_TEMPLATE_NAMES}: dropping the whole invocation would
+ * leave `(; 10 December 1815)` behind in a real lead sentence.
+ */
+const PREFIXED_TEMPLATE_NAMES = new Map<string, string>([
+  ['née', 'née'],
+  ['nee', 'née'],
+]);
+
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
 export interface WikipediaExtractorDeps {
   httpClient: HttpClient;
   now?: () => Date;
@@ -48,6 +150,7 @@ export interface WikipediaTarget {
 interface WikipediaPage {
   title: string;
   wikitext: string;
+  /** Titles of linked article (main-namespace) pages. */
   links: string[];
 }
 
@@ -101,6 +204,12 @@ export function parseWikipediaUrl(rawUrl: string): WikipediaTarget {
  * Read `parse.wikitext` and `parse.links` from a MediaWiki response. Supports
  * both `formatversion=2` (string fields) and the legacy shape where the value
  * is an object with a `*` key.
+ *
+ * Only main-namespace links survive: a link entry carrying an `ns` other than 0
+ * is a Category, Template, File or other project page and is not an article to
+ * follow. The legacy shape has no `ns`, so its namespace is unknown and those
+ * entries are kept as-is; every response from a current MediaWiki includes `ns`,
+ * so this is a compatibility path rather than the normal one.
  */
 export function parseWikipediaPagePayload(payload: JsonValue, fallbackTitle: string): WikipediaPage {
   if (!isJsonObject(payload)) {
@@ -118,17 +227,21 @@ export function parseWikipediaPagePayload(payload: JsonValue, fallbackTitle: str
 
   const title = typeof parse.title === 'string' ? parse.title : fallbackTitle;
   const wikitext = readStringOrStar(parse.wikitext);
-  const links = Array.isArray(parse.links)
-    ? parse.links
-        .map((link) => {
-          if (typeof link === 'string') return link;
-          if (!isJsonObject(link)) return '';
-          // formatversion=2 uses `title`; the legacy shape uses `*`.
-          if (typeof link.title === 'string') return link.title;
-          return readStringOrStar(link);
-        })
-        .filter((link) => link.length > 0)
-    : [];
+  const links: string[] = [];
+
+  if (Array.isArray(parse.links)) {
+    for (const link of parse.links) {
+      if (typeof link === 'string') {
+        if (link.length > 0) links.push(link);
+        continue;
+      }
+      if (!isJsonObject(link)) continue;
+      if (typeof link.ns === 'number' && link.ns !== MAIN_NAMESPACE) continue;
+      // formatversion=2 uses `title`; the legacy shape uses `*`.
+      const linkedTitle = typeof link.title === 'string' ? link.title : readStringOrStar(link);
+      if (linkedTitle.length > 0) links.push(linkedTitle);
+    }
+  }
 
   return { title, wikitext, links };
 }
@@ -143,12 +256,23 @@ function readStringOrStar(value: JsonValue | undefined): string {
   return '';
 }
 
-/** Strip the wiki markup that would otherwise leak into entity text. */
+/**
+ * Strip the wiki markup that would otherwise leak into entity text.
+ *
+ * Templates go through {@link renderWikiTemplates} in prose mode first, so a
+ * date inside a formatting wrapper (`{{nowrap|in 1066}}`) survives as text while
+ * a citation template is removed.
+ */
 export function cleanWikiText(value: string): string {
-  return value
-    .replace(/<ref[^>]*>[\s\S]*?<\/ref>/gi, '')
-    .replace(/<ref[^>]*\/>/gi, '')
-    .replace(/\{\{[\s\S]*?\}\}/g, '')
+  return renderWikiTemplates(
+    value
+      .replace(/<ref[^>]*>[\s\S]*?<\/ref>/gi, '')
+      .replace(/<ref[^>]*\/>/gi, ''),
+    'prose'
+  )
+    // `<br>` is a line break between text, so it becomes a separator rather
+    // than joining the two sides together.
+    .replace(/<br\s*\/?>/gi, ' ')
     .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, '$2')
     .replace(/\[\[([^\]]*)\]\]/g, '$1')
     .replace(/'''?/g, '')
@@ -157,40 +281,200 @@ export function cleanWikiText(value: string): string {
     .trim();
 }
 
+/**
+ * Index just past the `}}` matching the `{{` at `start`, or -1 when the
+ * template is never closed. Brace counting is what makes nested templates
+ * (`{{a|{{b}}}}`) survive instead of being truncated at the first `}}`.
+ */
+function matchTemplateEnd(text: string, start: number): number {
+  let depth = 0;
+  let index = start;
+  while (index < text.length) {
+    if (text.startsWith('{{', index)) {
+      depth += 1;
+      index += 2;
+    } else if (text.startsWith('}}', index)) {
+      depth -= 1;
+      index += 2;
+      if (depth === 0) return index;
+    } else {
+      index += 1;
+    }
+  }
+  return -1;
+}
+
 /** Find every `{{name ...}}` template, matching nested braces. */
 export function extractTemplates(text: string, name: string): string[] {
   const results: string[] = [];
   const marker = new RegExp(`\\{\\{\\s*${name}\\b`, 'gi');
   let match: RegExpExecArray | null;
   while ((match = marker.exec(text)) !== null) {
-    const start = match.index;
-    let depth = 0;
-    let index = start;
-    while (index < text.length) {
-      if (text.startsWith('{{', index)) {
-        depth += 1;
-        index += 2;
-      } else if (text.startsWith('}}', index)) {
-        depth -= 1;
-        index += 2;
-        if (depth === 0) {
-          results.push(text.slice(start, index));
-          break;
-        }
-      } else {
-        index += 1;
-      }
-    }
+    const end = matchTemplateEnd(text, match.index);
+    if (end === -1) continue;
+    results.push(text.slice(match.index, end));
   }
   return results;
 }
 
-function parseTemplateFields(template: string): Record<string, string> {
-  const inner = template.slice(2, -2);
-  const fields: Record<string, string> = {};
-  for (const match of inner.matchAll(/\|\s*([A-Za-z0-9_]+)\s*=\s*([^|\n]*)/g)) {
-    fields[match[1].toLowerCase()] = match[2].trim();
+/**
+ * Split `text` on `separator`, ignoring separators inside `{{...}}` or `[[...]]`.
+ *
+ * This is the fix for infobox fields whose value contains a pipe: both
+ * `| date = {{Start date|1066|10|14}}` and `| place = [[X|Y]]` would otherwise
+ * be cut at the inner `|`, which is how the previous character-class scan read
+ * every template-valued field as just the template opening.
+ */
+function splitTopLevel(text: string, separator: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let templateDepth = 0;
+  let linkDepth = 0;
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.startsWith('{{', index)) {
+      templateDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (text.startsWith('}}', index)) {
+      templateDepth = Math.max(0, templateDepth - 1);
+      index += 1;
+      continue;
+    }
+    if (text.startsWith('[[', index)) {
+      linkDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (text.startsWith(']]', index)) {
+      linkDepth = Math.max(0, linkDepth - 1);
+      index += 1;
+      continue;
+    }
+    if (text[index] === separator && templateDepth === 0 && linkDepth === 0) {
+      parts.push(text.slice(start, index));
+      start = index + 1;
+    }
   }
+
+  parts.push(text.slice(start));
+  return parts;
+}
+
+/** The innermost (deepest, earliest) template invocation, or null. */
+function findInnermostTemplate(text: string): { start: number; end: number } | null {
+  let searchFrom = 0;
+  while (searchFrom < text.length) {
+    const start = text.indexOf('{{', searchFrom);
+    if (start === -1) return null;
+    const end = matchTemplateEnd(text, start);
+    if (end === -1) {
+      // Unclosed `{{`: skip past it rather than abandoning later templates.
+      searchFrom = start + 2;
+      continue;
+    }
+    const inner = findInnermostTemplate(text.slice(start + 2, end - 2));
+    if (inner) {
+      return { start: start + 2 + inner.start, end: start + 2 + inner.end };
+    }
+    return { start, end };
+  }
+  return null;
+}
+
+/** Render a `{{...}}` invocation to plain text for the given mode. */
+function renderTemplate(invocation: string, mode: TemplateRenderMode): string {
+  const body = invocation.slice(2, -2);
+  const parts = splitTopLevel(body, '|');
+  const name = parts[0].trim().toLowerCase().replace(/\s+/g, ' ');
+  const positional = parts
+    .slice(1)
+    .filter((part) => splitTopLevel(part, '=').length === 1)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  if (DATE_TEMPLATE_NAMES.has(name)) {
+    const date = formatTemplateDate(positional);
+    if (date) return date;
+  }
+
+  const prefix = PREFIXED_TEMPLATE_NAMES.get(name);
+  if (prefix && positional.length > 0) return `${prefix} ${positional.join(' ')}`;
+
+  if (mode === 'infobox') return positional.join(' ');
+  if (TRANSPARENT_TEMPLATE_NAMES.has(name)) return positional.join(' ');
+  return '';
+}
+
+export type TemplateRenderMode = 'infobox' | 'prose';
+
+/**
+ * Replace every template invocation in `text` with rendered content, working
+ * innermost-first so nested templates resolve.
+ *
+ * `mode` decides what happens to a template that is not a date template:
+ * `infobox` keeps its positional arguments (an infobox field is a value to
+ * render), `prose` keeps them only for the transparent wrappers listed in
+ * {@link TRANSPARENT_TEMPLATE_NAMES} and drops the rest.
+ */
+export function renderWikiTemplates(text: string, mode: TemplateRenderMode): string {
+  let current = text;
+  for (let iteration = 0; iteration < 100; iteration += 1) {
+    const innermost = findInnermostTemplate(current);
+    if (!innermost) return current;
+    const rendered = renderTemplate(current.slice(innermost.start, innermost.end), mode);
+    const next = current.slice(0, innermost.start) + rendered + current.slice(innermost.end);
+    if (next === current) return current;
+    current = next;
+  }
+  return current;
+}
+
+/**
+ * Render a date template's positional arguments (`year|month|day`) as
+ * `D Month YYYY` or `Month YYYY` so the shared date patterns can read it.
+ *
+ * Returns null when the arguments are not a usable numeric date, including the
+ * single-year form (`{{birth year and age|1879}}`): the extractor only reports
+ * a date the source actually states, and a bare year is not matched by the
+ * shared patterns unless it carries an era suffix.
+ */
+function formatTemplateDate(args: string[]): string | null {
+  const numbers = args
+    .filter((arg) => /^\d{1,4}$/.test(arg))
+    .map((arg) => parseInt(arg, 10));
+
+  if (numbers.length >= 3) {
+    const [year, month, day] = numbers;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${day} ${MONTH_NAMES[month - 1]} ${year}`;
+  }
+  if (numbers.length === 2) {
+    const [year, month] = numbers;
+    if (month < 1 || month > 12) return null;
+    return `${MONTH_NAMES[month - 1]} ${year}`;
+  }
+  return null;
+}
+
+/**
+ * Read the named fields of a `{{...}}` template. Splitting happens on top-level
+ * separators, so template-valued and piped-link-valued fields are read whole.
+ * Positional arguments (no `=`) are ignored: infobox fields are named.
+ */
+export function parseTemplateFields(template: string): Record<string, string> {
+  const body = template.replace(/^\{\{/, '').replace(/\}\}$/, '');
+  const fields: Record<string, string> = {};
+
+  for (const part of splitTopLevel(body, '|').slice(1)) {
+    const assignment = splitTopLevel(part, '=');
+    if (assignment.length < 2) continue;
+    const key = assignment[0].trim().toLowerCase();
+    if (!/^[a-z0-9_ -]+$/.test(key)) continue;
+    fields[key] = assignment.slice(1).join('=').trim();
+  }
+
   return fields;
 }
 
@@ -306,11 +590,16 @@ export class WikipediaExtractor implements Extractor<WikipediaExtractionInput> {
 
     for (const template of extractTemplates(page.wikitext, 'Infobox')) {
       const fields = parseTemplateFields(template);
-      const place = fields.place ? cleanWikiText(fields.place) : '';
+      // `location` is the field name the military-conflict infobox uses today;
+      // `place` is the older/common one. `birth_place`/`death_place` are not
+      // used: they name somewhere else than the dated event (e.g. a death
+      // place on a birth row), so a row falls back to the article title instead.
+      const placeField = fields.place ?? fields.location ?? '';
+      const place = placeField ? cleanWikiText(renderWikiTemplates(placeField, 'infobox')) : '';
 
       for (const [field, rawValue] of Object.entries(fields)) {
         if (!INFOBOX_DATE_FIELDS.has(field)) continue;
-        const value = cleanWikiText(rawValue);
+        const value = cleanWikiText(renderWikiTemplates(rawValue, 'infobox'));
         const dates = extractDates(value);
         if (dates.length === 0) continue;
         const date = dates[0];
@@ -372,7 +661,38 @@ function stripSectionHeadings(wikitext: string): string {
   return wikitext.replace(/^=+.*?=+\s*$/gm, '');
 }
 
+/** Shapes that make a regex backtrack catastrophically on a long input. */
+const UNSAFE_LINK_FILTER_SHAPES: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
+  { pattern: /\([^()]*[+*}][^()]*\)\s*(?:[+*]|\{\d+(?:,\d*)?\})/, reason: 'a quantifier on a group that is itself quantified' },
+  { pattern: /\([^()]*\|[^()]*\)\s*(?:[+*]|\{\d+(?:,\d*)?\})/, reason: 'a quantifier on an alternation group' },
+  { pattern: /\\[1-9]/, reason: 'a backreference' },
+];
+
+/**
+ * Heuristic safety check for a user-supplied link filter.
+ *
+ * Rejects the well-known catastrophic-backtracking shapes (nested quantifiers,
+ * a quantifier over an alternation, backreferences) and over-long patterns. This
+ * is a narrowing, not a proof: a pattern that avoids these shapes but still
+ * backtracks badly would pass, and link titles come from a wiki page rather than
+ * from a trusted source. It is a guard, and the extractor's documentation says
+ * so.
+ */
+export function assertSafeLinkFilter(pattern: string): void {
+  if (pattern.length > MAX_LINK_FILTER_LENGTH) {
+    throw new Error(
+      `Unsafe link filter pattern: longer than ${MAX_LINK_FILTER_LENGTH} characters`
+    );
+  }
+  for (const shape of UNSAFE_LINK_FILTER_SHAPES) {
+    if (shape.pattern.test(pattern)) {
+      throw new Error(`Unsafe link filter pattern (${shape.reason}): ${pattern}`);
+    }
+  }
+}
+
 function compileLinkFilter(pattern: string): RegExp {
+  assertSafeLinkFilter(pattern);
   try {
     return new RegExp(pattern, 'i');
   } catch {

@@ -2,11 +2,13 @@
  * Date and named-entity patterns shared by the text and Wikipedia extractors.
  *
  * This is deliberately pattern-based and offline (spec Req 9.1). It recognises
- * ISO dates, `Month D, YYYY`, `D Month YYYY`, `Month YYYY` and bare years in
- * the range 1000-2100. It does NOT support BCE/BC dates: JavaScript's `Date`
- * cannot round-trip a negative year, and `ImportService` rejects any timestamp
- * `Date.parse` cannot read, so a BCE match would only produce an entity that
- * fails validation. That gap is recorded in the ingestion report.
+ * ISO dates, `Month D, YYYY`, `D Month YYYY`, `Month YYYY`, and a bare year in
+ * the range 1000-2100 only when it carries an `AD` or `CE` suffix. It does NOT
+ * support BCE/BC dates: JavaScript's `Date` cannot round-trip a negative year,
+ * and `ImportService` rejects any timestamp `Date.parse` cannot read, so a BCE
+ * match would only produce an entity that fails validation. That gap is stated
+ * in the source disclosure in `./index.ts`; there is no separate ingestion
+ * report file.
  */
 
 export type DatePrecision = 'day' | 'month' | 'year';

@@ -6,7 +6,23 @@
  * Three query types are supported: `historical-events`, `person-timeline` and
  * `custom` (a caller-supplied query). Results carry the Wikidata entity id in
  * their provenance. Dates before year 1 are not representable by `Date` and
- * are dropped; that limit is recorded in the ingestion report.
+ * are dropped; that limit is stated in the source disclosure in `./index.ts`.
+ *
+ * `historical-events` matches items that are instances of an event class and
+ * carry a date, reading the date from `point in time` (P585) **or** `start time`
+ * (P580). Both properties are needed: the Norman conquest of England (Q200485)
+ * records a start and end time (P580/P582) and no point in time, while the
+ * Battle of Hastings (Q83224) records a point in time and no start time.
+ *
+ * The class anchors and the shape of the class test were measured against
+ * query.wikidata.org, not assumed. `occurrence` (Q1190554), the real common
+ * ancestor of battle and conquest, times out as an anchor (HTTP 504 after 65s),
+ * and so does the equivalent `VALUES ?class { ... }` spelling of the two-class
+ * test below; the `{ ... } UNION { ... }` form returns in about two seconds. See
+ * {@link EVENT_CLASS_QIDS} for what is and is not covered. It remains a broad
+ * heuristic rather than a curated chronology: it returns whatever matches first,
+ * bounded by `limit`. End times (P582) are not read, so a war contributes its
+ * start, not its conclusion.
  */
 
 import { DataSource } from '../ExportService';
@@ -23,6 +39,30 @@ import {
 const WIKIDATA_ENDPOINT = 'https://query.wikidata.org/sparql';
 const DEFAULT_LIMIT = 50;
 const HARD_LIMIT = 500;
+
+/**
+ * The Wikidata classes a `historical-events` item may be an instance of, directly
+ * or through any number of subclass (`P279*`) hops. Every entry was checked
+ * against the live ontology and the live query service:
+ *
+ *   - `armed conflict` (Q350604): covers its subclasses `battle` (Q178561, the
+ *     class of the Battle of Hastings Q83224) and `war` (Q198) one hop down.
+ *   - `conquest` (Q1361229): the class of the Norman conquest of England
+ *     (Q200485). A conquest is **not** a subclass of armed conflict, so it needs
+ *     its own branch; dropping it would lose that item again.
+ *
+ * `occurrence` (Q1190554) is the common ancestor of both, and is deliberately
+ * not used as an anchor: the broad query with it (or with the equivalent
+ * `VALUES ?class { ... }` test) is one the query service cannot answer -- it
+ * fails with HTTP 504 after about a minute -- while the two-branch form below
+ * answers in about two seconds.
+ *
+ * Deliberately not covered: event kinds outside armed conflict and conquest
+ * (treaties, elections, natural disasters, ...). A caller who needs those should
+ * send a `custom` SPARQL query; this list is not a claim to cover "all historical
+ * events".
+ */
+const EVENT_CLASS_QIDS: readonly string[] = ['Q350604', 'Q1361229'];
 
 export interface WikidataExtractorDeps {
   httpClient: HttpClient;
@@ -71,11 +111,16 @@ export function buildSparqlQuery(input: WikidataExtractionInput, limit: number):
 
   const subject = input.parameters?.subject;
   const subjectClause = subject && /^Q\d+$/.test(subject) ? `  VALUES ?event { wd:${subject} }\n` : '';
+  const classBranches = EVENT_CLASS_QIDS.map((qid) => `{ ?event wdt:P31/wdt:P279* wd:${qid} . }`).join(
+    ' UNION '
+  );
   return [
     'SELECT ?event ?eventLabel ?date ?placeLabel WHERE {',
     subjectClause,
-    '  ?event wdt:P31/wdt:P279* wd:Q198 .',
-    '  ?event wdt:P585 ?date .',
+    `  { ${classBranches} }`,
+    '  { ?event wdt:P585 ?date . }',
+    '  UNION',
+    '  { ?event wdt:P580 ?date . }',
     '  OPTIONAL { ?event wdt:P276 ?place . }',
     '  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }',
     `} LIMIT ${limit}`,

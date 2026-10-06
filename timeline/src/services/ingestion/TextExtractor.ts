@@ -6,6 +6,22 @@
  * falls back to the pattern path (spec Req 10.3). The resulting entities carry
  * their provenance, so a reviewer can tell AI-generated rows from pattern ones
  * (spec Req 10.4).
+ *
+ * On the LLM path the extractor also asks the model for causal relationships
+ * between the events it just returned (`suggestRelationships`), which is the
+ * only way an extraction acquires relationships today; no source produces arcs.
+ * Relationship suggestion is best-effort: when the call fails or returns links
+ * pointing outside the event set, the events are still returned.
+ *
+ * `enrichDescription` is deliberately NOT called from here or from anywhere
+ * else in production code yet. See the disclosure in `./index.ts`.
+ *
+ * Selection rule, on both paths: an entity whose actor or target is empty is
+ * emitted with `selected: false`. `validateExtraction` and `ImportService` both
+ * treat an empty actor or target as an error, and the approval default imports
+ * the `selected` rows, so marking such a row selected would make a default
+ * approve fail on a row the reviewer never chose. The row is still shown, so the
+ * reviewer can fill the field and select it.
  */
 
 import { DataSource } from '../ExportService';
@@ -19,6 +35,7 @@ import {
 } from './text-patterns';
 import {
   ExtractedEvent,
+  ExtractedRelationship,
   ExtractionContext,
   ExtractionResult,
   Extractor,
@@ -64,7 +81,7 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
       try {
         const events = await this.llmClient.extractEvents(input.text, context);
         if (events.length > 0) {
-          return this.toResult(events, 'llm');
+          return this.toResult(events, 'llm', await this.suggestRelationships(events));
         }
       } catch {
         // Fall through to the deterministic pattern path (spec Req 10.3).
@@ -72,6 +89,29 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
     }
 
     return this.extractWithPatterns(input.text, context);
+  }
+
+  /**
+   * Ask the configured model for causal links between the extracted events.
+   *
+   * Best-effort by design: a failure (or a link naming an event outside `events`)
+   * must not lose the events, so it returns no relationships rather than
+   * failing the extraction. Fewer than two events cannot have a causal link, so
+   * that case skips the provider call entirely.
+   */
+  private async suggestRelationships(events: ExtractedEvent[]): Promise<ExtractedRelationship[]> {
+    if (!this.llmClient || events.length < 2) return [];
+    try {
+      const suggested = await this.llmClient.suggestRelationships(events);
+      const eventIds = new Set(events.map((event) => event.tempId));
+      return suggested.filter(
+        (relationship) =>
+          eventIds.has(relationship.causeEventTempId) &&
+          eventIds.has(relationship.effectEventTempId)
+      );
+    } catch {
+      return [];
+    }
   }
 
   private extractWithPatterns(text: string, context?: ExtractionContext): ExtractionResult {
@@ -86,7 +126,12 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
       const entities = extractCapitalizedEntities(sentence);
       const defaultActor = context?.defaultActors?.[0];
       const actor = defaultActor ?? entities[0] ?? '';
-      const target = entities.find((entity) => entity !== actor) ?? '';
+      // With a single named entity there is nothing to point the target at, so
+      // it repeats the actor; `validateExtraction` only requires that it is not
+      // empty. With no named entity at all both stay empty and the row is left
+      // unselected (see the class comment).
+      const target = entities.find((entity) => entity !== actor) ?? actor;
+      const selected = actor.length > 0 && target.length > 0;
 
       for (const date of dates) {
         const dedupeKey = `${sentence}\u0000${date.iso}`;
@@ -101,16 +146,20 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
           timestamp: date.iso,
           confidence: patternConfidence(date.precision, actor.length > 0, target.length > 0),
           source: { type: 'text', extractedAt },
-          selected: true,
+          selected,
           edited: false,
         });
       }
     }
 
-    return this.toResult(events, 'text');
+    return this.toResult(events, 'text', []);
   }
 
-  private toResult(events: ExtractedEvent[], origin: 'text' | 'llm'): ExtractionResult {
+  private toResult(
+    events: ExtractedEvent[],
+    origin: 'text' | 'llm',
+    relationships: ExtractedRelationship[]
+  ): ExtractionResult {
     const source: DataSource = {
       id: `${origin}-source`,
       type: origin === 'llm' ? LLM_SOURCE_TYPE : TEXT_SOURCE_TYPE,
@@ -122,7 +171,7 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
     return {
       events,
       arcs: [],
-      relationships: [],
+      relationships,
       sources: events.length > 0 ? [source] : [],
       overallConfidence: averageConfidence(events),
     };

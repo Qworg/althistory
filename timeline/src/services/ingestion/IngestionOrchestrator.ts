@@ -6,9 +6,22 @@
  * edited) entities into an {@link AlthistoryExport} that is handed to the
  * existing `ImportService`. This is the only route from ingestion into a graph;
  * no entity is created here directly.
+ *
+ * Jobs are owned. `ingest` records the id of the API key that created the job,
+ * and every read or mutation of the job requires that id: a preview holds the
+ * caller's pasted text, so an ingestion job is private to the key that made it.
+ * A request naming another key's job is answered as "not found" (the route maps
+ * {@link IngestionJobNotFoundError} to 404) rather than "forbidden", so job ids
+ * cannot be probed for existence. A job created without an owner -- only
+ * possible when the orchestrator is driven directly, as tests do -- has no
+ * ownership restriction; the route always passes one.
+ *
+ * `approve` refuses a job that is not in `review` status, so an approved job
+ * cannot be imported twice.
  */
 
 import * as crypto from 'crypto';
+import { AppError } from '../../utils/errors';
 import {
   AlthistoryExport,
   DataSource,
@@ -56,6 +69,11 @@ export interface IngestionJob {
   extraction: ExtractionResult;
   validationIssues: ValidationIssue[];
   importResult?: ImportResult;
+  /**
+   * Id of the API key that created the job. Absent only when the orchestrator
+   * was driven directly without an owner; the ingest routes always set it.
+   */
+  ownerKeyId?: string;
 }
 
 type ExtractionResultSource = 'wikipedia' | 'wikidata' | 'text' | 'llm';
@@ -95,6 +113,21 @@ export class IngestionJobNotFoundError extends Error {
   constructor(id: string) {
     super(`Ingestion job not found: ${id}`);
     this.name = 'IngestionJobNotFoundError';
+  }
+}
+
+/**
+ * Raised when an operation is not valid for a job's current status (an approve
+ * of a job that was already approved or has failed). Carries 409 so the route
+ * needs no special case: it is an `AppError`, and the shared error handler maps
+ * it to Conflict.
+ */
+export class IngestionJobStateError extends AppError {
+  readonly statusCode = 409;
+  readonly isOperational = true;
+
+  constructor(message: string) {
+    super(message);
   }
 }
 
@@ -155,7 +188,11 @@ export class IngestionOrchestrator {
   }
 
   /** Extract, validate and store a result for review. */
-  async ingest(request: IngestionRequest, context?: ExtractionContext): Promise<IngestionPreview> {
+  async ingest(
+    request: IngestionRequest,
+    context?: ExtractionContext,
+    ownerKeyId?: string
+  ): Promise<IngestionPreview> {
     const extraction = await this.runExtractor(request, context);
     const validationIssues = validateExtraction(extraction);
     const timestamp = this.now().toISOString();
@@ -168,6 +205,7 @@ export class IngestionOrchestrator {
       updatedAt: timestamp,
       extraction,
       validationIssues,
+      ownerKeyId,
     };
     this.jobStore.set(job);
 
@@ -188,12 +226,16 @@ export class IngestionOrchestrator {
     }
   }
 
-  getJob(jobId: string): IngestionJob | undefined {
-    return this.jobStore.get(jobId);
+  /** The job, or undefined when unknown or owned by a different API key. */
+  getJob(jobId: string, ownerKeyId?: string): IngestionJob | undefined {
+    const job = this.jobStore.get(jobId);
+    if (!job) return undefined;
+    if (job.ownerKeyId !== undefined && job.ownerKeyId !== ownerKeyId) return undefined;
+    return job;
   }
 
-  getPreview(jobId: string): IngestionPreview {
-    const job = this.requireJob(jobId);
+  getPreview(jobId: string, ownerKeyId?: string): IngestionPreview {
+    const job = this.requireJob(jobId, ownerKeyId);
     return {
       jobId: job.id,
       status: 'review',
@@ -202,18 +244,30 @@ export class IngestionOrchestrator {
     };
   }
 
-  deleteJob(jobId: string): boolean {
+  /** False for an unknown job, or one owned by a different API key. */
+  deleteJob(jobId: string, ownerKeyId?: string): boolean {
+    if (!this.getJob(jobId, ownerKeyId)) return false;
     return this.jobStore.delete(jobId);
   }
 
   /**
    * Apply reviewer edits and selection, re-validate, and import the result
    * through `ImportService`. Throws {@link IngestionJobNotFoundError} for an
-   * unknown job and {@link IngestionValidationError} when the selected subset
-   * still has errors.
+   * unknown job (or one owned by another key), {@link IngestionJobStateError}
+   * for a job that is not awaiting review, and {@link IngestionValidationError}
+   * when the selected subset still has errors.
    */
-  async approve(jobId: string, request: ApproveIngestionRequest): Promise<ImportResult> {
-    const job = this.requireJob(jobId);
+  async approve(
+    jobId: string,
+    request: ApproveIngestionRequest,
+    ownerKeyId?: string
+  ): Promise<ImportResult> {
+    const job = this.requireJob(jobId, ownerKeyId);
+    if (job.status !== 'review') {
+      throw new IngestionJobStateError(
+        `Ingestion job ${job.id} is not awaiting review (status: ${job.status})`
+      );
+    }
     const selected = selectForImport(job.extraction, request);
 
     const issues = validateExtraction(selected);
@@ -251,8 +305,8 @@ export class IngestionOrchestrator {
     }
   }
 
-  private requireJob(jobId: string): IngestionJob {
-    const job = this.jobStore.get(jobId);
+  private requireJob(jobId: string, ownerKeyId?: string): IngestionJob {
+    const job = this.getJob(jobId, ownerKeyId);
     if (!job) throw new IngestionJobNotFoundError(jobId);
     return job;
   }

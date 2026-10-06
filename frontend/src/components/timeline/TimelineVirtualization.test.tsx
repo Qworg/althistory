@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, fireEvent, render } from '@testing-library/react'
 import { Timeline } from './Timeline'
 import type { Arc, Event } from '@/types'
+import type { PressureWithContext } from '@/types/pressure'
 
 /**
  * Virtualisation behaviour for the timeline component.
@@ -10,6 +11,15 @@ import type { Arc, Event } from '@/types'
  * (the single source of truth the x scale is built from) independently of the
  * dataset. Every render still goes through the real d3 scale and the real
  * Timeline markup, so the asserted node counts are the real DOM.
+ *
+ * KNOW WHAT THE PINNED DOMAIN DOES AND DOES NOT SHOW: it makes the viewport
+ * narrower than the dataset, which production cannot reach from fit-to-view
+ * (the extent is derived from the data, so every mark starts on screen). These
+ * tests therefore prove that the window is wired to the viewport and culls the
+ * marks outside it -- they do NOT show that the mounted count is bounded
+ * independently of N. It is not: see TimelineVirtualizationRealZoom.test.tsx,
+ * which drives the real d3-zoom to its 20x cap and measures the real
+ * relationship (about N/10 marks for a uniform dataset).
  */
 
 const scaleControl = vi.hoisted(() => ({
@@ -69,6 +79,25 @@ const eventsOutsideWindow = (count: number): Event[] =>
 
 const renderedEventCount = (): number => document.querySelectorAll('[data-event-id]').length
 const renderedArcCount = (): number => document.querySelectorAll('[data-arc-id]').length
+const renderedPressureIndicatorCount = (): number =>
+  document.querySelectorAll('.pressure-indicator').length
+
+/** A pressure whose affected arcs are the arcs handed to it. */
+const makePressure = (id: string, affectedArcs: Arc[]): PressureWithContext => ({
+  id,
+  description: `Pressure ${id}`,
+  confidence_score: 0.8,
+  pressure_type: 'economic',
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z',
+  affectedArcs,
+  evidenceEvents: [],
+  influenceStrength: 0.6,
+  isVisible: true,
+  isHighlighted: false,
+  renderColor: '#10b981',
+  renderOpacity: 0.6
+})
 
 beforeEach(() => {
   scaleControl.domain = 'wide'
@@ -100,7 +129,9 @@ describe('timeline virtualisation: bounded node count', () => {
         height={400}
       />
     )
-    // 10,005 events in the data, 5 in view: the count tracks the window, not N.
+    // 10,005 events in the data, 5 inside the pinned viewport: the marks outside
+    // it are not mounted. This is a statement about culling off-screen marks,
+    // not about a bound on N -- see the file comment.
     expect(renderedEventCount()).toBe(5)
     expect(document.querySelector('[data-event-id="in-0"]')).toBeInTheDocument()
     expect(document.querySelector('[data-event-id="out-0"]')).not.toBeInTheDocument()
@@ -116,8 +147,8 @@ describe('timeline virtualisation: bounded node count', () => {
         height={400}
       />
     )
-    // Identical to the 10,000-outside case above, so the count does not grow
-    // with the dataset.
+    // Identical to the 10,000-outside case above: adding off-screen events to
+    // the dataset does not add mounted marks.
     expect(renderedEventCount()).toBe(5)
   })
 
@@ -142,6 +173,54 @@ describe('timeline virtualisation: bounded node count', () => {
     )
     expect(renderedArcCount()).toBe(1)
     expect(document.querySelector('[data-arc-id="in"]')).toBeInTheDocument()
+  })
+
+  it('renders only the pressure indicators for arcs in the window', () => {
+    scaleControl.domain = 'wide'
+    const inWindowArc = makeArc('in', '2024-01-01T06:00:00Z', '2024-01-01T18:00:00Z')
+    const outsideArcs = Array.from({ length: 200 }, (_, i) =>
+      makeArc(
+        `out-${i}`,
+        new Date(Date.UTC(2020, 0, 1) + i * 60_000).toISOString(),
+        new Date(Date.UTC(2020, 0, 1) + i * 60_000 + 3_600_000).toISOString()
+      )
+    )
+    const subject = makePressure('p', [inWindowArc, ...outsideArcs])
+
+    render(
+      <Timeline
+        events={[]}
+        arcs={[inWindowArc, ...outsideArcs]}
+        pressures={[subject]}
+        width={800}
+        height={400}
+      />
+    )
+
+    // PressureIndicators renders one DOM group per (pressure, affected arc)
+    // pair, so without a windowing pass of its own this count would be 201
+    // however far the view is zoomed in.
+    expect(renderedPressureIndicatorCount()).toBe(1)
+    expect(
+      document.querySelector('.pressure-indicator[data-arc-id="in"]')
+    ).toBeInTheDocument()
+  })
+
+  it('does not mount a pressure whose arcs are all outside the window', () => {
+    scaleControl.domain = 'day'
+    const offscreenArc = makeArc('out', '2020-01-01T00:00:00Z', '2020-01-02T00:00:00Z')
+
+    render(
+      <Timeline
+        events={[]}
+        arcs={[offscreenArc]}
+        pressures={[makePressure('p', [offscreenArc])]}
+        width={800}
+        height={400}
+      />
+    )
+
+    expect(renderedPressureIndicatorCount()).toBe(0)
   })
 })
 

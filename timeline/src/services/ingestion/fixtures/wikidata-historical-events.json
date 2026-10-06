@@ -1,0 +1,224 @@
+{
+  "head": {
+    "vars": [
+      "event",
+      "eventLabel",
+      "date",
+      "placeLabel"
+    ]
+  },
+  "results": {
+    "bindings": [
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6271"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0217-01-01T00:00:00Z"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Second Punic War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Mediterranean Sea"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6271"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0217-01-01T00:00:00Z"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Second Punic War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Ancient Greece"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6271"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0217-01-01T00:00:00Z"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Second Punic War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Africa"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6271"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0217-01-01T00:00:00Z"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Second Punic War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Hispania"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6271"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0217-01-01T00:00:00Z"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Second Punic War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Roman Italy"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6271"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0217-01-01T00:00:00Z"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Second Punic War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Empúries"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6286"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0263-01-01T00:00:00Z"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "First Punic War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Mediterranean Sea"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6334"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0148-01-01T00:00:00Z"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Third Punic War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Tunisia"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6683"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1846-04-24T00:00:00Z"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Mexican-American War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Mexico"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q8663"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1950-06-25T00:00:00Z"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Korean War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Sea of Japan"
+        }
+      }
+    ]
+  }
+}

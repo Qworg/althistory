@@ -64,8 +64,14 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
   const [selectedParentId, setSelectedParentId] = useState<string | null>(null)
 
   const createArcMutation = useCreateArc({
-    onSuccess: (newArc) => {
-      onSuccess?.(newArc)
+    onSuccess: (outcome) => {
+      // A queued write (offline) has no server entity: the arc was saved on this
+      // device and will be created when the connection returns, so `onSuccess`
+      // is not called with an id it does not have yet. The offline notification
+      // and the pending count are the signal for that case.
+      if (outcome.delivery === 'sent') {
+        onSuccess?.(outcome.value)
+      }
       onClose()
       resetForm()
     }

@@ -3,7 +3,12 @@
  *
  * Provider implementations (`OpenAIClient`, `AnthropicClient`) only translate
  * request/response shapes; the parsing of the model's JSON payload to
- * {@link ExtractedEvent}s lives here so both providers share one validator.
+ * `{@link ExtractedEvent}`s lives here so both providers share one validator.
+ *
+ * The provider implementations additionally expose `suggestRelationships`
+ * (wired: `TextExtractor` calls it on the LLM path) and `enrichDescription`
+ * (NOT wired into any production path yet -- see the disclosure in
+ * `../ingestion/index.ts`).
  */
 
 import { ExtractedEvent, ExtractedRelationship, ExtractionContext, ExtractionSource } from '../ingestion/types';
@@ -79,6 +84,13 @@ function extractItems(payload: JsonValue, key: string): JsonValue[] {
  * Entries missing a description or a parseable timestamp are dropped rather
  * than coerced: an entity that `ImportService` would reject is worse than
  * returning fewer. A caller can compare counts to detect that.
+ *
+ * An entry with an empty actor or target is kept but returned unselected. The
+ * prompt tells the model to leave an unstated field empty, and
+ * `validateExtraction` / `ImportService` reject an empty actor or target, so a
+ * selected row would make a default approve fail. Unselected keeps the model's
+ * dated event visible for the reviewer to complete without importing it by
+ * default.
  */
 export function parseExtractedEvents(
   payload: JsonValue,
@@ -94,15 +106,18 @@ export function parseExtractedEvents(
     const timestamp = asString(item.timestamp).trim();
     if (!description || !isValidTimestamp(timestamp)) continue;
 
+    const actor = asString(item.actor).trim();
+    const target = asString(item.target).trim();
+
     events.push({
       tempId: newTempId('llm'),
       description,
-      actor: asString(item.actor).trim(),
-      target: asString(item.target).trim(),
+      actor,
+      target,
       timestamp,
       confidence: Math.max(0, Math.min(1, asNumber(item.confidence, 0.5))),
       source,
-      selected: true,
+      selected: actor.length > 0 && target.length > 0,
       edited: false,
     });
   }

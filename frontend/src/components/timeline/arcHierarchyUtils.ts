@@ -14,7 +14,24 @@ export interface ArcWithUIState extends Arc {
   duration: number
 }
 
-// Helper functions for hierarchical arc rendering
+/**
+ * Assigns a render level to every arc, putting overlapping siblings on
+ * different rows.
+ *
+ * COST, measured and not hidden: arc positions are parsed repeatedly (twice per
+ * overlap comparison), the overlap scan walks the whole level-assignment map for
+ * each candidate level, and each comparison looks its arc up with a linear
+ * `find` in the sorted list. The result is super-linear in the ARC count: 2,000
+ * arcs with no events at all measured ~3.0s in vitest on the machine this was
+ * profiled on, against ~20ms for 300 arcs. Unlike `processArcsWithUIState` this
+ * does not care how many events there are, and windowing cannot help it either,
+ * because it runs before the render window is known.
+ *
+ * Left as-is deliberately: fixing it means pre-parsing the bounds and replacing
+ * the nested scan with an indexed interval assignment, which would change the
+ * level-assignment code path and needs its own tests. It is reported as an
+ * outstanding limit rather than half-done here.
+ */
 export function calculateArcHierarchy(arcs: ArcWithUIState[]): { arcHierarchy: ArcWithUIState[], maxLevel: number } {
   const arcMap = new Map<string, ArcWithUIState>()
   arcs.forEach(arc => arcMap.set(arc.id, arc))
@@ -99,6 +116,24 @@ export function calculateArcHierarchy(arcs: ArcWithUIState[]): { arcHierarchy: A
   return { arcHierarchy: result, maxLevel }
 }
 
+/**
+ * Attaches UI state (contained events, child/parent arcs, duration) to every
+ * arc.
+ *
+ * COST, measured and not hidden: for each arc this scans every event, building
+ * two `new Date(...)` per arc-event pair to compare timestamps, and then scans
+ * the arc list twice more for its children and its parent. It is O(arcs x
+ * events) with the Date parsing dominating: 300 arcs against 10,000 events
+ * measured ~1.0s in vitest on the machine this was profiled on, so it degrades
+ * with the EVENT count as well as the arc count.
+ *
+ * It is called on every arc selection and every expand/collapse (see
+ * Timeline.tsx), over the FULL arc and event sets: the time window applied to
+ * the render does not reduce this input, so windowing does not make clicking
+ * cheap. Pre-parsing the timestamps once and indexing the arcs would remove most
+ * of the cost; that is a separate piece of work, so this stands as an
+ * outstanding limit (see `calculateArcHierarchy` for the arc-count half of it).
+ */
 export function processArcsWithUIState(
   arcs: Arc[], 
   events: Event[], 

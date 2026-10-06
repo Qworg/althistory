@@ -13,7 +13,8 @@ import { useTimelineEventHandlers } from '@/hooks/useTimelineEventHandlers'
 import {
   computeTimeWindow,
   filterArcsInWindow,
-  filterEventsInWindow
+  filterEventsInWindow,
+  filterPressuresInWindow
 } from './timelineVirtualization'
 
 export interface TimelineProps {
@@ -186,8 +187,15 @@ const Timeline = memo(function Timeline({
   }, [currentRange, innerWidth])
 
   // Windowing: render only the marks whose time falls inside the current
-  // viewport (plus a fixed multiple of the visible span either side). The node
-  // count therefore tracks the span in view, not the size of `events`/`arcs`.
+  // viewport (plus a fixed multiple of the visible span either side). This
+  // culls marks that are drawn off-screen and invisible under the clip path.
+  //
+  // It is NOT a bound on the mounted count independent of the dataset: the
+  // window admits (local mark density) x (window span), which stays
+  // proportional to N. d3-zoom is capped at 20x below, so even fully zoomed a
+  // uniform dataset of N events still mounts about N/10. Nothing is culled
+  // while the window still covers the whole extent (about 2x with the default
+  // overscan, a little earlier off-centre). See timelineVirtualization.ts.
   const timeWindow = useMemo(() => computeTimeWindow(currentRange), [currentRange])
 
   // Stable ref for time range callback to avoid infinite loops (Phase 2.3)
@@ -220,7 +228,20 @@ const Timeline = memo(function Timeline({
   const expandedArcIdsRef = useRef(expandedArcIds)
   expandedArcIdsRef.current = expandedArcIds
 
-  // Arc hierarchy and levels
+  // Arc hierarchy and levels.
+  //
+  // OUTSTANDING COST PROBLEM, not fixed here: this runs over the WHOLE arc and
+  // event sets before any windowing, and it reruns whenever arcs, events or the
+  // selection/expansion sets change -- i.e. on every arc click and every
+  // expand/collapse. Measured on this machine (vitest, node): 300 arcs against
+  // 10,000 events costs ~1.0s in processArcsWithUIState (it parses two Dates
+  // per arc-event pair) plus ~20ms in calculateArcHierarchy; 2,000 arcs with no
+  // events costs ~3.0s in calculateArcHierarchy alone (its overlap scan re-parses
+  // bounds and does a linear lookup per comparison). Either way a click that
+  // moves the selection blocks the main thread for that long. Windowing does not
+  // help: the full sets are still processed upstream of the window, and only the
+  // number of DOM nodes is reduced. Both need pre-parsed timestamps and an
+  // index/incremental pass; until then this is a known limit, not a solved one.
   const { arcHierarchy } = useMemo(() => {
     const withState = processArcsWithUIState(arcs, events, expandedArcIds, selectedArcIds)
     return calculateArcHierarchy(withState)
@@ -235,6 +256,13 @@ const Timeline = memo(function Timeline({
   const visibleArcs = useMemo(
     () => filterArcsInWindow(arcHierarchy, timeWindow),
     [arcHierarchy, timeWindow]
+  )
+  // Pressure indicators are a DOM group per (pressure, affected arc) pair, so
+  // they need their own windowing pass or the pressure node count keeps scaling
+  // with the full arc set however far the view is zoomed in.
+  const visiblePressures = useMemo(
+    () => filterPressuresInWindow(pressures, timeWindow),
+    [pressures, timeWindow]
   )
 
   // Y scale for arc levels - constant function, memoized once
@@ -623,10 +651,10 @@ const Timeline = memo(function Timeline({
             })}
 
             {/* Pressure indicators */}
-            {showPressureIndicators && pressures.length > 0 && (
+            {showPressureIndicators && visiblePressures.length > 0 && (
               <PressureIndicators
-                pressures={pressures}
-                arcs={arcs}
+                pressures={visiblePressures}
+                arcs={visibleArcs}
                 timeScale={timeScaleWrapper}
                 yScale={yScaleWrapper}
                 arcLevelMap={arcLevelMap}

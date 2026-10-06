@@ -1,0 +1,30 @@
+{
+  "head": {
+    "vars": [
+      "event",
+      "eventLabel",
+      "date",
+      "placeLabel"
+    ]
+  },
+  "results": {
+    "bindings": [
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q200485"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1066-10-04T00:00:00Z"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Norman conquest of England"
+        }
+      }
+    ]
+  }
+}

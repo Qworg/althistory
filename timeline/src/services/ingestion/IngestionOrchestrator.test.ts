@@ -7,11 +7,13 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   ImportExecutor,
   IngestionJobNotFoundError,
+  IngestionJobStateError,
   IngestionOrchestrator,
   IngestionValidationError,
   toAlthistoryExport,
   validateExtraction,
 } from './IngestionOrchestrator';
+import { TextExtractor } from './TextExtractor';
 import {
   ExtractedArc,
   ExtractedEvent,
@@ -113,8 +115,11 @@ function makeImportExecutor(): ImportExecutor & { calls: Array<{ data: Althistor
   };
 }
 
-function makeOrchestrator(extraction: ExtractionResult = makeExtraction()) {
-  const textExtractor: Extractor<TextExtractionInput> = {
+function makeOrchestrator(
+  extraction: ExtractionResult = makeExtraction(),
+  textExtractorOverride?: Extractor<TextExtractionInput>
+) {
+  const textExtractor: Extractor<TextExtractionInput> = textExtractorOverride ?? {
     sourceType: 'text',
     extract: vi.fn().mockResolvedValue(extraction),
   };
@@ -249,6 +254,59 @@ describe('IngestionOrchestrator.approve', () => {
   it('throws for an unknown job', async () => {
     const { orchestrator } = makeOrchestrator();
     await expect(orchestrator.approve('missing', {})).rejects.toBeInstanceOf(IngestionJobNotFoundError);
+  });
+
+  it('refuses to approve the same job twice', async () => {
+    const { orchestrator, importExecutor } = makeOrchestrator();
+    const preview = await orchestrator.ingest({ source: 'text', text: { text: 'x' } });
+
+    await orchestrator.approve(preview.jobId, { targetGraphId: 'graph-1' });
+
+    await expect(
+      orchestrator.approve(preview.jobId, { targetGraphId: 'graph-1' })
+    ).rejects.toBeInstanceOf(IngestionJobStateError);
+    expect(importExecutor.calls).toHaveLength(1);
+  });
+
+  it('excludes an unselected invalid row from a default approve', async () => {
+    // Real TextExtractor: the second sentence has a date but no nameable entity,
+    // so the event is emitted unselected. Approving without naming ids must import
+    // the first row and not fail the whole job on the second row's empty actor.
+    const { orchestrator } = makeOrchestrator(makeExtraction(), new TextExtractor());
+
+    const preview = await orchestrator.ingest({
+      source: 'text',
+      text: { text: 'The Treaty of Paris was signed on 10 February 1763. the town fell on 3 September 1939.' },
+    });
+    expect(preview.extraction.events).toHaveLength(2);
+    expect(preview.extraction.events.map((event) => event.selected)).toEqual([true, false]);
+    expect(preview.validationIssues.some((issue) => issue.severity === 'error')).toBe(true);
+
+    const result = await orchestrator.approve(preview.jobId, { targetGraphId: 'graph-1' });
+
+    expect(result.success).toBe(true);
+    expect(orchestrator.getJob(preview.jobId)?.status).toBe('imported');
+  });
+});
+
+describe('IngestionOrchestrator job ownership', () => {
+  it('hides a job from every key except the one that created it', async () => {
+    const { orchestrator, importExecutor } = makeOrchestrator();
+    const preview = await orchestrator.ingest({ source: 'text', text: { text: 'x' } }, undefined, 'key-a');
+
+    expect(orchestrator.getJob(preview.jobId, 'key-a')).toBeDefined();
+    expect(orchestrator.getJob(preview.jobId, 'key-b')).toBeUndefined();
+    expect(orchestrator.getJob(preview.jobId)).toBeUndefined();
+    expect(() => orchestrator.getPreview(preview.jobId, 'key-b')).toThrow(IngestionJobNotFoundError);
+    expect(orchestrator.deleteJob(preview.jobId, 'key-b')).toBe(false);
+    await expect(
+      orchestrator.approve(preview.jobId, { targetGraphId: 'graph-1' }, 'key-b')
+    ).rejects.toBeInstanceOf(IngestionJobNotFoundError);
+    expect(importExecutor.calls).toHaveLength(0);
+
+    // The owner still can.
+    expect(orchestrator.getPreview(preview.jobId, 'key-a').jobId).toBe(preview.jobId);
+    expect(orchestrator.deleteJob(preview.jobId, 'key-a')).toBe(true);
   });
 });
 

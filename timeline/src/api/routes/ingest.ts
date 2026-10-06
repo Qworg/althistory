@@ -10,6 +10,16 @@
  * Authentication follows the batch/keys pattern: `authenticate` + `requireAuth`
  * + `authorize('ingest')` + `rateLimit` on every route. The approve route also
  * resolves the graph context and authorises access to it before importing.
+ *
+ * Every job is stamped with the id of the API key that created it, and every
+ * job read or mutation passes that id to the orchestrator, so one key cannot
+ * read another key's preview (which contains their pasted text), approve their
+ * job, or delete it. A job belonging to another key answers 404, not 403, so job
+ * ids cannot be probed for existence.
+ *
+ * The extractor registry below is the concrete wiring; the per-source
+ * disclosure of what is complete, partial and unimplemented lives at the top of
+ * `services/ingestion/index.ts`. It has no separate report file.
  */
 
 import { Router, RequestHandler, Response } from 'express';
@@ -59,6 +69,19 @@ export interface IngestRouterConfig {
   llm?: LLMClientFactoryConfig;
   /** Test seam: supply a fully wired orchestrator. */
   orchestrator?: IngestionOrchestrator;
+}
+
+/**
+ * The id of the API key making the request. `authorize('ingest')` has already
+ * rejected a request without a key, so a missing id here would mean the wiring
+ * changed; fail loudly rather than treating the job as unowned.
+ */
+function ownerKeyId(req: AuthenticatedRequest): string {
+  const id = req.apiKey?.id;
+  if (!id) {
+    throw new Error('Ingest routes require an authenticated API key with an id');
+  }
+  return id;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -168,6 +191,12 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
         ? config.llmClient
         : createLLMClient(config.llm);
     const importService = new ImportService({ dataDir: config.dataDir });
+    // The extractor registry. See the disclosure at the top of
+    // `services/ingestion/index.ts` before assuming a source does more than it
+    // does: `wikipedia` and the pattern half of `text` are complete; the
+    // `wikidata` historical-events query is a broad heuristic; no source returns
+    // arcs; `enrichDescription` is implemented but unwired; relationships come
+    // only from the LLM path of `text`.
     orchestrator = new IngestionOrchestrator({
       extractors: {
         wikipedia: new WikipediaExtractor({ httpClient }),
@@ -200,7 +229,8 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
       };
       const preview = await orchestrator.ingest(
         { source: 'text', text: input },
-        parseExtractionContext(body.context)
+        parseExtractionContext(body.context),
+        ownerKeyId(req)
       );
       res.status(200).json(preview);
     })
@@ -222,7 +252,8 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
           source: 'wikipedia',
           wikipedia: { url: body.url, options: parseWikipediaOptions(body.options) },
         },
-        parseExtractionContext(body.context)
+        parseExtractionContext(body.context),
+        ownerKeyId(req)
       );
       res.status(200).json({ ...preview, estimatedPages: preview.extraction.sources.length });
     })
@@ -248,7 +279,8 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
       };
       const preview = await orchestrator.ingest(
         { source: 'wikidata', wikidata: input },
-        parseExtractionContext(body.context)
+        parseExtractionContext(body.context),
+        ownerKeyId(req)
       );
       res.status(200).json(preview);
     })
@@ -258,7 +290,7 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
   router.get(
     '/jobs/:id',
     asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-      const job = orchestrator.getJob(req.params.id);
+      const job = orchestrator.getJob(req.params.id, ownerKeyId(req));
       if (!job) throw new NotFoundError('Ingestion job not found', 'ingestionJob', req.params.id);
       res.status(200).json({
         id: job.id,
@@ -277,7 +309,7 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
     '/jobs/:id/preview',
     asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
-        res.status(200).json(orchestrator.getPreview(req.params.id));
+        res.status(200).json(orchestrator.getPreview(req.params.id, ownerKeyId(req)));
       } catch (error) {
         if (error instanceof IngestionJobNotFoundError) {
           throw new NotFoundError('Ingestion job not found', 'ingestionJob', req.params.id);
@@ -312,7 +344,7 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
       approve.targetGraphId = resolvedGraphId;
 
       try {
-        const result = await orchestrator.approve(req.params.id, approve);
+        const result = await orchestrator.approve(req.params.id, approve, ownerKeyId(req));
         res.status(200).json(result);
       } catch (error) {
         if (error instanceof IngestionJobNotFoundError) {
@@ -335,7 +367,7 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
   router.delete(
     '/jobs/:id',
     asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-      const deleted = orchestrator.deleteJob(req.params.id);
+      const deleted = orchestrator.deleteJob(req.params.id, ownerKeyId(req));
       res.status(200).json({ success: deleted });
     })
   );

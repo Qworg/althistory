@@ -41,6 +41,9 @@ const makeEvent = (id: string, timestamp: string): Event => ({
 
 const events: Event[] = [
   makeEvent('e1', '2024-01-01T00:00:00Z'),
+  // Mid-extent, so a zoom centred on it leaves it well inside the viewport
+  // rather than in the overscan region (see the mark-drag test below).
+  makeEvent('e-mid', '2024-01-03T00:00:00Z'),
   makeEvent('e2', '2024-01-05T00:00:00Z')
 ]
 
@@ -81,12 +84,33 @@ function lastReportedDomain(spy: { mock: { calls: unknown[][] } }): TimeRange {
   return last[0] as TimeRange
 }
 
+/** The plot's left offset: the component's default `margin.left`. */
+const MARGIN_LEFT = 56
+/** The mocked inner plot width, i.e. the x scale's range. */
+const INNER_WIDTH = 728
+
+/**
+ * A mark's inner-SVG x, read from the transform TimelineEvent renders.
+ *
+ * Marks with an x outside `[0, INNER_WIDTH]` are drawn outside the clip rect and
+ * only survived windowing through the overscan band, so tests that need a mark
+ * the user can actually see assert on this value rather than on the mark merely
+ * being present in the DOM.
+ */
+function markInnerX(mark: Element): number {
+  const transform = mark.getAttribute('transform') ?? ''
+  const match = /^translate\(([-\d.]+),\s*([-\d.]+)\)$/.exec(transform)
+  if (!match) throw new Error(`unexpected mark transform: ${transform}`)
+  return Number(match[1])
+}
+
 /**
  * Zooms the real d3-zoom behaviour in, so a pan is no longer clamped to zero.
- * `deltaY` controls how far: a smaller magnitude zooms less, which keeps more
- * of the timeline inside the virtualisation window.
+ * `clientX` is where the wheel lands: d3 keeps the time under that pixel fixed,
+ * so a zoom centred on a mark leaves that mark where it is. `deltaY` controls
+ * how far (-50 is 2x, -120 is about 5.3x).
  */
-function zoomIn(deltaY: number = -120): void {
+function zoomIn(deltaY: number = -120, clientX: number = 400): void {
   const svg = requireSvg()
   expect(zoomScale(svg)).toBe(1)
   // The zoom handler updates React state, so flush it before the gesture under
@@ -95,7 +119,7 @@ function zoomIn(deltaY: number = -120): void {
     svg.dispatchEvent(
       new WheelEvent('wheel', {
         deltaY,
-        clientX: 400,
+        clientX,
         clientY: 200,
         ctrlKey: true,
         bubbles: true,
@@ -173,27 +197,40 @@ describe('real d3-zoom coexistence', () => {
       />
     )
 
-    // A gentler wheel delta than the pan test uses: this case needs a mark that
-    // is inside the virtualisation window. The window includes half a visible
-    // span of overscan, so k ~ 1.32 keeps e1 mounted (the aggressive k ~ 5.28
-    // used by the pan test would scroll it out of the window).
-    zoomIn(-20)
+    // Pick the mark while the view is unzoomed, then centre the zoom on that
+    // mark's own screen position: d3 leaves the time under the pointer fixed, so
+    // the mark stays where it is instead of being scrolled out of the viewport.
+    const unzoomedMark = document.querySelector('[data-event-id="e-mid"]')
+    if (!unzoomedMark) throw new Error('event mark was not rendered')
+    const markClientX = MARGIN_LEFT + markInnerX(unzoomedMark)
+
+    zoomIn(-120, markClientX)
     onTimeRangeChange.mockClear()
 
-    const mark = document.querySelector('[data-event-id="e1"]')
+    const mark = document.querySelector('[data-event-id="e-mid"]')
     if (!mark) throw new Error('event mark was not rendered')
+    const zoomedInnerX = markInnerX(mark)
+    // The gesture starts on a mark the user can SEE: its pixel is inside the
+    // plot, not merely inside the overscan band that surrounds it. This is what
+    // makes the case a real interaction test rather than a test of the overscan
+    // constant -- it would still hold with the overscan set to zero.
+    expect(zoomedInnerX).toBeGreaterThan(0)
+    expect(zoomedInnerX).toBeLessThan(INNER_WIDTH)
+
     const view = document.defaultView
     if (!view) throw new Error('jsdom window is not available')
 
     act(() => {
-      fireWithView(mark, 'mousedown', { button: 0, clientX: 380, clientY: 200 })
-      fireWithView(view, 'mousemove', { button: 0, clientX: 300, clientY: 200 })
-      fireWithView(view, 'mouseup', { button: 0, clientX: 300, clientY: 200 })
+      fireWithView(mark, 'mousedown', { button: 0, clientX: markClientX, clientY: 200 })
+      fireWithView(view, 'mousemove', { button: 0, clientX: markClientX - 80, clientY: 200 })
+      fireWithView(view, 'mouseup', { button: 0, clientX: markClientX - 80, clientY: 200 })
     })
 
     // No zoom transform was applied (a pan would have reported a shifted domain)...
     expect(onTimeRangeChange).not.toHaveBeenCalled()
     // ...and the mark still owned the gesture.
     expect(onEventDrag).toHaveBeenCalledTimes(1)
+    const [dragged] = onEventDrag.mock.calls[0] as [Event]
+    expect(dragged.id).toBe('e-mid')
   })
 })

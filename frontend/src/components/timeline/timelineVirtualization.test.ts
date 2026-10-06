@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import type { Event, TimeRange } from '@/types'
+import type { PressureWithContext } from '@/types/pressure'
 import {
   WINDOW_OVERSCAN_FRACTION,
   computeTimeWindow,
   filterArcsInWindow,
   filterEventsInWindow,
+  filterPressuresInWindow,
   isArcInWindow,
   isEventInWindow
 } from './timelineVirtualization'
@@ -126,5 +128,87 @@ describe('isArcInWindow / filterArcsInWindow', () => {
       end_time: new Date(Date.UTC(2020, 0, 1) + i * 60_000 + 3_600_000).toISOString()
     }))
     expect(filterArcsInWindow([...outside, ...inView], window)).toHaveLength(inView.length)
+  })
+})
+
+const arcBounds = (id: string, start: string, end: string): { id: string; start_time: string; end_time: string } => ({
+  id,
+  start_time: start,
+  end_time: end
+})
+
+const pressure = (
+  id: string,
+  affectedArcs: { id: string; start_time: string; end_time: string }[]
+): PressureWithContext => ({
+  id,
+  description: `Pressure ${id}`,
+  confidence_score: 0.8,
+  pressure_type: 'economic',
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z',
+  affectedArcs: affectedArcs.map(arc => ({
+    id: arc.id,
+    name: `Arc ${arc.id}`,
+    description: `Arc ${arc.id}`,
+    start_time: arc.start_time,
+    end_time: arc.end_time,
+    level: 0,
+    parent_arc_id: null,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z'
+  })),
+  evidenceEvents: [],
+  influenceStrength: 0.5,
+  isVisible: true,
+  isHighlighted: false,
+  renderColor: '#10b981',
+  renderOpacity: 0.6
+})
+
+describe('filterPressuresInWindow', () => {
+  const window = computeTimeWindow(range('2024-01-02T00:00:00Z', '2024-01-03T00:00:00Z'), 0.5)
+  // Window is 2024-01-01T12:00 .. 2024-01-03T12:00.
+
+  it('keeps a pressure whose arcs are in view and drops its off-window arcs', () => {
+    const subject = pressure('p1', [
+      arcBounds('in', '2024-01-02T00:00:00Z', '2024-01-02T06:00:00Z'),
+      arcBounds('straddles', '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z'),
+      arcBounds('before', '2023-01-01T00:00:00Z', '2023-01-02T00:00:00Z'),
+      arcBounds('after', '2025-01-01T00:00:00Z', '2025-01-02T00:00:00Z')
+    ])
+
+    const filtered = filterPressuresInWindow([subject], window)
+
+    // One pressure remains, carrying only the arcs the viewer can see; the
+    // pressure indicator is a DOM group per (pressure, arc) pair, so this is
+    // what keeps the pressure node count from scaling with the whole arc set.
+    expect(filtered).toHaveLength(1)
+    const kept = filtered[0]
+    if (!kept) throw new Error('the in-window pressure was dropped')
+    expect(kept.affectedArcs.map(arc => arc.id)).toEqual(['in', 'straddles'])
+    // The pressure itself is untouched apart from that narrowing.
+    expect(kept.description).toBe(subject.description)
+    expect(kept.confidence_score).toBe(subject.confidence_score)
+  })
+
+  it('drops a pressure whose arcs are all outside the window', () => {
+    const offscreen = pressure('p2', [
+      arcBounds('before', '2023-01-01T00:00:00Z', '2023-01-02T00:00:00Z')
+    ])
+    expect(filterPressuresInWindow([offscreen], window)).toHaveLength(0)
+  })
+
+  it('drops a pressure with no affected arcs at all', () => {
+    expect(filterPressuresInWindow([pressure('p3', [])], window)).toHaveLength(0)
+  })
+
+  it('returns the same array when every pressure is fully in view', () => {
+    const inView = pressure('p4', [
+      arcBounds('a', '2024-01-02T00:00:00Z', '2024-01-02T06:00:00Z')
+    ])
+    const input = [inView]
+    // Same reference, so a memoised caller does not re-render on fit-to-view.
+    expect(filterPressuresInWindow(input, window)).toBe(input)
   })
 })

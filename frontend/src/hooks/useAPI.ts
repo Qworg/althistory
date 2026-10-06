@@ -6,6 +6,7 @@ import {
   UseMutationOptions
 } from '@tanstack/react-query'
 import { apiClient, APIError } from '@/services/api'
+import { submitMutation, type OfflineWriteOutcome } from '@/offline/offlineSync'
 import { useGlobalStore } from '@/stores/globalStore'
 import { 
   Event, 
@@ -90,15 +91,26 @@ export function useSearchEvents(query: string, filters?: EventFilters, options?:
   })
 }
 
-export function useCreateEvent(options?: UseMutationOptions<Event, APIError, CreateEventRequest>) {
+export function useCreateEvent(options?: UseMutationOptions<OfflineWriteOutcome<Event>, Error, CreateEventRequest>) {
   const queryClient = useQueryClient()
   const addEvent = useGlobalStore(state => state.addEvent)
   
   return useMutation({
-    mutationFn: (data: CreateEventRequest) => apiClient.events.create(data),
-    onSuccess: (newEvent) => {
+    // Offline-aware: an event create made while offline is persisted in the
+    // durable queue and replayed on reconnect, instead of being lost. See
+    // src/offline/README.md.
+    mutationFn: (data: CreateEventRequest) =>
+      submitMutation<Event>(
+        { method: 'POST', url: '/events', body: data },
+        { send: () => apiClient.events.create(data) },
+      ),
+    onSuccess: (outcome) => {
+      // A queued write has no server entity yet: it must not be pushed into
+      // local state as if the server had accepted it.
+      if (outcome.delivery === 'queued') return
+
       // Update local state
-      addEvent(newEvent)
+      addEvent(outcome.value)
       
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.events.all })
@@ -107,16 +119,21 @@ export function useCreateEvent(options?: UseMutationOptions<Event, APIError, Cre
   })
 }
 
-export function useUpdateEvent(options?: UseMutationOptions<Event, APIError, { id: string; data: UpdateEventRequest }>) {
+export function useUpdateEvent(options?: UseMutationOptions<OfflineWriteOutcome<Event>, Error, { id: string; data: UpdateEventRequest }>) {
   const queryClient = useQueryClient()
   const updateEvent = useGlobalStore(state => state.updateEvent)
   
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: UpdateEventRequest }) => 
-      apiClient.events.update(id, data),
-    onSuccess: (updatedEvent, { id }) => {
+    mutationFn: ({ id, data }: { id: string; data: UpdateEventRequest }) =>
+      submitMutation<Event>(
+        { method: 'PUT', url: `/events/${id}`, body: data, entityKey: `event:${id}` },
+        { send: () => apiClient.events.update(id, data) },
+      ),
+    onSuccess: (outcome, { id }) => {
+      if (outcome.delivery === 'queued') return
+
       // Update local state
-      updateEvent(id, updatedEvent)
+      updateEvent(id, outcome.value)
       
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.events.all })
@@ -126,13 +143,19 @@ export function useUpdateEvent(options?: UseMutationOptions<Event, APIError, { i
   })
 }
 
-export function useDeleteEvent(options?: UseMutationOptions<void, APIError, string>) {
+export function useDeleteEvent(options?: UseMutationOptions<OfflineWriteOutcome<void>, Error, string>) {
   const queryClient = useQueryClient()
   const deleteEvent = useGlobalStore(state => state.deleteEvent)
   
   return useMutation({
-    mutationFn: (id: string) => apiClient.events.delete(id),
-    onSuccess: (_, id) => {
+    mutationFn: (id: string) =>
+      submitMutation<void>(
+        { method: 'DELETE', url: `/events/${id}`, entityKey: `event:${id}` },
+        { send: () => apiClient.events.delete(id) },
+      ),
+    onSuccess: (outcome, id) => {
+      if (outcome.delivery === 'queued') return
+
       // Update local state
       deleteEvent(id)
       
@@ -172,15 +195,22 @@ export function useArcHierarchy(options?: Omit<UseQueryOptions<Arc[], APIError>,
   })
 }
 
-export function useCreateArc(options?: UseMutationOptions<Arc, APIError, CreateArcRequest>) {
+export function useCreateArc(options?: UseMutationOptions<OfflineWriteOutcome<Arc>, Error, CreateArcRequest>) {
   const queryClient = useQueryClient()
   const addArc = useGlobalStore(state => state.addArc)
   
   return useMutation({
-    mutationFn: (data: CreateArcRequest) => apiClient.arcs.create(data),
-    onSuccess: (newArc) => {
+    // Offline-aware, like the event hooks above.
+    mutationFn: (data: CreateArcRequest) =>
+      submitMutation<Arc>(
+        { method: 'POST', url: '/arcs', body: data },
+        { send: () => apiClient.arcs.create(data) },
+      ),
+    onSuccess: (outcome) => {
+      if (outcome.delivery === 'queued') return
+
       // Update local state
-      addArc(newArc)
+      addArc(outcome.value)
       
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.arcs.all })
@@ -189,16 +219,21 @@ export function useCreateArc(options?: UseMutationOptions<Arc, APIError, CreateA
   })
 }
 
-export function useUpdateArc(options?: UseMutationOptions<Arc, APIError, { id: string; data: UpdateArcRequest }>) {
+export function useUpdateArc(options?: UseMutationOptions<OfflineWriteOutcome<Arc>, Error, { id: string; data: UpdateArcRequest }>) {
   const queryClient = useQueryClient()
   const updateArc = useGlobalStore(state => state.updateArc)
   
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: UpdateArcRequest }) => 
-      apiClient.arcs.update(id, data),
-    onSuccess: (updatedArc, { id }) => {
+    mutationFn: ({ id, data }: { id: string; data: UpdateArcRequest }) =>
+      submitMutation<Arc>(
+        { method: 'PUT', url: `/arcs/${id}`, body: data, entityKey: `arc:${id}` },
+        { send: () => apiClient.arcs.update(id, data) },
+      ),
+    onSuccess: (outcome, { id }) => {
+      if (outcome.delivery === 'queued') return
+
       // Update local state
-      updateArc(id, updatedArc)
+      updateArc(id, outcome.value)
       
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.arcs.all })
@@ -207,13 +242,19 @@ export function useUpdateArc(options?: UseMutationOptions<Arc, APIError, { id: s
   })
 }
 
-export function useDeleteArc(options?: UseMutationOptions<void, APIError, string>) {
+export function useDeleteArc(options?: UseMutationOptions<OfflineWriteOutcome<void>, Error, string>) {
   const queryClient = useQueryClient()
   const deleteArc = useGlobalStore(state => state.deleteArc)
   
   return useMutation({
-    mutationFn: (id: string) => apiClient.arcs.delete(id),
-    onSuccess: (_, id) => {
+    mutationFn: (id: string) =>
+      submitMutation<void>(
+        { method: 'DELETE', url: `/arcs/${id}`, entityKey: `arc:${id}` },
+        { send: () => apiClient.arcs.delete(id) },
+      ),
+    onSuccess: (outcome, id) => {
+      if (outcome.delivery === 'queued') return
+
       // Update local state
       deleteArc(id)
       
@@ -224,7 +265,14 @@ export function useDeleteArc(options?: UseMutationOptions<void, APIError, string
   })
 }
 
-// Causal relationship hooks
+// Causal relationship hooks.
+//
+// NOT offline-queued (unlike the event/arc hooks above): these calls post a
+// payload the API client transforms (`{causeEventId, effectEventId,
+// relationship}` with different field names for create and update). Queueing
+// them would mean duplicating that transform outside `services/api.ts`, so an
+// offline call fails and is surfaced by the caller instead. It is NOT reported
+// as saved. See src/offline/README.md.
 export function useCausalRelationships(eventId?: string, options?: Omit<UseQueryOptions<CausalRelationship[], APIError>, 'queryKey' | 'queryFn'>) {
   return useQuery({
     queryKey: queryKeys.causal.relationships(eventId),

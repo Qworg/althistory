@@ -1,0 +1,34 @@
+{
+  "parse": {
+    "title": "Ada Lovelace",
+    "pageid": 974,
+    "wikitext": "{{Infobox scientist\n| name             = The Countess of Lovelace\n| honorific_prefix = [[The Right Honourable]]\n| image            = Ada Lovelace daguerreotype by Antoine Claudet 1843 - cropped.png\n| caption          = [[Daguerreotype]] of Lovelace ({{circa|1843}})<ref>{{cite web | url=https://blogs.bodleian.ox.ac.uk/adalovelace/2015/10/14/only-known-photographs-of-ada-lovelace-in-bodleian-display/ | title=Only known photographs of Ada Lovelace in Bodleian Display | date=14 October 2015 }}</ref>\n| birth_name       = Augusta Ada Byron\n| birth_date       = {{birth date|df=y|1815|12|10}}\n| birth_place      = London, England\n| death_date       = {{death date and age|df=y|1852|11|27|1815|12|10}}\n| death_place      = [[Marylebone]], London, England\n| resting_place    = [[Church of St Mary Magdalene, Hucknall]], Nottingham, England\n| spouse           = {{marriage|[[William King-Noel, 1st Earl of Lovelace]]|1835}}\n| children         = {{plainlist|\n* [[Byron King-Noel, Viscount Ockham]]\n* [[Anne Blunt, 15th Baroness Wentworth]]\n* [[Ralph King-Milbanke, 2nd Earl of Lovelace]]}}\n| parents          = {{Plainlist |\n* [[Lord Byron|George Byron, 6th Baron Byron]] (father)\n* [[Lady Byron|Anne Isabella Milbanke]] (mother)\n}}\n| known_for        = [[Mathematics]], [[computing]]\n| signature        = Augusta Ava Lovelace autograph.svg\n| alt              = Augusta Ada King, Countess of Lovelace, daguerrotype portrait circa 1843\n}}\n\n'''Augusta Ada King, Countess of Lovelace''' ({{née|'''Byron'''}}; 10 December 1815 – 27 November 1852), also known as '''Ada Lovelace''', was an English [[mathematician]] and [[writer]] chiefly known for work on [[Charles Babbage]]'s proposed mechanical general-purpose [[computer]], the [[analytical engine]]. She was the first to recognise the machine had applications beyond pure calculation. Lovelace is often considered the first [[computer programmer]].\n",
+    "links": [
+      {
+        "ns": 0,
+        "title": "Charles Babbage",
+        "exists": true
+      },
+      {
+        "ns": 0,
+        "title": "Analytical engine",
+        "exists": true
+      },
+      {
+        "ns": 4,
+        "title": "Wikipedia:Protection policy",
+        "exists": true
+      },
+      {
+        "ns": 10,
+        "title": "Template:Cite journal",
+        "exists": true
+      },
+      {
+        "ns": 14,
+        "title": "Category:Ada Lovelace",
+        "exists": true
+      }
+    ]
+  }
+}
