@@ -390,8 +390,16 @@ export class LocalDatabaseManager {
     failedToCreate: 0
   };
 
-  constructor() {
-    this.graphStore = new LocalGraphStore();
+  /**
+   * `graphStore` is an additive construction option mirroring
+   * `LocalGraphStore`'s `dataFile`: when supplied, the manager is bound to that
+   * store instead of creating the process's legacy single store. Existing
+   * no-arg callers keep today's behaviour, while a graph-scoped caller can pass
+   * one graph's live store without mutating a shared manager or introducing
+   * process-wide mutable state.
+   */
+  constructor(graphStore: LocalGraphStore = new LocalGraphStore()) {
+    this.graphStore = graphStore;
   }
 
   /**

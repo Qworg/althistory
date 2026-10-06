@@ -149,6 +149,28 @@ export class ConfigurationError extends AppError {
 }
 
 /**
+ * A graph-scoped handler ran without a resolved graph context.
+ *
+ * This is a server wiring defect (the `resolveGraphContext` middleware was not
+ * mounted on the route), not a client error, so it surfaces as a 500 rather
+ * than a 404. `requireGraphId` is the checked accessor that turns the
+ * type-level non-optional `req.graphId` promise into a loud runtime failure
+ * when a route is missed.
+ */
+export class GraphContextError extends AppError {
+  readonly statusCode = 500;
+  readonly isOperational = false;
+
+  constructor(public readonly route?: string) {
+    super(
+      route
+        ? `Graph-scoped handler for ${route} ran without a resolved graph context`
+        : 'Graph-scoped handler ran without a resolved graph context'
+    );
+  }
+}
+
+/**
  * Database connection error
  */
 export class DatabaseConnectionError extends AppError {
@@ -361,6 +383,10 @@ export class ErrorHandler {
       details.corruptionType = error.corruptionType;
       details.expectedChecksum = error.expectedChecksum;
       details.actualChecksum = error.actualChecksum;
+    } else if (error instanceof ConfigurationError) {
+      details.configKey = error.configKey;
+    } else if (error instanceof GraphContextError) {
+      details.route = error.route;
     } else if (error instanceof InsufficientStorageError) {
       details.requiredSpace = error.requiredSpace;
       details.availableSpace = error.availableSpace;

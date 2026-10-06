@@ -5,22 +5,107 @@
  * Uses dependency injection via the container pattern.
  */
 
-import { Router, Response, NextFunction } from 'express';
-import { RequestWithContainer } from '../middleware';
+import { Router, Response, NextFunction, RequestHandler } from 'express';
+import {
+  RequestWithContainer,
+  AuthenticatedRequest,
+  authenticate,
+  requireAuth,
+  authorize,
+  rateLimit,
+  authorizeGraphAccess,
+} from '../middleware';
 import {
   CreateGraphRequest,
   UpdateGraphRequest,
   BranchGraphRequest,
   MergeGraphRequest,
+  IGraph,
 } from '../../models/Graph';
+import type { CopyResult as GraphCopyResult, EntityFilter } from '../../services/GraphCopyService';
 import { ValidationError } from '../../utils/errors';
 
 export const graphRoutes = Router();
 
 /**
+ * Auth/permission middleware shared by the graph routes, mirroring the pattern
+ * used by `batch.ts` and `keys.ts`: `authenticate` resolves the API key,
+ * `requireAuth` answers 401 for anonymous callers and `authorize` answers 403
+ * for authenticated callers that lack the permission.
+ */
+const readGraphsAuth: RequestHandler[] = [
+  authenticate as RequestHandler,
+  requireAuth as RequestHandler,
+  authorize('read:graphs') as RequestHandler,
+  rateLimit() as RequestHandler,
+];
+
+const writeGraphsAuth: RequestHandler[] = [
+  authenticate as RequestHandler,
+  requireAuth as RequestHandler,
+  authorize('write:graphs') as RequestHandler,
+  rateLimit() as RequestHandler,
+];
+
+/**
+ * Scope a graph-id route to the graphs the API key is allowed to access. The
+ * graph id is always the `:id` path parameter, except for the copy-status route
+ * which uses `:copyId`.
+ */
+const graphIdFromParams = (req: AuthenticatedRequest): string | undefined => req.params?.id;
+const copyIdFromParams = (req: AuthenticatedRequest): string | undefined => req.params?.copyId;
+
+const readGraphAuth = [
+  ...readGraphsAuth,
+  authorizeGraphAccess(graphIdFromParams) as RequestHandler,
+];
+
+const writeGraphAuth = [
+  ...writeGraphsAuth,
+  authorizeGraphAccess(graphIdFromParams) as RequestHandler,
+];
+
+/**
+ * Request body accepted by POST /graphs/copy. `sourceGraphId` is optional: the
+ * copy modal copies the graph the user is currently looking at and does not
+ * send a source id, so the active graph is used when it is omitted.
+ */
+interface CopyGraphRequest {
+  targetName?: string;
+  description?: string;
+  sourceGraphId?: string;
+  copyType?: 'full' | 'time_range' | 'filtered';
+  timeRange?: { start?: string; end?: string };
+  filter?: EntityFilter;
+}
+
+/**
+ * Map the synchronous GraphCopyService result onto the copy-job shape the
+ * frontend `CopyResult` type expects. The service is synchronous, so a copy is
+ * `completed` or `failed` the moment the request returns; `id` is the target
+ * graph id so the client can poll `GET /graphs/copy/:id`.
+ */
+function toCopyResponse(targetGraph: IGraph, result: GraphCopyResult) {
+  return {
+    id: targetGraph.id,
+    name: targetGraph.name,
+    status: result.success ? ('completed' as const) : ('failed' as const),
+    progress: result.success ? 100 : 0,
+    created_at: targetGraph.createdAt,
+    completed_at: new Date().toISOString(),
+    ...(result.success ? {} : { error_message: (result.errors || []).join('; ') }),
+    sourceGraphId: result.sourceGraphId,
+    targetGraphId: targetGraph.id,
+    copiedNodes: result.copiedNodes,
+    copiedRelationships: result.copiedRelationships,
+    duration: result.duration,
+  };
+}
+
+/**
  * GET /graphs - List all graphs
  */
-graphRoutes.get('/', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.get('/', ...readGraphsAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 
@@ -62,7 +147,7 @@ graphRoutes.get('/', async (req: RequestWithContainer, res: Response, next: Next
 /**
  * POST /graphs - Create a new graph
  */
-graphRoutes.post('/', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.post('/', ...writeGraphsAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 
@@ -86,9 +171,119 @@ graphRoutes.post('/', async (req: RequestWithContainer, res: Response, next: Nex
 });
 
 /**
+ * POST /graphs/copy - Copy a graph (the active one by default) into a new graph
+ *
+ * The multi-graph copy modal creates a synchronous copy, so this route creates
+ * the target graph, delegates the data copy to the already-registered
+ * `GraphCopyService`, and returns a copy-job-shaped payload. Its `id` is the
+ * target graph id, which the client then polls through GET /graphs/copy/:id.
+ */
+graphRoutes.post(
+  '/copy',
+  ...writeGraphsAuth,
+  authorizeGraphAccess((req) => (req as AuthenticatedRequest).body?.sourceGraphId) as RequestHandler,
+  async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+    try {
+      const graphService = req.container.graphService;
+      const copyService = req.container.graphCopyService;
+      const request = req.body as CopyGraphRequest;
+
+      const targetName = typeof request.targetName === 'string' ? request.targetName.trim() : '';
+      if (targetName.length === 0) {
+        throw new ValidationError('Target graph name is required', 'targetName');
+      }
+
+      const copyType = request.copyType ?? 'full';
+      if (!['full', 'time_range', 'filtered'].includes(copyType)) {
+        throw new ValidationError('Copy type must be one of: full, time_range, filtered', 'copyType', copyType);
+      }
+
+      let sourceGraphId = request.sourceGraphId;
+      if (sourceGraphId) {
+        await graphService.getGraph(sourceGraphId);
+      } else {
+        const activeGraph = await graphService.getActiveGraph();
+        if (!activeGraph) {
+          throw new ValidationError('No active graph available to copy', 'sourceGraphId');
+        }
+        sourceGraphId = activeGraph.id;
+      }
+
+      const targetGraph = await graphService.createGraph({
+        name: targetName,
+        description: request.description,
+      });
+
+      let result: GraphCopyResult;
+      if (copyType === 'time_range') {
+        const start = request.timeRange?.start;
+        const end = request.timeRange?.end;
+        if (!start || !end) {
+          throw new ValidationError('timeRange.start and timeRange.end are required for a time_range copy', 'timeRange');
+        }
+        const startDate = new Date(start);
+        const endDate = new Date(end);
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+          throw new ValidationError('timeRange.start and timeRange.end must be valid dates', 'timeRange');
+        }
+        result = await copyService.copyByTimeRange(sourceGraphId, { start: startDate, end: endDate }, targetGraph.id);
+      } else if (copyType === 'filtered') {
+        if (!request.filter) {
+          throw new ValidationError('filter is required for a filtered copy', 'filter');
+        }
+        result = await copyService.copyByEntityFilter(sourceGraphId, request.filter, targetGraph.id);
+      } else {
+        result = await copyService.copyFullGraph(sourceGraphId, targetGraph.id);
+      }
+
+      res.status(201).json({
+        success: true,
+        data: toCopyResponse(targetGraph, result),
+        message: result.success ? 'Graph copy completed successfully' : 'Graph copy completed with errors',
+        requestId: req.requestId,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * GET /graphs/copy/:copyId - Report the status of a copy operation
+ *
+ * Copy is synchronous, so once the target graph exists the operation is done.
+ * The copy id returned by POST /graphs/copy is the target graph id.
+ */
+graphRoutes.get(
+  '/copy/:copyId',
+  ...readGraphsAuth,
+  authorizeGraphAccess(copyIdFromParams) as RequestHandler,
+  async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+    try {
+      const graph = await req.container.graphService.getGraph(req.params.copyId);
+
+      res.json({
+        success: true,
+        data: {
+          id: graph.id,
+          name: graph.name,
+          status: 'completed',
+          progress: 100,
+          created_at: graph.createdAt,
+          completed_at: graph.updatedAt,
+        },
+        requestId: req.requestId,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
  * GET /graphs/active - Get the currently active graph
  */
-graphRoutes.get('/active', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.get('/active', ...readGraphsAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 
@@ -117,7 +312,7 @@ graphRoutes.get('/active', async (req: RequestWithContainer, res: Response, next
 /**
  * GET /graphs/:id - Get a specific graph
  */
-graphRoutes.get('/:id', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.get('/:id', ...readGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 
@@ -136,7 +331,7 @@ graphRoutes.get('/:id', async (req: RequestWithContainer, res: Response, next: N
 /**
  * PUT /graphs/:id - Update a graph
  */
-graphRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.put('/:id', ...writeGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 
@@ -157,7 +352,7 @@ graphRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: N
 /**
  * DELETE /graphs/:id - Soft delete a graph
  */
-graphRoutes.delete('/:id', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.delete('/:id', ...writeGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 
@@ -176,7 +371,7 @@ graphRoutes.delete('/:id', async (req: RequestWithContainer, res: Response, next
 /**
  * POST /graphs/:id/activate - Set a graph as the active graph
  */
-graphRoutes.post('/:id/activate', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.post('/:id/activate', ...writeGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 
@@ -196,7 +391,7 @@ graphRoutes.post('/:id/activate', async (req: RequestWithContainer, res: Respons
 /**
  * GET /graphs/:id/versions - Get version history for a graph
  */
-graphRoutes.get('/:id/versions', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.get('/:id/versions', ...readGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 
@@ -234,7 +429,7 @@ graphRoutes.get('/:id/versions', async (req: RequestWithContainer, res: Response
 /**
  * POST /graphs/:id/rollback/:version - Rollback to a specific version
  */
-graphRoutes.post('/:id/rollback/:version', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.post('/:id/rollback/:version', ...writeGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 
@@ -246,9 +441,15 @@ graphRoutes.post('/:id/rollback/:version', async (req: RequestWithContainer, res
 
     const versionRef = await service.rollbackGraph(req.params.id, version);
 
+    // The client stores the response as the graph detail, so return the graph's
+    // post-rollback state (plus the version record) rather than the version
+    // record alone.
+    const graph = await service.getGraph(req.params.id);
+
     res.json({
       success: true,
-      data: versionRef,
+      data: graph,
+      version: versionRef,
       message: `Rolled back to version ${version}`,
       requestId: req.requestId,
     });
@@ -260,7 +461,7 @@ graphRoutes.post('/:id/rollback/:version', async (req: RequestWithContainer, res
 /**
  * POST /graphs/:id/branch - Create a branch from a graph
  */
-graphRoutes.post('/:id/branch', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.post('/:id/branch', ...writeGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 
@@ -284,9 +485,35 @@ graphRoutes.post('/:id/branch', async (req: RequestWithContainer, res: Response,
 });
 
 /**
+ * GET /graphs/:id/branches - List graphs created as branches of this graph
+ */
+graphRoutes.get('/:id/branches', ...readGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+  try {
+    const service = req.container.graphService;
+
+    // 404 when the source graph does not exist, rather than returning an empty
+    // list for an unknown id.
+    await service.getGraph(req.params.id);
+
+    // GraphRepository has no parent filter, so list the graphs (the API caps
+    // listings at 1000) and select the ones branched from this graph.
+    const result = await service.listGraphs({ limit: 1000, offset: 0 });
+    const branches = result.graphs.filter((graph) => graph.parentGraphId === req.params.id);
+
+    res.json({
+      success: true,
+      data: branches,
+      requestId: req.requestId,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * POST /graphs/:id/merge - Merge a source graph into this graph
  */
-graphRoutes.post('/:id/merge', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.post('/:id/merge', ...writeGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 
@@ -330,7 +557,7 @@ graphRoutes.post('/:id/merge', async (req: RequestWithContainer, res: Response, 
 /**
  * GET /graphs/:id/data - Get the full data for a graph
  */
-graphRoutes.get('/:id/data', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.get('/:id/data', ...readGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 
@@ -370,7 +597,7 @@ graphRoutes.get('/:id/data', async (req: RequestWithContainer, res: Response, ne
 /**
  * POST /graphs/:id/gc - Run garbage collection on a graph
  */
-graphRoutes.post('/:id/gc', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+graphRoutes.post('/:id/gc', ...writeGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.graphService;
 

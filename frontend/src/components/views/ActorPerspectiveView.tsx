@@ -4,6 +4,8 @@ import { ActorSelector } from '@/components/actor/ActorSelector'
 import { ActorStats } from '@/components/actor/ActorStats'
 import { useEvents } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
+import { useGlobalStore } from '@/stores/globalStore'
+import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
 import { Event, Arc, TimeRange } from '@/types'
 
 export interface ActorPerspectiveViewProps {
@@ -27,8 +29,21 @@ export interface ActorStats {
 }
 
 export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewProps) {
-  const { data: allEvents = [], isLoading: eventsLoading } = useEvents()
-  const { data: allArcs = [], isLoading: arcsLoading } = useArcs()
+  const { data: fetchedEvents = [], isLoading: eventsLoading } = useEvents()
+  const { data: fetchedArcs = [], isLoading: arcsLoading } = useArcs()
+  const { activeFilters } = useGlobalStore()
+
+  // Apply the global filters client-side (see filterUtils for why). The actor
+  // list is derived from the unfiltered events so filters do not remove the
+  // option to select an actor.
+  const allEvents = useMemo(
+    () => filterEvents(fetchedEvents, activeFilters),
+    [fetchedEvents, activeFilters]
+  )
+  const allArcs = useMemo(
+    () => filterArcs(fetchedArcs, activeFilters),
+    [fetchedArcs, activeFilters]
+  )
   
   const [selectedActor, setSelectedActor] = useState<string>('')
   const [layoutMode, setLayoutMode] = useState<'chronological' | 'thematic'>('chronological')
@@ -37,12 +52,12 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
   // Get all unique actors from events
   const availableActors = useMemo(() => {
     const actorSet = new Set<string>()
-    allEvents.forEach(event => {
+    fetchedEvents.forEach(event => {
       actorSet.add(event.actor)
       actorSet.add(event.target)
     })
     return Array.from(actorSet).sort()
-  }, [allEvents])
+  }, [fetchedEvents])
 
   // Filter events for selected actor
   const actorEvents = useMemo((): ActorEventData[] => {

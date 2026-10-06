@@ -78,6 +78,19 @@ describe('Complete End-to-End Workflow Tests', () => {
     app = new Application();
     await app.initialize();
 
+    // Every migrated route resolves its graph context and refuses the request
+    // (404) rather than reading global data when none can be resolved (design
+    // §5.1). This suite drives the API without an X-Graph-Id header, so it
+    // establishes the active graph that context resolution falls back to.
+    // Creating the first graph makes it active; setActiveGraph pins that
+    // explicitly so the fallback cannot depend on creation order.
+    const container = getContainer();
+    const graph = await container.graphRepository.create({
+      name: 'E2E Workflow Graph',
+      description: 'Active graph for the end-to-end workflow suite'
+    });
+    await container.graphRepository.setActiveGraph(graph.id);
+
     // Start a real HTTP listener on an ephemeral port (port 0 lets the OS
     // pick, so concurrent runs cannot collide on a fixed port).
     server = await new Promise<Server>((resolve) => {

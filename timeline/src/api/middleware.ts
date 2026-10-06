@@ -1,7 +1,13 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import { DatabaseConnectionError, ErrorHandler } from '@/utils/errors';
+import {
+  DatabaseConnectionError,
+  ErrorHandler,
+  GraphContextError,
+  NotFoundError,
+} from '@/utils/errors';
+import { assertSafeGraphId } from '@/utils/GraphContextStore';
 import { getContainer } from '@/container';
-import type { Container } from '@/container';
+import type { RequestContainer } from '@/container';
 import { ApiKey, Permission, RateLimitConfig } from '@/models/ApiKey';
 
 /**
@@ -14,16 +20,30 @@ import { ApiKey, Permission, RateLimitConfig } from '@/models/ApiKey';
  * a NARROWER request type is not assignable to it (parameters are checked
  * contravariantly). That mismatch made every `router.get/post(...)` call fail
  * with TS2769 "No overload matches this call" across the route files, because
- * `Container` is a deep type and TypeScript gave up on the structural
+ * `RequestContainer` is a deep type and TypeScript gave up on the structural
  * comparison. With the augmentation below, handlers can simply use `Request`.
+ *
+ * `container` is typed as `RequestContainer` rather than `Container`: see the
+ * type's declaration for why handlers must not be able to reach an unscoped
+ * repository.
  */
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      container: Container;
+      container: RequestContainer;
       requestId: string;
       startTime: number;
+      /**
+       * The graph this request is scoped to. Non-optional so a correctly wired
+       * handler does not have to null-check it, but the TYPE cannot prove the
+       * middleware ran: `resolveGraphContext` is mounted per router (and, for a
+       * few groups, per route), so a route that omits it compiles while
+       * `req.graphId` is `undefined` at runtime. Handlers that read graph data
+       * must therefore go through `requireGraphId`, which throws loudly on a
+       * missed mount instead of silently reading an unscoped or global value.
+       */
+      graphId: string;
     }
   }
 }
@@ -46,6 +66,30 @@ export interface AuthenticatedRequest extends RequestWithContainer {
 }
 
 /**
+ * Adapt a middleware declared against `AuthenticatedRequest` to Express's
+ * `RequestHandler`.
+ *
+ * `authenticate`, `rateLimit` and `authorizeGraphAccess` describe their request
+ * parameter with the narrower `AuthenticatedRequest`, and `strictFunctionTypes`
+ * rejects a handler whose parameter is a subtype of the one Express declares.
+ * The extra fields only exist because `authenticate` runs earlier in the chain
+ * and sets them, so the narrowing is safe at runtime. Ideally the middleware
+ * itself would declare plain `Request` (see the `declare global namespace
+ * Express` augmentation above); until then the cast lives here, in one place.
+ *
+ * Lives next to the middleware rather than in `src/index.ts` so that route
+ * modules can adapt a middleware without importing the application entrypoint
+ * (which would create an import cycle through `api/routes`). Re-exported from
+ * `src/index.ts` for existing callers.
+ */
+export function asRequestHandler(
+  middleware: (req: AuthenticatedRequest, res: Response, next: NextFunction) => void
+): RequestHandler {
+  return (req: Request, res: Response, next: NextFunction) =>
+    middleware(req as AuthenticatedRequest, res, next);
+}
+
+/**
  * Container injection middleware
  */
 export function injectContainer(req: RequestWithContainer, res: Response, next: NextFunction): void {
@@ -57,6 +101,116 @@ export function injectContainer(req: RequestWithContainer, res: Response, next: 
   } catch (error) {
     next(new DatabaseConnectionError('Service container not available'));
   }
+}
+
+/**
+ * The slice of `GraphRepository` that graph-context resolution needs.
+ *
+ * Declared structurally rather than as the concrete class so the resolver can
+ * be exercised in isolation with a small fake, and so a future backing store
+ * only has to satisfy these two lookups (design §9, storage-backend note).
+ *
+ * `status` is optional and load-bearing. `GraphRepository.findById` returns
+ * soft-deleted graphs (only its `getActiveGraph` filters non-active ones), so a
+ * `X-Graph-Id` header naming a deleted graph used to scope the request to a
+ * graph the caller had deleted. It now resolves as 404 instead. That is a
+ * behaviour change made alongside the checked accessor above and it is covered
+ * by the "soft-deleted" cases in `graph-context.test.ts`; the equivalent check
+ * on the active-graph branch keeps a lookup that does not filter from
+ * reintroducing the same scope.
+ */
+export interface GraphLookup {
+  findById(id: string): Promise<{ id: string; status?: string } | null>;
+  getActiveGraph(): Promise<{ id: string; status?: string } | null>;
+}
+
+/** Resolves the graph lookup for a request. Injectable for tests and wiring. */
+export type GraphLookupResolver = (req: Request) => GraphLookup;
+
+/** Request header that explicitly scopes a request to one graph. */
+export const GRAPH_ID_HEADER = 'X-Graph-Id';
+
+/**
+ * Resolve exactly one graph for every request and attach it as `req.graphId`.
+ *
+ * Resolution order (design §5.1, Q1):
+ *   1. A valid `X-Graph-Id` header, verified to name an existing graph.
+ *   2. Otherwise the repository's active graph.
+ *   3. Otherwise fail with 404 — never fall back to unscoped/global data.
+ *
+ * A header that is present but malformed is a 400, and a header that names a
+ * missing graph is a 404; neither case consults the active graph, because
+ * silently re-scoping a request to a graph the caller did not name is the same
+ * class of bug as the unscoped fallback. Errors are thrown and rendered by the
+ * shared `errorHandler`, so all responses keep the established
+ * `{ error: { message, ... } }` shape.
+ */
+export function resolveGraphContext(
+  resolveGraphLookup: GraphLookupResolver = () => getContainer().graphRepository
+): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    void (async () => {
+      try {
+        const lookup = resolveGraphLookup(req);
+        const headerValue = req.get(GRAPH_ID_HEADER);
+
+        let graphId: string;
+        if (headerValue !== undefined) {
+          // Present-but-invalid is a client error. Validate before any lookup so
+          // a malformed scope can never reach the active-graph fallback.
+          assertSafeGraphId(headerValue);
+
+          const graph = await lookup.findById(headerValue);
+          if (!graph || graph.status === 'deleted') {
+            // The resolved value has already passed `assertSafeGraphId`, which
+            // confines it to `[A-Za-z0-9._-]`, so echoing it here cannot inject
+            // into the JSON response. It is echoed deliberately, for
+            // diagnostics; that a caller can distinguish "malformed" (400) from
+            // "well-formed but absent or deleted" (404) is acceptable because
+            // the route is authenticated and graph access is authorised below.
+            throw new NotFoundError(`Graph '${headerValue}' not found`, 'graph', headerValue);
+          }
+          graphId = graph.id;
+        } else {
+          const activeGraph = await lookup.getActiveGraph();
+          if (!activeGraph || activeGraph.status === 'deleted') {
+            throw new NotFoundError(
+              'No graph context available: send an X-Graph-Id header or activate a graph',
+              'graph'
+            );
+          }
+          graphId = activeGraph.id;
+        }
+
+        req.graphId = graphId;
+        next();
+      } catch (error) {
+        next(error);
+      }
+    })();
+  };
+}
+
+/**
+ * Return the graph id resolved for this request, or throw a
+ * `GraphContextError` if none was set.
+ *
+ * `req.graphId` is declared non-optional so a correctly wired handler does not
+ * have to null-check it, but that declaration cannot prove `resolveGraphContext`
+ * actually ran: it is mounted per router, so a route someone forgets to cover
+ * would otherwise read `undefined` and silently fall through to unscoped or
+ * global data. Graph-reading handlers must use this accessor so a missing mount
+ * fails visibly as a 500 instead.
+ */
+export function requireGraphId(req: Request): string {
+  // `req.graphId` is typed `string`, but the augmentation is a compile-time
+  // promise, not a runtime guarantee, so re-check the value the middleware
+  // actually wrote.
+  const graphId: unknown = req.graphId;
+  if (typeof graphId !== 'string' || graphId.length === 0) {
+    throw new GraphContextError(`${req.method} ${req.originalUrl || req.path}`);
+  }
+  return graphId;
 }
 
 /**

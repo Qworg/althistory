@@ -263,6 +263,23 @@ describe('ActorPerspectiveView', () => {
       })
     })
 
+    it('applies the global actor filter to the rendered timeline', async () => {
+      vi.mocked(useGlobalStore).mockReturnValue(asStore({
+        ...mockGlobalStore,
+        activeFilters: { ...mockGlobalStore.activeFilters, actors: ['Alice'] }
+      }))
+
+      renderWithQueryClient(<ActorPerspectiveView />)
+
+      const select = screen.getByTestId('actor-select')
+      fireEvent.change(select, { target: { value: 'Alice' } })
+
+      await waitFor(() => {
+        // Only events whose actor is Alice survive the global filter (events 1 and 3).
+        expect(screen.getByTestId('timeline-events-count')).toHaveTextContent('2')
+      })
+    })
+
     it('shows actor statistics when actor is selected', async () => {
       renderWithQueryClient(<ActorPerspectiveView />)
       

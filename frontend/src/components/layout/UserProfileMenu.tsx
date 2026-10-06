@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useGlobalStore } from '@/stores/globalStore'
+import { ApiKeyDashboard } from '@/components/api-keys/ApiKeyDashboard'
 import { LayoutMode } from '@/types'
 
 interface UserProfileMenuProps {
@@ -8,6 +9,7 @@ interface UserProfileMenuProps {
 
 export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [showApiKeys, setShowApiKeys] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const { userPreferences, setUserPreferences } = useGlobalStore()
 
@@ -198,7 +200,19 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
           </div>
 
           {/* Footer actions */}
-          <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
+          <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 space-y-1">
+            {/* Req 20: admin-only key management lives with the other account
+                settings rather than in the graph-scoped view chrome. */}
+            <button
+              className="w-full text-left text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              role="menuitem"
+              onClick={() => {
+                setIsOpen(false)
+                setShowApiKeys(true)
+              }}
+            >
+              API Keys
+            </button>
             <button
               className="w-full text-left text-sm text-gray-600 hover:text-gray-900 transition-colors"
               role="menuitem"
@@ -208,6 +222,10 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
             </button>
           </div>
         </div>
+      )}
+
+      {showApiKeys && (
+        <ApiKeyDashboard isOpen onClose={() => setShowApiKeys(false)} />
       )}
     </div>
   )

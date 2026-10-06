@@ -8,6 +8,8 @@ import {
   authenticate,
   requireAuth,
   rateLimit,
+  requireGraphId,
+  resolveGraphContext,
   authorizeGraphAccess,
   authorize,
   asyncHandler,
@@ -24,7 +26,6 @@ const daysToMs = (days: number): number => days * 24 * 60 * 60 * 1000;
 export const suggestRoutes = Router();
 
 interface RelationshipSuggestionRequest {
-  graphId?: string;
   events?: Array<{
     id: string;
     description: string;
@@ -40,7 +41,6 @@ interface RelationshipSuggestionRequest {
 }
 
 interface ArcSuggestionRequest {
-  graphId?: string;
   events?: Array<{
     id: string;
     description: string;
@@ -52,10 +52,6 @@ interface ArcSuggestionRequest {
     minClusterSize?: number;
     temporalWindow?: string; // ISO duration format, e.g., 'P30D' for 30 days
   };
-}
-
-interface CompletenessRequest {
-  graphId: string;
 }
 
 interface RelationshipSuggestion {
@@ -119,7 +115,8 @@ suggestRoutes.post(
   requireAuth as RequestHandler,
   authorize('read:events') as RequestHandler,
   rateLimit() as RequestHandler,
-  authorizeGraphAccess((req) => req.body?.graphId) as RequestHandler,
+  resolveGraphContext(),
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const request = req.body as RelationshipSuggestionRequest;
@@ -142,11 +139,9 @@ suggestRoutes.post(
               timestamp: new Date(e.timestamp),
             })
         );
-      } else if (request.graphId) {
-        // Load events from graph, filtered by graphId
-        // EventRepository.findAll takes (limit, offset); it has no graphId
-        // filter, so the whole event set is what this endpoint can offer.
-        const allEvents = await req.container.eventRepository.findAll();
+      } else {
+        const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
+        const allEvents = await eventRepository.findAll();
         events = allEvents.map(
           (e) =>
             new Event({
@@ -206,7 +201,8 @@ suggestRoutes.post(
   requireAuth as RequestHandler,
   authorize('read:events') as RequestHandler,
   rateLimit() as RequestHandler,
-  authorizeGraphAccess((req) => req.body?.graphId) as RequestHandler,
+  resolveGraphContext(),
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const request = req.body as ArcSuggestionRequest;
@@ -231,10 +227,9 @@ suggestRoutes.post(
           target: e.target,
           timestamp: new Date(e.timestamp),
         }));
-      } else if (request.graphId) {
-        // EventRepository.findAll takes (limit, offset); it has no graphId
-        // filter, so the whole event set is what this endpoint can offer.
-        const allEvents = await req.container.eventRepository.findAll();
+      } else {
+        const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
+        const allEvents = await eventRepository.findAll();
         events = allEvents.map((e) => ({
           id: e.id,
           description: e.description,
@@ -272,22 +267,16 @@ suggestRoutes.post(
   requireAuth as RequestHandler,
   authorize('read:events') as RequestHandler,
   rateLimit() as RequestHandler,
-  authorizeGraphAccess((req) => req.body?.graphId) as RequestHandler,
+  resolveGraphContext(),
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const request = req.body as CompletenessRequest;
-
-      if (!request.graphId) {
-        return res.status(400).json({
-          error: { message: 'graphId is required' },
-        });
-      }
-
-      // Load graph data filtered by graphId
-      // EventRepository.findAll takes (limit, offset); it has no graphId
-      // filter, so the whole event set is what this endpoint can offer.
-      const events = await req.container.eventRepository.findAll();
-      const causalService = req.container.causalService;
+      // Read from the graph this request is scoped to. The scoped repository
+      // is bound to that graph's store, so the read cannot leak across graphs.
+      const { eventRepository, causalService } = await req.container.graphScopedRepositories(
+        requireGraphId(req)
+      );
+      const events = await eventRepository.findAll();
 
       // Get all causal relationships by checking causal chains
       const relationships: Array<{ cause_event_id: string; effect_event_id: string }> = [];
@@ -350,10 +339,11 @@ suggestRoutes.post(
   requireAuth as RequestHandler,
   authorize('read:events') as RequestHandler,
   rateLimit() as RequestHandler,
-  authorizeGraphAccess((req) => req.body?.graphId) as RequestHandler,
+  resolveGraphContext(),
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const request = req.body as { graphId?: string; events?: unknown[] };
+      const request = req.body as { events?: unknown[] };
 
       let events: Event[] = [];
 
@@ -375,10 +365,9 @@ suggestRoutes.post(
               timestamp: new Date(e.timestamp),
             })
         );
-      } else if (request.graphId) {
-        // EventRepository.findAll takes (limit, offset); it has no graphId
-        // filter, so the whole event set is what this endpoint can offer.
-        const allEvents = await req.container.eventRepository.findAll();
+      } else {
+        const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
+        const allEvents = await eventRepository.findAll();
         events = allEvents.map(
           (e) =>
             new Event({

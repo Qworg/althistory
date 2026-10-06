@@ -1,4 +1,8 @@
+import * as path from 'path';
 import { DatabaseManager, LocalDatabaseManager, LocalSession } from '@/utils/database';
+import { LocalGraphStore } from '@/utils/LocalGraphStore';
+import { GraphContextStore, GRAPHS_LIVE_DIRECTORY } from '@/utils/GraphContextStore';
+import { adoptLegacyGraphStore } from '@/utils/legacyGraphAdoption';
 import { 
   TemporalService, 
   CausalService, 
@@ -11,7 +15,8 @@ import {
   ExportService,
   JobService,
   AuthService,
-  RateLimitService
+  RateLimitService,
+  GraphWriteVersioningService
 } from '@/services';
 import { 
   EventRepository, 
@@ -31,6 +36,47 @@ import { AppConfig } from '@/utils/config';
  * runtime type guard rather than a cast.
  */
 type Initializable = { initialize(): Promise<void> };
+
+/**
+ * Repositories and services bound to exactly one graph's live store.
+ *
+ * Returned by {@link Container.graphScopedRepositories}; because the store is
+ * captured at construction there is no unscoped read reachable through these
+ * objects. The two services are bound to the same store as the repositories, so
+ * `causalService` and `temporalService` read this graph's data, not the
+ * process-wide legacy store the container-level getters resolve.
+ */
+export interface GraphScopedRepositories {
+  eventRepository: EventRepository;
+  arcRepository: ArcRepository;
+  causalService: CausalService;
+  temporalService: TemporalService;
+}
+
+/**
+ * Upper bound on the container's per-graph repository cache. The stores
+ * themselves are bounded (and evicted) by `GraphContextStore`; this cap only
+ * keeps the thin repository wrappers from accumulating for graphs that are no
+ * longer requested.
+ */
+const GRAPH_SCOPED_REPOSITORY_CACHE_LIMIT = 32;
+
+/**
+ * One cached repository wrapper together with the lease that keeps its store
+ * safe.
+ *
+ * The store itself is in-memory: repositories write to it and never call
+ * `save()`, so the only thing standing between a write and an eviction that
+ * flushes and shuts the instance down is this lease. It is held for as long as
+ * the wrapper is cached — the window in which the container can still hand these
+ * repositories to a caller — and released (which flushes the store) when the
+ * wrapper is dropped.
+ */
+interface GraphScopedRepositoryEntry {
+  store: LocalGraphStore;
+  repositories: GraphScopedRepositories;
+  release: () => Promise<void>;
+}
 
 function hasInitialize(value: object): value is Initializable {
   return 'initialize' in value;
@@ -53,10 +99,15 @@ export interface ServiceContainer {
   graphService: GraphService;
   exportService: ExportService;
   jobService: JobService;
+  graphWriteVersioningService: GraphWriteVersioningService;
   
   // Repositories
   eventRepository: EventRepository;
   arcRepository: ArcRepository;
+
+  // Graph-scoped repositories and the live-store registry they draw from
+  graphContextStore: GraphContextStore;
+  graphScopedRepositories(graphId: string): Promise<GraphScopedRepositories>;
   
   // Phase 1 I/O repositories
   graphRepository: GraphRepository;
@@ -86,11 +137,17 @@ export class Container implements ServiceContainer {
   private _databaseOptimizationService?: DatabaseOptimizationService;
   private _eventRepository?: EventRepository;
   private _arcRepository?: ArcRepository;
+  private _graphContextStore?: GraphContextStore;
+  private readonly _graphScopedRepositories = new Map<
+    string,
+    GraphScopedRepositoryEntry
+  >();
   
   // Phase 1 I/O services
   private _graphService?: GraphService;
   private _exportService?: ExportService;
   private _jobService?: JobService;
+  private _graphWriteVersioningService?: GraphWriteVersioningService;
   
   // Phase 1 I/O repositories
   private _graphRepository?: GraphRepository;
@@ -225,6 +282,116 @@ export class Container implements ServiceContainer {
     return this._arcRepository;
   }
 
+  /**
+   * Get the per-graph live-store registry (singleton).
+   *
+   * Owns one `LocalGraphStore` per graph under
+   * `<dataDirectory>/graphs-live/<graphId>.json`; the store's lifecycle (lazy
+   * load, LRU cache, shutdown) lives there, not in this container.
+   */
+  get graphContextStore(): GraphContextStore {
+    if (!this._graphContextStore) {
+      this._graphContextStore = new GraphContextStore({
+        dataDirectory: path.join(
+          this.config.localExecution.dataDirectory,
+          GRAPHS_LIVE_DIRECTORY
+        ),
+      });
+    }
+    return this._graphContextStore;
+  }
+
+  /**
+   * Get repositories bound to one graph's live store.
+   *
+   * The store is resolved through `GraphContextStore` (which caches and bounds
+   * the stores themselves) and wrapped in a dedicated `LocalDatabaseManager`, so
+   * every query the returned repositories issue is scoped to that graph's file.
+   * Wrappers are cached per store identity: when `GraphContextStore` evicts and
+   * later reloads a graph, the store instance changes, so the stale wrapper is
+   * replaced rather than left pointing at a shut-down store.
+   *
+   * The cached store is held under a `GraphContextStore` LEASE, not a borrowed
+   * reference. Repositories write in memory and never call `save()`, so without
+   * the lease a sibling eviction could flush and shut the store down while a
+   * cached wrapper (and any caller it was handed to) still had pending writes;
+   * the lease keeps the entry resident for exactly the window in which this
+   * cache can hand the repositories out again, and releasing it on cache eviction
+   * is what flushes those writes.
+   */
+  async graphScopedRepositories(graphId: string): Promise<GraphScopedRepositories> {
+    const leased = await this.graphContextStore.lease(graphId);
+
+    const cached = this._graphScopedRepositories.get(graphId);
+    if (cached && cached.store === leased.store) {
+      // This wrapper already holds a lease on the same store, so the one just
+      // taken is redundant; drop it rather than letting the counters drift.
+      await leased.release();
+      return cached.repositories;
+    }
+    if (cached) {
+      // The store identity changed (it was evicted and reloaded from disk), so
+      // the cached wrapper points at a shut-down instance: flush and release it
+      // before replacing it.
+      this._graphScopedRepositories.delete(graphId);
+      await cached.release();
+    }
+
+    const store = leased.store;
+    const databaseManager = new LocalDatabaseManager(store);
+    const eventRepository = new EventRepository(
+      databaseManager,
+      this.validationService,
+      this.cacheInvalidationService
+    );
+    const arcRepository = new ArcRepository(
+      databaseManager,
+      this.validationService,
+      undefined,
+      this.cacheInvalidationService
+    );
+    const repositories: GraphScopedRepositories = {
+      eventRepository,
+      arcRepository,
+      // Bound to this graph's store, so causal reads, writes and caches stay
+      // inside the request's graph instead of the process-wide singleton.
+      causalService: new CausalService({ graphStore: store, graphId }),
+      // Constructed from the scoped repositories, so temporal queries (e.g.
+      // findEventsInRange) read this graph rather than the global store.
+      temporalService: new TemporalService(eventRepository, arcRepository),
+    };
+
+    this._graphScopedRepositories.set(graphId, {
+      store,
+      repositories,
+      release: leased.release,
+    });
+    await this.evictGraphScopedRepositoriesOverflow();
+    return repositories;
+  }
+
+  /**
+   * Drop oldest repository wrappers once the per-graph cache is over its bound,
+   * releasing each one's store lease.
+   *
+   * A released store is either flushed by the eviction it triggers or stays
+   * resident; either way its pending writes are persisted rather than dropped
+   * with the wrapper.
+   */
+  private async evictGraphScopedRepositoriesOverflow(): Promise<void> {
+    while (this._graphScopedRepositories.size > GRAPH_SCOPED_REPOSITORY_CACHE_LIMIT) {
+      const oldest = this._graphScopedRepositories.keys().next().value;
+      if (oldest === undefined) {
+        return;
+      }
+      const entry = this._graphScopedRepositories.get(oldest);
+      this._graphScopedRepositories.delete(oldest);
+      if (entry) {
+        await entry.release();
+      }
+    }
+  }
+
   // Phase 1 I/O Repositories
 
   /**
@@ -275,6 +442,21 @@ export class Container implements ServiceContainer {
       });
     }
     return this._graphService;
+  }
+
+  /**
+   * Get the live-store-to-version-store bridge (singleton).
+   *
+   * Entity writes (event/arc/causal) go through this so the active graph's
+   * version history and ExportService see UI-created data, not just imports.
+   */
+  get graphWriteVersioningService(): GraphWriteVersioningService {
+    if (!this._graphWriteVersioningService) {
+      this._graphWriteVersioningService = new GraphWriteVersioningService({
+        graphRepository: this.graphRepository,
+      });
+    }
+    return this._graphWriteVersioningService;
   }
 
   /**
@@ -365,6 +547,7 @@ export class Container implements ServiceContainer {
       // Initialize Phase 1 I/O services (local execution mode)
       if (this.config.localExecution.enabled) {
         await this.graphService.initialize();
+        await this.adoptLegacyLiveStore();
         await this.exportService.initialize();
         await this.jobService.initialize();
         this.jobService.start();
@@ -387,6 +570,26 @@ export class Container implements ServiceContainer {
   }
 
   /**
+   * Adopt the historical single live-store file into the active graph, once.
+   *
+   * Runs after `graphService.initialize()` (and therefore after the graph
+   * repository is initialised) and only in local mode: in cloud mode live data
+   * does not live in a local file. See `adoptLegacyGraphStore` for the guard and
+   * failure policy.
+   */
+  private async adoptLegacyLiveStore(): Promise<void> {
+    const legacyFilePath = path.join(
+      this.config.localExecution.dataDirectory,
+      this.config.localExecution.graphFile
+    );
+    await adoptLegacyGraphStore({
+      legacyFilePath,
+      graphContextStore: this.graphContextStore,
+      graphRepository: this.graphRepository,
+    });
+  }
+
+  /**
    * Cleanup all services and close connections
    */
   async cleanup(): Promise<void> {
@@ -404,6 +607,12 @@ export class Container implements ServiceContainer {
       // Stop Phase 3: Authentication services
       if (this._rateLimitService) {
         this._rateLimitService.stop();
+      }
+
+      // Shut down graph-scoped live stores so pending writes are saved and
+      // their backup timers cleared before the process tears down.
+      if (this._graphContextStore) {
+        await this._graphContextStore.evictAll();
       }
 
       // Close database connections
@@ -463,6 +672,41 @@ export class Container implements ServiceContainer {
     };
   }
 }
+
+/**
+ * The container as seen by request handlers: the full container minus every
+ * process-wide, globally-scoped data-reading surface.
+ *
+ * Omitted: the two global live-store repositories (`eventRepository`,
+ * `arcRepository`); `temporalService`, which is constructed from those global
+ * repositories and so selects global events/arcs; `causalService`, which is
+ * constructed without a store and so resolves the global `LocalGraphStore`; and
+ * `databaseManager`, whose `getGraphStore()`/session expose the same global
+ * store. Handlers obtain graph-bound repositories and services from
+ * `req.container.graphScopedRepositories(req.graphId)` instead.
+ *
+ * This raises the cost of an unscoped read from "accidental" to "deliberate",
+ * but it does NOT make one impossible. These escapes remain, and none is a type
+ * error:
+ *   1. the exported module-level `getContainer()` returns the full `Container`,
+ *      so `getContainer().eventRepository` compiles with no cast;
+ *   2. a handler may cast `req.container` back to `Container`; and
+ *   3. `graphCopyService` stays on this type. It is constructed from the global
+ *      `databaseManager` session, so it reads global data, but graph copy is
+ *      inherently cross-graph and there is no graph-scoped replacement today.
+ *      Removing it would break the copy route (`graphs.ts`) rather than fix a
+ *      leak, so it is a documented known hole instead of a silent one.
+ * No `Omit` can close (1), because the accessor is deliberately shared with
+ * non-request contexts (CLI paths, tests). Closing it fully would require
+ * removing or graph-scoping that module-level accessor, which is a follow-on.
+ * What this type does guarantee is that a handler cannot reach global data by
+ * accident through the container it is handed. A cast that reaches an unscoped
+ * repository is a deliberate, visible act rather than a silent leak.
+ */
+export type RequestContainer = Omit<
+  Container,
+  'eventRepository' | 'arcRepository' | 'temporalService' | 'causalService' | 'databaseManager'
+>;
 
 /**
  * Global container instance

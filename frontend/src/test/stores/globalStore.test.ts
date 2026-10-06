@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useGlobalStore } from '@/stores/globalStore'
 import { Event, Arc, CausalRelationship } from '@/types'
-import type { PersistenceManager } from '@/utils/persistence'
+import {
+  userPreferencesPersistence,
+  sessionDataPersistence,
+  type PersistenceManager,
+} from '@/utils/persistence'
 
 type PersistenceUtilsModule = typeof import('@/utils/persistence')
 
@@ -365,6 +369,36 @@ describe('GlobalStore', () => {
       
       const relationships = useGlobalStore.getState().causalRelationships
       expect(relationships).toHaveLength(0)
+    })
+  })
+
+  describe('Persistence Writes Committed State', () => {
+    it('persists the newly set preference value, not the value it replaced', () => {
+      useGlobalStore.setState({
+        userPreferences: { ...useGlobalStore.getState().userPreferences, theme: 'light' },
+      })
+      const save = vi.mocked(userPreferencesPersistence.save)
+      save.mockClear()
+
+      useGlobalStore.getState().setUserPreferences({ theme: 'dark' })
+
+      expect(useGlobalStore.getState().userPreferences.theme).toBe('dark')
+      expect(save).toHaveBeenCalledTimes(1)
+      expect(save.mock.calls[0]?.[0]).toMatchObject({ theme: 'dark' })
+    })
+
+    it('persists the newly set session value, not the value it replaced', () => {
+      useGlobalStore.setState({
+        sessionData: { ...useGlobalStore.getState().sessionData, lastViewMode: 'timeline' },
+      })
+      const save = vi.mocked(sessionDataPersistence.save)
+      save.mockClear()
+
+      useGlobalStore.getState().updateSessionData({ lastViewMode: 'causal' })
+
+      expect(useGlobalStore.getState().sessionData.lastViewMode).toBe('causal')
+      expect(save).toHaveBeenCalledTimes(1)
+      expect(save.mock.calls[0]?.[0]).toMatchObject({ lastViewMode: 'causal' })
     })
   })
 })

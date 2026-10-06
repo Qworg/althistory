@@ -22,7 +22,7 @@ interface UseGraphCopyReturn {
   // Copy operations
   createFullCopy: () => Promise<void>
   createTimeRangeCopy: () => Promise<void>
-  createFilteredCopy: () => Promise<void>
+  createFilteredCopy: (filter?: EntityFilter) => Promise<void>
   cancelCopy: (copyId: string) => void
   
   // Status tracking
@@ -85,19 +85,18 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
         removeLoadingOperation('create-copy')
       }
     },
-    onSuccess: (result) => {
+    onSuccess: (result, variables) => {
       const operation: CopyOperation = {
         id: result.id,
         name: result.name,
-        type: copyState.selectedTimeRange ? 'time_range' : 
-              copyState.selectedFilter ? 'filtered' : 'full',
+        type: variables.type,
         status: result.status,
         progress: result.progress,
         estimated_completion: result.estimated_completion,
         created_at: result.created_at,
         parameters: {
-          timeRange: copyState.selectedTimeRange || undefined,
-          filter: copyState.selectedFilter || undefined
+          timeRange: variables.timeRange,
+          filter: variables.filter
         }
       }
       
@@ -268,7 +267,7 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
     })
   }, [copyState.copyName, copyState.selectedTimeRange, createCopyMutation, addError])
 
-  const createFilteredCopy = useCallback(async () => {
+  const createFilteredCopy = useCallback(async (filter?: EntityFilter) => {
     if (!copyState.copyName.trim()) {
       addError({
         message: 'Please provide a name for the copy',
@@ -277,7 +276,11 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
       return
     }
 
-    if (!copyState.selectedFilter) {
+    // Prefer an explicitly supplied filter so a copy created in the same tick as
+    // the filter selection does not read a not-yet-committed state value.
+    const effectiveFilter = filter ?? copyState.selectedFilter
+
+    if (!effectiveFilter) {
       addError({
         message: 'Please configure filters for the copy',
         type: 'validation'
@@ -285,12 +288,12 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
       return
     }
 
-    setCopyState(prev => ({ ...prev, isCreatingCopy: true }))
+    setCopyState(prev => ({ ...prev, selectedFilter: effectiveFilter, isCreatingCopy: true }))
     
     await createCopyMutation.mutateAsync({
       type: 'filtered',
       name: copyState.copyName.trim(),
-      filter: copyState.selectedFilter
+      filter: effectiveFilter
     })
   }, [copyState.copyName, copyState.selectedFilter, createCopyMutation, addError])
 

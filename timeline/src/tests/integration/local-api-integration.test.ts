@@ -21,6 +21,8 @@ import * as fs from 'fs/promises';
 describe('Local API Integration Tests', () => {
   let app: express.Application;
   let container: Container;
+  /** The graph every request in this suite resolves to (design §5.1). */
+  let graphId: string;
   const testDataDir = './test-api-data';
 
   beforeAll(async () => {
@@ -45,6 +47,18 @@ describe('Local API Integration Tests', () => {
     container = initializeContainer(dbManager, config);
     
     await container.initialize();
+
+    // Migrated routes resolve exactly one graph per request and return 404
+    // rather than falling back to global data when none can be resolved
+    // (design §5.1). This suite sends no X-Graph-Id, so it creates and
+    // activates the graph that resolution falls back to; the per-test reset
+    // below clears that graph's live store.
+    const graph = await container.graphRepository.create({
+      name: 'Local API Integration Graph',
+      description: 'Active graph for the local API integration suite'
+    });
+    graphId = graph.id;
+    await container.graphRepository.setActiveGraph(graphId);
 
     // Create Express app with same configuration as main app
     app = express();
@@ -105,20 +119,20 @@ describe('Local API Integration Tests', () => {
   beforeEach(async () => {
     // Clear any existing data before each test.
     //
-    // This used to run `MATCH (n) DETACH DELETE n` through a session, but the
-    // suite forces LOCAL_EXECUTION_ENABLED, so there is no Neo4j behind
-    // getNeo4jSession() and the cleanup silently did nothing — which is why
-    // events accumulated and pagination assertions saw 6 rows where 3 were
-    // expected. Clearing through the repositories works in both local and
-    // Neo4j-backed modes.
-    const existingEvents = await container.eventRepository.findAll();
+    // The routes now read and write through repositories bound to the resolved
+    // graph's live store, so this reset targets that scoped store rather than
+    // the container's global store. Clearing the global store left the scoped
+    // store untouched, so events accumulated across tests and pagination
+    // assertions saw more rows than the test itself created.
+    const scoped = await container.graphScopedRepositories(graphId);
+    const existingEvents = await scoped.eventRepository.findAll();
     for (const event of existingEvents) {
-      await container.eventRepository.delete(event.id);
+      await scoped.eventRepository.delete(event.id);
     }
 
-    const existingArcs = await container.arcRepository.findAll();
+    const existingArcs = await scoped.arcRepository.findAll();
     for (const arc of existingArcs) {
-      await container.arcRepository.delete(arc.id);
+      await scoped.arcRepository.delete(arc.id);
     }
   });
 

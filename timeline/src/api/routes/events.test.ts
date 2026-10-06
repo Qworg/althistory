@@ -1,20 +1,64 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { eventRoutes } from './events';
-import { EventRepository } from '@/repositories/EventRepository';
 import { Event, CreateEventRequest, UpdateEventRequest } from '@/models/Event';
 import { errorHandler, RequestWithContainer } from '@/api/middleware';
+import { getContainer } from '@/container';
+import type { Container } from '@/container';
 
 // Mock the EventRepository
 vi.mock('@/repositories/EventRepository');
 
-// Mock the container
+// Mock the container. The route group applies `resolveGraphContext`, which reads
+// `getContainer().graphRepository`; the handlers read their repositories from
+// `req.container`. Both are supplied per test below.
 vi.mock('@/container', () => ({
   getContainer: vi.fn()
 }));
 
-let mockRepository: any;
+/** A vitest mock function with no meaningful argument/return narrowing. */
+type MockFn = Mock<unknown[], unknown>;
+
+/** The subset of `EventRepository` the event routes call, all mocked. */
+type MockRepository = {
+  create: MockFn;
+  findById: MockFn;
+  findAll: MockFn;
+  findByActor: MockFn;
+  findByTarget: MockFn;
+  findByTimeRange: MockFn;
+  findByActorAndTimeRange: MockFn;
+  update: MockFn;
+  delete: MockFn;
+  count: MockFn;
+  countByActor: MockFn;
+  countByTimeRange: MockFn;
+};
+
+let mockRepository: MockRepository;
+
+/** Minimal stand-in for the version-store bridge the routes now call. */
+interface MockVersioningService {
+  recordEvent: (graphId: string, entity: unknown, operation: string) => Promise<void>;
+  recordArc: (graphId: string, entity: unknown, operation: string) => Promise<void>;
+  recordRelationship: (graphId: string, entity: unknown, operation: string) => Promise<void>;
+  recordDeletion: (graphId: string, type: string, id: string) => Promise<void>;
+}
+let mockVersioningService: MockVersioningService;
+
+/**
+ * Graph lookup consulted by the scoped middleware. `findById` echoes the
+ * requested id so a test can assert which graph a request resolved to;
+ * `getActiveGraph` is the fallback used when no X-Graph-Id header is sent.
+ */
+interface MockGraphLookup {
+  findById: Mock<[id: string], Promise<{ id: string }>>;
+  getActiveGraph: Mock<[], Promise<{ id: string } | null>>;
+}
+let mockGraphLookup: MockGraphLookup;
+let mockGraphScopedRepositories: Mock<[], Promise<{ eventRepository: MockRepository }>>;
 
 const app = express();
 app.use(express.json());
@@ -22,8 +66,14 @@ app.use(express.json());
 // Mock container injection middleware
 app.use((req: RequestWithContainer, res, next) => {
   req.container = {
-    eventRepository: mockRepository
-  } as any;
+    eventRepository: mockRepository,
+    // The create/update/delete handlers mirror writes into the active graph's
+    // version store. Unit tests stub that collaborator; the version-commit
+    // behaviour itself is covered by the request-level integration test.
+    graphWriteVersioningService: mockVersioningService,
+    // Handlers obtain repositories from the request's resolved graph scope.
+    graphScopedRepositories: mockGraphScopedRepositories
+  } as unknown as Container;
   req.requestId = 'test-request-id';
   req.startTime = Date.now();
   next();
@@ -50,12 +100,74 @@ describe('Event API Endpoints', () => {
       countByTimeRange: vi.fn()
     };
 
-    // Mock the constructor to return our mock
-    (EventRepository as any).mockImplementation(() => mockRepository);
+    mockVersioningService = {
+      recordEvent: vi.fn().mockResolvedValue(undefined),
+      recordArc: vi.fn().mockResolvedValue(undefined),
+      recordRelationship: vi.fn().mockResolvedValue(undefined),
+      recordDeletion: vi.fn().mockResolvedValue(undefined)
+    };
+
+    // Graph context resolution: a test may override either lookup per case.
+    mockGraphLookup = {
+      findById: vi.fn(async (id: string): Promise<{ id: string }> => ({ id })),
+      getActiveGraph: vi.fn(async (): Promise<{ id: string } | null> => ({ id: 'active-graph' }))
+    };
+    mockGraphScopedRepositories = vi.fn(
+      async (): Promise<{ eventRepository: MockRepository }> => ({
+        eventRepository: mockRepository,
+      })
+    );
+    vi.mocked(getContainer).mockReturnValue({
+      graphRepository: mockGraphLookup
+    } as unknown as Container);
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe('graph scoping', () => {
+    it('resolves the X-Graph-Id header and reads only that graph', async () => {
+      mockRepository.findAll.mockResolvedValue([]);
+      mockRepository.count.mockResolvedValue(0);
+
+      await request(app).get('/events').set('X-Graph-Id', 'graph-b').expect(200);
+
+      expect(mockGraphLookup.findById).toHaveBeenCalledWith('graph-b');
+      expect(mockGraphLookup.getActiveGraph).not.toHaveBeenCalled();
+      expect(mockGraphScopedRepositories).toHaveBeenCalledWith('graph-b');
+    });
+
+    it('falls back to the active graph when no header is present', async () => {
+      mockRepository.findAll.mockResolvedValue([]);
+      mockRepository.count.mockResolvedValue(0);
+
+      await request(app).get('/events').expect(200);
+
+      expect(mockGraphLookup.getActiveGraph).toHaveBeenCalledTimes(1);
+      expect(mockGraphScopedRepositories).toHaveBeenCalledWith('active-graph');
+    });
+
+    it('returns 404 and reads no repository when no graph can be resolved', async () => {
+      mockGraphLookup.getActiveGraph.mockResolvedValue(null);
+
+      const response = await request(app).get('/events').expect(404);
+
+      expect(response.body.error.message).toMatch(/No graph context available/);
+      expect(mockGraphScopedRepositories).not.toHaveBeenCalled();
+      expect(mockRepository.findAll).not.toHaveBeenCalled();
+    });
+
+    it('rejects a malformed X-Graph-Id without falling back to the active graph', async () => {
+      const response = await request(app)
+        .get('/events')
+        .set('X-Graph-Id', '../etc/passwd')
+        .expect(400);
+
+      expect(response.body.error.message).toMatch(/Unsafe graph id/);
+      expect(mockGraphLookup.getActiveGraph).not.toHaveBeenCalled();
+      expect(mockGraphScopedRepositories).not.toHaveBeenCalled();
+    });
   });
 
   describe('POST /events', () => {

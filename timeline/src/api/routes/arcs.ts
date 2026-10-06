@@ -1,9 +1,16 @@
 import { Router, Response, NextFunction } from 'express';
 import { CreateArcRequest, UpdateArcRequest } from '@/models/Arc';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
-import { RequestWithContainer } from '@/api/middleware';
+import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
 
 export const arcRoutes = Router();
+
+// Scope every route in this group to exactly one graph. `resolveGraphContext`
+// resolves X-Graph-Id (falling back to the active graph) and attaches the graph
+// id; the handlers below read it through the checked `requireGraphId` accessor
+// so a routing change that drops the mount fails loudly instead of reading an
+// unscoped value.
+arcRoutes.use(resolveGraphContext());
 
 /**
  * POST /arcs - Create a new arc
@@ -32,9 +39,13 @@ arcRoutes.post('/', async (req: RequestWithContainer, res: Response, next: NextF
       arcData.end_time = new Date(arcData.end_time);
     }
 
-    // Use repository from container
-    const repository = req.container.arcRepository;
+    // Repositories bound to this request's graph; never the global store.
+    const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const arc = await repository.create(arcData);
+
+    // Mirror the write into the active graph's version store so version history
+    // and ExportService see UI-created arcs (not only imported ones).
+    await req.container.graphWriteVersioningService.recordArc(requireGraphId(req), arc, 'create');
     
     res.status(201).json({
       success: true,
@@ -56,7 +67,7 @@ arcRoutes.post('/', async (req: RequestWithContainer, res: Response, next: NextF
  */
 arcRoutes.get('/', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
-    const repository = req.container.arcRepository;
+    const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
     
     // Parse query parameters
     const {
@@ -146,7 +157,7 @@ arcRoutes.get('/:id', async (req: RequestWithContainer, res: Response, next: Nex
       throw new ValidationError('Arc ID is required', 'id', id);
     }
 
-    const repository = req.container.arcRepository;
+    const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const arc = await repository.findById(id);
     
     if (!arc) {
@@ -187,15 +198,15 @@ arcRoutes.get('/:id/events', async (req: RequestWithContainer, res: Response, ne
     }
 
     // First check if arc exists
-    const arcRepository = req.container.arcRepository;
+    const { arcRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const arc = await arcRepository.findById(id);
     
     if (!arc) {
       throw new NotFoundError(`Arc with ID ${id} not found`, 'Arc', id);
     }
 
-    // Get events within the arc's time range
-    const eventRepository = req.container.eventRepository;
+    // Get events within the arc's time range (same graph scope as the arc)
+    const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const timeRange = {
       start: arc.start_time,
       end: arc.end_time
@@ -234,7 +245,7 @@ arcRoutes.get('/:id/children', async (req: RequestWithContainer, res: Response, 
       throw new ValidationError('Arc ID is required', 'id', id);
     }
 
-    const repository = req.container.arcRepository;
+    const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
     
     // First check if parent arc exists
     const parentArc = await repository.findById(id);
@@ -278,7 +289,7 @@ arcRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: Nex
       updates.end_time = new Date(updates.end_time);
     }
 
-    const repository = req.container.arcRepository;
+    const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
     
     // Check if arc exists first
     const existingArc = await repository.findById(id);
@@ -291,6 +302,8 @@ arcRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: Nex
     if (!updatedArc) {
       throw new DatabaseError('Failed to update arc', 'update');
     }
+
+    await req.container.graphWriteVersioningService.recordArc(requireGraphId(req), updatedArc, 'update');
 
     res.json({
       success: true,
@@ -318,7 +331,7 @@ arcRoutes.delete('/:id', async (req: RequestWithContainer, res: Response, next: 
       throw new ValidationError('Arc ID is required', 'id', id);
     }
 
-    const repository = req.container.arcRepository;
+    const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
     
     // Check if arc exists first
     const existingArc = await repository.findById(id);
@@ -331,6 +344,8 @@ arcRoutes.delete('/:id', async (req: RequestWithContainer, res: Response, next: 
     if (!deleted) {
       throw new DatabaseError('Failed to delete arc', 'delete');
     }
+
+    await req.container.graphWriteVersioningService.recordDeletion(requireGraphId(req), 'arc', id);
 
     res.json({
       success: true,
@@ -354,7 +369,7 @@ arcRoutes.post('/:id/validate-hierarchy', async (req: RequestWithContainer, res:
       throw new ValidationError('Arc ID is required', 'id', id);
     }
 
-    const repository = req.container.arcRepository;
+    const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
     
     // Get the arc
     const arc = await repository.findById(id);

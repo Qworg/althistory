@@ -108,6 +108,15 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   const isCreatingLinkRef = useRef(isCreatingLink)
   const linkCreationSourceRef = useRef(linkCreationSource)
   const handleKeyDownRef = useRef<(event: KeyboardEvent) => void>(() => {})
+
+  // Suppresses background-tap cancellation for taps that arrive in the same task
+  // as a link-mode transition or a graph rebuild. A tap delivered in that same
+  // task cannot be a fresh, deliberate background tap (a real user tap is always
+  // dispatched as a new task); it is gesture / re-render fallout, such as the tap
+  // that selected a node being reprocessed after the graph is rebuilt. The guard
+  // is cleared once the task queue next drains.
+  const backgroundTapGuardRef = useRef(false)
+  const backgroundTapGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [hoveredRelationship, setHoveredRelationship] = useState<CausalRelationship | null>(null)
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null)
   const [hoveredNode, setHoveredNode] = useState<Event | null>(null)
@@ -162,6 +171,28 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     console.log('[CausalGraph] Syncing linkCreationSourceRef:', linkCreationSource?.id || null)
     linkCreationSourceRef.current = linkCreationSource
   }, [linkCreationSource])
+
+  // Arm the same-task background-tap guard. Anything delivered before the task
+  // queue drains belongs to the programmatic transition / re-render that is
+  // happening now, not to a new user gesture, so it must not cancel link creation.
+  const armBackgroundTapGuard = useCallback(() => {
+    backgroundTapGuardRef.current = true
+    if (backgroundTapGuardTimerRef.current !== null) return
+    backgroundTapGuardTimerRef.current = setTimeout(() => {
+      backgroundTapGuardTimerRef.current = null
+      backgroundTapGuardRef.current = false
+    }, 0)
+  }, [])
+
+  // Clear any pending guard timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (backgroundTapGuardTimerRef.current !== null) {
+        clearTimeout(backgroundTapGuardTimerRef.current)
+        backgroundTapGuardTimerRef.current = null
+      }
+    }
+  }, [])
 
   // Initialize Cytoscape instance
   // Validate temporal ordering for causal relationships
@@ -449,6 +480,9 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           setLinkCreationSource(null)
         } else {
           console.log('[CausalGraph] Setting link source to', nodeData.event.id)
+          // Selecting the source re-renders the graph; guard against a tap the
+          // re-render emits in this same task cancelling the interaction.
+          armBackgroundTapGuard()
           setLinkCreationSource(nodeData.event)
         }
       } else {
@@ -537,13 +571,18 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       }
     })
 
-    // Background tap handler - disabled for link cancellation due to spurious events during React re-renders
-    // Link creation can be cancelled via Escape key or the Cancel Link button instead
+    // A deliberate background tap cancels link creation. Taps that arrive in the
+    // same task as a link-mode transition or a graph rebuild are gesture / re-render
+    // fallout rather than a new user gesture, so they are ignored. Escape and the
+    // Cancel Link button remain the other cancellation paths.
     cy.on('tap', (event: EventObject) => {
-      // Log for debugging but don't cancel link creation
-      if (event.target === cy && isCreatingLinkRef.current) {
-        console.log('[CausalGraph] Background tap detected during link creation - ignoring (use Escape to cancel)')
+      if (event.target !== cy || !isCreatingLinkRef.current) return
+      if (backgroundTapGuardRef.current) {
+        console.log('[CausalGraph] Ignoring background tap from the same task as a link-mode transition or graph rebuild')
+        return
       }
+      setIsCreatingLink(false)
+      setLinkCreationSource(null)
     })
 
     // Save layout positions when they change
@@ -571,7 +610,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     onNodeClick, onNodeHover, onEdgeClick, onEdgeHover, updateSessionData,
     createCausalRelationship, enablePathExploration, enableSuggestions, loadSuggestions,
     navigationState.isNavigating, onNodeContextMenu, onRelationshipContextMenu,
-    onRelationshipEdit, startExploration
+    onRelationshipEdit, startExploration, armBackgroundTapGuard
   ])
 
 
@@ -605,6 +644,10 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   // Update graph data
   const updateGraphData = useCallback(() => {
     if (!cyRef.current || !isInitialized) return
+
+    // Rebuilding the graph can emit a background tap in this task; suppress it so
+    // it is not mistaken for a deliberate background tap.
+    armBackgroundTapGuard()
 
     const { nodes, edges } = transformDataForCytoscape()
 
@@ -652,7 +695,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         node.select()
       }
     })
-  }, [isInitialized, transformDataForCytoscape]) // Removed sessionData dependency to break update cycle
+  }, [isInitialized, transformDataForCytoscape, armBackgroundTapGuard]) // Removed sessionData dependency to break update cycle
 
   // Focus on specific event
   const focusOnEvent = useCallback((eventId: string) => {
@@ -700,9 +743,12 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
 
   // Toggle link creation mode
   const toggleLinkCreationMode = useCallback(() => {
+    // Entering (or leaving) link mode re-renders; ignore a background tap emitted
+    // in this same task so it cannot immediately cancel the mode just entered.
+    armBackgroundTapGuard()
     setIsCreatingLink(prev => !prev)
     setLinkCreationSource(null)
-  }, [])
+  }, [armBackgroundTapGuard])
 
   // Cancel link creation
   const cancelLinkCreation = useCallback(() => {

@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { Navigation } from './Navigation'
 import { Breadcrumb } from './Breadcrumb'
 import { ViewToolbar } from '@/components/views/ViewToolbar'
 import { UserProfileMenu } from './UserProfileMenu'
+import { GraphSelector, GraphManagerModal } from '@/components/graphs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { LayoutMode } from '@/types'
 
@@ -12,6 +14,7 @@ interface HeaderProps {
 
 export function Header({ isMobile, layoutMode }: HeaderProps) {
   const { viewMode } = useGlobalStore()
+  const [isGraphManagerOpen, setIsGraphManagerOpen] = useState(false)
 
   // Show view switcher in header only in topbar mode on desktop
   const showViewSwitcher = !isMobile && layoutMode === 'topbar'
@@ -40,8 +43,11 @@ export function Header({ isMobile, layoutMode }: HeaderProps) {
             )}
           </div>
 
-          {/* Right section: Navigation and user menu */}
+          {/* Right section: graph switcher, navigation and user menu */}
           <div className="flex items-center space-x-4">
+            {/* Req 17.1: the active graph is always switchable from the header. */}
+            <GraphSelector onOpenManager={() => setIsGraphManagerOpen(true)} />
+
             {showViewSwitcher && <Navigation />}
 
             {showUserProfile && <UserProfileMenu variant="header" />}
@@ -60,6 +66,12 @@ export function Header({ isMobile, layoutMode }: HeaderProps) {
           <ViewToolbar viewMode={viewMode} className="justify-center" />
         </div>
       </div>
+
+      {/* Req 17.2-17.5: full graph management, opened from the selector. */}
+      <GraphManagerModal
+        isOpen={isGraphManagerOpen}
+        onClose={() => setIsGraphManagerOpen(false)}
+      />
     </header>
   )
 }

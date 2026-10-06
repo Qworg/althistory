@@ -79,18 +79,18 @@ vi.mock('d3', () => {
   }
 })
 
-// Mock the useTimelineScales hook
-vi.mock('@/hooks/useTimelineScales', () => ({
-  useTimelineScales: () => ({
-    innerWidth: 728,
-    innerHeight: 344,
-    xDomain: [new Date('2024-01-01'), new Date('2024-01-05')] as [Date, Date]
-  })
-}))
-
-// DEFERRED: These tests require comprehensive D3 zoom behavior mocking
-// See DEFERREDFIXES.md: "Timeline Component Infinite Loops (59 tests)"
-// D3 zoom API requires full mock implementation of scaleExtent, translateExtent, extent, transform
+// Mock the useTimelineScales hook. The returned xDomain must be a stable
+// reference across renders: Timeline.memo derives `originalExtent` from it and
+// resets visibleTimeRange in an effect keyed on that object, so a fresh array
+// per render produces an infinite render loop.
+vi.mock('@/hooks/useTimelineScales', () => {
+  const xDomain: [Date, Date] = [new Date('2024-01-01'), new Date('2024-01-05')]
+  const innerWidth = 728
+  const innerHeight = 344
+  return {
+    useTimelineScales: () => ({ innerWidth, innerHeight, xDomain })
+  }
+})
 
 // `noUncheckedIndexedAccess` types array access as `T | undefined`; these fixtures are
 // non-empty literals, so narrow them at the point of use instead of asserting non-null.
@@ -102,7 +102,7 @@ const requireItem = <T,>(items: readonly T[], index: number, label: string): T =
   return item
 }
 
-describe.skip('Timeline Event Interactions', () => {
+describe('Timeline Event Interactions', () => {
   const mockEvents: Event[] = [
     {
       id: 'event-1',

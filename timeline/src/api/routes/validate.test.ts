@@ -33,6 +33,10 @@ vi.mock('@/api/middleware', async () => {
       next();
     },
     rateLimit: () => (req: any, res: any, next: any) => next(),
+    resolveGraphContext: () => (req: any, _res: any, next: any) => {
+      req.graphId = req.get('X-Graph-Id') || 'test-graph';
+      next();
+    },
     authorizeGraphAccess: () => (req: any, res: any, next: any) => next(),
     authorizeAny: () => (req: any, res: any, next: any) => next(),
     asyncHandler: (fn: any) => (req: any, res: any, next: any) => {
@@ -45,6 +49,7 @@ vi.mock('@/api/middleware', async () => {
 let app: express.Application;
 let mockEventRepository: any;
 let mockArcRepository: any;
+let mockGraphScopedRepositories: any;
 
 describe('Validate Routes', () => {
   beforeEach(() => {
@@ -58,6 +63,11 @@ describe('Validate Routes', () => {
       findAll: vi.fn().mockResolvedValue([]),
     };
 
+    mockGraphScopedRepositories = vi.fn().mockResolvedValue({
+      eventRepository: mockEventRepository,
+      arcRepository: mockArcRepository,
+    });
+
     // Create fresh app for each test
     app = express();
     app.use(express.json());
@@ -67,6 +77,7 @@ describe('Validate Routes', () => {
       req.container = {
         eventRepository: mockEventRepository,
         arcRepository: mockArcRepository,
+        graphScopedRepositories: mockGraphScopedRepositories,
       } as any;
       next();
     });
@@ -246,21 +257,23 @@ describe('Validate Routes', () => {
   });
 
   describe('POST /api/validate/incremental', () => {
-    it('should require graphId', async () => {
+    it('reads existing entities from the graph resolved by context', async () => {
       const response = await request(app)
         .post('/api/validate/incremental')
         .set('X-API-Key', 'valid-read-key')
-        .send({})
-        .expect(400);
+        .set('X-Graph-Id', 'scoped-graph')
+        .send({ additions: {} })
+        .expect(200);
 
-      expect(response.body.error.message).toBe('graphId is required');
+      expect(mockGraphScopedRepositories).toHaveBeenCalledWith('scoped-graph');
+      expect(response.body.valid).toBe(true);
     });
 
     it('should validate empty additions', async () => {
       const response = await request(app)
         .post('/api/validate/incremental')
         .set('X-API-Key', 'valid-read-key')
-        .send({ graphId: 'test-graph' })
+        .send({})
         .expect(200);
 
       expect(response.body.valid).toBe(true);
@@ -272,7 +285,6 @@ describe('Validate Routes', () => {
         .post('/api/validate/incremental')
         .set('X-API-Key', 'valid-read-key')
         .send({
-          graphId: 'test-graph',
           additions: {
             events: [
               { id: 'new-evt', description: 'New Event', timestamp: '1914-06-28T00:00:00.000Z', actor: 'A', target: 'B' },
@@ -284,6 +296,7 @@ describe('Validate Routes', () => {
         })
         .expect(200);
 
+      expect(mockGraphScopedRepositories).toHaveBeenCalledWith('test-graph');
       expect(response.body.wouldCreate.events).toBe(1);
       expect(response.body.wouldCreate.arcs).toBe(1);
     });
@@ -293,7 +306,6 @@ describe('Validate Routes', () => {
         .post('/api/validate/incremental')
         .set('X-API-Key', 'valid-read-key')
         .send({
-          graphId: 'test-graph',
           additions: {
             events: [
               { id: 'bad-evt', description: 'Bad Event', timestamp: 'invalid-date', actor: 'A', target: 'B' },

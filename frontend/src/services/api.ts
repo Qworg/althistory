@@ -445,9 +445,9 @@ class APIClient {
     graph = {
         copyFull: async (targetName: string): Promise<CopyResult> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.post('/graph/copy', {
-                    target_name: targetName,
-                    copy_type: 'full'
+                const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.post('/graphs/copy', {
+                    targetName,
+                    copyType: 'full'
                 })
                 return response.data.data
             } catch (error) {
@@ -457,11 +457,13 @@ class APIClient {
 
         copyByTimeRange: async (timeRange: TimeRange, targetName: string): Promise<CopyResult> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.post('/graph/copy', {
-                    target_name: targetName,
-                    copy_type: 'time_range',
-                    start_time: timeRange.start.toISOString(),
-                    end_time: timeRange.end.toISOString()
+                const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.post('/graphs/copy', {
+                    targetName,
+                    copyType: 'time_range',
+                    timeRange: {
+                        start: timeRange.start.toISOString(),
+                        end: timeRange.end.toISOString()
+                    }
                 })
                 return response.data.data
             } catch (error) {
@@ -471,10 +473,16 @@ class APIClient {
 
         copyByFilter: async (filter: EntityFilter, targetName: string): Promise<CopyResult> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.post('/graph/copy', {
-                    target_name: targetName,
-                    copy_type: 'filtered',
-                    filter
+                const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.post('/graphs/copy', {
+                    targetName,
+                    copyType: 'filtered',
+                    // The copy service names the field `eventTypes`; the UI type
+                    // spells it `event_types`.
+                    filter: {
+                        actors: filter.actors,
+                        targets: filter.targets,
+                        eventTypes: filter.event_types
+                    }
                 })
                 return response.data.data
             } catch (error) {
@@ -484,7 +492,7 @@ class APIClient {
 
         getCopyStatus: async (copyId: string): Promise<CopyResult> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.get(`/graph/copy/${copyId}`)
+                const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.get(`/graphs/copy/${copyId}`)
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -543,7 +551,7 @@ class APIClient {
         branch: async (id: string, data: BranchGraphRequest): Promise<Graph> => {
             try {
                 const response: AxiosResponse<{ success: boolean; data: Graph }> = 
-                    await this.client.post(`/graphs/${id}/branch`, data)
+                    await this.client.post(`/graphs/${id}/branch`, { name: data.branchName })
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -562,8 +570,15 @@ class APIClient {
 
         merge: async (id: string, data: MergeGraphRequest): Promise<Graph> => {
             try {
+                const conflictResolution =
+                    data.strategy === 'ours' ? 'keep-target' :
+                    data.strategy === 'theirs' ? 'keep-source' :
+                    'manual'
                 const response: AxiosResponse<{ success: boolean; data: Graph }> = 
-                    await this.client.post(`/graphs/${id}/merge`, data)
+                    await this.client.post(`/graphs/${id}/merge`, {
+                        sourceGraphId: data.sourceBranchId,
+                        conflictResolution
+                    })
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -584,7 +599,7 @@ class APIClient {
         rollback: async (id: string, version: number): Promise<Graph> => {
             try {
                 const response: AxiosResponse<{ success: boolean; data: Graph }> = 
-                    await this.client.post(`/graphs/${id}/rollback`, { version })
+                    await this.client.post(`/graphs/${id}/rollback/${version}`)
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -593,9 +608,14 @@ class APIClient {
 
         // Switch active graph
         switch: async (id: string): Promise<void> => {
-            // Store current graph ID in local storage for the app to use
+            try {
+                await this.client.post(`/graphs/${id}/activate`)
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+            // Only after the server accepts the activation: mirror it locally and
+            // notify components so they refetch against the new graph.
             localStorage.setItem('active_graph_id', id)
-            // Emit event for components to react to
             window.dispatchEvent(new CustomEvent('graph-switched', { detail: { graphId: id } }))
         },
     }
@@ -604,8 +624,14 @@ class APIClient {
     export = {
         createJob: async (data: CreateExportJobRequest): Promise<{ jobId: string; estimatedSize?: number; estimatedTime?: number }> => {
             try {
+                // The graph is carried by the `X-Graph-Id` header, which the API
+                // resolves once (falling back to the active graph). The body no
+                // longer supplies the scope.
+                const { graphId, ...body } = data
                 const response: AxiosResponse<{ success: boolean; data: { jobId: string; estimatedSize?: number; estimatedTime?: number } }> = 
-                    await this.client.post('/export/jobs', data)
+                    await this.client.post('/export/jobs', body, {
+                        headers: { 'X-Graph-Id': graphId },
+                    })
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -654,8 +680,13 @@ class APIClient {
         // Sync export for small graphs
         exportSync: async (data: CreateExportJobRequest): Promise<{ export: AlthistoryExport; size: number }> => {
             try {
+                // Scope is the `X-Graph-Id` header; the body carries only the
+                // export options (see `createJob`).
+                const { graphId, ...body } = data
                 const response: AxiosResponse<{ success: boolean; data: AlthistoryExport; size: number }> = 
-                    await this.client.post('/export/sync', data)
+                    await this.client.post('/export/sync', body, {
+                        headers: { 'X-Graph-Id': graphId },
+                    })
                 return { export: response.data.data, size: response.data.size }
             } catch (error) {
                 handleAPIError(error as AxiosError)

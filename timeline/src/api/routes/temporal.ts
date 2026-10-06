@@ -2,8 +2,16 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { ValidationError, NotFoundError } from '@/utils/errors';
 import { TimeRange, IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
+import { requireGraphId, resolveGraphContext } from '@/api/middleware';
 
 export const temporalRoutes = Router();
+
+// Scope every route in this group to exactly one graph. `resolveGraphContext`
+// resolves X-Graph-Id (falling back to the active graph) and attaches the graph
+// id; the handlers below read it through the checked `requireGraphId` accessor
+// so a routing change that drops the mount fails loudly instead of reading an
+// unscoped value.
+temporalRoutes.use(resolveGraphContext());
 
 /** Aggregated timeline payload returned by GET /temporal/timeline. */
 interface TimelineView {
@@ -73,9 +81,10 @@ temporalRoutes.get('/timeline', async (req: Request, res: Response, next: NextFu
       throw new ValidationError('Offset must be a non-negative number', 'offset', offset);
     }
 
-    // Build timeline view using existing services
-    const eventRepository = req.container.eventRepository;
-    const arcRepository = req.container.arcRepository;
+    // Repositories bound to this request's graph; never the global store.
+    const { eventRepository, arcRepository } = await req.container.graphScopedRepositories(
+      requireGraphId(req)
+    );
     
     const timeline: TimelineView = {
       events: includeEvents === 'true'
@@ -125,7 +134,7 @@ temporalRoutes.post('/validate-event', async (req: Request, res: Response, next:
     }
 
     // Get event
-    const eventRepository = req.container.eventRepository;
+    const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const event = await eventRepository.findById(eventId);
     
     if (!event) {
@@ -133,7 +142,7 @@ temporalRoutes.post('/validate-event', async (req: Request, res: Response, next:
     }
 
     // Get arcs
-    const arcRepository = req.container.arcRepository;
+    const { arcRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const arcs = await Promise.all(
       arcIds.map(async (arcId: string) => {
         const arc = await arcRepository.findById(arcId);
@@ -144,8 +153,9 @@ temporalRoutes.post('/validate-event', async (req: Request, res: Response, next:
       })
     );
 
-    // Validate temporal constraints
-    const temporalService = req.container.temporalService;
+    // Validate temporal constraints through the graph-scoped service, which is
+    // built from this request's repositories rather than the global store.
+    const { temporalService } = await req.container.graphScopedRepositories(requireGraphId(req));
     const validations = arcs.map(arc => ({
       arc: arc.toJSON(),
       isValid: temporalService.validateEventInArc(event, arc),
@@ -187,7 +197,7 @@ temporalRoutes.post('/validate-arc-nesting', async (req: Request, res: Response,
     }
 
     // Get arcs
-    const arcRepository = req.container.arcRepository;
+    const { arcRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const parentArc = await arcRepository.findById(parentArcId);
     const childArc = await arcRepository.findById(childArcId);
     
@@ -198,8 +208,8 @@ temporalRoutes.post('/validate-arc-nesting', async (req: Request, res: Response,
       throw new NotFoundError(`Child arc with ID ${childArcId} not found`, 'Arc', childArcId);
     }
 
-    // Validate nesting
-    const temporalService = req.container.temporalService;
+    // Validate nesting through the graph-scoped service.
+    const { temporalService } = await req.container.graphScopedRepositories(requireGraphId(req));
     const isValid = temporalService.validateArcNesting(parentArc, childArc);
 
     res.json({
@@ -270,8 +280,8 @@ temporalRoutes.get('/overlaps', async (req: Request, res: Response, next: NextFu
       }
     }
 
-    // Use arc repository directly
-    const arcRepository = req.container.arcRepository;
+    // Use the graph-scoped arc repository directly
+    const { arcRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     let overlaps = await arcRepository.findOverlappingArcs(timeRange, parsedLimit, parsedOffset);
     
     // Filter by level if specified
@@ -409,9 +419,10 @@ temporalRoutes.get('/density', async (req: Request, res: Response, next: NextFun
       throw new ValidationError(`Type must be one of: ${validTypes.join(', ')}`, 'type', type);
     }
 
-    // Basic density calculation using existing repositories
-    const eventRepository = req.container.eventRepository;
-    const arcRepository = req.container.arcRepository;
+    // Basic density calculation using this graph's repositories
+    const { eventRepository, arcRepository } = await req.container.graphScopedRepositories(
+      requireGraphId(req)
+    );
     
     const density: DensityView = { granularity: granularity as string, timeRange, type: type as string };
     

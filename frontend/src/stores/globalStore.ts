@@ -250,30 +250,29 @@ export const useGlobalStore = create<GlobalState>()(
       clearSelection: () => set({ selectedEvents: [], selectedArcs: [] }),
       
       // Filter and view actions
-      setFilters: (filters) => set((state) => {
-        const newState = { activeFilters: filters }
-        // Auto-save filters if enabled
-        if (state.userPreferences.autoSaveFilters) {
+      setFilters: (filters) => {
+        set({ activeFilters: filters })
+        // Auto-save filters if enabled. Persist after `set` so the committed
+        // state (not the value being replaced) is written.
+        if (get().userPreferences.autoSaveFilters) {
           get().updateSessionData({ lastActiveFilters: filters })
         }
-        return newState
-      }),
+      },
       
-      updateFilters: (updates) => set((state) => {
-        const newFilters = { ...state.activeFilters, ...updates }
-        // Auto-save filters if enabled
-        if (state.userPreferences.autoSaveFilters) {
-          get().updateSessionData({ lastActiveFilters: newFilters })
+      updateFilters: (updates) => {
+        set((state) => ({ activeFilters: { ...state.activeFilters, ...updates } }))
+        // Auto-save filters if enabled, using the committed filter state.
+        if (get().userPreferences.autoSaveFilters) {
+          get().updateSessionData({ lastActiveFilters: get().activeFilters })
         }
-        return { activeFilters: newFilters }
-      }),
+      },
       
       clearFilters: () => set({ activeFilters: initialFilters }),
       
-      setViewMode: (mode) => set(() => {
+      setViewMode: (mode) => {
+        set({ viewMode: mode })
         get().updateSessionData({ lastViewMode: mode })
-        return { viewMode: mode }
-      }),
+      },
       
       // UI state actions
       setUIState: (updates) => set((state) => ({
@@ -307,17 +306,22 @@ export const useGlobalStore = create<GlobalState>()(
       })),
       
       // Preferences actions
-      setUserPreferences: (preferences) => set((state) => {
-        const newPreferences = { ...state.userPreferences, ...preferences }
+      setUserPreferences: (preferences) => {
+        set((state) => ({
+          userPreferences: { ...state.userPreferences, ...preferences }
+        }))
+        // Persist AFTER `set`: zustand commits synchronously, so
+        // `savePreferences` reads the value just written, not the previous one.
         get().savePreferences()
-        return { userPreferences: newPreferences }
-      }),
+      },
       
-      updateSessionData: (updates) => set((state) => {
-        const newSessionData = { ...state.sessionData, ...updates }
+      updateSessionData: (updates) => {
+        set((state) => ({
+          sessionData: { ...state.sessionData, ...updates }
+        }))
+        // Persist AFTER `set` so the committed session data is written.
         get().saveSessionData()
-        return { sessionData: newSessionData }
-      }),
+      },
       
       // Loading state actions
       setLoading: (loading) => set({ isLoading: loading }),

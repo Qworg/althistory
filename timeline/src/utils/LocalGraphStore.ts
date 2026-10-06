@@ -1044,6 +1044,18 @@ export class CypherQueryParser {
 }
 
 /**
+ * Additive construction options for `LocalGraphStore`.
+ *
+ * `dataFile` lets a caller bind a store to one specific file (for example the
+ * per-graph live store) without mutating the process-wide config object. When it
+ * is omitted the store keeps the historical behaviour of deriving its path from
+ * `localExecution.dataDirectory` and `localExecution.graphFile`.
+ */
+export interface LocalGraphStoreOptions {
+  dataFile?: string;
+}
+
+/**
  * Local graph store implementation with file-based persistence
  * Provides Neo4j-compatible interface for local execution
  */
@@ -1052,8 +1064,17 @@ export class LocalGraphStore {
   private graphData: GraphData;
   private dataFile: string;
   private backupTimer?: NodeJS.Timeout;
+  /**
+   * The in-flight `shutdown`, if one is running. Two owners can ask for the same
+   * instance's shutdown at once — a retirement whose shutdown overlaps a revival,
+   * or the shutdown drain racing the eviction pass — and `save()` writes the
+   * whole file with a single non-atomic `writeFile`, so overlapping saves of one
+   * store can interleave and leave a torn document. They share this promise
+   * instead, which makes `shutdown` idempotent for the duration of a shutdown.
+   */
+  private shutdownInFlight?: Promise<void>;
 
-  constructor() {
+  constructor(options: LocalGraphStoreOptions = {}) {
     this.graphData = {
       nodes: new Map(),
       relationships: new Map(),
@@ -1062,8 +1083,18 @@ export class LocalGraphStore {
       backups: []
     };
     
-    this.dataFile = path.join(this.config.localExecution.dataDirectory, this.config.localExecution.graphFile);
+    this.dataFile = options.dataFile
+      ?? path.join(this.config.localExecution.dataDirectory, this.config.localExecution.graphFile);
     this.setupBackupTimer();
+  }
+
+  /**
+   * Absolute or config-relative path this store reads from and writes to.
+   * Exposed so a scoped owner (for example `GraphContextStore`) and its tests
+   * can assert which file a store is bound to.
+   */
+  getDataFilePath(): string {
+    return this.dataFile;
   }
 
   /**
@@ -1434,13 +1465,45 @@ export class LocalGraphStore {
   }
 
   /**
-   * Shutdown the graph store
+   * Shutdown the graph store.
+   *
+   * Saves the current in-memory state and stops the backup timer. Idempotent
+   * while a shutdown is in flight: concurrent callers await the same save rather
+   * than starting a second, interleaved write of the same file. A later call
+   * after the shutdown completed starts a new save, so writing to a store and
+   * shutting it down again still persists the newer state.
    */
   async shutdown(): Promise<void> {
     if (this.backupTimer) {
       clearInterval(this.backupTimer);
+      this.backupTimer = undefined;
     }
-    await this.save();
+    const inFlight = this.shutdownInFlight;
+    if (inFlight) {
+      return inFlight;
+    }
+    const pending = this.save();
+    this.shutdownInFlight = pending;
+    try {
+      await pending;
+    } finally {
+      if (this.shutdownInFlight === pending) {
+        this.shutdownInFlight = undefined;
+      }
+    }
+  }
+
+  /**
+   * Restart the automatic backup timer after a `shutdown`.
+   *
+   * A store that `GraphContextStore` evicted is the same instance a caller may
+   * still hold; reviving it must also revive the timer `shutdown` cleared, or
+   * that graph would silently stop receiving periodic backups.
+   */
+  resumeBackupTimer(): void {
+    if (this.backupTimer === undefined) {
+      this.setupBackupTimer();
+    }
   }
 
   /**

@@ -54,10 +54,6 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
 
 
 
-  const handleFilterChange = useCallback(() => {
-    setSelectedFilter(filterConfig)
-  }, [filterConfig, setSelectedFilter])
-
   const handleCreateCopy = useCallback(async () => {
     try {
       switch (selectedCopyType) {
@@ -68,8 +64,9 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
           await createTimeRangeCopy()
           break
         case 'filtered':
-          handleFilterChange()
-          await createFilteredCopy()
+          // Pass the configured filter directly rather than relying on the
+          // store round-trip, which has not committed within this same tick.
+          await createFilteredCopy(filterConfig)
           break
       }
       // Close modal on successful completion
@@ -83,7 +80,7 @@ export const GraphCopyModal: React.FC<GraphCopyModalProps> = ({
     createFullCopy,
     createTimeRangeCopy,
     createFilteredCopy,
-    handleFilterChange,
+    filterConfig,
     onClose
   ])
 
