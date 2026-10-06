@@ -1064,6 +1064,15 @@ export class LocalGraphStore {
   private graphData: GraphData;
   private dataFile: string;
   private backupTimer?: NodeJS.Timeout;
+  /**
+   * The in-flight `shutdown`, if one is running. Two owners can ask for the same
+   * instance's shutdown at once — a retirement whose shutdown overlaps a revival,
+   * or the shutdown drain racing the eviction pass — and `save()` writes the
+   * whole file with a single non-atomic `writeFile`, so overlapping saves of one
+   * store can interleave and leave a torn document. They share this promise
+   * instead, which makes `shutdown` idempotent for the duration of a shutdown.
+   */
+  private shutdownInFlight?: Promise<void>;
 
   constructor(options: LocalGraphStoreOptions = {}) {
     this.graphData = {
@@ -1456,14 +1465,32 @@ export class LocalGraphStore {
   }
 
   /**
-   * Shutdown the graph store
+   * Shutdown the graph store.
+   *
+   * Saves the current in-memory state and stops the backup timer. Idempotent
+   * while a shutdown is in flight: concurrent callers await the same save rather
+   * than starting a second, interleaved write of the same file. A later call
+   * after the shutdown completed starts a new save, so writing to a store and
+   * shutting it down again still persists the newer state.
    */
   async shutdown(): Promise<void> {
     if (this.backupTimer) {
       clearInterval(this.backupTimer);
       this.backupTimer = undefined;
     }
-    await this.save();
+    const inFlight = this.shutdownInFlight;
+    if (inFlight) {
+      return inFlight;
+    }
+    const pending = this.save();
+    this.shutdownInFlight = pending;
+    try {
+      await pending;
+    } finally {
+      if (this.shutdownInFlight === pending) {
+        this.shutdownInFlight = undefined;
+      }
+    }
   }
 
   /**

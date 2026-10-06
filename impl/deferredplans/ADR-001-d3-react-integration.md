@@ -34,11 +34,16 @@ That statement was already untrue when it was written. What the codebase actuall
 ### How those counts were obtained
 
 A "matched line" is a source line containing a D3 selection/DOM call, counted from the repository
-root with:
+root with (one `grep` argument per file — no brace expansion, so the command is correct in a POSIX
+shell as well as bash and can be pasted as-is):
 
 ```sh
 grep -cE '\.(append|select|selectAll|attr|style|call|transition|data|enter|exit|remove|text|on|insert|merge|join|each|html|property|classed|duration|delay|ease|tween|interrupt)\(' \
-  frontend/src/components/timeline/{Timeline,ActorTimeline,PressureIndicators,TimelineEvent,TimelineArc}.tsx
+  frontend/src/components/timeline/Timeline.tsx \
+  frontend/src/components/timeline/ActorTimeline.tsx \
+  frontend/src/components/timeline/PressureIndicators.tsx \
+  frontend/src/components/timeline/TimelineEvent.tsx \
+  frontend/src/components/timeline/TimelineArc.tsx
 ```
 
 Its real output is:

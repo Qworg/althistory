@@ -109,6 +109,15 @@ export function injectContainer(req: RequestWithContainer, res: Response, next: 
  * Declared structurally rather than as the concrete class so the resolver can
  * be exercised in isolation with a small fake, and so a future backing store
  * only has to satisfy these two lookups (design §9, storage-backend note).
+ *
+ * `status` is optional and load-bearing. `GraphRepository.findById` returns
+ * soft-deleted graphs (only its `getActiveGraph` filters non-active ones), so a
+ * `X-Graph-Id` header naming a deleted graph used to scope the request to a
+ * graph the caller had deleted. It now resolves as 404 instead. That is a
+ * behaviour change made alongside the checked accessor above and it is covered
+ * by the "soft-deleted" cases in `graph-context.test.ts`; the equivalent check
+ * on the active-graph branch keeps a lookup that does not filter from
+ * reintroducing the same scope.
  */
 export interface GraphLookup {
   findById(id: string): Promise<{ id: string; status?: string } | null>;

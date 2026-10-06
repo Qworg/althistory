@@ -61,6 +61,23 @@ export interface GraphScopedRepositories {
  */
 const GRAPH_SCOPED_REPOSITORY_CACHE_LIMIT = 32;
 
+/**
+ * One cached repository wrapper together with the lease that keeps its store
+ * safe.
+ *
+ * The store itself is in-memory: repositories write to it and never call
+ * `save()`, so the only thing standing between a write and an eviction that
+ * flushes and shuts the instance down is this lease. It is held for as long as
+ * the wrapper is cached — the window in which the container can still hand these
+ * repositories to a caller — and released (which flushes the store) when the
+ * wrapper is dropped.
+ */
+interface GraphScopedRepositoryEntry {
+  store: LocalGraphStore;
+  repositories: GraphScopedRepositories;
+  release: () => Promise<void>;
+}
+
 function hasInitialize(value: object): value is Initializable {
   return 'initialize' in value;
 }
@@ -123,7 +140,7 @@ export class Container implements ServiceContainer {
   private _graphContextStore?: GraphContextStore;
   private readonly _graphScopedRepositories = new Map<
     string,
-    { store: LocalGraphStore; repositories: GraphScopedRepositories }
+    GraphScopedRepositoryEntry
   >();
   
   // Phase 1 I/O services
@@ -293,15 +310,34 @@ export class Container implements ServiceContainer {
    * Wrappers are cached per store identity: when `GraphContextStore` evicts and
    * later reloads a graph, the store instance changes, so the stale wrapper is
    * replaced rather than left pointing at a shut-down store.
+   *
+   * The cached store is held under a `GraphContextStore` LEASE, not a borrowed
+   * reference. Repositories write in memory and never call `save()`, so without
+   * the lease a sibling eviction could flush and shut the store down while a
+   * cached wrapper (and any caller it was handed to) still had pending writes;
+   * the lease keeps the entry resident for exactly the window in which this
+   * cache can hand the repositories out again, and releasing it on cache eviction
+   * is what flushes those writes.
    */
   async graphScopedRepositories(graphId: string): Promise<GraphScopedRepositories> {
-    const store = await this.graphContextStore.getStore(graphId);
+    const leased = await this.graphContextStore.lease(graphId);
 
     const cached = this._graphScopedRepositories.get(graphId);
-    if (cached && cached.store === store) {
+    if (cached && cached.store === leased.store) {
+      // This wrapper already holds a lease on the same store, so the one just
+      // taken is redundant; drop it rather than letting the counters drift.
+      await leased.release();
       return cached.repositories;
     }
+    if (cached) {
+      // The store identity changed (it was evicted and reloaded from disk), so
+      // the cached wrapper points at a shut-down instance: flush and release it
+      // before replacing it.
+      this._graphScopedRepositories.delete(graphId);
+      await cached.release();
+    }
 
+    const store = leased.store;
     const databaseManager = new LocalDatabaseManager(store);
     const eventRepository = new EventRepository(
       databaseManager,
@@ -325,19 +361,34 @@ export class Container implements ServiceContainer {
       temporalService: new TemporalService(eventRepository, arcRepository),
     };
 
-    this._graphScopedRepositories.set(graphId, { store, repositories });
-    this.evictGraphScopedRepositoriesOverflow();
+    this._graphScopedRepositories.set(graphId, {
+      store,
+      repositories,
+      release: leased.release,
+    });
+    await this.evictGraphScopedRepositoriesOverflow();
     return repositories;
   }
 
-  /** Drop oldest repository wrappers once the per-graph cache is over its bound. */
-  private evictGraphScopedRepositoriesOverflow(): void {
+  /**
+   * Drop oldest repository wrappers once the per-graph cache is over its bound,
+   * releasing each one's store lease.
+   *
+   * A released store is either flushed by the eviction it triggers or stays
+   * resident; either way its pending writes are persisted rather than dropped
+   * with the wrapper.
+   */
+  private async evictGraphScopedRepositoriesOverflow(): Promise<void> {
     while (this._graphScopedRepositories.size > GRAPH_SCOPED_REPOSITORY_CACHE_LIMIT) {
       const oldest = this._graphScopedRepositories.keys().next().value;
       if (oldest === undefined) {
         return;
       }
+      const entry = this._graphScopedRepositories.get(oldest);
       this._graphScopedRepositories.delete(oldest);
+      if (entry) {
+        await entry.release();
+      }
     }
   }
 

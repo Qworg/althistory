@@ -135,8 +135,13 @@ A middleware resolves the graph for every request, before container injection:
 3. If neither resolves → **404** with a clear message. A request that cannot be scoped must not fall
    back to unscoped data. (Today's implicit fallback is the bug.)
 
-It attaches a non-optional `graphId` to the request, so downstream handlers cannot see a request
-without one. `authorizeGraphAccess` then checks permission against *that* id, replacing the current
+It attaches a non-optional `graphId` to the request, so a correctly wired handler does not need a
+null-check. That is a type-level claim only: the resolver is mounted per router (and, for a few
+groups, per route), so a route that omits it still compiles while `req.graphId` is `undefined` at
+runtime. Handlers therefore read it through the checked `requireGraphId(req)` accessor, which throws a
+`GraphContextError` (500 via the shared `errorHandler`) instead of silently reading an unscoped value;
+it is used at **67 call sites across the nine route modules** (plus one in `graph-context.test.ts`).
+`authorizeGraphAccess` then checks permission against *that* id, replacing the current
 per-route `(req) => req.body?.graphId` extractions, which read the graph id from the body and are
 therefore absent on every GET.
 
@@ -158,6 +163,33 @@ isolation correct, so it is deferred rather than bundled.
 - The handler-facing `RequestContainer` omits the global `eventRepository`/`arcRepository`,
   `temporalService`, `causalService` and `databaseManager`, so none is reachable through
   `req.container` without a deliberate cast.
+
+#### The store contract (and the window it does not close)
+
+Stores are an LRU-bounded cache of **in-memory** stores: repositories mutate the instance and never
+call `save()`, so a write reaches disk only when the instance is flushed. `GraphContextStore`
+provides two guarantees on the paths it controls:
+
+1. **One live store per graph id.** Eviction saves and retires an instance but records a weak
+   reference, so a later request revives the same instance while any caller still holds it instead of
+   constructing a second writer on the same file.
+2. **No unsaved state is dropped by the registry.** Eviction flushes as it retires, and `evictAll()`
+   — the process-shutdown path — drains the resident cache *and* the retired registry, saving every
+   instance that is still reachable.
+
+Guarantee 2 is why the retention tests exist: a write made through a reference held across an eviction
+is persisted by the shutdown drain, not silently discarded with the retired entry.
+
+What that still does not cover, stated here rather than implied by "one store per graph":
+`getStore()` is a *borrowed* reference, counted only for the duration of the call. An instance may be
+flushed, retired and shut down after `getStore` returns, so a write made later through that reference
+is durable only if the instance is revived by a later request or is still reachable when the drain
+runs. Callers that write therefore acquire a **lease** (`lease()` / `withStore()`), which pins the
+entry for the whole window in which they may write; `graphScopedRepositories` holds a lease for as long
+as its cached wrapper can be handed out, and releases (flushing) when it drops one. Closing the window
+completely would need write-through saving in the repository layer or a lease at every call site — it
+is not a property `GraphContextStore` can have on its own, and the earlier "at most one live store
+closes the data-loss race" claim was too strong.
 
 This makes an accidental unscoped read through the handler's container a compile error. It does
 **not** make unscoped reads impossible: `getContainer()` returns the full `Container` and is

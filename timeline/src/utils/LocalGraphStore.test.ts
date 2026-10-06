@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { LocalGraphStore, CypherQueryParser } from './LocalGraphStore';
 import type { GraphNode, GraphRelationship, LocalRecordValue } from './LocalGraphStore';
 import * as fs from 'fs/promises';
@@ -398,6 +398,34 @@ describe('LocalGraphStore', () => {
       
       // Should not throw error
       await expect(graphStore.shutdown()).resolves.not.toThrow();
+    });
+
+    it('shares one save between concurrent shutdowns of the same instance', async () => {
+      await graphStore.createNode(['Event'], { id: 'concurrent-shutdown-test' });
+
+      // Two owners can ask for the same instance's shutdown at once: a retirement
+      // whose shutdown is still in flight when the store is revived and retired
+      // again, or the shutdown drain racing an eviction pass. `save()` rewrites
+      // the whole file with one non-atomic `writeFile`, so overlapping calls can
+      // interleave two writes of one document; they must share a single save.
+      const saveSpy = vi.spyOn(graphStore, 'save');
+      try {
+        await Promise.all([graphStore.shutdown(), graphStore.shutdown()]);
+        expect(saveSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        saveSpy.mockRestore();
+      }
+
+      // The guard covers the in-flight shutdown only: a later shutdown of the
+      // same store still writes, so state added in between is not skipped.
+      await graphStore.createNode(['Event'], { id: 'after-shutdown-test' });
+      const laterSpy = vi.spyOn(graphStore, 'save');
+      try {
+        await graphStore.shutdown();
+        expect(laterSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        laterSpy.mockRestore();
+      }
     });
   });
 });
