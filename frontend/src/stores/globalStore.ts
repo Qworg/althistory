@@ -38,6 +38,13 @@ interface GlobalState {
   
   // Error handling
   errors: ErrorState[]
+
+  // Offline connectivity (Req 14.2). `isOnline` mirrors the browser's
+  // connectivity state; `pendingMutationCount` mirrors the durable offline
+  // mutation queue. Neither is persisted by this store -- the queue module owns
+  // its own storage.
+  isOnline: boolean
+  pendingMutationCount: number
   
   // Data manipulation actions
   setEvents: (events: Event[]) => void
@@ -88,6 +95,10 @@ interface GlobalState {
   addError: (error: Omit<ErrorState, 'id' | 'timestamp'>) => void
   clearErrors: () => void
   removeError: (id: string) => void
+
+  // Offline connectivity actions
+  setOnline: (online: boolean) => void
+  setPendingMutationCount: (count: number) => void
   
   // Persistence actions
   savePreferences: () => void
@@ -180,6 +191,8 @@ export const useGlobalStore = create<GlobalState>()(
       isLoading: false,
       loadingOperations: new Set(),
       errors: [],
+      isOnline: true,
+      pendingMutationCount: 0,
 
       // Data manipulation actions
       setEvents: (events) => set({ events }),
@@ -350,6 +363,10 @@ export const useGlobalStore = create<GlobalState>()(
       removeError: (id) => set((state) => ({
         errors: state.errors.filter(error => error.id !== id)
       })),
+
+      // Offline connectivity actions
+      setOnline: (online) => set({ isOnline: online }),
+      setPendingMutationCount: (count) => set({ pendingMutationCount: count }),
       
       // Persistence actions
       savePreferences: () => {
