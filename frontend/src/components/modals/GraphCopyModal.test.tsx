@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { axe } from 'vitest-axe'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { GraphCopyModal } from './GraphCopyModal'
 import { useGlobalStore } from '@/stores/globalStore'
@@ -467,6 +468,41 @@ describe('GraphCopyModal', () => {
 
       const radiogroup = screen.getByRole('radiogroup')
       expect(radiogroup).toHaveAttribute('aria-labelledby', 'copy-type-label')
+    })
+  })
+
+  describe('Accessibility (axe)', () => {
+    it('full-copy state has no axe violations', async () => {
+      const { container } = render(
+        <GraphCopyModal isOpen={true} onClose={mockOnClose} />,
+        { wrapper: createWrapper() }
+      )
+
+      expect(await axe(container)).toHaveNoViolations()
+    })
+
+    it('time-range state has no axe violations', async () => {
+      const user = userEvent.setup()
+      const { container } = render(
+        <GraphCopyModal isOpen={true} onClose={mockOnClose} />,
+        { wrapper: createWrapper() }
+      )
+
+      await user.click(screen.getByLabelText(/Time Range Copy/))
+
+      expect(await axe(container)).toHaveNoViolations()
+    })
+
+    it('filtered state has no axe violations', async () => {
+      const user = userEvent.setup()
+      const { container } = render(
+        <GraphCopyModal isOpen={true} onClose={mockOnClose} />,
+        { wrapper: createWrapper() }
+      )
+
+      await user.click(screen.getByLabelText(/Filtered Copy/))
+
+      expect(await axe(container)).toHaveNoViolations()
     })
   })
 })

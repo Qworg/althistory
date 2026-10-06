@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { axe } from 'vitest-axe'
 import { EventDetailModal } from './EventDetailModal'
 import {
   createMockEvent,
@@ -445,6 +446,47 @@ describe('EventDetailModal', () => {
       rerender(<EventDetailModal {...defaultProps} isOpen={true} />)
 
       expect(document.body.style.overflow).toBe('hidden')
+    })
+  })
+
+  describe('Accessibility (axe)', () => {
+    it('create mode has no axe violations', async () => {
+      const { container } = render(<EventDetailModal {...defaultProps} isOpen={true} />)
+
+      expect(await axe(container)).toHaveNoViolations()
+    })
+
+    it('edit mode has no axe violations', async () => {
+      const { container } = render(
+        <EventDetailModal {...defaultProps} event={createMockEvent()} isOpen={true} />
+      )
+
+      expect(await axe(container)).toHaveNoViolations()
+    })
+
+    it('related-information state has no axe violations', async () => {
+      const { container } = render(
+        <EventDetailModal
+          {...defaultProps}
+          event={createMockEvent()}
+          relatedArcs={[createMockArc()]}
+          causalRelationships={[createMockCausalRelationship()]}
+          isOpen={true}
+        />
+      )
+
+      expect(await axe(container)).toHaveNoViolations()
+    })
+
+    it('delete confirmation state has no axe violations', async () => {
+      const user = userEvent.setup()
+      const { container } = render(
+        <EventDetailModal {...defaultProps} event={createMockEvent()} isOpen={true} />
+      )
+
+      await user.click(screen.getByRole('button', { name: /^delete$/i }))
+
+      expect(await axe(container)).toHaveNoViolations()
     })
   })
 })

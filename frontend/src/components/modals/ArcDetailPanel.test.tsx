@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { axe } from 'vitest-axe'
 import { renderWithProviders } from '@/test/utils'
 import { ArcDetailPanel } from './ArcDetailPanel'
 import {
@@ -463,6 +464,38 @@ describe('ArcDetailPanel', () => {
         const alerts = screen.getAllByRole('alert')
         expect(alerts.length).toBeGreaterThan(0)
       })
+    })
+  })
+
+  describe('Accessibility (axe)', () => {
+    it('edit mode has no axe violations', async () => {
+      const { container } = renderWithProviders(
+        <ArcDetailPanel {...defaultProps} arc={createMockArc()} isOpen={true} />
+      )
+
+      expect(await axe(container)).toHaveNoViolations()
+    })
+
+    it('create mode has no axe violations', async () => {
+      const { container } = renderWithProviders(
+        <ArcDetailPanel {...defaultProps} arc={null} isOpen={true} />
+      )
+
+      expect(await axe(container)).toHaveNoViolations()
+    })
+
+    it('validation error state has no axe violations', async () => {
+      const user = userEvent.setup()
+      const { container } = renderWithProviders(
+        <ArcDetailPanel {...defaultProps} arc={createMockArc({ name: '' })} isOpen={true} />
+      )
+
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+      await waitFor(() => {
+        expect(screen.getAllByRole('alert').length).toBeGreaterThan(0)
+      })
+
+      expect(await axe(container)).toHaveNoViolations()
     })
   })
 })

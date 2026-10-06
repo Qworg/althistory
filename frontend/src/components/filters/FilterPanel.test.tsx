@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { axe } from 'vitest-axe'
 import { BrowserRouter } from 'react-router'
 import { FilterPanel, FilterState } from './FilterPanel'
 
@@ -221,5 +222,28 @@ describe('FilterPanel', () => {
     
     const confidenceSlider = screen.getByLabelText(/Confidence Threshold/)
     expect(confidenceSlider).toHaveAttribute('type', 'range')
+  })
+
+  it('has no axe violations in the default state', async () => {
+    const { container } = renderWithRouter(<FilterPanel {...mockProps} />)
+
+    expect(await axe(container)).toHaveNoViolations()
+  })
+
+  it('has no axe violations with active selections', async () => {
+    const { container } = renderWithRouter(
+      <FilterPanel
+        {...mockProps}
+        filters={{
+          ...mockFilters,
+          actors: ['Actor 1'],
+          targets: ['Target 1'],
+          eventTypes: ['Type A'],
+          searchQuery: 'test'
+        }}
+      />
+    )
+
+    expect(await axe(container)).toHaveNoViolations()
   })
 })

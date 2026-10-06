@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { axe } from 'vitest-axe'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CopyHistoryPanel } from './CopyHistoryPanel'
 import { useGraphCopy } from '@/hooks/useGraphCopy'
@@ -499,6 +500,44 @@ describe('CopyHistoryPanel', () => {
 
       const closeButton = screen.getByRole('button', { name: /close panel/i })
       expect(closeButton).toBeInTheDocument()
+    })
+
+    it('should have no axe violations', async () => {
+      const { container } = render(
+        <CopyHistoryPanel
+          isOpen={true}
+          onClose={mockOnClose}
+          onSwitchToGraph={mockOnSwitchToGraph}
+          onCompareGraphs={mockOnCompareGraphs}
+          onDeleteCopy={mockOnDeleteCopy}
+        />,
+        { wrapper: createWrapper() }
+      )
+
+      expect(await axe(container)).toHaveNoViolations()
+    })
+
+    it('should have no axe violations when the history is empty', async () => {
+      vi.mocked(useGraphCopy).mockReturnValue(
+        createMockUseGraphCopy({
+          ...mockCopyState,
+          activeOperations: [],
+          completedOperations: []
+        })
+      )
+
+      const { container } = render(
+        <CopyHistoryPanel
+          isOpen={true}
+          onClose={mockOnClose}
+          onSwitchToGraph={mockOnSwitchToGraph}
+          onCompareGraphs={mockOnCompareGraphs}
+          onDeleteCopy={mockOnDeleteCopy}
+        />,
+        { wrapper: createWrapper() }
+      )
+
+      expect(await axe(container)).toHaveNoViolations()
     })
   })
 })

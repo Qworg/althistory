@@ -365,6 +365,7 @@ export function FilterPanel({
             <div className="space-y-2">
               <input
                 type="range"
+                aria-label="Minimum causal weight"
                 min="0"
                 max="1"
                 step="0.01"
@@ -377,6 +378,7 @@ export function FilterPanel({
               />
               <input
                 type="range"
+                aria-label="Maximum causal weight"
                 min="0"
                 max="1"
                 step="0.01"
