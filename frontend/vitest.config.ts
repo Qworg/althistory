@@ -13,6 +13,13 @@ export default defineConfig({
       // `all` counts every source file that matches `include`, including ones
       // no test ever imports, so the baseline cannot be flattered by only
       // measuring files a test happened to touch.
+      //
+      // Caveat: with `all: true`, a file that no test imports reports 0/0
+      // branches and 0/0 functions, and v8 scores an empty denominator as 100%.
+      // The branch and function percentages are therefore flattered upward by
+      // every never-loaded file; statements and lines are not. This is inherent
+      // to v8's all:true mode, not a config error. The measured figures and this
+      // caveat are recorded in impl/gap-remediation/phase6-results.md.
       all: true,
       reporter: ['text', 'text-summary', 'json-summary', 'html'],
       // The flat ESLint config only ignores `dist`, so a generated `coverage/`
