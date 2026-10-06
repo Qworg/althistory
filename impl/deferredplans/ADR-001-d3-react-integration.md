@@ -2,12 +2,14 @@
 
 ## Status
 
-**Accepted — revision 2.** Supersedes the 2024-12-19 decision (revision 1) and corrects its
-"Audit Results" section, which was inaccurate. Revision 1 is preserved at the bottom for history.
+**Accepted — revision 3.** Revision 2 corrected revision 1's premise (the hybrid was real) but
+replaced revision 1's unchecked assertion with its own uncited D3 DOM-operation counts. Revision 3
+keeps the decision and replaces those counts with a command a reader can re-run; the numbers were
+wrong (three of five) and the lesson is applied rather than restated.
 
 ## Date
 
-2026-10 (revision 2) · 2024-12-19 (revision 1)
+2026-10 (revision 3) · 2026-10 (revision 2) · 2024-12-19 (revision 1)
 
 ## Context
 
@@ -25,9 +27,35 @@ That statement was already untrue when it was written. What the codebase actuall
 
 | Tier | Pattern | Where |
 |---|---|---|
-| 1 | React owns everything; D3 for pure calculation | `useTimelineScales`, `d3Calculations.ts`, `TimelineEvent.tsx`, `TimelineArc.tsx` (both 0 D3 DOM calls) |
-| 2 | React owns structure; D3 owns *behaviour* on a React-rendered element | `Timeline.tsx` — React renders `<svg ref={svgRef}>` and all marks; D3 attaches zoom/pan via `svg.call(zoom)` and drives fit-to-view `transition()` (8 DOM ops) |
-| 3 | D3 owns an isolated subtree that React never renders into | `ActorTimeline.tsx` (95 DOM ops: axes, ticks, events, arcs, an appended `button`), `PressureIndicators.tsx` (63 DOM ops, plus `defs.append('linearGradient')`) |
+| 1 | React owns everything; D3 for pure calculation | `useTimelineScales`, `d3Calculations.ts`, `TimelineEvent.tsx`, `TimelineArc.tsx` (both 0 matched lines) |
+| 2 | React owns structure; D3 owns *behaviour* on a React-rendered element | `Timeline.tsx` — React renders `<svg ref={svgRef}>` and all marks; D3 attaches zoom/pan via `svg.call(zoom)` and drives fit-to-view `transition()` (12 matched lines) |
+| 3 | D3 owns an isolated subtree that React never renders into | `ActorTimeline.tsx` (172 matched lines: axes, ticks, events, arcs, an appended `button`), `PressureIndicators.tsx` (92 matched lines, plus `defs.append('linearGradient')`) |
+
+### How those counts were obtained
+
+A "matched line" is a source line containing a D3 selection/DOM call, counted from the repository
+root with:
+
+```sh
+grep -cE '\.(append|select|selectAll|attr|style|call|transition|data|enter|exit|remove|text|on|insert|merge|join|each|html|property|classed|duration|delay|ease|tween|interrupt)\(' \
+  frontend/src/components/timeline/{Timeline,ActorTimeline,PressureIndicators,TimelineEvent,TimelineArc}.tsx
+```
+
+Its real output is:
+
+```
+frontend/src/components/timeline/Timeline.tsx:12
+frontend/src/components/timeline/ActorTimeline.tsx:172
+frontend/src/components/timeline/PressureIndicators.tsx:92
+frontend/src/components/timeline/TimelineEvent.tsx:0
+frontend/src/components/timeline/TimelineArc.tsx:0
+```
+
+This is deliberately a **line count, not an operation count**, and the pattern is a definition of
+what was counted rather than a measure of DOM cost; a line may issue more than one call. The figures
+place the tiers on a rough scale and are reproducible. (Revision 2's 8 / 95 / 63 figures came from
+no cited command and do not reproduce; Timeline, ActorTimeline and PressureIndicators are wrong, two
+by roughly 1.8x.)
 
 Tier 3 also reaches *outside* any container: `ActorTimeline.tsx:356` does
 `d3.select('body').append('div')` for tooltips, creating DOM React has no knowledge of.
@@ -127,11 +155,13 @@ Kept from revision 1, still correct:
 - The callback-ref pattern to keep callbacks out of effect dependency arrays.
 - Pure calculation modules (`d3Calculations.ts`).
 
-Corrected by this revision:
+Corrected across revisions 2–3:
 
 - "React owns the DOM" as a blanket rule — it is now the **default tier**, not a universal law.
 - The "Audit Results" claim that no direct DOM manipulation existed. It did, and does.
 - The implication that D3-owned rendering is a defect. It is a supported tier with constraints.
+- Revision 2's uncited D3 DOM-operation counts. They are replaced by the reproducible command and
+  output above; the decision is unchanged.
 
 ## References
 
@@ -139,6 +169,9 @@ Corrected by this revision:
 - [`impl/gap-remediation/README.md`](../../gap-remediation/README.md) — Phase 2.3
 - React docs: `useEffect` dependencies, `StrictMode` double-invocation, `createPortal`
 - D3 + React integration patterns
+
+Revision 3 changed nothing about the decision; it replaced revision 2's three wrong DOM counts with
+the reproducible command and output shown above.
 
 ---
 

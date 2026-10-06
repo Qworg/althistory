@@ -8,6 +8,7 @@ import {
   authenticate,
   requireAuth,
   rateLimit,
+  requireGraphId,
   resolveGraphContext,
   authorizeGraphAccess,
   authorize,
@@ -115,7 +116,7 @@ suggestRoutes.post(
   authorize('read:events') as RequestHandler,
   rateLimit() as RequestHandler,
   resolveGraphContext(),
-  authorizeGraphAccess((req) => req.graphId) as RequestHandler,
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const request = req.body as RelationshipSuggestionRequest;
@@ -139,7 +140,7 @@ suggestRoutes.post(
             })
         );
       } else {
-        const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+        const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
         const allEvents = await eventRepository.findAll();
         events = allEvents.map(
           (e) =>
@@ -201,7 +202,7 @@ suggestRoutes.post(
   authorize('read:events') as RequestHandler,
   rateLimit() as RequestHandler,
   resolveGraphContext(),
-  authorizeGraphAccess((req) => req.graphId) as RequestHandler,
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const request = req.body as ArcSuggestionRequest;
@@ -227,7 +228,7 @@ suggestRoutes.post(
           timestamp: new Date(e.timestamp),
         }));
       } else {
-        const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+        const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
         const allEvents = await eventRepository.findAll();
         events = allEvents.map((e) => ({
           id: e.id,
@@ -267,13 +268,13 @@ suggestRoutes.post(
   authorize('read:events') as RequestHandler,
   rateLimit() as RequestHandler,
   resolveGraphContext(),
-  authorizeGraphAccess((req) => req.graphId) as RequestHandler,
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       // Read from the graph this request is scoped to. The scoped repository
       // is bound to that graph's store, so the read cannot leak across graphs.
       const { eventRepository, causalService } = await req.container.graphScopedRepositories(
-        req.graphId
+        requireGraphId(req)
       );
       const events = await eventRepository.findAll();
 
@@ -339,7 +340,7 @@ suggestRoutes.post(
   authorize('read:events') as RequestHandler,
   rateLimit() as RequestHandler,
   resolveGraphContext(),
-  authorizeGraphAccess((req) => req.graphId) as RequestHandler,
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const request = req.body as { events?: unknown[] };
@@ -365,7 +366,7 @@ suggestRoutes.post(
             })
         );
       } else {
-        const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+        const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
         const allEvents = await eventRepository.findAll();
         events = allEvents.map(
           (e) =>

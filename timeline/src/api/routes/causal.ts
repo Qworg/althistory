@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { ValidationError, NotFoundError } from '@/utils/errors';
 import { CausalRelationship, CausalRelationshipType } from '@/models/relationships';
-import { resolveGraphContext } from '@/api/middleware';
+import { requireGraphId, resolveGraphContext } from '@/api/middleware';
 import { EventRepository } from '@/repositories/EventRepository';
 import { CausalService } from '@/services/CausalService';
 
@@ -21,7 +21,7 @@ causalRoutes.use(resolveGraphContext());
  * map lookup, not a file read.
  */
 async function graphScopedEventRepository(req: Request): Promise<EventRepository> {
-  const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+  const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
   return eventRepository;
 }
 
@@ -35,8 +35,8 @@ async function graphScopedEventRepository(req: Request): Promise<EventRepository
  * request's graph.
  */
 async function graphScopedCausalService(req: Request): Promise<CausalService> {
-  const store = await req.container.graphContextStore.getStore(req.graphId);
-  return new CausalService({ graphStore: store, graphId: req.graphId });
+  const store = await req.container.graphContextStore.getStore(requireGraphId(req));
+  return new CausalService({ graphStore: store, graphId: requireGraphId(req) });
 }
 
 /**
@@ -116,7 +116,7 @@ causalRoutes.post('/link', async (req: Request, res: Response, next: NextFunctio
 
     // Mirror the write into the active graph's version store so version history
     // and ExportService see UI-created causal links (not only imported ones).
-    await req.container.graphWriteVersioningService.recordRelationship(req.graphId, storedRelationship, 'create');
+    await req.container.graphWriteVersioningService.recordRelationship(requireGraphId(req), storedRelationship, 'create');
 
     res.status(201).json({
       success: true,
@@ -431,7 +431,7 @@ causalRoutes.put('/link', async (req: Request, res: Response, next: NextFunction
       relationship_type: relationship.type || relationship.relationship_type
     });
 
-    await req.container.graphWriteVersioningService.recordRelationship(req.graphId, updatedRelationship, 'update');
+    await req.container.graphWriteVersioningService.recordRelationship(requireGraphId(req), updatedRelationship, 'update');
 
     res.json({
       success: true,
@@ -481,7 +481,7 @@ causalRoutes.delete('/link', async (req: Request, res: Response, next: NextFunct
     const causalService = await graphScopedCausalService(req);
     const deletedRelationshipId = await causalService.deleteCausalLink(causeEventId, effectEventId);
 
-    await req.container.graphWriteVersioningService.recordDeletion(req.graphId, 'relationship', deletedRelationshipId);
+    await req.container.graphWriteVersioningService.recordDeletion(requireGraphId(req), 'relationship', deletedRelationshipId);
 
     res.json({
       success: true,

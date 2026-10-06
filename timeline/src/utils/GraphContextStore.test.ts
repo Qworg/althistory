@@ -146,6 +146,35 @@ describe('GraphContextStore', () => {
 
       await bounded.evictAll();
     });
+
+    it('never hands out a second live store for a graph a caller still references', async () => {
+      const bounded = new GraphContextStore({ dataDirectory: testDir, maxCachedGraphs: 2 });
+
+      const first = await bounded.getStore('graph-a');
+      await bounded.getStore('graph-b');
+      // graph-a is now the least-recently-used entry, so loading graph-c pushes
+      // the cache over its bound and selects graph-a for eviction.
+      await bounded.getStore('graph-c');
+      expect(bounded.has('graph-a')).toBe(false);
+
+      const again = await bounded.getStore('graph-a');
+
+      // The caller above still holds `first`. If eviction replaced it with a
+      // freshly constructed store, both references would be live writers on
+      // graph-a.json and whichever saved last would silently erase the other's
+      // node. One graph id must map to at most one live LocalGraphStore.
+      expect(again).toBe(first);
+
+      await first.createNode(['Event'], { id: 'from-first' });
+      await again.createNode(['Event'], { id: 'from-second' });
+      await again.save();
+
+      const raw = await fs.readFile(bounded.getFilePath('graph-a'), 'utf8');
+      expect(raw).toContain('from-first');
+      expect(raw).toContain('from-second');
+
+      await bounded.evictAll();
+    });
   });
 
   describe('path safety', () => {

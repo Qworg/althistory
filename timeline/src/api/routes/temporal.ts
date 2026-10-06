@@ -2,13 +2,15 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { ValidationError, NotFoundError } from '@/utils/errors';
 import { TimeRange, IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
-import { resolveGraphContext } from '@/api/middleware';
+import { requireGraphId, resolveGraphContext } from '@/api/middleware';
 
 export const temporalRoutes = Router();
 
 // Scope every route in this group to exactly one graph. `resolveGraphContext`
-// resolves X-Graph-Id (falling back to the active graph) and attaches a
-// non-optional `req.graphId`; the handlers below read only that graph's store.
+// resolves X-Graph-Id (falling back to the active graph) and attaches the graph
+// id; the handlers below read it through the checked `requireGraphId` accessor
+// so a routing change that drops the mount fails loudly instead of reading an
+// unscoped value.
 temporalRoutes.use(resolveGraphContext());
 
 /** Aggregated timeline payload returned by GET /temporal/timeline. */
@@ -81,7 +83,7 @@ temporalRoutes.get('/timeline', async (req: Request, res: Response, next: NextFu
 
     // Repositories bound to this request's graph; never the global store.
     const { eventRepository, arcRepository } = await req.container.graphScopedRepositories(
-      req.graphId
+      requireGraphId(req)
     );
     
     const timeline: TimelineView = {
@@ -132,7 +134,7 @@ temporalRoutes.post('/validate-event', async (req: Request, res: Response, next:
     }
 
     // Get event
-    const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+    const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const event = await eventRepository.findById(eventId);
     
     if (!event) {
@@ -140,7 +142,7 @@ temporalRoutes.post('/validate-event', async (req: Request, res: Response, next:
     }
 
     // Get arcs
-    const { arcRepository } = await req.container.graphScopedRepositories(req.graphId);
+    const { arcRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const arcs = await Promise.all(
       arcIds.map(async (arcId: string) => {
         const arc = await arcRepository.findById(arcId);
@@ -153,7 +155,7 @@ temporalRoutes.post('/validate-event', async (req: Request, res: Response, next:
 
     // Validate temporal constraints through the graph-scoped service, which is
     // built from this request's repositories rather than the global store.
-    const { temporalService } = await req.container.graphScopedRepositories(req.graphId);
+    const { temporalService } = await req.container.graphScopedRepositories(requireGraphId(req));
     const validations = arcs.map(arc => ({
       arc: arc.toJSON(),
       isValid: temporalService.validateEventInArc(event, arc),
@@ -195,7 +197,7 @@ temporalRoutes.post('/validate-arc-nesting', async (req: Request, res: Response,
     }
 
     // Get arcs
-    const { arcRepository } = await req.container.graphScopedRepositories(req.graphId);
+    const { arcRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const parentArc = await arcRepository.findById(parentArcId);
     const childArc = await arcRepository.findById(childArcId);
     
@@ -207,7 +209,7 @@ temporalRoutes.post('/validate-arc-nesting', async (req: Request, res: Response,
     }
 
     // Validate nesting through the graph-scoped service.
-    const { temporalService } = await req.container.graphScopedRepositories(req.graphId);
+    const { temporalService } = await req.container.graphScopedRepositories(requireGraphId(req));
     const isValid = temporalService.validateArcNesting(parentArc, childArc);
 
     res.json({
@@ -279,7 +281,7 @@ temporalRoutes.get('/overlaps', async (req: Request, res: Response, next: NextFu
     }
 
     // Use the graph-scoped arc repository directly
-    const { arcRepository } = await req.container.graphScopedRepositories(req.graphId);
+    const { arcRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     let overlaps = await arcRepository.findOverlappingArcs(timeRange, parsedLimit, parsedOffset);
     
     // Filter by level if specified
@@ -419,7 +421,7 @@ temporalRoutes.get('/density', async (req: Request, res: Response, next: NextFun
 
     // Basic density calculation using this graph's repositories
     const { eventRepository, arcRepository } = await req.container.graphScopedRepositories(
-      req.graphId
+      requireGraphId(req)
     );
     
     const density: DensityView = { granularity: granularity as string, timeRange, type: type as string };

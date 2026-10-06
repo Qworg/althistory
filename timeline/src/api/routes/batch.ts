@@ -10,6 +10,7 @@ import {
   authorize,
   rateLimit,
   authorizeGraphAccess,
+  requireGraphId,
   resolveGraphContext,
   asyncHandler,
 } from '../middleware';
@@ -32,8 +33,8 @@ export const batchRoutes = Router();
  * request's graph instead of the process-wide legacy store.
  */
 async function graphScopedCausalService(req: Request): Promise<CausalService> {
-  const store = await req.container.graphContextStore.getStore(req.graphId);
-  return new CausalService({ graphStore: store, graphId: req.graphId });
+  const store = await req.container.graphContextStore.getStore(requireGraphId(req));
+  return new CausalService({ graphStore: store, graphId: requireGraphId(req) });
 }
 
 // Batch operation types
@@ -150,7 +151,7 @@ batchRoutes.post(
   authorize('write:events') as RequestHandler,
   rateLimit() as RequestHandler,
   resolveGraphContext() as RequestHandler,
-  authorizeGraphAccess((req) => (req as AuthenticatedRequest).graphId) as RequestHandler,
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const request = req.body as BatchEventRequest;
 
@@ -171,7 +172,7 @@ batchRoutes.post(
       validationWarnings: [],
     };
 
-    const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+    const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
 
     for (let i = 0; i < events.length; i++) {
       const eventData = events[i];
@@ -234,7 +235,7 @@ batchRoutes.post(
   authorize('write:arcs') as RequestHandler,
   rateLimit() as RequestHandler,
   resolveGraphContext() as RequestHandler,
-  authorizeGraphAccess((req) => (req as AuthenticatedRequest).graphId) as RequestHandler,
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const request = req.body as BatchArcRequest;
 
@@ -255,7 +256,7 @@ batchRoutes.post(
       validationWarnings: [],
     };
 
-    const { arcRepository } = await req.container.graphScopedRepositories(req.graphId);
+    const { arcRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
 
     for (let i = 0; i < arcs.length; i++) {
       const arcData = arcs[i];
@@ -317,7 +318,7 @@ batchRoutes.post(
   authorize('write:relationships') as RequestHandler,
   rateLimit() as RequestHandler,
   resolveGraphContext() as RequestHandler,
-  authorizeGraphAccess((req) => (req as AuthenticatedRequest).graphId) as RequestHandler,
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const request = req.body as BatchRelationshipRequest;
 
@@ -339,7 +340,7 @@ batchRoutes.post(
     };
 
     const causalService = await graphScopedCausalService(req);
-    const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+    const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
 
     for (let i = 0; i < relationships.length; i++) {
       const relData = relationships[i];
@@ -446,11 +447,11 @@ batchRoutes.post(
   requireAuth as RequestHandler,
   rateLimit() as RequestHandler,
   resolveGraphContext() as RequestHandler,
-  authorizeGraphAccess((req) => (req as AuthenticatedRequest).graphId) as RequestHandler,
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const request = req.body as BatchTransactionRequest;
     const { eventRepository, arcRepository } = await req.container.graphScopedRepositories(
-      req.graphId
+      requireGraphId(req)
     );
     const causalService = await graphScopedCausalService(req);
     

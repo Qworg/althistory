@@ -15,6 +15,7 @@ import {
   authorize,
   rateLimit,
   authorizeGraphAccess,
+  requireGraphId,
   resolveGraphContext,
   asRequestHandler,
 } from '../middleware';
@@ -47,7 +48,7 @@ exportRoutes.post(
   '/jobs',
   ...exportAuth,
   resolveGraphContext(),
-  asRequestHandler(authorizeGraphAccess((req) => req.graphId)),
+  asRequestHandler(authorizeGraphAccess((req) => requireGraphId(req))),
   async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.jobService;
@@ -56,7 +57,7 @@ exportRoutes.post(
 
     // The resolved request scope is authoritative; a body graphId may only
     // agree with it (see `reconcileGraphId`).
-    reconcileGraphId(request, req.graphId);
+    reconcileGraphId(request, requireGraphId(req));
 
     if (!request.scope || !['full', 'filtered'].includes(request.scope)) {
       throw new ValidationError('Scope must be "full" or "filtered"', 'scope', request.scope);
@@ -71,7 +72,7 @@ exportRoutes.post(
       validateFilters(request.filters);
     }
 
-    const result = await service.createExportJob({ ...request, graphId: req.graphId });
+    const result = await service.createExportJob({ ...request, graphId: requireGraphId(req) });
 
     res.status(202).json({
       success: true,
@@ -274,7 +275,7 @@ exportRoutes.post(
   '/sync',
   ...exportAuth,
   resolveGraphContext(),
-  asRequestHandler(authorizeGraphAccess((req) => req.graphId)),
+  asRequestHandler(authorizeGraphAccess((req) => requireGraphId(req))),
   async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.exportService;
@@ -283,7 +284,7 @@ exportRoutes.post(
 
     // The resolved request scope is authoritative; a body graphId may only
     // agree with it (see `reconcileGraphId`).
-    reconcileGraphId(request, req.graphId);
+    reconcileGraphId(request, requireGraphId(req));
 
     if (!request.scope || !['full', 'filtered'].includes(request.scope)) {
       throw new ValidationError('Scope must be "full" or "filtered"', 'scope', request.scope);
@@ -296,7 +297,7 @@ exportRoutes.post(
 
     // Check estimated size - only allow sync for small exports
     const estimatedSize = await service.estimateExportSize({
-      graphId: req.graphId,
+      graphId: requireGraphId(req),
       scope: request.scope,
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
@@ -312,7 +313,7 @@ exportRoutes.post(
     }
 
     const result = await service.exportGraph({
-      graphId: req.graphId,
+      graphId: requireGraphId(req),
       scope: request.scope,
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
@@ -386,8 +387,8 @@ exportRoutes.get('/stats', ...exportAuth, async (req: RequestWithContainer, res:
 /**
  * Reconcile the legacy body `graphId` with the resolved request scope.
  *
- * `X-Graph-Id` (resolved by `resolveGraphContext` and attached as
- * `req.graphId`) is the single source of truth for which graph a request is
+ * `X-Graph-Id` (resolved by `resolveGraphContext` and read back through
+ * `requireGraphId`) is the single source of truth for which graph a request is
  * about. A body `graphId` is still accepted for callers that predate the
  * header, but it must agree with the resolved scope: a contradiction is a 400
  * rather than a silent re-scope, because authorisation has already been checked

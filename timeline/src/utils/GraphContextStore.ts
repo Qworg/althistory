@@ -5,6 +5,35 @@ import { loadConfig } from './config';
 import { DataCorruptionError, LocalStorageError, NotFoundError, ValidationError } from './errors';
 
 /**
+ * `WeakRef` is part of the Node runtime (Node 14+) and the ECMAScript 2021
+ * standard, but this package compiles against `lib: ES2020`, which predates it.
+ * Declare the minimal surface the cache needs locally instead of widening the
+ * project's build config (out of scope) or reaching for a cast.
+ */
+interface WeakRefLike<T extends object> {
+  deref(): T | undefined;
+}
+interface WeakRefConstructor {
+  new <T extends object>(target: T): WeakRefLike<T>;
+}
+declare const WeakRef: WeakRefConstructor;
+
+/**
+ * One slot in the resident cache. The promise is stored (not just its value) so
+ * two concurrent requests for the same graph share a single load instead of
+ * racing to read the file twice.
+ */
+interface CacheEntry {
+  readonly promise: Promise<LocalGraphStore>;
+  /** True once `promise` has resolved; an unsettled entry is never evicted. */
+  settled: boolean;
+  /** Number of `getStore` calls currently resolving or returning this entry. */
+  refs: number;
+  /** The resolved store, available once `settled` is true. */
+  store?: LocalGraphStore;
+}
+
+/**
  * Directory name under the configured data directory that holds the per-graph
  * live stores, adjacent to the existing `graphs/` version-store tree.
  */
@@ -67,12 +96,24 @@ export class GraphContextStore {
   private readonly storeFactory: (dataFile: string) => LocalGraphStore;
 
   /**
-   * In-flight or resolved stores, keyed by graph id. Storing the promise means
-   * two concurrent requests for the same graph share one load instead of racing
-   * to read the file twice. Map iteration order is the LRU order: the oldest
-   * entry is first, and a hit is moved to the end.
+   * Resident cache, keyed by graph id. Map iteration order is the LRU order:
+   * the oldest entry is first, and a hit is moved to the end. Entries may be
+   * in flight (`settled === false`) or being actively returned (`refs > 0`).
    */
-  private readonly stores = new Map<string, Promise<LocalGraphStore>>();
+  private readonly stores = new Map<string, CacheEntry>();
+
+  /**
+   * Stores evicted from the resident cache that a caller may still reference.
+   *
+   * Eviction must save a store and stop its backup timer so the object can be
+   * reclaimed, but it must never leave an id able to produce a SECOND live
+   * `LocalGraphStore` while the first is still reachable: two instances on one
+   * file are two writers, and the last save wins. The weak reference lets a
+   * later request hand back the very same instance while it is still reachable,
+   * and only construct a fresh one once it has been collected (at which point
+   * no caller can still be holding it).
+   */
+  private readonly retired = new Map<string, WeakRefLike<LocalGraphStore>>();
 
   constructor(options: GraphContextStoreOptions = {}) {
     this.baseDirectory = options.dataDirectory
@@ -98,33 +139,26 @@ export class GraphContextStore {
    */
   async getStore(graphId: string, options: GetGraphStoreOptions = {}): Promise<LocalGraphStore> {
     const filePath = this.getFilePath(graphId);
+    const entry = this.resolveEntry(graphId, filePath, options.requireExisting === true);
 
-    const cached = this.stores.get(graphId);
-    if (cached) {
-      this.touch(graphId, cached);
-      return cached;
-    }
-
-    const pending = this.loadStore(graphId, filePath, options.requireExisting === true);
-    this.stores.set(graphId, pending);
-
-    // A failed load must not poison the cache: drop the rejected promise so the
-    // next request retries instead of replaying the same failure forever.
-    pending.catch(() => {
-      if (this.stores.get(graphId) === pending) {
-        this.stores.delete(graphId);
-      }
-    });
-
+    // Hold the entry for the whole resolution, including the eviction pass
+    // below. `evictOverflow` only considers entries with `refs === 0`, so this
+    // call can never evict the store it is about to hand back, and no concurrent
+    // `evictOverflow` can evict it while this caller is still resolving it.
+    entry.refs += 1;
     try {
-      const store = await pending;
+      const store = await entry.promise;
+      entry.settled = true;
+      entry.store = store;
       await this.evictOverflow();
       return store;
     } catch (error) {
-      if (this.stores.get(graphId) === pending) {
+      if (this.stores.get(graphId) === entry) {
         this.stores.delete(graphId);
       }
       throw error;
+    } finally {
+      entry.refs -= 1;
     }
   }
 
@@ -143,12 +177,15 @@ export class GraphContextStore {
    */
   async evict(graphId: string): Promise<void> {
     assertSafeGraphId(graphId);
-    const pending = this.stores.get(graphId);
-    if (!pending) {
-      return;
-    }
+    const entry = this.stores.get(graphId);
     this.stores.delete(graphId);
-    await this.shutdownQuietly(pending, graphId);
+    // Explicit eviction is the caller asserting the store is no longer needed,
+    // so it also drops any weak reference: the next request must reload from
+    // disk rather than revive the shut-down instance.
+    this.retired.delete(graphId);
+    if (entry) {
+      await this.shutdownQuietly(entry.promise, graphId);
+    }
   }
 
   /**
@@ -158,7 +195,10 @@ export class GraphContextStore {
   async evictAll(): Promise<void> {
     const entries = Array.from(this.stores.entries());
     this.stores.clear();
-    await Promise.all(entries.map(([graphId, pending]) => this.shutdownQuietly(pending, graphId)));
+    this.retired.clear();
+    await Promise.all(
+      entries.map(([graphId, entry]) => this.shutdownQuietly(entry.promise, graphId))
+    );
   }
 
   /** Whether a graph is currently resident in the cache. */
@@ -256,21 +296,110 @@ export class GraphContextStore {
     }
   }
 
-  private touch(graphId: string, pending: Promise<LocalGraphStore>): void {
-    this.stores.delete(graphId);
-    this.stores.set(graphId, pending);
+  /**
+   * Return the resident entry for a graph, creating (or reviving) one on miss.
+   *
+   * A never-resolved entry is never evicted (`findEvictionVictim` requires
+   * `settled`), so a concurrent miss cannot construct a second store while the
+   * first is still loading.
+   */
+  private resolveEntry(graphId: string, filePath: string, requireExisting: boolean): CacheEntry {
+    const cached = this.stores.get(graphId);
+    if (cached) {
+      this.touch(graphId, cached);
+      return cached;
+    }
+
+    const retiredRef = this.retired.get(graphId);
+    const revived = retiredRef?.deref();
+    if (revived) {
+      this.retired.delete(graphId);
+      // The instance was saved and its timer stopped when it was evicted, but it
+      // is still the one live store for this graph (a caller holds it), so hand
+      // it back rather than construct a second writer on the same file.
+      revived.resumeBackupTimer();
+      const entry: CacheEntry = {
+        promise: Promise.resolve(revived),
+        settled: true,
+        refs: 0,
+        store: revived,
+      };
+      this.stores.set(graphId, entry);
+      return entry;
+    }
+    if (retiredRef) {
+      // The weakly-referenced instance has been collected; prune the stale slot.
+      this.retired.delete(graphId);
+    }
+
+    const promise = this.loadStore(graphId, filePath, requireExisting);
+    const entry: CacheEntry = { promise, settled: false, refs: 0 };
+    this.stores.set(graphId, entry);
+
+    // A failed load must not poison the cache: drop the rejected promise so the
+    // next request retries instead of replaying the same failure forever.
+    promise.catch(() => {
+      if (this.stores.get(graphId) === entry) {
+        this.stores.delete(graphId);
+      }
+    });
+
+    return entry;
   }
 
+  private touch(graphId: string, entry: CacheEntry): void {
+    this.stores.delete(graphId);
+    this.stores.set(graphId, entry);
+  }
+
+  /**
+   * Evict least-recently-used entries until the cache is within its bound.
+   *
+   * Only settled entries with no in-flight `getStore` call are candidates. An
+   * entry whose load has not settled or that a caller is currently resolving is
+   * skipped, so this can briefly leave the cache over its bound rather than
+   * hand out (or shut down underneath) a store that is still in use. Correctness
+   * wins over the memory target when the two conflict.
+   */
   private async evictOverflow(): Promise<void> {
     while (this.stores.size > this.maxCachedGraphs) {
-      const oldest = this.stores.keys().next().value;
-      if (oldest === undefined) {
-        return;
+      const victim = this.findEvictionVictim();
+      if (!victim) {
+        break;
       }
-      const pending = this.stores.get(oldest);
-      this.stores.delete(oldest);
-      if (pending) {
-        await this.shutdownQuietly(pending, oldest);
+      this.stores.delete(victim.graphId);
+      const store = victim.entry.store;
+      if (store) {
+        // Record the weak reference BEFORE awaiting the shutdown below, so a
+        // `getStore` interleaving with that save revives this instance instead
+        // of constructing a second one.
+        this.retired.set(victim.graphId, new WeakRef(store));
+      }
+      await this.shutdownQuietly(victim.entry.promise, victim.graphId);
+    }
+    this.pruneRetired();
+  }
+
+  /**
+   * The oldest entry that may be evicted: settled and not being resolved by any
+   * `getStore` call. Returns `undefined` when every entry is in use, which lets
+   * the cache exceed its bound temporarily rather than break the one-live-store
+   * invariant.
+   */
+  private findEvictionVictim(): { graphId: string; entry: CacheEntry } | undefined {
+    for (const [graphId, entry] of this.stores) {
+      if (entry.settled && entry.refs === 0) {
+        return { graphId, entry };
+      }
+    }
+    return undefined;
+  }
+
+  /** Forget weak references whose store has been collected. */
+  private pruneRetired(): void {
+    for (const [graphId, ref] of this.retired) {
+      if (ref.deref() === undefined) {
+        this.retired.delete(graphId);
       }
     }
   }

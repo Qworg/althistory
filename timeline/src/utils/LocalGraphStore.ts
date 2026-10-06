@@ -1461,8 +1461,22 @@ export class LocalGraphStore {
   async shutdown(): Promise<void> {
     if (this.backupTimer) {
       clearInterval(this.backupTimer);
+      this.backupTimer = undefined;
     }
     await this.save();
+  }
+
+  /**
+   * Restart the automatic backup timer after a `shutdown`.
+   *
+   * A store that `GraphContextStore` evicted is the same instance a caller may
+   * still hold; reviving it must also revive the timer `shutdown` cleared, or
+   * that graph would silently stop receiving periodic backups.
+   */
+  resumeBackupTimer(): void {
+    if (this.backupTimer === undefined) {
+      this.setupBackupTimer();
+    }
   }
 
   /**

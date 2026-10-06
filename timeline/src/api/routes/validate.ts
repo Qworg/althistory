@@ -8,6 +8,7 @@ import {
   authenticate,
   requireAuth,
   rateLimit,
+  requireGraphId,
   resolveGraphContext,
   authorizeGraphAccess,
   authorizeAny,
@@ -398,7 +399,7 @@ validateRoutes.post(
   authorizeAny('read:events', 'read:arcs', 'read:relationships') as RequestHandler,
   rateLimit() as RequestHandler,
   resolveGraphContext(),
-  authorizeGraphAccess((req) => req.graphId) as RequestHandler,
+  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const request = req.body as IncrementalValidationRequest;
@@ -422,7 +423,7 @@ validateRoutes.post(
       // repositories are bound to that graph's store, so no lookup can cross a
       // graph boundary even for a duplicate id that exists elsewhere.
       const { eventRepository, arcRepository } = await req.container.graphScopedRepositories(
-        req.graphId
+        requireGraphId(req)
       );
 
       // Check for event conflicts

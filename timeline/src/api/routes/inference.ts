@@ -2,13 +2,15 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { ValidationError, NotFoundError } from '@/utils/errors';
 import { TimeRange } from '@/models/Event';
 import { PressureType } from '@/models/InferredPressure';
-import { resolveGraphContext } from '@/api/middleware';
+import { requireGraphId, resolveGraphContext } from '@/api/middleware';
 
 export const inferenceRoutes = Router();
 
 // Scope every route in this group to exactly one graph. `resolveGraphContext`
-// resolves X-Graph-Id (falling back to the active graph) and attaches a
-// non-optional `req.graphId`; the handlers below read only that graph's store.
+// resolves X-Graph-Id (falling back to the active graph) and attaches the graph
+// id; the handlers below read it through the checked `requireGraphId` accessor
+// so a routing change that drops the mount fails loudly instead of reading an
+// unscoped value.
 inferenceRoutes.use(resolveGraphContext());
 
 /** Pressure types accepted by the inference API. Mirrors `PressureType`. */
@@ -35,7 +37,7 @@ inferenceRoutes.post('/analyze-clusters', async (req: Request, res: Response, ne
     }
 
     let events;
-    const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+    const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
 
     if (eventIds) {
       if (!Array.isArray(eventIds)) {
@@ -120,7 +122,7 @@ inferenceRoutes.post('/detect-patterns', async (req: Request, res: Response, nex
     }
 
     // Get events within criteria
-    const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+    const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     let events = await eventRepository.findByTimeRange(parsedTimeRange);
 
     // Filter by actors if specified
@@ -212,7 +214,7 @@ inferenceRoutes.get('/pressures', async (req: Request, res: Response, next: Next
     }
 
     // Get all events and analyze clusters to infer pressures
-    const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+    const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const inferenceService = req.container.inferenceService;
     
     const events = await eventRepository.findAll(1000); // Get sample of events
@@ -303,7 +305,7 @@ inferenceRoutes.get('/actor-relationships', async (req: Request, res: Response, 
     }
 
     // Basic actor relationship analysis using events
-    const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+    const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     let events = parsedTimeRange 
       ? await eventRepository.findByTimeRange(parsedTimeRange)
       : await eventRepository.findAll(1000);
@@ -355,7 +357,7 @@ inferenceRoutes.post('/similarity', async (req: Request, res: Response, next: Ne
     }
 
     // Get the reference event
-    const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+    const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const referenceEvent = await eventRepository.findById(eventId);
     
     if (!referenceEvent) {

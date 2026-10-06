@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import express, { Express, Request, Response, NextFunction } from 'express';
-import { errorHandler, resolveGraphContext, GraphLookup } from '@/api/middleware';
+import { errorHandler, requireGraphId, resolveGraphContext, GraphLookup } from '@/api/middleware';
 
 /**
  * A small in-memory stand-in for the two GraphRepository lookups that graph
@@ -14,16 +14,16 @@ class FakeGraphLookup implements GraphLookup {
   getActiveGraphCalls = 0;
 
   constructor(
-    private readonly graphs: Map<string, { id: string }>,
-    private readonly active: { id: string } | null
+    private readonly graphs: Map<string, { id: string; status?: string }>,
+    private readonly active: { id: string; status?: string } | null
   ) {}
 
-  async findById(id: string): Promise<{ id: string } | null> {
+  async findById(id: string): Promise<{ id: string; status?: string } | null> {
     this.findByIdCalls.push(id);
     return this.graphs.get(id) ?? null;
   }
 
-  async getActiveGraph(): Promise<{ id: string } | null> {
+  async getActiveGraph(): Promise<{ id: string; status?: string } | null> {
     this.getActiveGraphCalls += 1;
     return this.active;
   }
@@ -159,6 +159,59 @@ describe('resolveGraphContext', () => {
     expect(handlerCalls).toEqual([]);
     expect(lookup.getActiveGraphCalls).toBe(1);
     expect(lookup.findByIdCalls).toEqual([]);
+  });
+
+  it('refuses to scope a request to a soft-deleted graph named by the header', async () => {
+    const lookup = new FakeGraphLookup(
+      new Map([
+        ['graph-a', { id: 'graph-a' }],
+        ['graph-gone', { id: 'graph-gone', status: 'deleted' }],
+      ]),
+      { id: 'graph-a' }
+    );
+    const { app, handlerCalls } = buildApp(lookup);
+
+    const response = await request(app)
+      .get('/scoped')
+      .set('X-Graph-Id', 'graph-gone')
+      .expect(404);
+
+    expect(response.body.error.message).toBe("Graph 'graph-gone' not found");
+    expect(handlerCalls).toEqual([]);
+    expect(lookup.getActiveGraphCalls).toBe(0);
+    expect(lookup.findByIdCalls).toEqual(['graph-gone']);
+  });
+
+  it('does not fall back to a soft-deleted active graph', async () => {
+    const lookup = new FakeGraphLookup(new Map(), { id: 'active-gone', status: 'deleted' });
+    const { app, handlerCalls } = buildApp(lookup);
+
+    const response = await request(app).get('/scoped').expect(404);
+
+    expect(response.body.error.message).toMatch(/No graph context available/);
+    expect(handlerCalls).toEqual([]);
+    expect(lookup.getActiveGraphCalls).toBe(1);
+  });
+
+  it('fails loudly when a graph-reading handler is reached without the resolver mounted', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use((req: Request, _res: Response, next: NextFunction) => {
+      req.requestId = 'test-request-id';
+      req.startTime = Date.now();
+      next();
+    });
+    // Deliberately no `resolveGraphContext`: this models a route someone forgot
+    // to cover. The checked accessor must turn the type-level non-optional
+    // `req.graphId` claim into a visible failure rather than an undefined read.
+    app.get('/unwired', (req: Request, res: Response) => {
+      res.json({ graphId: requireGraphId(req) });
+    });
+    app.use(errorHandler);
+
+    const response = await request(app).get('/unwired').expect(500);
+    expect(response.body.error.message).toMatch(/without a resolved graph context/);
+    expect(response.body.error.message).toMatch(/GET \/unwired/);
   });
 
   it('renders resolution failures through the shared error shape', async () => {

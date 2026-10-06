@@ -1,5 +1,10 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import { DatabaseConnectionError, ErrorHandler, NotFoundError } from '@/utils/errors';
+import {
+  DatabaseConnectionError,
+  ErrorHandler,
+  GraphContextError,
+  NotFoundError,
+} from '@/utils/errors';
 import { assertSafeGraphId } from '@/utils/GraphContextStore';
 import { getContainer } from '@/container';
 import type { RequestContainer } from '@/container';
@@ -30,10 +35,13 @@ declare global {
       requestId: string;
       startTime: number;
       /**
-       * The graph this request is scoped to, resolved by
-       * `resolveGraphContext` before any handler runs. Non-optional by design: a
-       * handler must never observe a request whose graph scope is unknown,
-       * because an unscoped read is the bug this field exists to prevent.
+       * The graph this request is scoped to. Non-optional so a correctly wired
+       * handler does not have to null-check it, but the TYPE cannot prove the
+       * middleware ran: `resolveGraphContext` is mounted per router (and, for a
+       * few groups, per route), so a route that omits it compiles while
+       * `req.graphId` is `undefined` at runtime. Handlers that read graph data
+       * must therefore go through `requireGraphId`, which throws loudly on a
+       * missed mount instead of silently reading an unscoped or global value.
        */
       graphId: string;
     }
@@ -103,8 +111,8 @@ export function injectContainer(req: RequestWithContainer, res: Response, next: 
  * only has to satisfy these two lookups (design §9, storage-backend note).
  */
 export interface GraphLookup {
-  findById(id: string): Promise<{ id: string } | null>;
-  getActiveGraph(): Promise<{ id: string } | null>;
+  findById(id: string): Promise<{ id: string; status?: string } | null>;
+  getActiveGraph(): Promise<{ id: string; status?: string } | null>;
 }
 
 /** Resolves the graph lookup for a request. Injectable for tests and wiring. */
@@ -144,13 +152,19 @@ export function resolveGraphContext(
           assertSafeGraphId(headerValue);
 
           const graph = await lookup.findById(headerValue);
-          if (!graph) {
+          if (!graph || graph.status === 'deleted') {
+            // The resolved value has already passed `assertSafeGraphId`, which
+            // confines it to `[A-Za-z0-9._-]`, so echoing it here cannot inject
+            // into the JSON response. It is echoed deliberately, for
+            // diagnostics; that a caller can distinguish "malformed" (400) from
+            // "well-formed but absent or deleted" (404) is acceptable because
+            // the route is authenticated and graph access is authorised below.
             throw new NotFoundError(`Graph '${headerValue}' not found`, 'graph', headerValue);
           }
           graphId = graph.id;
         } else {
           const activeGraph = await lookup.getActiveGraph();
-          if (!activeGraph) {
+          if (!activeGraph || activeGraph.status === 'deleted') {
             throw new NotFoundError(
               'No graph context available: send an X-Graph-Id header or activate a graph',
               'graph'
@@ -166,6 +180,28 @@ export function resolveGraphContext(
       }
     })();
   };
+}
+
+/**
+ * Return the graph id resolved for this request, or throw a
+ * `GraphContextError` if none was set.
+ *
+ * `req.graphId` is declared non-optional so a correctly wired handler does not
+ * have to null-check it, but that declaration cannot prove `resolveGraphContext`
+ * actually ran: it is mounted per router, so a route someone forgets to cover
+ * would otherwise read `undefined` and silently fall through to unscoped or
+ * global data. Graph-reading handlers must use this accessor so a missing mount
+ * fails visibly as a 500 instead.
+ */
+export function requireGraphId(req: Request): string {
+  // `req.graphId` is typed `string`, but the augmentation is a compile-time
+  // promise, not a runtime guarantee, so re-check the value the middleware
+  // actually wrote.
+  const graphId: unknown = req.graphId;
+  if (typeof graphId !== 'string' || graphId.length === 0) {
+    throw new GraphContextError(`${req.method} ${req.originalUrl || req.path}`);
+  }
+  return graphId;
 }
 
 /**
