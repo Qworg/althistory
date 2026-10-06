@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { act } from 'react'
 import type { Core, CytoscapeOptions } from 'cytoscape'
 import userEvent from '@testing-library/user-event'
@@ -586,7 +586,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     })
   })
 
-  it('should keep link creation mode active after a background click', async () => {
+  it('should cancel link creation on background click', async () => {
     render(<CausalGraphComponent />)
 
     // Start link creation mode FIRST
@@ -597,19 +597,45 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
       expect(screen.getByText('Cancel Link')).toBeInTheDocument()
     })
 
+    // Let the same-task guard lapse so the tap below models a genuine user tap
+    // arriving in a later task, rather than re-render fallout.
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+
     // Get the LATEST background tap handlers after state change
     const allHandlers = getEventHandlers(mockCy, 'tap')
     const handler = allHandlers[allHandlers.length - 1]!
 
-    // Simulate background click. The component deliberately ignores background
-    // taps while a link is being created (spurious taps fired during React
-    // re-renders would otherwise cancel the interaction); Escape and the
-    // Cancel Link button are the supported cancellation paths.
+    // Simulate a deliberate background tap
     await act(async () => {
       handler({ target: mockCy })
     })
 
-    expect(screen.getByText('Cancel Link')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('Create Link')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Cancel Link')).not.toBeInTheDocument()
+  })
+
+  it('should not cancel link creation for a background tap in the same turn as entering link mode', async () => {
+    render(<CausalGraphComponent />)
+
+    // The core background tap handler is registered on mount.
+    const allHandlers = getEventHandlers(mockCy, 'tap')
+    const handler = allHandlers[allHandlers.length - 1]!
+
+    // Enter link mode, then deliver a background tap synchronously in the same
+    // task, without yielding to the task queue. This models the gesture /
+    // re-render fallout that must not cancel the interaction the user just began.
+    fireEvent.click(screen.getByText('Create Link'))
+    act(() => {
+      handler({ target: mockCy })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Cancel Link')).toBeInTheDocument()
+    })
     expect(screen.queryByText('Create Link')).not.toBeInTheDocument()
   })
 })
