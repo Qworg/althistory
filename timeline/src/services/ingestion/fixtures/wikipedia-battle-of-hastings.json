@@ -1,0 +1,14 @@
+{
+  "parse": {
+    "title": "Battle of Hastings",
+    "pageid": 83274,
+    "wikitext": "{{Infobox military conflict\n| conflict = Battle of Hastings\n| date = 14 October 1066\n| place = Senlac Hill, England\n| result = Norman victory\n| combatant1 = [[Duchy of Normandy]]\n| combatant2 = [[Kingdom of England]]\n}}\n\nThe '''Battle of Hastings''' was fought on 14 October 1066 between the Norman-French army of William, Duke of Normandy and the English army under King Harold Godwinson.\n\nHarold was killed during the battle, and William became King of England on 25 December 1066.\n\n== Background ==\nIn 1065, King Edward the Confessor died without an heir.\n",
+    "links": [
+      { "ns": 0, "title": "William the Conqueror", "exists": true },
+      { "ns": 0, "title": "Harold Godwinson", "exists": true },
+      { "ns": 0, "title": "Norman conquest of England", "exists": true },
+      { "ns": 0, "title": "Duchy of Normandy", "exists": true },
+      { "ns": 0, "title": "Kingdom of England", "exists": true }
+    ]
+  }
+}

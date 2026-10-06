@@ -1,0 +1,14 @@
+{
+  "id": "msg_fixture_1",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-3-5-haiku-latest",
+  "content": [
+    {
+      "type": "text",
+      "text": "```json\n{\"events\":[{\"description\":\"The Battle of Hastings was fought\",\"actor\":\"William, Duke of Normandy\",\"target\":\"Harold Godwinson\",\"timestamp\":\"1066-10-14T00:00:00Z\",\"confidence\":0.92}]}\n```"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "usage": { "input_tokens": 100, "output_tokens": 40 }
+}

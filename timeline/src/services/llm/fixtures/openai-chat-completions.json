@@ -1,0 +1,17 @@
+{
+  "id": "chatcmpl-fixture-1",
+  "object": "chat.completion",
+  "created": 1710000000,
+  "model": "gpt-4o-mini",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": "{\"events\":[{\"description\":\"The Battle of Hastings was fought\",\"actor\":\"William, Duke of Normandy\",\"target\":\"Harold Godwinson\",\"timestamp\":\"1066-10-14T00:00:00Z\",\"confidence\":0.94},{\"description\":\"William became King of England\",\"actor\":\"William\",\"target\":\"Kingdom of England\",\"timestamp\":\"1066-12-25T00:00:00Z\",\"confidence\":0.9},{\"description\":\"This entry has no timestamp and must be dropped\",\"actor\":\"Nobody\",\"target\":\"Nothing\"}]}"
+      }
+    }
+  ],
+  "usage": { "prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150 }
+}

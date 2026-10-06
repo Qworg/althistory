@@ -1,0 +1,24 @@
+{
+  "head": { "vars": ["event", "eventLabel", "date", "placeLabel"] },
+  "results": {
+    "bindings": [
+      {
+        "event": { "type": "uri", "value": "http://www.wikidata.org/entity/Q83274" },
+        "eventLabel": { "type": "literal", "value": "Battle of Hastings" },
+        "date": { "datatype": "http://www.w3.org/2001/XMLSchema#dateTime", "type": "literal", "value": "1066-10-14T00:00:00Z" },
+        "placeLabel": { "type": "literal", "value": "Senlac Hill" }
+      },
+      {
+        "event": { "type": "uri", "value": "http://www.wikidata.org/entity/Q269614" },
+        "eventLabel": { "type": "literal", "value": "Norman conquest of England" },
+        "date": { "datatype": "http://www.w3.org/2001/XMLSchema#dateTime", "type": "literal", "value": "1066-09-28T00:00:00Z" },
+        "placeLabel": { "type": "literal", "value": "England" }
+      },
+      {
+        "event": { "type": "uri", "value": "http://www.wikidata.org/entity/Q0000" },
+        "eventLabel": { "type": "literal", "value": "Unparseable date" },
+        "date": { "datatype": "http://www.w3.org/2001/XMLSchema#dateTime", "type": "literal", "value": "-0044-03-15T00:00:00Z" }
+      }
+    ]
+  }
+}
