@@ -22,7 +22,7 @@ code is unreachable from the running app**.
 | I/O UI orphaned | `GraphSelector`, `GraphManagerModal`, `ExportPanel`, `ImportWizard`, `ApiKeyDashboard`, `VersionHistoryPanel` — **0 non-test importers each** |
 | No error surface | `ErrorBoundary` / `componentDidCatch` → **0 matches** |
 | Graph copy broken | Frontend calls `/graph/copy` (4 sites); backend `graphs.ts` has no copy route → 404 |
-| Versioning disconnected | `commitChanges` called only by `GraphService.merge` and `ImportService` — **never** by events/arcs routes |
+| Versioning disconnected | `commitChanges` was called only by `GraphService.merge` and `ImportService` — **never** by events/arcs routes. Now also called by `GraphWriteVersioningService` from the write routes; `GraphService.commitChanges` is a fourth caller (tests only) |
 | ADR-001 drifted | `Timeline.tsx:111,203,214` still does `d3.select(svgRef.current).transition()` — D3 owns the DOM |
 
 So the priority order is deliberately **wiring before building**: several phases below convert sunk
@@ -93,9 +93,12 @@ only, so a filtered copy fails validation unless the separate "Use Current Filte
 
 ### 2.1 Reconnect the versioned store (B3) — highest-leverage single fix
 Two parallel stores: `GraphRepository`/`VersionRepository` write versioned JSON under `data/graphs/`;
-real events/arcs/causal go to `EventRepository`/`LocalGraphStore`. Only `ImportService` and
-`GraphService.mergeGraph` call `commitChanges`, so a graph built through the UI has **empty version
-history and an empty export**. This invalidates Requirements 1.3, 2.1, 3, 4.4 and 5 at once.
+real events/arcs/causal go to `EventRepository`/`LocalGraphStore`. `ImportService` and
+`GraphService.mergeGraph` were the only writers to `commitChanges`, so a graph built through the UI
+had **empty version history and an empty export**. (The claim that this bridge's `commit` was "the
+only caller of `commitChanges` outside the import and merge paths" is inaccurate: the public
+`GraphService.commitChanges` wrapper is a fourth caller, used only by tests today.) The bridge
+increment below reconnects UI writes; that work invalidated Requirements 1.3, 2.1, 3, 4.4 and 5.
 
 This is why the multi-graph UI cannot work even once mounted (Phase 3), so it must land before it.
 

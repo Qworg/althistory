@@ -12,8 +12,19 @@
  * graph id is an explicit parameter of every public method: the service does not
  * consult the active-graph pointer, because a service that chooses its own target
  * is exactly how a request scoped to graph B ended up versioning into graph A.
- * The data shapes deliberately mirror ImportService.commitImport so that versions
- * produced by an import and by a live write are interchangeable.
+ *
+ * The event and relationship data shapes deliberately mirror
+ * ImportService.commitImport so that versions produced by an import and by a
+ * live write are interchangeable. The arc shape mirrors it too, with one
+ * unavoidable exception: the live `Arc` model carries no `parent_arc_id`
+ * (hierarchy is derived temporally), so a live arc cannot supply one. See
+ * `arcToVersionData`.
+ *
+ * The shared `commit` path is a caller of `GraphRepository.commitChanges`, but
+ * it is not the only caller outside import and merge: the public
+ * `GraphService.commitChanges` wrapper calls the same repository method too
+ * (only tests exercise it today). The "single caller" phrasing in the original
+ * commit message for this service was inaccurate.
  */
 
 import { GraphRepository } from '@/repositories/GraphRepository';
@@ -55,7 +66,18 @@ function eventToVersionData(event: Event): Record<string, unknown> {
   };
 }
 
-/** Arc -> version-store entity. Mirrors ImportService's arc data shape. */
+/**
+ * Arc -> version-store entity.
+ *
+ * Mirrors ImportService's arc data shape on every field the live `Arc` model
+ * actually has. `parent_arc_id` is intentionally absent: neither `Arc` nor
+ * `CreateArcRequest` declares it, and the live store derives arc hierarchy from
+ * `level` plus temporal containment, so there is no parent id to persist.
+ * ImportService writes `parent_arc_id` because imported data carries it; a live
+ * arc persists without the field rather than fabricating a null. This is why the
+ * two arc shapes are interchangeable in every field except an absent optional
+ * one, not literally identical.
+ */
 function arcToVersionData(arc: Arc): Record<string, unknown> {
   return {
     id: arc.id,
@@ -131,13 +153,70 @@ export class GraphWriteVersioningService {
     }, operation);
   }
 
-  /** Record the deletion of an entity against one named graph. */
+  /**
+   * Record the deletion of an entity against one named graph.
+   *
+   * A live-store delete cascades: `LocalGraphStore.executeDelete` implements
+   * every node delete as a DETACH DELETE, removing each relationship incident to
+   * the deleted node. The version store has no such cascade, so deleting an event
+   * must also record the deletion of every relationship that references it.
+   * Without that, checkout() and ExportService keep a relationship pointing at a
+   * deleted event — exactly the ORPHAN_REFERENCE state ImportService rejects.
+   * The incident ids are read from the version store itself, because that is the
+   * state being repaired, and the whole set is committed atomically.
+   *
+   * No analogue is needed for arcs or relationships through the API: no route
+   * creates a relationship incident to an arc, the live `Arc` model has no
+   * `parent_arc_id` to cascade, and a relationship delete is a leaf.
+   */
   async recordDeletion(graphId: string, type: EntityType, id: string): Promise<void> {
-    await this.commitWrite(graphId, { type, id }, 'delete');
+    const deleted: EntityChanges['deleted'] = [{ type, id }];
+
+    if (type === 'event') {
+      for (const relationshipId of await this.incidentRelationshipIds(graphId, id)) {
+        deleted.push({ type: 'relationship', id: relationshipId });
+      }
+    }
+
+    await this.commit(
+      graphId,
+      { added: [], modified: [], deleted },
+      'delete',
+      `delete ${type} ${id}`
+    );
   }
 
   /**
-   * The single shared commit path.
+   * Ids of the version-store relationships referencing `eventId` as either cause
+   * or effect. This is the version-store mirror of the live store's relationship
+   * cascade on node deletion.
+   */
+  private async incidentRelationshipIds(graphId: string, eventId: string): Promise<string[]> {
+    const data = await this.graphRepository.checkout(graphId);
+    return Object.entries(data.relationships)
+      .filter(([, rel]) => rel.cause_event_id === eventId || rel.effect_event_id === eventId)
+      .map(([id]) => id);
+  }
+
+  /** Build the EntityChanges for a create/update and commit via the shared path. */
+  private async commitWrite(
+    graphId: string,
+    write: VersionEntityWrite,
+    operation: EntityWriteOperation
+  ): Promise<void> {
+    // `data` is always set for create/update by the typed wrappers above.
+    const entity = { type: write.type, id: write.id, data: write.data ?? {} };
+    const changes: EntityChanges = {
+      added: operation === 'create' ? [entity] : [],
+      modified: operation === 'update' ? [entity] : [],
+      deleted: [],
+    };
+
+    await this.commit(graphId, changes, operation, `${operation} ${write.type} ${write.id}`);
+  }
+
+  /**
+   * The single shared commit path for this service.
    *
    * Graph resolution policy: the target graph is a required argument. The service
    * deliberately does not resolve the active graph itself — the caller's graph
@@ -154,37 +233,24 @@ export class GraphWriteVersioningService {
    * see) and would hide it behind a 2xx response. Callers must treat the surfaced
    * error as "the write is not versioned" and reconcile, e.g. by retrying through
    * the import path.
+   *
+   * This is the bridge's only call into `GraphRepository.commitChanges`, but it is
+   * not the only caller in the codebase: `ImportService.commitImport`,
+   * `GraphService.mergeGraph` and the public `GraphService.commitChanges` wrapper
+   * also call it. The original commit message's claim that this was "the only
+   * caller of commitChanges outside the import and merge paths" was wrong — the
+   * wrapper is a fourth caller.
    */
-  private async commitWrite(
+  private async commit(
     graphId: string,
-    write: VersionEntityWrite,
-    operation: EntityWriteOperation | 'delete'
+    changes: EntityChanges,
+    operation: EntityWriteOperation | 'delete',
+    description: string
   ): Promise<void> {
-    const changes: EntityChanges = { added: [], modified: [], deleted: [] };
-    if (operation === 'delete') {
-      changes.deleted.push({ type: write.type, id: write.id });
-    } else {
-      // `data` is always set for create/update by the typed wrappers above.
-      const entity = { type: write.type, id: write.id, data: write.data ?? {} };
-      if (operation === 'create') {
-        changes.added.push(entity);
-      } else {
-        changes.modified.push(entity);
-      }
-    }
-
     try {
-      await this.graphRepository.commitChanges(
-        graphId,
-        changes,
-        operation,
-        `${operation} ${write.type} ${write.id}`
-      );
+      await this.graphRepository.commitChanges(graphId, changes, operation, description);
     } catch (error) {
-      this.logger.error(
-        `Failed to commit ${operation} ${write.type} ${write.id} to graph ${graphId}`,
-        error
-      );
+      this.logger.error(`Failed to commit ${description} to graph ${graphId}`, error);
       throw error;
     }
   }

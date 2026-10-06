@@ -272,9 +272,10 @@ suggestRoutes.post(
     try {
       // Read from the graph this request is scoped to. The scoped repository
       // is bound to that graph's store, so the read cannot leak across graphs.
-      const { eventRepository } = await req.container.graphScopedRepositories(req.graphId);
+      const { eventRepository, causalService } = await req.container.graphScopedRepositories(
+        req.graphId
+      );
       const events = await eventRepository.findAll();
-      const causalService = req.container.causalService;
 
       // Get all causal relationships by checking causal chains
       const relationships: Array<{ cause_event_id: string; effect_event_id: string }> = [];

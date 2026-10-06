@@ -151,8 +151,9 @@ temporalRoutes.post('/validate-event', async (req: Request, res: Response, next:
       })
     );
 
-    // Validate temporal constraints
-    const temporalService = req.container.temporalService;
+    // Validate temporal constraints through the graph-scoped service, which is
+    // built from this request's repositories rather than the global store.
+    const { temporalService } = await req.container.graphScopedRepositories(req.graphId);
     const validations = arcs.map(arc => ({
       arc: arc.toJSON(),
       isValid: temporalService.validateEventInArc(event, arc),
@@ -205,8 +206,8 @@ temporalRoutes.post('/validate-arc-nesting', async (req: Request, res: Response,
       throw new NotFoundError(`Child arc with ID ${childArcId} not found`, 'Arc', childArcId);
     }
 
-    // Validate nesting
-    const temporalService = req.container.temporalService;
+    // Validate nesting through the graph-scoped service.
+    const { temporalService } = await req.container.graphScopedRepositories(req.graphId);
     const isValid = temporalService.validateArcNesting(parentArc, childArc);
 
     res.json({

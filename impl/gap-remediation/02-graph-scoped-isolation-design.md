@@ -70,6 +70,19 @@ handler a repository that is already scoped.
 
 An un-scoped `findAll()` should not be callable from a request path at all.
 
+**Implementation status (honest account).** The current implementation realises this principle to a
+bounded degree. The handler-facing `RequestContainer` omits the global live-store repositories
+(`eventRepository`, `arcRepository`), `temporalService`, `causalService` and `databaseManager`, so a
+handler cannot reach global data *by accident* through the container it is handed. It does **not**
+make unscoped reads impossible: the exported module-level `getContainer()` returns the full
+`Container`, so `getContainer().eventRepository` compiles with no cast, and `req.container` can be
+cast back to `Container`. `graphCopyService` also remains on `RequestContainer`, because graph copy
+is inherently cross-graph and has no scoped replacement. Closing the gap fully would require
+removing or graph-scoping the module-level accessor (and giving copy a graph-parameter interface);
+that is a follow-on, not something a type change can achieve. What the type does guarantee is that an
+unscoped read requires deliberately reaching past the handler-facing type rather than happening by
+accident.
+
 ---
 
 ## 4. Options considered
@@ -141,13 +154,17 @@ isolation correct, so it is deferred rather than bundled.
 - Local: one `LocalGraphStore` per graph, file `data/graphs-live/<graphId>.json`, loaded lazily and
   cached. Reuses the existing class unchanged — only the path differs.
 - The container exposes `graphScopedRepositories(graphId)` returning `{ eventRepository,
-  arcRepository, causalService }` bound to that graph's store.
-- The existing global `eventRepository`/`arcRepository` accessors are **removed from the request
-  path**. They stay only for non-request contexts (cli/tests) or are removed outright if nothing needs
-  them — to be decided during implementation by grepping consumers.
+  arcRepository, causalService, temporalService }` bound to that graph's store.
+- The handler-facing `RequestContainer` omits the global `eventRepository`/`arcRepository`,
+  `temporalService`, `causalService` and `databaseManager`, so none is reachable through
+  `req.container` without a deliberate cast.
 
-This is the change that makes the goal real: after it, there is no un-scoped `findAll()` reachable from
-a route.
+This makes an accidental unscoped read through the handler's container a compile error. It does
+**not** make unscoped reads impossible: `getContainer()` returns the full `Container` and is
+reachable from any module, so `getContainer().eventRepository` compiles with no cast, and
+`graphCopyService` stays on `RequestContainer` because the copy route legitimately needs a
+cross-graph service. See §3 for the full residual-hole account and §9 Q5 for the follow-on that
+would close it.
 
 ### 5.3 Data layout
 
@@ -230,8 +247,10 @@ The acceptance criterion is a **negative** test as much as a positive one:
 | 8 | Audit remaining routes (`temporal`, `inference`, `export`, `graphs`) for unscoped reads | |
 
 Tasks 1–2 are independently verifiable and do not change route behaviour, so they are a safe first
-increment. Task 3 is the point of no return: after it, unscoped reads are a compile error rather than
-a silent leak.
+increment. Task 3 removes the globally-scoped surfaces from the handler-facing container, so an
+unscoped read through `req.container` is a compile error rather than a silent leak — but see §3: the
+module-level `getContainer()` accessor still returns the full container, so the guarantee is
+"deliberate rather than accidental", not "impossible".
 
 ---
 
@@ -289,3 +308,11 @@ plus an fs check, before any store for that graph is loaded.
 
 **Q4 — Pressures.** Confirm the live side stores pressures per graph rather than globally.
 `EntityType` already includes `'pressure'`, so the version side does; the live side must match.
+
+**Q5 — The residual `getContainer()` hole. OPEN (follow-on).** `RequestContainer` cannot close the
+escape hatch created by the exported module-level `getContainer()`, which returns the full
+`Container`. As long as it exists, a determined caller reaches global data with no cast and no type
+error. Fully closing it would require one of: removing `getContainer()` and threading the container
+explicitly everywhere (including CLI/tests), or returning a graph-parameterised facade that the call
+site must scope. Neither is in this increment. Until then, the accurate claim is that the handler
+surface no longer *offers* unscoped data, not that unscoped reads are impossible.

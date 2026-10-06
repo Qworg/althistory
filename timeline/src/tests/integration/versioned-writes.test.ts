@@ -179,4 +179,71 @@ describe('Versioned entity writes (route level)', () => {
     const data = await container.graphRepository.checkout(graph.id);
     expect(data.events[eventId]).toBeUndefined();
   });
+
+  it('cascades a linked event deletion so checkout and export hold no dangling relationship', async () => {
+    const graph = await container.graphService.createGraph({ name: 'Versioned Cascade Delete' });
+    await container.graphService.setActiveGraph(graph.id);
+
+    const causeResponse = await request(app)
+      .post('/api/events')
+      .send({
+        description: 'Cause event',
+        actor: 'Actor A',
+        target: 'Target A',
+        timestamp: '2020-01-01T00:00:00.000Z',
+      })
+      .expect(201);
+    const causeId = causeResponse.body.data.id;
+
+    const effectResponse = await request(app)
+      .post('/api/events')
+      .send({
+        description: 'Effect event',
+        actor: 'Actor B',
+        target: 'Target B',
+        timestamp: '2021-01-01T00:00:00.000Z',
+      })
+      .expect(201);
+    const effectId = effectResponse.body.data.id;
+
+    await request(app)
+      .post('/api/causal/link')
+      .send({
+        causeEventId: causeId,
+        effectEventId: effectId,
+        relationship: {
+          type: 'direct',
+          strength: 0.8,
+          confidence: 0.9,
+          evidence: 'Observed sequence',
+        },
+      })
+      .expect(201);
+
+    // Deleting the cause must remove the event AND its incident relationship
+    // from the version store, mirroring the live store's cascade.
+    await request(app).delete(`/api/events/${causeId}`).expect(200);
+
+    const data = await container.graphRepository.checkout(graph.id);
+    expect(data.events[causeId]).toBeUndefined();
+    expect(data.events[effectId]).toBeDefined();
+    expect(
+      Object.values(data.relationships).some(
+        rel => rel.cause_event_id === causeId || rel.effect_event_id === causeId
+      )
+    ).toBe(false);
+
+    const exportResult = await container.exportService.exportGraph({
+      graphId: graph.id,
+      scope: 'full',
+      includeProvenance: false,
+    });
+    expect(exportResult.export.data.events.map(event => event.id)).not.toContain(causeId);
+    expect(exportResult.export.data.events.map(event => event.id)).toContain(effectId);
+    expect(
+      exportResult.export.data.causalRelationships.some(
+        rel => rel.cause_event_id === causeId || rel.effect_event_id === causeId
+      )
+    ).toBe(false);
+  });
 });

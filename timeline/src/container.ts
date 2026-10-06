@@ -38,15 +38,19 @@ import { AppConfig } from '@/utils/config';
 type Initializable = { initialize(): Promise<void> };
 
 /**
- * Repositories bound to exactly one graph's live store.
+ * Repositories and services bound to exactly one graph's live store.
  *
  * Returned by {@link Container.graphScopedRepositories}; because the store is
  * captured at construction there is no unscoped read reachable through these
- * objects.
+ * objects. The two services are bound to the same store as the repositories, so
+ * `causalService` and `temporalService` read this graph's data, not the
+ * process-wide legacy store the container-level getters resolve.
  */
 export interface GraphScopedRepositories {
   eventRepository: EventRepository;
   arcRepository: ArcRepository;
+  causalService: CausalService;
+  temporalService: TemporalService;
 }
 
 /**
@@ -299,18 +303,26 @@ export class Container implements ServiceContainer {
     }
 
     const databaseManager = new LocalDatabaseManager(store);
+    const eventRepository = new EventRepository(
+      databaseManager,
+      this.validationService,
+      this.cacheInvalidationService
+    );
+    const arcRepository = new ArcRepository(
+      databaseManager,
+      this.validationService,
+      undefined,
+      this.cacheInvalidationService
+    );
     const repositories: GraphScopedRepositories = {
-      eventRepository: new EventRepository(
-        databaseManager,
-        this.validationService,
-        this.cacheInvalidationService
-      ),
-      arcRepository: new ArcRepository(
-        databaseManager,
-        this.validationService,
-        undefined,
-        this.cacheInvalidationService
-      ),
+      eventRepository,
+      arcRepository,
+      // Bound to this graph's store, so causal reads, writes and caches stay
+      // inside the request's graph instead of the process-wide singleton.
+      causalService: new CausalService({ graphStore: store, graphId }),
+      // Constructed from the scoped repositories, so temporal queries (e.g.
+      // findEventsInRange) read this graph rather than the global store.
+      temporalService: new TemporalService(eventRepository, arcRepository),
     };
 
     this._graphScopedRepositories.set(graphId, { store, repositories });
@@ -611,23 +623,39 @@ export class Container implements ServiceContainer {
 }
 
 /**
- * The container as seen by request handlers: the full container minus the two
- * process-wide, unscoped live-store repositories (`eventRepository` and
- * `arcRepository`).
+ * The container as seen by request handlers: the full container minus every
+ * process-wide, globally-scoped data-reading surface.
  *
- * This type exists so that graph scoping is *structural* rather than a
- * convention: a handler that reaches for an unscoped repository through
- * `req.container` is a compile error, so a forgotten scope cannot ship. It does
- * not delete the accessors — non-request contexts (CLI paths, tests) still hold
- * the full `Container` and may inspect the global store deliberately. Request
- * handlers must obtain their repositories from
- * `req.container.graphScopedRepositories(req.graphId)`.
+ * Omitted: the two global live-store repositories (`eventRepository`,
+ * `arcRepository`); `temporalService`, which is constructed from those global
+ * repositories and so selects global events/arcs; `causalService`, which is
+ * constructed without a store and so resolves the global `LocalGraphStore`; and
+ * `databaseManager`, whose `getGraphStore()`/session expose the same global
+ * store. Handlers obtain graph-bound repositories and services from
+ * `req.container.graphScopedRepositories(req.graphId)` instead.
  *
- * Widening this type back to `Container` defeats the guarantee; a cast that
- * reaches an unscoped repository is a deliberate, visible act rather than a
- * silent leak.
+ * This raises the cost of an unscoped read from "accidental" to "deliberate",
+ * but it does NOT make one impossible. These escapes remain, and none is a type
+ * error:
+ *   1. the exported module-level `getContainer()` returns the full `Container`,
+ *      so `getContainer().eventRepository` compiles with no cast;
+ *   2. a handler may cast `req.container` back to `Container`; and
+ *   3. `graphCopyService` stays on this type. It is constructed from the global
+ *      `databaseManager` session, so it reads global data, but graph copy is
+ *      inherently cross-graph and there is no graph-scoped replacement today.
+ *      Removing it would break the copy route (`graphs.ts`) rather than fix a
+ *      leak, so it is a documented known hole instead of a silent one.
+ * No `Omit` can close (1), because the accessor is deliberately shared with
+ * non-request contexts (CLI paths, tests). Closing it fully would require
+ * removing or graph-scoping that module-level accessor, which is a follow-on.
+ * What this type does guarantee is that a handler cannot reach global data by
+ * accident through the container it is handed. A cast that reaches an unscoped
+ * repository is a deliberate, visible act rather than a silent leak.
  */
-export type RequestContainer = Omit<Container, 'eventRepository' | 'arcRepository'>;
+export type RequestContainer = Omit<
+  Container,
+  'eventRepository' | 'arcRepository' | 'temporalService' | 'causalService' | 'databaseManager'
+>;
 
 /**
  * Global container instance
