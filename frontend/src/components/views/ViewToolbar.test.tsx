@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent } from '@testing-library/react'
+import { axe } from 'vitest-axe'
 import { renderWithProviders } from '../../test/utils'
 import { ViewToolbar } from './ViewToolbar'
 import { useGlobalStore } from '@/stores/globalStore'
@@ -334,6 +335,20 @@ describe('ViewToolbar', () => {
       const labelSpan = fitButton.querySelector('span')
       
       expect(labelSpan).toHaveClass('hidden', 'sm:inline')
+    })
+  })
+
+  describe('Accessibility (axe)', () => {
+    it('timeline view has no axe violations', async () => {
+      const { container } = renderWithProviders(<ViewToolbar viewMode="timeline" />)
+
+      expect(await axe(container)).toHaveNoViolations()
+    })
+
+    it('causal view has no axe violations', async () => {
+      const { container } = renderWithProviders(<ViewToolbar viewMode="causal" />)
+
+      expect(await axe(container)).toHaveNoViolations()
     })
   })
 })

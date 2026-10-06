@@ -4,6 +4,9 @@ import { cleanup } from '@testing-library/react'
 // `Assertion` / `AsymmetricMatchersContaining` interfaces with their types
 // (this replaces the hand-written `src/test/vitest.d.ts` module augmentation).
 import '@testing-library/jest-dom/vitest'
+// Registers `toHaveNoViolations` on Vitest's `expect` (and augments the
+// `Assertion` interface) so accessibility checks assert on rendered output.
+import 'vitest-axe/extend-expect'
 
 // Mock ResizeObserver (not available in jsdom).
 // jsdom has no `ResizeObserver`, so the global is replaced by this stand-in,

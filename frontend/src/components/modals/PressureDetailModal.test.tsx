@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
+import { axe } from 'vitest-axe'
 import PressureDetailModal from './PressureDetailModal'
 import { PressureWithContext } from '@/types/pressure'
 import { Event, Arc } from '@/types'
@@ -313,6 +314,22 @@ describe('PressureDetailModal', () => {
       const dialog = screen.getByRole('dialog')
       const iconSpan = dialog.querySelector('[aria-hidden="true"]')
       expect(iconSpan).toBeInTheDocument()
+    })
+  })
+
+  describe('Accessibility (axe)', () => {
+    it('default state has no axe violations', async () => {
+      const { container } = render(<PressureDetailModal {...defaultProps} />)
+
+      expect(await axe(container)).toHaveNoViolations()
+    })
+
+    it('empty evidence list has no axe violations', async () => {
+      const { container } = render(
+        <PressureDetailModal {...defaultProps} pressure={{ ...mockPressure, evidenceEvents: [] }} />
+      )
+
+      expect(await axe(container)).toHaveNoViolations()
     })
   })
 })

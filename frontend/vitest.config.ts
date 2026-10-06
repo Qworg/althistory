@@ -8,6 +8,30 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    coverage: {
+      provider: 'v8',
+      // `all` counts every source file that matches `include`, including ones
+      // no test ever imports, so the baseline cannot be flattered by only
+      // measuring files a test happened to touch.
+      all: true,
+      reporter: ['text', 'text-summary', 'json-summary', 'html'],
+      // The flat ESLint config only ignores `dist`, so a generated `coverage/`
+      // directory would be linted (the v8 HTML reporter ships .js files with
+      // eslint-disable comments, which surface as new warnings). Keep the
+      // report under node_modules, which both ESLint and git ignore.
+      reportsDirectory: './node_modules/.cache/vitest-coverage',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/**/*.spec.{ts,tsx}',
+        'src/**/*.d.ts',
+        // Test scaffolding: setup, mocks, fixtures, generators, helpers.
+        'src/test/**',
+        // Build/config files are not application behaviour.
+        '**/*.config.{ts,js,mts,cts}',
+        '**/dist/**',
+      ],
+    },
   },
   resolve: {
     alias: {

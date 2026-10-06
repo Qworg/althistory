@@ -8,6 +8,28 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
+    coverage: {
+      provider: 'v8',
+      // `all` counts every source file that matches `include`, including ones
+      // no test ever imports, so the baseline cannot be flattered by only
+      // measuring files a test happened to touch.
+      all: true,
+      reporter: ['text', 'text-summary', 'json-summary', 'html'],
+      reportsDirectory: './coverage',
+      include: ['src/**/*.ts'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/**/*.load.test.ts',
+        'src/**/*.d.ts',
+        // Test scaffolding.
+        'src/test-setup.ts',
+        'src/tests/**',
+        'src/utils/test-utils.ts',
+        // Build/config files are not application behaviour.
+        '**/*.config.{ts,js,mts,cts}',
+        '**/dist/**',
+      ],
+    },
     testTimeout: 30000, // Increase timeout for database operations
     hookTimeout: 30000, // Increase hook timeout
     teardownTimeout: 30000, // Increase teardown timeout

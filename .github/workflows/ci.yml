@@ -1,0 +1,105 @@
+# Continuous integration.
+#
+# Why this exists: every quality property in this repository used to depend on a
+# human choosing to run a command and believing the output. That produced a
+# frontend build that had never once passed, 337 backend typecheck errors with no
+# ESLint config at all, and a skipped test suite that documentation claimed was
+# green. CI turns "someone checked" into "the repository checks itself".
+#
+# What is gated on every push to main and every pull request:
+#
+#   backend (timeline/)                     frontend (frontend/)
+#   ------------------------------------    ------------------------------------
+#   npm ci                                  npm ci
+#   npx tsc --noEmit                        npx tsc -b --noEmit --force
+#   npm run lint   (--max-warnings 0)       npx eslint .
+#   npx vitest --run                        npx vitest --run
+#                                           npm run build
+#
+# The frontend production build is explicitly gated because it is the single
+# highest-value regression lock: it had never passed before, so a green build is
+# real evidence, not a formality.
+#
+# The two packages are independent and each saturates a machine's CPUs, so they
+# run as separate parallel jobs on separate runners rather than sequentially.
+# Both suites run in local execution mode with no external services (no Neo4j,
+# no Redis), so no service containers are required.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (typecheck, lint, test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: timeline
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # No "engines" field is declared. Vite 7 requires ^20.19.0 || >=22.12.0
+          # and Vitest 3 requires ^18 || ^20 || >=22; the dev machine and the
+          # lockfiles are Node 24, so 24 is the version the code is known to work on.
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: timeline/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npx vitest --run
+
+  frontend:
+    name: Frontend (typecheck, lint, test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # See backend job: Node 24 matches the dev machine and satisfies the
+          # Vite 7 / Vitest 3 engine constraints.
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc -b --noEmit --force
+
+      - name: Lint
+        run: npx eslint .
+
+      - name: Test
+        run: npx vitest --run
+
+      - name: Build
+        run: npm run build
