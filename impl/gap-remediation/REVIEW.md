@@ -23,16 +23,44 @@ counting tests cannot detect an inverted expectation.
 
 ## Reviewer model
 
-Configured in `~/.pi/agent/settings.json`; invoked per-slice via the `model` option.
+### Preferred: Claude Code in headless mode (subscription, not OpenRouter)
+
+```sh
+claude -p "$(cat /tmp/brief.md)" \
+  --model claude-opus-5-5 \
+  --allowedTools "Read Grep Glob Bash" \
+  --disallowedTools "Edit Write NotebookEdit" \
+  --effort high \
+  --output-format json
+```
+
+Verified working. Notes, all checked by hand rather than assumed:
+
+- **The model id is `claude-opus-5-5`** — hyphens, not `claude-opus-5.5`. The dotted form is
+  rejected with "may not exist or you may not have access", and `opus-5.5` / `opus5.5` are not in
+  this version's catalog. The alias `opus` also works and resolves to the latest.
+- Resolves as canonical `claude-opus-5-5`, 1M context, 128k max output, `provider: firstParty`.
+- Auth is the **claude.ai subscription** (`claude auth status` → `loggedIn: true`,
+  `authMethod: claude.ai`), so this consumes subscription quota rather than OpenRouter credits.
+- `--allowedTools` plus `--disallowedTools` makes it genuinely read-only and non-interactive; no
+  permission prompts in `--print` mode once the tool set is declared.
+- `--output-format json` wraps the run with metadata (turns, `total_cost_usd`, `modelUsage`); the
+  review text is in `.result`. Ask for a single JSON object and parse it out.
+- Budget roughly 20–25 tool turns and 3–4 minutes per slice at `--effort high`.
+
+This is the **preferred** reviewer: stronger than the OpenRouter models, read-only by construction, and
+it does not consume the OpenRouter balance. Use it for the default review.
+
+### OpenRouter fallbacks
 
 | Role | Model |
 |---|---|
-| **Primary** | `openrouter/openai/gpt-6.1-sol-pro` |
-| **Lower-cost fallback** | `openrouter/anthropic/claude-sonnet-5.5` |
+| Primary | `openrouter/openai/gpt-6.1-sol-pro` |
+| Lower-cost fallback | `openrouter/anthropic/claude-sonnet-5.5` |
 
-Use the fallback when the primary is unaffordable. **Say which model reviewed which slice** in the
-result — a substitute reviewer is a materially different guarantee, and passing it off as the primary
-is the same class of dishonesty as an unverified claim.
+**Say which reviewer model reviewed which slice** in the result. A substitute reviewer is a materially
+different guarantee, and passing one off as another is the same class of dishonesty as an unverified
+claim — the thing this review process exists to catch.
 
 `openrouter/openai/gpt-6.1-sol-pro` requests up to **128,000 max_tokens**. If the key can afford less,
 every call returns `402 insufficient credits` — instantly, with no output, which looks exactly like a
@@ -40,8 +68,8 @@ timeout or an overloaded batch. **Read the error before theorising about the cau
 
 ## Run reviewers ONE AT A TIME
 
-A single review costs roughly 110k tokens. Concurrent reviewers share one balance, so a batch of six
-could afford only one and five returned nothing:
+A single review costs roughly 110k tokens on OpenRouter. Concurrent reviewers share one balance, so a
+batch of six could afford only one and five returned nothing:
 
 | Run | Returned |
 |---|---|
@@ -50,7 +78,8 @@ could afford only one and five returned nothing:
 | 6 concurrent | 1/6 |
 | **6 sequential** | **5/5** |
 
-Sequential is the only configuration that reliably returns. It is slower and it is the right trade.
+Sequential is the only configuration that reliably returns. It is slower and it is the right trade. The
+headless-Claude route is not subject to this shared-balance problem, which is another reason to prefer it.
 
 ## The brief
 
