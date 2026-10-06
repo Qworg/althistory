@@ -2,12 +2,12 @@ import React, { useMemo, useRef, useState, useEffect, useCallback, memo } from '
 import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
-import { calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
+import { type ArcWithUIState, calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
 import { formatTimeAxisTick } from '@/utils/d3Calculations'
 import EventArcAssignment from './EventArcAssignment'
 import PressureIndicators from './PressureIndicators'
 import { TimelineEvent } from './TimelineEvent'
-import { TimelineArc } from './TimelineArc'
+import { TimelineArc, type ArcResizeEdge } from './TimelineArc'
 import { useTimelineScales } from '@/hooks/useTimelineScales'
 import { useTimelineEventHandlers } from '@/hooks/useTimelineEventHandlers'
 
@@ -37,6 +37,19 @@ export interface TimelineProps {
   className?: string
 }
 
+/** The element currently under the pointer (or keyboard focus), with its inner-SVG position. */
+type HoveredElement =
+  | { kind: 'event'; event: Event; x: number; y: number }
+  | { kind: 'arc'; arc: Arc; x: number; y: number }
+
+/** A gesture in progress, resolved against the shared time scale on mouseup. */
+type TimelineDrag =
+  | { type: 'event'; event: Event }
+  | { type: 'arc-resize'; arc: Arc; edge: ArcResizeEdge }
+
+/** Pointer travel (px) required before a mousedown is treated as a drag rather than a click. */
+const DRAG_THRESHOLD_PX = 3
+
 /**
  * Timeline component for visualizing events and arcs over time.
  *
@@ -59,6 +72,10 @@ const Timeline = memo(function Timeline({
   onPressureHover,
   onTimeRangeChange,
   onEventCreate,
+  onEventDrag,
+  onArcExpand,
+  onArcCollapse,
+  onArcResize,
   onEventAssignToArc,
   onEventContextMenu,
   onArcContextMenu,
@@ -74,6 +91,13 @@ const Timeline = memo(function Timeline({
     event: Event | null
     position: { x: number; y: number } | null
   }>({ isOpen: false, event: null, position: null })
+
+  // Expanded arc ids drive isExpanded (and thus which descendants enter the
+  // hierarchy); selected arc ids drive the isSelected visual highlight.
+  const [expandedArcIds, setExpandedArcIds] = useState<Set<string>>(() => new Set())
+  const [selectedArcIds, setSelectedArcIds] = useState<Set<string>>(() => new Set())
+  const [hovered, setHovered] = useState<HoveredElement | null>(null)
+  const dragCleanupRef = useRef<(() => void) | null>(null)
 
   // Use custom hook for memoized scale calculations (Phase 2.2)
   // This gives us the original domain from events/arcs
@@ -134,11 +158,31 @@ const Timeline = memo(function Timeline({
     onTimeRangeChangeRef.current?.({ start: xDomain[0], end: xDomain[1] })
   }, [xDomain[0]?.getTime(), xDomain[1]?.getTime()])
 
+  // Refs keep pointer handlers stable across renders so the memoized mark
+  // components do not re-render on every Timeline update.
+  const xScaleRef = useRef(xScale)
+  xScaleRef.current = xScale
+  const innerWidthRef = useRef(innerWidth)
+  innerWidthRef.current = innerWidth
+  const marginLeftRef = useRef(margin.left)
+  marginLeftRef.current = margin.left
+
+  const onEventDragRef = useRef(onEventDrag)
+  onEventDragRef.current = onEventDrag
+  const onArcResizeRef = useRef(onArcResize)
+  onArcResizeRef.current = onArcResize
+  const onArcExpandRef = useRef(onArcExpand)
+  onArcExpandRef.current = onArcExpand
+  const onArcCollapseRef = useRef(onArcCollapse)
+  onArcCollapseRef.current = onArcCollapse
+  const expandedArcIdsRef = useRef(expandedArcIds)
+  expandedArcIdsRef.current = expandedArcIds
+
   // Arc hierarchy and levels
   const { arcHierarchy } = useMemo(() => {
-    const withState = processArcsWithUIState(arcs, events, new Set(), new Set())
+    const withState = processArcsWithUIState(arcs, events, expandedArcIds, selectedArcIds)
     return calculateArcHierarchy(withState)
-  }, [arcs, events])
+  }, [arcs, events, expandedArcIds, selectedArcIds])
 
   const arcLevelMap = useMemo(() => new Map(arcHierarchy.map(a => [a.id, a.renderLevel])), [arcHierarchy])
 
@@ -165,6 +209,14 @@ const Timeline = memo(function Timeline({
     innerWidth
   })
 
+  // Double-click on the BACKGROUND (not on a mark) creates an event, prefilled
+  // with the timestamp under the pointer.
+  const handleSvgDoubleClickGuarded = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    const target = e.target
+    if (target instanceof Element && target.closest('[data-timeline-mark]')) return
+    handleSvgDoubleClick(e)
+  }, [handleSvgDoubleClick])
+
   // Context menu handler for events
   const handleEventContextMenu = useCallback((evt: React.MouseEvent, ev: Event) => {
     evt.preventDefault()
@@ -184,6 +236,135 @@ const Timeline = memo(function Timeline({
       onArcContextMenu(arc, { x: evt.clientX, y: evt.clientY })
     }
   }, [onArcContextMenu])
+
+  // Expand/collapse an arc. Reading from a ref keeps the callback stable so
+  // every memoized TimelineArc does not re-render on each Timeline render.
+  const handleArcToggle = useCallback((arc: ArcWithUIState) => {
+    const willExpand = !expandedArcIdsRef.current.has(arc.id)
+    setExpandedArcIds(prev => {
+      const next = new Set(prev)
+      if (willExpand) {
+        next.add(arc.id)
+      } else {
+        next.delete(arc.id)
+      }
+      return next
+    })
+    if (willExpand) {
+      onArcExpandRef.current?.(arc)
+    } else {
+      onArcCollapseRef.current?.(arc)
+    }
+  }, [])
+
+  // Arc selection also feeds the selectedElements set consumed by
+  // processArcsWithUIState (the arc highlight), not just the outward callback.
+  const handleArcClickWithSelection = useCallback((arc: ArcWithUIState) => {
+    setSelectedArcIds(prev => (prev.size === 1 && prev.has(arc.id) ? prev : new Set([arc.id])))
+    handleArcClick(arc)
+  }, [handleArcClick])
+
+  const handleEventHoverEnter = useCallback((event: Event, position: { x: number; y: number }) => {
+    setHovered({ kind: 'event', event, x: position.x, y: position.y })
+  }, [])
+
+  const handleArcHoverEnter = useCallback((arc: ArcWithUIState, position: { x: number; y: number }) => {
+    setHovered({ kind: 'arc', arc, x: position.x, y: position.y })
+  }, [])
+
+  const handleHoverLeave = useCallback(() => {
+    setHovered(null)
+  }, [])
+
+  // Convert a viewport clientX into a Date on the shared time scale. Mirrors the
+  // double-click handler's coordinate conversion so both use d3's invert.
+  const clientXToDate = useCallback((clientX: number): Date | null => {
+    const svg = svgRef.current
+    const scale = xScaleRef.current
+    if (!svg || !scale) return null
+    if (typeof svg.getScreenCTM !== 'function' || typeof svg.createSVGPoint !== 'function') return null
+    const ctm = svg.getScreenCTM()
+    if (!ctm) return null
+    const point = svg.createSVGPoint()
+    point.x = clientX
+    point.y = 0
+    const local = point.matrixTransform(ctm.inverse())
+    const innerX = Math.max(0, Math.min(innerWidthRef.current, local.x - marginLeftRef.current))
+    return scale.invert(innerX)
+  }, [])
+
+  // A mousedown only becomes a drag once the pointer travels past a threshold,
+  // so a plain click never fires the drag/resize callbacks.
+  const beginDrag = useCallback((drag: TimelineDrag, startClientX: number) => {
+    let moved = false
+
+    const handleMouseMove = (native: MouseEvent) => {
+      if (!moved && Math.abs(native.clientX - startClientX) < DRAG_THRESHOLD_PX) return
+      moved = true
+    }
+
+    const handleMouseUp = (native: MouseEvent) => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+      dragCleanupRef.current = null
+      if (!moved) return
+      const timestamp = clientXToDate(native.clientX)
+      if (!timestamp) return
+      if (drag.type === 'event') {
+        onEventDragRef.current?.(drag.event, timestamp)
+        return
+      }
+      const start = new Date(drag.arc.start_time)
+      const end = new Date(drag.arc.end_time)
+      if (drag.edge === 'start') {
+        onArcResizeRef.current?.(drag.arc, {
+          start: timestamp.getTime() > end.getTime() ? end : timestamp,
+          end
+        })
+      } else {
+        onArcResizeRef.current?.(drag.arc, {
+          start,
+          end: timestamp.getTime() < start.getTime() ? start : timestamp
+        })
+      }
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    dragCleanupRef.current = () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [clientXToDate])
+
+  const handleEventDragStart = useCallback((event: Event, native: React.MouseEvent) => {
+    if (native.button !== 0) return
+    beginDrag({ type: 'event', event }, native.clientX)
+  }, [beginDrag])
+
+  const handleArcResizeStart = useCallback((arc: ArcWithUIState, edge: ArcResizeEdge, native: React.MouseEvent) => {
+    if (native.button !== 0) return
+    beginDrag({ type: 'arc-resize', arc, edge }, native.clientX)
+  }, [beginDrag])
+
+  const handleArcResizeKey = useCallback((arc: ArcWithUIState, edge: ArcResizeEdge, direction: -1 | 1) => {
+    const start = new Date(arc.start_time)
+    const end = new Date(arc.end_time)
+    const span = Math.max(end.getTime() - start.getTime(), 1)
+    const step = Math.max(span * 0.05, 60 * 60 * 1000)
+    if (edge === 'start') {
+      const nextStart = Math.min(start.getTime() + direction * step, end.getTime())
+      onArcResizeRef.current?.(arc, { start: new Date(nextStart), end })
+    } else {
+      const nextEnd = Math.max(end.getTime() + direction * step, start.getTime())
+      onArcResizeRef.current?.(arc, { start, end: new Date(nextEnd) })
+    }
+  }, [])
+
+  // Clear any in-flight window listeners if Timeline unmounts mid-gesture.
+  useEffect(() => () => {
+    dragCleanupRef.current?.()
+  }, [])
 
   const handleEventAssignment = useCallback(async (eventId: string, arcId: string | null) => {
     const ev = events.find(e => e.id === eventId)
@@ -240,8 +421,21 @@ const Timeline = memo(function Timeline({
         })
       })
 
+    // Keep zoom/pan from starting on a timeline mark: otherwise d3 calls
+    // stopImmediatePropagation on mousedown and React never sees the gesture.
+    // Wheel-zoom over a mark is still allowed. `.filter` is public d3 API; the
+    // optional call tolerates incomplete test doubles.
+    zoom.filter?.((event: MouseEvent) => {
+      const onMark =
+        event.target instanceof Element && event.target.closest('[data-timeline-mark]') !== null
+      if (onMark && event.type !== 'wheel') return false
+      return (!event.ctrlKey || event.type === 'wheel') && !event.button
+    })
+
     zoomRef.current = zoom
     svg.call(zoom)
+    // Double-click is reserved for event creation, so drop d3's double-click zoom.
+    svg.on('dblclick.zoom', null)
 
     return () => {
       svg.on('.zoom', null)
@@ -264,7 +458,7 @@ const Timeline = memo(function Timeline({
         height={height}
         role="img"
         aria-label={`Timeline with ${events.length} events and ${arcs.length} arcs`}
-        onDoubleClick={handleSvgDoubleClick}
+        onDoubleClick={handleSvgDoubleClickGuarded}
         style={{ border: '1px solid #e5e7eb', borderRadius: 4, background: '#fafafa' }}
       >
         {/* Clip path to constrain content to inner area */}
@@ -309,8 +503,13 @@ const Timeline = memo(function Timeline({
                   x={x1}
                   y={y}
                   width={w}
-                  onClick={handleArcClick}
+                  onClick={handleArcClickWithSelection}
                   onContextMenu={handleArcContextMenu}
+                  onToggleExpand={handleArcToggle}
+                  onResizeStart={handleArcResizeStart}
+                  onResizeKey={handleArcResizeKey}
+                  onHoverEnter={handleArcHoverEnter}
+                  onHoverLeave={handleHoverLeave}
                 />
               )
             })}
@@ -326,6 +525,9 @@ const Timeline = memo(function Timeline({
                   y={eventY}
                   onClick={handleEventClick}
                   onContextMenu={handleEventContextMenu}
+                  onDragStart={handleEventDragStart}
+                  onHoverEnter={handleEventHoverEnter}
+                  onHoverLeave={handleHoverLeave}
                 />
               )
             })}
@@ -372,6 +574,30 @@ const Timeline = memo(function Timeline({
           </g>
         </g>
       </svg>
+
+      {/* Hover/focus tooltip (Tier 1: React owns the DOM per ADR-001) */}
+      {hovered && (
+        <div
+          role="tooltip"
+          className="timeline-tooltip pointer-events-none absolute z-10 rounded bg-gray-900/95 px-2 py-1 text-xs text-white shadow"
+          style={{ left: margin.left + hovered.x + 8, top: margin.top + hovered.y + 8 }}
+        >
+          {hovered.kind === 'event' ? (
+            <>
+              <div className="font-semibold">{hovered.event.description}</div>
+              <div>{hovered.event.actor} → {hovered.event.target}</div>
+              <div>{new Date(hovered.event.timestamp).toLocaleString()}</div>
+            </>
+          ) : (
+            <>
+              <div className="font-semibold">{hovered.arc.name}</div>
+              <div>
+                {new Date(hovered.arc.start_time).toLocaleString()} – {new Date(hovered.arc.end_time).toLocaleString()}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Fit to View button (shown when zoomed) */}
       {isZoomed && (
