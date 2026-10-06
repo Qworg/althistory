@@ -13,6 +13,7 @@ import {
   MergeConflict,
   MergeResult,
   VersionRef,
+  VersionOperation,
   EntityRef,
   ReferenceNotification,
   EntityType,
@@ -390,12 +391,29 @@ export class GraphService {
 
     // Detect conflicts
     const conflicts = this.detectMergeConflicts(targetData, sourceData);
+    const resolution = request.conflictResolution;
 
-    // If there are conflicts and resolution is not 'manual', check if we can auto-resolve
-    if (conflicts.length > 0 && request.conflictResolution !== 'manual') {
-      // Auto-resolve based on strategy
-      // For now, just return the conflicts
-      if (!request.manualResolutions || Object.keys(request.manualResolutions).length !== conflicts.length) {
+    if (conflicts.length > 0) {
+      if (resolution === 'manual') {
+        // A manual merge resolves nothing on its own, so it is only
+        // well-defined when every conflict has a caller-supplied resolution.
+        // Checking per conflict (not just by map length) means a map with the
+        // right number of wrong keys is rejected too.
+        const manualResolutions = request.manualResolutions ?? {};
+        const unresolved = conflicts.filter(
+          conflict => manualResolutions[`${conflict.entityType}:${conflict.entityId}`] === undefined
+        );
+        if (unresolved.length > 0) {
+          return {
+            success: false,
+            conflicts,
+          };
+        }
+      } else if (resolution !== 'keep-source' && resolution !== 'keep-target') {
+        // No strategy was named. Refusing is deliberate: defaulting to either
+        // side would silently discard the other side's edits. `keep-source` and
+        // `keep-target` below resolve every conflict uniformly and need no map;
+        // a merge with no conflicts needs no strategy at all and is not refused.
         return {
           success: false,
           conflicts,
@@ -408,23 +426,32 @@ export class GraphService {
       targetData,
       sourceData,
       conflicts,
-      request.conflictResolution,
+      resolution,
       request.manualResolutions
     );
+
+    // Record the source graph's head as the merge's second parent. Version
+    // numbers are allocated per graph, so the graph id is part of the parent's
+    // identity; without it the recorded version number would not identify
+    // anything. The first parent (this graph's head) is set by the repository
+    // from the current version.
+    const sourceHead = await this.graphRepository.getLatestVersion(request.sourceGraphId);
 
     // Commit the merge
     const versionRef = await this.graphRepository.commitChanges(
       targetGraphId,
       changes,
-      'import', // Using 'import' as the closest operation type
+      'merge',
       `Merged from ${sourceGraph.name}`,
-      undefined
+      undefined,
+      { graphId: request.sourceGraphId, version: sourceHead?.version ?? null }
     );
 
     const updatedGraph = await this.graphRepository.findById(targetGraphId);
 
     return {
       success: true,
+      conflicts,
       mergedGraph: updatedGraph?.toJSON(),
       newVersion: versionRef.version,
     };
@@ -448,7 +475,7 @@ export class GraphService {
   async commitChanges(
     graphId: string,
     changes: EntityChanges,
-    operation: 'create' | 'update' | 'delete' | 'import',
+    operation: VersionOperation,
     description?: string,
     userId?: string
   ): Promise<VersionRef> {
@@ -593,7 +620,7 @@ export class GraphService {
     target: ResolvedGraphData,
     source: ResolvedGraphData,
     conflicts: MergeConflict[],
-    resolution: 'keep-target' | 'keep-source' | 'manual',
+    resolution: 'keep-target' | 'keep-source' | 'manual' | undefined,
     manualResolutions?: Record<string, 'keep-target' | 'keep-source'>
   ): EntityChanges {
     const changes: EntityChanges = {
@@ -609,6 +636,8 @@ export class GraphService {
       if (resolution === 'manual' && manualResolutions?.[key]) {
         resolutionMap.set(key, manualResolutions[key]);
       } else {
+        // `resolution` is undefined only when there are no conflicts (the
+        // caller refuses an unresolved merge), so this fallback is never read.
         resolutionMap.set(key, resolution === 'keep-source' ? 'keep-source' : 'keep-target');
       }
     }

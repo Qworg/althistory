@@ -1,5 +1,9 @@
 /**
- * Repository for managing async jobs (export, import, ingest)
+ * Repository for managing async jobs (export, import, ingest).
+ *
+ * Jobs are persisted as one JSON file per job under `<dataDir>/jobs` in every
+ * mode: the repository is constructed with `localExecution.dataDirectory` and
+ * has no Redis/Neo4j backend. See `Container.initialize`.
  */
 
 import * as fs from 'fs';

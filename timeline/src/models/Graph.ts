@@ -209,7 +209,14 @@ export interface BranchGraphRequest {
 
 export interface MergeGraphRequest {
   sourceGraphId: string;
-  conflictResolution: 'keep-target' | 'keep-source' | 'manual';
+  /**
+   * How to reconcile entities that differ in both graphs. The HTTP route
+   * requires this field; it is optional in the service contract so that a
+   * caller who omits it gets a defined outcome rather than an undefined one:
+   * a merge with conflicts is refused (`success: false` plus the conflict
+   * list), a merge with no conflicts proceeds (there is nothing to resolve).
+   */
+  conflictResolution?: 'keep-target' | 'keep-source' | 'manual';
   manualResolutions?: Record<string, 'keep-target' | 'keep-source'>;
 }
 
@@ -278,11 +285,31 @@ export interface VersionChange {
   prevHash?: string;
 }
 
+/**
+ * A parent of a merge commit that lives in another graph.
+ *
+ * Version numbers are allocated per graph, so a bare number does not identify a
+ * version: the graph id is part of the identity. The merge target's own
+ * predecessor is already `VersionRef.parentVersion`; `VersionRef.mergeParent`
+ * names the source graph's head version that was merged in.
+ */
+export interface MergeParent {
+  graphId: string;
+  version: number | null;
+}
+
 export interface VersionRef {
   graphId: string;
   version: number;
   timestamp: string;
   parentVersion: number | null;
+  /**
+   * Set only on merge commits, where `parentVersion` is the first parent (the
+   * merge target's head at merge time) and this is the second parent (the
+   * source graph's head). Absent on every single-parent commit, so existing
+   * version records keep their exact shape.
+   */
+  mergeParent?: MergeParent;
   operation: VersionOperation;
   description?: string;
   userId?: string;
@@ -320,6 +347,10 @@ export interface MergeConflict {
 
 export interface MergeResult {
   success: boolean;
+  /**
+   * The conflicts found between the two graphs. Present on failure (the caller
+   * must resolve them) and on success (the conflicts the strategy resolved).
+   */
   conflicts?: MergeConflict[];
   mergedGraph?: IGraph;
   newVersion?: number;

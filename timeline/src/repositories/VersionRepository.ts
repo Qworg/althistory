@@ -18,6 +18,7 @@ import {
   VersionOperation,
   EntityType,
   PackFile,
+  MergeParent,
 } from '../models/Graph';
 
 export interface VersionRepositoryConfig {
@@ -111,20 +112,25 @@ export class VersionRepository {
   }
 
   /**
-   * Commit changes to create a new version
+   * Commit changes to create a new version.
+   *
+   * `mergeParent`, when supplied, records the source graph's head version as the
+   * second parent of a merge commit. It is never inferred: a linear commit has no
+   * second parent and leaves the field unset.
    */
   async commit(
     graphId: string,
     changes: EntityChanges,
     operation: VersionOperation,
     description?: string,
-    userId?: string
+    userId?: string,
+    mergeParent?: MergeParent
   ): Promise<VersionRef> {
     // Acquire mutex to prevent concurrent commits to the same graph
     const release = await this.commitMutex.acquire(graphId);
     
     try {
-      return await this.commitInternal(graphId, changes, operation, description, userId);
+      return await this.commitInternal(graphId, changes, operation, description, userId, mergeParent);
     } finally {
       release();
     }
@@ -138,7 +144,8 @@ export class VersionRepository {
     changes: EntityChanges,
     operation: VersionOperation,
     description?: string,
-    userId?: string
+    userId?: string,
+    mergeParent?: MergeParent
   ): Promise<VersionRef> {
     // Get current state
     const currentTreeHash = await this.getCurrentTree(graphId);
@@ -214,6 +221,10 @@ export class VersionRepository {
       changes: versionChanges,
       treeHash: newTreeHash,
     };
+
+    if (mergeParent) {
+      versionRef.mergeParent = mergeParent;
+    }
 
     // Store version ref
     await this.storeVersionRef(graphId, versionRef);

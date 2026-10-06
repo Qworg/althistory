@@ -21,6 +21,7 @@ describe('GraphService', () => {
     setActiveGraph: ReturnType<typeof vi.fn>;
     getVersionHistory: ReturnType<typeof vi.fn>;
     getVersion: ReturnType<typeof vi.fn>;
+    getLatestVersion: ReturnType<typeof vi.fn>;
     rollback: ReturnType<typeof vi.fn>;
     branch: ReturnType<typeof vi.fn>;
     checkout: ReturnType<typeof vi.fn>;
@@ -74,6 +75,7 @@ describe('GraphService', () => {
       setActiveGraph: vi.fn(),
       getVersionHistory: vi.fn(),
       getVersion: vi.fn(),
+      getLatestVersion: vi.fn(),
       rollback: vi.fn(),
       branch: vi.fn(),
       checkout: vi.fn(),
@@ -483,7 +485,7 @@ describe('GraphService', () => {
       expect(result.newVersion).toBe(2);
     });
 
-    it('should detect merge conflicts when same entity modified in both graphs', async () => {
+    it('should detect merge conflicts and report them on a successful keep-target merge', async () => {
       const targetGraph = createMockGraph({ id: 'target_graph' });
       const sourceGraph = createMockGraph({ id: 'source_graph' });
       const targetData: ResolvedGraphData = {
@@ -505,21 +507,47 @@ describe('GraphService', () => {
 
       mockGraphRepository.findById
         .mockResolvedValueOnce(targetGraph)
-        .mockResolvedValueOnce(sourceGraph);
+        .mockResolvedValueOnce(sourceGraph)
+        .mockResolvedValue(targetGraph);
       mockGraphRepository.checkout
         .mockResolvedValueOnce(targetData)
         .mockResolvedValueOnce(sourceData);
+      mockGraphRepository.getLatestVersion.mockResolvedValue({
+        graphId: 'source_graph',
+        version: 4,
+        timestamp: new Date().toISOString(),
+        parentVersion: 3,
+        operation: 'update',
+        changes: { added: [], modified: [], deleted: [] },
+        treeHash: 'sourcehash',
+      });
+      mockGraphRepository.commitChanges.mockResolvedValue({
+        graphId: 'target_graph',
+        version: 2,
+        timestamp: new Date().toISOString(),
+        parentVersion: 1,
+        operation: 'merge',
+        changes: { added: [], modified: [], deleted: [] },
+        treeHash: 'newhash',
+      });
 
-      // Note: Current implementation requires manualResolutions even for non-manual strategies
-      // when there are conflicts. Testing with 'keep-target' which also triggers conflict detection.
       const result = await graphService.mergeGraph('target_graph', {
         sourceGraphId: 'source_graph',
         conflictResolution: 'keep-target',
       });
 
-      expect(result.success).toBe(false);
-      expect(result.conflicts).toBeDefined();
-      expect(result.conflicts?.length).toBeGreaterThan(0);
+      // keep-target still reports the conflicts it resolved, so the caller can
+      // see that the merge was not a fast-forward.
+      expect(result.conflicts).toHaveLength(1);
+      expect(result.conflicts?.[0]).toMatchObject({
+        entityType: 'event',
+        entityId: 'event1',
+        suggestedResolution: 'keep-target',
+      });
+      expect(result.success).toBe(true);
+      // Keeping the target means the conflicting entity is not rewritten.
+      const committedChanges = mockGraphRepository.commitChanges.mock.calls[0][1] as EntityChanges;
+      expect(committedChanges.modified).toEqual([]);
     });
 
     it('should throw NotFoundError when target graph does not exist', async () => {
@@ -570,17 +598,27 @@ describe('GraphService', () => {
       mockGraphRepository.checkout
         .mockResolvedValueOnce(targetData)
         .mockResolvedValueOnce(sourceData);
+      mockGraphRepository.getLatestVersion.mockResolvedValue({
+        graphId: 'source_graph',
+        version: 4,
+        timestamp: new Date().toISOString(),
+        parentVersion: 3,
+        operation: 'update',
+        changes: { added: [], modified: [], deleted: [] },
+        treeHash: 'sourcehash',
+      });
       mockGraphRepository.commitChanges.mockResolvedValue({
         graphId: 'target_graph',
         version: 2,
         timestamp: new Date().toISOString(),
         parentVersion: 1,
-        operation: 'import',
+        operation: 'merge',
         changes: { added: [], modified: [{ type: 'event', id: 'event1', hash: 'newhash' }], deleted: [] },
         treeHash: 'newhash',
       });
 
-      // Note: Current implementation requires manual resolutions to match number of conflicts
+      // The uniform keep-source strategy resolves the conflict by itself; the
+      // manual map is present but must not be required for the strategy to work.
       const result = await graphService.mergeGraph('target_graph', {
         sourceGraphId: 'source_graph',
         conflictResolution: 'keep-source',
@@ -588,9 +626,13 @@ describe('GraphService', () => {
       });
 
       expect(result.success).toBe(true);
+      const committedChanges = mockGraphRepository.commitChanges.mock.calls[0][1] as EntityChanges;
+      expect(committedChanges.modified).toEqual([
+        { type: 'event', id: 'event1', data: sourceData.events.event1 },
+      ]);
     });
 
-    it('should return conflicts when keep-source strategy has unresolved conflicts', async () => {
+    it('should resolve conflicts with keep-source strategy without a manual map', async () => {
       const targetGraph = createMockGraph({ id: 'target_graph' });
       const sourceGraph = createMockGraph({ id: 'source_graph' });
       const targetData: ResolvedGraphData = {
@@ -612,19 +654,41 @@ describe('GraphService', () => {
 
       mockGraphRepository.findById
         .mockResolvedValueOnce(targetGraph)
-        .mockResolvedValueOnce(sourceGraph);
+        .mockResolvedValueOnce(sourceGraph)
+        .mockResolvedValue(targetGraph);
       mockGraphRepository.checkout
         .mockResolvedValueOnce(targetData)
         .mockResolvedValueOnce(sourceData);
+      mockGraphRepository.getLatestVersion.mockResolvedValue({
+        graphId: 'source_graph',
+        version: 5,
+        timestamp: new Date().toISOString(),
+        parentVersion: 4,
+        operation: 'update',
+        changes: { added: [], modified: [], deleted: [] },
+        treeHash: 'sourcehash',
+      });
+      mockGraphRepository.commitChanges.mockResolvedValue({
+        graphId: 'target_graph',
+        version: 2,
+        timestamp: new Date().toISOString(),
+        parentVersion: 1,
+        operation: 'merge',
+        changes: { added: [], modified: [{ type: 'event', id: 'event1', hash: 'newhash' }], deleted: [] },
+        treeHash: 'newhash',
+      });
 
-      // Current implementation returns conflicts even for keep-source without manual resolutions
+      // No manualResolutions at all: the strategy alone must resolve the conflict.
       const result = await graphService.mergeGraph('target_graph', {
         sourceGraphId: 'source_graph',
         conflictResolution: 'keep-source',
       });
 
-      expect(result.success).toBe(false);
-      expect(result.conflicts).toBeDefined();
+      expect(result.success).toBe(true);
+      const committedChanges = mockGraphRepository.commitChanges.mock.calls[0][1] as EntityChanges;
+      expect(committedChanges.modified).toEqual([
+        { type: 'event', id: 'event1', data: sourceData.events.event1 },
+      ]);
     });
   });
 

@@ -195,3 +195,6 @@ cython_debug/
 .cursorindexingignore
 # TypeScript incremental build cache (machine-specific, regenerate on build)
 *.tsbuildinfo
+
+# Agent/session tool state (not project content)
+.pi/

@@ -12,6 +12,8 @@ import {
   GraphStatus,
   GraphMetadata,
   VersionRef,
+  VersionOperation,
+  MergeParent,
 } from '../models/Graph';
 import { VersionRepository, EntityChanges, ResolvedGraphData } from './VersionRepository';
 
@@ -248,6 +250,13 @@ export class GraphRepository {
   }
 
   /**
+   * Get the latest version of a graph, or null when it has no versions.
+   */
+  async getLatestVersion(graphId: string): Promise<VersionRef | null> {
+    return this.versionRepository.getLatestVersion(graphId);
+  }
+
+  /**
    * Rollback to a specific version
    */
   async rollback(graphId: string, version: number, userId?: string): Promise<VersionRef> {
@@ -260,18 +269,30 @@ export class GraphRepository {
   async commitChanges(
     graphId: string,
     changes: EntityChanges,
-    operation: 'create' | 'update' | 'delete' | 'import',
+    operation: VersionOperation,
     description?: string,
-    userId?: string
+    userId?: string,
+    mergeParent?: MergeParent
   ): Promise<VersionRef> {
-    // Commit to version repository
-    const versionRef = await this.versionRepository.commit(
-      graphId,
-      changes,
-      operation,
-      description,
-      userId
-    );
+    // Commit to version repository. The merge parent is forwarded only when
+    // present so that a linear commit keeps its existing single-parent call
+    // shape (and a merge parent is never recorded as `undefined`).
+    const versionRef = mergeParent
+      ? await this.versionRepository.commit(
+          graphId,
+          changes,
+          operation,
+          description,
+          userId,
+          mergeParent
+        )
+      : await this.versionRepository.commit(
+          graphId,
+          changes,
+          operation,
+          description,
+          userId
+        );
 
     // Update graph metadata
     const graph = await this.findById(graphId);
@@ -436,7 +457,14 @@ export class GraphRepository {
   private async loadGraphMetadata(graphId: string): Promise<IGraph> {
     const metadataPath = this.getGraphMetadataPath(graphId);
     const content = await fs.promises.readFile(metadataPath, 'utf-8');
-    return JSON.parse(content) as IGraph;
+    try {
+      return JSON.parse(content) as IGraph;
+    } catch {
+      // Both callers treat any throw as "metadata unusable" (findById returns
+      // null, findAll skips the graph), so a descriptive error is as good as
+      // the raw SyntaxError and names the file that is malformed.
+      throw new Error(`Graph metadata is not valid JSON: ${metadataPath}`);
+    }
   }
 
   private async saveGraphMetadata(graph: Graph): Promise<void> {
