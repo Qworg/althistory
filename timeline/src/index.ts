@@ -1,10 +1,12 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { createServer } from 'http';
 import type { Server } from 'http';
 import { loadConfig, initializeDatabaseManager } from '@/utils';
-import { initializeContainer, cleanupContainer } from '@/container';
+import { initializeContainer, cleanupContainer, getContainer } from '@/container';
 import { apiRouter } from '@/api/routes';
+import { StreamHandler, StreamSessionManager, getStreamTokenStore, STREAM_PATH } from '@/websocket';
 import { 
   errorHandler, 
   notFoundHandler, 
@@ -26,6 +28,7 @@ export { asRequestHandler };
 class Application {
   private app: express.Application;
   private config: ReturnType<typeof loadConfig>;
+  private streamHandler: StreamHandler | undefined;
 
   constructor() {
     this.app = express();
@@ -187,10 +190,28 @@ class Application {
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        const server = this.app.listen(this.config.port, () => {
+        // A raw `app.listen()` cannot host a WebSocket upgrade, so build the
+        // HTTP server explicitly and attach the stream handler to its
+        // `upgrade` event before listening.
+        const server = createServer(this.app);
+        const container = getContainer();
+        const streamHandler = new StreamHandler({
+          tokenStore: getStreamTokenStore(),
+          sessionManager: new StreamSessionManager(),
+          deps: {
+            authService: container.authService,
+            graphScopedRepositories: (graphId) => container.graphScopedRepositories(graphId),
+            graphWriteVersioningService: container.graphWriteVersioningService,
+          },
+        });
+        streamHandler.attach(server);
+        this.streamHandler = streamHandler;
+
+        server.listen(this.config.port, () => {
           console.log(`Server running on port ${this.config.port}`);
           console.log(`Environment: ${this.config.nodeEnv}`);
           console.log(`API available at: http://localhost:${this.config.port}/api`);
+          console.log(`WebSocket stream available at: ws://localhost:${this.config.port}${STREAM_PATH}`);
           resolve();
         });
 
@@ -208,12 +229,24 @@ class Application {
    */
   private async shutdown(server: Server): Promise<void> {
     console.log('Shutting down gracefully...');
-    
+
+    // Close streaming sockets FIRST. An open WebSocket is a live connection, so
+    // `server.close()` does not complete while one exists; terminating them is
+    // what keeps shutdown from hanging until the force-exit timer below.
+    if (this.streamHandler) {
+      try {
+        await this.streamHandler.close();
+      } catch (error) {
+        console.error('Error closing WebSocket stream handler:', error);
+      }
+      this.streamHandler = undefined;
+    }
+
     server.close(async () => {
       try {
         // Cleanup service container (includes database connections and auth services)
         await cleanupContainer();
-        
+
         console.log('Application shut down successfully');
         process.exit(0);
       } catch (error) {
@@ -221,6 +254,9 @@ class Application {
         process.exit(1);
       }
     });
+
+    // Drop idle keep-alive HTTP connections so `server.close()` can complete.
+    server.closeIdleConnections();
 
     // Force shutdown after 30 seconds
     setTimeout(() => {
