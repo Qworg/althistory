@@ -12,6 +12,8 @@ import {
   GraphStatus,
   GraphMetadata,
   VersionRef,
+  VersionOperation,
+  MergeParent,
 } from '../models/Graph';
 import { VersionRepository, EntityChanges, ResolvedGraphData } from './VersionRepository';
 
@@ -248,6 +250,13 @@ export class GraphRepository {
   }
 
   /**
+   * Get the latest version of a graph, or null when it has no versions.
+   */
+  async getLatestVersion(graphId: string): Promise<VersionRef | null> {
+    return this.versionRepository.getLatestVersion(graphId);
+  }
+
+  /**
    * Rollback to a specific version
    */
   async rollback(graphId: string, version: number, userId?: string): Promise<VersionRef> {
@@ -260,18 +269,33 @@ export class GraphRepository {
   async commitChanges(
     graphId: string,
     changes: EntityChanges,
-    operation: 'create' | 'update' | 'delete' | 'import',
+    operation: VersionOperation,
     description?: string,
-    userId?: string
+    userId?: string,
+    mergeParent?: MergeParent,
+    expectedParentVersion?: number | null
   ): Promise<VersionRef> {
-    // Commit to version repository
-    const versionRef = await this.versionRepository.commit(
-      graphId,
-      changes,
-      operation,
-      description,
-      userId
-    );
+    // Commit to version repository. Optional arguments are forwarded only when
+    // present so a linear commit keeps its existing five-argument call shape
+    // (and a merge parent is never recorded as `undefined`).
+    const versionRef =
+      mergeParent !== undefined || expectedParentVersion !== undefined
+        ? await this.versionRepository.commit(
+            graphId,
+            changes,
+            operation,
+            description,
+            userId,
+            mergeParent,
+            expectedParentVersion
+          )
+        : await this.versionRepository.commit(
+            graphId,
+            changes,
+            operation,
+            description,
+            userId
+          );
 
     // Update graph metadata
     const graph = await this.findById(graphId);
@@ -318,14 +342,25 @@ export class GraphRepository {
       throw new Error(`Source graph not found: ${sourceGraphId}`);
     }
 
-    // Create new graph with branch metadata
-    const branchGraph = source.branch(name, description);
+    // Record the fork point before copying anything. It is a real version in the
+    // source graph's version repository, not the graph metadata's `version`
+    // counter (which also advances on metadata-only updates). Reading the head
+    // first and checking out that exact version makes the branch's initial tree
+    // identical to the recorded fork point even if the source advances while the
+    // branch is being created.
+    const forkVersion = await this.versionRepository.getLatestVersion(sourceGraphId);
+
+    // Create new graph with branch metadata. `null` means the source had no
+    // versions, i.e. there is no fork point to recover.
+    const branchGraph = source.branch(name, description, forkVersion ? forkVersion.version : null);
     
     // Initialize version storage
     await this.versionRepository.initializeGraph(branchGraph.id);
 
-    // Copy the current state from source
-    const sourceData = await this.checkout(sourceGraphId);
+    // Copy the state at the recorded fork point
+    const sourceData = forkVersion
+      ? await this.checkout(sourceGraphId, forkVersion.version)
+      : await this.checkout(sourceGraphId);
     const changes: EntityChanges = {
       added: [],
       modified: [],
@@ -436,7 +471,14 @@ export class GraphRepository {
   private async loadGraphMetadata(graphId: string): Promise<IGraph> {
     const metadataPath = this.getGraphMetadataPath(graphId);
     const content = await fs.promises.readFile(metadataPath, 'utf-8');
-    return JSON.parse(content) as IGraph;
+    try {
+      return JSON.parse(content) as IGraph;
+    } catch {
+      // Both callers treat any throw as "metadata unusable" (findById returns
+      // null, findAll skips the graph), so a descriptive error is as good as
+      // the raw SyntaxError and names the file that is malformed.
+      throw new Error(`Graph metadata is not valid JSON: ${metadataPath}`);
+    }
   }
 
   private async saveGraphMetadata(graph: Graph): Promise<void> {

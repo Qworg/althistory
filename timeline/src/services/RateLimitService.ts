@@ -1,5 +1,11 @@
 /**
- * Rate limiting service with file persistence for local mode
+ * In-process rate limiting persisted to a JSON file under
+ * `<dataDir>/rate-limits/limits.json`.
+ *
+ * The state is file-backed in every mode: the service is constructed with
+ * `localExecution.dataDirectory` and writes there even when local execution is
+ * disabled, and it counts requests in this process only. No Redis-backed
+ * implementation exists; see `Container.initialize`.
  */
 
 import * as fs from 'fs';

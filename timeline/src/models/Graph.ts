@@ -20,8 +20,17 @@ export interface IGraph {
   version: number;
   /** Parent graph ID if this is a branch */
   parentGraphId?: string;
-  /** Version number of parent when branched */
-  branchPoint?: number;
+  /**
+   * The parent graph's version that this branch forked from. It names a real
+   * version in `parentGraphId`, so `checkout(parentGraphId, branchPoint)`
+   * recovers the tree the branch started from. `null` means the parent had no
+   * versions when the branch was created.
+   *
+   * This is the merge base a three-way merge would need. The current merge is a
+   * two-way diff and does not read it yet (see `GraphService.mergeGraph`); it is
+   * recorded so that a three-way merge is possible later.
+   */
+  branchPoint?: number | null;
   /** Graph status */
   status: GraphStatus;
   /** Computed metadata */
@@ -53,7 +62,7 @@ export class Graph implements IGraph {
   public readonly updatedAt: string;
   public readonly version: number;
   public readonly parentGraphId?: string;
-  public readonly branchPoint?: number;
+  public readonly branchPoint?: number | null;
   public readonly status: GraphStatus;
   public readonly metadata: GraphMetadata;
 
@@ -130,12 +139,16 @@ export class Graph implements IGraph {
   /**
    * Creates a branch of this graph
    */
-  branch(name: string, description?: string): Graph {
+  branch(name: string, description?: string, branchPoint?: number | null): Graph {
     return new Graph({
       name,
       description,
       parentGraphId: this.id,
-      branchPoint: this.version,
+      // An explicit fork point (the parent's version-repository head at branch
+      // time, supplied by GraphRepository) wins. When it is omitted, this
+      // graph's own metadata version is the only answer available, which is
+      // what direct model callers get.
+      branchPoint: branchPoint === undefined ? this.version : branchPoint,
       status: 'active',
       metadata: { ...this.metadata },
     });
@@ -171,7 +184,7 @@ export interface CreateGraphData {
   updatedAt?: string;
   version?: number;
   parentGraphId?: string;
-  branchPoint?: number;
+  branchPoint?: number | null;
   status?: GraphStatus;
   metadata?: GraphMetadata;
 }
@@ -207,10 +220,68 @@ export interface BranchGraphRequest {
   description?: string;
 }
 
+export type ConflictResolution = 'keep-target' | 'keep-source' | 'manual';
+
+/**
+ * A resolution value that actually resolves one conflict. `manualResolutions`
+ * arrives as JSON, so a value can be `null`, `''`, or any other string; these
+ * are the only two values the merge can apply.
+ */
+export type ManualResolution = 'keep-target' | 'keep-source';
+
+/**
+ * True only for a value that can actually resolve one conflict.
+ */
+export function isManualResolution(value: unknown): value is ManualResolution {
+  return value === 'keep-target' || value === 'keep-source';
+}
+
+/**
+ * Lists the entries in a caller-supplied `manualResolutions` map whose value is
+ * not exactly `keep-source` or `keep-target`. Returns `['<map>']` when the map
+ * is present but is not a plain object, and an empty array when the map is
+ * absent or every entry is valid.
+ *
+ * Validating the value (not just the presence of the key) matters: the merge's
+ * fallback treats anything that is not `keep-source` as `keep-target`, so a
+ * `null`, `''` or `'garbage'` entry would otherwise silently discard the source
+ * edit instead of being rejected.
+ */
+export function findInvalidManualResolutions(manualResolutions: unknown): string[] {
+  if (manualResolutions === undefined) return [];
+  if (
+    manualResolutions === null ||
+    typeof manualResolutions !== 'object' ||
+    Array.isArray(manualResolutions)
+  ) {
+    return ['<map>'];
+  }
+  const invalid: string[] = [];
+  for (const [key, value] of Object.entries(manualResolutions as Record<string, unknown>)) {
+    if (!isManualResolution(value)) invalid.push(key);
+  }
+  return invalid;
+}
+
 export interface MergeGraphRequest {
   sourceGraphId: string;
-  conflictResolution: 'keep-target' | 'keep-source' | 'manual';
-  manualResolutions?: Record<string, 'keep-target' | 'keep-source'>;
+  /**
+   * How to reconcile entities that differ in both graphs. The HTTP route
+   * requires this field; it is optional in the service contract so that a
+   * caller who omits it gets a defined outcome rather than an undefined one:
+   * a merge with conflicts is refused (`success: false` plus the conflict
+   * list), a merge with no conflicts proceeds (there is nothing to resolve).
+   */
+  conflictResolution?: ConflictResolution;
+  /**
+   * Per-conflict resolutions keyed `${entityType}:${entityId}`, consulted only
+   * when `conflictResolution === 'manual'`. Values are validated at both the
+   * service and route boundaries: an entry that is not exactly `keep-source` or
+   * `keep-target` (`null`, `''`, any other string) is rejected with a
+   * `ValidationError` rather than ignored, because ignoring it would fall
+   * through to keep-target and silently discard the source edit.
+   */
+  manualResolutions?: Record<string, ManualResolution>;
 }
 
 /**
@@ -278,11 +349,31 @@ export interface VersionChange {
   prevHash?: string;
 }
 
+/**
+ * A parent of a merge commit that lives in another graph.
+ *
+ * Version numbers are allocated per graph, so a bare number does not identify a
+ * version: the graph id is part of the identity. The merge target's own
+ * predecessor is already `VersionRef.parentVersion`; `VersionRef.mergeParent`
+ * names the source graph's head version that was merged in.
+ */
+export interface MergeParent {
+  graphId: string;
+  version: number | null;
+}
+
 export interface VersionRef {
   graphId: string;
   version: number;
   timestamp: string;
   parentVersion: number | null;
+  /**
+   * Set only on merge commits, where `parentVersion` is the first parent (the
+   * merge target's head at merge time) and this is the second parent (the
+   * source graph's head version that the merge diffed). Absent on every
+   * single-parent commit, so existing version records keep their exact shape.
+   */
+  mergeParent?: MergeParent;
   operation: VersionOperation;
   description?: string;
   userId?: string;
@@ -314,12 +405,22 @@ export interface MergeConflict {
   entityId: string;
   sourceVersion: Record<string, unknown>;
   targetVersion: Record<string, unknown>;
+  /**
+   * Reserved for a three-way diff. The current merge is a two-way diff of the
+   * source tree against the target tree and never populates this field; it is
+   * kept optional so a future three-way implementation does not change the
+   * conflict shape.
+   */
   baseVersion?: Record<string, unknown>;
-  suggestedResolution: 'keep-source' | 'keep-target';
+  suggestedResolution: ManualResolution;
 }
 
 export interface MergeResult {
   success: boolean;
+  /**
+   * The conflicts found between the two graphs. Present on failure (the caller
+   * must resolve them) and on success (the conflicts the strategy resolved).
+   */
   conflicts?: MergeConflict[];
   mergedGraph?: IGraph;
   newVersion?: number;

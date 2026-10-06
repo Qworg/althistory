@@ -668,6 +668,18 @@ describe('GraphRepository Unit Tests', () => {
         .mockResolvedValueOnce(JSON.stringify(indexData))
         .mockResolvedValueOnce(JSON.stringify(indexData));
 
+      // The fork point is the source's real version-repository head, not the
+      // metadata `version` counter, so the source head must be mocked directly.
+      mockGetLatestVersion.mockResolvedValue({
+        graphId: 'source-id',
+        version: 5,
+        timestamp: '2024-01-01T00:00:00Z',
+        parentVersion: 4,
+        operation: 'update',
+        changes: { added: [], modified: [], deleted: [] },
+        treeHash: 'source-tree-hash',
+      } as VersionRef);
+
       mockCommit.mockResolvedValue({
         graphId: 'new-branch-id',
         version: 0,

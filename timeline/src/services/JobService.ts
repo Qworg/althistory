@@ -24,6 +24,14 @@ export interface JobServiceConfig {
   jobTimeoutMs?: number;
   pollIntervalMs?: number;
   appVersion?: string;
+  /** Total webhook delivery attempts, including the first. Defaults to 4. */
+  webhookMaxAttempts?: number;
+  /** Delay before the second attempt; doubles per attempt. Defaults to 1000ms. */
+  webhookInitialBackoffMs?: number;
+  /** Upper bound on a single backoff delay. Defaults to 30000ms. */
+  webhookMaxBackoffMs?: number;
+  /** Per-attempt AbortController timeout. Defaults to 30000ms. */
+  webhookTimeoutMs?: number;
 }
 
 export interface JobProgress {
@@ -31,6 +39,32 @@ export interface JobProgress {
   progress: number;
   status: JobStatus;
   message?: string;
+}
+
+/**
+ * Webhook delivery defaults. A webhook notifies an external endpoint about an
+ * operation that has already reached a terminal state, so delivery is retried
+ * in the background while the job itself is never held open for it.
+ *
+ * Four attempts with a 1s base delay and a 30s per-attempt timeout bounds the
+ * retry window to roughly 7s of waiting (1s + 2s + 4s) when the endpoint is
+ * unreachable, which rides out a transient blip without hiding a permanent
+ * failure for long.
+ */
+const DEFAULT_WEBHOOK_MAX_ATTEMPTS = 4;
+const DEFAULT_WEBHOOK_INITIAL_BACKOFF_MS = 1000;
+const DEFAULT_WEBHOOK_MAX_BACKOFF_MS = 30000;
+const DEFAULT_WEBHOOK_TIMEOUT_MS = 30000;
+
+/**
+ * Outcome of one webhook POST. `retryable` classifies the failure: a 4xx is a
+ * malformed request that will fail identically on retry, while a 5xx, a
+ * timeout, a rate limit or a connection error may succeed later.
+ */
+interface WebhookAttemptResult {
+  delivered: boolean;
+  retryable: boolean;
+  reason: string;
 }
 
 /**
@@ -51,12 +85,26 @@ export class JobService extends EventEmitter {
   private initialized = false;
   private running = false;
 
+  private readonly webhookMaxAttempts: number;
+  private readonly webhookInitialBackoffMs: number;
+  private readonly webhookMaxBackoffMs: number;
+  private readonly webhookTimeoutMs: number;
+  // In-flight webhook requests and their per-attempt timeouts, plus backoff
+  // waits, so stop() can cancel all of them rather than leak timers.
+  private readonly webhookControllers: Set<AbortController> = new Set();
+  private readonly webhookTimeoutTimers: Set<NodeJS.Timeout> = new Set();
+  private readonly pendingWebhookWaits: Set<() => void> = new Set();
+
   constructor(config: JobServiceConfig) {
     super();
     this.dataDir = config.dataDir;
     this.maxConcurrentJobs = config.maxConcurrentJobs || 3;
     this.jobTimeoutMs = config.jobTimeoutMs || 30 * 60 * 1000; // 30 minutes
     this.pollIntervalMs = config.pollIntervalMs || 5000; // 5 seconds
+    this.webhookMaxAttempts = config.webhookMaxAttempts ?? DEFAULT_WEBHOOK_MAX_ATTEMPTS;
+    this.webhookInitialBackoffMs = config.webhookInitialBackoffMs ?? DEFAULT_WEBHOOK_INITIAL_BACKOFF_MS;
+    this.webhookMaxBackoffMs = config.webhookMaxBackoffMs ?? DEFAULT_WEBHOOK_MAX_BACKOFF_MS;
+    this.webhookTimeoutMs = config.webhookTimeoutMs ?? DEFAULT_WEBHOOK_TIMEOUT_MS;
 
     this.jobRepository = new JobRepository({ dataDir: config.dataDir });
     this.exportService = new ExportService({ 
@@ -110,6 +158,26 @@ export class JobService extends EventEmitter {
       clearInterval(this.pollInterval);
       this.pollInterval = undefined;
     }
+
+    // Wake any backoff waits so their delivery loops run again and observe
+    // `running === false` before scheduling anything further.
+    for (const wake of Array.from(this.pendingWebhookWaits)) {
+      wake();
+    }
+    this.pendingWebhookWaits.clear();
+
+    // Abort in-flight requests and drop their per-attempt timeouts. On a real
+    // fetch the abort settles the request, but a timeout that is still pending
+    // is cleared explicitly so it cannot fire after shutdown.
+    for (const controller of Array.from(this.webhookControllers)) {
+      controller.abort();
+    }
+    this.webhookControllers.clear();
+    for (const timer of Array.from(this.webhookTimeoutTimers)) {
+      clearTimeout(timer);
+    }
+    this.webhookTimeoutTimers.clear();
+
     this.jobRepository.stop();
   }
 
@@ -310,9 +378,11 @@ export class JobService extends EventEmitter {
       await this.jobRepository.update(job);
       this.emit('jobCompleted', { jobId: job.id, result });
 
-      // Send webhook if configured
+      // Send webhook if configured. The job is already complete; delivery runs
+      // in the background so retries do not hold the job (or its worker slot)
+      // open.
       if (job.webhookUrl) {
-        await this.sendWebhook(job);
+        this.dispatchWebhook(job);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -322,7 +392,7 @@ export class JobService extends EventEmitter {
 
       // Send webhook even on failure
       if (job.webhookUrl) {
-        await this.sendWebhook(job);
+        this.dispatchWebhook(job);
       }
     }
   }
@@ -376,51 +446,234 @@ export class JobService extends EventEmitter {
     } as JobProgress);
   }
 
+  /**
+   * Start webhook delivery without blocking the caller. Delivery is a
+   * notification, so the job's terminal state and worker slot are released
+   * first; failures are recorded asynchronously on the job.
+   */
+  private dispatchWebhook(job: AsyncJob): void {
+    void this.sendWebhook(job).catch((error) => {
+      this.logger.error('Webhook delivery task failed', error, { jobId: job.id });
+    });
+  }
+
+  /**
+   * Deliver the job's webhook, retrying retryable failures with exponential
+   * backoff. Never called with `await` from job processing.
+   *
+   * The first attempt is made even if the service has already started
+   * stopping: the process is still alive and the POST is short, so a delivery
+   * that is already underway is not silently dropped. Only the retry backoff
+   * is abandoned on shutdown, and that outcome is recorded on the job as
+   * `webhookDeliveryStatus: 'abandoned'` rather than being lost.
+   */
   private async sendWebhook(job: AsyncJob): Promise<void> {
     if (!job.webhookUrl || job.webhookSent) return;
 
-    // Create an AbortController for timeout
+    const webhookUrl = job.webhookUrl;
+    const payload = JSON.stringify({
+      jobId: job.id,
+      type: job.type,
+      status: job.status,
+      result: job.result,
+      error: job.error,
+      completedAt: job.completedAt,
+    });
+
+    let lastReason = 'unknown error';
+    let attemptsMade = 0;
+
+    for (let attempt = 1; attempt <= this.webhookMaxAttempts; attempt++) {
+      attemptsMade = attempt;
+
+      const outcome = await this.attemptWebhook(webhookUrl, payload);
+
+      if (outcome.delivered) {
+        job.markWebhookSent();
+        job.webhookDeliveryStatus = 'delivered';
+        job.webhookDeliveryError = undefined;
+        await this.jobRepository.update(job);
+        this.logger.info('Webhook delivered', { jobId: job.id, attempts: attempt });
+        this.emit('webhookDelivered', { jobId: job.id, attempts: attempt });
+        return;
+      }
+
+      lastReason = outcome.reason;
+      this.logger.error('Webhook delivery attempt failed', undefined, {
+        jobId: job.id,
+        attempt,
+        maxAttempts: this.webhookMaxAttempts,
+        retryable: outcome.retryable,
+        reason: outcome.reason,
+      });
+
+      // A 4xx (other than 408/429) means the request itself is wrong, and the
+      // last attempt means the retry budget is spent. Both are terminal
+      // failures regardless of whether the service is stopping.
+      if (!outcome.retryable) break;
+      if (attempt === this.webhookMaxAttempts) break;
+
+      // The service has stopped: there is nothing left to retry, but the
+      // interrupted delivery is recorded rather than dropped.
+      if (!this.running) {
+        await this.recordWebhookAbandoned(job, attemptsMade, lastReason);
+        return;
+      }
+
+      const backoffMs = Math.min(
+        this.webhookInitialBackoffMs * 2 ** (attempt - 1),
+        this.webhookMaxBackoffMs
+      );
+      this.logger.warn('Webhook delivery failed; retrying', {
+        jobId: job.id,
+        attempt,
+        maxAttempts: this.webhookMaxAttempts,
+        retryInMs: backoffMs,
+        reason: outcome.reason,
+      });
+      await this.waitForBackoff(backoffMs);
+
+      // stop() resolves the backoff wait so it cannot outlive the service; the
+      // retry is abandoned explicitly instead of being silently skipped.
+      if (!this.running) {
+        await this.recordWebhookAbandoned(job, attemptsMade, lastReason);
+        return;
+      }
+    }
+
+    await this.recordWebhookFailure(job, attemptsMade, lastReason);
+  }
+
+  /**
+   * One webhook POST with the existing per-attempt AbortController timeout.
+   * Distinguishes a response that will not change on retry (4xx) from one that
+   * might (5xx, 408, 429, timeout, connection error).
+   */
+  private async attemptWebhook(
+    webhookUrl: string,
+    payload: string
+  ): Promise<WebhookAttemptResult> {
+    let timedOut = false;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    this.webhookControllers.add(controller);
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.webhookTimeoutMs);
+    this.webhookTimeoutTimers.add(timeoutId);
 
     try {
-      const response = await fetch(job.webhookUrl, {
+      const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          jobId: job.id,
-          type: job.type,
-          status: job.status,
-          result: job.result,
-          error: job.error,
-          completedAt: job.completedAt,
-        }),
+        body: payload,
         signal: controller.signal,
       });
 
-      clearTimeout(timeoutId);
-
       if (response.ok) {
-        job.markWebhookSent();
-        await this.jobRepository.update(job);
-      } else {
-        this.logger.error('Webhook request failed', undefined, {
-          jobId: job.id,
-          statusCode: response.status,
-        });
+        return { delivered: true, retryable: false, reason: 'delivered' };
       }
+
+      return {
+        delivered: false,
+        retryable: this.isRetryableWebhookStatus(response.status),
+        reason: `HTTP ${response.status}`,
+      };
     } catch (error) {
-      clearTimeout(timeoutId);
       if (error instanceof Error && error.name === 'AbortError') {
-        this.logger.error('Webhook timeout exceeded', undefined, {
-          jobId: job.id,
-          timeoutSeconds: 30,
-        });
-      } else {
-        this.logger.error('Webhook error', error, { jobId: job.id });
+        // `timedOut` distinguishes this attempt's own timeout from stop()
+        // aborting the request during shutdown; the two are not the same
+        // failure and must not be reported as one.
+        return timedOut
+          ? {
+              delivered: false,
+              retryable: true,
+              reason: `timeout after ${this.webhookTimeoutMs}ms`,
+            }
+          : {
+              delivered: false,
+              retryable: true,
+              reason: 'aborted because the service is stopping',
+            };
       }
+      return {
+        delivered: false,
+        retryable: true,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      clearTimeout(timeoutId);
+      this.webhookTimeoutTimers.delete(timeoutId);
+      this.webhookControllers.delete(controller);
     }
+  }
+
+  /**
+   * 408 (request timeout), 429 (rate limited) and any 5xx are worth retrying.
+   * Other 4xx responses are not: the endpoint rejected the request itself.
+   */
+  private isRetryableWebhookStatus(status: number): boolean {
+    return status === 408 || status === 429 || status >= 500;
+  }
+
+  /**
+   * Record a terminal webhook delivery failure on the job and in the job
+   * repository, following the same pattern as job failures: mutate the job,
+   * persist it, then emit. The delivery outcome is written to the dedicated
+   * `webhookDeliveryStatus`/`webhookDeliveryError` fields, never to `error`,
+   * because the job's own status may be `completed` and a delivery failure is
+   * not a job failure.
+   */
+  private async recordWebhookFailure(job: AsyncJob, attempts: number, reason: string): Promise<void> {
+    const message = `Webhook delivery failed after ${attempts} attempt${attempts === 1 ? '' : 's'}: ${reason}`;
+
+    job.webhookDeliveryStatus = 'failed';
+    job.webhookDeliveryError = message;
+
+    await this.jobRepository.update(job);
+    this.emit('webhookDeliveryFailed', { jobId: job.id, attempts, error: message });
+  }
+
+  /**
+   * Record a delivery that was cut short because the service stopped. Attempts
+   * may already have been made, but no further retry will happen, so the
+   * outcome is persisted as `abandoned` instead of being silently dropped.
+   */
+  private async recordWebhookAbandoned(job: AsyncJob, attempts: number, reason: string): Promise<void> {
+    const message =
+      `Webhook delivery abandoned after ${attempts} attempt${attempts === 1 ? '' : 's'} ` +
+      `because the service is stopping: ${reason}`;
+
+    job.webhookDeliveryStatus = 'abandoned';
+    job.webhookDeliveryError = message;
+
+    await this.jobRepository.update(job);
+    this.logger.warn('Webhook delivery abandoned on shutdown', {
+      jobId: job.id,
+      attempts,
+      reason,
+    });
+    this.emit('webhookDeliveryAbandoned', { jobId: job.id, attempts, error: message });
+  }
+
+  /**
+   * Wait out a backoff delay. The wait is cancellable: stop() resolves it, and
+   * the delivery loop checks `running` before scheduling the next attempt.
+   */
+  private waitForBackoff(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.pendingWebhookWaits.delete(finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, ms);
+      this.pendingWebhookWaits.add(finish);
+    });
   }
 }

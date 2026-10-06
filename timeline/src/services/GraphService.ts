@@ -13,18 +13,28 @@ import {
   MergeConflict,
   MergeResult,
   VersionRef,
+  VersionOperation,
   EntityRef,
   ReferenceNotification,
   EntityType,
+  findInvalidManualResolutions,
+  isManualResolution,
 } from '../models/Graph';
 import {
   GraphRepository,
   GraphListOptions,
   GraphListResult,
 } from '../repositories/GraphRepository';
-import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
+import { ResolvedGraphData, EntityChanges, StaleVersionError } from '../repositories/VersionRepository';
 import { ValidationError, NotFoundError } from '../utils/errors';
 import { createLogger, ILogger } from '../utils/logger';
+
+/**
+ * How many times a merge is recomputed when a concurrent commit advances the
+ * target between the diff and the commit. Bounded so a hot graph cannot spin
+ * forever.
+ */
+const MAX_MERGE_ATTEMPTS = 5;
 
 export interface GraphServiceConfig {
   dataDir: string;
@@ -86,7 +96,6 @@ class OperationRateLimiter {
  */
 export class GraphService {
   private readonly graphRepository: GraphRepository;
-  private readonly dataDir: string;
   private referenceNotifications: ReferenceNotification[] = [];
   private crossGraphReferences: CrossGraphReference[] = [];
   private notificationsPath: string;
@@ -95,7 +104,6 @@ export class GraphService {
   private readonly logger: ILogger;
 
   constructor(config: GraphServiceConfig) {
-    this.dataDir = config.dataDir;
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
     this.notificationsPath = path.join(config.dataDir, 'notifications.json');
     this.referencesPath = path.join(config.dataDir, 'cross-references.json');
@@ -358,7 +366,29 @@ export class GraphService {
   }
 
   /**
-   * Merge a branch back into its parent
+   * Merge a source graph into a target graph.
+   *
+   * SCOPE, stated plainly: this is a TWO-WAY diff of the source tree against the
+   * target tree, not a three-way merge. There is no common-ancestor base in the
+   * diff. `branchGraph` records the fork point (`IGraph.branchPoint`, the source
+   * version a branch started from, recoverable with
+   * `checkout(parentGraphId, branchPoint)`), which is the precondition for a
+   * three-way merge, but this method does not consult it yet. The consequences,
+   * left visible in the result rather than hidden:
+   *
+   *   * an entity changed on only ONE side differs between the two trees, so it
+   *     is reported as a conflict;
+   *   * a target-side deletion of an entity the source still has is re-added by
+   *     the merge;
+   *   * a source-side deletion does not apply, because the deleted entity is
+   *     simply absent from the source tree.
+   *
+   * Both parents are still recorded exactly: the first parent is the target head
+   * the diff was computed against (compare-and-swap guarded), and the second
+   * parent is the source head the diff was computed against. If the target
+   * advances between the read and the commit the commit is refused and the merge
+   * is recomputed, so the recorded parents always name the trees that were
+   * actually merged.
    */
   async mergeGraph(
     targetGraphId: string,
@@ -384,50 +414,116 @@ export class GraphService {
       throw new NotFoundError('Source graph not found', 'Graph', request.sourceGraphId);
     }
 
-    // Get current data from both graphs
-    const targetData = await this.graphRepository.checkout(targetGraphId);
-    const sourceData = await this.graphRepository.checkout(request.sourceGraphId);
+    // Reject malformed manual resolutions before doing any merge work. The
+    // merge's fallback resolves anything that is not 'keep-source' as
+    // 'keep-target', so accepting an invalid value here would silently discard
+    // the source edit -- the same failure the presence check was meant to stop.
+    const invalidManualResolutions = findInvalidManualResolutions(request.manualResolutions);
+    if (invalidManualResolutions.length > 0) {
+      throw new ValidationError(
+        'manualResolutions values must be "keep-source" or "keep-target"; ' +
+          `invalid entries: ${invalidManualResolutions.join(', ')}`,
+        'manualResolutions',
+        request.manualResolutions
+      );
+    }
 
-    // Detect conflicts
-    const conflicts = this.detectMergeConflicts(targetData, sourceData);
+    const resolution = request.conflictResolution;
 
-    // If there are conflicts and resolution is not 'manual', check if we can auto-resolve
-    if (conflicts.length > 0 && request.conflictResolution !== 'manual') {
-      // Auto-resolve based on strategy
-      // For now, just return the conflicts
-      if (!request.manualResolutions || Object.keys(request.manualResolutions).length !== conflicts.length) {
+    for (let attempt = 0; attempt < MAX_MERGE_ATTEMPTS; attempt++) {
+      // Read both heads first, then check out exactly those versions. The
+      // versions the merge records as parents are the versions it diffed, not
+      // whatever the graphs happen to be at when the commit lands.
+      const targetHead = await this.graphRepository.getLatestVersion(targetGraphId);
+      const sourceHead = await this.graphRepository.getLatestVersion(request.sourceGraphId);
+
+      const targetData = targetHead
+        ? await this.graphRepository.checkout(targetGraphId, targetHead.version)
+        : await this.graphRepository.checkout(targetGraphId);
+      const sourceData = sourceHead
+        ? await this.graphRepository.checkout(request.sourceGraphId, sourceHead.version)
+        : await this.graphRepository.checkout(request.sourceGraphId);
+
+      // Detect conflicts
+      const conflicts = this.detectMergeConflicts(targetData, sourceData);
+
+      if (conflicts.length > 0) {
+        if (resolution === 'manual') {
+          // A manual merge resolves nothing on its own, so it is only
+          // well-defined when every conflict has a caller-supplied resolution.
+          // The VALUE of each entry was validated above; here only its presence
+          // per conflict key matters, so a map with the right count of wrong
+          // keys is rejected too.
+          const manualResolutions = request.manualResolutions ?? {};
+          const unresolved = conflicts.filter(
+            conflict => !isManualResolution(manualResolutions[`${conflict.entityType}:${conflict.entityId}`])
+          );
+          if (unresolved.length > 0) {
+            return {
+              success: false,
+              conflicts,
+            };
+          }
+        } else if (resolution !== 'keep-source' && resolution !== 'keep-target') {
+          // No strategy was named. Refusing is deliberate: defaulting to either
+          // side would silently discard the other side's edits. `keep-source`
+          // and `keep-target` below resolve every conflict uniformly and need no
+          // map; a merge with no conflicts needs no strategy at all and is not
+          // refused.
+          return {
+            success: false,
+            conflicts,
+          };
+        }
+      }
+
+      // Apply merge
+      const changes = this.calculateMergeChanges(
+        targetData,
+        sourceData,
+        conflicts,
+        resolution,
+        request.manualResolutions
+      );
+
+      try {
+        // The expected parent makes the merge commit's first parent exactly the
+        // target version diffed above. Version numbers are allocated per graph,
+        // so the second parent carries the graph id; without it the recorded
+        // version number would not identify anything. If the target moved, the
+        // repository refuses and we recompute from its new head.
+        const versionRef = await this.graphRepository.commitChanges(
+          targetGraphId,
+          changes,
+          'merge',
+          `Merged from ${sourceGraph.name}`,
+          undefined,
+          { graphId: request.sourceGraphId, version: sourceHead?.version ?? null },
+          targetHead?.version ?? null
+        );
+
+        const updatedGraph = await this.graphRepository.findById(targetGraphId);
+
         return {
-          success: false,
+          success: true,
           conflicts,
+          mergedGraph: updatedGraph?.toJSON(),
+          newVersion: versionRef.version,
         };
+      } catch (error) {
+        if (error instanceof StaleVersionError) {
+          // The target advanced after we read it. Recompute against the new
+          // head rather than recording a parent we did not diff.
+          continue;
+        }
+        throw error;
       }
     }
 
-    // Apply merge
-    const changes = this.calculateMergeChanges(
-      targetData,
-      sourceData,
-      conflicts,
-      request.conflictResolution,
-      request.manualResolutions
+    throw new ValidationError(
+      `Merge aborted: the target graph changed on every attempt (${MAX_MERGE_ATTEMPTS}); retry the merge`,
+      'sourceGraphId'
     );
-
-    // Commit the merge
-    const versionRef = await this.graphRepository.commitChanges(
-      targetGraphId,
-      changes,
-      'import', // Using 'import' as the closest operation type
-      `Merged from ${sourceGraph.name}`,
-      undefined
-    );
-
-    const updatedGraph = await this.graphRepository.findById(targetGraphId);
-
-    return {
-      success: true,
-      mergedGraph: updatedGraph?.toJSON(),
-      newVersion: versionRef.version,
-    };
   }
 
   /**
@@ -448,7 +544,7 @@ export class GraphService {
   async commitChanges(
     graphId: string,
     changes: EntityChanges,
-    operation: 'create' | 'update' | 'delete' | 'import',
+    operation: VersionOperation,
     description?: string,
     userId?: string
   ): Promise<VersionRef> {
@@ -593,7 +689,7 @@ export class GraphService {
     target: ResolvedGraphData,
     source: ResolvedGraphData,
     conflicts: MergeConflict[],
-    resolution: 'keep-target' | 'keep-source' | 'manual',
+    resolution: 'keep-target' | 'keep-source' | 'manual' | undefined,
     manualResolutions?: Record<string, 'keep-target' | 'keep-source'>
   ): EntityChanges {
     const changes: EntityChanges = {
@@ -602,15 +698,23 @@ export class GraphService {
       deleted: [],
     };
 
-    // Build conflict resolution map
+    // Build conflict resolution map. Values that reach here were validated by
+    // mergeGraph; the manual branch sets an entry only for a value that is
+    // actually a resolution, so an invalid value can never be coerced into
+    // keep-target by this function.
     const resolutionMap = new Map<string, 'keep-target' | 'keep-source'>();
     for (const conflict of conflicts) {
       const key = `${conflict.entityType}:${conflict.entityId}`;
-      if (resolution === 'manual' && manualResolutions?.[key]) {
-        resolutionMap.set(key, manualResolutions[key]);
-      } else {
-        resolutionMap.set(key, resolution === 'keep-source' ? 'keep-source' : 'keep-target');
+      if (resolution === 'manual') {
+        const manual = manualResolutions?.[key];
+        if (isManualResolution(manual)) {
+          resolutionMap.set(key, manual);
+        }
+      } else if (resolution === 'keep-source') {
+        resolutionMap.set(key, 'keep-source');
       }
+      // `keep-target` (and an unset strategy when there are no conflicts) leaves
+      // the target value in place, so no map entry is needed.
     }
 
     // Process each entity type

@@ -18,6 +18,7 @@ import {
   VersionOperation,
   EntityType,
   PackFile,
+  MergeParent,
 } from '../models/Graph';
 
 export interface VersionRepositoryConfig {
@@ -42,6 +43,27 @@ export interface ResolvedGraphData {
   arcs: Record<string, Record<string, unknown>>;
   relationships: Record<string, Record<string, unknown>>;
   pressures: Record<string, Record<string, unknown>>;
+}
+
+/**
+ * Thrown by `commit` when the caller supplied an `expectedParentVersion` that no
+ * longer matches the graph's head. It means another commit landed between the
+ * caller reading the graph and committing to it, so the changes were computed
+ * against a tree that is no longer the parent. Callers that can recompute (a
+ * merge) retry; callers that cannot should surface it.
+ */
+export class StaleVersionError extends Error {
+  constructor(
+    public readonly graphId: string,
+    public readonly expectedParentVersion: number | null,
+    public readonly actualParentVersion: number | null
+  ) {
+    super(
+      `Graph ${graphId} advanced from version ${expectedParentVersion ?? 'none'} to ` +
+        `${actualParentVersion ?? 'none'} while the commit was in flight`
+    );
+    this.name = 'StaleVersionError';
+  }
 }
 
 /**
@@ -111,20 +133,32 @@ export class VersionRepository {
   }
 
   /**
-   * Commit changes to create a new version
+   * Commit changes to create a new version.
+   *
+   * `mergeParent`, when supplied, records the source graph's head version as the
+   * second parent of a merge commit. It is never inferred: a linear commit has no
+   * second parent and leaves the field unset.
+   *
+   * `expectedParentVersion`, when supplied (including `null`, meaning "no
+   * versions yet"), is a compare-and-swap guard. Under the commit mutex the
+   * graph's head must still equal it or the commit is refused with a
+   * `StaleVersionError`. That is what makes a recorded first parent identify the
+   * tree the caller actually read.
    */
   async commit(
     graphId: string,
     changes: EntityChanges,
     operation: VersionOperation,
     description?: string,
-    userId?: string
+    userId?: string,
+    mergeParent?: MergeParent,
+    expectedParentVersion?: number | null
   ): Promise<VersionRef> {
     // Acquire mutex to prevent concurrent commits to the same graph
     const release = await this.commitMutex.acquire(graphId);
     
     try {
-      return await this.commitInternal(graphId, changes, operation, description, userId);
+      return await this.commitInternal(graphId, changes, operation, description, userId, mergeParent, expectedParentVersion);
     } finally {
       release();
     }
@@ -138,7 +172,9 @@ export class VersionRepository {
     changes: EntityChanges,
     operation: VersionOperation,
     description?: string,
-    userId?: string
+    userId?: string,
+    mergeParent?: MergeParent,
+    expectedParentVersion?: number | null
   ): Promise<VersionRef> {
     // Get current state
     const currentTreeHash = await this.getCurrentTree(graphId);
@@ -147,6 +183,18 @@ export class VersionRepository {
       : { events: {}, arcs: {}, relationships: {}, pressures: {} };
     
     const latestVersion = await this.getLatestVersion(graphId);
+
+    // Compare-and-swap. When the caller names the parent it computed against,
+    // refuse to commit if the graph has advanced in the meantime; otherwise the
+    // commit would record a first parent that is not the tree it diffed.
+    const actualParentVersion = latestVersion?.version ?? null;
+    if (
+      expectedParentVersion !== undefined &&
+      actualParentVersion !== expectedParentVersion
+    ) {
+      throw new StaleVersionError(graphId, expectedParentVersion, actualParentVersion);
+    }
+
     const newVersion = (latestVersion?.version ?? -1) + 1;
 
     // Process changes and build new tree
@@ -214,6 +262,10 @@ export class VersionRepository {
       changes: versionChanges,
       treeHash: newTreeHash,
     };
+
+    if (mergeParent) {
+      versionRef.mergeParent = mergeParent;
+    }
 
     // Store version ref
     await this.storeVersionRef(graphId, versionRef);

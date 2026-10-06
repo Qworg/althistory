@@ -78,7 +78,7 @@ interface GraphScopedRepositoryEntry {
   release: () => Promise<void>;
 }
 
-function hasInitialize(value: object): value is Initializable {
+function hasInitialize<T extends object>(value: T): value is T & Initializable {
   return 'initialize' in value;
 }
 
@@ -544,24 +544,45 @@ export class Container implements ServiceContainer {
         await this.databaseOptimizationService.initialize();
       }
 
-      // Initialize Phase 1 I/O services (local execution mode)
+      // Initialize Phase 1 I/O services in every mode.
+      //
+      // GraphService, ExportService and JobService build their own
+      // GraphRepository/VersionRepository/JobRepository from
+      // `localExecution.dataDirectory`. There is no Redis- or Neo4j-backed
+      // implementation of those repositories, so graph, export and job state is
+      // file-backed in cloud mode exactly as in local mode; the Neo4j/Redis
+      // connections initialised above serve only the legacy global repositories
+      // and graph copy. Initialising these services in cloud mode is what makes
+      // the graph/export/job routes work there instead of failing against an
+      // uninitialised store (e.g. a missing jobs directory).
+      await this.graphService.initialize();
+
+      // Legacy live-store adoption is a local-execution migration of the
+      // pre-multi-graph `graph.json`; it stays local-only.
       if (this.config.localExecution.enabled) {
-        await this.graphService.initialize();
         await this.adoptLegacyLiveStore();
-        await this.exportService.initialize();
-        await this.jobService.initialize();
-        this.jobService.start();
       }
+
+      await this.exportService.initialize();
+      await this.jobService.initialize();
+      this.jobService.start();
 
       // Initialize Phase 3: Authentication services (all modes)
       console.log('🔐 Initializing authentication services...');
       await this.authService.initialize();
       await this.rateLimitService.initialize();
 
-      if (this.config.localExecution.enabled) {
-        console.log('📦 Service container initialized successfully (Local Mode)');
-      } else {
-        console.log('☁️  Service container initialized successfully (Cloud Mode)');
+      const mode = this.config.localExecution.enabled ? 'Local Mode' : 'Cloud Mode';
+      console.log(`📦 Service container initialized successfully (${mode})`);
+      console.log(
+        `📁 Phase 1/3 I/O storage is file-backed JSON under ${this.config.localExecution.dataDirectory}; ` +
+          'no Redis/Neo4j backend is implemented for graph, export, job, rate-limit or API-key state.'
+      );
+      if (!this.config.localExecution.enabled) {
+        console.warn(
+          '⚠️  Cloud Mode uses the same local JSON files for Phase 1/3 I/O state as Local Mode. ' +
+            'That state is per-process, not the shared Redis/Neo4j store the input/output design describes.'
+        );
       }
     } catch (error) {
       console.error('❌ Failed to initialize service container:', error);
@@ -573,9 +594,12 @@ export class Container implements ServiceContainer {
    * Adopt the historical single live-store file into the active graph, once.
    *
    * Runs after `graphService.initialize()` (and therefore after the graph
-   * repository is initialised) and only in local mode: in cloud mode live data
-   * does not live in a local file. See `adoptLegacyGraphStore` for the guard and
-   * failure policy.
+   * repository is initialised). It is deliberately limited to local mode:
+   * although the per-graph live store is file-backed in both modes, adopting a
+   * pre-multi-graph `graph.json` is a local-execution migration step, so cloud
+   * deployments start from an empty graph index rather than silently importing
+   * whatever file happens to sit in the data directory. See
+   * `adoptLegacyGraphStore` for the guard and failure policy.
    */
   private async adoptLegacyLiveStore(): Promise<void> {
     const legacyFilePath = path.join(

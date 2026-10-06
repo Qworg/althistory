@@ -356,4 +356,32 @@ describe('Graph routes (request-level)', () => {
       expect(response.body.error.message).toContain('contradicts');
     });
   });
+
+  describe('merge validation (frontend apiClient.graphs.merge)', () => {
+    it.each([null, '', 'garbage'])(
+      'POST /api/graphs/:id/merge rejects %j as a manual resolution value',
+      async (invalidValue) => {
+        // The route owns a value check as well as the service. Mocking the
+        // service to succeed means a route that omitted its own check would
+        // answer 200 here, so this asserts the route rejects before delegating
+        // rather than merely observing that the service also rejects.
+        const mergeSpy = vi
+          .spyOn(container.graphService, 'mergeGraph')
+          .mockResolvedValue({ success: true, newVersion: 1 });
+
+        const response = await request(app)
+          .post(`/api/graphs/${sourceGraph.id}/merge`)
+          .set('X-API-Key', writeKey)
+          .send({
+            sourceGraphId: sourceGraph.id,
+            conflictResolution: 'manual',
+            manualResolutions: { 'event:any': invalidValue },
+          })
+          .expect(400);
+
+        expect(response.body.error.message).toContain('keep-source');
+        expect(mergeSpy).not.toHaveBeenCalled();
+      }
+    );
+  });
 });

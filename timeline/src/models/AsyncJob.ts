@@ -5,6 +5,22 @@
 export type JobType = 'export' | 'import' | 'ingest';
 export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
+/**
+ * Delivery state of a job's webhook notification. This is deliberately
+ * separate from the job's own `status`/`error`: a delivery failure does not
+ * mean the job failed, so it must not be written into `error` (which the UI
+ * only surfaces for failed jobs).
+ *
+ * - `delivered`: the endpoint accepted the payload.
+ * - `failed`: delivery was attempted and gave up (attempts exhausted, or a
+ *   non-retryable response such as a 4xx).
+ * - `abandoned`: delivery was attempted but the service stopped before it could
+ *   complete, so no further retry will be made.
+ * - `undefined`: delivery has never been attempted (no webhook configured, or
+ *   it has not started yet).
+ */
+export type WebhookDeliveryStatus = 'delivered' | 'failed' | 'abandoned';
+
 export interface IAsyncJob {
   id: string;
   type: JobType;
@@ -19,6 +35,8 @@ export interface IAsyncJob {
   result?: JobResult;
   webhookUrl?: string;
   webhookSent?: boolean;
+  webhookDeliveryStatus?: WebhookDeliveryStatus;
+  webhookDeliveryError?: string;
   error?: string;
 }
 
@@ -121,6 +139,8 @@ export class AsyncJob implements IAsyncJob {
   public result?: JobResult;
   public readonly webhookUrl?: string;
   public webhookSent: boolean;
+  public webhookDeliveryStatus?: WebhookDeliveryStatus;
+  public webhookDeliveryError?: string;
   public error?: string;
 
   constructor(data: CreateJobData) {
@@ -130,6 +150,10 @@ export class AsyncJob implements IAsyncJob {
     this.progress = 0;
     this.createdAt = new Date().toISOString();
     this.expiresAt = data.expiresAt || this.calculateExpiry();
+    // SAFETY: Callers that omit `parameters` only supply a generic `metadata`
+    // bag (see CreateJobData); the cast is the model's existing escape hatch
+    // for that generic shape and is not used by the typed export/import/ingest
+    // paths, which always pass a concrete JobParameters value.
     this.parameters = data.parameters || { type: data.type, metadata: data.metadata } as unknown as JobParameters;
     this.webhookUrl = data.webhookUrl;
     this.webhookSent = false;
@@ -221,6 +245,8 @@ export class AsyncJob implements IAsyncJob {
       result: this.result,
       webhookUrl: this.webhookUrl,
       webhookSent: this.webhookSent,
+      webhookDeliveryStatus: this.webhookDeliveryStatus,
+      webhookDeliveryError: this.webhookDeliveryError,
       error: this.error,
     };
   }
@@ -243,6 +269,8 @@ export class AsyncJob implements IAsyncJob {
     job.completedAt = data.completedAt;
     job.result = data.result;
     job.webhookSent = data.webhookSent ?? false;
+    job.webhookDeliveryStatus = data.webhookDeliveryStatus;
+    job.webhookDeliveryError = data.webhookDeliveryError;
     job.error = data.error;
     return job;
   }
