@@ -17,6 +17,8 @@ import { EventDetailModal, ArcDetailPanel } from '@/components/modals'
 import {
   findExcludedContainedEvents,
   findExcludedContainingArcs,
+  findExcludedChildArcs,
+  findEscapedParentArc,
 } from './timelineInteractionUtils'
 import type { UpdateArcRequest } from '@/types'
 
@@ -65,10 +67,10 @@ export function TimelineView() {
   const [editModal, setEditModal] = useState<EditModalState>(null)
 
   // The timeline double-click opens the create flow prefilled with the clicked
-  // time. Arc expansion is ephemeral view state (the store does not model it)
-  // and is mirrored here so the view owns the expand/collapse lifecycle.
+  // time. Arc expansion is owned entirely by Timeline (it drives which
+  // descendants enter the rendered hierarchy), so this view keeps no mirror of
+  // it -- a second copy here would be state nothing reads.
   const [createTimestamp, setCreateTimestamp] = useState<Date | null>(null)
-  const [expandedArcIds, setExpandedArcIds] = useState<Set<string>>(new Set())
 
   // Mutation hooks
   const deleteEventMutation = useDeleteEvent()
@@ -198,6 +200,32 @@ export function TimelineView() {
       return
     }
 
+    // Hierarchy constraint, mirroring the event-in-arc rule above: a child arc
+    // must stay inside its parent, and a parent must keep containing its
+    // children. Reject rather than save-with-warning for the same reason drag
+    // does -- a written resize would silently rewrite the hierarchy with no
+    // record of intent -- and an empty violation list means the resize is valid.
+    const escapedParent = findEscapedParentArc(arc, newBounds, fetchedArcs)
+    const excludedChildren = findExcludedChildArcs(arc, newBounds, fetchedArcs)
+    if (escapedParent || excludedChildren.length > 0) {
+      const violations: string[] = []
+      if (escapedParent) {
+        violations.push(`it would extend outside its parent arc "${escapedParent.name}"`)
+      }
+      if (excludedChildren.length > 0) {
+        violations.push(
+          `it would no longer contain child ` +
+            `${excludedChildren.length === 1 ? 'arc' : 'arcs'} ` +
+            excludedChildren.map((child) => `"${child.name}"`).join(', ')
+        )
+      }
+      addError({
+        type: 'validation',
+        message: `Cannot resize "${arc.name}": ${violations.join(' and ')}. The arc was left unchanged.`,
+      })
+      return
+    }
+
     try {
       await updateArcMutation.mutateAsync({
         id: arc.id,
@@ -212,25 +240,7 @@ export function TimelineView() {
         message: `Failed to resize "${arc.name}": ${describeError(error)}`,
       })
     }
-  }, [fetchedEvents, updateArcMutation, addError])
-
-  const handleArcExpand = useCallback((arc: Arc) => {
-    setExpandedArcIds((prev) => {
-      if (prev.has(arc.id)) return prev
-      const next = new Set(prev)
-      next.add(arc.id)
-      return next
-    })
-  }, [])
-
-  const handleArcCollapse = useCallback((arc: Arc) => {
-    setExpandedArcIds((prev) => {
-      if (!prev.has(arc.id)) return prev
-      const next = new Set(prev)
-      next.delete(arc.id)
-      return next
-    })
-  }, [])
+  }, [fetchedEvents, fetchedArcs, updateArcMutation, addError])
 
   // Context menu handlers
   const handleEventContextMenu = useCallback((event: Event, position: { x: number; y: number }) => {
@@ -388,7 +398,7 @@ export function TimelineView() {
   const isDeleting = deleteEventMutation.isPending || deleteArcMutation.isPending
 
   return (
-    <div className="space-y-6" data-expanded-arcs={[...expandedArcIds].join(' ')}>
+    <div className="space-y-6">
       <div ref={containerRef} className="bg-white rounded-lg shadow p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-2xl font-bold text-gray-900">Timeline View</h2>
@@ -410,8 +420,6 @@ export function TimelineView() {
             onEventCreate={handleEventCreate}
             onEventDrag={handleEventDrag}
             onArcResize={handleArcResize}
-            onArcExpand={handleArcExpand}
-            onArcCollapse={handleArcCollapse}
             onEventContextMenu={handleEventContextMenu}
             onArcContextMenu={handleArcContextMenu}
           />

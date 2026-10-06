@@ -58,6 +58,7 @@ vi.mock('d3', () => {
     extent: (...args: unknown[]) => ZoomMock
     transform: (...args: unknown[]) => ZoomMock
     on: (...args: unknown[]) => ZoomMock
+    filter: (...args: unknown[]) => ZoomMock
   }
 
   interface DragMock {
@@ -142,7 +143,8 @@ vi.mock('d3', () => {
       translateExtent: () => zoom,
       extent: () => zoom,
       transform: () => zoom,
-      on: () => zoom
+      on: () => zoom,
+      filter: () => zoom
     }
     return zoom
   }

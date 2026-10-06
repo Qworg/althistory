@@ -111,7 +111,24 @@ export const TimelineArc = memo(function TimelineArc({
     onHoverLeave?.(arc)
   }, [onHoverLeave, arc])
 
-  const resizeHandleWidth = Math.max(6, Math.min(10, width / 3))
+  // Two resize handles must never sit on top of each other: each takes at most
+  // a third of the bar, so the middle of the bar stays clickable. When the bar
+  // is narrower than the minimum usable handle the handles overhang its ends
+  // rather than piling up over it (each edge keeps a real hit area).
+  const handleWidth = Math.max(3, Math.min(8, width / 3))
+  const handleOverhang = Math.max(0, handleWidth - width / 3)
+  const startHandleX = x - handleOverhang
+  const startHandleRight = x + handleWidth - handleOverhang
+  const endHandleX = x + width - handleWidth + handleOverhang
+
+  // The disclosure lives in the gutter to the right of the start handle, so it
+  // never steals the start resize handle's hit area. A bar too narrow to host
+  // it drops the toggle below the bar, which keeps the same separation.
+  const toggleSize = 10
+  const toggleGap = 2
+  const toggleFitsInline = endHandleX - startHandleRight >= toggleSize + toggleGap * 2
+  const toggleX = toggleFitsInline ? startHandleRight + toggleGap : x
+  const toggleY = toggleFitsInline ? y + 3 : y + height + toggleGap
 
   return (
     <g
@@ -152,9 +169,9 @@ export const TimelineArc = memo(function TimelineArc({
         style={{ cursor: 'ew-resize' }}
       >
         <rect
-          x={x}
+          x={startHandleX}
           y={y}
-          width={resizeHandleWidth}
+          width={handleWidth}
           height={height}
           fill="transparent"
           pointerEvents="all"
@@ -181,9 +198,9 @@ export const TimelineArc = memo(function TimelineArc({
         style={{ cursor: 'ew-resize' }}
       >
         <rect
-          x={x + width - resizeHandleWidth}
+          x={endHandleX}
           y={y}
-          width={resizeHandleWidth}
+          width={handleWidth}
           height={height}
           fill="transparent"
           pointerEvents="all"
@@ -212,10 +229,10 @@ export const TimelineArc = memo(function TimelineArc({
           style={{ cursor: 'pointer' }}
         >
           <rect
-            x={x + 2}
-            y={y + 3}
-            width={10}
-            height={10}
+            x={toggleX}
+            y={toggleY}
+            width={toggleSize}
+            height={toggleSize}
             rx={2}
             fill="#ffffff"
             stroke="#6b7280"
@@ -224,8 +241,8 @@ export const TimelineArc = memo(function TimelineArc({
           <path
             d={
               arc.isExpanded
-                ? `M ${x + 4.5} ${y + 8} h 5`
-                : `M ${x + 4.5} ${y + 8} h 5 M ${x + 7} ${y + 5.5} v 5`
+                ? `M ${toggleX + 2.5} ${toggleY + 5} h 5`
+                : `M ${toggleX + 2.5} ${toggleY + 5} h 5 M ${toggleX + 5} ${toggleY + 2.5} v 5`
             }
             stroke="#374151"
             strokeWidth={1}

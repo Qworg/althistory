@@ -3,7 +3,7 @@ import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { type ArcWithUIState, calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
-import { formatTimeAxisTick } from '@/utils/d3Calculations'
+import { formatDuration, formatTimeAxisTick } from '@/utils/d3Calculations'
 import EventArcAssignment from './EventArcAssignment'
 import PressureIndicators from './PressureIndicators'
 import { TimelineEvent } from './TimelineEvent'
@@ -40,7 +40,7 @@ export interface TimelineProps {
 /** The element currently under the pointer (or keyboard focus), with its inner-SVG position. */
 type HoveredElement =
   | { kind: 'event'; event: Event; x: number; y: number }
-  | { kind: 'arc'; arc: Arc; x: number; y: number }
+  | { kind: 'arc'; arc: ArcWithUIState; x: number; y: number }
 
 /** A gesture in progress, resolved against the shared time scale on mouseup. */
 type TimelineDrag =
@@ -49,6 +49,34 @@ type TimelineDrag =
 
 /** Pointer travel (px) required before a mousedown is treated as a drag rather than a click. */
 const DRAG_THRESHOLD_PX = 3
+
+/** Inline-style highlight applied to the mark being dragged (see beginDrag). */
+const DRAG_HIGHLIGHT_FILTER = 'drop-shadow(0 0 4px rgba(37, 99, 235, 0.95))'
+
+/** Keep an inner-SVG x inside the plotted range, mirroring the double-click handler. */
+function clampInnerX(innerX: number, innerWidth: number): number {
+  return Math.max(0, Math.min(innerWidth, innerX))
+}
+
+/**
+ * Shows that a mark is being dragged by mutating its inline style directly.
+ *
+ * The marks are React.memo'd and the repo's ref pattern keeps the gesture
+ * callbacks stable, so writing to the DOM here is what lets the drag have live
+ * feedback without re-rendering the whole timeline on every pointer move.
+ * Returns the restore function for the end of the gesture (or unmount).
+ */
+function highlightDraggedMark(mark: Element | null): () => void {
+  if (!(mark instanceof SVGElement)) return () => {}
+  const previousFilter = mark.style.filter
+  const previousCursor = mark.style.cursor
+  mark.style.filter = DRAG_HIGHLIGHT_FILTER
+  mark.style.cursor = 'grabbing'
+  return () => {
+    mark.style.filter = previousFilter
+    mark.style.cursor = previousCursor
+  }
+}
 
 /**
  * Timeline component for visualizing events and arcs over time.
@@ -276,12 +304,12 @@ const Timeline = memo(function Timeline({
     setHovered(null)
   }, [])
 
-  // Convert a viewport clientX into a Date on the shared time scale. Mirrors the
-  // double-click handler's coordinate conversion so both use d3's invert.
-  const clientXToDate = useCallback((clientX: number): Date | null => {
+  // Convert a viewport clientX into the plot's inner-SVG x (px from the left
+  // edge of the time scale's range). Mirrors the double-click handler's
+  // coordinate conversion so both paths use d3's invert.
+  const clientXToInnerX = useCallback((clientX: number): number | null => {
     const svg = svgRef.current
-    const scale = xScaleRef.current
-    if (!svg || !scale) return null
+    if (!svg) return null
     if (typeof svg.getScreenCTM !== 'function' || typeof svg.createSVGPoint !== 'function') return null
     const ctm = svg.getScreenCTM()
     if (!ctm) return null
@@ -289,14 +317,43 @@ const Timeline = memo(function Timeline({
     point.x = clientX
     point.y = 0
     const local = point.matrixTransform(ctm.inverse())
-    const innerX = Math.max(0, Math.min(innerWidthRef.current, local.x - marginLeftRef.current))
-    return scale.invert(innerX)
+    return local.x - marginLeftRef.current
   }, [])
 
+  // A resize grabs an edge, so the edge simply follows the pointer.
+  const clientXToDate = useCallback((clientX: number): Date | null => {
+    const scale = xScaleRef.current
+    const innerX = clientXToInnerX(clientX)
+    if (!scale || innerX === null) return null
+    return scale.invert(clampInnerX(innerX, innerWidthRef.current))
+  }, [clientXToInnerX])
+
+  // A retime preserves the grab offset: the mark keeps its distance from the
+  // pointer that started the gesture, instead of snapping its start to the
+  // cursor. The new time is the original time advanced by the pointer's own
+  // travel, converted through the same scale.
+  const draggedTime = useCallback(
+    (event: Event, startClientX: number, clientX: number): Date | null => {
+      const scale = xScaleRef.current
+      const startInnerX = clientXToInnerX(startClientX)
+      const currentInnerX = clientXToInnerX(clientX)
+      if (!scale || startInnerX === null || currentInnerX === null) return null
+      const originInnerX = scale(new Date(event.timestamp))
+      const nextInnerX = originInnerX + (currentInnerX - startInnerX)
+      return scale.invert(clampInnerX(nextInnerX, innerWidthRef.current))
+    },
+    [clientXToInnerX]
+  )
+
   // A mousedown only becomes a drag once the pointer travels past a threshold,
-  // so a plain click never fires the drag/resize callbacks.
-  const beginDrag = useCallback((drag: TimelineDrag, startClientX: number) => {
+  // so a plain click never fires the drag/resize callbacks. `source` is the
+  // element the gesture started on; its mark gets the transient drag highlight.
+  const beginDrag = useCallback((drag: TimelineDrag, startClientX: number, source: Element | null) => {
     let moved = false
+    let cleanup = () => {}
+
+    const mark = source?.closest('[data-timeline-mark]') ?? source
+    const restoreMark = highlightDraggedMark(mark)
 
     const handleMouseMove = (native: MouseEvent) => {
       if (!moved && Math.abs(native.clientX - startClientX) < DRAG_THRESHOLD_PX) return
@@ -304,16 +361,20 @@ const Timeline = memo(function Timeline({
     }
 
     const handleMouseUp = (native: MouseEvent) => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-      dragCleanupRef.current = null
-      if (!moved) return
-      const timestamp = clientXToDate(native.clientX)
-      if (!timestamp) return
+      const wasMoved = moved
+      cleanup()
+      if (!wasMoved) return
       if (drag.type === 'event') {
+        const timestamp = draggedTime(drag.event, startClientX, native.clientX)
+        if (!timestamp) return
+        // Move away and back lands on the original timestamp; that write would
+        // change nothing, so it is skipped rather than sent to the API.
+        if (timestamp.getTime() === new Date(drag.event.timestamp).getTime()) return
         onEventDragRef.current?.(drag.event, timestamp)
         return
       }
+      const timestamp = clientXToDate(native.clientX)
+      if (!timestamp) return
       const start = new Date(drag.arc.start_time)
       const end = new Date(drag.arc.end_time)
       if (drag.edge === 'start') {
@@ -329,22 +390,26 @@ const Timeline = memo(function Timeline({
       }
     }
 
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
-    dragCleanupRef.current = () => {
+    cleanup = () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
+      dragCleanupRef.current = null
+      restoreMark()
     }
-  }, [clientXToDate])
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    dragCleanupRef.current = cleanup
+  }, [clientXToDate, draggedTime])
 
   const handleEventDragStart = useCallback((event: Event, native: React.MouseEvent) => {
     if (native.button !== 0) return
-    beginDrag({ type: 'event', event }, native.clientX)
+    beginDrag({ type: 'event', event }, native.clientX, native.currentTarget)
   }, [beginDrag])
 
   const handleArcResizeStart = useCallback((arc: ArcWithUIState, edge: ArcResizeEdge, native: React.MouseEvent) => {
     if (native.button !== 0) return
-    beginDrag({ type: 'arc-resize', arc, edge }, native.clientX)
+    beginDrag({ type: 'arc-resize', arc, edge }, native.clientX, native.currentTarget)
   }, [beginDrag])
 
   const handleArcResizeKey = useCallback((arc: ArcWithUIState, edge: ArcResizeEdge, direction: -1 | 1) => {
@@ -423,9 +488,11 @@ const Timeline = memo(function Timeline({
 
     // Keep zoom/pan from starting on a timeline mark: otherwise d3 calls
     // stopImmediatePropagation on mousedown and React never sees the gesture.
-    // Wheel-zoom over a mark is still allowed. `.filter` is public d3 API; the
-    // optional call tolerates incomplete test doubles.
-    zoom.filter?.((event: MouseEvent) => {
+    // Wheel-zoom over a mark is still allowed. `.filter` is public d3 API and
+    // every d3 test double registers it, so this is a direct call: an optional
+    // call would silently run a different interaction model in a suite whose
+    // mock omitted it.
+    zoom.filter((event: MouseEvent) => {
       const onMark =
         event.target instanceof Element && event.target.closest('[data-timeline-mark]') !== null
       if (onMark && event.type !== 'wheel') return false
@@ -593,6 +660,11 @@ const Timeline = memo(function Timeline({
               <div className="font-semibold">{hovered.arc.name}</div>
               <div>
                 {new Date(hovered.arc.start_time).toLocaleString()} – {new Date(hovered.arc.end_time).toLocaleString()}
+              </div>
+              <div>
+                {formatDuration(new Date(hovered.arc.start_time), new Date(hovered.arc.end_time))}
+                {' · '}
+                {hovered.arc.eventCount} {hovered.arc.eventCount === 1 ? 'event' : 'events'}
               </div>
             </>
           )}

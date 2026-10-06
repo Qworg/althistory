@@ -4,6 +4,8 @@ import {
   findContainingArcs,
   findExcludedContainingArcs,
   findExcludedContainedEvents,
+  findExcludedChildArcs,
+  findEscapedParentArc,
 } from './timelineInteractionUtils'
 import type { Arc, Event } from '@/types'
 
@@ -102,5 +104,86 @@ describe('findExcludedContainedEvents', () => {
         [e1, e2, outside]
       )
     ).toEqual([])
+  })
+})
+
+// parent window '1066-09-01'..'1067-01-01', child window '1066-10-01'..'1066-11-01'
+const parent = arc()
+const child = arc({
+  id: 'a2',
+  name: 'Succession Crisis',
+  parent_arc_id: 'a1',
+  start_time: '1066-10-01T00:00:00.000Z',
+  end_time: '1066-11-01T00:00:00.000Z',
+})
+const unrelated = arc({ id: 'a3', name: 'Unrelated', parent_arc_id: null })
+
+describe('findExcludedChildArcs', () => {
+  it('flags a child the shrink would drop outside the parent window', () => {
+    const excluded = findExcludedChildArcs(
+      parent,
+      { start: new Date('1066-11-01T00:00:00.000Z'), end: new Date('1067-01-01T00:00:00.000Z') },
+      [parent, child, unrelated]
+    )
+    expect(excluded.map((a) => a.name)).toEqual(['Succession Crisis'])
+  })
+
+  it('returns empty when the new bounds still contain the child', () => {
+    expect(
+      findExcludedChildArcs(
+        parent,
+        { start: new Date('1066-09-15T00:00:00.000Z'), end: new Date('1066-12-01T00:00:00.000Z') },
+        [parent, child, unrelated]
+      )
+    ).toEqual([])
+  })
+
+  it('does not constrain on children that are already outside the parent', () => {
+    const alreadyOutside = arc({
+      id: 'a4',
+      name: 'Pre-existing outlier',
+      parent_arc_id: 'a1',
+      start_time: '1060-01-01T00:00:00.000Z',
+      end_time: '1060-06-01T00:00:00.000Z',
+    })
+    expect(
+      findExcludedChildArcs(
+        parent,
+        { start: new Date('1066-10-15T00:00:00.000Z'), end: new Date('1067-01-01T00:00:00.000Z') },
+        [parent, alreadyOutside]
+      )
+    ).toEqual([])
+  })
+})
+
+describe('findEscapedParentArc', () => {
+  it('returns the parent a child resize would escape', () => {
+    expect(
+      findEscapedParentArc(
+        child,
+        { start: new Date('1066-08-01T00:00:00.000Z'), end: new Date('1066-11-01T00:00:00.000Z') },
+        [parent, child]
+      )?.name
+    ).toBe('Norman Conquest')
+  })
+
+  it('returns null when the resized child stays inside its parent', () => {
+    expect(
+      findEscapedParentArc(
+        child,
+        { start: new Date('1066-10-01T00:00:00.000Z'), end: new Date('1066-12-15T00:00:00.000Z') },
+        [parent, child]
+      )
+    ).toBeNull()
+  })
+
+  it('returns null for a root arc', () => {
+    expect(
+      findEscapedParentArc(
+        parent,
+        { start: new Date('1000-01-01T00:00:00.000Z'), end: new Date('1200-01-01T00:00:00.000Z') },
+        [parent]
+      )
+    ).toBeNull()
   })
 })

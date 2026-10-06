@@ -112,6 +112,18 @@ const childArc: Arc = {
   updated_at: '2024-01-01T00:00:00Z'
 }
 
+const grandchildArc: Arc = {
+  id: 'grandchild',
+  name: 'Grandchild Arc',
+  description: 'grandchild',
+  start_time: '2024-01-02T06:00:00Z',
+  end_time: '2024-01-02T12:00:00Z',
+  level: 2,
+  parent_arc_id: 'child',
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z'
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   d3Control.filter = null
@@ -158,6 +170,38 @@ describe('Timeline mark interaction behaviour', () => {
       expect(newTimestamp.getTime()).toBe(expectedDateAtClientX(420).getTime())
     })
 
+    it('preserves the grab offset instead of snapping the timestamp to the pointer', () => {
+      const onEventDrag = vi.fn()
+      render(<Timeline events={events} arcs={[]} onEventDrag={onEventDrag} width={800} height={400} />)
+
+      const mark = document.querySelector('[data-event-id="e1"]')
+      // e1 sits at clientX 56 (x = 0 + margin.left). Grab 44px to its right and
+      // travel 200px: the event advances by 200px, not to the pointer's 300px.
+      fireEvent.mouseDown(mark!, { button: 0, clientX: 100 })
+      fireEvent.mouseMove(window, { clientX: 300 })
+      fireEvent.mouseUp(window, { clientX: 300 })
+
+      expect(onEventDrag).toHaveBeenCalledTimes(1)
+      const [, newTimestamp] = onEventDrag.mock.calls[0] as [Event, Date]
+      expect(newTimestamp.getTime()).toBe(SCALE().invert(200).getTime())
+      expect(newTimestamp.getTime()).not.toBe(expectedDateAtClientX(300).getTime())
+    })
+
+    it('highlights the dragged mark during the gesture and clears it on release', () => {
+      const onEventDrag = vi.fn()
+      render(<Timeline events={events} arcs={[]} onEventDrag={onEventDrag} width={800} height={400} />)
+
+      const mark = document.querySelector('[data-event-id="e1"]') as SVGElement
+      fireEvent.mouseDown(mark, { button: 0, clientX: 200 })
+      fireEvent.mouseMove(window, { clientX: 260 })
+
+      expect(mark.style.filter).toContain('drop-shadow')
+
+      fireEvent.mouseUp(window, { clientX: 260 })
+      expect(mark.style.filter).toBe('')
+      expect(onEventDrag).toHaveBeenCalledTimes(1)
+    })
+
     it('does NOT invoke onEventDrag for a plain click (no pointer travel)', () => {
       const onEventDrag = vi.fn()
       render(<Timeline events={events} arcs={[]} onEventDrag={onEventDrag} width={800} height={400} />)
@@ -167,6 +211,48 @@ describe('Timeline mark interaction behaviour', () => {
       fireEvent.mouseUp(mark!, { button: 0, clientX: 200 })
 
       expect(onEventDrag).not.toHaveBeenCalled()
+
+      // ...but the same mark with real pointer travel still drags.
+      fireEvent.mouseDown(mark!, { button: 0, clientX: 200 })
+      fireEvent.mouseMove(window, { clientX: 260 })
+      fireEvent.mouseUp(window, { clientX: 260 })
+      expect(onEventDrag).toHaveBeenCalledTimes(1)
+    })
+
+    it('requires pointer travel past the 3px threshold before firing', () => {
+      const onEventDrag = vi.fn()
+      render(<Timeline events={events} arcs={[]} onEventDrag={onEventDrag} width={800} height={400} />)
+
+      const mark = document.querySelector('[data-event-id="e1"]')
+
+      fireEvent.mouseDown(mark!, { button: 0, clientX: 200 })
+      fireEvent.mouseMove(window, { clientX: 202 })
+      fireEvent.mouseUp(window, { clientX: 202 })
+      expect(onEventDrag).not.toHaveBeenCalled()
+
+      fireEvent.mouseDown(mark!, { button: 0, clientX: 200 })
+      fireEvent.mouseMove(window, { clientX: 203 })
+      fireEvent.mouseUp(window, { clientX: 203 })
+      expect(onEventDrag).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not write when a drag moves away and returns to the original time', () => {
+      const onEventDrag = vi.fn()
+      render(<Timeline events={events} arcs={[]} onEventDrag={onEventDrag} width={800} height={400} />)
+
+      const mark = document.querySelector('[data-event-id="e1"]')
+
+      fireEvent.mouseDown(mark!, { button: 0, clientX: 200 })
+      fireEvent.mouseMove(window, { clientX: 400 })
+      fireEvent.mouseMove(window, { clientX: 200 })
+      fireEvent.mouseUp(window, { clientX: 200 })
+      expect(onEventDrag).not.toHaveBeenCalled()
+
+      // The same gesture ending away from the origin does write.
+      fireEvent.mouseDown(mark!, { button: 0, clientX: 200 })
+      fireEvent.mouseMove(window, { clientX: 400 })
+      fireEvent.mouseUp(window, { clientX: 400 })
+      expect(onEventDrag).toHaveBeenCalledTimes(1)
     })
 
     it('does not invoke onEventDrag spuriously on re-render', () => {
@@ -176,6 +262,14 @@ describe('Timeline mark interaction behaviour', () => {
       )
       rerender(<Timeline events={events} arcs={[]} onEventDrag={onEventDrag} width={800} height={400} />)
       expect(onEventDrag).not.toHaveBeenCalled()
+
+      // A re-render must not break the gesture plumbing either.
+      const mark = document.querySelector('[data-event-id="e1"]')
+      fireEvent.mouseDown(mark!, { button: 0, clientX: 200 })
+      fireEvent.mouseMove(window, { clientX: 260 })
+      fireEvent.mouseUp(window, { clientX: 260 })
+      expect(onEventDrag).toHaveBeenCalledTimes(1)
+      expect(onEventDrag.mock.calls[0]?.[0]).toMatchObject({ id: 'e1' })
     })
   })
 
@@ -186,7 +280,7 @@ describe('Timeline mark interaction behaviour', () => {
       render(
         <Timeline
           events={[]}
-          arcs={[parentArc, childArc]}
+          arcs={[parentArc, childArc, grandchildArc]}
           onArcExpand={onArcExpand}
           onArcCollapse={onArcCollapse}
           width={800}
@@ -194,26 +288,39 @@ describe('Timeline mark interaction behaviour', () => {
         />
       )
 
-      // Collapsed by default: the child is not in the hierarchy.
+      // Collapsed by default: no descendant is in the rendered hierarchy.
       expect(document.querySelector('[data-arc-id="child"]')).not.toBeInTheDocument()
+      expect(document.querySelector('[data-arc-id="grandchild"]')).not.toBeInTheDocument()
 
       const toggle = document.querySelector('[data-arc-toggle="parent"]')
       expect(toggle).toBeInTheDocument()
       expect(toggle).toHaveAttribute('aria-label', 'Expand arc Parent Arc')
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
 
       fireEvent.click(toggle!)
 
       expect(onArcExpand).toHaveBeenCalledTimes(1)
       expect(onArcExpand).toHaveBeenCalledWith(expect.objectContaining({ id: 'parent' }))
       expect(onArcCollapse).not.toHaveBeenCalled()
+      // Expanding renders the child but still omits the collapsed grandchild,
+      // i.e. expansion is what puts a descendant in the DOM at all.
       expect(document.querySelector('[data-arc-id="child"]')).toBeInTheDocument()
+      expect(document.querySelector('[data-arc-id="grandchild"]')).not.toBeInTheDocument()
       expect(toggle).toHaveAttribute('aria-label', 'Collapse arc Parent Arc')
+      expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+      const childToggle = document.querySelector('[data-arc-toggle="child"]')
+      expect(childToggle).toHaveAttribute('aria-label', 'Expand arc Child Arc')
+      fireEvent.click(childToggle!)
+      expect(document.querySelector('[data-arc-id="grandchild"]')).toBeInTheDocument()
 
       fireEvent.click(toggle!)
 
       expect(onArcCollapse).toHaveBeenCalledTimes(1)
       expect(onArcCollapse).toHaveBeenCalledWith(expect.objectContaining({ id: 'parent' }))
+      // Collapsing the parent removes the whole subtree from the DOM.
       expect(document.querySelector('[data-arc-id="child"]')).not.toBeInTheDocument()
+      expect(document.querySelector('[data-arc-id="grandchild"]')).not.toBeInTheDocument()
     })
 
     it('supports keyboard toggle (Enter)', () => {
@@ -284,6 +391,85 @@ describe('Timeline mark interaction behaviour', () => {
       fireEvent.mouseUp(window, { clientX: 56 })
 
       expect(onArcResize).not.toHaveBeenCalled()
+
+      // A real edge drag on the same handle does resize.
+      fireEvent.mouseDown(handle!, { button: 0, clientX: 56 })
+      fireEvent.mouseMove(window, { clientX: 120 })
+      fireEvent.mouseUp(window, { clientX: 120 })
+      expect(onArcResize).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('arc affordance layout', () => {
+    it('keeps the expand toggle out of the start resize handle hit area', () => {
+      render(
+        <Timeline events={[]} arcs={[parentArc, childArc]} width={800} height={400} />
+      )
+
+      const startRect = document.querySelector(
+        '[data-arc-id="parent"] [data-resize-edge="start"] rect'
+      )
+      const toggleRect = document.querySelector('[data-arc-toggle="parent"] rect')
+      expect(startRect).toBeInTheDocument()
+      expect(toggleRect).toBeInTheDocument()
+
+      const handleX = Number(startRect?.getAttribute('x'))
+      const handleWidth = Number(startRect?.getAttribute('width'))
+      const toggleX = Number(toggleRect?.getAttribute('x'))
+      expect(toggleX).toBeGreaterThanOrEqual(handleX + handleWidth)
+    })
+
+    it('keeps both resize handles distinct and usable on a narrow arc', () => {
+      const narrowArc: Arc = {
+        ...parentArc,
+        id: 'narrow',
+        name: 'Narrow Arc',
+        start_time: '2024-01-03T00:00:00Z',
+        end_time: '2024-01-03T00:02:00Z'
+      }
+      render(<Timeline events={[]} arcs={[narrowArc]} width={800} height={400} />)
+
+      const startRect = document.querySelector(
+        '[data-arc-id="narrow"] [data-resize-edge="start"] rect'
+      )
+      const endRect = document.querySelector(
+        '[data-arc-id="narrow"] [data-resize-edge="end"] rect'
+      )
+      expect(startRect).toBeInTheDocument()
+      expect(endRect).toBeInTheDocument()
+
+      const startX = Number(startRect?.getAttribute('x'))
+      const startWidth = Number(startRect?.getAttribute('width'))
+      const endX = Number(endRect?.getAttribute('x'))
+      const endWidth = Number(endRect?.getAttribute('width'))
+
+      expect(startWidth).toBeGreaterThanOrEqual(3)
+      expect(endWidth).toBeGreaterThanOrEqual(3)
+      expect(endX).toBeGreaterThanOrEqual(startX + startWidth)
+    })
+
+    it('leaves the middle of a modestly narrow arc free of both handles', () => {
+      const narrowArc: Arc = {
+        ...parentArc,
+        id: 'narrow',
+        name: 'Narrow Arc',
+        start_time: '2024-01-03T00:00:00Z',
+        end_time: '2024-01-03T03:00:00Z'
+      }
+      render(<Timeline events={[]} arcs={[narrowArc]} width={800} height={400} />)
+
+      const startRect = document.querySelector(
+        '[data-arc-id="narrow"] [data-resize-edge="start"] rect'
+      )
+      const endRect = document.querySelector(
+        '[data-arc-id="narrow"] [data-resize-edge="end"] rect'
+      )
+      const startX = Number(startRect?.getAttribute('x'))
+      const startWidth = Number(startRect?.getAttribute('width'))
+      const endX = Number(endRect?.getAttribute('x'))
+
+      // A gap between the handle hit areas keeps the bar selectable.
+      expect(endX).toBeGreaterThan(startX + startWidth)
     })
   })
 
@@ -304,14 +490,16 @@ describe('Timeline mark interaction behaviour', () => {
       expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
     })
 
-    it('shows an arc tooltip with name and date range on hover', () => {
-      render(<Timeline events={[]} arcs={[parentArc]} width={800} height={400} />)
+    it('shows an arc tooltip with name, date range, duration and event count on hover', () => {
+      render(<Timeline events={events} arcs={[parentArc]} width={800} height={400} />)
       const arcGroup = document.querySelector('[data-arc-id="parent"]')
       fireEvent.mouseEnter(arcGroup!)
 
       const tooltip = screen.getByRole('tooltip')
       expect(tooltip).toHaveTextContent('Parent Arc')
       expect(tooltip.textContent).toMatch(/2024/)
+      expect(tooltip).toHaveTextContent('4 days')
+      expect(tooltip).toHaveTextContent('2 events')
 
       fireEvent.mouseLeave(arcGroup!)
       expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
@@ -336,10 +524,16 @@ describe('Timeline mark interaction behaviour', () => {
       const onEventCreate = vi.fn()
       render(<Timeline events={events} arcs={[]} onEventCreate={onEventCreate} width={800} height={400} />)
 
+      const svg = document.querySelector('svg')
       const mark = document.querySelector('[data-event-id="e1"]')
-      fireEvent.doubleClick(mark!, { clientX: 420, clientY: 200 })
 
-      expect(onEventCreate).not.toHaveBeenCalled()
+      // The SVG background still creates...
+      fireEvent.doubleClick(svg!, { clientX: 420, clientY: 200 })
+      expect(onEventCreate).toHaveBeenCalledTimes(1)
+
+      // ...but a mark does not, because the guard owns that path.
+      fireEvent.doubleClick(mark!, { clientX: 420, clientY: 200 })
+      expect(onEventCreate).toHaveBeenCalledTimes(1)
     })
   })
 

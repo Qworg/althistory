@@ -246,27 +246,65 @@ describe('TimelineView direct-manipulation handlers', () => {
     expect(useGlobalStore.getState().errors[0]?.type).toBe('validation')
   })
 
-  it('tracks expand/collapse as view state without any API call', async () => {
+  // Expansion state lives in Timeline (it decides which descendants enter the
+  // rendered hierarchy), not in this view. The rendered behaviour -- toggling
+  // an arc's disclosure adds/removes its descendants in the DOM -- is covered
+  // against the real component in TimelineInteractionA.test.tsx. What this view
+  // owns is the resize constraint: the hierarchy must survive the new bounds.
+  const containedChild: Arc = {
+    id: 'a3',
+    name: 'Contained Child',
+    description: 'Sits inside the Norman Conquest window',
+    start_time: '1066-10-01T00:00:00.000Z',
+    end_time: '1066-11-01T00:00:00.000Z',
+    level: 1,
+    parent_arc_id: 'a1',
+    created_at: '2024-01-01T00:00:00.000Z',
+    updated_at: '2024-01-01T00:00:00.000Z',
+  }
+
+  it('rejects a shrink that would leave a child arc outside its parent, naming the child', async () => {
+    vi.mocked(useArcs).mockReturnValue(
+      arcsResult({ data: [normanArc, containedChild], isLoading: false, error: null })
+    )
     renderView()
-    expect(typeof currentTimelineProps().onArcExpand).toBe('function')
-    expect(typeof currentTimelineProps().onArcCollapse).toBe('function')
 
     await act(async () => {
-      currentTimelineProps().onArcExpand?.(normanArc)
+      await currentTimelineProps().onArcResize?.(normanArc, {
+        start: new Date('1066-10-05T00:00:00.000Z'),
+        end: new Date('1067-01-01T00:00:00.000Z'),
+      })
     })
-    expect(
-      document.querySelector('[data-expanded-arcs]')?.getAttribute('data-expanded-arcs')
-    ).toBe('a1')
-
-    await act(async () => {
-      currentTimelineProps().onArcCollapse?.(normanArc)
-    })
-    expect(
-      document.querySelector('[data-expanded-arcs]')?.getAttribute('data-expanded-arcs')
-    ).toBe('')
 
     expect(mocks.updateArc).not.toHaveBeenCalled()
-    expect(useGlobalStore.getState().errors).toHaveLength(0)
+    expect(
+      await screen.findByText(
+        /Cannot resize "Norman Conquest": it would no longer contain child arc "Contained Child"/
+      )
+    ).toBeInTheDocument()
+    expect(useGlobalStore.getState().errors[0]?.type).toBe('validation')
+  })
+
+  it('rejects a child resize that would extend outside its parent, naming the parent', async () => {
+    vi.mocked(useArcs).mockReturnValue(
+      arcsResult({ data: [normanArc, containedChild], isLoading: false, error: null })
+    )
+    renderView()
+
+    await act(async () => {
+      await currentTimelineProps().onArcResize?.(containedChild, {
+        start: new Date('1066-08-01T00:00:00.000Z'),
+        end: new Date('1066-11-01T00:00:00.000Z'),
+      })
+    })
+
+    expect(mocks.updateArc).not.toHaveBeenCalled()
+    expect(
+      await screen.findByText(
+        /Cannot resize "Contained Child": it would extend outside its parent arc "Norman Conquest"/
+      )
+    ).toBeInTheDocument()
+    expect(useGlobalStore.getState().errors[0]?.type).toBe('validation')
   })
 
   it('opens the create flow prefilled with the double-clicked timestamp and creates on save', async () => {
