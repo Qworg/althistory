@@ -460,6 +460,12 @@ export class JobService extends EventEmitter {
   /**
    * Deliver the job's webhook, retrying retryable failures with exponential
    * backoff. Never called with `await` from job processing.
+   *
+   * The first attempt is made even if the service has already started
+   * stopping: the process is still alive and the POST is short, so a delivery
+   * that is already underway is not silently dropped. Only the retry backoff
+   * is abandoned on shutdown, and that outcome is recorded on the job as
+   * `webhookDeliveryStatus: 'abandoned'` rather than being lost.
    */
   private async sendWebhook(job: AsyncJob): Promise<void> {
     if (!job.webhookUrl || job.webhookSent) return;
@@ -478,13 +484,14 @@ export class JobService extends EventEmitter {
     let attemptsMade = 0;
 
     for (let attempt = 1; attempt <= this.webhookMaxAttempts; attempt++) {
-      if (!this.running) return;
       attemptsMade = attempt;
 
       const outcome = await this.attemptWebhook(webhookUrl, payload);
 
       if (outcome.delivered) {
         job.markWebhookSent();
+        job.webhookDeliveryStatus = 'delivered';
+        job.webhookDeliveryError = undefined;
         await this.jobRepository.update(job);
         this.logger.info('Webhook delivered', { jobId: job.id, attempts: attempt });
         this.emit('webhookDelivered', { jobId: job.id, attempts: attempt });
@@ -500,15 +507,18 @@ export class JobService extends EventEmitter {
         reason: outcome.reason,
       });
 
-      // A 4xx (other than 408/429) means the request itself is wrong: the next
-      // attempt sends the same bytes to the same endpoint and fails the same
-      // way, so stop rather than burn the retry budget.
+      // A 4xx (other than 408/429) means the request itself is wrong, and the
+      // last attempt means the retry budget is spent. Both are terminal
+      // failures regardless of whether the service is stopping.
       if (!outcome.retryable) break;
       if (attempt === this.webhookMaxAttempts) break;
 
-      // Re-check before scheduling: stop() may have run while the request was
-      // in flight, in which case a new backoff timer would outlive the service.
-      if (!this.running) return;
+      // The service has stopped: there is nothing left to retry, but the
+      // interrupted delivery is recorded rather than dropped.
+      if (!this.running) {
+        await this.recordWebhookAbandoned(job, attemptsMade, lastReason);
+        return;
+      }
 
       const backoffMs = Math.min(
         this.webhookInitialBackoffMs * 2 ** (attempt - 1),
@@ -522,6 +532,13 @@ export class JobService extends EventEmitter {
         reason: outcome.reason,
       });
       await this.waitForBackoff(backoffMs);
+
+      // stop() resolves the backoff wait so it cannot outlive the service; the
+      // retry is abandoned explicitly instead of being silently skipped.
+      if (!this.running) {
+        await this.recordWebhookAbandoned(job, attemptsMade, lastReason);
+        return;
+      }
     }
 
     await this.recordWebhookFailure(job, attemptsMade, lastReason);
@@ -536,9 +553,13 @@ export class JobService extends EventEmitter {
     webhookUrl: string,
     payload: string
   ): Promise<WebhookAttemptResult> {
+    let timedOut = false;
     const controller = new AbortController();
     this.webhookControllers.add(controller);
-    const timeoutId = setTimeout(() => controller.abort(), this.webhookTimeoutMs);
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.webhookTimeoutMs);
     this.webhookTimeoutTimers.add(timeoutId);
 
     try {
@@ -562,11 +583,20 @@ export class JobService extends EventEmitter {
       };
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        return {
-          delivered: false,
-          retryable: true,
-          reason: `timeout after ${this.webhookTimeoutMs}ms`,
-        };
+        // `timedOut` distinguishes this attempt's own timeout from stop()
+        // aborting the request during shutdown; the two are not the same
+        // failure and must not be reported as one.
+        return timedOut
+          ? {
+              delivered: false,
+              retryable: true,
+              reason: `timeout after ${this.webhookTimeoutMs}ms`,
+            }
+          : {
+              delivered: false,
+              retryable: true,
+              reason: 'aborted because the service is stopping',
+            };
       }
       return {
         delivered: false,
@@ -591,18 +621,41 @@ export class JobService extends EventEmitter {
   /**
    * Record a terminal webhook delivery failure on the job and in the job
    * repository, following the same pattern as job failures: mutate the job,
-   * persist it, then emit. The job's own terminal status and failure reason are
-   * preserved; only the error surface gains the delivery failure so a caller
-   * polling the job can see it.
+   * persist it, then emit. The delivery outcome is written to the dedicated
+   * `webhookDeliveryStatus`/`webhookDeliveryError` fields, never to `error`,
+   * because the job's own status may be `completed` and a delivery failure is
+   * not a job failure.
    */
   private async recordWebhookFailure(job: AsyncJob, attempts: number, reason: string): Promise<void> {
     const message = `Webhook delivery failed after ${attempts} attempt${attempts === 1 ? '' : 's'}: ${reason}`;
 
-    job.webhookSent = false;
-    job.error = job.error ? `${job.error}; ${message}` : message;
+    job.webhookDeliveryStatus = 'failed';
+    job.webhookDeliveryError = message;
 
     await this.jobRepository.update(job);
     this.emit('webhookDeliveryFailed', { jobId: job.id, attempts, error: message });
+  }
+
+  /**
+   * Record a delivery that was cut short because the service stopped. Attempts
+   * may already have been made, but no further retry will happen, so the
+   * outcome is persisted as `abandoned` instead of being silently dropped.
+   */
+  private async recordWebhookAbandoned(job: AsyncJob, attempts: number, reason: string): Promise<void> {
+    const message =
+      `Webhook delivery abandoned after ${attempts} attempt${attempts === 1 ? '' : 's'} ` +
+      `because the service is stopping: ${reason}`;
+
+    job.webhookDeliveryStatus = 'abandoned';
+    job.webhookDeliveryError = message;
+
+    await this.jobRepository.update(job);
+    this.logger.warn('Webhook delivery abandoned on shutdown', {
+      jobId: job.id,
+      attempts,
+      reason,
+    });
+    this.emit('webhookDeliveryAbandoned', { jobId: job.id, attempts, error: message });
   }
 
   /**

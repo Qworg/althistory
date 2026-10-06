@@ -21,6 +21,7 @@ import {
   BranchGraphRequest,
   MergeGraphRequest,
   IGraph,
+  findInvalidManualResolutions,
 } from '../../models/Graph';
 import type { CopyResult as GraphCopyResult, EntityFilter } from '../../services/GraphCopyService';
 import { ValidationError } from '../../utils/errors';
@@ -527,6 +528,20 @@ graphRoutes.post('/:id/merge', ...writeGraphAuth, async (req: RequestWithContain
       throw new ValidationError(
         'Conflict resolution must be one of: keep-target, keep-source, manual',
         'conflictResolution'
+      );
+    }
+
+    // The route validates the values as well as the service, because a service
+    // that is only safe when its one caller validates is not safe. An invalid
+    // value must be rejected here rather than reach the merge's keep-target
+    // fallback.
+    const invalidManualResolutions = findInvalidManualResolutions(request.manualResolutions);
+    if (invalidManualResolutions.length > 0) {
+      throw new ValidationError(
+        'manualResolutions values must be "keep-source" or "keep-target"',
+        'manualResolutions',
+        request.manualResolutions,
+        invalidManualResolutions.map(key => `manualResolutions[${key}] is not a valid resolution`)
       );
     }
 

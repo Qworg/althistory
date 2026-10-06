@@ -1,13 +1,13 @@
 # Hierarchical Temporal Graph System
 
-A sophisticated system for capturing, analyzing, and visualizing historical events across multiple temporal scales using graph database technology. The system supports both cloud-based deployment with Neo4j and Redis, as well as local execution for offline development.
+A sophisticated system for capturing, analyzing, and visualizing historical events across multiple temporal scales using graph database technology. The system supports both cloud-based deployment, where it connects to Neo4j for the legacy global event/arc graph and to Redis for query caching, as well as local execution for offline development. In every mode, Phase 1/3 I/O state (the graph index and per-graph store, version history, export files, async jobs, rate-limit counters and API keys) is file-backed JSON under `LOCAL_DATA_DIR`, per process rather than a shared store; see the Cloud Execution Mode section below for details.
 
 ## 🌟 Features
 
 - **Hierarchical Temporal Modeling**: Capture events and arcs (periods) at multiple temporal scales
 - **Causal Relationship Analysis**: Model and analyze cause-and-effect relationships between events
 - **Graph Visualization**: Interactive timeline and causal graph visualizations
-- **Dual Execution Modes**: Run locally for development or deploy to cloud with full infrastructure
+- **Dual Execution Modes**: Run locally for development or deploy to cloud with Neo4j/Redis for the legacy graph and query cache
 - **Performance Optimized**: Intelligent caching, query optimization, and connection pooling
 - **Real-time Analysis**: Inference engine for detecting patterns and suggesting relationships
 
@@ -21,7 +21,7 @@ A sophisticated system for capturing, analyzing, and visualizing historical even
 
 ### Technology Stack
 - **Backend**: Node.js, Express.js, TypeScript
-- **Database**: Neo4j (graph database) + Redis (caching) OR Local file-based storage
+- **Database**: Neo4j (legacy global event/arc graph) + Redis (query cache) in cloud mode; Phase 1/3 I/O state is file-backed JSON in every mode
 - **Frontend**: React, D3.js, Cytoscape.js
 - **Testing**: Vitest, React Testing Library
 
@@ -35,9 +35,17 @@ A sophisticated system for capturing, analyzing, and visualizing historical even
 
 #### For Cloud Deployment
 - Node.js 18+ and npm
-- Neo4j 4.4+ database instance
-- Redis 6+ instance
+- Neo4j 4.4+ database instance (legacy global event/arc graph and graph copy)
+- Redis 6+ instance (query cache)
 - Git
+
+> **Phase 1/3 I/O state is file-backed JSON in cloud mode too.** The graph index
+> and per-graph store, version history, export files, async jobs, rate-limit
+> counters and API keys are read from and written to JSON files under
+> `LOCAL_DATA_DIR` in every mode, including cloud. That state is per-process:
+> two app instances do not share it through Redis or Neo4j. Only the legacy
+> global event/arc graph data and `GraphCopyService` use Neo4j, and only the
+> legacy query cache uses Redis.
 
 ### ⚡ 5-Minute Local Setup
 
@@ -170,7 +178,7 @@ data/
 
 ## ☁️ Cloud Execution Mode (Production)
 
-For production deployments with full Neo4j and Redis infrastructure.
+For production deployments that connect to Neo4j (the legacy global event/arc graph and graph copy) and Redis (query caching). The Phase 1/3 I/O state is file-backed JSON in this mode as well; see the note under Prerequisites above.
 
 ### Prerequisites Setup
 

@@ -272,27 +272,30 @@ export class GraphRepository {
     operation: VersionOperation,
     description?: string,
     userId?: string,
-    mergeParent?: MergeParent
+    mergeParent?: MergeParent,
+    expectedParentVersion?: number | null
   ): Promise<VersionRef> {
-    // Commit to version repository. The merge parent is forwarded only when
-    // present so that a linear commit keeps its existing single-parent call
-    // shape (and a merge parent is never recorded as `undefined`).
-    const versionRef = mergeParent
-      ? await this.versionRepository.commit(
-          graphId,
-          changes,
-          operation,
-          description,
-          userId,
-          mergeParent
-        )
-      : await this.versionRepository.commit(
-          graphId,
-          changes,
-          operation,
-          description,
-          userId
-        );
+    // Commit to version repository. Optional arguments are forwarded only when
+    // present so a linear commit keeps its existing five-argument call shape
+    // (and a merge parent is never recorded as `undefined`).
+    const versionRef =
+      mergeParent !== undefined || expectedParentVersion !== undefined
+        ? await this.versionRepository.commit(
+            graphId,
+            changes,
+            operation,
+            description,
+            userId,
+            mergeParent,
+            expectedParentVersion
+          )
+        : await this.versionRepository.commit(
+            graphId,
+            changes,
+            operation,
+            description,
+            userId
+          );
 
     // Update graph metadata
     const graph = await this.findById(graphId);
@@ -339,14 +342,25 @@ export class GraphRepository {
       throw new Error(`Source graph not found: ${sourceGraphId}`);
     }
 
-    // Create new graph with branch metadata
-    const branchGraph = source.branch(name, description);
+    // Record the fork point before copying anything. It is a real version in the
+    // source graph's version repository, not the graph metadata's `version`
+    // counter (which also advances on metadata-only updates). Reading the head
+    // first and checking out that exact version makes the branch's initial tree
+    // identical to the recorded fork point even if the source advances while the
+    // branch is being created.
+    const forkVersion = await this.versionRepository.getLatestVersion(sourceGraphId);
+
+    // Create new graph with branch metadata. `null` means the source had no
+    // versions, i.e. there is no fork point to recover.
+    const branchGraph = source.branch(name, description, forkVersion ? forkVersion.version : null);
     
     // Initialize version storage
     await this.versionRepository.initializeGraph(branchGraph.id);
 
-    // Copy the current state from source
-    const sourceData = await this.checkout(sourceGraphId);
+    // Copy the state at the recorded fork point
+    const sourceData = forkVersion
+      ? await this.checkout(sourceGraphId, forkVersion.version)
+      : await this.checkout(sourceGraphId);
     const changes: EntityChanges = {
       added: [],
       modified: [],

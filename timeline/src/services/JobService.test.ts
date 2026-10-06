@@ -983,8 +983,13 @@ describe('JobService', () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(4);
       expect(job.webhookSent).toBe(false);
-      expect(job.error).toContain('Webhook delivery failed after 4 attempts');
-      expect(persisted.some((entry) => entry.error?.includes('Webhook delivery failed'))).toBe(true);
+      // The delivery outcome lives in the dedicated fields; a completed job's
+      // `error` must stay untouched by a delivery failure.
+      expect(job.webhookDeliveryStatus).toBe('failed');
+      expect(job.webhookDeliveryError).toContain('Webhook delivery failed after 4 attempts');
+      expect(job.error).toBeUndefined();
+      expect(persisted.some((entry) => entry.webhookDeliveryStatus === 'failed')).toBe(true);
+      expect(persisted.some((entry) => entry.webhookDeliveryError?.includes('Webhook delivery failed'))).toBe(true);
     });
 
     it('does not retry a non-retryable 4xx response', async () => {
@@ -1000,7 +1005,9 @@ describe('JobService', () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(job.webhookSent).toBe(false);
-      expect(job.error).toContain('Webhook delivery failed after 1 attempt');
+      expect(job.webhookDeliveryStatus).toBe('failed');
+      expect(job.webhookDeliveryError).toContain('Webhook delivery failed after 1 attempt');
+      expect(job.error).toBeUndefined();
     });
 
     it('grows the delay between attempts exponentially', async () => {
@@ -1024,6 +1031,207 @@ describe('JobService', () => {
         attemptTimes[2] - attemptTimes[1],
         attemptTimes[3] - attemptTimes[2],
       ]).toEqual([100, 200, 400]);
+    });
+
+    it('retries a request that times out and reports the timeout reason', async () => {
+      const job = createMockJob({
+        status: 'pending',
+        webhookUrl: 'https://example.com/webhook',
+      });
+      // Never settles on its own: each attempt only rejects when its own
+      // AbortController fires, which is exactly what a timeout does to fetch.
+      const fetchMock = vi.fn().mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise<never>((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => {
+              const error = new Error('The operation was aborted');
+              error.name = 'AbortError';
+              reject(error);
+            });
+          })
+      );
+      global.fetch = fetchMock;
+
+      await startServiceWithWebhook(job, {
+        webhookMaxAttempts: 3,
+        webhookInitialBackoffMs: 100,
+        webhookTimeoutMs: 1000,
+      });
+      await vi.advanceTimersByTimeAsync(10000);
+
+      // Each timeout is retryable, so all three attempts are made, and the
+      // recorded reason is the timeout rather than the raw AbortError text.
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(job.webhookSent).toBe(false);
+      expect(job.webhookDeliveryStatus).toBe('failed');
+      expect(job.webhookDeliveryError).toContain('timeout after 1000ms');
+    });
+
+    it('retries a thrown connection error and delivers once the endpoint recovers', async () => {
+      const job = createMockJob({
+        status: 'pending',
+        webhookUrl: 'https://example.com/webhook',
+      });
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce({ ok: true });
+      global.fetch = fetchMock;
+
+      await startServiceWithWebhook(job, {
+        webhookMaxAttempts: 4,
+        webhookInitialBackoffMs: 100,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(job.webhookDeliveryStatus).toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(job.webhookSent).toBe(true);
+      expect(job.webhookDeliveryStatus).toBe('delivered');
+    });
+
+    it('caps the retry backoff at webhookMaxBackoffMs', async () => {
+      const job = createMockJob({
+        status: 'pending',
+        webhookUrl: 'https://example.com/webhook',
+      });
+      const attemptTimes: number[] = [];
+      const fetchMock = vi.fn().mockImplementation(() => {
+        attemptTimes.push(Date.now());
+        return Promise.resolve({ ok: false, status: 500 });
+      });
+      global.fetch = fetchMock;
+
+      await startServiceWithWebhook(job, {
+        webhookMaxAttempts: 4,
+        webhookInitialBackoffMs: 10000,
+        webhookMaxBackoffMs: 15000,
+      });
+      await vi.advanceTimersByTimeAsync(60000);
+
+      expect(attemptTimes).toHaveLength(4);
+      // Un-capped exponential growth would be [10000, 20000, 40000].
+      expect([
+        attemptTimes[1] - attemptTimes[0],
+        attemptTimes[2] - attemptTimes[1],
+        attemptTimes[3] - attemptTimes[2],
+      ]).toEqual([10000, 15000, 15000]);
+    });
+
+    it('does not block job completion or the next job on webhook delivery', async () => {
+      const webhookJob = createMockJob({
+        id: 'job_webhook',
+        status: 'pending',
+        webhookUrl: 'https://example.com/webhook',
+      });
+      const secondJob = createMockJob({ id: 'job_second', status: 'pending' });
+
+      jobService = new JobService({
+        dataDir: './test-data',
+        maxConcurrentJobs: 1,
+        pollIntervalMs: 5000,
+        webhookMaxAttempts: 4,
+        webhookInitialBackoffMs: 100,
+        webhookTimeoutMs: 60000,
+      });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(webhookJob)
+        .mockResolvedValueOnce(secondJob)
+        .mockResolvedValue(null);
+      mockJobRepository.update.mockResolvedValue(webhookJob);
+      mockExportService.exportToFile.mockResolvedValue('/path/to/export.json');
+
+      let resolveFetch: ((value: { ok: boolean }) => void) | undefined;
+      const fetchMock = vi.fn().mockImplementation(
+        () =>
+          new Promise<{ ok: boolean }>((resolve) => {
+            resolveFetch = resolve;
+          })
+      );
+      global.fetch = fetchMock;
+
+      await jobService.initialize();
+      jobService.start();
+
+      // The export finishes and the webhook starts, but delivery is still
+      // pending: the job is complete and its worker slot is free.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(webhookJob.status).toBe('completed');
+      expect(webhookJob.webhookDeliveryStatus).toBeUndefined();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // The next poll processes job 2 while delivery is still outstanding. If
+      // job processing awaited the webhook, the single worker slot would still
+      // be held and job 2 would stay pending.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(secondJob.status).toBe('completed');
+
+      resolveFetch?.({ ok: true });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(webhookJob.webhookDeliveryStatus).toBe('delivered');
+    });
+
+    it('records an abandoned delivery instead of dropping it when stopped during a retry wait', async () => {
+      const job = createMockJob({
+        status: 'pending',
+        webhookUrl: 'https://example.com/webhook',
+      });
+      const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+      global.fetch = fetchMock;
+
+      await startServiceWithWebhook(job);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const persisted: IAsyncJob[] = [];
+      mockJobRepository.update.mockImplementation(async (updated: AsyncJob) => {
+        persisted.push(updated.toJSON());
+        return updated;
+      });
+
+      jobService.stop();
+      await vi.advanceTimersByTimeAsync(60000);
+
+      // No further attempt is made, but the interrupted delivery is visible.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(job.webhookSent).toBe(false);
+      expect(job.webhookDeliveryStatus).toBe('abandoned');
+      expect(job.error).toBeUndefined();
+      expect(persisted.some((entry) => entry.webhookDeliveryStatus === 'abandoned')).toBe(true);
+    });
+
+    it('records an abandoned delivery when shutdown aborts an in-flight request', async () => {
+      const job = createMockJob({
+        status: 'pending',
+        webhookUrl: 'https://example.com/webhook',
+      });
+      const fetchMock = vi.fn().mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise<never>((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => {
+              const error = new Error('The operation was aborted');
+              error.name = 'AbortError';
+              reject(error);
+            });
+          })
+      );
+      global.fetch = fetchMock;
+
+      await startServiceWithWebhook(job, { webhookTimeoutMs: 60000 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      jobService.stop();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(job.webhookSent).toBe(false);
+      expect(job.webhookDeliveryStatus).toBe('abandoned');
+      expect(job.error).toBeUndefined();
     });
 
     it('cancels a pending retry and its timers when the service stops', async () => {
