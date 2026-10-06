@@ -38,6 +38,12 @@ interface EventDetailModalProps {
   onDelete?: () => Promise<void>
   relatedArcs?: Arc[]
   causalRelationships?: CausalRelationship[]
+  /**
+   * ISO timestamp used to prefill the creation form when `event` is null.
+   * The timeline passes the double-clicked time so a new event starts at the
+   * point the user chose rather than at an empty field.
+   */
+  initialTimestamp?: string
   className?: string
 }
 
@@ -59,6 +65,7 @@ export function EventDetailModal({
   onDelete,
   relatedArcs = [],
   causalRelationships = [],
+  initialTimestamp,
   className = ''
 }: EventDetailModalProps) {
   const [formData, setFormData] = useState<EventFormData>({
@@ -91,7 +98,7 @@ export function EventDetailModal({
         description: '',
         actor: '',
         target: '',
-        timestamp: '',
+        timestamp: initialTimestamp ? isoToDatetimeLocal(initialTimestamp) : '',
         event_type: '',
         confidence: 1.0,
         evidence: ''
@@ -99,7 +106,7 @@ export function EventDetailModal({
     }
     setErrors({})
     setShowDeleteConfirm(false)
-  }, [event, isOpen])
+  }, [event, isOpen, initialTimestamp])
 
   // Handle escape key
   useEffect(() => {

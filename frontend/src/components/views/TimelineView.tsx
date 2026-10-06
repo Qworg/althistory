@@ -2,13 +2,30 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Timeline } from '@/components/timeline/Timeline'
 import { useEvents } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
-import { useDeleteEvent, useUpdateEvent, useDeleteArc, useUpdateArc } from '@/hooks/useAPI'
+import {
+  useCreateEvent,
+  useDeleteEvent,
+  useUpdateEvent,
+  useDeleteArc,
+  useUpdateArc,
+} from '@/hooks/useAPI'
 import { useGlobalStore } from '@/stores/globalStore'
 import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
 import { Event, Arc, TimeRange } from '@/types'
 import { ContextMenu, ConfirmDialog } from '@/components/ui'
 import { EventDetailModal, ArcDetailPanel } from '@/components/modals'
+import {
+  findExcludedContainedEvents,
+  findExcludedContainingArcs,
+  findExcludedChildArcs,
+  findEscapedParentArc,
+} from './timelineInteractionUtils'
 import type { UpdateArcRequest } from '@/types'
+
+function describeError(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  return 'Unknown error'
+}
 
 type ContextMenuState = {
   type: 'event' | 'arc'
@@ -29,7 +46,7 @@ type EditModalState = {
 export function TimelineView() {
   const { data: fetchedEvents = [], isLoading: eventsLoading } = useEvents()
   const { data: fetchedArcs = [], isLoading: arcsLoading } = useArcs()
-  const { sessionData, activeFilters } = useGlobalStore()
+  const { sessionData, activeFilters, addError } = useGlobalStore()
 
   // The backend event/arc routes do not accept the UI's filter vocabulary (see
   // filterUtils), so the active filters are applied to the fetched collections.
@@ -49,9 +66,16 @@ export function TimelineView() {
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState>(null)
   const [editModal, setEditModal] = useState<EditModalState>(null)
 
+  // The timeline double-click opens the create flow prefilled with the clicked
+  // time. Arc expansion is owned entirely by Timeline (it drives which
+  // descendants enter the rendered hierarchy), so this view keeps no mirror of
+  // it -- a second copy here would be state nothing reads.
+  const [createTimestamp, setCreateTimestamp] = useState<Date | null>(null)
+
   // Mutation hooks
   const deleteEventMutation = useDeleteEvent()
   const updateEventMutation = useUpdateEvent()
+  const createEventMutation = useCreateEvent()
   const deleteArcMutation = useDeleteArc()
   const updateArcMutation = useUpdateArc()
 
@@ -101,12 +125,122 @@ export function TimelineView() {
   }, [])
 
   const handleEventCreate = useCallback((timestamp: Date) => {
-    console.log('Create event at:', timestamp)
+    setCreateTimestamp(timestamp)
   }, [])
 
-  const handleEventDrag = useCallback((event: Event, newTimestamp: Date) => {
-    console.log('Event dragged:', event.id, 'to:', newTimestamp)
-  }, [])
+  const handleCreateEventSave = useCallback(async (eventData: Partial<Event>) => {
+    try {
+      await createEventMutation.mutateAsync({
+        description: eventData.description ?? '',
+        actor: eventData.actor ?? '',
+        target: eventData.target ?? '',
+        timestamp: eventData.timestamp ?? createTimestamp?.toISOString() ?? new Date().toISOString(),
+      })
+      setCreateTimestamp(null)
+    } catch (error) {
+      addError({
+        type: 'network',
+        message: `Failed to create event: ${describeError(error)}`,
+      })
+      // Re-throw so the modal keeps itself open and shows its inline message.
+      throw error
+    }
+  }, [createEventMutation, createTimestamp, addError])
+
+  const handleEventDrag = useCallback(async (event: Event, newTimestamp: Date) => {
+    // Reject rather than save-with-warning: arc membership is derived purely
+    // from time bounds and events carry no explicit arc id, so a saved retime
+    // that leaves an arc silently rewrites which arc contains the event with no
+    // record of intent. Reassignment has its own explicit flow, so drag stays a
+    // within-arc operation; the constraint is surfaced instead of written.
+    const excludedArcs = findExcludedContainingArcs(event, newTimestamp, fetchedArcs)
+    if (excludedArcs.length > 0) {
+      addError({
+        type: 'validation',
+        message:
+          `Cannot move "${event.description}" outside its containing ` +
+          `${excludedArcs.length === 1 ? 'arc' : 'arcs'} ` +
+          `${excludedArcs.map((arc) => `"${arc.name}"`).join(', ')}. ` +
+          'The event was left unchanged.',
+      })
+      return
+    }
+
+    try {
+      await updateEventMutation.mutateAsync({
+        id: event.id,
+        data: { timestamp: newTimestamp.toISOString() },
+      })
+    } catch (error) {
+      addError({
+        type: 'network',
+        message: `Failed to move "${event.description}": ${describeError(error)}`,
+      })
+    }
+  }, [fetchedArcs, updateEventMutation, addError])
+
+  const handleArcResize = useCallback(async (arc: Arc, newBounds: { start: Date; end: Date }) => {
+    if (newBounds.start.getTime() >= newBounds.end.getTime()) {
+      addError({
+        type: 'validation',
+        message: `Cannot resize "${arc.name}": the end of the arc must be after its start. The arc was left unchanged.`,
+      })
+      return
+    }
+
+    const excludedEvents = findExcludedContainedEvents(arc, newBounds, fetchedEvents)
+    if (excludedEvents.length > 0) {
+      addError({
+        type: 'validation',
+        message:
+          `Cannot shrink "${arc.name}": ${excludedEvents.length} contained ` +
+          `${excludedEvents.length === 1 ? 'event' : 'events'} would fall outside the new range. ` +
+          'The arc was left unchanged.',
+      })
+      return
+    }
+
+    // Hierarchy constraint, mirroring the event-in-arc rule above: a child arc
+    // must stay inside its parent, and a parent must keep containing its
+    // children. Reject rather than save-with-warning for the same reason drag
+    // does -- a written resize would silently rewrite the hierarchy with no
+    // record of intent -- and an empty violation list means the resize is valid.
+    const escapedParent = findEscapedParentArc(arc, newBounds, fetchedArcs)
+    const excludedChildren = findExcludedChildArcs(arc, newBounds, fetchedArcs)
+    if (escapedParent || excludedChildren.length > 0) {
+      const violations: string[] = []
+      if (escapedParent) {
+        violations.push(`it would extend outside its parent arc "${escapedParent.name}"`)
+      }
+      if (excludedChildren.length > 0) {
+        violations.push(
+          `it would no longer contain child ` +
+            `${excludedChildren.length === 1 ? 'arc' : 'arcs'} ` +
+            excludedChildren.map((child) => `"${child.name}"`).join(', ')
+        )
+      }
+      addError({
+        type: 'validation',
+        message: `Cannot resize "${arc.name}": ${violations.join(' and ')}. The arc was left unchanged.`,
+      })
+      return
+    }
+
+    try {
+      await updateArcMutation.mutateAsync({
+        id: arc.id,
+        data: {
+          start_time: newBounds.start.toISOString(),
+          end_time: newBounds.end.toISOString(),
+        },
+      })
+    } catch (error) {
+      addError({
+        type: 'network',
+        message: `Failed to resize "${arc.name}": ${describeError(error)}`,
+      })
+    }
+  }, [fetchedEvents, fetchedArcs, updateArcMutation, addError])
 
   // Context menu handlers
   const handleEventContextMenu = useCallback((event: Event, position: { x: number; y: number }) => {
@@ -155,9 +289,12 @@ export function TimelineView() {
         setSelectedArc(null)
       }
     } catch (error) {
-      console.error('Failed to delete:', error)
+      addError({
+        type: 'network',
+        message: `Failed to delete ${deleteConfirm.type}: ${describeError(error)}`,
+      })
     }
-  }, [deleteConfirm, deleteEventMutation, deleteArcMutation, selectedEvent, selectedArc])
+  }, [deleteConfirm, deleteEventMutation, deleteArcMutation, selectedEvent, selectedArc, addError])
 
   // Cancel delete
   const handleDeleteCancel = useCallback(() => {
@@ -167,46 +304,78 @@ export function TimelineView() {
   // Save event changes
   const handleEventSave = useCallback(async (updates: Partial<Event>) => {
     if (editModal?.type === 'event') {
-      await updateEventMutation.mutateAsync({
-        id: editModal.item.id,
-        data: updates
-      })
-      setEditModal(null)
+      try {
+        await updateEventMutation.mutateAsync({
+          id: editModal.item.id,
+          data: updates
+        })
+        setEditModal(null)
+      } catch (error) {
+        addError({
+          type: 'network',
+          message: `Failed to save event: ${describeError(error)}`,
+        })
+        throw error
+      }
     }
-  }, [editModal, updateEventMutation])
+  }, [editModal, updateEventMutation, addError])
 
   // Delete event from modal
   const handleEventDelete = useCallback(async () => {
     if (editModal?.type === 'event') {
-      await deleteEventMutation.mutateAsync(editModal.item.id)
-      setEditModal(null)
-      if (selectedEvent?.id === editModal.item.id) {
-        setSelectedEvent(null)
+      try {
+        await deleteEventMutation.mutateAsync(editModal.item.id)
+        setEditModal(null)
+        if (selectedEvent?.id === editModal.item.id) {
+          setSelectedEvent(null)
+        }
+      } catch (error) {
+        addError({
+          type: 'network',
+          message: `Failed to delete event: ${describeError(error)}`,
+        })
+        throw error
       }
     }
-  }, [editModal, deleteEventMutation, selectedEvent])
+  }, [editModal, deleteEventMutation, selectedEvent, addError])
 
   // Save arc changes
   const handleArcSave = useCallback(async (updates: UpdateArcRequest) => {
     if (editModal?.type === 'arc') {
-      await updateArcMutation.mutateAsync({
-        id: editModal.item.id,
-        data: updates
-      })
-      setEditModal(null)
+      try {
+        await updateArcMutation.mutateAsync({
+          id: editModal.item.id,
+          data: updates
+        })
+        setEditModal(null)
+      } catch (error) {
+        addError({
+          type: 'network',
+          message: `Failed to save arc: ${describeError(error)}`,
+        })
+        throw error
+      }
     }
-  }, [editModal, updateArcMutation])
+  }, [editModal, updateArcMutation, addError])
 
   // Delete arc from modal
   const handleArcDelete = useCallback(async () => {
     if (editModal?.type === 'arc') {
-      await deleteArcMutation.mutateAsync(editModal.item.id)
-      setEditModal(null)
-      if (selectedArc?.id === editModal.item.id) {
-        setSelectedArc(null)
+      try {
+        await deleteArcMutation.mutateAsync(editModal.item.id)
+        setEditModal(null)
+        if (selectedArc?.id === editModal.item.id) {
+          setSelectedArc(null)
+        }
+      } catch (error) {
+        addError({
+          type: 'network',
+          message: `Failed to delete arc: ${describeError(error)}`,
+        })
+        throw error
       }
     }
-  }, [editModal, deleteArcMutation, selectedArc])
+  }, [editModal, deleteArcMutation, selectedArc, addError])
 
   // Close edit modal
   const handleEditModalClose = useCallback(() => {
@@ -250,6 +419,7 @@ export function TimelineView() {
             onTimeRangeChange={handleTimeRangeChange}
             onEventCreate={handleEventCreate}
             onEventDrag={handleEventDrag}
+            onArcResize={handleArcResize}
             onEventContextMenu={handleEventContextMenu}
             onArcContextMenu={handleArcContextMenu}
           />
@@ -326,6 +496,17 @@ export function TimelineView() {
           onClose={handleEditModalClose}
           onSave={handleArcSave}
           onDelete={handleArcDelete}
+        />
+      )}
+
+      {/* Create Event Modal (opened by double-clicking the timeline) */}
+      {createTimestamp && (
+        <EventDetailModal
+          event={null}
+          isOpen={true}
+          initialTimestamp={createTimestamp.toISOString()}
+          onClose={() => setCreateTimestamp(null)}
+          onSave={handleCreateEventSave}
         />
       )}
     </div>

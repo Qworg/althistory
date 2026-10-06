@@ -23,6 +23,7 @@ vi.mock('d3', () => {
     translateExtent: (...args: unknown[]) => MockZoomBehavior
     extent: (...args: unknown[]) => MockZoomBehavior
     on: (...args: unknown[]) => MockZoomBehavior
+    filter: (...args: unknown[]) => MockZoomBehavior
     transform: Record<string, unknown>
   }
 
@@ -58,6 +59,7 @@ vi.mock('d3', () => {
       translateExtent: () => zoom,
       extent: () => zoom,
       on: () => zoom,
+      filter: () => zoom,
       transform: {}
     }
     return zoom
