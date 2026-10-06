@@ -13,22 +13,42 @@ single number, is the useful output.
 | package  | statements | branches | functions | lines | suite |
 |----------|-----------:|---------:|----------:|------:|-------|
 | frontend | 67.33%     | 83.75%   | 65.55%    | 67.33% | 1438 passed / 1 skipped |
-| timeline | ~77.5%     | ~78.5%   | 83.67%    | ~77.5% | 1320 passed / 1 skipped |
+| timeline | 69.16%     | ~78.5%   | 83.67%    | 69.16% | 1320 passed / 1 skipped |
 
 Both packages use `all: true` in `vitest.config.ts`, so the denominator counts
 every source file matching `include` -- `.ts` and `.tsx` in both packages --
-including files no test imports. The two figures are therefore comparable: the
-backend `include` glob was widened from `.ts` only to `.ts,tsx` after an
-independent review found that the original glob silently omitted the five
-non-test `.tsx` components (1081 lines, including `TimelineVisualization.tsx`,
-which has running tests).
+including files no test imports. Two further settings have to agree before the
+figures mean the same thing, and both now do:
+
+* `include` covers `.ts` and `.tsx` in both packages. The backend glob was
+  originally `.ts` only and was widened after an independent review found it had
+  silently omitted the five non-test `.tsx` components (1081 lines, including
+  `TimelineVisualization.tsx`, which has running tests).
+* `ignoreEmptyLines` is `true` in both. Vitest 3 (the frontend) defaults it to
+  `true`; Vitest 1 (the backend) defaults it to `false`, so the backend was
+  counting every physical line -- blank lines, comment-only lines and all -- as
+  a statement. Its pre-fix statement total, 31050, is exactly the physical line
+  count of the 70 files the report covered. Setting it explicitly to `true` in
+  `timeline/vitest.config.ts` drops the denominator to 18834 executable lines,
+  so both packages now count the same kind of thing and the figures are
+  comparable.
+
+Comparability is at the engine level too, not just the option level. Both
+packages resolve to the same line-based `v8-to-istanbul` converter bundled in
+`@vitest/coverage-v8`; the AST-aware `experimentalAstAwareRemapping` path is not
+enabled in either. `_buildLines` and `_parseLinesToCover` are identical between
+the two bundled copies, and the only engine difference is that the newer
+frontend copy also understands `node:coverage` ignore comments -- neither tree
+contains any ignore comment. Statements and lines are consequently identical
+within each package, which is what that engine produces.
 
 ### Caveat: branch and function percentages are flattered
 
 With `all: true`, a file that no test imports reports 0/0 branches and 0/0
-functions, and v8 scores an empty denominator as 100%. Every never-loaded file
-therefore pulls the branch and function percentages *up*. At this baseline
-`src/utils/index.ts` is 0% statements but 100% branches and 100% functions.
+functions, and v8 scores an empty or near-empty denominator as 100%. Every
+never-loaded file therefore pulls the branch and function percentages *up*. At
+this baseline `src/utils/index.ts` is 0% statements but 100% branches and 100%
+functions.
 Statements and lines do not have this artifact: an unimported file has a
 non-empty statement count, all uncovered.
 
@@ -40,12 +60,16 @@ unimported files is the correct behaviour. The same note sits next to
 
 ### The backend figure is not reproducible to the hundredth
 
-Two consecutive runs of the full backend suite on the same tree produced
-statements/lines 77.51% and 77.49%, and branches 78.61% and 78.52% (functions
-stable at 83.67%). The branch *total* itself moved between runs (3680 vs 3674),
-so the v8 instrumentation is timing/worker dependent. Treat the backend figures
-as ~77.5% statements/lines and ~78.5% branches, and do not quote hundredths for
-them.
+Two consecutive runs of the full backend suite on the same tree are not
+identical. Before the `ignoreEmptyLines` change, statements/lines moved 77.51%
+<-> 77.49% and the branch total moved (3680 vs 3674). After it, two runs gave
+statements 13027/18834 and 13026/18834, with branch totals 3677 and 3674 (78.54%
+and 78.52%), so the backend branch figure is quoted above as ~78.5% rather than
+to hundredths. Some tests exercise data-dependent paths and v8 instrumentation
+is worker/timing dependent; the frontend shows the same effect on a smaller
+scale (branch total 2838 vs 2837 across two runs, with the percentage unchanged
+at 83.75). The frontend percentages reproduced exactly at two decimals
+(67.33/83.75/65.55/67.33) against the earlier measurement.
 
 ## Accessibility checks (vitest-axe)
 

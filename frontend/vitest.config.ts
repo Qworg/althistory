@@ -14,8 +14,15 @@ export default defineConfig({
       // no test ever imports, so the baseline cannot be flattered by only
       // measuring files a test happened to touch.
       //
+      // `ignoreEmptyLines` is not set here because Vitest 3 already defaults it
+      // to true -- blank and comment-only lines are dropped from the
+      // denominator. The backend runs Vitest 1, which defaults it to false, so
+      // timeline/vitest.config.ts sets it explicitly to true to match. If this
+      // default ever changes, both configs must be re-checked together.
+      //
       // Caveat: with `all: true`, a file that no test imports reports 0/0
-      // branches and 0/0 functions, and v8 scores an empty denominator as 100%.
+      // branches and 0/0 functions, and v8 scores an empty or near-empty
+      // denominator as 100%.
       // The branch and function percentages are therefore flattered upward by
       // every never-loaded file; statements and lines are not. This is inherent
       // to v8's all:true mode, not a config error. The measured figures and this
