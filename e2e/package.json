@@ -1,0 +1,17 @@
+{
+  "name": "althistory-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "End-to-end and visual-regression tests for the althistory frontend, driven against a real production build with the HTTP API stubbed.",
+  "scripts": {
+    "test": "playwright test",
+    "test:update-snapshots": "playwright test --update-snapshots",
+    "report": "playwright show-report",
+    "install-browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^26.6.4"
+  }
+}
