@@ -1,14 +1,47 @@
 /**
- * Active WebSocket stream session tracking and concurrency enforcement.
+ * Active WebSocket stream session tracking, concurrency and lifetime
+ * enforcement.
  *
- * The limit is enforced here rather than merely stored: `tryOpen` refuses to
- * create a session once the key already has `maxConcurrent` sessions, and it is
- * called on the connection path before the session is ever established. The
- * limit value comes from the API key's
- * `rateLimit.concurrentStreams` (default 5, see `DEFAULT_RATE_LIMITS`).
+ * The concurrency limit is enforced here rather than merely stored: `tryOpen`
+ * refuses to create a session once the key already has `maxConcurrent` sessions,
+ * and it is called on the connection path after the connection is authorised
+ * but before the handshake is completed. The limit value comes from the API
+ * key's `rateLimit.concurrentStreams` (default 5, see `DEFAULT_RATE_LIMITS`).
+ *
+ * Two lifetime limits are enforced on top of the concurrency limit:
+ *   - `maxLifetimeMs` is a hard cap measured from `tryOpen`, and is never
+ *     extended by traffic;
+ *   - `idleTimeoutMs` is measured from the last received message.
+ * `expiredReason` reports which limit a session has crossed and `sweep` removes
+ * the crossed sessions, so a session that is abandoned while holding a
+ * concurrency slot cannot hold it forever.
  */
 
 import { randomUUID } from 'crypto';
+
+/** How long any stream session may live, regardless of how active it is. */
+export const DEFAULT_STREAM_MAX_LIFETIME_MS = 30 * 60 * 1000;
+
+/** How long a stream session may sit idle before its slot is reclaimed. */
+export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+
+export interface StreamSessionPolicy {
+  maxLifetimeMs: number;
+  idleTimeoutMs: number;
+}
+
+export const DEFAULT_STREAM_SESSION_POLICY: StreamSessionPolicy = {
+  maxLifetimeMs: DEFAULT_STREAM_MAX_LIFETIME_MS,
+  idleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+};
+
+/** Which limit an expired session crossed. */
+export type StreamSessionExpiryReason = 'lifetime' | 'idle';
+
+export interface ExpiredStreamSession {
+  session: StreamSession;
+  reason: StreamSessionExpiryReason;
+}
 
 /** One live streaming session (design §WebSocket Streaming Models). */
 export interface StreamSession {
@@ -19,6 +52,10 @@ export interface StreamSession {
   lastActivityAt: string;
   messagesReceived: number;
   entitiesCreated: number;
+  /** Hard deadline. Never moved once the session is open. */
+  expiresAt: string;
+  /** Idle window applied to `lastActivityAt`. */
+  idleTimeoutMs: number;
 }
 
 export type OpenSessionResult =
@@ -27,6 +64,11 @@ export type OpenSessionResult =
 
 export class StreamSessionManager {
   private readonly sessions = new Map<string, StreamSession>();
+  private readonly policy: StreamSessionPolicy;
+
+  constructor(policy: Partial<StreamSessionPolicy> = {}) {
+    this.policy = { ...DEFAULT_STREAM_SESSION_POLICY, ...policy };
+  }
 
   /**
    * Reserve a session slot for `apiKeyId` if it is under `maxConcurrent`.
@@ -57,6 +99,8 @@ export class StreamSessionManager {
       lastActivityAt: timestamp,
       messagesReceived: 0,
       entitiesCreated: 0,
+      expiresAt: new Date(now + this.policy.maxLifetimeMs).toISOString(),
+      idleTimeoutMs: this.policy.idleTimeoutMs,
     };
 
     this.sessions.set(session.id, session);
@@ -90,6 +134,43 @@ export class StreamSessionManager {
     }
   }
 
+  /**
+   * Which lifetime limit `sessionId` has crossed, if any.
+   *
+   * `lifetime` wins over `idle` so a session that is both past its hard cap and
+   * idle is reported (and later logged) as having hit the hard cap. Returns
+   * `undefined` for an unknown or live session, so a caller cannot act on a
+   * session the manager no longer holds.
+   */
+  expiredReason(
+    sessionId: string,
+    now: number = Date.now()
+  ): StreamSessionExpiryReason | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return undefined;
+    }
+    return this.reasonFor(session, now);
+  }
+
+  /**
+   * Remove every expired session and report why each one went. The caller is
+   * responsible for closing the socket that owns the session; this only frees
+   * the slot, so a caller that ignores the returned sessions still cannot
+   * re-admit over the limit.
+   */
+  sweep(now: number = Date.now()): ExpiredStreamSession[] {
+    const expired: ExpiredStreamSession[] = [];
+    for (const session of Array.from(this.sessions.values())) {
+      const reason = this.reasonFor(session, now);
+      if (reason) {
+        this.sessions.delete(session.id);
+        expired.push({ session, reason });
+      }
+    }
+    return expired;
+  }
+
   /** Remove a session. Returns the removed session, if any. */
   close(sessionId: string): StreamSession | undefined {
     const session = this.sessions.get(sessionId);
@@ -120,5 +201,19 @@ export class StreamSessionManager {
     const open = this.all();
     this.sessions.clear();
     return open;
+  }
+
+  private reasonFor(
+    session: StreamSession,
+    now: number
+  ): StreamSessionExpiryReason | undefined {
+    if (new Date(session.expiresAt).getTime() <= now) {
+      return 'lifetime';
+    }
+    const idleFor = now - new Date(session.lastActivityAt).getTime();
+    if (idleFor >= session.idleTimeoutMs) {
+      return 'idle';
+    }
+    return undefined;
   }
 }

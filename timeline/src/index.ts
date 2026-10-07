@@ -23,16 +23,106 @@ import {
 export { asRequestHandler };
 
 /**
+ * How long shutdown may spend closing sockets and cleaning up before the
+ * process is force-exited.
+ */
+export const SHUTDOWN_FORCE_EXIT_MS = 30000;
+
+/** The part of `http.Server` the shutdown sequence needs (structural so a test
+ * can drive the sequence without a real listener). */
+export interface ShutdownServer {
+  close(callback: () => void): ShutdownServer;
+  closeIdleConnections(): void;
+}
+
+export interface ShutdownOptions {
+  server: ShutdownServer;
+  streamHandler?: Pick<StreamHandler, 'detach' | 'close'> | undefined;
+  cleanup: () => Promise<void>;
+  exit: (code: number) => void;
+  forceExitMs?: number;
+}
+
+/**
+ * Run the shutdown sequence in an order that cannot hang without a way out.
+ *
+ * 1. The force-exit timer is armed FIRST. Everything after it can block on work
+ *    we do not control (`close()` waits for peers, `cleanup()` waits for the
+ *    database), so arming it later would leave a hung shutdown with no timeout
+ *    at all -- exactly the case the timer exists for.
+ * 2. The upgrade listener is detached before anything is closed, so a late
+ *    upgrade cannot arrive at a handler whose sessions are being torn down (and
+ *    reserve a slot that nothing will ever release).
+ * 3. Live sockets are terminated before `server.close()`, because an open
+ *    WebSocket is a live connection and `close()` does not complete while one
+ *    exists.
+ */
+export async function shutdownApplication(options: ShutdownOptions): Promise<void> {
+  console.log('Shutting down gracefully...');
+
+  const forceExitMs = options.forceExitMs ?? SHUTDOWN_FORCE_EXIT_MS;
+  const forceExitTimer = setTimeout(() => {
+    console.error(`Forced shutdown after ${forceExitMs}ms`);
+    options.exit(1);
+  }, forceExitMs);
+  // The server keeps the process alive; the timer must not.
+  forceExitTimer.unref();
+
+  options.streamHandler?.detach();
+
+  if (options.streamHandler) {
+    try {
+      await options.streamHandler.close();
+    } catch (error) {
+      console.error('Error closing WebSocket stream handler:', error);
+    }
+  }
+
+  options.server.close(() => {
+    void (async () => {
+      let code = 0;
+      try {
+        // Cleanup service container (includes database connections and auth services)
+        await options.cleanup();
+        console.log('Application shut down successfully');
+      } catch (error) {
+        console.error('Error during shutdown:', error);
+        code = 1;
+      }
+      clearTimeout(forceExitTimer);
+      // Called outside the try: `exit` is not part of the work being cleaned up.
+      options.exit(code);
+    })();
+  });
+
+  // Drop idle keep-alive HTTP connections so `server.close()` can complete.
+  options.server.closeIdleConnections();
+}
+
+/**
  * Main application class
  */
+export interface ApplicationOptions {
+  /**
+   * How the process is terminated at the end of the shutdown sequence.
+   *
+   * Injectable so a test can drive the REAL `start()`/`shutdown()` path (which
+   * is where the upgrade listener is attached and detached) without terminating
+   * the test process. Defaults to `process.exit`.
+   */
+  exit?: (code: number) => void;
+}
+
 class Application {
   private app: express.Application;
   private config: ReturnType<typeof loadConfig>;
   private streamHandler: StreamHandler | undefined;
+  private readonly exit: (code: number) => void;
 
-  constructor() {
+  constructor(options: ApplicationOptions = {}) {
     this.app = express();
     this.config = loadConfig();
+    this.exit = options.exit ?? ((code) => process.exit(code));
   }
 
   /**
@@ -202,6 +292,9 @@ class Application {
             authService: container.authService,
             graphScopedRepositories: (graphId) => container.graphScopedRepositories(graphId),
             graphWriteVersioningService: container.graphWriteVersioningService,
+            // The stream charges the same per-key budget as the HTTP routes, so
+            // it is the same service instance they use.
+            rateLimitService: container.rateLimitService,
           },
         });
         streamHandler.attach(server);
@@ -228,41 +321,17 @@ class Application {
    * Graceful shutdown
    */
   private async shutdown(server: Server): Promise<void> {
-    console.log('Shutting down gracefully...');
+    // Taken before the first `await` so a second signal (SIGINT after SIGTERM)
+    // cannot run the sequence twice.
+    const streamHandler = this.streamHandler;
+    this.streamHandler = undefined;
 
-    // Close streaming sockets FIRST. An open WebSocket is a live connection, so
-    // `server.close()` does not complete while one exists; terminating them is
-    // what keeps shutdown from hanging until the force-exit timer below.
-    if (this.streamHandler) {
-      try {
-        await this.streamHandler.close();
-      } catch (error) {
-        console.error('Error closing WebSocket stream handler:', error);
-      }
-      this.streamHandler = undefined;
-    }
-
-    server.close(async () => {
-      try {
-        // Cleanup service container (includes database connections and auth services)
-        await cleanupContainer();
-
-        console.log('Application shut down successfully');
-        process.exit(0);
-      } catch (error) {
-        console.error('Error during shutdown:', error);
-        process.exit(1);
-      }
+    await shutdownApplication({
+      server,
+      streamHandler,
+      cleanup: cleanupContainer,
+      exit: this.exit,
     });
-
-    // Drop idle keep-alive HTTP connections so `server.close()` can complete.
-    server.closeIdleConnections();
-
-    // Force shutdown after 30 seconds
-    setTimeout(() => {
-      console.error('Forced shutdown after timeout');
-      process.exit(1);
-    }, 30000);
   }
 }
 

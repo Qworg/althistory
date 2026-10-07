@@ -109,4 +109,67 @@ describe('StreamTokenStore', () => {
     expect(store.cleanup(now + 2000)).toBe(1);
     expect(store.size).toBe(1);
   });
+
+  it('evicts expired records as a side effect of issuing a token', () => {
+    const store = new StreamTokenStore();
+    const now = 1_700_000_000_000;
+    const expired = store.issue({
+      apiKeyId: 'key_1',
+      graphId: 'graph_a',
+      permissions: ['write:events'],
+      ttlMs: 1000,
+      now,
+    });
+    expect(store.size).toBe(1);
+
+    // No call to `cleanup()`: eviction has to happen on the path production
+    // actually uses, or a token nobody presents again is held forever.
+    const fresh = store.issue({
+      apiKeyId: 'key_1',
+      graphId: 'graph_a',
+      permissions: ['write:events'],
+      ttlMs: 60_000,
+      now: now + 2000,
+    });
+
+    expect(store.peek(expired.token)).toBeUndefined();
+    expect(store.peek(fresh.token)).toBeDefined();
+    expect(store.size).toBe(1);
+  });
+
+  it('evicts expired records on the timer when constructed with an eviction interval', async () => {
+    const store = new StreamTokenStore({ evictionIntervalMs: 20 });
+    try {
+      const now = Date.now();
+      store.issue({
+        apiKeyId: 'key_1',
+        graphId: 'graph_a',
+        permissions: ['write:events'],
+        ttlMs: 1,
+        now: now - 1000,
+      });
+      expect(store.size).toBe(1);
+
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      expect(store.size).toBe(0);
+    } finally {
+      store.dispose();
+    }
+  });
+
+  it('does not schedule an eviction timer unless one is asked for', () => {
+    // A store built for a test must not leave a timer behind that fires later
+    // against a store whose assertions have finished.
+    const store = new StreamTokenStore();
+    const now = Date.now();
+    store.issue({
+      apiKeyId: 'key_1',
+      graphId: 'graph_a',
+      permissions: ['write:events'],
+      ttlMs: 1,
+      now: now - 1000,
+    });
+    expect(store.size).toBe(1);
+    store.dispose();
+  });
 });

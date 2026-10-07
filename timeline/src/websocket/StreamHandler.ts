@@ -3,30 +3,61 @@
  *
  * Connection path:
  *   1. The client upgrades `GET /api/ws/stream?token=<token>`.
- *   2. The token is consumed from the token store. Unknown, malformed, expired
+ *   2. The upgrade REQUEST is validated first (method, `Upgrade: websocket`,
+ *      `Sec-WebSocket-Key`, `Sec-WebSocket-Version`) and refused if it is not a
+ *      request `ws` would complete. This runs before the token is consumed and
+ *      before any concurrency slot is reserved: `ws.handleUpgrade` refuses those
+ *      same requests by returning WITHOUT ever calling its callback, so any
+ *      resource reserved before it would be reserved forever.
+ *   3. The token is consumed from the token store. Unknown, malformed, expired
  *      and replayed tokens are refused at the HTTP upgrade with a non-101
  *      response, so no WebSocket session is ever created for them.
- *   3. The API key the token was issued to is re-resolved from the repository.
+ *   4. The API key the token was issued to is re-resolved from the repository.
  *      A missing/inactive/expired key is refused. This is what makes the token
  *      "tied to an API key" mean something after issue.
- *   4. The key must still hold `write:events`, and must be allowed to access the
+ *   5. The key must still hold `write:events`, and must be allowed to access the
  *      token's graph. A valid token whose key lacks the permission is refused
  *      (403), not merely checked for existence.
- *   5. The key's `concurrentStreams` limit is enforced through
+ *   6. The key's `concurrentStreams` limit is enforced through
  *      `StreamSessionManager.tryOpen`; the N+1th connection is refused (429).
- *   6. Only then is the socket accepted and an `auth_result` sent.
+ *   7. Only then is the socket accepted and an `auth_result` sent.
  *
- * Every subsequent `event`/`arc` message is answered with an `ack` carrying
- * `success: true` and the created id, or `success: false` and the error.
+ * Connecting without leaking a slot:
+ *   The slot reserved in step 6 is released by listeners installed on the RAW
+ *   socket (`error` and `close`) plus a reservation timeout, in addition to the
+ *   per-path cleanup. The socket is the resource the slot is bound to, so the
+ *   release cannot be forgotten on a code path added later: whatever ends the
+ *   socket -- `ws` destroying it for a failed handshake, the peer resetting, the
+ *   reservation timing out -- releases the slot. The `error` listener is
+ *   installed as the first statement of `handleUpgrade`, before any validation
+ *   or await, because `ws` only installs its own listener later; a reset in that
+ *   window would otherwise be an uncaught `'error'` event that takes the process
+ *   down (a bogus token reaches that window with no credentials).
+ *
+ * Per-message checks (repeated on every write, not just at connect):
+ *   - the API key is re-resolved from the repository, so revoking, deactivating,
+ *     expiring or deleting a key -- or removing `write:events`/`write:arcs` --
+ *     is enforced on the next message instead of only on the next connection;
+ *   - the key's request rate limit (minute/hour/day) is charged for the message,
+ *     so the HTTP limit cannot be bypassed by moving writes onto the socket;
+ *   - at most `maxInFlightWrites` writes may be outstanding per session, which
+ *     bounds how much work a client can have in flight without waiting;
+ *   - the session must be inside `maxLifetimeMs` of its connect and inside
+ *     `idleTimeoutMs` of its last message (also swept on a timer), which bounds
+ *     how long a session -- and the concurrency slot it holds -- can outlive
+ *     the key's authority over it.
+ *
+ * Every `event`/`arc` message is answered with an `ack` carrying `success: true`
+ * and the created id, or `success: false`, the error and a machine-readable
+ * `code`.
  *
  * Not implemented here (stated so it is not mistaken for done):
- *   - requirement 16.4 validation WARNINGS are never emitted. The protocol has
- *     a `warning` frame (`ServerWarningMessage`) but no code path produces one;
- *     a repository validation failure is acked as an error instead. Adding a
- *     real warning channel needs a non-fatal validator on the stream path.
- *   - per-message re-resolution of the API key, so revoking a key requires
- *     dropping its live sessions; the key is only resolved at connect.
- *   - the token store is per-process, not Redis-backed.
+ *   - requirement 16.4 validation WARNINGS are emitted only for the narrow
+ *     "entity persisted, versioning record failed" case. There is still no
+ *     non-fatal validator on the stream path, so a repository validation failure
+ *     is acked as an error instead of being warned about and accepted.
+ *   - the token store is per-process, not Redis-backed. It is evicted on issue
+ *     and on a timer (see `StreamTokenStore`).
  */
 
 import type { IncomingMessage, Server as HttpServer } from 'http';
@@ -35,12 +66,12 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { RawData } from 'ws';
 import { createLogger } from '@/utils/logger';
 import type { ILogger } from '@/utils/logger';
-import type { ApiKey, Permission } from '@/models/ApiKey';
+import type { ApiKey, Permission, RateLimitConfig } from '@/models/ApiKey';
 import { assertSafeGraphId } from '@/utils/GraphContextStore';
 import type { GraphScopedRepositories } from '@/container';
 import { StreamTokenStore } from './StreamTokenStore';
 import { StreamSessionManager } from './StreamSession';
-import type { StreamSession } from './StreamSession';
+import type { StreamSession, StreamSessionExpiryReason } from './StreamSession';
 import type { CreateEventRequest } from '@/models/Event';
 import type { CreateArcRequest } from '@/models/Arc';
 import {
@@ -55,9 +86,41 @@ export const STREAM_PATH = '/api/ws/stream';
 /** Permission required to open a stream and to write events over it. */
 export const STREAM_REQUIRED_PERMISSION: Permission = 'write:events';
 
+/**
+ * Largest single WebSocket frame accepted. `ws` defaults to 100 MiB, which
+ * lets one client buffer more memory than the whole test/dev payload budget;
+ * 1 MiB is far more than a single event or arc needs.
+ */
+export const STREAM_MAX_PAYLOAD_BYTES = 1024 * 1024;
+
+/** How many writes one session may have outstanding at a time. */
+export const DEFAULT_MAX_IN_FLIGHT_WRITES = 4;
+
+/**
+ * How long a reserved-but-not-yet-established session may wait for the
+ * handshake to complete before its slot is reclaimed and the socket destroyed.
+ */
+export const STREAM_RESERVATION_TIMEOUT_MS = 10 * 1000;
+
+/** How often live sessions are checked for expiry and closed. */
+export const DEFAULT_SESSION_SWEEP_INTERVAL_MS = 30 * 1000;
+
 /** Minimal API-key lookup the connection path needs. */
 export interface StreamKeyResolver {
   getApiKey(id: string): Promise<ApiKey | null>;
+}
+
+/**
+ * Minimal rate-limit lookup the per-message path needs.
+ *
+ * `RateLimitService` satisfies this structurally; declared narrowly so tests
+ * can pass a fake without importing the service's configuration.
+ */
+export interface StreamRateLimiter {
+  recordRequest(
+    keyId: string,
+    config: RateLimitConfig
+  ): { allowed: boolean; limit: string; retryAfter?: number };
 }
 
 /**
@@ -74,6 +137,13 @@ export interface StreamWriteDeps {
     recordEvent(graphId: string, event: Awaited<ReturnType<GraphScopedRepositories['eventRepository']['create']>>, operation: 'create'): Promise<void>;
     recordArc(graphId: string, arc: Awaited<ReturnType<GraphScopedRepositories['arcRepository']['create']>>, operation: 'create'): Promise<void>;
   };
+  /**
+   * When present, every write message is charged against the key's request rate
+   * limit. Optional so a handler can be built without one, but production always
+   * passes the container's service -- a stream that skipped the limit would be a
+   * hole in the same limit the HTTP routes enforce.
+   */
+  rateLimitService?: StreamRateLimiter;
 }
 
 export interface StreamHandlerOptions {
@@ -81,6 +151,14 @@ export interface StreamHandlerOptions {
   sessionManager: StreamSessionManager;
   deps: StreamWriteDeps;
   logger?: ILogger;
+  /** Largest accepted frame. Defaults to `STREAM_MAX_PAYLOAD_BYTES`. */
+  maxPayloadBytes?: number;
+  /** Concurrent outstanding writes per session. Defaults to 4, minimum 1. */
+  maxInFlightWrites?: number;
+  /** Reserved-slot lifetime before the handshake completes. Defaults to 10s. */
+  reservationTimeoutMs?: number;
+  /** Session expiry sweep interval. Defaults to 30s. */
+  sweepIntervalMs?: number;
 }
 
 interface ConnectionContext {
@@ -97,7 +175,11 @@ interface Rejection {
 }
 
 type AuthorizeResult =
-  | { ok: true; context: ConnectionContext }
+  | { ok: true; apiKey: ApiKey; graphId: string }
+  | { ok: false; rejection: Rejection };
+
+type KeyResolution =
+  | { ok: true; apiKey: ApiKey }
   | { ok: false; rejection: Rejection };
 
 const TOKEN_REJECTIONS: Record<
@@ -130,20 +212,49 @@ const TOKEN_REJECTIONS: Record<
   },
 };
 
+/** The `Sec-WebSocket-Key` shape `ws` itself accepts (base64 of 16 bytes). */
+const SEC_WEBSOCKET_KEY_PATTERN = /^[+/0-9A-Za-z]{22}==$/;
+
 export class StreamHandler {
   private readonly tokenStore: StreamTokenStore;
   private readonly sessionManager: StreamSessionManager;
   private readonly deps: StreamWriteDeps;
   private readonly logger: ILogger;
   private readonly wss: WebSocketServer;
+  private readonly maxInFlightWrites: number;
+  private readonly reservationTimeoutMs: number;
+  private readonly sweepIntervalMs: number;
+  /** Largest accepted frame; exposed so tests can assert the resolved value. */
+  readonly maxPayloadBytes: number;
+  private readonly sockets = new Map<string, WebSocket>();
+  private readonly inFlightWrites = new Map<string, number>();
   private attachedServer: HttpServer | undefined;
+  private upgradeListener:
+    | ((req: IncomingMessage, socket: Duplex, head: Buffer) => void)
+    | undefined;
+  private sweepTimer: NodeJS.Timeout | undefined;
 
   constructor(options: StreamHandlerOptions) {
     this.tokenStore = options.tokenStore;
     this.sessionManager = options.sessionManager;
     this.deps = options.deps;
     this.logger = options.logger ?? createLogger('StreamHandler');
-    this.wss = new WebSocketServer({ noServer: true });
+    this.maxPayloadBytes = options.maxPayloadBytes ?? STREAM_MAX_PAYLOAD_BYTES;
+    this.maxInFlightWrites = Math.max(
+      1,
+      Math.floor(options.maxInFlightWrites ?? DEFAULT_MAX_IN_FLIGHT_WRITES)
+    );
+    this.reservationTimeoutMs = options.reservationTimeoutMs ?? STREAM_RESERVATION_TIMEOUT_MS;
+    this.sweepIntervalMs = options.sweepIntervalMs ?? DEFAULT_SESSION_SWEEP_INTERVAL_MS;
+    this.wss = new WebSocketServer({
+      noServer: true,
+      maxPayload: this.maxPayloadBytes,
+    });
+    this.sweepTimer = setInterval(() => {
+      this.sweepSessions();
+    }, this.sweepIntervalMs);
+    // Session expiry must not keep the process alive by itself.
+    this.sweepTimer.unref();
   }
 
   /** Expose the session registry so callers/tests can assert on it. */
@@ -151,12 +262,26 @@ export class StreamHandler {
     return this.sessionManager;
   }
 
+  /**
+   * The underlying `ws` server.
+   *
+   * Exposed for tests and diagnostics: attaching a `wsClientError` listener
+   * changes `ws` behaviour (it then leaves the socket open instead of destroying
+   * it), which is one of the paths the reservation timeout exists for and cannot
+   * be reached otherwise.
+   */
+  get webSocketServer(): WebSocketServer {
+    return this.wss;
+  }
+
   /** Register the HTTP `upgrade` listener for this handler's endpoint. */
   attach(server: HttpServer): void {
     this.attachedServer = server;
-    server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const listener = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
       void this.handleUpgrade(req, socket, head);
-    });
+    };
+    this.upgradeListener = listener;
+    server.on('upgrade', listener);
   }
 
   /**
@@ -166,6 +291,52 @@ export class StreamHandler {
    * integration tests exercise the real upgrade path.
    */
   async handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+    // A socket error listener is the FIRST thing installed, before any
+    // validation, any `await` and any write. `ws` installs its own listener only
+    // inside `handleUpgrade`, so without this a peer reset during token/key
+    // resolution (or during the rejection write below) is an uncaught 'error'
+    // event on the socket, which crashes the process. It must not throw itself:
+    // it runs inside an event handler with no caller to catch it.
+    let sessionId: string | undefined;
+    let reservationTimer: NodeJS.Timeout | undefined;
+    // Set by the error/close listeners. Read before the slot is reserved, so a
+    // peer that resets while we are resolving the key cannot be given a slot
+    // that nothing will ever release.
+    let socketFailed = false;
+
+    const release = (): void => {
+      try {
+        if (reservationTimer) {
+          clearTimeout(reservationTimer);
+          reservationTimer = undefined;
+        }
+        if (sessionId) {
+          // Idempotent: `StreamSessionManager.close` returns nothing the second
+          // time, and `releaseSession` only logs the first release.
+          this.releaseSession(sessionId, 'socket');
+          sessionId = undefined;
+        }
+      } catch (error) {
+        this.safeLog('error', 'Failed to release a stream reservation', {
+          error: String(error),
+        });
+      }
+    };
+
+    const onSocketError = (error: unknown): void => {
+      socketFailed = true;
+      this.safeLog('warn', 'Stream socket error', { error: String(error) });
+      release();
+    };
+
+    const onSocketClose = (): void => {
+      socketFailed = true;
+      release();
+    };
+
+    socket.on('error', onSocketError);
+    socket.once('close', onSocketClose);
+
     const path = getRequestPath(req);
     if (path !== STREAM_PATH) {
       sendUpgradeRejection(socket, {
@@ -173,6 +344,24 @@ export class StreamHandler {
         statusText: 'Not Found',
         code: 'UNKNOWN_TOKEN',
         message: `Unknown WebSocket path '${path}'`,
+      });
+      return;
+    }
+
+    // Refuse anything `ws` would refuse BEFORE burning the token or reserving a
+    // slot. `handleUpgrade` never calls back on these requests; the token and
+    // the slot would be spent on a connection that can never exist.
+    const upgradeProblem = validateUpgradeRequest(req);
+    if (upgradeProblem) {
+      this.logger.warn('Stream upgrade refused before authorisation', {
+        path,
+        reason: upgradeProblem.message,
+      });
+      sendUpgradeRejection(socket, {
+        status: upgradeProblem.status,
+        statusText: upgradeProblem.statusText,
+        code: 'UPGRADE_INVALID',
+        message: upgradeProblem.message,
       });
       return;
     }
@@ -200,21 +389,95 @@ export class StreamHandler {
       return;
     }
 
-    if (socket.destroyed) {
-      // The peer gave up while we were validating; release the reserved slot.
-      this.sessionManager.close(result.context.session.id);
+    if (socketFailed) {
+      // The peer went away while the key was being resolved. Nothing was
+      // reserved yet, and nothing will be: reserving here would create a slot
+      // with no socket left to release it.
+      try {
+        socket.destroy();
+      } catch {
+        // Already gone.
+      }
       return;
     }
 
-    this.wss.handleUpgrade(req, socket, head, (ws) => {
-      this.establish(ws, result.context);
-    });
+    // Reserved here -- synchronously, after every validation and immediately
+    // before the handshake -- rather than inside `authorizeConnection`, so there
+    // is no `await` between "the socket is still good" and "a slot exists".
+    const opened = this.sessionManager.tryOpen(
+      result.apiKey.id,
+      result.graphId,
+      result.apiKey.rateLimit.concurrentStreams
+    );
+    if (!opened.ok) {
+      this.logger.warn('Stream connection refused', {
+        code: 'CONCURRENT_LIMIT',
+        path,
+      });
+      sendUpgradeRejection(socket, {
+        status: 429,
+        statusText: 'Too Many Requests',
+        code: 'CONCURRENT_LIMIT',
+        message: `Concurrent stream limit of ${opened.limit} reached for this API key`,
+      });
+      return;
+    }
+
+    sessionId = opened.session.id;
+    const context: ConnectionContext = {
+      session: opened.session,
+      apiKey: result.apiKey,
+      graphId: result.graphId,
+    };
+
+    if (socketFailed || socket.destroyed) {
+      // The peer gave up while we were validating.
+      release();
+      return;
+    }
+
+    // Belt and braces for the paths where `handleUpgrade` returns without
+    // calling back AND without destroying the socket (for example when a
+    // `wsClientError` listener is attached): the reservation is bounded by
+    // time, not just by the socket's own close event.
+    reservationTimer = setTimeout(() => {
+      this.logger.warn('Stream upgrade reservation timed out', { sessionId });
+      release();
+      try {
+        socket.destroy();
+      } catch {
+        // Already gone.
+      }
+    }, this.reservationTimeoutMs);
+    reservationTimer.unref();
+
+    try {
+      this.wss.handleUpgrade(req, socket, head, (ws) => {
+        if (reservationTimer) {
+          clearTimeout(reservationTimer);
+          reservationTimer = undefined;
+        }
+        this.establish(ws, context);
+      });
+    } catch (error) {
+      this.logger.error('Stream upgrade failed', error);
+      release();
+      try {
+        socket.destroy();
+      } catch {
+        // Already gone.
+      }
+    }
   }
 
   /**
-   * Run every connection-time check in order and return either a session
-   * context or the rejection to send. Token validation happens first and is
+   * Run every connection-time credential check in order and return either the
+   * resolved key or the rejection to send. Token validation happens first and is
    * destructive (single-use), so a later failure still burns the token.
+   *
+   * The concurrency slot is deliberately NOT reserved here: it is reserved by
+   * `handleUpgrade` immediately before the handshake, after checking that the
+   * socket is still usable.
    */
   private async authorizeConnection(req: IncomingMessage): Promise<AuthorizeResult> {
     const token = getRequestToken(req);
@@ -241,7 +504,26 @@ export class StreamHandler {
       };
     }
 
-    const apiKey = await this.deps.authService.getApiKey(record.apiKeyId);
+    // The token's `permissions` snapshot is deliberately NOT consulted: the
+    // token proves which key asked, the repository says what that key may do.
+    const resolved = await this.resolveKey(record.apiKeyId, graphId);
+    if (!resolved.ok) {
+      return { ok: false, rejection: resolved.rejection };
+    }
+
+    return { ok: true, apiKey: resolved.apiKey, graphId };
+  }
+
+  /**
+   * Re-resolve an API key and re-check everything the stream needs from it.
+   *
+   * Used both at connect and before every write, so the guarantees cannot drift
+   * apart between the two paths: revocation, deactivation, expiry, deletion,
+   * permission removal and graph-access removal are all answered from the
+   * repository, never from the token's snapshot or the connect-time answer.
+   */
+  private async resolveKey(apiKeyId: string, graphId: string): Promise<KeyResolution> {
+    const apiKey = await this.deps.authService.getApiKey(apiKeyId);
     if (!apiKey || !apiKey.isValid()) {
       return {
         ok: false,
@@ -278,32 +560,34 @@ export class StreamHandler {
       };
     }
 
-    const opened = this.sessionManager.tryOpen(
-      apiKey.id,
-      graphId,
-      apiKey.rateLimit.concurrentStreams
-    );
-    if (!opened.ok) {
-      return {
-        ok: false,
-        rejection: {
-          status: 429,
-          statusText: 'Too Many Requests',
-          code: 'CONCURRENT_LIMIT',
-          message: `Concurrent stream limit of ${opened.limit} reached for this API key`,
-        },
-      };
-    }
-
-    return {
-      ok: true,
-      context: { session: opened.session, apiKey, graphId },
-    };
+    return { ok: true, apiKey };
   }
 
   /** Accept the socket, announce the session and wire message handlers. */
   private establish(ws: WebSocket, context: ConnectionContext): void {
     const { session, apiKey, graphId } = context;
+
+    this.sockets.set(session.id, ws);
+
+    // Every handler is installed before anything is sent, so no synchronous
+    // failure below can leave the session without a close/error path.
+    ws.on('close', () => {
+      this.inFlightWrites.delete(session.id);
+      this.releaseSession(session.id, 'client');
+    });
+
+    ws.on('error', (error) => {
+      this.safeLog('warn', 'Stream socket error', {
+        sessionId: session.id,
+        error: String(error),
+      });
+      this.inFlightWrites.delete(session.id);
+      this.releaseSession(session.id, 'error');
+    });
+
+    ws.on('message', (data: RawData) => {
+      void this.onMessage(ws, context, data);
+    });
 
     this.send(ws, {
       type: 'auth_result',
@@ -319,24 +603,63 @@ export class StreamHandler {
       apiKeyId: apiKey.id,
       graphId,
     });
+  }
 
-    ws.on('message', (data: RawData) => {
-      void this.onMessage(ws, context, data);
+  /**
+   * Release a session slot, logging the session's counters exactly once.
+   *
+   * Called from the raw socket's close/error guard AND from the WebSocket's own
+   * close/error events; whichever happens first reports the session, the other
+   * is a no-op, so no release path has to be remembered for the other one.
+   */
+  private releaseSession(sessionId: string, source: string): void {
+    this.sockets.delete(sessionId);
+    const closed = this.sessionManager.close(sessionId);
+    if (!closed) {
+      return;
+    }
+    this.logger.info('Stream session closed', {
+      sessionId,
+      source,
+      messagesReceived: closed.messagesReceived,
+      entitiesCreated: closed.entitiesCreated,
     });
+  }
 
-    ws.on('close', () => {
-      const closed = this.sessionManager.close(session.id);
-      this.logger.info('Stream session closed', {
-        sessionId: session.id,
-        messagesReceived: closed?.messagesReceived ?? 0,
-        entitiesCreated: closed?.entitiesCreated ?? 0,
-      });
-    });
+  /** Close sessions that crossed their lifetime/idle limit. */
+  private sweepSessions(): void {
+    for (const expired of this.sessionManager.sweep()) {
+      const ws = this.sockets.get(expired.session.id);
+      if (!ws) {
+        // Reserved but never established, or already gone: the slot is now free.
+        this.logger.info('Expired stream session released', {
+          sessionId: expired.session.id,
+          reason: expired.reason,
+        });
+        continue;
+      }
+      this.expireSession(ws, expired.session, expired.reason);
+    }
+  }
 
-    ws.on('error', (error) => {
-      this.logger.warn('Stream socket error', { sessionId: session.id, error: String(error) });
-      this.sessionManager.close(session.id);
+  /** Tell the client why it is being dropped, then close the socket. */
+  private expireSession(
+    ws: WebSocket,
+    session: StreamSession,
+    reason: StreamSessionExpiryReason
+  ): void {
+    this.inFlightWrites.delete(session.id);
+    this.sessionManager.close(session.id);
+    const message =
+      reason === 'idle'
+        ? `Session was idle for longer than ${session.idleTimeoutMs}ms; request a new stream token`
+        : 'Session exceeded its maximum lifetime; request a new stream token';
+    this.logger.info('Stream session expired', {
+      sessionId: session.id,
+      reason,
+      messagesReceived: session.messagesReceived,
     });
+    this.sendThenClose(ws, { type: 'error', code: 'SESSION_EXPIRED', message }, 'session_expired');
   }
 
   private async onMessage(
@@ -365,6 +688,14 @@ export class StreamHandler {
       return;
     }
 
+    // Checked before the message is counted as activity: an expired session must
+    // not be able to extend its own life by talking.
+    const expiry = this.sessionManager.expiredReason(context.session.id);
+    if (expiry) {
+      this.expireSession(ws, context.session, expiry);
+      return;
+    }
+
     this.sessionManager.recordMessage(context.session.id);
 
     const requestId = typeof parsed.requestId === 'string' ? parsed.requestId : undefined;
@@ -376,10 +707,10 @@ export class StreamHandler {
         ws.close(1000, 'client_requested');
         return;
       case 'event':
-        await this.handleEntity(ws, context, 'event', parsed.data, requestId);
+        await this.handleWrite(ws, context, 'event', parsed.data, requestId);
         return;
       case 'arc':
-        await this.handleEntity(ws, context, 'arc', parsed.data, requestId);
+        await this.handleWrite(ws, context, 'arc', parsed.data, requestId);
         return;
       default:
         this.send(ws, {
@@ -387,6 +718,47 @@ export class StreamHandler {
           code: 'INVALID_MESSAGE',
           message: `Unsupported message type '${parsed.type}'`,
         });
+    }
+  }
+
+  /**
+   * Bound the writes a session may have outstanding.
+   *
+   * `onMessage` is fire-and-forget from the socket's point of view, so without
+   * this a client could start an unbounded number of concurrent repository
+   * writes with one connection.
+   */
+  private async handleWrite(
+    ws: WebSocket,
+    context: ConnectionContext,
+    entityType: 'event' | 'arc',
+    data: unknown,
+    requestId: string | undefined
+  ): Promise<void> {
+    const inFlight = this.inFlightWrites.get(context.session.id) ?? 0;
+    if (inFlight >= this.maxInFlightWrites) {
+      this.send(ws, {
+        type: 'ack',
+        requestId,
+        entityType,
+        entityId: null,
+        success: false,
+        code: 'CONCURRENT_WRITE_LIMIT',
+        error: `Too many writes in flight (limit ${this.maxInFlightWrites})`,
+      });
+      return;
+    }
+
+    this.inFlightWrites.set(context.session.id, inFlight + 1);
+    try {
+      await this.handleEntity(ws, context, entityType, data, requestId);
+    } finally {
+      const remaining = (this.inFlightWrites.get(context.session.id) ?? 1) - 1;
+      if (remaining > 0) {
+        this.inFlightWrites.set(context.session.id, remaining);
+      } else {
+        this.inFlightWrites.delete(context.session.id);
+      }
     }
   }
 
@@ -409,71 +781,244 @@ export class StreamHandler {
         entityType,
         entityId: null,
         success: false,
+        code: 'INVALID_MESSAGE',
         error: 'Message "data" must be an object',
       });
       return;
     }
 
-    const requiredPermission: Permission = entityType === 'event' ? 'write:events' : 'write:arcs';
-    if (!context.apiKey.hasPermission(requiredPermission)) {
+    // Re-resolve the key for THIS message rather than trusting the connect-time
+    // answer: otherwise a revoked, deleted or expired key (or one that lost a
+    // permission) would keep writing for as long as it held the socket open.
+    let apiKey: ApiKey;
+    try {
+      const resolved = await this.resolveKey(context.apiKey.id, context.graphId);
+      if (!resolved.ok) {
+        this.logger.warn('Stream write refused: key no longer authorised', {
+          sessionId: context.session.id,
+          code: resolved.rejection.code,
+        });
+        this.send(ws, {
+          type: 'ack',
+          requestId,
+          entityType,
+          entityId: null,
+          success: false,
+          code: resolved.rejection.code,
+          error: resolved.rejection.message,
+        });
+        this.sendThenClose(
+          ws,
+          { type: 'error', code: resolved.rejection.code, message: resolved.rejection.message },
+          'key_invalid'
+        );
+        return;
+      }
+      apiKey = resolved.apiKey;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown key resolution error';
+      this.logger.warn('Stream key re-resolution failed', {
+        sessionId: context.session.id,
+        error: message,
+      });
       this.send(ws, {
         type: 'ack',
         requestId,
         entityType,
         entityId: null,
         success: false,
+        code: 'KEY_INVALID',
+        error: 'Failed to re-resolve the API key',
+      });
+      return;
+    }
+
+    const requiredPermission: Permission = entityType === 'event' ? 'write:events' : 'write:arcs';
+    if (!apiKey.hasPermission(requiredPermission)) {
+      this.send(ws, {
+        type: 'ack',
+        requestId,
+        entityType,
+        entityId: null,
+        success: false,
+        code: 'PERMISSION_DENIED',
         error: `Missing required permission: ${requiredPermission}`,
       });
       return;
     }
 
-    try {
-      if (entityType === 'event') {
-        const converted = toCreateEventRequest(data);
-        if (!converted.ok) {
-          throw new Error(converted.error);
-        }
-        const { eventRepository } = await this.deps.graphScopedRepositories(context.graphId);
-        const event = await eventRepository.create(converted.value);
-        await this.deps.graphWriteVersioningService.recordEvent(context.graphId, event, 'create');
-        this.sessionManager.recordEntity(context.session.id);
+    // Charge the same per-key request budget the HTTP routes use. Skipping it
+    // here would make the socket a way around the limit.
+    const limiter = this.deps.rateLimitService;
+    if (limiter) {
+      const result = limiter.recordRequest(apiKey.id, apiKey.rateLimit);
+      if (!result.allowed) {
+        this.logger.warn('Stream write rate limited', {
+          sessionId: context.session.id,
+          apiKeyId: apiKey.id,
+          limit: result.limit,
+        });
         this.send(ws, {
           type: 'ack',
           requestId,
           entityType,
-          entityId: event.id,
-          success: true,
+          entityId: null,
+          success: false,
+          code: 'RATE_LIMITED',
+          error: `Rate limit exceeded: ${result.limit}`,
         });
         return;
       }
+    }
 
-      const converted = toCreateArcRequest(data);
-      if (!converted.ok) {
-        throw new Error(converted.error);
-      }
-      const { arcRepository } = await this.deps.graphScopedRepositories(context.graphId);
-      const arc = await arcRepository.create(converted.value);
-      await this.deps.graphWriteVersioningService.recordArc(context.graphId, arc, 'create');
-      this.sessionManager.recordEntity(context.session.id);
+    if (entityType === 'event') {
+      await this.writeEvent(ws, context, data, requestId);
+      return;
+    }
+    await this.writeArc(ws, context, data, requestId);
+  }
+
+  private async writeEvent(
+    ws: WebSocket,
+    context: ConnectionContext,
+    data: Record<string, unknown>,
+    requestId: string | undefined
+  ): Promise<void> {
+    const converted = toCreateEventRequest(data);
+    if (!converted.ok) {
       this.send(ws, {
         type: 'ack',
         requestId,
-        entityType,
-        entityId: arc.id,
-        success: true,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown write error';
-      this.logger.warn('Stream write failed', { sessionId: context.session.id, entityType, error: message });
-      this.send(ws, {
-        type: 'ack',
-        requestId,
-        entityType,
+        entityType: 'event',
         entityId: null,
         success: false,
+        code: 'INVALID_MESSAGE',
+        error: converted.error,
+      });
+      return;
+    }
+
+    try {
+      const { eventRepository } = await this.deps.graphScopedRepositories(context.graphId);
+      const event = await eventRepository.create(converted.value);
+      // The event is durable from here on: the ack must say so even if the
+      // versioning record below fails, or a retrying client would duplicate it.
+      await this.ackPersistedEntity(
+        ws,
+        context,
+        'event',
+        event.id,
+        () => this.deps.graphWriteVersioningService.recordEvent(context.graphId, event, 'create'),
+        requestId
+      );
+    } catch (error) {
+      this.sendWriteFailure(ws, context, 'event', error, requestId);
+    }
+  }
+
+  private async writeArc(
+    ws: WebSocket,
+    context: ConnectionContext,
+    data: Record<string, unknown>,
+    requestId: string | undefined
+  ): Promise<void> {
+    const converted = toCreateArcRequest(data);
+    if (!converted.ok) {
+      this.send(ws, {
+        type: 'ack',
+        requestId,
+        entityType: 'arc',
+        entityId: null,
+        success: false,
+        code: 'INVALID_MESSAGE',
+        error: converted.error,
+      });
+      return;
+    }
+
+    try {
+      const { arcRepository } = await this.deps.graphScopedRepositories(context.graphId);
+      const arc = await arcRepository.create(converted.value);
+      await this.ackPersistedEntity(
+        ws,
+        context,
+        'arc',
+        arc.id,
+        () => this.deps.graphWriteVersioningService.recordArc(context.graphId, arc, 'create'),
+        requestId
+      );
+    } catch (error) {
+      this.sendWriteFailure(ws, context, 'arc', error, requestId);
+    }
+  }
+
+  /**
+   * Acknowledge an entity the repository has ALREADY persisted.
+   *
+   * Only failures that happen before (or during) `create` may be reported as
+   * `success: false`; once the entity exists, a versioning failure is reported
+   * as a `warning` frame while the ack keeps `success: true` and the real id. A
+   * `success: false` here would be a lie the client could only fix by retrying,
+   * which would create a duplicate.
+   */
+  private async ackPersistedEntity(
+    ws: WebSocket,
+    context: ConnectionContext,
+    entityType: 'event' | 'arc',
+    entityId: string,
+    recordVersion: () => Promise<void>,
+    requestId: string | undefined
+  ): Promise<void> {
+    this.sessionManager.recordEntity(context.session.id);
+
+    try {
+      await recordVersion();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown versioning error';
+      this.logger.warn('Stream versioning record failed after a successful write', {
+        sessionId: context.session.id,
+        entityType,
+        entityId,
         error: message,
       });
+      this.send(ws, {
+        type: 'warning',
+        message: `Entity ${entityId} was persisted but its versioning record failed: ${message}`,
+        entityId,
+      });
     }
+
+    this.send(ws, {
+      type: 'ack',
+      requestId,
+      entityType,
+      entityId,
+      success: true,
+    });
+  }
+
+  private sendWriteFailure(
+    ws: WebSocket,
+    context: ConnectionContext,
+    entityType: 'event' | 'arc',
+    error: unknown,
+    requestId: string | undefined
+  ): void {
+    const message = error instanceof Error ? error.message : 'Unknown write error';
+    this.logger.warn('Stream write failed', {
+      sessionId: context.session.id,
+      entityType,
+      error: message,
+    });
+    this.send(ws, {
+      type: 'ack',
+      requestId,
+      entityType,
+      entityId: null,
+      success: false,
+      code: 'WRITE_FAILED',
+      error: message,
+    });
   }
 
   private send(ws: WebSocket, message: ServerMessage): void {
@@ -481,6 +1026,36 @@ export class StreamHandler {
       return;
     }
     ws.send(JSON.stringify(message));
+  }
+
+  /**
+   * Send a final frame and close only once it has been handed to the socket, so
+   * a client always learns WHY it is being dropped before the connection goes.
+   */
+  private sendThenClose(ws: WebSocket, message: ServerMessage, reason: string): void {
+    if (ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    try {
+      ws.send(JSON.stringify(message), () => {
+        try {
+          ws.close(1000, reason);
+        } catch {
+          ws.terminate();
+        }
+      });
+    } catch {
+      ws.terminate();
+    }
+  }
+
+  /** Log without ever letting a logging failure escape an event handler. */
+  private safeLog(level: 'warn' | 'error', message: string, meta: Record<string, unknown>): void {
+    try {
+      this.logger[level](message, meta);
+    } catch {
+      // Logging must never be the reason a socket error becomes fatal.
+    }
   }
 
   /**
@@ -492,6 +1067,10 @@ export class StreamHandler {
    * stale slot after shutdown.
    */
   close(): Promise<void> {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = undefined;
+    }
     for (const client of this.wss.clients) {
       try {
         client.terminate();
@@ -500,6 +1079,8 @@ export class StreamHandler {
       }
     }
     this.sessionManager.closeAll();
+    this.sockets.clear();
+    this.inFlightWrites.clear();
 
     return new Promise((resolve) => {
       this.wss.close(() => resolve());
@@ -508,11 +1089,73 @@ export class StreamHandler {
 
   /** Stop listening for upgrades on the attached HTTP server. */
   detach(): void {
-    if (this.attachedServer) {
-      this.attachedServer.removeAllListeners('upgrade');
-      this.attachedServer = undefined;
+    if (this.attachedServer && this.upgradeListener) {
+      // Only this handler's listener is removed: another listener on the same
+      // server (a metrics tap, another endpoint) must survive this handler.
+      this.attachedServer.removeListener('upgrade', this.upgradeListener);
     }
+    this.attachedServer = undefined;
+    this.upgradeListener = undefined;
   }
+}
+
+/**
+ * A reason `ws` would refuse to complete a handshake after the HTTP server has
+ * already handed us the socket.
+ */
+interface UpgradeProblem {
+  status: number;
+  statusText: string;
+  message: string;
+}
+
+/**
+ * Mirror of the request checks `ws` performs inside `handleUpgrade`.
+ *
+ * `ws` refuses these by returning without calling its callback, so the socket
+ * would keep whatever was reserved for it. The accepted key shape and versions
+ * are copied from `ws` (base64 of 16 bytes; protocols 13 and 8) rather than
+ * invented here: accepting less than `ws` would break working clients, and
+ * accepting more would reserve a slot for a handshake that never completes.
+ * The body is used only for a diagnostics message.
+ */
+function validateUpgradeRequest(req: IncomingMessage): UpgradeProblem | undefined {
+  if (req.method !== 'GET') {
+    return {
+      status: 405,
+      statusText: 'Method Not Allowed',
+      message: 'Invalid HTTP method for a WebSocket upgrade',
+    };
+  }
+
+  const upgrade = req.headers.upgrade;
+  if (typeof upgrade !== 'string' || upgrade.toLowerCase() !== 'websocket') {
+    return {
+      status: 400,
+      statusText: 'Bad Request',
+      message: 'Invalid Upgrade header',
+    };
+  }
+
+  const key = req.headers['sec-websocket-key'];
+  if (typeof key !== 'string' || !SEC_WEBSOCKET_KEY_PATTERN.test(key)) {
+    return {
+      status: 400,
+      statusText: 'Bad Request',
+      message: 'Missing or invalid Sec-WebSocket-Key header',
+    };
+  }
+
+  const version = req.headers['sec-websocket-version'];
+  if (version !== '13' && version !== '8') {
+    return {
+      status: 400,
+      statusText: 'Bad Request',
+      message: 'Missing or invalid Sec-WebSocket-Version header',
+    };
+  }
+
+  return undefined;
 }
 
 /** Extract the pathname of the upgrade request. */
@@ -536,7 +1179,8 @@ function getRequestToken(req: IncomingMessage): string | undefined {
 
 /** Write an HTTP response for a refused upgrade and close the socket. */
 function sendUpgradeRejection(socket: Duplex, rejection: Rejection): void {
-  if (socket.destroyed) {
+  if (socket.destroyed || !socket.writable) {
+    socket.destroy();
     return;
   }
   const body = JSON.stringify({ error: rejection.message, code: rejection.code });
@@ -549,7 +1193,9 @@ function sendUpgradeRejection(socket: Duplex, rejection: Rejection): void {
     body;
 
   try {
-    socket.end(response);
+    socket.end(response, () => {
+      socket.destroy();
+    });
   } catch {
     socket.destroy();
   }

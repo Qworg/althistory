@@ -13,14 +13,23 @@ export * from './StreamTokenStore';
 export * from './StreamSession';
 export * from './StreamHandler';
 
-import { StreamTokenStore } from './StreamTokenStore';
+import { StreamTokenStore, STREAM_TOKEN_EVICTION_INTERVAL_MS } from './StreamTokenStore';
 
 let tokenStore: StreamTokenStore | undefined;
 
-/** The process-wide stream token store. */
+/**
+ * The process-wide stream token store.
+ *
+ * Constructed with the eviction timer enabled so issuing tokens is not the only
+ * thing that bounds the store's memory: a token nobody ever presents again
+ * stops being held an hour (or, in the worst case, a TTL window) after it is
+ * minted. The timer is unref'd, so it never keeps the process alive.
+ */
 export function getStreamTokenStore(): StreamTokenStore {
   if (!tokenStore) {
-    tokenStore = new StreamTokenStore();
+    tokenStore = new StreamTokenStore({
+      evictionIntervalMs: STREAM_TOKEN_EVICTION_INTERVAL_MS,
+    });
   }
   return tokenStore;
 }
@@ -30,5 +39,6 @@ export function getStreamTokenStore(): StreamTokenStore {
  * store. Intended for test isolation; production never calls it.
  */
 export function resetStreamTokenStore(): void {
+  tokenStore?.dispose();
   tokenStore = undefined;
 }

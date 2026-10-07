@@ -17,7 +17,11 @@ export type StreamErrorCode =
   | 'PERMISSION_DENIED'
   | 'GRAPH_ACCESS_DENIED'
   | 'CONCURRENT_LIMIT'
+  | 'UPGRADE_INVALID'
   | 'INVALID_MESSAGE'
+  | 'RATE_LIMITED'
+  | 'CONCURRENT_WRITE_LIMIT'
+  | 'SESSION_EXPIRED'
   | 'WRITE_FAILED';
 
 /** Client -> server: write one event. */
@@ -69,6 +73,11 @@ export interface ServerAckMessage {
   entityId: string | null;
   success: boolean;
   error?: string;
+  /**
+   * Why the write failed. Present only on `success: false`, and it is the
+   * machine-readable counterpart of `error` (which is prose for a human).
+   */
+  code?: StreamErrorCode;
 }
 
 /** Server -> client: non-blocking validation warning (requirement 16.4). */

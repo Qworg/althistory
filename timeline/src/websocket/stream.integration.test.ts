@@ -12,15 +12,44 @@
  *   - "rejects an unknown token": fails if the handler accepts any token.
  *   - "rejects an expired token": fails if the expiry check is removed.
  *   - "rejects a replayed token": fails if the single-use flag is ignored.
- *   - "rejects a valid token for a key without permission": fails if connect
+ *   - "rejects a valid token whose key lacks write:events": fails if connect
  *     checks only that the token exists.
+ *   - "rejects a token minted with permissions the key does not have": fails if
+ *     the handler trusts the token's permission snapshot instead of re-resolving
+ *     the key (the snapshot claims a permission the key lacks).
+ *   - "rejects a token whose key was revoked/deleted/expired": fails if
+ *     `ApiKey.isValid()` is not consulted on connect at all.
+ *   - "requests that are not a WebSocket upgrade do not burn a concurrency
+ *     slot": fails without the pre-handshake validation AND the socket-bound
+ *     reservation guard (five leaked slots lock the key out of streaming).
+ *   - "releases a reservation whose handshake never completes": fails unless a
+ *     reserved slot is bounded by a timeout, not only by `ws` destroying the
+ *     socket.
+ *   - "installs a socket error listener before the first await": fails without
+ *     the listener attached as the first statement of `handleUpgrade`.
+ *   - "refuses writes after the key is revoked mid-session": fails if the key is
+ *     only resolved at connect.
+ *   - "closes an idle session": fails if no session lifetime/idle limit exists.
+ *   - "charges the per-key request limit for stream writes": fails if stream
+ *     messages bypass the HTTP rate limiter.
+ *   - "bounds in-flight writes": fails if `onMessage`'s fire-and-forget writes
+ *     are unbounded.
+ *   - "refuses a frame over the payload limit": fails if the `ws` default
+ *     (100 MiB) is left in place.
+ *   - "acks success when versioning failed after the entity persisted": fails
+ *     if a post-persist failure is reported as `success: false`.
+ *   - "acks a repository failure": fails if a failure after conversion is
+ *     swallowed (the pre-existing failing-ack test only covered conversion).
  *   - "refuses the N+1th connection": fails if the limit is stored but not
  *     enforced.
  *   - "acks a successful event": the event is also read back from the graph
- *     repository, so an ack that lies is caught.
- *   - "acks a failing event with an error": fails if failures are swallowed.
+ *     repository, so an ack that lies is caught. The arc test does the same.
  *   - "closes live sockets on shutdown": fails if shutdown leaves the socket
- *     open (and would hang on the server close).
+ *     open (and would hang on the server close). It drives
+ *     `StreamHandler.close()` directly against a real HTTP server; the real
+ *     `Application.start()`/shutdown sequence is covered separately in
+ *     src/tests/integration/stream-shutdown.test.ts and
+ *     src/tests/unit/shutdown.test.ts.
  *
  * The client harness queues messages from the moment the socket is constructed.
  * Attaching a `message` listener after awaiting the `open` event races the
@@ -31,9 +60,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import { createServer } from 'http';
-import type { Server, ClientRequest, IncomingMessage } from 'http';
+import { createServer, IncomingMessage } from 'http';
+import type { Server, ClientRequest } from 'http';
 import * as fs from 'fs/promises';
+import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { WebSocket } from 'ws';
@@ -49,8 +79,10 @@ import {
   getStreamTokenStore,
   resetStreamTokenStore,
   isRecord,
+  STREAM_MAX_PAYLOAD_BYTES,
   STREAM_PATH,
 } from '@/websocket';
+import type { StreamWriteDeps } from '@/websocket';
 
 function rawToString(data: RawData): string {
   if (typeof data === 'string') {
@@ -95,6 +127,35 @@ interface SocketHarness {
   close(): Promise<void>;
 }
 
+/** Handler options the shared handler does not use, for the dedicated ones. */
+interface LocalHandlerOptions {
+  sessionManager?: StreamSessionManager;
+  maxPayloadBytes?: number;
+  maxInFlightWrites?: number;
+  reservationTimeoutMs?: number;
+  sweepIntervalMs?: number;
+  deps?: Partial<StreamWriteDeps>;
+}
+
+/** A handler on its own listener, with its own token store and session state. */
+interface LocalHandler {
+  handler: StreamHandler;
+  sessionManager: StreamSessionManager;
+  server: Server;
+  store: StreamTokenStore;
+  port: number;
+  url(token: string): string;
+  stop(): Promise<void>;
+}
+
+/** A raw HTTP reply to an upgrade request, including a refusal `ws` wrote. */
+interface RawUpgradeResult {
+  statusCode: number;
+  /** JSON `code` from OUR refusal; empty when `ws` wrote the reply instead. */
+  code: string;
+  raw: string;
+}
+
 describe('WebSocket streaming (requirement 16)', () => {
   let container: Container;
   let app: express.Application;
@@ -115,21 +176,90 @@ describe('WebSocket streaming (requirement 16)', () => {
   let noGraphKeyId: string;
   let noGraphKey: string;
 
-  function buildHandler(store: StreamTokenStore): {
+  function buildHandler(
+    store: StreamTokenStore,
+    options: LocalHandlerOptions = {}
+  ): {
     handler: StreamHandler;
     sessionManager: StreamSessionManager;
   } {
-    const sessions = new StreamSessionManager();
+    const sessions = options.sessionManager ?? new StreamSessionManager();
     const streamHandler = new StreamHandler({
       tokenStore: store,
       sessionManager: sessions,
-      deps: {
-        authService: container.authService,
-        graphScopedRepositories: (id) => container.graphScopedRepositories(id),
-        graphWriteVersioningService: container.graphWriteVersioningService,
-      },
+      deps: streamDeps(options.deps),
+      maxPayloadBytes: options.maxPayloadBytes,
+      maxInFlightWrites: options.maxInFlightWrites,
+      reservationTimeoutMs: options.reservationTimeoutMs,
+      sweepIntervalMs: options.sweepIntervalMs,
     });
     return { handler: streamHandler, sessionManager: sessions };
+  }
+
+  /**
+   * Production-shaped write dependencies. The rate limiter is the container's
+   * real service, so the socket path is exercised against the same budget the
+   * HTTP routes charge.
+   */
+  function streamDeps(overrides: Partial<StreamWriteDeps> = {}): StreamWriteDeps {
+    return {
+      authService: container.authService,
+      graphScopedRepositories: (id) => container.graphScopedRepositories(id),
+      graphWriteVersioningService: container.graphWriteVersioningService,
+      rateLimitService: container.rateLimitService,
+      ...overrides,
+    };
+  }
+
+  /**
+   * A handler on its own HTTP listener, for the tests that need different
+   * handler options (payload limit, reservation timeout, in-flight cap,
+   * versioning failure) without disturbing the shared handler's state.
+   */
+  async function startLocalHandler(
+    options: LocalHandlerOptions = {},
+    store: StreamTokenStore = new StreamTokenStore()
+  ): Promise<LocalHandler> {
+    const { handler: localHandler, sessionManager: localSessions } = buildHandler(store, options);
+    const localServer = createServer(app);
+    localHandler.attach(localServer);
+    await new Promise<void>((resolve) => localServer.listen(0, '127.0.0.1', resolve));
+    const address = localServer.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('local handler server did not expose a port');
+    }
+    return {
+      handler: localHandler,
+      sessionManager: localSessions,
+      server: localServer,
+      store,
+      port: address.port,
+      url(token: string) {
+        return `ws://127.0.0.1:${address.port}${STREAM_PATH}?token=${encodeURIComponent(token)}`;
+      },
+      async stop() {
+        await localHandler.close();
+        await new Promise<void>((resolve) => localServer.close(() => resolve()));
+      },
+    };
+  }
+
+  function eventData(description: string): Record<string, unknown> {
+    return {
+      description,
+      actor: 'Stream Test Actor',
+      target: 'Stream Test Target',
+      timestamp: '1500-01-01T00:00:00.000Z',
+    };
+  }
+
+  function arcData(name: string): Record<string, unknown> {
+    return {
+      name,
+      start_time: '1400-01-01T00:00:00.000Z',
+      end_time: '1600-01-01T00:00:00.000Z',
+      level: 1,
+    };
   }
 
   beforeAll(async () => {
@@ -280,8 +410,13 @@ describe('WebSocket streaming (requirement 16)', () => {
     };
   }
 
-  async function openHarness(query: string): Promise<SocketHarness> {
-    const harness = createHarness(streamUrl(query));
+  /**
+   * Open a socket to an ABSOLUTE url (`streamUrl(...)` or a local handler's
+   * `url(...)`), not a query string, so the failover tests can target a
+   * different listener.
+   */
+  async function openHarness(url: string): Promise<SocketHarness> {
+    const harness = createHarness(url);
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         harness.ws.terminate();
@@ -300,7 +435,7 @@ describe('WebSocket streaming (requirement 16)', () => {
   }
 
   async function connectAccepted(token: string): Promise<SocketHarness> {
-    const harness = await openHarness(`?token=${encodeURIComponent(token)}`);
+    const harness = await openHarness(streamUrl(`?token=${encodeURIComponent(token)}`));
     const auth = await harness.next();
     expect(auth.type).toBe('auth_result');
     expect(auth.success).toBe(true);
@@ -309,8 +444,15 @@ describe('WebSocket streaming (requirement 16)', () => {
   }
 
   function expectUpgradeRejected(query: string): Promise<UpgradeRejection> {
+    return expectUpgradeRejectedAt(STREAM_PATH, query);
+  }
+
+  function expectUpgradeRejectedAt(
+    requestPath: string,
+    query: string
+  ): Promise<UpgradeRejection> {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(streamUrl(query));
+      const ws = new WebSocket(`ws://127.0.0.1:${port}${requestPath}${query}`);
       let settled = false;
       const timer = setTimeout(() => {
         if (!settled) {
@@ -367,16 +509,88 @@ describe('WebSocket streaming (requirement 16)', () => {
     harness.ws.send(JSON.stringify(message));
   }
 
+  /**
+   * Send an upgrade request the way `curl -H 'Upgrade: foo'` would, over a raw
+   * socket. The `ws` client cannot produce one -- it always sends a correct
+   * handshake -- and these are exactly the requests `ws.handleUpgrade` answers
+   * by returning without calling its callback.
+   */
+  function rawUpgradeRequest(
+    targetPort: number,
+    target: string,
+    headers: Record<string, string>,
+    method = 'GET'
+  ): Promise<RawUpgradeResult> {
+    return new Promise((resolve) => {
+      const socket = net.connect(targetPort, '127.0.0.1');
+      const chunks: Buffer[] = [];
+      let settled = false;
+
+      const finish = (): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        socket.destroy();
+        const raw = Buffer.concat(chunks).toString('utf8');
+        const statusLine = raw.split('\r\n')[0] ?? '';
+        const statusMatch = /^HTTP\/1\.1 (\d{3})/.exec(statusLine);
+        const bodyStart = raw.indexOf('\r\n\r\n');
+        const body = bodyStart >= 0 ? raw.slice(bodyStart + 4) : '';
+        let code = '';
+        try {
+          const parsed: unknown = JSON.parse(body);
+          if (isRecord(parsed) && typeof parsed.code === 'string') {
+            code = parsed.code;
+          }
+        } catch {
+          // Not our JSON refusal (ws writes HTML for the requests it refuses).
+        }
+        resolve({ statusCode: statusMatch ? Number(statusMatch[1]) : 0, code, raw });
+      };
+
+      const timer = setTimeout(finish, 3000);
+      socket.on('connect', () => {
+        const lines = [
+          `${method} ${target} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          ...Object.entries(headers).map(([name, value]) => `${name}: ${value}`),
+          '',
+          '',
+        ];
+        socket.write(lines.join('\r\n'));
+      });
+      socket.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      socket.on('error', finish);
+      socket.on('end', finish);
+      socket.on('close', finish);
+    });
+  }
+
+  /** A valid handshake request's headers, for the raw-socket tests. */
+  function websocketHandshakeHeaders(): Record<string, string> {
+    return {
+      Connection: 'Upgrade',
+      Upgrade: 'websocket',
+      'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+      'Sec-WebSocket-Version': '13',
+    };
+  }
+
   async function waitForSessionCount(
     keyId: string,
     expected: number,
-    timeoutMs = 3000
+    timeoutMs = 3000,
+    sessions: StreamSessionManager = sessionManager
   ): Promise<void> {
     const start = Date.now();
-    while (sessionManager.countFor(keyId) !== expected) {
+    while (sessions.countFor(keyId) !== expected) {
       if (Date.now() - start > timeoutMs) {
         throw new Error(
-          `session count for ${keyId} was ${sessionManager.countFor(keyId)}, expected ${expected}`
+          `session count for ${keyId} was ${sessions.countFor(keyId)}, expected ${expected}`
         );
       }
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -425,6 +639,26 @@ describe('WebSocket streaming (requirement 16)', () => {
         .send({});
 
       expect(response.status).toBe(403);
+    });
+
+    it('evicts expired tokens when the route issues a new one', async () => {
+      // The production path for eviction: `issue()`, called by this route, on
+      // the process-wide store. Nothing here calls `cleanup()` -- which is
+      // exactly the distinction that hid the unbounded growth, since the only
+      // caller of `cleanup()` used to be its own unit test.
+      const stale = tokenStore.issue({
+        apiKeyId: writerKeyId,
+        graphId,
+        permissions: ['write:events'],
+        ttlMs: 1000,
+        now: Date.now() - 10 * 60 * 1000,
+      });
+      expect(tokenStore.peek(stale.token)).toBeDefined();
+
+      await requestToken(writerKey);
+
+      expect(tokenStore.peek(stale.token)).toBeUndefined();
+      expect(tokenStore.size).toBeGreaterThan(0);
     });
   });
 
@@ -501,6 +735,107 @@ describe('WebSocket streaming (requirement 16)', () => {
       const rejection = await expectUpgradeRejected(`?token=${encodeURIComponent(record.token)}`);
       expect(rejection.statusCode).toBe(403);
       expect(rejection.code).toBe('GRAPH_ACCESS_DENIED');
+    });
+
+    it('rejects a token whose snapshot claims a permission the key does not have', async () => {
+      // The token says write:events; the key is read-only. A handler that
+      // trusted the token's permission snapshot instead of re-resolving the key
+      // would ACCEPT this connection, so this is the test that pins the
+      // "re-resolve at connect" guarantee (the sibling test above mints the
+      // token with the same permissions as the key, so it passes either way).
+      const record = tokenStore.issue({
+        apiKeyId: readOnlyKeyId,
+        graphId,
+        permissions: ['write:events'],
+      });
+
+      const rejection = await expectUpgradeRejected(`?token=${encodeURIComponent(record.token)}`);
+      expect(rejection.statusCode).toBe(403);
+      expect(rejection.code).toBe('PERMISSION_DENIED');
+    });
+
+    it('rejects a token whose key lost write:events after the token was issued', async () => {
+      const key = await container.authService.createApiKey({
+        name: 'Stream Permission Dropped',
+        permissions: ['write:events'],
+      });
+      const token = await requestToken(key.key);
+
+      await container.authService.updateApiKey(key.id, { permissions: ['read:events'] });
+
+      const rejection = await expectUpgradeRejected(`?token=${encodeURIComponent(token)}`);
+      expect(rejection.statusCode).toBe(403);
+      expect(rejection.code).toBe('PERMISSION_DENIED');
+    });
+
+    it('rejects a token whose key was revoked after the token was issued', async () => {
+      const key = await container.authService.createApiKey({
+        name: 'Stream Key Revoked Before Connect',
+        permissions: ['write:events'],
+      });
+      const record = tokenStore.issue({
+        apiKeyId: key.id,
+        graphId,
+        permissions: ['write:events'],
+      });
+
+      await container.authService.revokeApiKey(key.id);
+
+      const rejection = await expectUpgradeRejected(`?token=${encodeURIComponent(record.token)}`);
+      expect(rejection.statusCode).toBe(401);
+      expect(rejection.code).toBe('KEY_INVALID');
+    });
+
+    it('rejects a token whose key was deleted after the token was issued', async () => {
+      const key = await container.authService.createApiKey({
+        name: 'Stream Key Deleted Before Connect',
+        permissions: ['write:events'],
+      });
+      const record = tokenStore.issue({
+        apiKeyId: key.id,
+        graphId,
+        permissions: ['write:events'],
+      });
+
+      await container.authService.deleteApiKey(key.id);
+
+      const rejection = await expectUpgradeRejected(`?token=${encodeURIComponent(record.token)}`);
+      expect(rejection.statusCode).toBe(401);
+      expect(rejection.code).toBe('KEY_INVALID');
+    });
+
+    it('rejects a token whose key is expired', async () => {
+      const key = await container.authService.createApiKey({
+        name: 'Stream Key Already Expired',
+        permissions: ['write:events'],
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      });
+      const record = tokenStore.issue({
+        apiKeyId: key.id,
+        graphId,
+        permissions: ['write:events'],
+      });
+
+      const rejection = await expectUpgradeRejected(`?token=${encodeURIComponent(record.token)}`);
+      expect(rejection.statusCode).toBe(401);
+      expect(rejection.code).toBe('KEY_INVALID');
+    });
+
+    it('rejects a token that carries an unsafe graph id', async () => {
+      const record = tokenStore.issue({
+        apiKeyId: writerKeyId,
+        graphId: '../../etc/passwd',
+        permissions: ['write:events'],
+      });
+
+      const rejection = await expectUpgradeRejected(`?token=${encodeURIComponent(record.token)}`);
+      expect(rejection.statusCode).toBe(400);
+      expect(rejection.code).toBe('MALFORMED_TOKEN');
+    });
+
+    it('rejects an unknown upgrade path with 404', async () => {
+      const rejection = await expectUpgradeRejectedAt('/api/ws/not-the-stream', '?token=anything');
+      expect(rejection.statusCode).toBe(404);
     });
   });
 
@@ -583,8 +918,105 @@ describe('WebSocket streaming (requirement 16)', () => {
         expect(ack.success).toBe(true);
         expect(ack.entityType).toBe('arc');
         expect(typeof ack.entityId).toBe('string');
+
+        // Read it back: an ack that named a row which was never written would
+        // otherwise pass.
+        const scoped = await container.graphScopedRepositories(graphId);
+        const persisted = await scoped.arcRepository.findById(ack.entityId as string);
+        expect(persisted).not.toBeNull();
+        expect(persisted?.name).toBe('Renaissance');
       } finally {
         await harness.close();
+      }
+    });
+
+    it('acks a repository failure with success:false and creates nothing', async () => {
+      // Unlike the missing-actor test above, this fails AFTER input conversion
+      // and inside the repository call, which is where a swallowed error would
+      // leave a client waiting or believing a write happened.
+      const local = await startLocalHandler({
+        deps: {
+          graphScopedRepositories: async () => {
+            throw new Error('repository unavailable');
+          },
+        },
+      });
+      try {
+        const record = local.store.issue({
+          apiKeyId: writerKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const harness = await openHarness(local.url(record.token));
+        expect((await harness.next()).success).toBe(true);
+
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'repo-fail',
+          data: eventData('Repository failure event'),
+        });
+
+        const ack = await harness.next();
+        expect(ack.type).toBe('ack');
+        expect(ack.success).toBe(false);
+        expect(ack.entityId).toBeNull();
+        expect(ack.code).toBe('WRITE_FAILED');
+        expect(String(ack.error)).toContain('repository unavailable');
+        await harness.close();
+      } finally {
+        await local.stop();
+      }
+    });
+
+    it('acks success when the entity persisted but its versioning record failed', async () => {
+      // The event IS in the repository, so `success: false` would be a lie a
+      // retrying client would answer by writing a duplicate. The failure is
+      // reported as a warning frame instead.
+      const local = await startLocalHandler({
+        deps: {
+          graphWriteVersioningService: {
+            recordEvent: async () => {
+              throw new Error('version store unavailable');
+            },
+            recordArc: async () => {
+              throw new Error('version store unavailable');
+            },
+          },
+        },
+      });
+      try {
+        const record = local.store.issue({
+          apiKeyId: writerKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const harness = await openHarness(local.url(record.token));
+        expect((await harness.next()).success).toBe(true);
+
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'version-fail',
+          data: eventData('Versioning failure event'),
+        });
+
+        const warning = await harness.next();
+        expect(warning.type).toBe('warning');
+        expect(String(warning.message)).toContain('versioning');
+        expect(typeof warning.entityId).toBe('string');
+
+        const ack = await harness.next();
+        expect(ack.type).toBe('ack');
+        expect(ack.success).toBe(true);
+        expect(ack.entityId).toBe(warning.entityId);
+
+        // The ack must describe what persisted, and it did persist.
+        const scoped = await container.graphScopedRepositories(graphId);
+        const persisted = await scoped.eventRepository.findById(ack.entityId as string);
+        expect(persisted).not.toBeNull();
+        expect(persisted?.description).toBe('Versioning failure event');
+        await harness.close();
+      } finally {
+        await local.stop();
       }
     });
   });
@@ -619,7 +1051,12 @@ describe('WebSocket streaming (requirement 16)', () => {
   });
 
   describe('shutdown', () => {
-    it('closes live sockets so the HTTP server can close', async () => {
+    it('terminates live sockets so a real HTTP server can close', async () => {
+      // Scope note: this drives `StreamHandler.close()` directly against a
+      // handler and server built here. It therefore does NOT prove that
+      // `Application.start`/`shutdown` in src/index.ts attaches or closes the
+      // handler; that is covered by src/tests/integration/stream-shutdown.test.ts
+      // (real Application) and src/tests/unit/shutdown.test.ts (ordering).
       const store = new StreamTokenStore();
       const { handler: shutdownHandler, sessionManager: shutdownSessions } = buildHandler(store);
       const shutdownServer = createServer(app);
@@ -664,6 +1101,478 @@ describe('WebSocket streaming (requirement 16)', () => {
           setTimeout(() => reject(new Error('HTTP server did not close after shutdown')), 3000)
         ),
       ]);
+    });
+  });
+
+  describe('upgrade validation and slot release', () => {
+    it('refuses requests that are not a WebSocket upgrade without reserving a slot', async () => {
+      const cases: Array<{ name: string; headers: Record<string, string>; method?: string; status: number }> = [
+        {
+          name: 'a non-WebSocket Upgrade header',
+          headers: { Connection: 'Upgrade', Upgrade: 'foo' },
+          status: 400,
+        },
+        {
+          name: 'a missing Sec-WebSocket-Key',
+          headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13' },
+          status: 400,
+        },
+        {
+          name: 'an unsupported Sec-WebSocket-Version',
+          headers: { ...websocketHandshakeHeaders(), 'Sec-WebSocket-Version': '99' },
+          status: 400,
+        },
+        {
+          name: 'a non-GET method',
+          headers: { ...websocketHandshakeHeaders() },
+          method: 'POST',
+          status: 405,
+        },
+      ];
+
+      for (const testCase of cases) {
+        const token = await requestToken(limitedKey);
+        const result = await rawUpgradeRequest(
+          port,
+          `${STREAM_PATH}?token=${encodeURIComponent(token)}`,
+          testCase.headers,
+          testCase.method
+        );
+        expect(
+          { name: testCase.name, status: result.statusCode },
+          testCase.name
+        ).toEqual({ name: testCase.name, status: testCase.status });
+        expect(result.code, testCase.name).toBe('UPGRADE_INVALID');
+
+        // Nothing was reserved, so the (concurrentStreams: 1) key still has its
+        // slot, and the unconsumed token still works.
+        expect(sessionManager.countFor(limitedKeyId), testCase.name).toBe(0);
+        const accepted = await connectAccepted(token);
+        await accepted.close();
+        await waitForSessionCount(limitedKeyId, 0);
+      }
+    });
+
+    it('does not leak a slot across repeated refused upgrades', async () => {
+      // The review's reproduction: five bad upgrade requests with valid tokens.
+      // If each reserved a slot, the key (concurrentStreams: 1) would be locked
+      // out of streaming until the process restarted.
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const token = await requestToken(limitedKey);
+        const result = await rawUpgradeRequest(
+          port,
+          `${STREAM_PATH}?token=${encodeURIComponent(token)}`,
+          { Connection: 'Upgrade', Upgrade: 'foo' }
+        );
+        expect(result.statusCode).toBe(400);
+      }
+
+      await waitForSessionCount(limitedKeyId, 0);
+
+      // A valid client can still stream with the same key.
+      const token = await requestToken(limitedKey);
+      const harness = await connectAccepted(token);
+      try {
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'after-bad-upgrades',
+          data: eventData('Event after five refused upgrades'),
+        });
+        const ack = await harness.next();
+        expect(ack.success).toBe(true);
+      } finally {
+        await harness.close();
+      }
+      await waitForSessionCount(limitedKeyId, 0);
+    });
+
+    it('releases a reservation whose handshake never completes', async () => {
+      const local = await startLocalHandler({ reservationTimeoutMs: 150 });
+      const refusedByWs: string[] = [];
+      const onClientError = (error: Error): void => {
+        refusedByWs.push(error.message);
+      };
+      // Attaching a `wsClientError` listener changes `ws` behaviour: it stops
+      // destroying the socket, so the handshake neither completes nor fails.
+      // Only the reservation timeout can free the slot in that case.
+      local.handler.webSocketServer.on('wsClientError', onClientError);
+      try {
+        const record = local.store.issue({
+          apiKeyId: limitedKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const client = net.connect(local.port, '127.0.0.1');
+        const closed = new Promise<void>((resolve) => client.once('close', () => resolve()));
+        await new Promise<void>((resolve) => client.once('connect', () => resolve()));
+        client.write(
+          [
+            `GET ${STREAM_PATH}?token=${encodeURIComponent(record.token)} HTTP/1.1`,
+            'Host: 127.0.0.1',
+            ...Object.entries(websocketHandshakeHeaders()).map(([n, v]) => `${n}: ${v}`),
+            'Sec-WebSocket-Protocol: not a valid token',
+            '',
+            '',
+          ].join('\r\n')
+        );
+
+        // Reserved first...
+        await waitForSessionCount(limitedKeyId, 1, 3000, local.sessionManager);
+        // ...then reclaimed by the timeout, with no callback and no close event
+        // to have done it.
+        await waitForSessionCount(limitedKeyId, 0, 3000, local.sessionManager);
+        expect(refusedByWs).toHaveLength(1);
+
+        // The timeout also destroys the socket it gave up on.
+        await Promise.race([
+          closed,
+          new Promise<void>((_resolve, reject) =>
+            setTimeout(
+              () => reject(new Error('reservation timeout did not destroy the socket')),
+              3000
+            )
+          ),
+        ]);
+      } finally {
+        local.handler.webSocketServer.off('wsClientError', onClientError);
+        await local.stop();
+      }
+    });
+
+    it('releases the reservation when the socket dies without a handshake callback', async () => {
+      // The server is already closed, so `ws` answers 503 and destroys the
+      // socket without ever calling its callback. The reservation timeout is
+      // set far beyond this test's window, so only the socket's own close can
+      // have released the slot.
+      const local = await startLocalHandler({ reservationTimeoutMs: 5000 });
+      try {
+        const record = local.store.issue({
+          apiKeyId: limitedKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        await local.handler.close();
+
+        const result = await rawUpgradeRequest(
+          local.port,
+          `${STREAM_PATH}?token=${encodeURIComponent(record.token)}`,
+          websocketHandshakeHeaders()
+        );
+        expect(result.statusCode).toBe(503);
+
+        await waitForSessionCount(limitedKeyId, 0, 1500, local.sessionManager);
+      } finally {
+        await local.stop();
+      }
+    });
+
+    it('installs a socket error listener before the first await', async () => {
+      // `ws` attaches its own listener only inside `handleUpgrade`, which runs
+      // after authorisation. A peer reset in that window is an uncaught 'error'
+      // event on the socket unless one is attached first; a bogus token reaches
+      // the window with no credentials.
+      const local = await startLocalHandler();
+      const netServer = net.createServer();
+      try {
+        const accepted = new Promise<net.Socket>((resolve) => netServer.once('connection', resolve));
+        await new Promise<void>((resolve) => netServer.listen(0, '127.0.0.1', resolve));
+        const netAddress = netServer.address();
+        if (!netAddress || typeof netAddress === 'string') {
+          throw new Error('helper server did not expose a port');
+        }
+        const client = net.connect(netAddress.port, '127.0.0.1');
+        const serverSocket = await accepted;
+
+        const record = local.store.issue({
+          apiKeyId: limitedKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const req = new IncomingMessage(new net.Socket());
+        req.method = 'GET';
+        req.url = `${STREAM_PATH}?token=${encodeURIComponent(record.token)}`;
+        req.headers = websocketHandshakeHeaders();
+
+        const pending = local.handler.handleUpgrade(req, serverSocket, Buffer.alloc(0));
+
+        // The assertion is made synchronously, before any await can run.
+        expect(serverSocket.listenerCount('error')).toBeGreaterThan(0);
+
+        // Emitting an error with no listener throws and fails the run.
+        serverSocket.emit('error', new Error('ECONNRESET'));
+        serverSocket.destroy();
+        client.destroy();
+        await pending;
+
+        // Nothing was reserved for a socket that had already failed.
+        expect(local.sessionManager.countFor(limitedKeyId)).toBe(0);
+      } finally {
+        await local.stop();
+        await new Promise<void>((resolve) => netServer.close(() => resolve()));
+      }
+    });
+  });
+
+  describe('per-message authorisation', () => {
+    it('refuses writes after the key is revoked mid-session', async () => {
+      const key = await container.authService.createApiKey({
+        name: 'Stream Revoked Mid Session',
+        permissions: ['write:events'],
+      });
+      const token = await requestToken(key.key);
+      const harness = await connectAccepted(token);
+      try {
+        await container.authService.revokeApiKey(key.id);
+
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'after-revoke',
+          data: eventData('Write after revocation'),
+        });
+
+        const ack = await harness.next();
+        expect(ack.type).toBe('ack');
+        expect(ack.success).toBe(false);
+        expect(ack.code).toBe('KEY_INVALID');
+
+        // The socket is dropped too, so a revoked key cannot keep a session.
+        const errorFrame = await harness.next();
+        expect(errorFrame.type).toBe('error');
+        expect(errorFrame.code).toBe('KEY_INVALID');
+      } finally {
+        await harness.close();
+      }
+    });
+
+    it('refuses writes after the key is deleted mid-session', async () => {
+      const key = await container.authService.createApiKey({
+        name: 'Stream Deleted Mid Session',
+        permissions: ['write:events'],
+      });
+      const token = await requestToken(key.key);
+      const harness = await connectAccepted(token);
+      try {
+        await container.authService.deleteApiKey(key.id);
+
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'after-delete',
+          data: eventData('Write after deletion'),
+        });
+
+        const ack = await harness.next();
+        expect(ack.success).toBe(false);
+        expect(ack.code).toBe('KEY_INVALID');
+      } finally {
+        await harness.close();
+      }
+    });
+
+    it('enforces a permission removed mid-session on the next message', async () => {
+      const key = await container.authService.createApiKey({
+        name: 'Stream Permission Downgraded Mid Session',
+        permissions: ['write:events', 'write:arcs'],
+      });
+      const token = await requestToken(key.key);
+      const harness = await connectAccepted(token);
+      try {
+        await container.authService.updateApiKey(key.id, { permissions: ['write:events'] });
+
+        sendJson(harness, { type: 'arc', requestId: 'arc-denied', data: arcData('Denied Arc') });
+        const denied = await harness.next();
+        expect(denied.success).toBe(false);
+        expect(denied.code).toBe('PERMISSION_DENIED');
+
+        // The permission it still has keeps working.
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'event-allowed',
+          data: eventData('Allowed after downgrade'),
+        });
+        const allowed = await harness.next();
+        expect(allowed.success).toBe(true);
+      } finally {
+        await harness.close();
+      }
+    });
+  });
+
+  describe('session lifetime', () => {
+    it('drops a session that sits past its idle timeout', async () => {
+      const local = await startLocalHandler({
+        sessionManager: new StreamSessionManager({ idleTimeoutMs: 120, maxLifetimeMs: 60_000 }),
+        sweepIntervalMs: 40,
+      });
+      try {
+        const record = local.store.issue({
+          apiKeyId: writerKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const harness = await openHarness(local.url(record.token));
+        expect((await harness.next()).success).toBe(true);
+
+        // No message is sent: the sweep timer must reclaim the slot itself.
+        const expiry = await harness.next(3000);
+        expect(expiry.type).toBe('error');
+        expect(expiry.code).toBe('SESSION_EXPIRED');
+        expect(String(expiry.message)).toContain('idle');
+
+        await new Promise<void>((resolve) => harness.ws.once('close', () => resolve()));
+        expect(local.sessionManager.totalCount).toBe(0);
+      } finally {
+        await local.stop();
+      }
+    });
+
+    it('refuses a write from a session that outlived its maximum lifetime', async () => {
+      const local = await startLocalHandler({
+        sessionManager: new StreamSessionManager({ maxLifetimeMs: 100, idleTimeoutMs: 60_000 }),
+        // The timer must not race the message: the message path itself has to
+        // notice the expiry.
+        sweepIntervalMs: 60_000,
+      });
+      try {
+        const record = local.store.issue({
+          apiKeyId: writerKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const harness = await openHarness(local.url(record.token));
+        expect((await harness.next()).success).toBe(true);
+
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'after-lifetime',
+          data: eventData('Write after lifetime'),
+        });
+
+        const expiry = await harness.next();
+        expect(expiry.type).toBe('error');
+        expect(expiry.code).toBe('SESSION_EXPIRED');
+        expect(String(expiry.message)).toContain('lifetime');
+      } finally {
+        await local.stop();
+      }
+    });
+  });
+
+  describe('message rate limiting and bounds', () => {
+    it('charges the per-key request limit for stream writes', async () => {
+      const key = await container.authService.createApiKey({
+        name: 'Stream Rate Limited Writes',
+        permissions: ['write:events'],
+        rateLimit: { requestsPerMinute: 3, requestsPerHour: 100, requestsPerDay: 100 },
+      });
+      // The token request itself spends one of the three.
+      const token = await requestToken(key.key);
+      const harness = await connectAccepted(token);
+      try {
+        const outcomes: boolean[] = [];
+        for (let index = 0; index < 3; index += 1) {
+          sendJson(harness, {
+            type: 'event',
+            requestId: `rate-${index}`,
+            data: eventData(`Rate limited event ${index}`),
+          });
+          const ack = await harness.next();
+          expect(ack.requestId).toBe(`rate-${index}`);
+          outcomes.push(ack.success === true);
+          if (!ack.success) {
+            expect(ack.code).toBe('RATE_LIMITED');
+            expect(String(ack.error)).toContain('Rate limit exceeded');
+          }
+        }
+        // Two writes fit in the remaining budget; the third is refused.
+        expect(outcomes).toEqual([true, true, false]);
+      } finally {
+        await harness.close();
+      }
+    });
+
+    it('bounds how many writes one session may have in flight', async () => {
+      let releaseGate: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        releaseGate = resolve;
+      });
+      const local = await startLocalHandler({
+        maxInFlightWrites: 1,
+        deps: {
+          graphScopedRepositories: async (id) => {
+            // Held open so the first write is still in flight when the second
+            // message arrives.
+            await gate;
+            return container.graphScopedRepositories(id);
+          },
+        },
+      });
+      try {
+        const record = local.store.issue({
+          apiKeyId: writerKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const harness = await openHarness(local.url(record.token));
+        expect((await harness.next()).success).toBe(true);
+
+        sendJson(harness, { type: 'event', requestId: 'gate-1', data: eventData('Gated 1') });
+        sendJson(harness, { type: 'event', requestId: 'gate-2', data: eventData('Gated 2') });
+
+        const refused = await harness.next();
+        expect(refused.requestId).toBe('gate-2');
+        expect(refused.success).toBe(false);
+        expect(refused.code).toBe('CONCURRENT_WRITE_LIMIT');
+
+        releaseGate();
+        const accepted = await harness.next();
+        expect(accepted.requestId).toBe('gate-1');
+        expect(accepted.success).toBe(true);
+        await harness.close();
+      } finally {
+        releaseGate();
+        await local.stop();
+      }
+    });
+
+    it('refuses a frame larger than the configured maximum payload', async () => {
+      const local = await startLocalHandler({ maxPayloadBytes: 512 });
+      try {
+        const record = local.store.issue({
+          apiKeyId: writerKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const harness = await openHarness(local.url(record.token));
+        expect((await harness.next()).success).toBe(true);
+
+        const closed = new Promise<number>((resolve) =>
+          harness.ws.once('close', (code: number) => resolve(code))
+        );
+        harness.ws.send(
+          JSON.stringify({
+            type: 'event',
+            requestId: 'oversize',
+            data: { ...eventData('Oversize event'), padding: 'x'.repeat(2048) },
+          })
+        );
+
+        // 1009 = message too big. Without a configured maxPayload the 100 MiB
+        // `ws` default would accept this.
+        await expect(closed).resolves.toBe(1009);
+      } finally {
+        await local.stop();
+      }
+    });
+
+    it('defaults the payload limit to a small value rather than the ws default', async () => {
+      const { handler: defaulted } = buildHandler(new StreamTokenStore());
+      try {
+        expect(defaulted.maxPayloadBytes).toBe(STREAM_MAX_PAYLOAD_BYTES);
+        expect(defaulted.maxPayloadBytes).toBeLessThanOrEqual(1024 * 1024);
+      } finally {
+        await defaulted.close();
+      }
     });
   });
 });

@@ -10,6 +10,14 @@
  *     policy from requirement 16.5 -- a dropped connection cannot reuse its
  *     token and must request a new one.
  *
+ * Bounded memory: a record is dropped as soon as it is expired, not only when
+ * somebody presents it again.
+ *   - `consume` deletes an expired record it is handed;
+ *   - `issue` sweeps every expired record before storing the new one, so the
+ *     store can never grow past the tokens issued in the last TTL window;
+ *   - a store constructed with `evictionIntervalMs` also sweeps on a timer,
+ *     which is what the process-wide store (see `getStreamTokenStore`) does.
+ *
  * Properties that are deliberately NOT claimed:
  *   - The store is per-process and not shared across instances (no Redis
  *     backend exists for it).
@@ -23,6 +31,13 @@ import type { Permission, StreamToken } from '@/models/ApiKey';
 
 /** Requirement 16.1: stream tokens live for five minutes. */
 export const STREAM_TOKEN_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * How often the process-wide store sweeps expired records. Eviction is not
+ * only timer-driven -- `issue` sweeps too -- so a burst of traffic cannot
+ * outrun this interval.
+ */
+export const STREAM_TOKEN_EVICTION_INTERVAL_MS = 60 * 1000;
 
 /** A stored token plus the server-side single-use flag. */
 export interface StreamTokenRecord extends StreamToken {
@@ -48,15 +63,40 @@ export interface IssueStreamTokenInput {
   now?: number;
 }
 
+export interface StreamTokenStoreOptions {
+  /**
+   * When set, expired records are also swept on this interval (the timer is
+   * unref'd so it never keeps the process alive). Omitted by default so a store
+   * built inside a test does not schedule timers it does not own.
+   */
+  evictionIntervalMs?: number;
+}
+
 export class StreamTokenStore {
   private readonly tokens = new Map<string, StreamTokenRecord>();
+  private evictionTimer: NodeJS.Timeout | undefined;
+
+  constructor(options: StreamTokenStoreOptions = {}) {
+    if (options.evictionIntervalMs !== undefined) {
+      this.evictionTimer = setInterval(() => {
+        this.cleanup();
+      }, options.evictionIntervalMs);
+      // Never hold the event loop open just to sweep tokens.
+      this.evictionTimer.unref();
+    }
+  }
 
   /**
    * Mint a token bound to one API key, one graph and a snapshot of the key's
    * permissions. Returns the stored record (the caller must not mutate it).
+   *
+   * Expired records are evicted first, which is what bounds the store: every
+   * record is either handed back by `consume` (which deletes it if expired),
+   * swept here by the next `issue`, or swept by the eviction timer.
    */
   issue(input: IssueStreamTokenInput): StreamTokenRecord {
     const now = input.now ?? Date.now();
+    this.cleanup(now);
     const ttlMs = input.ttlMs ?? STREAM_TOKEN_TTL_MS;
     const token = randomBytes(32).toString('base64url');
 
@@ -132,5 +172,13 @@ export class StreamTokenStore {
   /** Remove all records. Used by tests and by nothing in production. */
   clear(): void {
     this.tokens.clear();
+  }
+
+  /** Stop the eviction timer so the store can be discarded. Idempotent. */
+  dispose(): void {
+    if (this.evictionTimer) {
+      clearInterval(this.evictionTimer);
+      this.evictionTimer = undefined;
+    }
   }
 }
