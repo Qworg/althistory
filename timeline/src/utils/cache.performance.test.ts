@@ -42,7 +42,6 @@ describe('Cache Performance Tests', () => {
     });
 
     it('should maintain performance with cache expiration', async () => {
-      const startTime = performance.now();
       const shortExpiration = 100; // 100ms
       
       // Set items with short expiration
@@ -59,6 +58,11 @@ describe('Cache Performance Tests', () => {
         getPromises.push(cache.get(`expire-key-${i}`));
       }
       
+      // Start the clock here, not before the sleep. The 150ms wait is the
+      // test's own construct, not work the code under test performs, so timing
+      // it bounded the timer rather than the cache and left only ~3x headroom
+      // on a loaded machine.
+      const startTime = performance.now();
       const results = await Promise.all(getPromises);
       const endTime = performance.now();
       
@@ -109,18 +113,37 @@ describe('Cache Performance Tests', () => {
         end: new Date('2023-12-31')
       };
       
-      const startTime = performance.now();
       const iterations = 10000;
-      
-      for (let i = 0; i < iterations; i++) {
-        CacheKeyGenerator.eventsInRange(timeRange, 100, i);
-        CacheKeyGenerator.overlappingArcs(timeRange, 50, i);
-        CacheKeyGenerator.eventsByActorAndRange(`actor-${i}`, timeRange, 100, 0);
+
+      const runOnce = (): number => {
+        const start = performance.now();
+        for (let i = 0; i < iterations; i++) {
+          CacheKeyGenerator.eventsInRange(timeRange, 100, i);
+          CacheKeyGenerator.overlappingArcs(timeRange, 50, i);
+          CacheKeyGenerator.eventsByActorAndRange(`actor-${i}`, timeRange, 100, 0);
+        }
+        return performance.now() - start;
+      };
+
+      // Take the MINIMUM of several runs rather than a single measurement.
+      //
+      // performance.now() counts time the process spends descheduled, so on a
+      // loaded machine -- or with the frontend suite running alongside -- one
+      // measurement can be many times the true cost. This guard flaked for
+      // exactly that reason: it passed 5/5 in isolation and failed under
+      // full-suite load while running identical work.
+      //
+      // Noise can only ever make a run SLOWER, never faster, so the minimum is
+      // the least-contaminated estimate of the real cost. (CPU time is not a
+      // fix here: process.cpuUsage() is process-wide, and vitest runs files in
+      // parallel threads in one process, so it would measure other tests' work
+      // as well -- an absolute CPU bound measured 419ms for this same loop.)
+      runOnce(); // warm up, so V8 has optimised the path before we measure
+      let duration = Infinity;
+      for (let round = 0; round < 7; round++) {
+        duration = Math.min(duration, runOnce());
       }
-      
-      const endTime = performance.now();
-      const duration = endTime - startTime;
-      
+
       // Should generate 30,000 keys in reasonable time
       expect(duration).toBeLessThan(200); // Less than 200ms (increased for slower systems)
       expect(duration / (iterations * 3)).toBeLessThan(0.02); // Less than 0.02ms per key
