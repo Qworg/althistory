@@ -601,3 +601,145 @@ export interface ApiKeyStats {
   inactive: number
   expired: number
 }
+
+// Web Ingestion Types (Req 19). Mirrors the shapes returned by
+// `timeline/src/services/ingestion/types.ts`; the frontend bundle cannot import
+// from the timeline package, so these are declared here.
+export type ExtractionSourceType = 'wikipedia' | 'wikidata' | 'text' | 'llm'
+
+/** Where an extracted entity came from, recorded on every extracted entity. */
+export interface ExtractionSource {
+  type: ExtractionSourceType
+  url?: string
+  articleTitle?: string
+  wikidataId?: string
+  extractedAt: string
+}
+
+export interface ExtractedEvent {
+  tempId: string
+  description: string
+  actor: string
+  target: string
+  timestamp: string
+  confidence: number
+  source: ExtractionSource
+  selected: boolean
+  edited: boolean
+}
+
+export interface ExtractedArc {
+  tempId: string
+  name: string
+  description: string
+  start_time: string
+  end_time: string
+  level: number
+  confidence: number
+  source: ExtractionSource
+  selected: boolean
+  edited: boolean
+}
+
+export interface ExtractedRelationship {
+  tempId: string
+  causeEventTempId: string
+  effectEventTempId: string
+  weight: number
+  confidence: number
+  reasoning: string
+  source: ExtractionSource
+  selected: boolean
+}
+
+/** Provenance record attached to an extraction. */
+export interface IngestionSourceRecord {
+  id: string
+  type: 'wikipedia' | 'wikidata' | 'manual' | 'import' | 'llm-generated' | 'text-extraction'
+  url?: string
+  accessedAt?: string
+  confidence: number
+  entityIds: string[]
+}
+
+export interface ExtractionResult {
+  events: ExtractedEvent[]
+  arcs: ExtractedArc[]
+  relationships: ExtractedRelationship[]
+  sources: IngestionSourceRecord[]
+  overallConfidence: number
+}
+
+export interface IngestionValidationIssue {
+  entityTempId: string
+  entityType: 'event' | 'arc' | 'relationship'
+  severity: 'error' | 'warning'
+  message: string
+}
+
+/** Result of an extraction, held for review before import. */
+export interface IngestionPreview {
+  jobId: string
+  status: 'review'
+  extraction: ExtractionResult
+  validationIssues: IngestionValidationIssue[]
+}
+
+/** Response returned by the synchronous ingest endpoints. */
+export interface IngestResponse extends IngestionPreview {
+  estimatedPages?: number
+}
+
+/** Editable fields, spanning both event and arc shapes. */
+export type ExtractedEdit = Partial<ExtractedEvent> & Partial<ExtractedArc>
+
+export type WikidataQueryType = 'historical-events' | 'person-timeline' | 'custom'
+
+export interface WikipediaIngestOptions {
+  followLinks?: boolean
+  /** Clamped to the spec maximum of 3 by the backend. */
+  linkDepth?: number
+  /** Regular expression (as a string) applied to linked article titles. */
+  linkFilter?: string
+  /** Upper bound on pages fetched when link following is enabled. */
+  maxPages?: number
+}
+
+export interface WikipediaIngestRequest {
+  url: string
+  strategy?: 'wikipedia' | 'auto'
+  options?: WikipediaIngestOptions
+}
+
+export interface WikidataIngestRequest {
+  queryType: WikidataQueryType
+  parameters?: Record<string, string>
+  customQuery?: string
+  limit?: number
+}
+
+export interface TextIngestRequest {
+  text: string
+  useLLM?: boolean
+}
+
+export interface ApproveIngestionRequest {
+  approvedEventIds?: string[]
+  approvedArcIds?: string[]
+  approvedRelationshipIds?: string[]
+  edits?: Record<string, ExtractedEdit>
+  targetGraphId?: string
+  mode?: ImportMode
+  conflictResolution?: ConflictResolution
+  userId?: string
+}
+
+export interface IngestionJobStatus {
+  id: string
+  source: ExtractionSourceType
+  status: 'review' | 'imported' | 'failed'
+  createdAt: string
+  updatedAt: string
+  validationIssues: IngestionValidationIssue[]
+  importResult?: ImportResult
+}

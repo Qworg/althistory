@@ -42,7 +42,12 @@ import {
   CreateApiKeyRequest,
   CreateApiKeyResponse,
   UpdateApiKeyRequest,
-  ApiKeyStats
+  ApiKeyStats,
+  IngestResponse,
+  WikipediaIngestRequest,
+  WikidataIngestRequest,
+  TextIngestRequest,
+  ApproveIngestionRequest
 } from '@/types'
 
 // API client configuration
@@ -155,7 +160,9 @@ class APIClient {
                     localStorage.removeItem('auth_token')
                     // Don't redirect in test environment
                     if (typeof window !== 'undefined' && !window.location.href.includes('test')) {
-                        window.location.href = '/login'
+                        // Fixed internal path (not caller-supplied); assign() is
+                        // equivalent to setting location.href.
+                        window.location.assign('/login')
                     }
                 }
                 
@@ -872,6 +879,69 @@ class APIClient {
         getMe: async (): Promise<ApiKey> => {
             try {
                 const response: AxiosResponse<ApiKey> = await this.client.get('/keys/me')
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+    }
+
+    // Web ingestion operations (Req 19). Extraction is synchronous: each POST
+    // runs the extractor and resolves the review preview directly, so the
+    // wizard works from the response instead of polling a job.
+    ingest = {
+        text: async (data: TextIngestRequest): Promise<IngestResponse> => {
+            try {
+                const response: AxiosResponse<IngestResponse> =
+                    await this.client.post('/ingest/text', data)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        url: async (data: WikipediaIngestRequest): Promise<IngestResponse> => {
+            try {
+                const response: AxiosResponse<IngestResponse> =
+                    await this.client.post('/ingest/url', data)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        wikidata: async (data: WikidataIngestRequest): Promise<IngestResponse> => {
+            try {
+                const response: AxiosResponse<IngestResponse> =
+                    await this.client.post('/ingest/wikidata', data)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        // `targetGraphId` scopes the request through the `X-Graph-Id` header,
+        // matching export/import. It is stripped from the body so the route's
+        // "body targetGraphId must match the resolved graph" check cannot be
+        // tripped by a stale client value.
+        approve: async (jobId: string, data: ApproveIngestionRequest): Promise<ImportResult> => {
+            try {
+                const { targetGraphId, ...body } = data
+                const response: AxiosResponse<ImportResult> = await this.client.post(
+                    `/ingest/jobs/${jobId}/approve`,
+                    body,
+                    targetGraphId ? { headers: { 'X-Graph-Id': targetGraphId } } : undefined
+                )
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        deleteJob: async (jobId: string): Promise<{ success: boolean }> => {
+            try {
+                const response: AxiosResponse<{ success: boolean }> =
+                    await this.client.delete(`/ingest/jobs/${jobId}`)
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
