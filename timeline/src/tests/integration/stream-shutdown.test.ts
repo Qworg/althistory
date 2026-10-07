@@ -175,6 +175,96 @@ describe('Application.run: real startup and shutdown with a live stream', () => 
     expect(isRecord(body) && typeof body.token === 'string').toBe(true);
   });
 
+  it('charges the stream write path against the container request limit', async () => {
+    // `src/index.ts` wires the handler's `rateLimitService` to the SAME instance
+    // the HTTP routes charge. No other test would notice that wiring being
+    // dropped: every stream suite builds its own handler with its own deps, and
+    // the startup test above only proves the socket attaches. This drives a
+    // write over the real server and a real key whose minute budget is one, so
+    // the second write can only be refused by the container's limiter.
+    const container = getContainer();
+    const key = await container.authService.createApiKey({
+      name: 'Stream Shutdown Rate Limited Key',
+      permissions: ['write:events'],
+      rateLimit: { requestsPerMinute: 1, requestsPerHour: 100, requestsPerDay: 100 },
+    });
+
+    // Issued straight from the shared store: this test is about the WRITE path,
+    // so the token must not spend the key's one-request budget.
+    const record = getStreamTokenStore().issue({
+      apiKeyId: key.id,
+      graphId,
+      permissions: ['write:events'],
+    });
+
+    const ws = new WebSocket(
+      `ws://127.0.0.1:${port}${STREAM_PATH}?token=${encodeURIComponent(record.token)}`
+    );
+    const received: Record<string, unknown>[] = [];
+    ws.on('message', (data: RawData) => {
+      received.push(readJsonObject(data));
+    });
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('stream socket never opened')), 3000);
+        ws.once('open', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        ws.once('error', (error: Error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+      });
+
+      await waitFor(() => received.length > 0, 3000);
+      expect(received[0]?.type).toBe('auth_result');
+
+      const send = (requestId: string): void => {
+        ws.send(
+          JSON.stringify({
+            type: 'event',
+            requestId,
+            data: {
+              description: `Rate limited stream write ${requestId}`,
+              actor: 'Shutdown Rate Limit Actor',
+              target: 'Shutdown Rate Limit Target',
+              timestamp: '1500-01-01T00:00:00.000Z',
+            },
+          })
+        );
+      };
+
+      const awaitFrame = async (requestId: string): Promise<Record<string, unknown>> => {
+        await waitFor(() => received.some((frame) => frame.requestId === requestId), 3000);
+        const frame = received.find((candidate) => candidate.requestId === requestId);
+        if (!frame) {
+          throw new Error(`no frame carried requestId ${requestId}`);
+        }
+        return frame;
+      };
+
+      send('first');
+      const first = await awaitFrame('first');
+      expect(first.success).toBe(true);
+
+      send('second');
+      const second = await awaitFrame('second');
+      expect(second.success).toBe(false);
+      expect(second.code).toBe('RATE_LIMITED');
+    } finally {
+      await new Promise<void>((resolve) => {
+        if (ws.readyState === WebSocket.CLOSED) {
+          resolve();
+          return;
+        }
+        ws.once('close', () => resolve());
+        ws.close();
+      });
+    }
+  });
+
   it('closes a live stream socket and exits 0 on SIGTERM', async () => {
     // Issued through the shared store the handler uses, so this exercises the
     // same wiring without depending on the token route's rate-limit budget (the

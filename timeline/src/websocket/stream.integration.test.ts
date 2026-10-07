@@ -34,6 +34,20 @@
  *     messages bypass the HTTP rate limiter.
  *   - "bounds in-flight writes": fails if `onMessage`'s fire-and-forget writes
  *     are unbounded.
+ *   - "refuses a SECOND message after the maximum lifetime/idle timeout" and
+ *     "refuses writes for a session the sweep already removed": fail if the
+ *     write path asks `expiredReason` (which answers `undefined` for an id the
+ *     manager no longer holds) instead of `refusalReason`. Each sends TWO
+ *     messages after the session is gone and reads the graph back, so the
+ *     second write is caught even though its ack is never delivered.
+ *   - "refuses a write whose session expires while the key is being
+ *     re-resolved": fails if the only session check is the one at the top of
+ *     `onMessage`, i.e. if nothing re-checks before the entity is persisted.
+ *   - "bounds what the server sends back": fails if `send()` queues a frame on
+ *     a socket that is already holding more than its outbound limit, and if a
+ *     write is persisted while the ack for it could never be delivered.
+ *   - "applies the configured outbound limit": fails if the refusal is
+ *     unconditional rather than threshold-driven.
  *   - "refuses a frame over the payload limit": fails if the `ws` default
  *     (100 MiB) is left in place.
  *   - "acks success when versioning failed after the entity persisted": fails
@@ -80,6 +94,8 @@ import {
   resetStreamTokenStore,
   isRecord,
   STREAM_MAX_PAYLOAD_BYTES,
+  STREAM_MAX_BUFFERED_BYTES,
+  STREAM_BACKPRESSURE_CLOSE_CODE,
   STREAM_PATH,
 } from '@/websocket';
 import type { StreamWriteDeps } from '@/websocket';
@@ -134,6 +150,7 @@ interface LocalHandlerOptions {
   maxInFlightWrites?: number;
   reservationTimeoutMs?: number;
   sweepIntervalMs?: number;
+  maxBufferedBytes?: number;
   deps?: Partial<StreamWriteDeps>;
 }
 
@@ -192,6 +209,7 @@ describe('WebSocket streaming (requirement 16)', () => {
       maxInFlightWrites: options.maxInFlightWrites,
       reservationTimeoutMs: options.reservationTimeoutMs,
       sweepIntervalMs: options.sweepIntervalMs,
+      maxBufferedBytes: options.maxBufferedBytes,
     });
     return { handler: streamHandler, sessionManager: sessions };
   }
@@ -251,6 +269,78 @@ describe('WebSocket streaming (requirement 16)', () => {
       target: 'Stream Test Target',
       timestamp: '1500-01-01T00:00:00.000Z',
     };
+  }
+
+  /**
+   * Event data with a UNIQUE actor, so a test can read back exactly the events
+   * its own session wrote and nothing another test's session wrote.
+   */
+  function eventDataForActor(actor: string, description: string): Record<string, unknown> {
+    return { ...eventData(description), actor };
+  }
+
+  /** How many events that actor has in the graph, read from the repository. */
+  async function persistedForActor(actor: string): Promise<number> {
+    const scoped = await container.graphScopedRepositories(graphId);
+    const events = await scoped.eventRepository.findByActor(actor);
+    return events.length;
+  }
+
+  /**
+   * Wait for work that a buggy handler would do asynchronously, so a test can
+   * assert that it did NOT happen instead of racing it. Deliberately generous:
+   * the window only has to be wider than an in-process repository call.
+   */
+  function settle(ms = 250): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * A versioning service whose failure message is far larger than any kernel
+   * socket buffer, so the warning frame the handler writes fills the socket by
+   * itself. The outbound bound is then reached with ONE write instead of by
+   * pumping thousands of small acks, which is what makes it testable at all.
+   */
+  function oversizedWarningDeps(): Partial<StreamWriteDeps> {
+    return {
+      graphWriteVersioningService: {
+        recordEvent: async () => {
+          throw new Error(`version store unavailable: ${'x'.repeat(8 * 1024 * 1024)}`);
+        },
+        recordArc: async () => undefined,
+      },
+    };
+  }
+
+  /** Something the handler itself can observe about the socket it is writing to. */
+  function serverSideSocket(local: LocalHandler): WebSocket {
+    const sockets = Array.from(local.handler.webSocketServer.clients);
+    const socket = sockets[0];
+    if (!socket) {
+      throw new Error('the handler has no server-side socket');
+    }
+    return socket;
+  }
+
+  /** Wait until the handler's socket is holding at least `bytes` unsent. */
+  async function waitForBufferedOver(
+    local: LocalHandler,
+    bytes: number,
+    timeoutMs = 5000
+  ): Promise<void> {
+    const start = Date.now();
+    for (;;) {
+      const bufferedAmount = serverSideSocket(local).bufferedAmount;
+      if (bufferedAmount >= bytes) {
+        return;
+      }
+      if (Date.now() - start > timeoutMs) {
+        throw new Error(
+          `the socket never buffered ${bytes} bytes (bufferedAmount ${bufferedAmount})`
+        );
+      }
+      await settle(10);
+    }
   }
 
   function arcData(name: string): Record<string, unknown> {
@@ -1458,6 +1548,236 @@ describe('WebSocket streaming (requirement 16)', () => {
     });
   });
 
+  describe('sessions that are no longer live', () => {
+    /**
+     * The review's reproduction, kept as the first test on purpose.
+     *
+     * When a session expires, the message that notices the expiry removes it
+     * from the manager. `expiredReason` then answers `undefined` for that same
+     * id -- the answer a LIVE session gets -- so the NEXT message was treated as
+     * live and its write was persisted, with no live session behind it. Every
+     * test here sends at least two messages and then reads the entities back
+     * from the graph-scoped repository: the ack cannot be trusted here, and in
+     * fact is never delivered, because the refusal that closes the socket also
+     * stops the queued ack from being written.
+     */
+    it('refuses a SECOND message after the maximum lifetime and persists neither', async () => {
+      const actor = 'Post Lifetime Actor';
+      const repositoryCalls: string[] = [];
+      const local = await startLocalHandler({
+        sessionManager: new StreamSessionManager({ maxLifetimeMs: 100, idleTimeoutMs: 60_000 }),
+        // The timer must not race the messages: the message path itself has to
+        // notice the expiry.
+        sweepIntervalMs: 60_000,
+        deps: {
+          graphScopedRepositories: async (id) => {
+            repositoryCalls.push(id);
+            return container.graphScopedRepositories(id);
+          },
+        },
+      });
+      try {
+        const record = local.store.issue({
+          apiKeyId: writerKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const harness = await openHarness(local.url(record.token));
+        expect((await harness.next()).success).toBe(true);
+
+        await settle(150);
+
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'after-lifetime-1',
+          data: eventDataForActor(actor, 'First write after the lifetime'),
+        });
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'after-lifetime-2',
+          data: eventDataForActor(actor, 'Second write after the lifetime'),
+        });
+
+        const first = await harness.next();
+        expect(first.type).toBe('error');
+        expect(first.code).toBe('SESSION_EXPIRED');
+        expect(String(first.message)).toContain('lifetime');
+
+        // And the slot is free NOW, not at the next sweep: the sweep interval in
+        // this handler is a minute away, so counting zero here can only come
+        // from the refusal itself removing the session.
+        expect(local.sessionManager.countFor(writerKeyId)).toBe(0);
+
+        // The repository is the authority, not the ack: nothing may have been
+        // written for this actor, and the repository may not even have been
+        // reached. The settle window is what a buggy second write would have
+        // needed to land in.
+        await settle();
+        expect(repositoryCalls).toEqual([]);
+        expect(await persistedForActor(actor)).toBe(0);
+      } finally {
+        await local.stop();
+      }
+    });
+
+    it('refuses a SECOND message after the idle timeout and persists neither', async () => {
+      const actor = 'Post Idle Actor';
+      const repositoryCalls: string[] = [];
+      const local = await startLocalHandler({
+        sessionManager: new StreamSessionManager({ idleTimeoutMs: 120, maxLifetimeMs: 60_000 }),
+        sweepIntervalMs: 60_000,
+        deps: {
+          graphScopedRepositories: async (id) => {
+            repositoryCalls.push(id);
+            return container.graphScopedRepositories(id);
+          },
+        },
+      });
+      try {
+        const record = local.store.issue({
+          apiKeyId: writerKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const harness = await openHarness(local.url(record.token));
+        expect((await harness.next()).success).toBe(true);
+
+        // The client is silent past the idle window. The sweep interval is far
+        // beyond the test, so only the message path can notice -- which is also
+        // what makes the "checked before the message counts as activity"
+        // ordering load-bearing: a handler that records the message first
+        // refreshes `lastActivityAt` and revives the session instead of
+        // refusing it.
+        await settle(200);
+
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'after-idle-1',
+          data: eventDataForActor(actor, 'First write after the idle timeout'),
+        });
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'after-idle-2',
+          data: eventDataForActor(actor, 'Second write after the idle timeout'),
+        });
+
+        const first = await harness.next();
+        expect(first.type).toBe('error');
+        expect(first.code).toBe('SESSION_EXPIRED');
+        expect(String(first.message)).toContain('idle');
+
+        await settle();
+        expect(repositoryCalls).toEqual([]);
+        expect(await persistedForActor(actor)).toBe(0);
+      } finally {
+        await local.stop();
+      }
+    });
+
+    it('refuses writes for a session the sweep already removed', async () => {
+      const actor = 'Post Sweep Actor';
+      const repositoryCalls: string[] = [];
+      const local = await startLocalHandler({
+        sessionManager: new StreamSessionManager({ idleTimeoutMs: 120, maxLifetimeMs: 60_000 }),
+        // The handler's own sweep closes the socket it sweeps, so its timer is
+        // held out of the way: this is the window between "the session is gone
+        // from the manager" and "the socket is closed", which is exactly where
+        // the old code let a write through.
+        sweepIntervalMs: 60_000,
+        deps: {
+          graphScopedRepositories: async (id) => {
+            repositoryCalls.push(id);
+            return container.graphScopedRepositories(id);
+          },
+        },
+      });
+      try {
+        const record = local.store.issue({
+          apiKeyId: writerKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const harness = await openHarness(local.url(record.token));
+        expect((await harness.next()).success).toBe(true);
+
+        await settle(200);
+        const swept = local.sessionManager.sweep();
+        expect(swept).toHaveLength(1);
+        expect(local.sessionManager.totalCount).toBe(0);
+        // The socket is still open: only the message path can refuse now.
+        expect(harness.ws.readyState).toBe(WebSocket.OPEN);
+
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'after-sweep-1',
+          data: eventDataForActor(actor, 'First write after the sweep'),
+        });
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'after-sweep-2',
+          data: eventDataForActor(actor, 'Second write after the sweep'),
+        });
+
+        const first = await harness.next();
+        expect(first.type).toBe('error');
+        expect(first.code).toBe('SESSION_EXPIRED');
+
+        await settle();
+        expect(repositoryCalls).toEqual([]);
+        expect(await persistedForActor(actor)).toBe(0);
+      } finally {
+        await local.stop();
+      }
+    });
+
+    it('refuses a write whose session expires while the key is being re-resolved', async () => {
+      // `onMessage` can only check the session before the awaits, and the write
+      // path awaits the key lookup before it touches the repository. A session
+      // that expires inside that window must not persist anything: otherwise
+      // the lifetime limit is only as strict as the repository's latency.
+      const actor = 'Expired Mid Write Actor';
+      const local = await startLocalHandler({
+        sessionManager: new StreamSessionManager({ maxLifetimeMs: 120, idleTimeoutMs: 60_000 }),
+        sweepIntervalMs: 60_000,
+        deps: {
+          authService: {
+            async getApiKey(id: string) {
+              await settle(250);
+              return container.authService.getApiKey(id);
+            },
+          },
+        },
+      });
+      try {
+        const record = local.store.issue({
+          apiKeyId: writerKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const harness = await openHarness(local.url(record.token));
+        // The session's clock starts after the (slow) connect-time resolution,
+        // so the message below is accepted by the check at the top of
+        // `onMessage` and only expires during the second resolution.
+        expect((await harness.next()).success).toBe(true);
+
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'expires-mid-write',
+          data: eventDataForActor(actor, 'Write that outlives the session'),
+        });
+
+        const ack = await harness.next();
+        expect(ack.type).toBe('ack');
+        expect(ack.success).toBe(false);
+        expect(ack.code).toBe('SESSION_EXPIRED');
+        // The entity was never created, so there is nothing to read back.
+        expect(await persistedForActor(actor)).toBe(0);
+      } finally {
+        await local.stop();
+      }
+    });
+  });
+
   describe('message rate limiting and bounds', () => {
     it('charges the per-key request limit for stream writes', async () => {
       const key = await container.authService.createApiKey({
@@ -1572,6 +1892,116 @@ describe('WebSocket streaming (requirement 16)', () => {
         expect(defaulted.maxPayloadBytes).toBeLessThanOrEqual(1024 * 1024);
       } finally {
         await defaulted.close();
+      }
+    });
+    it('defaults the outbound buffer limit to a bounded value', async () => {
+      const { handler: defaulted } = buildHandler(new StreamTokenStore());
+      try {
+        expect(defaulted.maxBufferedBytes).toBe(STREAM_MAX_BUFFERED_BYTES);
+        expect(defaulted.maxBufferedBytes).toBeLessThanOrEqual(1024 * 1024);
+      } finally {
+        await defaulted.close();
+      }
+    });
+
+    it('bounds what the server sends back: a stalled socket is closed, not queued', async () => {
+      const actor = 'Backpressure Actor';
+      const local = await startLocalHandler({
+        maxBufferedBytes: 64 * 1024,
+        deps: oversizedWarningDeps(),
+      });
+      try {
+        const record = local.store.issue({
+          apiKeyId: writerKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const harness = await openHarness(local.url(record.token));
+        expect((await harness.next()).success).toBe(true);
+
+        // The client stops consuming. From here on everything the server writes
+        // stays on the socket, which is the situation the outbound bound exists
+        // for: `maxPayload` and the in-flight cap bound what the client SENDS,
+        // and say nothing about what the server sends back.
+        harness.ws.pause();
+
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'over-limit-1',
+          data: eventDataForActor(actor, 'First write'),
+        });
+        await waitForBufferedOver(local, 64 * 1024);
+
+        // A write that arrives while the socket is over the limit is refused
+        // BEFORE the repository: the ack for it could not be delivered, so
+        // persisting it would be work with no client able to hear about it.
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'over-limit-2',
+          data: eventDataForActor(actor, 'Second write'),
+        });
+
+        const closed = new Promise<number>((resolve) =>
+          harness.ws.once('close', (code: number) => resolve(code))
+        );
+        harness.ws.resume();
+
+        // The one frame the server wrote before the limit was reached...
+        const warning = await harness.next(5000);
+        expect(warning.type).toBe('warning');
+        // ...then the socket is closed for backpressure rather than handed the
+        // acks it is not reading.
+        expect(await closed).toBe(STREAM_BACKPRESSURE_CLOSE_CODE);
+        await expect(harness.next(2000)).rejects.toThrow(/socket closed/);
+
+        // Only the first write reached the graph: the second was refused, not
+        // persisted and then forgotten.
+        expect(await persistedForActor(actor)).toBe(1);
+      } finally {
+        await local.stop();
+      }
+    });
+
+    it('applies the configured outbound limit instead of refusing every write', async () => {
+      // The same oversized frame and the same stalled client, with a limit ABOVE
+      // what the socket is holding. Nothing may be dropped and the ack must
+      // still arrive: that is what makes the limit a threshold rather than an
+      // unconditional refusal.
+      const actor = 'Backpressure Below Limit Actor';
+      const local = await startLocalHandler({
+        maxBufferedBytes: 32 * 1024 * 1024,
+        deps: oversizedWarningDeps(),
+      });
+      try {
+        const record = local.store.issue({
+          apiKeyId: writerKeyId,
+          graphId,
+          permissions: ['write:events'],
+        });
+        const harness = await openHarness(local.url(record.token));
+        expect((await harness.next()).success).toBe(true);
+
+        harness.ws.pause();
+        sendJson(harness, {
+          type: 'event',
+          requestId: 'under-limit-1',
+          data: eventDataForActor(actor, 'Write that fits under the limit'),
+        });
+        // The socket really is holding megabytes -- more than the OTHER test's
+        // limit -- so the ack below is sent with a huge backlog outstanding.
+        await waitForBufferedOver(local, 8 * 1024 * 1024);
+        harness.ws.resume();
+
+        const warning = await harness.next(5000);
+        expect(warning.type).toBe('warning');
+        const ack = await harness.next(5000);
+        expect(ack.type).toBe('ack');
+        expect(ack.success).toBe(true);
+        expect(harness.ws.readyState).toBe(WebSocket.OPEN);
+        expect(await persistedForActor(actor)).toBe(1);
+        await harness.close();
+      } finally {
+        await local.stop();
       }
     });
   });

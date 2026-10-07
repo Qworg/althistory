@@ -15,6 +15,12 @@
  * `expiredReason` reports which limit a session has crossed and `sweep` removes
  * the crossed sessions, so a session that is abandoned while holding a
  * concurrency slot cannot hold it forever.
+ *
+ * A write path must ask `refusalReason`, not `expiredReason`: once `sweep` or
+ * `close` has removed a session, `expiredReason` answers `undefined` for its id
+ * -- the same answer a live session gets -- whereas `refusalReason` reports
+ * `unknown`, so a message from a session the manager no longer holds cannot be
+ * mistaken for a live one.
  */
 
 import { randomUUID } from 'crypto';
@@ -37,6 +43,18 @@ export const DEFAULT_STREAM_SESSION_POLICY: StreamSessionPolicy = {
 
 /** Which limit an expired session crossed. */
 export type StreamSessionExpiryReason = 'lifetime' | 'idle';
+
+/**
+ * Why a message carrying a session id must be refused.
+ *
+ * `unknown` is separate from the two expiry reasons on purpose: a session id
+ * the manager does not hold is not a live session -- once a session has been
+ * removed (expired and swept, closed by the client, or released by the socket)
+ * its id is gone for good and can never become valid again. Reporting that as a
+ * refusal reason rather than as `undefined` is what stops a caller from reading
+ * "this id is not here" as "this id is fine to write with".
+ */
+export type StreamSessionRefusalReason = StreamSessionExpiryReason | 'unknown';
 
 export interface ExpiredStreamSession {
   session: StreamSession;
@@ -149,6 +167,27 @@ export class StreamSessionManager {
     const session = this.sessions.get(sessionId);
     if (!session) {
       return undefined;
+    }
+    return this.reasonFor(session, now);
+  }
+
+  /**
+   * Why `sessionId` may not write, or `undefined` when it may.
+   *
+   * Unlike `expiredReason`, an id the manager does not hold is reported as
+   * `unknown` rather than `undefined`. A caller on the write path needs that
+   * distinction: after `sweep` or `close` removed the session, `expiredReason`
+   * answers `undefined` for the same id that a live session would get, and a
+   * caller that only asks it would treat the next message from a dead session
+   * as live and persist the write.
+   */
+  refusalReason(
+    sessionId: string,
+    now: number = Date.now()
+  ): StreamSessionRefusalReason | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return 'unknown';
     }
     return this.reasonFor(session, now);
   }

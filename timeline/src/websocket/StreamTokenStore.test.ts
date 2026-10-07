@@ -7,11 +7,21 @@
  *     made deterministic;
  *   - "consumes ... replayed" fails if the single-use flag is ignored;
  *   - "reports an expired token" fails if the expiry check is removed;
- *   - "unknown/malformed" fails if validation is bypassed.
+ *   - "unknown/malformed" fails if validation is bypassed;
+ *   - "arms the PROCESS-WIDE store with its own eviction timer" fails if
+ *     `getStreamTokenStore()` stops constructing the store with an eviction
+ *     interval. The store's timer is only worth anything if the store
+ *     production builds actually has it, so the assertion is made against the
+ *     production accessor and not against a store this file constructed.
  */
 
-import { describe, it, expect } from 'vitest';
-import { StreamTokenStore, STREAM_TOKEN_TTL_MS } from './StreamTokenStore';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  StreamTokenStore,
+  STREAM_TOKEN_TTL_MS,
+  STREAM_TOKEN_EVICTION_INTERVAL_MS,
+} from './StreamTokenStore';
+import { getStreamTokenStore, resetStreamTokenStore } from './index';
 
 describe('StreamTokenStore', () => {
   it('issues opaque, unique tokens with a five minute TTL bound to key and graph', () => {
@@ -154,6 +164,37 @@ describe('StreamTokenStore', () => {
       expect(store.size).toBe(0);
     } finally {
       store.dispose();
+    }
+  });
+
+  it('arms the PROCESS-WIDE store with its own eviction timer', () => {
+    // The token route and the handler share `getStreamTokenStore()`, so this is
+    // the store production really runs. A store constructed directly in a test
+    // proves the timer works; only this test proves the production store HAS
+    // one, which is the half that was missing: without the interval here, a
+    // token that is issued and never presented is held for the life of the
+    // process while every other test stays green.
+    vi.useFakeTimers();
+    try {
+      resetStreamTokenStore();
+      const store = getStreamTokenStore();
+      const record = store.issue({
+        apiKeyId: 'key_1',
+        graphId: 'graph_a',
+        permissions: ['write:events'],
+      });
+      expect(store.size).toBe(1);
+
+      // Nothing presents the token and nothing issues another one: the timer is
+      // the only thing that can drop it. The window is one TTL plus one eviction
+      // interval, which guarantees an eviction tick that is past the expiry.
+      vi.advanceTimersByTime(STREAM_TOKEN_TTL_MS + STREAM_TOKEN_EVICTION_INTERVAL_MS);
+
+      expect(store.peek(record.token)).toBeUndefined();
+      expect(store.size).toBe(0);
+    } finally {
+      resetStreamTokenStore();
+      vi.useRealTimers();
     }
   });
 

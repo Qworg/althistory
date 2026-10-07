@@ -45,7 +45,23 @@
  *   - the session must be inside `maxLifetimeMs` of its connect and inside
  *     `idleTimeoutMs` of its last message (also swept on a timer), which bounds
  *     how long a session -- and the concurrency slot it holds -- can outlive
- *     the key's authority over it.
+ *     the key's authority over it;
+ *   - the session id must still be one the manager holds. A session that was
+ *     expired, swept, closed or released is refused on every later message
+ *     (`refusalReason` reports `unknown`), and the same check runs again
+ *     immediately before an entity is persisted, so a session that dies while
+ *     its write is being authorised cannot persist either.
+ *
+ * Outbound bound (the inbound limits above say nothing about what the server
+ * sends back):
+ *   - no frame is handed to `ws.send` while the socket is already holding
+ *     `maxBufferedBytes` of unsent data (`ws.bufferedAmount`). Such a socket is
+ *     closed with 1013 instead of being handed a queue that grows without
+ *     limit, because a peer that is not consuming what the server already sent
+ *     cannot be caught up by writing more;
+ *   - a write message that arrives while the socket is over that limit is
+ *     refused BEFORE it reaches the repository, so the server does not persist
+ *     work whose acknowledgement it cannot deliver.
  *
  * Every `event`/`arc` message is answered with an `ack` carrying `success: true`
  * and the created id, or `success: false`, the error and a machine-readable
@@ -58,6 +74,11 @@
  *     is acked as an error instead of being warned about and accepted.
  *   - the token store is per-process, not Redis-backed. It is evicted on issue
  *     and on a timer (see `StreamTokenStore`).
+ *   - the outbound bound REFUSES and closes; it does not pause the reader
+ *     (`ws.pause`) or wait for a drain before the next write. A socket over
+ *     `maxBufferedBytes` is dropped with 1013 rather than slowed down, so a
+ *     client that is merely slow is treated the same as one that has stopped
+ *     reading.
  */
 
 import type { IncomingMessage, Server as HttpServer } from 'http';
@@ -71,7 +92,7 @@ import { assertSafeGraphId } from '@/utils/GraphContextStore';
 import type { GraphScopedRepositories } from '@/container';
 import { StreamTokenStore } from './StreamTokenStore';
 import { StreamSessionManager } from './StreamSession';
-import type { StreamSession, StreamSessionExpiryReason } from './StreamSession';
+import type { StreamSession, StreamSessionRefusalReason } from './StreamSession';
 import type { CreateEventRequest } from '@/models/Event';
 import type { CreateArcRequest } from '@/models/Arc';
 import {
@@ -95,6 +116,21 @@ export const STREAM_MAX_PAYLOAD_BYTES = 1024 * 1024;
 
 /** How many writes one session may have outstanding at a time. */
 export const DEFAULT_MAX_IN_FLIGHT_WRITES = 4;
+
+/**
+ * How many bytes of data the server may have queued on one socket without the
+ * client having consumed them.
+ *
+ * `maxPayload` bounds one inbound frame and the in-flight cap bounds concurrent
+ * work, but neither says anything about what the server sends BACK: a client
+ * that stops reading would otherwise make the server queue ack frames until it
+ * runs out of memory. 1 MiB is far more than a burst of acks can need, so only
+ * a client that has stopped reading can reach it.
+ */
+export const STREAM_MAX_BUFFERED_BYTES = 1024 * 1024;
+
+/** Close code for a socket that stopped consuming what the server sent. */
+export const STREAM_BACKPRESSURE_CLOSE_CODE = 1013;
 
 /**
  * How long a reserved-but-not-yet-established session may wait for the
@@ -159,6 +195,11 @@ export interface StreamHandlerOptions {
   reservationTimeoutMs?: number;
   /** Session expiry sweep interval. Defaults to 30s. */
   sweepIntervalMs?: number;
+  /**
+   * Unsent outbound bytes allowed on one socket before writes to it stop.
+   * Defaults to `STREAM_MAX_BUFFERED_BYTES` (1 MiB).
+   */
+  maxBufferedBytes?: number;
 }
 
 interface ConnectionContext {
@@ -226,8 +267,15 @@ export class StreamHandler {
   private readonly sweepIntervalMs: number;
   /** Largest accepted frame; exposed so tests can assert the resolved value. */
   readonly maxPayloadBytes: number;
+  /** Largest unsent outbound backlog allowed on one socket. */
+  readonly maxBufferedBytes: number;
   private readonly sockets = new Map<string, WebSocket>();
   private readonly inFlightWrites = new Map<string, number>();
+  /**
+   * Sockets already closed for being over `maxBufferedBytes`, so every later
+   * refusal on the same socket logs once and closes once.
+   */
+  private readonly backpressuredSockets = new WeakSet<WebSocket>();
   private attachedServer: HttpServer | undefined;
   private upgradeListener:
     | ((req: IncomingMessage, socket: Duplex, head: Buffer) => void)
@@ -246,6 +294,7 @@ export class StreamHandler {
     );
     this.reservationTimeoutMs = options.reservationTimeoutMs ?? STREAM_RESERVATION_TIMEOUT_MS;
     this.sweepIntervalMs = options.sweepIntervalMs ?? DEFAULT_SESSION_SWEEP_INTERVAL_MS;
+    this.maxBufferedBytes = options.maxBufferedBytes ?? STREAM_MAX_BUFFERED_BYTES;
     this.wss = new WebSocketServer({
       noServer: true,
       maxPayload: this.maxPayloadBytes,
@@ -638,22 +687,33 @@ export class StreamHandler {
         });
         continue;
       }
-      this.expireSession(ws, expired.session, expired.reason);
+      this.refuseSession(ws, expired.session, expired.reason);
     }
   }
 
-  /** Tell the client why it is being dropped, then close the socket. */
-  private expireSession(
+  /**
+   * Stop a session that may no longer write, telling the client why.
+   *
+   * Covers both halves of "this session is over": a session that crossed a
+   * lifetime limit, and an id the manager no longer holds at all (expired by
+   * the sweep that already removed it, closed, or released). The second case is
+   * why this is not only called for a session the manager still knows: a
+   * removed id must be refused too, or the next message from it would be
+   * handled as if the session were live and its write persisted.
+   */
+  private refuseSession(
     ws: WebSocket,
     session: StreamSession,
-    reason: StreamSessionExpiryReason
+    reason: StreamSessionRefusalReason
   ): void {
     this.inFlightWrites.delete(session.id);
     this.sessionManager.close(session.id);
-    const message =
-      reason === 'idle'
-        ? `Session was idle for longer than ${session.idleTimeoutMs}ms; request a new stream token`
-        : 'Session exceeded its maximum lifetime; request a new stream token';
+    let message = 'Session exceeded its maximum lifetime; request a new stream token';
+    if (reason === 'unknown') {
+      message = 'Session is no longer active; request a new stream token';
+    } else if (reason === 'idle') {
+      message = `Session was idle for longer than ${session.idleTimeoutMs}ms; request a new stream token`;
+    }
     this.logger.info('Stream session expired', {
       sessionId: session.id,
       reason,
@@ -689,10 +749,13 @@ export class StreamHandler {
     }
 
     // Checked before the message is counted as activity: an expired session must
-    // not be able to extend its own life by talking.
-    const expiry = this.sessionManager.expiredReason(context.session.id);
-    if (expiry) {
-      this.expireSession(ws, context.session, expiry);
+    // not be able to extend its own life by talking. `refusalReason` and not
+    // `expiredReason`: an id the manager no longer holds (swept, closed,
+    // released) must be refused as well, and `expiredReason` reports that case
+    // as `undefined` -- indistinguishable from a live session.
+    const refusal = this.sessionManager.refusalReason(context.session.id);
+    if (refusal) {
+      this.refuseSession(ws, context.session, refusal);
       return;
     }
 
@@ -735,6 +798,23 @@ export class StreamHandler {
     data: unknown,
     requestId: string | undefined
   ): Promise<void> {
+    // Outbound capacity comes first. A socket that is already holding more than
+    // `maxBufferedBytes` of unsent data cannot be sent the acknowledgement for
+    // this write, so the write is refused before it reaches the repository
+    // rather than persisted as work whose result can never be delivered. This
+    // is the inbound half of the outbound bound: without it a client that never
+    // reads could still make the server write to the graph forever.
+    if (this.isOverBuffered(ws)) {
+      this.logger.warn('Stream write refused: socket is over the outbound buffer limit', {
+        sessionId: context.session.id,
+        entityType,
+        bufferedAmount: ws.bufferedAmount,
+        maxBufferedBytes: this.maxBufferedBytes,
+      });
+      this.closeForBackpressure(ws);
+      return;
+    }
+
     const inFlight = this.inFlightWrites.get(context.session.id) ?? 0;
     if (inFlight >= this.maxInFlightWrites) {
       this.send(ws, {
@@ -900,6 +980,9 @@ export class StreamHandler {
 
     try {
       const { eventRepository } = await this.deps.graphScopedRepositories(context.graphId);
+      if (!this.mayPersist(ws, context, 'event', requestId)) {
+        return;
+      }
       const event = await eventRepository.create(converted.value);
       // The event is durable from here on: the ack must say so even if the
       // versioning record below fails, or a retrying client would duplicate it.
@@ -938,6 +1021,9 @@ export class StreamHandler {
 
     try {
       const { arcRepository } = await this.deps.graphScopedRepositories(context.graphId);
+      if (!this.mayPersist(ws, context, 'arc', requestId)) {
+        return;
+      }
       const arc = await arcRepository.create(converted.value);
       await this.ackPersistedEntity(
         ws,
@@ -950,6 +1036,44 @@ export class StreamHandler {
     } catch (error) {
       this.sendWriteFailure(ws, context, 'arc', error, requestId);
     }
+  }
+
+  /**
+   * The last gate before an entity is persisted: the session must still be one
+   * the manager holds and must still be inside its lifetime.
+   *
+   * `onMessage`'s check is not enough on its own. Between that check and this
+   * one the handler awaits the API key lookup and the graph-scoped repository,
+   * so a session can expire -- or be swept out of the manager -- while its
+   * write is being authorised. Without this, the lifetime limit would only be
+   * as strict as the repository's latency, and the write would be persisted
+   * with no live session behind it.
+   *
+   * The client is told with a failing ack (so a client waiting on one is not
+   * left hanging) followed by the same `SESSION_EXPIRED` error and close the
+   * earlier check sends.
+   */
+  private mayPersist(
+    ws: WebSocket,
+    context: ConnectionContext,
+    entityType: 'event' | 'arc',
+    requestId: string | undefined
+  ): boolean {
+    const refusal = this.sessionManager.refusalReason(context.session.id);
+    if (!refusal) {
+      return true;
+    }
+    this.send(ws, {
+      type: 'ack',
+      requestId,
+      entityType,
+      entityId: null,
+      success: false,
+      code: 'SESSION_EXPIRED',
+      error: 'Session is no longer active; nothing was written',
+    });
+    this.refuseSession(ws, context.session, refusal);
+    return false;
   }
 
   /**
@@ -1025,15 +1149,64 @@ export class StreamHandler {
     if (ws.readyState !== WebSocket.OPEN) {
       return;
     }
+    if (this.isOverBuffered(ws)) {
+      // The frame is DROPPED rather than queued: this refusal is the bound.
+      // Queueing it would be exactly the unbounded growth this exists to stop,
+      // and a client this far behind cannot be brought up to date by sending
+      // it more, so the socket is closed instead.
+      this.closeForBackpressure(ws);
+      return;
+    }
     ws.send(JSON.stringify(message));
+  }
+
+  /**
+   * Whether the socket is holding more unsent data than it is allowed to.
+   *
+   * `bufferedAmount` is `ws`'s own count of the bytes handed to it that are
+   * still inside the sender or the socket -- i.e. bytes the client has NOT
+   * consumed. It is the quantity the outbound bound is about.
+   */
+  private isOverBuffered(ws: WebSocket): boolean {
+    return ws.bufferedAmount >= this.maxBufferedBytes;
+  }
+
+  /**
+   * Drop a socket that is over the outbound limit, saying why.
+   *
+   * Idempotent per socket: the first refusal logs and closes, every later one
+   * (there is one per dropped frame) is a no-op, so a burst of refusals cannot
+   * log a storm or close a socket twice.
+   */
+  private closeForBackpressure(ws: WebSocket): void {
+    const bufferedAmount = ws.bufferedAmount;
+    if (this.backpressuredSockets.has(ws)) {
+      return;
+    }
+    this.backpressuredSockets.add(ws);
+    this.logger.warn('Stream socket exceeded the outbound buffer limit; closing it', {
+      bufferedAmount,
+      maxBufferedBytes: this.maxBufferedBytes,
+    });
+    try {
+      ws.close(STREAM_BACKPRESSURE_CLOSE_CODE, 'backpressure');
+    } catch {
+      ws.terminate();
+    }
   }
 
   /**
    * Send a final frame and close only once it has been handed to the socket, so
    * a client always learns WHY it is being dropped before the connection goes.
+   * A socket that is over the outbound limit is closed without the frame: the
+   * reason would be queued behind everything else it is already not reading.
    */
   private sendThenClose(ws: WebSocket, message: ServerMessage, reason: string): void {
     if (ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    if (this.isOverBuffered(ws)) {
+      this.closeForBackpressure(ws);
       return;
     }
     try {
