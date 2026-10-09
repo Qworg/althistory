@@ -4,6 +4,9 @@ import { formatOutput, formatErrorJson } from './formatters';
 import { GlobalCLIOptions, OutputFormat } from './types';
 import { CLIError, ExitCode } from './utils/exitCodes';
 import { logger } from './utils/logger';
+import { McpServer } from './mcp/McpServer';
+import { MCP_TOOLS } from './mcp/toolDefinitions';
+import { formatSuccessJson } from './formatters/jsonFormatter';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -998,6 +1001,63 @@ export function createProgram(): Command {
         process.stdout.write(output + '\n');
       } finally {
         await ctx.shutdown();
+      }
+    });
+
+  // --- Model Context Protocol (MCP) Server Command ---
+  program
+    .command('mcp')
+    .description('Run stdio JSON-RPC 2.0 Model Context Protocol (MCP) server')
+    .action(async () => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const engine = await ctx.getEngine();
+      const server = new McpServer(engine);
+      server.start(process.stdin, process.stdout);
+
+      await new Promise<void>((resolve) => {
+        process.stdin.on('end', () => {
+          server.stop();
+          resolve();
+        });
+        process.stdin.on('close', () => {
+          server.stop();
+          resolve();
+        });
+      });
+
+      await ctx.shutdown();
+    });
+
+  // --- Schema Command ---
+  program
+    .command('schema')
+    .description('Output JSON Schema specifications for MCP tools and operations')
+    .option('--tool <name>', 'Filter by specific MCP tool name')
+    .action(async (cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const toolName = cmdOpts?.tool as string | undefined;
+
+      if (toolName) {
+        const found = MCP_TOOLS.find((t) => t.name === toolName);
+        if (!found) {
+          throw new CLIError(`Tool schema not found: ${toolName}`, ExitCode.NOT_FOUND);
+        }
+        if (opts.plain) {
+          process.stdout.write(JSON.stringify(found, null, 2) + '\n');
+        } else {
+          process.stdout.write(formatSuccessJson(found, 'direct') + '\n');
+        }
+      } else {
+        const allSchemas = {
+          protocolVersion: '2024-11-05',
+          tools: MCP_TOOLS,
+        };
+        if (opts.plain) {
+          process.stdout.write(JSON.stringify(allSchemas, null, 2) + '\n');
+        } else {
+          process.stdout.write(formatSuccessJson(allSchemas, 'direct') + '\n');
+        }
       }
     });
 
