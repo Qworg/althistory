@@ -403,5 +403,39 @@ describe('Arc Hierarchy Utilities', () => {
       expect(endTime - startTime).toBeLessThan(1000)
       expect(arcHierarchy.length).toBeGreaterThan(50)
     })
+
+    it('efficiently processes 300 arcs across 10,000 events in well under 250ms', () => {
+      const baseTime = new Date('2024-01-01T00:00:00Z').getTime()
+      const thousandEvents: Event[] = Array.from({ length: 10000 }, (_, i) => ({
+        id: `ev-${i}`,
+        description: `Event ${i}`,
+        actor: `Actor ${i % 20}`,
+        target: `Target ${i % 20}`,
+        timestamp: new Date(baseTime + i * 60000).toISOString(),
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z'
+      }))
+
+      const threeHundredArcs: Arc[] = Array.from({ length: 300 }, (_, i) => ({
+        id: `arc-${i}`,
+        name: `Arc ${i}`,
+        description: `Arc description ${i}`,
+        start_time: new Date(baseTime + (i * 30) * 60000).toISOString(),
+        end_time: new Date(baseTime + (i * 30 + 120) * 60000).toISOString(),
+        level: i % 3,
+        parent_arc_id: i > 0 && i % 4 !== 0 ? `arc-${Math.floor(i / 4) * 4}` : null,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z'
+      }))
+
+      const t0 = performance.now()
+      const processed = processArcsWithUIState(threeHundredArcs, thousandEvents, new Set(['arc-0']), new Set())
+      const { arcHierarchy } = calculateArcHierarchy(processed)
+      const elapsed = performance.now() - t0
+
+      expect(elapsed).toBeLessThan(250)
+      expect(processed).toHaveLength(300)
+      expect(arcHierarchy.length).toBeGreaterThan(0)
+    })
   })
 })

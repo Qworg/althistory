@@ -4,6 +4,9 @@ import { CausalRelationship, CausalRelationshipType } from '@/models/relationshi
 import { requireGraphId, resolveGraphContext } from '@/api/middleware';
 import { EventRepository } from '@/repositories/EventRepository';
 import { CausalService } from '@/services/CausalService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('CausalRoutes');
 
 export const causalRoutes = Router();
 
@@ -116,7 +119,20 @@ causalRoutes.post('/link', async (req: Request, res: Response, next: NextFunctio
 
     // Mirror the write into the active graph's version store so version history
     // and ExportService see UI-created causal links (not only imported ones).
-    await req.container.graphWriteVersioningService.recordRelationship(requireGraphId(req), storedRelationship, 'create');
+    try {
+      await req.container.graphWriteVersioningService.recordRelationship(requireGraphId(req), storedRelationship, 'create');
+    } catch (versionError) {
+      try {
+        await causalService.deleteCausalLink(causeEventId, effectEventId);
+      } catch (rollbackError) {
+        logger.error('Compensating rollback failed for causal relationship', {
+          causeEventId,
+          effectEventId,
+          rollbackError,
+        });
+      }
+      throw versionError;
+    }
 
     res.status(201).json({
       success: true,

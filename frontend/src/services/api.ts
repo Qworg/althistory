@@ -47,7 +47,8 @@ import {
   WikipediaIngestRequest,
   WikidataIngestRequest,
   TextIngestRequest,
-  ApproveIngestionRequest
+  ApproveIngestionRequest,
+  StreamTokenResponse
 } from '@/types'
 
 // API client configuration
@@ -140,10 +141,14 @@ class APIClient {
         // Request interceptor
         this.client.interceptors.request.use(
             (config) => {
-                // Add auth token if available
-                const token = localStorage.getItem('auth_token')
+                // Add auth token / API key if available
+                const token =
+                    localStorage.getItem('api_key') ||
+                    localStorage.getItem('auth_token') ||
+                    (typeof import.meta !== 'undefined' ? (import.meta.env?.VITE_API_KEY as string | undefined) : undefined)
                 if (token) {
                     config.headers.Authorization = `Bearer ${token}`
+                    config.headers['X-API-Key'] = token
                 }
                 return config
             },
@@ -156,14 +161,9 @@ class APIClient {
             (error: AxiosError) => {
                 // Handle common errors
                 if (error.response?.status === 401) {
-                    // Handle unauthorized
+                    // Clear invalid credentials
                     localStorage.removeItem('auth_token')
-                    // Don't redirect in test environment
-                    if (typeof window !== 'undefined' && !window.location.href.includes('test')) {
-                        // Fixed internal path (not caller-supplied); assign() is
-                        // equivalent to setting location.href.
-                        window.location.assign('/login')
-                    }
+                    localStorage.removeItem('api_key')
                 }
                 
                 // Log error for debugging
@@ -942,6 +942,23 @@ class APIClient {
             try {
                 const response: AxiosResponse<{ success: boolean }> =
                     await this.client.delete(`/ingest/jobs/${jobId}`)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+    }
+
+    // WebSocket streaming operations (Requirement 16)
+    stream = {
+        getToken: async (graphId?: string): Promise<StreamTokenResponse> => {
+            try {
+                const response: AxiosResponse<StreamTokenResponse> =
+                    await this.client.post(
+                        '/stream/token',
+                        {},
+                        graphId ? { headers: { 'X-Graph-Id': graphId } } : undefined
+                    )
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)

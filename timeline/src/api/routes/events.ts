@@ -2,6 +2,9 @@ import { Router, Response, NextFunction } from 'express';
 import { CreateEventRequest, UpdateEventRequest, TimeRange } from '@/models/Event';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('EventRoutes');
 
 export const eventRoutes = Router();
 
@@ -40,7 +43,19 @@ eventRoutes.post('/', async (req: RequestWithContainer, res: Response, next: Nex
 
     // Mirror the write into the active graph's version store so version history
     // and ExportService see UI-created events (not only imported ones).
-    await req.container.graphWriteVersioningService.recordEvent(requireGraphId(req), event, 'create');
+    try {
+      await req.container.graphWriteVersioningService.recordEvent(requireGraphId(req), event, 'create');
+    } catch (versionError) {
+      try {
+        await repository.delete(event.id);
+      } catch (rollbackError) {
+        logger.error('Compensating rollback failed for created event', {
+          eventId: event.id,
+          rollbackError,
+        });
+      }
+      throw versionError;
+    }
     
     res.status(201).json({
       success: true,
@@ -251,7 +266,19 @@ eventRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: N
       throw new DatabaseError('Failed to update event', 'update');
     }
 
-    await req.container.graphWriteVersioningService.recordEvent(requireGraphId(req), updatedEvent, 'update');
+    try {
+      await req.container.graphWriteVersioningService.recordEvent(requireGraphId(req), updatedEvent, 'update');
+    } catch (versionError) {
+      try {
+        await repository.update(id, existingEvent);
+      } catch (rollbackError) {
+        logger.error('Compensating rollback failed for updated event', {
+          eventId: id,
+          rollbackError,
+        });
+      }
+      throw versionError;
+    }
 
     res.json({
       success: true,

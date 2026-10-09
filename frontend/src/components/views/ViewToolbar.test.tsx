@@ -365,4 +365,11 @@ describe('ViewToolbar', () => {
       expect(await axe(container)).toHaveNoViolations()
     })
   })
+
+  describe('Streaming status integration', () => {
+    it('renders streaming status badge in the toolbar', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      expect(screen.getByRole('status', { name: /streaming/i })).toBeInTheDocument()
+    })
+  })
 })

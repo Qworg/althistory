@@ -116,7 +116,7 @@ describe('CausalRelationshipModal', () => {
     expect(screen.getByText('Actor A → Target A')).toBeInTheDocument()
     expect(screen.getByText('Actor B → Target B')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Strong evidence for this relationship')).toBeInTheDocument()
-    expect(screen.getByRole('combobox')).toHaveValue('direct')
+    expect(screen.getByRole('combobox', { name: /relationship type/i })).toHaveValue('direct')
   })
 
   it('should display weight and confidence sliders with correct values', () => {
@@ -176,7 +176,7 @@ describe('CausalRelationshipModal', () => {
       />
     )
     
-    const typeSelect = screen.getByRole('combobox')
+    const typeSelect = screen.getByRole('combobox', { name: /relationship type/i })
     await user.selectOptions(typeSelect, 'indirect')
     
     expect(typeSelect).toHaveValue('indirect')
@@ -462,17 +462,85 @@ describe('CausalRelationshipModal', () => {
     // Check that form controls are disabled
     const weightSlider = screen.getByDisplayValue('0.8')
     const confidenceSlider = screen.getByDisplayValue('0.9')
-    const typeSelect = screen.getByRole('combobox')
+    const typeSelect = screen.getByRole('combobox', { name: /relationship type/i })
+    const targetGraphSelect = screen.getByRole('combobox', { name: /target graph/i })
     const evidenceTextarea = screen.getByDisplayValue('Strong evidence for this relationship')
     
     expect(weightSlider).toBeDisabled()
     expect(confidenceSlider).toBeDisabled()
     expect(typeSelect).toBeDisabled()
+    expect(targetGraphSelect).toBeDisabled()
     expect(evidenceTextarea).toBeDisabled()
     
     // Wait for the operation to complete
     await waitFor(() => {
       expect(weightSlider).not.toBeDisabled()
+    })
+  })
+
+  describe('Cross-graph reference handling', () => {
+    it('renders available target graphs and allows selecting a foreign graph', async () => {
+      const availableGraphs = [
+        { id: 'foreign-graph-1', name: 'Branch Timeline Alpha' },
+        { id: 'foreign-graph-2', name: 'Branch Timeline Beta' }
+      ]
+
+      render(
+        <CausalRelationshipModal
+          relationship={mockRelationship}
+          isOpen={true}
+          onClose={mockOnClose}
+          onSave={mockOnSave}
+          availableGraphs={availableGraphs}
+        />
+      )
+
+      const targetGraphSelect = screen.getByRole('combobox', { name: /target graph/i })
+      expect(targetGraphSelect).toBeInTheDocument()
+      expect(screen.getByText('Branch Timeline Alpha (Cross-Graph)')).toBeInTheDocument()
+
+      // Select foreign graph
+      await user.selectOptions(targetGraphSelect, 'foreign-graph-1')
+      expect(targetGraphSelect).toHaveValue('foreign-graph-1')
+
+      // Should display cross-graph alert banner
+      expect(screen.getByRole('status')).toHaveTextContent(/Cross-Graph Reference/i)
+
+      // Save changes with cross-graph reference
+      const saveButton = screen.getByText('Save Changes')
+      await user.click(saveButton)
+
+      await waitFor(() => {
+        expect(apiClient.causal.updateLink).toHaveBeenCalledWith('event1', 'event2', {
+          weight: 0.8,
+          evidence: 'Strong evidence for this relationship',
+          confidence: 0.9,
+          relationship_type: 'direct',
+          isCrossGraph: true,
+          effectGraphId: 'foreign-graph-1'
+        })
+      })
+    })
+
+    it('initializes in cross-graph mode when relationship already has cross-graph metadata', () => {
+      const crossGraphRel: CausalRelationship = {
+        ...mockRelationship,
+        isCrossGraph: true,
+        effectGraphId: 'foreign-graph-99'
+      }
+
+      render(
+        <CausalRelationshipModal
+          relationship={crossGraphRel}
+          isOpen={true}
+          onClose={mockOnClose}
+          availableGraphs={[{ id: 'foreign-graph-99', name: 'Alternate History 99' }]}
+        />
+      )
+
+      const targetGraphSelect = screen.getByRole('combobox', { name: /target graph/i })
+      expect(targetGraphSelect).toHaveValue('foreign-graph-99')
+      expect(screen.getByRole('status')).toHaveTextContent(/Cross-Graph Reference/i)
     })
   })
 })

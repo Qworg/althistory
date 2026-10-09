@@ -246,4 +246,33 @@ describe('Versioned entity writes (route level)', () => {
       )
     ).toBe(false);
   });
+
+  it('rolls back live store entities when the version store record fails', async () => {
+    const graph = await container.graphService.createGraph({ name: 'Rollback Test' });
+    await container.graphService.setActiveGraph(graph.id);
+
+    const originalRecord = container.graphWriteVersioningService.recordEvent;
+    container.graphWriteVersioningService.recordEvent = async () => {
+      throw new Error('Simulated version store commit failure');
+    };
+
+    try {
+      const res = await request(app)
+        .post('/api/events')
+        .send({
+          description: 'Orphan Event',
+          actor: 'Actor X',
+          target: 'Target Y',
+          timestamp: '2023-01-01T00:00:00.000Z',
+        });
+
+      expect(res.status).toBe(500);
+
+      const { eventRepository } = await container.graphScopedRepositories(graph.id);
+      const allEvents = await eventRepository.findAll();
+      expect(allEvents.some(e => e.description === 'Orphan Event')).toBe(false);
+    } finally {
+      container.graphWriteVersioningService.recordEvent = originalRecord;
+    }
+  });
 });

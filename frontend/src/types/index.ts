@@ -21,6 +21,12 @@ export interface Arc {
   updated_at: string
 }
 
+export interface EntityRef {
+  graphId: string
+  entityType: 'event' | 'arc'
+  entityId: string
+}
+
 export interface CausalRelationship {
   id: string
   cause_event_id: string
@@ -31,6 +37,9 @@ export interface CausalRelationship {
   relationship_type: 'direct' | 'indirect' | 'contributory'
   created_at: string
   updated_at: string
+  causeGraphId?: string
+  effectGraphId?: string
+  isCrossGraph?: boolean
 }
 
 export interface InferredPressure {
@@ -80,6 +89,9 @@ export interface CausalRelationshipData {
   evidence: string
   confidence: number
   relationship_type: 'direct' | 'indirect' | 'contributory'
+  causeGraphId?: string
+  effectGraphId?: string
+  isCrossGraph?: boolean
 }
 
 export interface EventFilters {
@@ -743,3 +755,5 @@ export interface IngestionJobStatus {
   validationIssues: IngestionValidationIssue[]
   importResult?: ImportResult
 }
+
+export * from './stream'

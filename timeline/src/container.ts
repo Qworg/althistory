@@ -73,7 +73,7 @@ const GRAPH_SCOPED_REPOSITORY_CACHE_LIMIT = 32;
  * wrapper is dropped.
  */
 interface GraphScopedRepositoryEntry {
-  store: LocalGraphStore;
+  store?: LocalGraphStore;
   repositories: GraphScopedRepositories;
   release: () => Promise<void>;
 }
@@ -320,6 +320,35 @@ export class Container implements ServiceContainer {
    * is what flushes those writes.
    */
   async graphScopedRepositories(graphId: string): Promise<GraphScopedRepositories> {
+    if (!(this.databaseManager instanceof LocalDatabaseManager)) {
+      const cached = this._graphScopedRepositories.get(graphId);
+      if (cached) {
+        return cached.repositories;
+      }
+      const eventRepository = new EventRepository(
+        this.databaseManager,
+        this.validationService,
+        this.cacheInvalidationService
+      );
+      const arcRepository = new ArcRepository(
+        this.databaseManager,
+        this.validationService,
+        undefined,
+        this.cacheInvalidationService
+      );
+      const repositories: GraphScopedRepositories = {
+        eventRepository,
+        arcRepository,
+        causalService: new CausalService({ graphId }),
+        temporalService: new TemporalService(eventRepository, arcRepository),
+      };
+      this._graphScopedRepositories.set(graphId, {
+        repositories,
+        release: async () => {},
+      });
+      return repositories;
+    }
+
     const leased = await this.graphContextStore.lease(graphId);
 
     const cached = this._graphScopedRepositories.get(graphId);
@@ -514,8 +543,17 @@ export class Container implements ServiceContainer {
    */
   get rateLimitService(): RateLimitService {
     if (!this._rateLimitService) {
+      let redisClient: import('redis').RedisClientType | undefined;
+      if (!(this.databaseManager instanceof LocalDatabaseManager)) {
+        try {
+          redisClient = (this.databaseManager as DatabaseManager).getRedisClient();
+        } catch {
+          // Redis client may not be initialized yet
+        }
+      }
       this._rateLimitService = new RateLimitService({
         dataDir: this.config.localExecution.dataDirectory,
+        redisClient,
       });
     }
     return this._rateLimitService;

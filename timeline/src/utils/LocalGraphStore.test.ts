@@ -363,6 +363,34 @@ describe('LocalGraphStore', () => {
 
       await backupGraphStore.shutdown();
     });
+
+    it('performs atomic save via temporary file and cleans up orphaned .tmp files on load', async () => {
+      const storeFile = path.join(testDataDir, 'atomic-test.json');
+      const store = new LocalGraphStore({ dataFile: storeFile });
+      await store.createNode(['Event'], { id: 'atomic-node', title: 'Atomic Test' });
+      await store.save();
+
+      // Verify the saved file exists and is valid JSON
+      const content = await fs.readFile(storeFile, 'utf8');
+      const parsed = JSON.parse(content);
+      expect(parsed.nodes['atomic-node']).toBeDefined();
+
+      // Create an orphaned .tmp file simulating a crash
+      const orphanedTmp = `${storeFile}.orphaned.tmp`;
+      await fs.writeFile(orphanedTmp, 'incomplete-trash', 'utf8');
+      expect(await fs.access(orphanedTmp).then(() => true).catch(() => false)).toBe(true);
+
+      // Loading a new store instance bound to the same file should clean up orphaned .tmp files
+      const reloadedStore = new LocalGraphStore({ dataFile: storeFile });
+      await reloadedStore.load();
+      expect(await fs.access(orphanedTmp).then(() => true).catch(() => false)).toBe(false);
+
+      const loadedNode = await reloadedStore.getNode('atomic-node');
+      expect(loadedNode?.id).toBe('atomic-node');
+
+      await store.shutdown();
+      await reloadedStore.shutdown();
+    });
   });
 
   describe('Statistics and Management', () => {

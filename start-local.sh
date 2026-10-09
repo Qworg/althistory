@@ -61,6 +61,13 @@ if [ ! -f "$SCRIPT_DIR/timeline/.env.local" ]; then
     echo -e "${YELLOW}Creating timeline/.env.local for local development...${NC}"
     echo "LOCAL_EXECUTION_ENABLED=true" > "$SCRIPT_DIR/timeline/.env.local"
     echo "LOCAL_DATA_DIR=./data" >> "$SCRIPT_DIR/timeline/.env.local"
+    echo "ADMIN_API_KEY=ak_althistory_local_dev_admin_key" >> "$SCRIPT_DIR/timeline/.env.local"
+fi
+
+# Ensure .env.local exists for frontend with matching local dev key
+if [ ! -f "$SCRIPT_DIR/frontend/.env.local" ]; then
+    echo -e "${YELLOW}Creating frontend/.env.local for local development...${NC}"
+    echo "VITE_API_KEY=ak_althistory_local_dev_admin_key" > "$SCRIPT_DIR/frontend/.env.local"
 fi
 
 # Check if node_modules exist, if not run npm install

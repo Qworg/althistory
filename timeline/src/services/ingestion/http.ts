@@ -107,35 +107,76 @@ export class FetchHttpClient implements HttpClient {
   }
 
   async request(request: HttpRequest): Promise<HttpResponse> {
-    const validatedEndpoint = this.assertAllowedUrl(request.url);
-
     const controller = new AbortController();
     const timeoutMs = request.timeoutMs ?? this.defaultTimeoutMs;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+    let currentUrl = request.url;
+    let method: HttpMethod = request.method ?? 'GET';
+    let body = request.body;
+    let redirectCount = 0;
+    const maxRedirects = 5;
+
     try {
-      const response = await fetch(validatedEndpoint, {
-        method: request.method ?? 'GET',
-        headers: request.headers,
-        body: request.body,
-        signal: controller.signal,
-      });
+      while (redirectCount <= maxRedirects) {
+        const validatedEndpoint = this.assertAllowedUrl(currentUrl);
 
-      const body = await response.text();
-      const headers: Record<string, string> = {};
-      response.headers.forEach((value, key) => {
-        headers[key.toLowerCase()] = value;
-      });
+        const response = await fetch(validatedEndpoint, {
+          method,
+          headers: request.headers,
+          body,
+          signal: controller.signal,
+          redirect: 'manual',
+        });
 
-      if (!response.ok) {
-        throw new HttpRequestError(
-          response.status,
-          request.url,
-          `HTTP ${response.status}: ${body.slice(0, 500)}`
-        );
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get('location');
+          if (!location) {
+            throw new HttpRequestError(
+              response.status,
+              currentUrl,
+              `HTTP ${response.status} redirect without Location header`
+            );
+          }
+
+          redirectCount++;
+          if (redirectCount > maxRedirects) {
+            throw new Error(`Exceeded maximum redirect limit of ${maxRedirects}`);
+          }
+
+          const nextUrl = new URL(location, currentUrl).toString();
+          // Re-verify the destination URL against host and protocol rules
+          this.assertAllowedUrl(nextUrl);
+
+          currentUrl = nextUrl;
+          if (
+            response.status === 303 ||
+            ((response.status === 301 || response.status === 302) && method === 'POST')
+          ) {
+            method = 'GET';
+            body = undefined;
+          }
+          continue;
+        }
+
+        const responseBody = await response.text();
+        const headers: Record<string, string> = {};
+        response.headers.forEach((value, key) => {
+          headers[key.toLowerCase()] = value;
+        });
+
+        if (!response.ok) {
+          throw new HttpRequestError(
+            response.status,
+            currentUrl,
+            `HTTP ${response.status}: ${responseBody.slice(0, 500)}`
+          );
+        }
+
+        return { status: response.status, body: responseBody, headers };
       }
 
-      return { status: response.status, body, headers };
+      throw new Error(`Exceeded maximum redirect limit of ${maxRedirects}`);
     } finally {
       clearTimeout(timer);
     }

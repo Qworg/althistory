@@ -1067,10 +1067,9 @@ export class LocalGraphStore {
   /**
    * The in-flight `shutdown`, if one is running. Two owners can ask for the same
    * instance's shutdown at once — a retirement whose shutdown overlaps a revival,
-   * or the shutdown drain racing the eviction pass — and `save()` writes the
-   * whole file with a single non-atomic `writeFile`, so overlapping saves of one
-   * store can interleave and leave a torn document. They share this promise
-   * instead, which makes `shutdown` idempotent for the duration of a shutdown.
+   * or the shutdown drain racing the eviction pass. They share this promise
+   * so redundant concurrent saves of the same instance are collapsed, which
+   * makes `shutdown` idempotent for the duration of a shutdown.
    */
   private shutdownInFlight?: Promise<void>;
 
@@ -1339,7 +1338,25 @@ export class LocalGraphStore {
   }
 
   /**
-   * Save graph data to file
+   * Remove any orphaned temporary files left by an abrupt termination during save
+   */
+  private async cleanupTempFiles(): Promise<void> {
+    try {
+      const dir = path.dirname(this.dataFile);
+      const base = path.basename(this.dataFile);
+      const entries = await fs.readdir(dir);
+      for (const entry of entries) {
+        if (entry.startsWith(`${base}.`) && entry.endsWith('.tmp')) {
+          await fs.unlink(path.join(dir, entry)).catch(() => {});
+        }
+      }
+    } catch {
+      // Directory may not exist yet
+    }
+  }
+
+  /**
+   * Save graph data to file atomically using a temporary file and rename
    */
   async save(): Promise<void> {
     try {
@@ -1359,7 +1376,14 @@ export class LocalGraphStore {
         backups: this.graphData.backups
       };
       
-      await fs.writeFile(this.dataFile, JSON.stringify(serializableData, null, 2));
+      const tempFile = `${this.dataFile}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+      try {
+        await fs.writeFile(tempFile, JSON.stringify(serializableData, null, 2), 'utf8');
+        await fs.rename(tempFile, this.dataFile);
+      } catch (writeErr) {
+        await fs.unlink(tempFile).catch(() => {});
+        throw writeErr;
+      }
     } catch (error) {
       console.error('Failed to save graph data:', error);
       throw error;
@@ -1370,6 +1394,7 @@ export class LocalGraphStore {
    * Load graph data from file
    */
   async load(): Promise<void> {
+    await this.cleanupTempFiles();
     try {
       const data = await fs.readFile(this.dataFile, 'utf8');
       const parsed = JSON.parse(data);

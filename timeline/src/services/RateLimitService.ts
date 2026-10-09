@@ -10,11 +10,13 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import type { RedisClientType } from 'redis';
 import { RateLimitConfig, RateLimitState } from '../models/ApiKey';
 
 export interface RateLimitServiceConfig {
   dataDir: string;
   persistenceIntervalMs?: number;
+  redisClient?: RedisClientType;
 }
 
 export interface RateLimitCheckResult {
@@ -52,6 +54,7 @@ export class RateLimitService {
   private readonly limitsDir: string;
   private readonly limitsFilePath: string;
   private readonly persistenceIntervalMs: number;
+  private readonly redisClient?: RedisClientType;
   private limits: Map<string, InternalRateLimitState> = new Map();
   private persistenceInterval?: NodeJS.Timeout;
   private initialized = false;
@@ -62,6 +65,7 @@ export class RateLimitService {
     this.limitsDir = path.join(config.dataDir, 'rate-limits');
     this.limitsFilePath = path.join(this.limitsDir, 'limits.json');
     this.persistenceIntervalMs = config.persistenceIntervalMs || 30000; // 30 seconds default
+    this.redisClient = config.redisClient;
   }
 
   /**
@@ -342,6 +346,28 @@ export class RateLimitService {
   }
 
   private async loadState(): Promise<void> {
+    if (this.redisClient && this.redisClient.isOpen) {
+      try {
+        const redisData = await this.redisClient.get('althistory:rate-limits:state');
+        if (redisData) {
+          const parsed = JSON.parse(redisData) as InternalRateLimitState[];
+          const now = Date.now();
+          for (const state of parsed) {
+            if (
+              state.minute.resetAt > now ||
+              state.hour.resetAt > now ||
+              state.day.resetAt > now
+            ) {
+              this.limits.set(state.keyId, state);
+            }
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn('Could not load rate limits from Redis, falling back to disk:', err);
+      }
+    }
+
     try {
       const content = await fs.promises.readFile(this.limitsFilePath, 'utf8');
       const data = JSON.parse(content) as InternalRateLimitState[];
@@ -369,6 +395,17 @@ export class RateLimitService {
     if (!this.dirty) return;
 
     const states = Array.from(this.limits.values());
+
+    if (this.redisClient && this.redisClient.isOpen) {
+      try {
+        await this.redisClient.set('althistory:rate-limits:state', JSON.stringify(states), {
+          EX: 86400, // 24-hour expiration
+        });
+      } catch (err) {
+        console.error('Failed to sync rate limits to Redis:', err);
+      }
+    }
+
     await fs.promises.writeFile(
       this.limitsFilePath,
       JSON.stringify(states, null, 2),

@@ -13,6 +13,7 @@ export interface CausalRelationshipModalProps {
   // For create mode - specify the cause and effect events
   causeEventId?: string
   effectEventId?: string
+  availableGraphs?: Array<{ id: string; name: string }>
 }
 
 export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = ({
@@ -23,15 +24,19 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
   onCreate,
   onDelete,
   causeEventId,
-  effectEventId
+  effectEventId,
+  availableGraphs
 }) => {
   const isCreateMode = !relationship && !!causeEventId && !!effectEventId
   const [formData, setFormData] = useState<CausalRelationshipData>({
     weight: 0.5,
     evidence: '',
     confidence: 0.7,
-    relationship_type: 'direct'
+    relationship_type: 'direct',
+    isCrossGraph: false,
+    effectGraphId: undefined
   })
+  const [graphsList, setGraphsList] = useState<Array<{ id: string; name: string }>>(availableGraphs || [])
   const [isLoading, setIsLoading] = useState(false)
   const [causeEvent, setCauseEvent] = useState<Event | null>(null)
   const [effectEvent, setEffectEvent] = useState<Event | null>(null)
@@ -43,6 +48,28 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
     addError
   } = useGlobalStore()
 
+  // Load available graphs for cross-graph reference selection
+  useEffect(() => {
+    if (availableGraphs && availableGraphs.length > 0) {
+      setGraphsList(availableGraphs)
+      return
+    }
+    if (isOpen && typeof apiClient.graphs?.getAll === 'function') {
+      const result = apiClient.graphs.getAll()
+      if (result && typeof result.then === 'function') {
+        result
+          .then(res => {
+            if (res?.graphs) {
+              setGraphsList(res.graphs.map(g => ({ id: g.id, name: g.name })))
+            }
+          })
+          .catch(() => {
+            // Gracefully continue with local-only if graphs endpoint unavailable
+          })
+      }
+    }
+  }, [isOpen, availableGraphs])
+
   // Load relationship data when modal opens (edit mode) or find events (create mode)
   useEffect(() => {
     if (isOpen) {
@@ -52,7 +79,10 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
           weight: relationship.weight,
           evidence: relationship.evidence,
           confidence: relationship.confidence,
-          relationship_type: relationship.relationship_type
+          relationship_type: relationship.relationship_type,
+          isCrossGraph: Boolean(relationship.isCrossGraph || relationship.effectGraphId || relationship.causeGraphId),
+          effectGraphId: relationship.effectGraphId,
+          causeGraphId: relationship.causeGraphId
         })
 
         // Find cause and effect events
@@ -71,7 +101,10 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
           weight: 0.5,
           evidence: '',
           confidence: 0.7,
-          relationship_type: 'direct'
+          relationship_type: 'direct',
+          isCrossGraph: false,
+          effectGraphId: undefined,
+          causeGraphId: undefined
         })
       }
     }
@@ -84,7 +117,10 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
         weight: 0.5,
         evidence: '',
         confidence: 0.7,
-        relationship_type: 'direct'
+        relationship_type: 'direct',
+        isCrossGraph: false,
+        effectGraphId: undefined,
+        causeGraphId: undefined
       })
       setCauseEvent(null)
       setEffectEvent(null)
@@ -112,20 +148,30 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
         return
       }
 
+      const payload: CausalRelationshipData = {
+        weight: formData.weight,
+        evidence: formData.evidence,
+        confidence: formData.confidence,
+        relationship_type: formData.relationship_type,
+        ...(formData.isCrossGraph ? { isCrossGraph: true } : {}),
+        ...(formData.effectGraphId ? { effectGraphId: formData.effectGraphId } : {}),
+        ...(formData.causeGraphId ? { causeGraphId: formData.causeGraphId } : {})
+      }
+
       if (isCreateMode && onCreate && causeEventId && effectEventId) {
         // Create mode
-        await onCreate(causeEventId, effectEventId, formData)
+        await onCreate(causeEventId, effectEventId, payload)
         onClose()
       } else if (relationship) {
         // Update via API
         const updatedRelationship = await apiClient.causal.updateLink(
           relationship.cause_event_id,
           relationship.effect_event_id,
-          formData
+          payload
         )
 
         // Update global state
-        updateCausalRelationship(relationship.id, formData)
+        updateCausalRelationship(relationship.id, payload)
 
         // Notify parent
         onSave?.(updatedRelationship)
@@ -286,10 +332,12 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
 
             {/* Relationship Type */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="relationship-type-select" className="block text-sm font-medium text-gray-700 mb-2">
                 Relationship Type
               </label>
               <select
+                id="relationship-type-select"
+                aria-label="Relationship Type"
                 value={formData.relationship_type}
                 onChange={(e) => handleInputChange('relationship_type', e.target.value as CausalRelationshipData['relationship_type'])}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -299,6 +347,49 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
                 <option value="indirect">Indirect</option>
                 <option value="contributory">Contributory</option>
               </select>
+            </div>
+
+            {/* Target Graph / Cross-Graph Reference */}
+            <div>
+              <label htmlFor="target-graph-select" className="block text-sm font-medium text-gray-700 mb-2">
+                Target Graph (Cross-Graph Reference)
+              </label>
+              <select
+                id="target-graph-select"
+                aria-label="Target Graph"
+                value={formData.effectGraphId || ''}
+                onChange={(e) => {
+                  const targetId = e.target.value
+                  if (targetId) {
+                    setFormData(prev => ({
+                      ...prev,
+                      effectGraphId: targetId,
+                      isCrossGraph: true
+                    }))
+                  } else {
+                    setFormData(prev => ({
+                      ...prev,
+                      effectGraphId: undefined,
+                      isCrossGraph: false
+                    }))
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                disabled={isLoading}
+              >
+                <option value="">Current Graph (Local Link)</option>
+                {graphsList.map((graph) => (
+                  <option key={graph.id} value={graph.id}>
+                    {graph.name} (Cross-Graph)
+                  </option>
+                ))}
+              </select>
+              {formData.isCrossGraph && (
+                <div className="mt-2 flex items-center gap-2 p-2 bg-purple-50 border border-purple-200 rounded-md text-xs text-purple-700" role="status">
+                  <span className="font-semibold">⚡ Cross-Graph Reference:</span>
+                  <span>This link connects across timeline boundaries to target graph {formData.effectGraphId}.</span>
+                </div>
+              )}
             </div>
 
             {/* Evidence */}

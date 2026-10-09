@@ -16,6 +16,8 @@ import { ImportWizard } from '@/components/import'
 import { IngestionWizard } from '@/components/ingestion'
 import { useCreateEvent, useCreateArc, useCreateCausalLink } from '@/hooks/useAPI'
 import { useActiveGraphId, useGraphs, useSwitchGraph, useDeleteGraph } from '@/hooks/useGraphs'
+import { StreamingStatusBadge } from '@/components/streaming/StreamingStatusBadge'
+import { useStreamingWrite } from '@/hooks/useStreamingWrite'
 
 interface ViewToolbarProps {
   viewMode: ViewMode
@@ -99,6 +101,15 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
     deleteGraphMutation.mutate(copyId)
   }, [deleteGraphMutation])
 
+  // High-throughput WebSocket streaming write state
+  const {
+    status: streamStatus,
+    stats: streamStats,
+    error: streamError,
+    connect: connectStream,
+    disconnect: disconnectStream,
+  } = useStreamingWrite({ graphId: activeGraphId ?? undefined })
+
   // Timeline-specific actions
   const getTimelineActions = useCallback((): ToolbarAction[] => {
     return [
@@ -152,8 +163,8 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         onClick: () => {
           setShowCreateArcPanel(true)
         },
-        tooltip: 'Create new arc (Ctrl+Shift+N)',
-        shortcut: 'Ctrl+Shift+N'
+        tooltip: 'Create new arc (Ctrl+Shift+C)',
+        shortcut: 'Ctrl+Shift+C|Ctrl+Shift+N'
       }
     ]
   }, [sessionData, updateSessionData])
@@ -471,15 +482,17 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
       const action = allActions.find(action => {
         if (!action.shortcut) return false
         
-        const shortcut = action.shortcut.toLowerCase()
+        const shortcuts = action.shortcut.toLowerCase().split('|')
         const key = event.key.toLowerCase()
         
-        if (shortcut.includes('ctrl+') && !event.ctrlKey) return false
-        if (shortcut.includes('shift+') && !event.shiftKey) return false
-        if (shortcut.includes('alt+') && !event.altKey) return false
-        
-        const keyPart = shortcut.split('+').pop()
-        return keyPart === key
+        return shortcuts.some(shortcut => {
+          if (shortcut.includes('ctrl+') && !event.ctrlKey) return false
+          if (shortcut.includes('shift+') && !event.shiftKey) return false
+          if (shortcut.includes('alt+') && !event.altKey) return false
+          
+          const keyPart = shortcut.split('+').pop()
+          return keyPart === key
+        })
       })
 
       if (action && !action.disabled) {
@@ -558,6 +571,16 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
             ))}
           </div>
         )}
+
+        {/* Streaming Status Badge */}
+        <div className="w-px h-6 bg-gray-300" aria-hidden="true" />
+        <StreamingStatusBadge
+          status={streamStatus}
+          stats={streamStats}
+          error={streamError}
+          onConnect={connectStream}
+          onDisconnect={disconnectStream}
+        />
       </div>
 
       {/* Graph Copy Modal */}

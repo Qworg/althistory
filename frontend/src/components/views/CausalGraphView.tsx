@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { CausalGraphComponent } from '@/components/causal-graph'
 import { Event, CausalRelationship } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
@@ -38,16 +38,9 @@ export function CausalGraphView() {
   const { data: fetchedEvents = [], isLoading: eventsLoading } = useEvents()
   const { data: fetchedRelationships = [], isLoading: relationshipsLoading } = useCausalRelationships()
 
-  const {
-    events,
-    causalRelationships,
-    activeFilters,
-    setEvents,
-    setCausalRelationships
-  } = useGlobalStore()
+  const activeFilters = useGlobalStore(state => state.activeFilters)
 
-  // Apply the global filters client-side (see filterUtils for why). Narrowing
-  // the store collections is what `CausalGraphComponent` renders.
+  // Apply the global filters client-side (see filterUtils for why).
   const filteredEvents = useMemo(
     () => filterEvents(fetchedEvents, activeFilters),
     [fetchedEvents, activeFilters]
@@ -56,19 +49,6 @@ export function CausalGraphView() {
     () => filterCausalRelationships(fetchedRelationships, activeFilters),
     [fetchedRelationships, activeFilters]
   )
-
-  // Sync fetched data to global store
-  useEffect(() => {
-    if (fetchedEvents.length > 0) {
-      setEvents(filteredEvents)
-    }
-  }, [fetchedEvents.length, filteredEvents, setEvents])
-
-  useEffect(() => {
-    if (fetchedRelationships.length > 0) {
-      setCausalRelationships(filteredRelationships)
-    }
-  }, [fetchedRelationships.length, filteredRelationships, setCausalRelationships])
 
   const isLoading = eventsLoading || relationshipsLoading
 
@@ -235,8 +215,8 @@ export function CausalGraphView() {
 
           {/* Statistics */}
           <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-sm text-gray-600">
-            <span>{events.length} events</span>
-            <span>{causalRelationships.length} relationships</span>
+            <span>{filteredEvents.length} events</span>
+            <span>{filteredRelationships.length} relationships</span>
           </div>
         </div>
 
@@ -266,7 +246,7 @@ export function CausalGraphView() {
               <p className="text-gray-600">Loading graph data...</p>
             </div>
           </div>
-        ) : events.length === 0 ? (
+        ) : filteredEvents.length === 0 ? (
           <div className="flex items-center justify-center h-full min-h-[400px]">
             <div className="text-center">
               <p className="text-gray-600 mb-2">No events to display</p>
@@ -275,14 +255,16 @@ export function CausalGraphView() {
           </div>
         ) : (
           <CausalGraphComponent
-          className="h-full"
-          onNodeClick={handleNodeClick}
-          onNodeHover={handleNodeHover}
-          onEdgeClick={handleEdgeClick}
-          onEdgeHover={handleEdgeHover}
-          onNodeContextMenu={handleNodeContextMenu}
-          onRelationshipContextMenu={handleRelationshipContextMenu}
-        />
+            className="h-full"
+            events={filteredEvents}
+            causalRelationships={filteredRelationships}
+            onNodeClick={handleNodeClick}
+            onNodeHover={handleNodeHover}
+            onEdgeClick={handleEdgeClick}
+            onEdgeHover={handleEdgeHover}
+            onNodeContextMenu={handleNodeContextMenu}
+            onRelationshipContextMenu={handleRelationshipContextMenu}
+          />
         )}
       </div>
 
