@@ -1,0 +1,89 @@
+# Implementation Plan: CLI Agent Interface
+
+- [ ] 1. CLI Scaffolding, Output Formatter & Dual-Mode Engine Core
+  - [ ] 1.1 Create `cli/` monorepo package structure with `package.json`, `tsconfig.json`, and `vitest.config.ts`.
+  - [ ] 1.2 Implement `cli/bin/althistory.ts` executable shebang script with Commander CLI option parser.
+  - [ ] 1.3 Implement `ExecutionContext`: auto-detect active backend daemon at `http://localhost:3000` or fall back to Direct in-process mode.
+  - [ ] 1.4 Implement `DirectEngine`: boots `timeline`'s `Container` in headless local execution mode (`LOCAL_EXECUTION_ENABLED=true`).
+  - [ ] 1.5 Implement `RemoteEngine`: communicates via HTTP/WS client with the running Express backend.
+  - [ ] 1.6 Implement Agent-First Output Formatters:
+    - Pure machine-readable JSON formatter (`--json`) with standardized error envelopes.
+    - Streaming Newline Delimited JSON formatter (`--ndjson`).
+    - Stderr progress logger and spinner (ensuring `stdout` stays clean for pipes).
+    - Semantic Unix exit codes (`exitCodes.ts`).
+  - [ ] 1.7 Add unit tests for `ExecutionContext`, engines, formatters, and exit code propagation.
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7_
+
+- [ ] 2. Text-Based & External Web Ingestion CLI
+  - [ ] 2.1 Implement `althistory ingest text` command:
+    - Support `--file <path>`, `--text "<content>"`, and standard input pipe (`cat file.txt | althistory ingest text`).
+    - Support `--mode pattern|llm|hybrid`, `--provider openai|anthropic`, `--model <name>`, and `--temperature <val>`.
+    - Support `--min-confidence <threshold>` and `--dry-run` preview.
+  - [ ] 2.2 Implement automatic arc clustering (`--group-arcs`): groups ingested events into hierarchical Arcs by temporal proximity and actor continuity.
+  - [ ] 2.3 Implement causal inference integration (`--infer-causes`): runs `InferenceService` to link causes to effects during ingestion.
+  - [ ] 2.4 Implement `althistory ingest url` command: SSRF-hardened extraction from Wikipedia articles and web documents with `--follow-links` and `--depth`.
+  - [ ] 2.5 Implement `althistory ingest wikidata` command: extracts entities via predefined presets (`--preset`) or custom SPARQL queries (`--sparql`).
+  - [ ] 2.6 Add unit and integration tests for all ingestion commands, verifying pipe inputs and flag options.
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 4.1, 4.2, 4.3, 4.4_
+
+- [ ] 3. Whole-Cloth Alternate History Generation Engine
+  - [ ] 3.1 Implement `TimelineGeneratorService`: multi-pass generation engine:
+    - Pass 1: Strategic Premise & Point of Divergence analysis.
+    - Pass 2: Chronological micro-event generation with strict ISO-8601 timestamps.
+    - Pass 3: Hierarchical narrative arc clustering based on `--depth`.
+    - Pass 4: Causal ripple synthesis linking divergence causes to downstream effects.
+    - Pass 5: Integrity verification pass ensuring temporal constraints and DAG acyclicity.
+  - [ ] 3.2 Implement `althistory generate timeline` command with flags:
+    - `--premise "<what-if>"`
+    - `--divergence-point "<anchor>"`
+    - `--start-date <iso>`, `--end-date <iso>`
+    - `--event-count <n>`, `--depth <levels>`, `--style academic|narrative|concise`
+  - [ ] 3.3 Implement `althistory generate branch` command:
+    - Fork existing graph at `--diverge-at-event <id>` with counterfactual prompt, synthesizing divergent future while preserving historical ancestors.
+  - [ ] 3.4 Implement `althistory generate expand` command:
+    - Zooms in on `--arc <id>` or `--time-window <range>` to generate granular sub-events and sub-arcs.
+  - [ ] 3.5 Implement `althistory generate simulate` command:
+    - Agentic step-by-step timeline advancement evaluating actor motivations and causal pressures.
+  - [ ] 3.6 Write comprehensive unit and integration tests with deterministic mocked LLM fixtures.
+  - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 6.1, 6.2, 6.3, 6.4_
+
+- [ ] 4. Graph, Entity & Causal Manipulation Commands
+  - [ ] 4.1 Implement `althistory graph` subcommands:
+    - `list`, `create`, `info`, `branch`, `merge`, `diff`, `rollback`, `delete`.
+  - [ ] 4.2 Implement `althistory event` subcommands:
+    - `add`, `list`, `get`, `update`, `delete`.
+  - [ ] 4.3 Implement `althistory arc` subcommands:
+    - `create`, `list`, `assign`, `nest`.
+  - [ ] 4.4 Implement `althistory causal` subcommands:
+    - `link`, `unlink`, `list`, `paths` (tracing all causal pathways between two events).
+  - [ ] 4.5 Add integration tests verifying end-to-end CRUD across both Remote and Direct modes.
+  - _Requirements: 7.1, 7.2, 7.3, 7.4_
+
+- [ ] 5. Validation, Self-Healing & Context Export
+  - [ ] 5.1 Implement `althistory validate <graph-id>` command:
+    - Temporal order validation ($t_{start} \le t_{end}$).
+    - Arc containment checks ($arc_{start} \le event_{time} \le arc_{end}$).
+    - Causal direction check ($cause_{time} < effect_{time}$).
+    - Causal cycle detection (DAG topological sort).
+    - Cross-graph reference referential integrity check.
+    - Structured diagnostic output with exit code 2 on violations.
+  - [ ] 5.2 Implement automated self-healing (`--auto-repair` / `--fix`):
+    - Automatically expand arc bounds to fit contained events; remove or reverse paradoxical cycle edges.
+  - [ ] 5.3 Implement `althistory export <graph-id>` command:
+    - Formats: `--format json`, `--format markdown` (LLM-optimized context table), `--format dot`, `--format graphml`.
+  - [ ] 5.4 Implement `althistory import <file>` command with conflict strategies (`skip`, `overwrite`, `rename`).
+  - [ ] 5.5 Write unit tests for validation diagnostics, self-healing, and markdown export formatting.
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 9.1, 9.2, 9.3_
+
+- [ ] 6. Model Context Protocol (MCP) Server & Agent Tooling
+  - [ ] 6.1 Implement `McpServer`: JSON-RPC 2.0 stdio transport conforming to Model Context Protocol.
+  - [ ] 6.2 Expose core CLI capabilities as typed MCP tools with JSON Schema definitions:
+    - `althistory_ingest_text`
+    - `althistory_generate_timeline`
+    - `althistory_branch_timeline`
+    - `althistory_query_causal_path`
+    - `althistory_validate_graph`
+    - `althistory_export_context`
+  - [ ] 6.3 Implement `althistory schema` command: outputs complete JSON Schema for all commands.
+  - [ ] 6.4 Write integration tests simulating an MCP client executing tool calls against the server.
+  - _Requirements: 10.1, 10.2, 10.3_
