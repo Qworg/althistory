@@ -13,8 +13,11 @@ import {
 import { PanelBase } from '@/components/modals/ModalBase'
 import { ExportPanel, VersionHistoryPanel } from '@/components/graphs'
 import { ImportWizard } from '@/components/import'
+import { IngestionWizard } from '@/components/ingestion'
 import { useCreateEvent, useCreateArc, useCreateCausalLink } from '@/hooks/useAPI'
 import { useActiveGraphId, useGraphs, useSwitchGraph, useDeleteGraph } from '@/hooks/useGraphs'
+import { StreamingStatusBadge } from '@/components/streaming/StreamingStatusBadge'
+import { useStreamingWrite } from '@/hooks/useStreamingWrite'
 
 interface ViewToolbarProps {
   viewMode: ViewMode
@@ -54,6 +57,7 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
   const [showCreateArcPanel, setShowCreateArcPanel] = useState(false)
   const [showCreateCausalLinkModal, setShowCreateCausalLinkModal] = useState(false)
   const [showImportWizard, setShowImportWizard] = useState(false)
+  const [showIngestionWizard, setShowIngestionWizard] = useState(false)
   const [showExportPanel, setShowExportPanel] = useState(false)
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [comparisonData, setComparisonData] = useState<{
@@ -96,6 +100,15 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
   const handleDeleteCopy = useCallback((copyId: string) => {
     deleteGraphMutation.mutate(copyId)
   }, [deleteGraphMutation])
+
+  // High-throughput WebSocket streaming write state
+  const {
+    status: streamStatus,
+    stats: streamStats,
+    error: streamError,
+    connect: connectStream,
+    disconnect: disconnectStream,
+  } = useStreamingWrite({ graphId: activeGraphId ?? undefined })
 
   // Timeline-specific actions
   const getTimelineActions = useCallback((): ToolbarAction[] => {
@@ -150,8 +163,8 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         onClick: () => {
           setShowCreateArcPanel(true)
         },
-        tooltip: 'Create new arc (Ctrl+Shift+N)',
-        shortcut: 'Ctrl+Shift+N'
+        tooltip: 'Create new arc (Ctrl+Shift+C)',
+        shortcut: 'Ctrl+Shift+C|Ctrl+Shift+N'
       }
     ]
   }, [sessionData, updateSessionData])
@@ -357,6 +370,17 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         tooltip: 'Import graph data (Req 18)'
       },
       {
+        id: 'ingest-data',
+        label: 'Ingest',
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+          </svg>
+        ),
+        onClick: () => setShowIngestionWizard(true),
+        tooltip: 'Ingest from Wikipedia, Wikidata or text (Req 19)'
+      },
+      {
         id: 'export-data',
         label: 'Export',
         icon: (
@@ -458,15 +482,17 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
       const action = allActions.find(action => {
         if (!action.shortcut) return false
         
-        const shortcut = action.shortcut.toLowerCase()
+        const shortcuts = action.shortcut.toLowerCase().split('|')
         const key = event.key.toLowerCase()
         
-        if (shortcut.includes('ctrl+') && !event.ctrlKey) return false
-        if (shortcut.includes('shift+') && !event.shiftKey) return false
-        if (shortcut.includes('alt+') && !event.altKey) return false
-        
-        const keyPart = shortcut.split('+').pop()
-        return keyPart === key
+        return shortcuts.some(shortcut => {
+          if (shortcut.includes('ctrl+') && !event.ctrlKey) return false
+          if (shortcut.includes('shift+') && !event.shiftKey) return false
+          if (shortcut.includes('alt+') && !event.altKey) return false
+          
+          const keyPart = shortcut.split('+').pop()
+          return keyPart === key
+        })
       })
 
       if (action && !action.disabled) {
@@ -545,6 +571,16 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
             ))}
           </div>
         )}
+
+        {/* Streaming Status Badge */}
+        <div className="w-px h-6 bg-gray-300" aria-hidden="true" />
+        <StreamingStatusBadge
+          status={streamStatus}
+          stats={streamStats}
+          error={streamError}
+          onConnect={connectStream}
+          onDisconnect={disconnectStream}
+        />
       </div>
 
       {/* Graph Copy Modal */}
@@ -606,6 +642,15 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         <ImportWizard
           isOpen
           onClose={() => setShowImportWizard(false)}
+          targetGraphId={activeGraphId ?? undefined}
+        />
+      )}
+
+      {/* Ingestion Wizard (Req 19) */}
+      {showIngestionWizard && (
+        <IngestionWizard
+          isOpen
+          onClose={() => setShowIngestionWizard(false)}
           targetGraphId={activeGraphId ?? undefined}
         />
       )}

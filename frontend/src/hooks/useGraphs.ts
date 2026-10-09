@@ -7,6 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
 import { apiClient } from '@/services/api'
+import { useGlobalStore } from '@/stores/globalStore'
 import {
   CreateGraphRequest,
   UpdateGraphRequest,
@@ -37,6 +38,7 @@ export function useActiveGraphId() {
   useEffect(() => {
     const handleGraphSwitch = (event: CustomEvent<{ graphId: string }>) => {
       setActiveGraphId(event.detail.graphId)
+      useGlobalStore.getState().clearSelection()
     }
 
     window.addEventListener('graph-switched', handleGraphSwitch as EventListener)
@@ -212,6 +214,12 @@ export function useSwitchGraph() {
   return useMutation({
     mutationFn: (id: string) => apiClient.graphs.switch(id),
     onSuccess: () => {
+      // Clear selections and store caches to avoid ghost state across graphs
+      useGlobalStore.getState().clearSelection()
+      useGlobalStore.getState().setEvents([])
+      useGlobalStore.getState().setArcs([])
+      useGlobalStore.getState().setCausalRelationships([])
+
       // Invalidate all data queries to refresh with new graph's data
       queryClient.invalidateQueries({ queryKey: ['events'] })
       queryClient.invalidateQueries({ queryKey: ['arcs'] })

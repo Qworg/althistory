@@ -254,6 +254,20 @@ describe('ViewToolbar', () => {
 
       expect(screen.getByRole('button', { name: /clear filters/i })).not.toBeDisabled()
     })
+
+    it('opens the ingestion wizard from the Ingest action (Req 19)', async () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+
+      // The wizard is not mounted until the reachable entry point is used.
+      expect(screen.queryByRole('dialog', { name: /ingest from web/i })).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: /^ingest$/i }))
+
+      expect(await screen.findByRole('dialog', { name: /ingest from web/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Wikipedia' })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Wikidata' })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Text' })).toBeInTheDocument()
+    })
   })
 
   describe('Keyboard shortcuts', () => {
@@ -349,6 +363,13 @@ describe('ViewToolbar', () => {
       const { container } = renderWithProviders(<ViewToolbar viewMode="causal" />)
 
       expect(await axe(container)).toHaveNoViolations()
+    })
+  })
+
+  describe('Streaming status integration', () => {
+    it('renders streaming status badge in the toolbar', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      expect(screen.getByRole('status', { name: /streaming/i })).toBeInTheDocument()
     })
   })
 })

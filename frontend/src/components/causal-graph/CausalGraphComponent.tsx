@@ -19,6 +19,9 @@ export interface CausalGraphComponentProps {
   className?: string
   focusEventId?: string
   maxDepth?: number
+  events?: Event[]
+  causalRelationships?: CausalRelationship[]
+  relationships?: CausalRelationship[]
   onNodeClick?: (event: Event) => void
   onNodeHover?: (event: Event | null) => void
   onEdgeClick?: (relationship: CausalRelationship) => void
@@ -48,6 +51,7 @@ export interface CausalNodeData {
   weight: number
   isSelected: boolean
   isHighlighted: boolean
+  isForeign?: boolean
 }
 
 export interface CausalEdgeData {
@@ -59,12 +63,17 @@ export interface CausalEdgeData {
   label: string
   isSelected: boolean
   isHighlighted: boolean
+  isCrossGraph?: boolean
+  crossGraphLabel?: string
 }
 
 export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   className = '',
   focusEventId,
   maxDepth = 3,
+  events: propEvents,
+  causalRelationships: propCausalRelationships,
+  relationships: propRelationships,
   onNodeClick,
   onNodeHover,
   onEdgeClick,
@@ -122,9 +131,11 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   const [hoveredNode, setHoveredNode] = useState<Event | null>(null)
   const [nodeTooltipPosition, setNodeTooltipPosition] = useState<{ x: number; y: number } | null>(null)
   
-  // Use individual selectors to prevent re-renders on unrelated store changes
-  const events = useGlobalStore(state => state.events)
-  const causalRelationships = useGlobalStore(state => state.causalRelationships)
+  // Use props if provided, otherwise fallback to store
+  const storeEvents = useGlobalStore(state => state.events)
+  const storeCausalRelationships = useGlobalStore(state => state.causalRelationships)
+  const events = propEvents ?? storeEvents
+  const causalRelationships = propCausalRelationships ?? propRelationships ?? storeCausalRelationships
   const selectedEvents = useGlobalStore(state => state.selectedEvents)
   const updateSessionData = useGlobalStore(state => state.updateSessionData)
   const addCausalRelationship = useGlobalStore(state => state.addCausalRelationship)
@@ -332,6 +343,20 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           }
         },
 
+        // Foreign placeholder node style (for cross-graph target/source events)
+        {
+          selector: 'node.foreign-node',
+          style: {
+            'background-color': '#7C3AED',
+            'border-color': '#5B21B6',
+            'border-style': 'dashed',
+            'border-width': 3,
+            'opacity': 0.85,
+            'shape': 'round-rectangle',
+            'z-index': 12
+          }
+        },
+
         // Edge styles
         {
           selector: 'edge',
@@ -344,6 +369,28 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
             'arrow-scale': 1.2,
             'opacity': 0.8,
             'z-index': 5
+          }
+        },
+
+        // Cross-graph edge styles (distinct styling: dashed purple edge with foreign indicator pill)
+        {
+          selector: 'edge.cross-graph',
+          style: {
+            'line-style': 'dashed',
+            'line-dash-pattern': [6, 3],
+            'line-color': '#8B5CF6',
+            'target-arrow-color': '#8B5CF6',
+            'opacity': 0.9,
+            'label': 'data(crossGraphLabel)',
+            'font-size': '10px',
+            'color': '#5B21B6',
+            'text-background-color': '#EDE9FE',
+            'text-background-opacity': 0.9,
+            'text-background-padding': '3px',
+            'text-border-color': '#C4B5FD',
+            'text-border-width': 1,
+            'text-border-opacity': 0.8,
+            'z-index': 10
           }
         },
         
@@ -618,6 +665,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   // NOTE: linkCreationSource is intentionally NOT a dependency here to prevent
   // graph rebuilds when selecting link source (which causes spurious background taps)
   const transformDataForCytoscape = useCallback(() => {
+    const eventMap = new Map(events.map(event => [event.id, event]))
     const nodes: CausalNodeData[] = events.map(event => ({
       id: event.id,
       event,
@@ -627,16 +675,72 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       isHighlighted: false // Highlighting handled separately via useEffect
     }))
 
-    const edges: CausalEdgeData[] = causalRelationships.map(relationship => ({
-      id: relationship.id,
-      source: relationship.cause_event_id,
-      target: relationship.effect_event_id,
-      relationship,
-      weight: relationship.weight,
-      label: `W: ${relationship.weight.toFixed(2)} | C: ${relationship.confidence.toFixed(2)}`,
-      isSelected: false,
-      isHighlighted: false
-    }))
+    // Synthesize placeholder nodes for foreign / missing event references
+    causalRelationships.forEach(relationship => {
+      if (!eventMap.has(relationship.cause_event_id)) {
+        const placeholderEvent: Event = {
+          id: relationship.cause_event_id,
+          actor: relationship.causeGraphId ? `[Graph: ${relationship.causeGraphId.slice(0, 8)}]` : '[Foreign]',
+          target: 'Event',
+          description: 'Cross-graph referenced cause event',
+          timestamp: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+        eventMap.set(relationship.cause_event_id, placeholderEvent)
+        nodes.push({
+          id: relationship.cause_event_id,
+          event: placeholderEvent,
+          label: `${relationship.causeGraphId ? `⇥ ${relationship.causeGraphId.slice(0, 8)}` : '⇥ Foreign'}: ${relationship.cause_event_id.slice(0, 6)}`,
+          weight: 0.5,
+          isSelected: selectedEvents.includes(relationship.cause_event_id),
+          isHighlighted: false,
+          isForeign: true
+        })
+      }
+      if (!eventMap.has(relationship.effect_event_id)) {
+        const placeholderEvent: Event = {
+          id: relationship.effect_event_id,
+          actor: relationship.effectGraphId ? `[Graph: ${relationship.effectGraphId.slice(0, 8)}]` : '[Foreign]',
+          target: 'Event',
+          description: 'Cross-graph referenced effect event',
+          timestamp: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+        eventMap.set(relationship.effect_event_id, placeholderEvent)
+        nodes.push({
+          id: relationship.effect_event_id,
+          event: placeholderEvent,
+          label: `${relationship.effectGraphId ? `⇤ ${relationship.effectGraphId.slice(0, 8)}` : '⇤ Foreign'}: ${relationship.effect_event_id.slice(0, 6)}`,
+          weight: 0.5,
+          isSelected: selectedEvents.includes(relationship.effect_event_id),
+          isHighlighted: false,
+          isForeign: true
+        })
+      }
+    })
+
+    const edges: CausalEdgeData[] = causalRelationships.map(relationship => {
+      const isCross = Boolean(relationship.isCrossGraph || relationship.causeGraphId || relationship.effectGraphId)
+      const foreignGraph = relationship.effectGraphId || relationship.causeGraphId
+      const crossGraphLabel = isCross && foreignGraph
+        ? `⚡ [${foreignGraph.slice(0, 8)}]`
+        : (isCross ? '⚡ Cross-Graph' : undefined)
+
+      return {
+        id: relationship.id,
+        source: relationship.cause_event_id,
+        target: relationship.effect_event_id,
+        relationship,
+        weight: relationship.weight,
+        label: `W: ${relationship.weight.toFixed(2)} | C: ${relationship.confidence.toFixed(2)}`,
+        isSelected: false,
+        isHighlighted: false,
+        isCrossGraph: isCross,
+        crossGraphLabel
+      }
+    })
 
     return { nodes, edges }
   }, [events, causalRelationships, selectedEvents]) // linkCreationSource removed
@@ -662,12 +766,14 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     // Add nodes
     const cyNodes = nodes.map(node => ({
       data: node,
+      classes: node.isForeign ? 'foreign-node' : undefined,
       position: causalGraphState.nodePositions[node.id] || undefined
     }))
 
     // Add edges
     const cyEdges = edges.map(edge => ({
-      data: edge
+      data: edge,
+      classes: edge.isCrossGraph ? 'cross-graph' : undefined
     }))
 
     cyRef.current.add([...cyNodes, ...cyEdges])
@@ -1148,6 +1254,11 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
             }}
           >
             <div className="font-semibold text-gray-800 mb-2">Causal Relationship</div>
+            {Boolean(hoveredRelationship.isCrossGraph || hoveredRelationship.effectGraphId || hoveredRelationship.causeGraphId) && (
+              <div className="mb-2 px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800 font-medium inline-block">
+                ⚡ Cross-Graph Reference {hoveredRelationship.effectGraphId ? `(${hoveredRelationship.effectGraphId.slice(0, 8)})` : ''}
+              </div>
+            )}
             <div className="space-y-1">
               <div className="flex justify-between">
                 <span className="text-gray-600">Weight:</span>

@@ -568,6 +568,41 @@ const Timeline = memo(function Timeline({
     return Math.abs(origRange - visRange) > 1000 // More than 1 second difference
   }, [visibleTimeRange, originalExtent])
 
+  // Keyboard navigation for timeline canvas (arrow keys pan, +/- zoom, 0 reset)
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<SVGSVGElement>) => {
+    if (!svgRef.current || !zoomRef.current) return
+
+    const svg = d3.select(svgRef.current)
+    const panStep = 60
+
+    switch (event.key) {
+      case 'ArrowLeft':
+        event.preventDefault()
+        svg.call(zoomRef.current.translateBy, panStep, 0)
+        break
+      case 'ArrowRight':
+        event.preventDefault()
+        svg.call(zoomRef.current.translateBy, -panStep, 0)
+        break
+      case '+':
+      case '=':
+        event.preventDefault()
+        svg.call(zoomRef.current.scaleBy, 1.25)
+        break
+      case '-':
+      case '_':
+        event.preventDefault()
+        svg.call(zoomRef.current.scaleBy, 0.8)
+        break
+      case '0':
+        event.preventDefault()
+        handleResetZoom()
+        break
+      default:
+        break
+    }
+  }, [handleResetZoom])
+
   return (
     <div ref={containerRef} className={`timeline-container relative ${className}`}>
       <svg
@@ -575,9 +610,11 @@ const Timeline = memo(function Timeline({
         width={width}
         height={height}
         role="img"
+        tabIndex={0}
         aria-label={`Timeline with ${events.length} events and ${arcs.length} arcs`}
+        onKeyDown={handleKeyDown}
         onDoubleClick={handleSvgDoubleClickGuarded}
-        style={{ border: '1px solid #e5e7eb', borderRadius: 4, background: '#fafafa' }}
+        style={{ border: '1px solid #e5e7eb', borderRadius: 4, background: '#fafafa', outline: 'none' }}
       >
         {/* Clip path to constrain content to inner area */}
         <defs>

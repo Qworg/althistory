@@ -12,6 +12,7 @@ import { batchRoutes } from './routes/batch';
 import { validateRoutes } from './routes/validate';
 import { suggestRoutes } from './routes/suggest';
 import { createIngestRouter } from './routes/ingest';
+import { streamRoutes } from './routes/stream';
 import { loadConfig } from '../utils/config';
 
 /**
@@ -30,7 +31,7 @@ const importRoutes = createImportRouter({ dataDir });
 const ingestRoutes = createIngestRouter({ dataDir });
 
 // Root API endpoint
-apiRouter.get('/', (req, res) => {
+apiRouter.get('/', (_req, res) => {
   res.json({
     name: 'Hierarchical Temporal Graph API',
     version: '1.0.0',
@@ -50,7 +51,8 @@ apiRouter.get('/', (req, res) => {
       keys: '/api/keys',
       batch: '/api/batch',
       validate: '/api/validate',
-      suggest: '/api/suggest'
+      suggest: '/api/suggest',
+      stream: '/api/stream'
     },
     timestamp: new Date().toISOString()
   });
@@ -89,8 +91,12 @@ apiRouter.use('/batch', batchRoutes);
 apiRouter.use('/validate', validateRoutes);
 apiRouter.use('/suggest', suggestRoutes);
 
+// Phase 5: WebSocket stream token issuance (the socket itself is served by the
+// HTTP `upgrade` handler, not by Express).
+apiRouter.use('/stream', streamRoutes);
+
 // Health check endpoint
-apiRouter.get('/health', (req, res) => {
+apiRouter.get('/health', (_req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
@@ -99,7 +105,7 @@ apiRouter.get('/health', (req, res) => {
 });
 
 // API info endpoint
-apiRouter.get('/info', (req, res) => {
+apiRouter.get('/info', (_req, res) => {
   res.json({
     name: 'Hierarchical Temporal Graph API',
     version: '1.0.0',
@@ -132,7 +138,8 @@ apiRouter.get('/info', (req, res) => {
       keys: ['Create', 'Read', 'Update', 'Revoke', 'Delete', 'Rate limiting'],
       batch: ['Batch events', 'Batch arcs', 'Batch relationships', 'Atomic transactions'],
       validate: ['Graph validation', 'Incremental validation', 'Temporal checks', 'Causal checks', 'Referential checks'],
-      suggest: ['Relationship suggestions', 'Arc suggestions', 'Completeness analysis', 'Pressure analysis']
+      suggest: ['Relationship suggestions', 'Arc suggestions', 'Completeness analysis', 'Pressure analysis'],
+      stream: ['Short-lived stream tokens', 'Persistent WebSocket write session', 'Per-event acknowledgments']
     }
   });
 });

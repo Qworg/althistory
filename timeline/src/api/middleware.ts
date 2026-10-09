@@ -426,7 +426,34 @@ export function validateJsonRequest(req: RequestWithContainer, res: Response, ne
 }
 
 /**
- * Authentication middleware - validates API key from X-API-Key header
+ * Extract an API key from either the X-API-Key header or an Authorization header
+ * (supporting Bearer, ApiKey, or raw token formats).
+ */
+export function extractApiKeyFromRequest(req: Request): string | undefined {
+  const apiKeyHeader = req.get('X-API-Key');
+  if (apiKeyHeader && apiKeyHeader.trim().length > 0) {
+    return apiKeyHeader.trim();
+  }
+
+  const authHeader = req.get('Authorization');
+  if (authHeader) {
+    const trimmed = authHeader.trim();
+    if (trimmed.startsWith('Bearer ')) {
+      const token = trimmed.slice(7).trim();
+      if (token.length > 0) return token;
+    } else if (trimmed.startsWith('ApiKey ')) {
+      const token = trimmed.slice(7).trim();
+      if (token.length > 0) return token;
+    } else if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Authentication middleware - validates API key from X-API-Key or Authorization header
  */
 export function authenticate(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
   const requestId = req.requestId || 'unknown';
@@ -450,9 +477,18 @@ export function authenticate(req: AuthenticatedRequest, res: Response, next: Nex
     return;
   }
 
-  const apiKeyHeader = req.get('X-API-Key');
+  let apiKey = extractApiKeyFromRequest(req);
 
-  if (!apiKeyHeader) {
+  // In local development mode with auth bypass enabled, fall back to admin API key if configured
+  const isTest = process.env.NODE_ENV === 'test';
+  if (!apiKey && !isTest && process.env.LOCAL_DEV_AUTH_BYPASS === 'true') {
+    const adminKey = process.env.ADMIN_API_KEY;
+    if (adminKey && adminKey.trim().length > 0) {
+      apiKey = adminKey.trim();
+    }
+  }
+
+  if (!apiKey) {
     // No API key provided - continue without authentication
     // Protected routes should use requireAuth middleware
     next();
@@ -461,7 +497,7 @@ export function authenticate(req: AuthenticatedRequest, res: Response, next: Nex
 
   // Validate the API key
   authService
-    .authenticate(apiKeyHeader)
+    .authenticate(apiKey)
     .then((result) => {
       if (result.authenticated && result.apiKey) {
         req.isAuthenticated = true;

@@ -2,6 +2,9 @@ import { Router, Response, NextFunction } from 'express';
 import { CreateArcRequest, UpdateArcRequest } from '@/models/Arc';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ArcRoutes');
 
 export const arcRoutes = Router();
 
@@ -45,7 +48,19 @@ arcRoutes.post('/', async (req: RequestWithContainer, res: Response, next: NextF
 
     // Mirror the write into the active graph's version store so version history
     // and ExportService see UI-created arcs (not only imported ones).
-    await req.container.graphWriteVersioningService.recordArc(requireGraphId(req), arc, 'create');
+    try {
+      await req.container.graphWriteVersioningService.recordArc(requireGraphId(req), arc, 'create');
+    } catch (versionError) {
+      try {
+        await repository.delete(arc.id);
+      } catch (rollbackError) {
+        logger.error('Compensating rollback failed for created arc', {
+          arcId: arc.id,
+          rollbackError,
+        });
+      }
+      throw versionError;
+    }
     
     res.status(201).json({
       success: true,
@@ -303,7 +318,19 @@ arcRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: Nex
       throw new DatabaseError('Failed to update arc', 'update');
     }
 
-    await req.container.graphWriteVersioningService.recordArc(requireGraphId(req), updatedArc, 'update');
+    try {
+      await req.container.graphWriteVersioningService.recordArc(requireGraphId(req), updatedArc, 'update');
+    } catch (versionError) {
+      try {
+        await repository.update(id, existingArc);
+      } catch (rollbackError) {
+        logger.error('Compensating rollback failed for updated arc', {
+          arcId: id,
+          rollbackError,
+        });
+      }
+      throw versionError;
+    }
 
     res.json({
       success: true,

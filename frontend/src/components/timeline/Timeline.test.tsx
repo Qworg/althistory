@@ -59,6 +59,8 @@ vi.mock('d3', () => {
     transform: (...args: unknown[]) => ZoomMock
     on: (...args: unknown[]) => ZoomMock
     filter: (...args: unknown[]) => ZoomMock
+    translateBy: (...args: unknown[]) => ZoomMock
+    scaleBy: (...args: unknown[]) => ZoomMock
   }
 
   interface DragMock {
@@ -144,7 +146,9 @@ vi.mock('d3', () => {
       extent: () => zoom,
       transform: () => zoom,
       on: () => zoom,
-      filter: () => zoom
+      filter: () => zoom,
+      translateBy: () => zoom,
+      scaleBy: () => zoom
     }
     return zoom
   }
@@ -431,13 +435,21 @@ describe('Timeline Component', () => {
     it('supports keyboard navigation', () => {
       renderWithProviders(<Timeline {...defaultProps} />)
       
-      const container = document.querySelector('.timeline-container')
-      expect(container).toBeInTheDocument()
+      const svg = document.querySelector('svg')
+      expect(svg).toBeInTheDocument()
+      expect(svg).toHaveAttribute('tabindex', '0')
       
-      // Test that the component can receive focus
-      if (container) {
-        fireEvent.focus(container)
-        expect(container).toBeInTheDocument()
+      if (svg) {
+        // Arrow key panning
+        expect(() => fireEvent.keyDown(svg, { key: 'ArrowLeft' })).not.toThrow()
+        expect(() => fireEvent.keyDown(svg, { key: 'ArrowRight' })).not.toThrow()
+
+        // Zoom keys
+        expect(() => fireEvent.keyDown(svg, { key: '+' })).not.toThrow()
+        expect(() => fireEvent.keyDown(svg, { key: '-' })).not.toThrow()
+
+        // Reset zoom key
+        expect(() => fireEvent.keyDown(svg, { key: '0' })).not.toThrow()
       }
     })
   })

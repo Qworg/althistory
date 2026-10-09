@@ -2,8 +2,9 @@
 #
 # Why this exists: every quality property in this repository used to depend on a
 # human choosing to run a command and believing the output. That produced a
-# frontend build that had never once passed, 337 backend typecheck errors with no
-# ESLint config at all, and a skipped test suite that documentation claimed was
+# frontend build that had never once passed, 337 backend typecheck errors with
+# no ESLint config at all, and a skipped test suite that documentation claimed
+# was
 # green. CI turns "someone checked" into "the repository checks itself".
 #
 # What is gated on every push to main and every pull request:
@@ -16,8 +17,9 @@
 #   npx vitest --run --coverage             npx vitest --run --coverage
 #                                           npm run build
 #
-# The two lint gates are deliberately NOT symmetric. The backend's script carries
-# --max-warnings 0, so any warning fails it. The frontend's does not: it has
+# The two lint gates are deliberately NOT symmetric. The backend's script
+# carries --max-warnings 0, so any warning fails it. The frontend's does not:
+# it has
 # eight pre-existing react-hooks/exhaustive-deps warnings (six effects missing a
 # dependency, two dependency-array entries that are complex expressions). At
 # least the D3-driving ones -- Timeline.tsx, ActorTimeline.tsx,
@@ -27,8 +29,8 @@
 # repository's infinite update loops were produced
 # (impl/deferredplans/ADR-001-d3-react-integration.md documents the callback-ref
 # pattern that replaced them), and silencing them with eslint-disable is
-# forbidden by impl/gap-remediation/README.md. So frontend *errors* fail the gate
-# and frontend warnings are printed but do not; the header used to claim
+# forbidden by impl/gap-remediation/README.md. So frontend *errors* fail the
+# gate and frontend warnings are printed but do not; the header used to claim
 # "--max-warnings 0" here, which was never true.
 #
 # Coverage runs in the same step as the tests, report-only. Neither package sets
@@ -72,9 +74,11 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          # No "engines" field is declared. Vite 7 requires ^20.19.0 || >=22.12.0
-          # and Vitest 3 requires ^18 || ^20 || >=22; the dev machine and the
-          # lockfiles are Node 24, so 24 is the version the code is known to work on.
+          # No "engines" field is declared. Vite 7 requires
+          # ^20.19.0 || >=22.12.0
+          # and Vitest 3 requires ^18 || ^20 || >=22; the dev machine and
+          # the lockfiles are Node 24, so 24 is the version the code is known to
+          # work on.
           node-version: '24'
           cache: npm
           cache-dependency-path: timeline/package-lock.json
@@ -127,3 +131,44 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  e2e:
+    name: E2E (real browser, stubbed API)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Deliberately independent of backend/frontend: a failure here must not
+    # gate them, and vice versa. The suite is hermetic (no services).
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # See the backend job for why Node 24.
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            e2e/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install e2e dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install frontend dependencies (the preview server builds it)
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright chromium
+        # The browser binary is not in the npm package; --with-deps adds the
+        # system libraries a bare runner may lack. This is the one place the
+        # browser download is actually needed.
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e (visual baselines excluded)
+        # Screenshot baselines are platform-specific (see e2e/README.md), so the
+        # portable functional flows run here and the @visual checks stay local.
+        working-directory: e2e
+        run: npx playwright test --grep-invert @visual

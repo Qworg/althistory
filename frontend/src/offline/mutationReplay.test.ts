@@ -139,4 +139,54 @@ describe('replay failure classification', () => {
     expect(onStorageError).toHaveBeenCalledTimes(1)
     expect(onStorageError.mock.calls[0]?.[0]).toBeInstanceOf(Error)
   })
+
+  describe('cross-tab Web Locks synchronization', () => {
+    it('defers replay when another tab currently holds the replay lock', async () => {
+      enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e1' } })
+      const send = vi.fn<MutationSender>().mockResolvedValue(undefined)
+
+      // Mock navigator.locks where lock is unavailable (another tab holds it)
+      const mockRequest = vi.fn().mockImplementation(async (_name, _options, callback) => {
+        return callback(null)
+      })
+      vi.stubGlobal('navigator', {
+        ...navigator,
+        locks: { request: mockRequest },
+      })
+
+      const result = await replayMutationQueue(send)
+
+      expect(mockRequest).toHaveBeenCalledWith(
+        'offline-mutation-replay',
+        { ifAvailable: true },
+        expect.any(Function)
+      )
+      // Send must not be called; replay deferred
+      expect(send).not.toHaveBeenCalled()
+      expect(result.replayed).toEqual([])
+      expect(result.retryable).toBe(true)
+      expect(result.remaining).toBe(1)
+    })
+
+    it('proceeds with replay when the lock is successfully acquired', async () => {
+      enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e1' } })
+      const send = vi.fn<MutationSender>().mockResolvedValue(undefined)
+
+      const mockLock = { name: 'offline-mutation-replay', mode: 'exclusive' }
+      const mockRequest = vi.fn().mockImplementation(async (_name, _options, callback) => {
+        return callback(mockLock)
+      })
+      vi.stubGlobal('navigator', {
+        ...navigator,
+        locks: { request: mockRequest },
+      })
+
+      const result = await replayMutationQueue(send)
+
+      expect(mockRequest).toHaveBeenCalled()
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(result.replayed).toHaveLength(1)
+      expect(result.remaining).toBe(0)
+    })
+  })
 })

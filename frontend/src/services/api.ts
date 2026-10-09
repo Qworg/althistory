@@ -42,7 +42,13 @@ import {
   CreateApiKeyRequest,
   CreateApiKeyResponse,
   UpdateApiKeyRequest,
-  ApiKeyStats
+  ApiKeyStats,
+  IngestResponse,
+  WikipediaIngestRequest,
+  WikidataIngestRequest,
+  TextIngestRequest,
+  ApproveIngestionRequest,
+  StreamTokenResponse
 } from '@/types'
 
 // API client configuration
@@ -135,10 +141,14 @@ class APIClient {
         // Request interceptor
         this.client.interceptors.request.use(
             (config) => {
-                // Add auth token if available
-                const token = localStorage.getItem('auth_token')
+                // Add auth token / API key if available
+                const token =
+                    localStorage.getItem('api_key') ||
+                    localStorage.getItem('auth_token') ||
+                    (typeof import.meta !== 'undefined' ? (import.meta.env?.VITE_API_KEY as string | undefined) : undefined)
                 if (token) {
                     config.headers.Authorization = `Bearer ${token}`
+                    config.headers['X-API-Key'] = token
                 }
                 return config
             },
@@ -151,12 +161,9 @@ class APIClient {
             (error: AxiosError) => {
                 // Handle common errors
                 if (error.response?.status === 401) {
-                    // Handle unauthorized
+                    // Clear invalid credentials
                     localStorage.removeItem('auth_token')
-                    // Don't redirect in test environment
-                    if (typeof window !== 'undefined' && !window.location.href.includes('test')) {
-                        window.location.href = '/login'
-                    }
+                    localStorage.removeItem('api_key')
                 }
                 
                 // Log error for debugging
@@ -872,6 +879,86 @@ class APIClient {
         getMe: async (): Promise<ApiKey> => {
             try {
                 const response: AxiosResponse<ApiKey> = await this.client.get('/keys/me')
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+    }
+
+    // Web ingestion operations (Req 19). Extraction is synchronous: each POST
+    // runs the extractor and resolves the review preview directly, so the
+    // wizard works from the response instead of polling a job.
+    ingest = {
+        text: async (data: TextIngestRequest): Promise<IngestResponse> => {
+            try {
+                const response: AxiosResponse<IngestResponse> =
+                    await this.client.post('/ingest/text', data)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        url: async (data: WikipediaIngestRequest): Promise<IngestResponse> => {
+            try {
+                const response: AxiosResponse<IngestResponse> =
+                    await this.client.post('/ingest/url', data)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        wikidata: async (data: WikidataIngestRequest): Promise<IngestResponse> => {
+            try {
+                const response: AxiosResponse<IngestResponse> =
+                    await this.client.post('/ingest/wikidata', data)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        // `targetGraphId` scopes the request through the `X-Graph-Id` header,
+        // matching export/import. It is stripped from the body so the route's
+        // "body targetGraphId must match the resolved graph" check cannot be
+        // tripped by a stale client value.
+        approve: async (jobId: string, data: ApproveIngestionRequest): Promise<ImportResult> => {
+            try {
+                const { targetGraphId, ...body } = data
+                const response: AxiosResponse<ImportResult> = await this.client.post(
+                    `/ingest/jobs/${jobId}/approve`,
+                    body,
+                    targetGraphId ? { headers: { 'X-Graph-Id': targetGraphId } } : undefined
+                )
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        deleteJob: async (jobId: string): Promise<{ success: boolean }> => {
+            try {
+                const response: AxiosResponse<{ success: boolean }> =
+                    await this.client.delete(`/ingest/jobs/${jobId}`)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+    }
+
+    // WebSocket streaming operations (Requirement 16)
+    stream = {
+        getToken: async (graphId?: string): Promise<StreamTokenResponse> => {
+            try {
+                const response: AxiosResponse<StreamTokenResponse> =
+                    await this.client.post(
+                        '/stream/token',
+                        {},
+                        graphId ? { headers: { 'X-Graph-Id': graphId } } : undefined
+                    )
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)

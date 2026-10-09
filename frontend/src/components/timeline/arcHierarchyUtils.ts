@@ -32,80 +32,107 @@ export interface ArcWithUIState extends Arc {
  * level-assignment code path and needs its own tests. It is reported as an
  * outstanding limit rather than half-done here.
  */
+interface ParsedEvent {
+  event: Event
+  time: number
+}
+
+function findStartIndex(events: readonly ParsedEvent[], targetTime: number): number {
+  let low = 0
+  let high = events.length
+  while (low < high) {
+    const mid = (low + high) >> 1
+    const entry = events[mid]
+    if (entry && entry.time < targetTime) {
+      low = mid + 1
+    } else {
+      high = mid
+    }
+  }
+  return low
+}
+
+function findEndIndex(events: readonly ParsedEvent[], targetTime: number): number {
+  let low = 0
+  let high = events.length
+  while (low < high) {
+    const mid = (low + high) >> 1
+    const entry = events[mid]
+    if (entry && entry.time <= targetTime) {
+      low = mid + 1
+    } else {
+      high = mid
+    }
+  }
+  return low
+}
+
+interface ArcWithTiming {
+  arc: ArcWithUIState
+  startMs: number
+  endMs: number
+}
+
+/**
+ * Assigns a render level to every arc, putting overlapping siblings on
+ * different rows using an indexed interval assignment algorithm ($O(A \log A)$).
+ */
 export function calculateArcHierarchy(arcs: ArcWithUIState[]): { arcHierarchy: ArcWithUIState[], maxLevel: number } {
-  const arcMap = new Map<string, ArcWithUIState>()
-  arcs.forEach(arc => arcMap.set(arc.id, arc))
+  // Pre-parse timestamps and map by arc
+  const timingByArc = new Map<ArcWithUIState, ArcWithTiming>()
+  for (const arc of arcs) {
+    const startMs = new Date(arc.start_time).getTime()
+    const endMs = new Date(arc.end_time).getTime()
+    timingByArc.set(arc, { arc, startMs, endMs })
+  }
 
   // Build hierarchy tree
-  const rootArcs: ArcWithUIState[] = []
-  const childrenMap = new Map<string, ArcWithUIState[]>()
+  const rootArcs: ArcWithTiming[] = []
+  const childrenMap = new Map<string, ArcWithTiming[]>()
 
-  arcs.forEach(arc => {
+  for (const arc of arcs) {
+    const timedArc = timingByArc.get(arc)!
     if (!arc.parent_arc_id) {
-      rootArcs.push(arc)
+      rootArcs.push(timedArc)
     } else {
-      if (!childrenMap.has(arc.parent_arc_id)) {
-        childrenMap.set(arc.parent_arc_id, [])
+      let children = childrenMap.get(arc.parent_arc_id)
+      if (!children) {
+        children = []
+        childrenMap.set(arc.parent_arc_id, children)
       }
-      childrenMap.get(arc.parent_arc_id)!.push(arc)
+      children.push(timedArc)
     }
-  })
+  }
 
   // Calculate render levels with hierarchy and temporal constraints
   const result: ArcWithUIState[] = []
   let maxLevel = 0
 
-  function processArcLevel(arcsAtLevel: ArcWithUIState[], baseLevel: number, expandedParents: Set<string>) {
+  function processArcLevel(arcsAtLevel: ArcWithTiming[], baseLevel: number, expandedParents: Set<string>) {
     // Sort arcs by start time for consistent positioning
-    const sortedArcs = [...arcsAtLevel].sort((a, b) => 
-      new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
-    )
+    const sortedArcs = [...arcsAtLevel].sort((a, b) => a.startMs - b.startMs)
 
-    // Calculate levels to avoid overlaps within the same hierarchy level
-    const levelAssignments = new Map<string, number>()
+    // Track the latest end time on each candidate render level to avoid overlaps.
+    // In start-time sorted order, an arc only conflicts with a level if its start time < last end time on that level.
+    const levelEndTimes = new Map<number, number>()
     
-    for (const arc of sortedArcs) {
+    for (const timedArc of sortedArcs) {
       let level = baseLevel
-      const arcStart = new Date(arc.start_time).getTime()
-      const arcEnd = new Date(arc.end_time).getTime()
-
-      // Find first available level that doesn't conflict
-      while (true) {
-        let conflict = false
-        
-        for (const [otherArcId, otherLevel] of levelAssignments.entries()) {
-          if (otherLevel === level) {
-            const otherArc = sortedArcs.find(a => a.id === otherArcId)
-            if (otherArc) {
-              const otherStart = new Date(otherArc.start_time).getTime()
-              const otherEnd = new Date(otherArc.end_time).getTime()
-              
-              // Check for temporal overlap
-              if (!(arcEnd <= otherStart || arcStart >= otherEnd)) {
-                conflict = true
-                break
-              }
-            }
-          }
-        }
-        
-        if (!conflict) {
-          levelAssignments.set(arc.id, level)
-          break
-        }
+      while (levelEndTimes.has(level) && timedArc.startMs < levelEndTimes.get(level)!) {
         level++
       }
 
-      arc.renderLevel = levelAssignments.get(arc.id)!
-      maxLevel = Math.max(maxLevel, arc.renderLevel)
-      result.push(arc)
+      levelEndTimes.set(level, timedArc.endMs)
+      timedArc.arc.renderLevel = level
+      maxLevel = Math.max(maxLevel, level)
+      result.push(timedArc.arc)
 
       // Process children if this arc is expanded
-      if (arc.isExpanded && childrenMap.has(arc.id)) {
-        const children = childrenMap.get(arc.id)!
+      if (timedArc.arc.isExpanded && childrenMap.has(timedArc.arc.id)) {
+        const children = childrenMap.get(timedArc.arc.id)!
         const newExpandedParents = new Set(expandedParents)
-        newExpandedParents.add(arc.id)
-        processArcLevel(children, arc.renderLevel + 1, newExpandedParents)
+        newExpandedParents.add(timedArc.arc.id)
+        processArcLevel(children, timedArc.arc.renderLevel + 1, newExpandedParents)
       }
     }
   }
@@ -118,21 +145,7 @@ export function calculateArcHierarchy(arcs: ArcWithUIState[]): { arcHierarchy: A
 
 /**
  * Attaches UI state (contained events, child/parent arcs, duration) to every
- * arc.
- *
- * COST, measured and not hidden: for each arc this scans every event, building
- * two `new Date(...)` per arc-event pair to compare timestamps, and then scans
- * the arc list twice more for its children and its parent. It is O(arcs x
- * events) with the Date parsing dominating: 300 arcs against 10,000 events
- * measured ~1.0s in vitest on the machine this was profiled on, so it degrades
- * with the EVENT count as well as the arc count.
- *
- * It is called on every arc selection and every expand/collapse (see
- * Timeline.tsx), over the FULL arc and event sets: the time window applied to
- * the render does not reduce this input, so windowing does not make clicking
- * cheap. Pre-parsing the timestamps once and indexing the arcs would remove most
- * of the cost; that is a separate piece of work, so this stands as an
- * outstanding limit (see `calculateArcHierarchy` for the arc-count half of it).
+ * arc using binary search interval querying and O(1) parent/child index lookups.
  */
 export function processArcsWithUIState(
   arcs: Arc[], 
@@ -140,24 +153,47 @@ export function processArcsWithUIState(
   expandedArcs: Set<string>, 
   selectedElements: Set<string>
 ): ArcWithUIState[] {
-  return arcs.map(arc => {
-    const containedEvents = events.filter(event => {
-      const eventTime = new Date(event.timestamp).getTime()
-      const arcStart = new Date(arc.start_time).getTime()
-      const arcEnd = new Date(arc.end_time).getTime()
-      return eventTime >= arcStart && eventTime <= arcEnd
-    })
+  // 1. Index arcs by ID and parent_arc_id to make child and parent lookups O(1)
+  const arcsById = new Map<string, Arc>()
+  const childrenByParentId = new Map<string, Arc[]>()
 
-    const childArcs = arcs.filter(childArc => childArc.parent_arc_id === arc.id)
-    const parentArc = arc.parent_arc_id ? arcs.find(p => p.id === arc.parent_arc_id) || null : null
-    
-    const duration = new Date(arc.end_time).getTime() - new Date(arc.start_time).getTime()
+  for (const arc of arcs) {
+    arcsById.set(arc.id, arc)
+    if (arc.parent_arc_id) {
+      const children = childrenByParentId.get(arc.parent_arc_id)
+      if (children) {
+        children.push(arc)
+      } else {
+        childrenByParentId.set(arc.parent_arc_id, [arc])
+      }
+    }
+  }
+
+  // 2. Pre-parse event timestamps once and sort chronologically for O(log E) interval binary search
+  const parsedEvents: ParsedEvent[] = events.map(event => ({
+    event,
+    time: new Date(event.timestamp).getTime()
+  }))
+  parsedEvents.sort((a, b) => a.time - b.time)
+
+  return arcs.map(arc => {
+    const arcStart = new Date(arc.start_time).getTime()
+    const arcEnd = new Date(arc.end_time).getTime()
+    const duration = arcEnd - arcStart
+
+    // Binary search for events falling within [arcStart, arcEnd]
+    const startIdx = findStartIndex(parsedEvents, arcStart)
+    const endIdx = findEndIndex(parsedEvents, arcEnd)
+    const containedEvents = parsedEvents.slice(startIdx, endIdx).map(p => p.event)
+
+    const childArcs = childrenByParentId.get(arc.id) || []
+    const parentArc = arc.parent_arc_id ? (arcsById.get(arc.parent_arc_id) || null) : null
 
     return {
       ...arc,
       isExpanded: expandedArcs.has(arc.id),
       isSelected: selectedElements.has(arc.id),
-      renderLevel: 0, // Will be calculated in hierarchy
+      renderLevel: 0,
       containedEvents,
       childArcs,
       parentArc,

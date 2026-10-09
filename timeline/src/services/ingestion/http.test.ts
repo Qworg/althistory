@@ -114,4 +114,111 @@ describe('FetchHttpClient request path', () => {
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  describe('redirect handling and SSRF defense', () => {
+    it('follows redirects to allowed endpoints', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 302,
+          headers: new Headers({
+            location: 'https://en.wikipedia.org/wiki/Target',
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => 'target content',
+          headers: new Headers({ 'content-type': 'text/html' }),
+        });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const client = new FetchHttpClient(1000);
+      const res = await client.request({ url: 'https://en.wikipedia.org/wiki/Source' });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toBe('target content');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'https://en.wikipedia.org/wiki/Source',
+        expect.objectContaining({ redirect: 'manual' })
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://en.wikipedia.org/wiki/Target',
+        expect.objectContaining({ redirect: 'manual' })
+      );
+    });
+
+    it('blocks redirects to disallowed external hosts or internal SSRF targets', async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 302,
+        headers: new Headers({
+          location: 'https://169.254.169.254/latest/meta-data',
+        }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const client = new FetchHttpClient(1000);
+      await expect(
+        client.request({ url: 'https://en.wikipedia.org/wiki/Source' })
+      ).rejects.toThrow(/Refusing request to disallowed host: 169.254.169.254/);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('blocks redirects to non-HTTPS schemes', async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 302,
+        headers: new Headers({
+          location: 'http://en.wikipedia.org/wiki/Target',
+        }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const client = new FetchHttpClient(1000);
+      await expect(
+        client.request({ url: 'https://en.wikipedia.org/wiki/Source' })
+      ).rejects.toThrow(/Refusing non-HTTPS request/);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects redirect without Location header', async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 301,
+        headers: new Headers(),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const client = new FetchHttpClient(1000);
+      await expect(
+        client.request({ url: 'https://en.wikipedia.org/wiki/Source' })
+      ).rejects.toThrow(/redirect without Location header/);
+    });
+
+    it('rejects redirect loops exceeding maximum hop limit', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 302,
+        headers: new Headers({
+          location: 'https://en.wikipedia.org/wiki/Loop',
+        }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const client = new FetchHttpClient(1000);
+      await expect(
+        client.request({ url: 'https://en.wikipedia.org/wiki/Loop' })
+      ).rejects.toThrow(/Exceeded maximum redirect limit of 5/);
+
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+    });
+  });
 });
+

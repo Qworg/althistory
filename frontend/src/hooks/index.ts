@@ -18,3 +18,7 @@ export * from './useImport'
 // Export default exports
 export { default as useCausalPathExploration } from './useCausalPathExploration'
 export { default as useCausalSuggestions } from './useCausalSuggestions'
+
+// Export streaming and keyboard navigation hooks
+export * from './useStreamingWrite'
+export * from './useGlobalKeyboardShortcuts'

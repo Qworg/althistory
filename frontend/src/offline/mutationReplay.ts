@@ -135,8 +135,41 @@ function isQueueStorageError(error: unknown): error is QueueStorageError {
  * empty. Does not throw for ordinary per-write failures; those are captured in
  * the returned `ReplayResult` (and surfaced via `onRejected` /
  * `onStorageError`).
+ *
+ * Uses the Web Locks API (`navigator.locks`) when available to prevent
+ * multi-tab replay races.
  */
 export async function replayMutationQueue(
+  send: MutationSender,
+  options: ReplayOptions = {},
+): Promise<ReplayResult> {
+  if (
+    typeof navigator !== 'undefined' &&
+    'locks' in navigator &&
+    typeof navigator.locks?.request === 'function'
+  ) {
+    return await navigator.locks.request(
+      'offline-mutation-replay',
+      { ifAvailable: true },
+      async (lock) => {
+        if (!lock) {
+          // Another tab holds the lock and is actively replaying the queue right now.
+          return {
+            replayed: [],
+            rejected: [],
+            remaining: readMutationQueue().length,
+            retryable: true,
+          }
+        }
+        return await executeReplayPass(send, options)
+      }
+    )
+  }
+
+  return await executeReplayPass(send, options)
+}
+
+async function executeReplayPass(
   send: MutationSender,
   options: ReplayOptions = {},
 ): Promise<ReplayResult> {

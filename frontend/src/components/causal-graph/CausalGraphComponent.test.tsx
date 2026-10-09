@@ -607,5 +607,96 @@ describe('CausalGraphComponent', () => {
         expect(mockCy.add).toHaveBeenCalled()
       })
     })
+
+    it('uses explicit events and causalRelationships props when provided instead of store', async () => {
+      const propEvents: Event[] = [
+        {
+          id: 'prop-event-1',
+          description: 'Prop Event 1',
+          actor: 'Actor A',
+          target: 'Target B',
+          timestamp: '2023-01-01T00:00:00Z',
+          created_at: '2023-01-01T00:00:00Z',
+          updated_at: '2023-01-01T00:00:00Z'
+        }
+      ]
+      const propRelationships: CausalRelationship[] = []
+
+      render(
+        <CausalGraphComponent
+          events={propEvents}
+          causalRelationships={propRelationships}
+        />
+      )
+
+      await waitFor(() => {
+        expect(mockCy.add).toHaveBeenCalled()
+      })
+
+      const addedElements = (mockCy.add.mock.calls[0] as unknown[][])[0] as Array<{ data: { id: string } }>
+      const addedIds = addedElements.map((el) => el.data.id)
+      expect(addedIds).toContain('prop-event-1')
+      expect(addedIds).not.toContain('1')
+      expect(addedIds).not.toContain('2')
+    })
+  })
+
+  describe('Cross-Graph References', () => {
+    it('synthesizes foreign placeholder nodes and styles cross-graph edges with distinct classes', async () => {
+      const localEvents: Event[] = [
+        {
+          id: 'local-event-1',
+          description: 'Local Event',
+          actor: 'Local Actor',
+          target: 'Local Target',
+          timestamp: '2023-01-01T00:00:00Z',
+          created_at: '2023-01-01T00:00:00Z',
+          updated_at: '2023-01-01T00:00:00Z'
+        }
+      ]
+
+      const crossGraphRelationships: CausalRelationship[] = [
+        {
+          id: 'cross-rel-1',
+          cause_event_id: 'local-event-1',
+          effect_event_id: 'foreign-event-99',
+          weight: 0.85,
+          evidence: 'Cross-graph causal influence',
+          confidence: 0.9,
+          relationship_type: 'direct',
+          isCrossGraph: true,
+          effectGraphId: 'graph-beta',
+          created_at: '2023-01-01T00:00:00Z',
+          updated_at: '2023-01-01T00:00:00Z'
+        }
+      ]
+
+      render(
+        <CausalGraphComponent
+          events={localEvents}
+          causalRelationships={crossGraphRelationships}
+        />
+      )
+
+      await waitFor(() => {
+        expect(mockCy.add).toHaveBeenCalled()
+      })
+
+      const addedElements = (mockCy.add.mock.calls[0] as unknown[][])[0] as Array<{
+        data: { id: string; crossGraphLabel?: string }
+        classes?: string
+      }>
+
+      // Verify foreign placeholder node was synthesized
+      const foreignNode = addedElements.find(el => el.data.id === 'foreign-event-99')
+      expect(foreignNode).toBeDefined()
+      expect(foreignNode?.classes).toBe('foreign-node')
+
+      // Verify cross-graph edge was created with distinct styling class
+      const crossEdge = addedElements.find(el => el.data.id === 'cross-rel-1')
+      expect(crossEdge).toBeDefined()
+      expect(crossEdge?.classes).toBe('cross-graph')
+      expect(crossEdge?.data.crossGraphLabel).toContain('graph-be')
+    })
   })
 })
