@@ -126,6 +126,29 @@ export interface IngestTextOptions {
   graphName?: string;
 }
 
+export interface IngestUrlOptions {
+  followLinks?: boolean;
+  depth?: number;
+  maxPages?: number;
+  filter?: string;
+  groupArcs?: boolean;
+  inferCauses?: boolean;
+  minConfidence?: number;
+  dryRun?: boolean;
+  graphName?: string;
+}
+
+export interface IngestWikidataOptions {
+  preset?: string;
+  sparql?: string;
+  limit?: number;
+  groupArcs?: boolean;
+  inferCauses?: boolean;
+  minConfidence?: number;
+  dryRun?: boolean;
+  graphName?: string;
+}
+
 export interface IngestResultDto {
   graphId: string;
   eventsCreated: number;

@@ -7,6 +7,8 @@ import {
   ArcDto,
   CausalRelationshipDto,
   IngestTextOptions,
+  IngestUrlOptions,
+  IngestWikidataOptions,
   IngestResultDto,
   GenerateTimelineOptions,
   GenerateBranchOptions,
@@ -403,6 +405,31 @@ export class RemoteEngine implements IEngine {
       return res.data;
     } catch (err) {
       return this.handleError(err, 'ingesting text');
+    }
+  }
+
+  async ingestUrl(graphId: string | undefined, url: string, options: IngestUrlOptions): Promise<IngestResultDto> {
+    try {
+      const res = await this.client.post('/api/ingest/url', {
+        url,
+        graphId,
+        ...options,
+      });
+      return res.data;
+    } catch (err) {
+      return this.handleError(err, 'ingesting url');
+    }
+  }
+
+  async ingestWikidata(graphId: string | undefined, options: IngestWikidataOptions): Promise<IngestResultDto> {
+    try {
+      const res = await this.client.post('/api/ingest/wikidata', {
+        graphId,
+        ...options,
+      });
+      return res.data;
+    } catch (err) {
+      return this.handleError(err, 'ingesting wikidata');
     }
   }
 

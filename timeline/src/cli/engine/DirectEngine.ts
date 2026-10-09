@@ -18,6 +18,14 @@ import { initializeContainer, cleanupContainer, getContainer, Container } from '
 import { NotFoundErrorCLI, ValidationErrorCLI } from '../utils/exitCodes';
 import { Event, UpdateEventRequest } from '@/models';
 import { CausalRelationship, CausalRelationshipType } from '@/models/relationships';
+import { TextExtractor } from '@/services/ingestion/TextExtractor';
+import { WikipediaExtractor } from '@/services/ingestion/WikipediaExtractor';
+import { WikidataExtractor } from '@/services/ingestion/WikidataExtractor';
+import { FetchHttpClient } from '@/services/ingestion/http';
+import { createLLMClient } from '@/services/llm';
+import { clusterEventsIntoArcs } from '../generator/arcClustering';
+import { ExtractionResult } from '@/services/ingestion/types';
+import { IngestUrlOptions, IngestWikidataOptions } from '../types';
 
 export class DirectEngine implements IEngine {
   readonly mode = 'direct' as const;
@@ -421,15 +429,226 @@ export class DirectEngine implements IEngine {
     };
   }
 
-  async ingestText(graphId: string | undefined, text: string, options: IngestTextOptions): Promise<IngestResultDto> {
+  private async persistExtractedEntities(
+    targetGraphId: string,
+    extracted: ExtractionResult,
+    options: {
+      groupArcs?: boolean;
+      inferCauses?: boolean;
+      minConfidence?: number;
+      dryRun?: boolean;
+    }
+  ): Promise<IngestResultDto> {
+    const container = await this.getInitializedContainer();
+    const minConf = options.minConfidence ?? 0;
+    const events = extracted.events.filter((e) => e.confidence >= minConf);
+    let arcs = [...extracted.arcs];
+    const relationships = [...extracted.relationships];
+
+    // Group into arcs if requested and not already present
+    if (options.groupArcs && arcs.length === 0 && events.length > 0) {
+      arcs = clusterEventsIntoArcs(events, events[0].source);
+    }
+
+    // Infer causes if requested and not already present
+    if (options.inferCauses && relationships.length === 0 && events.length >= 2) {
+      const tempEvents = events.map(
+        (e) =>
+          new Event({
+            id: e.tempId,
+            description: e.description,
+            timestamp: new Date(e.timestamp),
+            actor: e.actor || 'Unknown',
+            target: e.target || 'None',
+          })
+      );
+      const suggestions = container.inferenceService.suggestCausalLinks(tempEvents);
+      for (const s of suggestions) {
+        relationships.push({
+          tempId: `rel-${s.cause_event_id}-${s.effect_event_id}`,
+          causeEventTempId: s.cause_event_id,
+          effectEventTempId: s.effect_event_id,
+          weight: s.suggested_relationship.weight,
+          confidence: s.suggested_relationship.confidence,
+          reasoning: s.reasoning,
+          source: events[0].source,
+          selected: true,
+        });
+      }
+    }
+
+    if (options.dryRun) {
+      return {
+        graphId: targetGraphId,
+        eventsCreated: events.length,
+        arcsCreated: arcs.length,
+        relationshipsCreated: relationships.length,
+        dryRun: true,
+        entities: {
+          events: events.map((e) => ({
+            id: e.tempId,
+            graphId: targetGraphId,
+            description: e.description,
+            timestamp: e.timestamp,
+            actor: e.actor,
+            target: e.target,
+          })),
+          arcs: arcs.map((a) => ({
+            id: a.tempId,
+            graphId: targetGraphId,
+            name: a.name,
+            description: a.description,
+            startTime: a.start_time,
+            endTime: a.end_time,
+          })),
+          relationships: relationships.map((r) => ({
+            id: r.tempId,
+            graphId: targetGraphId,
+            causeId: r.causeEventTempId,
+            effectId: r.effectEventTempId,
+            weight: r.weight,
+            reasoning: r.reasoning,
+          })),
+        },
+      };
+    }
+
+    // Real persistence:
+    const scoped = await container.graphScopedRepositories(targetGraphId);
+    const tempIdToRealEvent = new Map<string, Event>();
+    const createdEventDtos: EventDto[] = [];
+
+    for (const e of events) {
+      const created = await scoped.eventRepository.create({
+        description: e.description,
+        timestamp: new Date(e.timestamp),
+        actor: e.actor || 'Unknown',
+        target: e.target || 'None',
+      });
+      tempIdToRealEvent.set(e.tempId, created);
+      try {
+        await container.graphWriteVersioningService.recordEvent(targetGraphId, created, 'create');
+      } catch {
+        // Best effort
+      }
+      createdEventDtos.push({
+        id: created.id,
+        graphId: targetGraphId,
+        description: created.description,
+        timestamp: created.timestamp.toISOString(),
+        actor: created.actor,
+        target: created.target,
+      });
+    }
+
+    const createdArcDtos: ArcDto[] = [];
+    for (const a of arcs) {
+      const startTime = new Date(a.start_time);
+      let endTime = new Date(a.end_time);
+      if (startTime.getTime() >= endTime.getTime()) {
+        endTime = new Date(startTime.getTime() + 24 * 60 * 60 * 1000);
+      }
+      const created = await scoped.arcRepository.create({
+        name: a.name,
+        description: a.description || '',
+        start_time: startTime,
+        end_time: endTime,
+        level: a.level ?? 0,
+      });
+      try {
+        await container.graphWriteVersioningService.recordArc(targetGraphId, created, 'create');
+      } catch {
+        // Best effort
+      }
+      createdArcDtos.push({
+        id: created.id,
+        graphId: targetGraphId,
+        name: created.name,
+        description: created.description,
+        startTime: created.start_time.toISOString(),
+        endTime: created.end_time.toISOString(),
+      });
+    }
+
+    const createdRelDtos: CausalRelationshipDto[] = [];
+    for (const r of relationships) {
+      const cause = tempIdToRealEvent.get(r.causeEventTempId);
+      const effect = tempIdToRealEvent.get(r.effectEventTempId);
+      if (cause && effect && cause.timestamp.getTime() < effect.timestamp.getTime()) {
+        const linkRel: CausalRelationship = {
+          weight: r.weight ?? 1.0,
+          evidence: r.reasoning || '',
+          confidence: r.confidence ?? 1.0,
+          relationship_type: 'direct',
+        };
+        const created = await scoped.causalService.createCausalLink(cause, effect, linkRel);
+        try {
+          await container.graphWriteVersioningService.recordRelationship(targetGraphId, created, 'create');
+        } catch {
+          // Best effort
+        }
+        createdRelDtos.push({
+          id: created.id,
+          graphId: targetGraphId,
+          causeId: created.cause_event_id,
+          effectId: created.effect_event_id,
+          weight: created.weight,
+          reasoning: created.evidence,
+        });
+      }
+    }
+
     return {
-      graphId: graphId || 'temp-graph',
-      eventsCreated: 0,
-      arcsCreated: 0,
-      relationshipsCreated: 0,
-      dryRun: Boolean(options.dryRun),
-      entities: { events: [], arcs: [], relationships: [] },
+      graphId: targetGraphId,
+      eventsCreated: createdEventDtos.length,
+      arcsCreated: createdArcDtos.length,
+      relationshipsCreated: createdRelDtos.length,
+      dryRun: false,
+      entities: {
+        events: createdEventDtos,
+        arcs: createdArcDtos,
+        relationships: createdRelDtos,
+      },
     };
+  }
+
+  async ingestText(graphId: string | undefined, text: string, options: IngestTextOptions): Promise<IngestResultDto> {
+    const targetGraphId = graphId || (await this.createGraph(options.graphName || 'Ingested Text History')).id;
+    const llmClient = options.mode !== 'pattern' ? createLLMClient({ provider: options.provider, model: options.model, temperature: options.temperature }) : null;
+    const extractor = new TextExtractor({ llmClient });
+    const extractionResult = await extractor.extract({ text, useLLM: options.mode !== 'pattern' });
+    return this.persistExtractedEntities(targetGraphId, extractionResult, options);
+  }
+
+  async ingestUrl(graphId: string | undefined, url: string, options: IngestUrlOptions): Promise<IngestResultDto> {
+    const targetGraphId = graphId || (await this.createGraph(options.graphName || 'Wikipedia Ingestion')).id;
+    const extractor = new WikipediaExtractor({ httpClient: new FetchHttpClient() });
+    const extractionResult = await extractor.extract({
+      url,
+      options: {
+        followLinks: options.followLinks,
+        linkDepth: options.depth,
+        maxPages: options.maxPages,
+        linkFilter: options.filter,
+      },
+    });
+    return this.persistExtractedEntities(targetGraphId, extractionResult, options);
+  }
+
+  async ingestWikidata(graphId: string | undefined, options: IngestWikidataOptions): Promise<IngestResultDto> {
+    const targetGraphId = graphId || (await this.createGraph(options.graphName || 'Wikidata Ingestion')).id;
+    const extractor = new WikidataExtractor({ httpClient: new FetchHttpClient() });
+    const queryType = options.sparql
+      ? 'custom'
+      : options.preset === 'person-timeline'
+        ? 'person-timeline'
+        : 'historical-events';
+    const extractionResult = await extractor.extract({
+      queryType,
+      customQuery: options.sparql,
+      limit: options.limit,
+    });
+    return this.persistExtractedEntities(targetGraphId, extractionResult, options);
   }
 
   async generateTimeline(options: GenerateTimelineOptions): Promise<GenerationResultDto> {

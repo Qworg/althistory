@@ -5,6 +5,8 @@ import {
   ArcDto,
   CausalRelationshipDto,
   IngestTextOptions,
+  IngestUrlOptions,
+  IngestWikidataOptions,
   IngestResultDto,
   GenerateTimelineOptions,
   GenerateBranchOptions,
@@ -46,6 +48,8 @@ export interface IEngine {
 
   // Ingestion & Generation
   ingestText(graphId: string | undefined, text: string, options: IngestTextOptions): Promise<IngestResultDto>;
+  ingestUrl(graphId: string | undefined, url: string, options: IngestUrlOptions): Promise<IngestResultDto>;
+  ingestWikidata(graphId: string | undefined, options: IngestWikidataOptions): Promise<IngestResultDto>;
   generateTimeline(options: GenerateTimelineOptions): Promise<GenerationResultDto>;
   generateBranch(options: GenerateBranchOptions): Promise<GenerationResultDto>;
 
