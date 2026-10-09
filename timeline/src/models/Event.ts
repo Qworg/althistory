@@ -136,6 +136,7 @@ export class Event implements IEvent {
  * Interface for creating new events
  */
 export interface CreateEventRequest {
+  id?: string;
   description: string;
   actor: string;
   target: string;

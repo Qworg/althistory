@@ -10,6 +10,8 @@ import {
   IngestResultDto,
   GenerateTimelineOptions,
   GenerateBranchOptions,
+  GenerateExpandOptions,
+  GenerateSimulateOptions,
   GenerationResultDto,
   ValidationReportDto,
 } from '../types';
@@ -52,6 +54,8 @@ export interface IEngine {
   ingestWikidata(graphId: string | undefined, options: IngestWikidataOptions): Promise<IngestResultDto>;
   generateTimeline(options: GenerateTimelineOptions): Promise<GenerationResultDto>;
   generateBranch(options: GenerateBranchOptions): Promise<GenerationResultDto>;
+  generateExpand(options: GenerateExpandOptions): Promise<GenerationResultDto>;
+  generateSimulate(options: GenerateSimulateOptions): Promise<GenerationResultDto>;
 
   // Validation & Export
   validateGraph(graphId: string, strict?: boolean, autoRepair?: boolean): Promise<ValidationReportDto>;

@@ -12,6 +12,8 @@ import {
   IngestResultDto,
   GenerateTimelineOptions,
   GenerateBranchOptions,
+  GenerateExpandOptions,
+  GenerateSimulateOptions,
   GenerationResultDto,
   ValidationReportDto,
 } from '../types';
@@ -433,12 +435,40 @@ export class RemoteEngine implements IEngine {
     }
   }
 
-  async generateTimeline(_options: GenerateTimelineOptions): Promise<GenerationResultDto> {
-    throw new CLIError('Timeline generation over remote daemon will be enabled in Phase 3', ExitCode.GENERAL_ERROR);
+  async generateTimeline(options: GenerateTimelineOptions): Promise<GenerationResultDto> {
+    try {
+      const res = await this.client.post('/api/generate/timeline', options);
+      return res.data;
+    } catch (err) {
+      return this.handleError(err, 'generating timeline');
+    }
   }
 
-  async generateBranch(_options: GenerateBranchOptions): Promise<GenerationResultDto> {
-    throw new CLIError('Branch generation over remote daemon will be enabled in Phase 3', ExitCode.GENERAL_ERROR);
+  async generateBranch(options: GenerateBranchOptions): Promise<GenerationResultDto> {
+    try {
+      const res = await this.client.post('/api/generate/branch', options);
+      return res.data;
+    } catch (err) {
+      return this.handleError(err, 'generating branch');
+    }
+  }
+
+  async generateExpand(options: GenerateExpandOptions): Promise<GenerationResultDto> {
+    try {
+      const res = await this.client.post('/api/generate/expand', options);
+      return res.data;
+    } catch (err) {
+      return this.handleError(err, 'expanding timeline');
+    }
+  }
+
+  async generateSimulate(options: GenerateSimulateOptions): Promise<GenerationResultDto> {
+    try {
+      const res = await this.client.post('/api/generate/simulate', options);
+      return res.data;
+    } catch (err) {
+      return this.handleError(err, 'simulating timeline');
+    }
   }
 
   async validateGraph(graphId: string, strict?: boolean, autoRepair?: boolean): Promise<ValidationReportDto> {

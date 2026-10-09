@@ -24,8 +24,14 @@ import { WikidataExtractor } from '@/services/ingestion/WikidataExtractor';
 import { FetchHttpClient } from '@/services/ingestion/http';
 import { createLLMClient } from '@/services/llm';
 import { clusterEventsIntoArcs } from '../generator/arcClustering';
+import { TimelineGenerator } from '../generator/TimelineGenerator';
 import { ExtractionResult } from '@/services/ingestion/types';
-import { IngestUrlOptions, IngestWikidataOptions } from '../types';
+import {
+  IngestUrlOptions,
+  IngestWikidataOptions,
+  GenerateExpandOptions,
+  GenerateSimulateOptions,
+} from '../types';
 
 export class DirectEngine implements IEngine {
   readonly mode = 'direct' as const;
@@ -48,6 +54,10 @@ export class DirectEngine implements IEngine {
       })();
     }
     return this.containerPromise;
+  }
+
+  public async getContainer(): Promise<Container> {
+    return this.getInitializedContainer();
   }
 
   async shutdown(): Promise<void> {
@@ -652,35 +662,44 @@ export class DirectEngine implements IEngine {
   }
 
   async generateTimeline(options: GenerateTimelineOptions): Promise<GenerationResultDto> {
-    return {
-      graphId: 'placeholder',
-      graphName: options.graphName || 'Generated',
-      premise: options.premise,
-      divergencePoint: options.divergencePoint,
-      eventCount: 0,
-      arcCount: 0,
-      relationshipCount: 0,
-      events: [],
-      arcs: [],
-      relationships: [],
-      validation: { valid: true, graphId: 'placeholder', errorCount: 0, warningCount: 0, issues: [] },
-    };
+    const container = await this.getInitializedContainer();
+    const llmClient = createLLMClient({
+      provider: options.provider,
+      model: options.model,
+      temperature: options.temperature,
+    });
+    const generator = new TimelineGenerator({ llmClient });
+    return generator.generateTimeline(options, container);
   }
 
   async generateBranch(options: GenerateBranchOptions): Promise<GenerationResultDto> {
-    return {
-      graphId: 'placeholder',
-      graphName: options.branchName,
-      premise: options.counterfactualPrompt,
-      divergencePoint: options.divergeAtEventId,
-      eventCount: 0,
-      arcCount: 0,
-      relationshipCount: 0,
-      events: [],
-      arcs: [],
-      relationships: [],
-      validation: { valid: true, graphId: 'placeholder', errorCount: 0, warningCount: 0, issues: [] },
-    };
+    const container = await this.getInitializedContainer();
+    const llmClient = createLLMClient({
+      provider: options.provider,
+      model: options.model,
+    });
+    const generator = new TimelineGenerator({ llmClient });
+    return generator.generateBranch(options, container);
+  }
+
+  async generateExpand(options: GenerateExpandOptions): Promise<GenerationResultDto> {
+    const container = await this.getInitializedContainer();
+    const llmClient = createLLMClient({
+      provider: options.provider,
+      model: options.model,
+    });
+    const generator = new TimelineGenerator({ llmClient });
+    return generator.generateExpand(options, container);
+  }
+
+  async generateSimulate(options: GenerateSimulateOptions): Promise<GenerationResultDto> {
+    const container = await this.getInitializedContainer();
+    const llmClient = createLLMClient({
+      provider: options.provider,
+      model: options.model,
+    });
+    const generator = new TimelineGenerator({ llmClient });
+    return generator.generateSimulate(options, container);
   }
 
   async validateGraph(graphId: string, _strict?: boolean, _autoRepair?: boolean): Promise<ValidationReportDto> {

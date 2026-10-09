@@ -268,6 +268,187 @@ export function createProgram(): Command {
       }
     });
 
+  // --- Generation Commands (Phase 3) ---
+  const generate = program.command('generate').description('Whole-cloth and counterfactual alternate history generator');
+
+  generate
+    .command('timeline')
+    .description('Generate an alternate history timeline whole-cloth from a premise and divergence point')
+    .requiredOption('-p, --premise <text>', 'Counterfactual premise or what-if hypothesis')
+    .requiredOption('-d, --divergence-point <text>', 'Point of divergence anchor event')
+    .option('--start-date <iso>', 'Earliest timeline date boundary (ISO-8601)')
+    .option('--end-date <iso>', 'Latest timeline date boundary (ISO-8601)')
+    .option('-n, --event-count <count>', 'Number of pivotal events to synthesize (default: 8)', '8')
+    .option('--depth <levels>', 'Arc hierarchy depth (default: 1)', '1')
+    .option('--style <style>', 'Narrative style: academic, narrative, or concise', 'academic')
+    .option('--provider <provider>', 'LLM provider: openai or anthropic')
+    .option('--model <model>', 'LLM model name')
+    .option('--temperature <val>', 'LLM sampling temperature')
+    .option('--graph-name <name>', 'Name for generated graph')
+    .option('--dry-run', 'Preview generated timeline without persisting')
+    .action(async (cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const validStyles = ['academic', 'narrative', 'concise'] as const;
+        const style = typeof cmdOpts?.style === 'string' && (validStyles as readonly string[]).includes(cmdOpts.style)
+          ? (cmdOpts.style as 'academic' | 'narrative' | 'concise')
+          : 'academic';
+        const validProviders = ['openai', 'anthropic'] as const;
+        const provider = typeof cmdOpts?.provider === 'string' && (validProviders as readonly string[]).includes(cmdOpts.provider)
+          ? (cmdOpts.provider as 'openai' | 'anthropic')
+          : undefined;
+
+        const result = await engine.generateTimeline({
+          premise: String(cmdOpts?.premise || ''),
+          divergencePoint: String(cmdOpts?.divergencePoint || ''),
+          startDate: cmdOpts?.startDate as string | undefined,
+          endDate: cmdOpts?.endDate as string | undefined,
+          eventCount: cmdOpts?.eventCount ? parseInt(String(cmdOpts.eventCount), 10) : 8,
+          depth: cmdOpts?.depth ? parseInt(String(cmdOpts.depth), 10) : 1,
+          style,
+          provider,
+          model: cmdOpts?.model as string | undefined,
+          temperature: cmdOpts?.temperature ? parseFloat(String(cmdOpts.temperature)) : undefined,
+          graphName: cmdOpts?.graphName as string | undefined,
+          dryRun: Boolean(cmdOpts?.dryRun),
+        });
+
+        const output = formatOutput(result, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: result.graphId,
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  generate
+    .command('branch')
+    .description('Fork an existing history graph at a pivot event with a counterfactual prompt')
+    .requiredOption('-g, --source-graph-id <id>', 'Source graph ID to branch from')
+    .requiredOption('-e, --diverge-at-event <id>', 'Event ID where history diverges')
+    .requiredOption('-p, --counterfactual-prompt <prompt>', 'What-if divergence prompt')
+    .requiredOption('-b, --branch-name <name>', 'Name for the new divergent branch')
+    .option('-n, --event-count <count>', 'Number of divergent events to synthesize', '6')
+    .option('--provider <provider>', 'LLM provider: openai or anthropic')
+    .option('--model <model>', 'LLM model name')
+    .option('--dry-run', 'Preview divergent branch without persisting')
+    .action(async (cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const validProviders = ['openai', 'anthropic'] as const;
+        const provider = typeof cmdOpts?.provider === 'string' && (validProviders as readonly string[]).includes(cmdOpts.provider)
+          ? (cmdOpts.provider as 'openai' | 'anthropic')
+          : undefined;
+
+        const result = await engine.generateBranch({
+          sourceGraphId: String(cmdOpts?.sourceGraphId || ''),
+          divergeAtEventId: String(cmdOpts?.divergeAtEvent || ''),
+          counterfactualPrompt: String(cmdOpts?.counterfactualPrompt || ''),
+          branchName: String(cmdOpts?.branchName || ''),
+          eventCount: cmdOpts?.eventCount ? parseInt(String(cmdOpts.eventCount), 10) : 6,
+          provider,
+          model: cmdOpts?.model as string | undefined,
+          dryRun: Boolean(cmdOpts?.dryRun),
+        });
+
+        const output = formatOutput(result, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: result.graphId,
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  generate
+    .command('expand')
+    .description('Interpolate granular sub-events within an arc or time window')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .option('-a, --arc <id>', 'Arc ID to expand')
+    .option('-w, --time-window <window>', 'Time window ISO range (start/end)')
+    .option('-n, --event-count <count>', 'Number of sub-events to generate', '3')
+    .option('--provider <provider>', 'LLM provider')
+    .option('--model <model>', 'LLM model name')
+    .option('--dry-run', 'Preview expansion without persisting')
+    .action(async (cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const validProviders = ['openai', 'anthropic'] as const;
+        const provider = typeof cmdOpts?.provider === 'string' && (validProviders as readonly string[]).includes(cmdOpts.provider)
+          ? (cmdOpts.provider as 'openai' | 'anthropic')
+          : undefined;
+
+        const result = await engine.generateExpand({
+          graphId: String(cmdOpts?.graphId || ''),
+          arcId: cmdOpts?.arc as string | undefined,
+          timeWindow: cmdOpts?.timeWindow as string | undefined,
+          eventCount: cmdOpts?.eventCount ? parseInt(String(cmdOpts.eventCount), 10) : 3,
+          provider,
+          model: cmdOpts?.model as string | undefined,
+          dryRun: Boolean(cmdOpts?.dryRun),
+        });
+
+        const output = formatOutput(result, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: result.graphId,
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  generate
+    .command('simulate')
+    .description('Advance timeline sequentially into the future based on causal pressures')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .option('-s, --steps <steps>', 'Simulation steps (default: 3)', '3')
+    .option('-m, --months <months>', 'Months to advance per step (default: 12)', '12')
+    .option('--provider <provider>', 'LLM provider')
+    .option('--model <model>', 'LLM model name')
+    .option('--dry-run', 'Preview simulation without persisting')
+    .action(async (cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const validProviders = ['openai', 'anthropic'] as const;
+        const provider = typeof cmdOpts?.provider === 'string' && (validProviders as readonly string[]).includes(cmdOpts.provider)
+          ? (cmdOpts.provider as 'openai' | 'anthropic')
+          : undefined;
+
+        const result = await engine.generateSimulate({
+          graphId: String(cmdOpts?.graphId || ''),
+          steps: cmdOpts?.steps ? parseInt(String(cmdOpts.steps), 10) : 3,
+          timeAdvanceMonths: cmdOpts?.months ? parseInt(String(cmdOpts.months), 10) : 12,
+          provider,
+          model: cmdOpts?.model as string | undefined,
+          dryRun: Boolean(cmdOpts?.dryRun),
+        });
+
+        const output = formatOutput(result, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: result.graphId,
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
   return program;
 }
 

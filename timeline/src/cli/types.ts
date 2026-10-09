@@ -188,6 +188,25 @@ export interface GenerateBranchOptions {
   dryRun?: boolean;
 }
 
+export interface GenerateExpandOptions {
+  graphId: string;
+  arcId?: string;
+  timeWindow?: string;
+  eventCount?: number;
+  provider?: 'openai' | 'anthropic';
+  model?: string;
+  dryRun?: boolean;
+}
+
+export interface GenerateSimulateOptions {
+  graphId: string;
+  steps?: number;
+  timeAdvanceMonths?: number;
+  provider?: 'openai' | 'anthropic';
+  model?: string;
+  dryRun?: boolean;
+}
+
 export interface GenerationResultDto {
   graphId: string;
   graphName: string;
