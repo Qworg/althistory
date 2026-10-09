@@ -11,8 +11,12 @@ import {
   GenerateBranchOptions,
   GenerationResultDto,
   ValidationReportDto,
-  ValidationIssueDto,
+  ExportResultDto,
+  ImportResultDto,
 } from '../types';
+import { GraphValidator } from '../validation/GraphValidator';
+import { GraphExporter } from '../export/GraphExporter';
+import { GraphImporter } from '../export/GraphImporter';
 import { loadConfig, initializeDatabaseManager } from '@/utils';
 import { initializeContainer, cleanupContainer, getContainer, Container } from '@/container';
 import { NotFoundErrorCLI, ValidationErrorCLI } from '../utils/exitCodes';
@@ -220,7 +224,7 @@ export class DirectEngine implements IEngine {
 
   async createEvent(
     graphId: string,
-    data: { description: string; timestamp: string; actor?: string; target?: string; importance?: number }
+    data: { description: string; timestamp: string; actor?: string; target?: string; importance?: number; metadata?: Record<string, unknown> }
   ): Promise<EventDto> {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
@@ -234,7 +238,7 @@ export class DirectEngine implements IEngine {
       timestamp: parsedDate,
       actor: data.actor || 'Unknown',
       target: data.target || 'None',
-      metadata: { importance: data.importance ?? 1 },
+      metadata: { importance: data.importance ?? 1, ...(data.metadata || {}) },
     });
 
     try {
@@ -448,7 +452,7 @@ export class DirectEngine implements IEngine {
 
     const rel: CausalRelationship = {
       weight: data.weight ?? 1.0,
-      evidence: data.reasoning || '',
+      evidence: data.reasoning || 'Observed historical causality',
       confidence: 1.0,
       relationship_type: (data.type as CausalRelationshipType) || 'direct',
     };
@@ -802,90 +806,44 @@ export class DirectEngine implements IEngine {
     return generator.generateSimulate(options, container);
   }
 
-  async validateGraph(graphId: string, _strict?: boolean, _autoRepair?: boolean): Promise<ValidationReportDto> {
+  async validateGraph(graphId: string, strict?: boolean, autoRepair?: boolean): Promise<ValidationReportDto> {
     const container = await this.getInitializedContainer();
+    const scoped = await container.graphScopedRepositories(graphId);
+    const validator = new GraphValidator();
+    return validator.validate(graphId, scoped, { strict, autoRepair });
+  }
+
+  async exportGraph(
+    graphId: string,
+    format: 'json' | 'markdown' | 'dot' = 'json',
+    outputPath?: string
+  ): Promise<ExportResultDto> {
+    const container = await this.getInitializedContainer();
+    const graph = await container.graphRepository.findById(graphId);
     const scoped = await container.graphScopedRepositories(graphId);
     const events = await scoped.eventRepository.findAll();
     const arcs = await scoped.arcRepository.findAll();
     const rels = await scoped.causalService.getAllRelationships();
 
-    const issues: ValidationIssueDto[] = [];
-
-    // 1. Check causal order: cause < effect
-    const eventMap = new Map<string, Event>(events.map((e) => [e.id, e]));
-    for (const r of rels) {
-      const cause = eventMap.get(r.cause_event_id);
-      const effect = eventMap.get(r.effect_event_id);
-      if (!cause || !effect) {
-        issues.push({
-          type: 'orphan_reference',
-          severity: 'error',
-          message: `Causal relationship ${r.id} references non-existent event (${!cause ? r.cause_event_id : r.effect_event_id})`,
-          entityId: r.id,
-          entityType: 'relationship',
-        });
-        continue;
-      }
-      if (cause.timestamp.getTime() >= effect.timestamp.getTime()) {
-        issues.push({
-          type: 'causal_direction',
-          severity: 'error',
-          message: `Cause "${cause.description}" (${cause.timestamp.toISOString()}) occurs at or after effect "${effect.description}" (${effect.timestamp.toISOString()})`,
-          entityId: r.id,
-          entityType: 'relationship',
-        });
-      }
-    }
-
-    // 2. Check arc boundaries
-    for (const arc of arcs) {
-      if (arc.start_time.getTime() > arc.end_time.getTime()) {
-        issues.push({
-          type: 'temporal',
-          severity: 'error',
-          message: `Arc "${arc.name}" has start time after end time`,
-          entityId: arc.id,
-          entityType: 'arc',
-        });
-      }
-    }
-
-    const errors = issues.filter((i) => i.severity === 'error');
-    const warnings = issues.filter((i) => i.severity === 'warning');
-
-    return {
-      valid: errors.length === 0,
+    const exporter = new GraphExporter();
+    return exporter.export(
       graphId,
-      errorCount: errors.length,
-      warningCount: warnings.length,
-      issues,
-    };
+      graph?.name || graphId,
+      graph?.description,
+      events,
+      arcs,
+      rels,
+      format,
+      outputPath
+    );
   }
 
-  async exportGraph(graphId: string, format: string): Promise<string> {
+  async importGraph(
+    contentOrPath: string,
+    options?: { strategy?: 'skip' | 'overwrite' | 'rename'; graphId?: string }
+  ): Promise<ImportResultDto> {
     const container = await this.getInitializedContainer();
-    const scoped = await container.graphScopedRepositories(graphId);
-    const events = await scoped.eventRepository.findAll();
-    const arcs = await scoped.arcRepository.findAll();
-    const rels = await scoped.causalService.getAllRelationships();
-
-    if (format === 'json') {
-      return JSON.stringify({ graphId, events, arcs, causalRelationships: rels }, null, 2);
-    }
-
-    if (format === 'markdown') {
-      let md = `# Timeline: Graph ${graphId}\n\n`;
-      md += `| Date | Event | Actor | Target |\n| :--- | :--- | :--- | :--- |\n`;
-      for (const e of events.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())) {
-        md += `| ${e.timestamp.toISOString().split('T')[0]} | ${e.description} | ${e.actor} | ${e.target} |\n`;
-      }
-      return md;
-    }
-
-    return JSON.stringify({ events, arcs, rels });
-  }
-
-  async importGraph(_content: string, _options?: { strategy?: 'skip' | 'overwrite' | 'rename' }): Promise<{ success: boolean; count: number }> {
-    return { success: true, count: 0 };
+    const importer = new GraphImporter();
+    return importer.import(contentOrPath, container, options);
   }
 }

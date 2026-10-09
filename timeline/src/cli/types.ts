@@ -114,6 +114,30 @@ export interface ValidationReportDto {
   repairsApplied?: string[];
 }
 
+export interface ExportResultDto {
+  graphId: string;
+  format: 'json' | 'markdown' | 'dot';
+  content?: string;
+  outputPath?: string;
+  bytesWritten?: number;
+}
+
+export interface ImportResultDto {
+  graphId: string;
+  imported: {
+    events: number;
+    arcs: number;
+    relationships: number;
+  };
+  skipped: {
+    events: number;
+    arcs: number;
+    relationships: number;
+  };
+  conflicts: number;
+  strategy: 'skip' | 'overwrite' | 'rename';
+}
+
 export interface IngestTextOptions {
   mode?: 'pattern' | 'llm' | 'hybrid';
   provider?: 'openai' | 'anthropic';

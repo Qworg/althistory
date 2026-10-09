@@ -887,6 +887,120 @@ export function createProgram(): Command {
       }
     });
 
+  // --- Validation Command ---
+  program
+    .command('validate <graphId>')
+    .description('Validate graph temporal, containment, and causal integrity')
+    .option('--strict', 'Treat warnings as validation failures')
+    .option('--auto-repair', 'Automatically repair detected issues')
+    .action(async (graphId: string, cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const report = await engine.validateGraph(
+          graphId,
+          Boolean(cmdOpts?.strict),
+          Boolean(cmdOpts?.autoRepair)
+        );
+
+        const output = formatOutput(report, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId,
+        });
+        process.stdout.write(output + '\n');
+
+        if (!report.valid) {
+          process.exitCode = ExitCode.VALIDATION_FAILED;
+        }
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  // --- Export Command ---
+  program
+    .command('export <graphId>')
+    .description('Export graph data to JSON, Markdown, or Graphviz DOT')
+    .option('-f, --format <format>', 'Export format: json, markdown, or dot', 'json')
+    .option('-o, --output <path>', 'Output file path')
+    .action(async (graphId: string, cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const validFormats = ['json', 'markdown', 'dot'] as const;
+        const requestedFormat = typeof cmdOpts?.format === 'string' && (validFormats as readonly string[]).includes(cmdOpts.format)
+          ? (cmdOpts.format as 'json' | 'markdown' | 'dot')
+          : 'json';
+
+        const result = await engine.exportGraph(
+          graphId,
+          requestedFormat,
+          cmdOpts?.output as string | undefined
+        );
+
+        if (cmdOpts?.output) {
+          const output = formatOutput(
+            {
+              graphId,
+              format: result.format,
+              outputPath: result.outputPath,
+              bytesWritten: result.bytesWritten,
+            },
+            getFormat(opts),
+            engine.mode,
+            { durationMs: Date.now() - start, graphId }
+          );
+          process.stdout.write(output + '\n');
+        } else if (getFormat(opts) === 'json') {
+          const output = formatOutput(result, 'json', engine.mode, {
+            durationMs: Date.now() - start,
+            graphId,
+          });
+          process.stdout.write(output + '\n');
+        } else {
+          process.stdout.write((result.content || '') + '\n');
+        }
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  // --- Import Command ---
+  program
+    .command('import <source>')
+    .description('Import graph data from JSON file or string')
+    .option('-s, --strategy <strategy>', 'Conflict strategy: skip, overwrite, or rename', 'skip')
+    .option('-g, --graph-id <id>', 'Target graph ID')
+    .action(async (source: string, cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const validStrategies = ['skip', 'overwrite', 'rename'] as const;
+        const strategy = typeof cmdOpts?.strategy === 'string' && (validStrategies as readonly string[]).includes(cmdOpts.strategy)
+          ? (cmdOpts.strategy as 'skip' | 'overwrite' | 'rename')
+          : 'skip';
+
+        const result = await engine.importGraph(source, {
+          strategy,
+          graphId: cmdOpts?.graphId as string | undefined,
+        });
+
+        const output = formatOutput(result, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: result.graphId,
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
   return program;
 }
 
@@ -902,8 +1016,9 @@ export async function runCLI(args: string[] = process.argv): Promise<number> {
   const program = createProgram();
 
   try {
+    process.exitCode = undefined;
     await program.parseAsync(args);
-    return ExitCode.SUCCESS;
+    return process.exitCode || ExitCode.SUCCESS;
   } catch (err: unknown) {
     const isJson = args.includes('-j') || args.includes('--json') || (!args.includes('--plain') && !args.includes('--markdown'));
     const cliErr = err instanceof CLIError ? err : new CLIError((err as Error).message, ExitCode.GENERAL_ERROR);

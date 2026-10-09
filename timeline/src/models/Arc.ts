@@ -190,6 +190,7 @@ export class Arc implements IArc {
  * Interface for creating new arcs
  */
 export interface CreateArcRequest {
+  id?: string;
   name: string;
   description?: string;
   start_time: Date;
