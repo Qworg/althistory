@@ -179,6 +179,17 @@ export class RemoteEngine implements IEngine {
     }
   }
 
+  async diffGraph(sourceId: string, targetId: string): Promise<Record<string, unknown>> {
+    try {
+      const res = await this.client.get('/api/graphs/diff', {
+        params: { sourceId, targetId },
+      });
+      return res.data;
+    } catch (err) {
+      return this.handleError(err, `diffing graphs ${sourceId} vs ${targetId}`);
+    }
+  }
+
   async rollbackGraph(id: string, version: string): Promise<{ success: boolean; currentVersion: string }> {
     try {
       const res = await this.client.post(`/api/graphs/${id}/rollback/${version}`);
@@ -341,6 +352,32 @@ export class RemoteEngine implements IEngine {
     }
   }
 
+  async getArc(graphId: string, arcId: string): Promise<ArcDto> {
+    try {
+      const res = await this.client.get(`/api/arcs/${arcId}`, { params: { graphId } });
+      const a = res.data?.arc || res.data;
+      return {
+        id: String(a.id),
+        graphId,
+        name: String(a.name),
+        description: a.description ? String(a.description) : undefined,
+        startTime: String(a.startTime || a.start_time),
+        endTime: String(a.endTime || a.end_time),
+        parentArcId: a.parentArcId ? String(a.parentArcId) : undefined,
+      };
+    } catch (err) {
+      return this.handleError(err, `getting arc ${arcId}`);
+    }
+  }
+
+  async deleteArc(graphId: string, arcId: string): Promise<void> {
+    try {
+      await this.client.delete(`/api/arcs/${arcId}`, { params: { graphId } });
+    } catch (err) {
+      return this.handleError(err, `deleting arc ${arcId}`);
+    }
+  }
+
   async createCausalLink(
     graphId: string,
     data: { causeId: string; effectId: string; weight?: number; type?: string; reasoning?: string }
@@ -382,6 +419,16 @@ export class RemoteEngine implements IEngine {
       }));
     } catch (err) {
       return this.handleError(err, 'listing causal relationships');
+    }
+  }
+
+  async deleteCausalLink(graphId: string, causeId: string, effectId: string): Promise<void> {
+    try {
+      await this.client.delete('/api/causal/links', {
+        params: { graphId, causeId, effectId },
+      });
+    } catch (err) {
+      return this.handleError(err, 'deleting causal link');
     }
   }
 
