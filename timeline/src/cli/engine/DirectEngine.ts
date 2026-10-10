@@ -168,6 +168,41 @@ export class DirectEngine implements IEngine {
     };
   }
 
+  async diffGraph(sourceId: string, targetId: string): Promise<Record<string, unknown>> {
+    const container = await this.getInitializedContainer();
+    const sourceData = await container.graphRepository.checkout(sourceId);
+    const targetData = await container.graphRepository.checkout(targetId);
+
+    const sourceEvents = Object.keys(sourceData.events);
+    const targetEvents = Object.keys(targetData.events);
+    const addedEvents = targetEvents.filter((id) => !sourceData.events[id]);
+    const deletedEvents = sourceEvents.filter((id) => !targetData.events[id]);
+    const modifiedEvents = targetEvents.filter(
+      (id) => sourceData.events[id] && JSON.stringify(sourceData.events[id]) !== JSON.stringify(targetData.events[id])
+    );
+
+    return {
+      sourceGraphId: sourceId,
+      targetGraphId: targetId,
+      events: {
+        added: addedEvents.length,
+        modified: modifiedEvents.length,
+        deleted: deletedEvents.length,
+        addedIds: addedEvents,
+        deletedIds: deletedEvents,
+        modifiedIds: modifiedEvents,
+      },
+      arcs: {
+        added: Object.keys(targetData.arcs).filter((id) => !sourceData.arcs[id]).length,
+        deleted: Object.keys(sourceData.arcs).filter((id) => !targetData.arcs[id]).length,
+      },
+      relationships: {
+        added: Object.keys(targetData.relationships).filter((id) => !sourceData.relationships[id]).length,
+        deleted: Object.keys(sourceData.relationships).filter((id) => !targetData.relationships[id]).length,
+      },
+    };
+  }
+
   async rollbackGraph(id: string, version: string): Promise<{ success: boolean; currentVersion: string }> {
     const container = await this.getInitializedContainer();
     const versionNum = parseInt(version, 10) || 0;
@@ -365,6 +400,33 @@ export class DirectEngine implements IEngine {
     }));
   }
 
+  async getArc(graphId: string, arcId: string): Promise<ArcDto> {
+    const container = await this.getInitializedContainer();
+    const scoped = await container.graphScopedRepositories(graphId);
+    const arc = await scoped.arcRepository.findById(arcId);
+    if (!arc) {
+      throw new NotFoundErrorCLI(`Arc not found: ${arcId} in graph ${graphId}`);
+    }
+    return {
+      id: arc.id,
+      graphId,
+      name: arc.name,
+      description: arc.description,
+      startTime: arc.start_time.toISOString(),
+      endTime: arc.end_time.toISOString(),
+      parentArcId: (arc.metadata?.parentArcId as string) || undefined,
+    };
+  }
+
+  async deleteArc(graphId: string, arcId: string): Promise<void> {
+    const container = await this.getInitializedContainer();
+    const scoped = await container.graphScopedRepositories(graphId);
+    const deleted = await scoped.arcRepository.delete(arcId);
+    if (!deleted) {
+      throw new NotFoundErrorCLI(`Arc not found: ${arcId} in graph ${graphId}`);
+    }
+  }
+
   async createCausalLink(
     graphId: string,
     data: { causeId: string; effectId: string; weight?: number; type?: string; reasoning?: string }
@@ -425,17 +487,55 @@ export class DirectEngine implements IEngine {
     }));
   }
 
+  async deleteCausalLink(graphId: string, causeId: string, effectId: string): Promise<void> {
+    const container = await this.getInitializedContainer();
+    const scoped = await container.graphScopedRepositories(graphId);
+    await scoped.causalService.deleteCausalLink(causeId, effectId);
+  }
+
   async findCausalPaths(graphId: string, fromId: string, toId: string): Promise<{ paths: string[][]; count: number }> {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
     const fromEvent = await scoped.eventRepository.findById(fromId);
     if (!fromEvent) throw new NotFoundErrorCLI(`Event not found: ${fromId}`);
+    const toEvent = await scoped.eventRepository.findById(toId);
+    if (!toEvent) throw new NotFoundErrorCLI(`Event not found: ${toId}`);
 
-    const paths = await scoped.causalService.findCausalChain(fromEvent, 6);
-    const matching = paths.filter((p) => p.events[p.events.length - 1] === toId);
+    const rels = await scoped.causalService.getAllRelationships();
+    const adj = new Map<string, string[]>();
+    for (const r of rels) {
+      const existing = adj.get(r.cause_event_id) || [];
+      existing.push(r.effect_event_id);
+      adj.set(r.cause_event_id, existing);
+    }
+
+    const paths: string[][] = [];
+    const maxDepth = 10;
+
+    const dfs = (curr: string, currentPath: string[], visited: Set<string>) => {
+      if (curr === toId) {
+        paths.push([...currentPath]);
+        return;
+      }
+      if (currentPath.length >= maxDepth) return;
+
+      const neighbors = adj.get(curr) || [];
+      for (const next of neighbors) {
+        if (!visited.has(next)) {
+          visited.add(next);
+          currentPath.push(next);
+          dfs(next, currentPath, visited);
+          currentPath.pop();
+          visited.delete(next);
+        }
+      }
+    };
+
+    dfs(fromId, [fromId], new Set([fromId]));
+
     return {
-      paths: matching.map((p) => p.events),
-      count: matching.length,
+      paths,
+      count: paths.length,
     };
   }
 

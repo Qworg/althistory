@@ -118,6 +118,444 @@ export function createProgram(): Command {
       }
     });
 
+  graphCmd
+    .command('branch <id> <name>')
+    .description('Branch an existing history graph')
+    .action(async (id: string, name: string) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const branched = await engine.branchGraph(id, name);
+        const output = formatOutput(branched, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: branched.id,
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  graphCmd
+    .command('merge <sourceId> <targetId>')
+    .description('Merge changes from source graph into target graph')
+    .option('--strategy <strategy>', 'Conflict resolution strategy: keep-source or keep-target', 'keep-source')
+    .action(async (sourceId: string, targetId: string, cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const res = await engine.mergeGraph(sourceId, targetId, cmdOpts?.strategy as string | undefined);
+        const output = formatOutput(res, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: targetId,
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  graphCmd
+    .command('diff <sourceId> <targetId>')
+    .description('Compute entity diff between two history graphs')
+    .action(async (sourceId: string, targetId: string) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const diff = await engine.diffGraph(sourceId, targetId);
+        const output = formatOutput(diff, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  graphCmd
+    .command('rollback <id> <version>')
+    .description('Roll back graph to a previous version')
+    .action(async (id: string, version: string) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const res = await engine.rollbackGraph(id, version);
+        const output = formatOutput(res, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: id,
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  graphCmd
+    .command('delete <id>')
+    .description('Permanently delete a graph and its timeline contents')
+    .action(async (id: string) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        await engine.deleteGraph(id);
+        const output = formatOutput({ success: true, deleted: id }, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: id,
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  // --- Event Commands (Phase 4) ---
+  const eventCmd = program.command('event').description('Manage historical events within a timeline graph');
+
+  eventCmd
+    .command('add [description]')
+    .description('Add a new historical event to a graph')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .requiredOption('-t, --timestamp <iso>', 'Event occurrence timestamp (ISO-8601)')
+    .requiredOption('-a, --actor <actor>', 'Primary actor or entity')
+    .requiredOption('--target <target>', 'Target actor or entity')
+    .option('-d, --desc <description>', 'Event description')
+    .option('--importance <val>', 'Significance weighting (0 to 1)', '1')
+    .action(async (inlineDesc?: string, cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const desc = inlineDesc || (cmdOpts?.desc as string) || '';
+        if (!desc.trim()) {
+          throw new CLIError('Description is required', ExitCode.VALIDATION_FAILED);
+        }
+        const event = await engine.createEvent(String(cmdOpts?.graphId), {
+          description: desc,
+          timestamp: String(cmdOpts?.timestamp),
+          actor: String(cmdOpts?.actor),
+          target: String(cmdOpts?.target),
+          importance: cmdOpts?.importance ? parseFloat(String(cmdOpts.importance)) : 1,
+        });
+        const output = formatOutput(event, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  eventCmd
+    .command('list')
+    .description('List events in a graph with optional filtering')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .option('-a, --actor <actor>', 'Filter events by actor name')
+    .option('--from <iso>', 'Filter events on or after timestamp')
+    .option('--to <iso>', 'Filter events on or before timestamp')
+    .action(async (cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const events = await engine.listEvents(String(cmdOpts?.graphId), {
+          actor: cmdOpts?.actor as string | undefined,
+          from: cmdOpts?.from as string | undefined,
+          to: cmdOpts?.to as string | undefined,
+        });
+        const output = formatOutput(events, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  eventCmd
+    .command('get <id>')
+    .description('Get an event by ID')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .action(async (id: string, cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const event = await engine.getEvent(String(cmdOpts?.graphId), id);
+        const output = formatOutput(event, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  eventCmd
+    .command('update <id>')
+    .description('Update an existing event')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .option('-d, --description <desc>', 'New description')
+    .option('-t, --timestamp <iso>', 'New timestamp (ISO-8601)')
+    .option('-a, --actor <actor>', 'New actor')
+    .option('--target <target>', 'New target')
+    .action(async (id: string, cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const updated = await engine.updateEvent(String(cmdOpts?.graphId), id, {
+          description: cmdOpts?.description as string | undefined,
+          timestamp: cmdOpts?.timestamp as string | undefined,
+          actor: cmdOpts?.actor as string | undefined,
+          target: cmdOpts?.target as string | undefined,
+        });
+        const output = formatOutput(updated, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  eventCmd
+    .command('delete <id>')
+    .description('Delete an event from a graph')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .action(async (id: string, cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        await engine.deleteEvent(String(cmdOpts?.graphId), id);
+        const output = formatOutput({ success: true, deleted: id }, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  // --- Arc Commands (Phase 4) ---
+  const arcCmd = program.command('arc').description('Manage narrative and thematic arcs');
+
+  arcCmd
+    .command('create <name>')
+    .description('Create a new narrative arc in a graph')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .requiredOption('-s, --start <iso>', 'Arc start timestamp (ISO-8601)')
+    .requiredOption('-e, --end <iso>', 'Arc end timestamp (ISO-8601)')
+    .option('-d, --description <desc>', 'Arc narrative description')
+    .option('-p, --parent <parentArcId>', 'Parent arc ID for hierarchical nesting')
+    .action(async (name: string, cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const arc = await engine.createArc(String(cmdOpts?.graphId), {
+          name,
+          startTime: String(cmdOpts?.start),
+          endTime: String(cmdOpts?.end),
+          description: cmdOpts?.description as string | undefined,
+          parentArcId: cmdOpts?.parent as string | undefined,
+        });
+        const output = formatOutput(arc, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  arcCmd
+    .command('list')
+    .description('List all arcs in a graph')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .action(async (cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const arcs = await engine.listArcs(String(cmdOpts?.graphId));
+        const output = formatOutput(arcs, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  arcCmd
+    .command('get <id>')
+    .description('Get an arc by ID')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .action(async (id: string, cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const arc = await engine.getArc(String(cmdOpts?.graphId), id);
+        const output = formatOutput(arc, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  arcCmd
+    .command('delete <id>')
+    .description('Delete an arc from a graph')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .action(async (id: string, cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        await engine.deleteArc(String(cmdOpts?.graphId), id);
+        const output = formatOutput({ success: true, deleted: id }, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  // --- Causal Commands (Phase 4) ---
+  const causalCmd = program.command('causal').description('Manage cause-and-effect relationships');
+
+  causalCmd
+    .command('link')
+    .description('Create a causal link between two events')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .requiredOption('-c, --cause <eventId>', 'Cause event ID')
+    .requiredOption('-e, --effect <eventId>', 'Effect event ID')
+    .option('-w, --weight <weight>', 'Causal weight (0 to 1)', '1')
+    .option('-t, --type <type>', 'Relationship type: direct, indirect, contributory', 'direct')
+    .option('-r, --reasoning <text>', 'Historical or causal reasoning')
+    .action(async (cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const link = await engine.createCausalLink(String(cmdOpts?.graphId), {
+          causeId: String(cmdOpts?.cause),
+          effectId: String(cmdOpts?.effect),
+          weight: cmdOpts?.weight ? parseFloat(String(cmdOpts.weight)) : 1.0,
+          type: (cmdOpts?.type as string) || 'direct',
+          reasoning: cmdOpts?.reasoning as string | undefined,
+        });
+        const output = formatOutput(link, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  causalCmd
+    .command('unlink')
+    .description('Remove a causal link between two events')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .requiredOption('-c, --cause <eventId>', 'Cause event ID')
+    .requiredOption('-e, --effect <eventId>', 'Effect event ID')
+    .action(async (cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        await engine.deleteCausalLink(String(cmdOpts?.graphId), String(cmdOpts?.cause), String(cmdOpts?.effect));
+        const output = formatOutput({ success: true, unlinked: { cause: cmdOpts?.cause, effect: cmdOpts?.effect } }, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  causalCmd
+    .command('list')
+    .description('List all causal relationships in a graph')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .action(async (cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const rels = await engine.listCausalLinks(String(cmdOpts?.graphId));
+        const output = formatOutput(rels, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  causalCmd
+    .command('paths')
+    .description('Find all causal pathways between two events')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .requiredOption('--from <eventId>', 'Starting cause event ID')
+    .requiredOption('--to <eventId>', 'Target effect event ID')
+    .action(async (cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const res = await engine.findCausalPaths(String(cmdOpts?.graphId), String(cmdOpts?.from), String(cmdOpts?.to));
+        const output = formatOutput(res, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: String(cmdOpts?.graphId),
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
   // --- Ingestion Commands ---
   const ingestCmd = program.command('ingest').description('Ingest historical events from text or web sources');
 

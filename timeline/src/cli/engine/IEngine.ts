@@ -29,6 +29,7 @@ export interface IEngine {
   getGraph(id: string): Promise<GraphSummaryDto>;
   branchGraph(id: string, name: string): Promise<GraphSummaryDto>;
   mergeGraph(sourceId: string, targetId: string, strategy?: string): Promise<{ success: boolean; version?: string }>;
+  diffGraph(sourceId: string, targetId: string): Promise<Record<string, unknown>>;
   rollbackGraph(id: string, version: string): Promise<{ success: boolean; currentVersion: string }>;
   deleteGraph(id: string): Promise<void>;
 
@@ -42,10 +43,13 @@ export interface IEngine {
   // Arc CRUD
   createArc(graphId: string, data: { name: string; startTime: string; endTime: string; description?: string; parentArcId?: string }): Promise<ArcDto>;
   listArcs(graphId: string): Promise<ArcDto[]>;
+  getArc(graphId: string, arcId: string): Promise<ArcDto>;
+  deleteArc(graphId: string, arcId: string): Promise<void>;
 
   // Causal Relationships
   createCausalLink(graphId: string, data: { causeId: string; effectId: string; weight?: number; type?: string; reasoning?: string }): Promise<CausalRelationshipDto>;
   listCausalLinks(graphId: string): Promise<CausalRelationshipDto[]>;
+  deleteCausalLink(graphId: string, causeId: string, effectId: string): Promise<void>;
   findCausalPaths(graphId: string, fromId: string, toId: string): Promise<{ paths: string[][]; count: number }>;
 
   // Ingestion & Generation
