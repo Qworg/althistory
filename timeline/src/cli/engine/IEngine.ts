@@ -14,6 +14,8 @@ import {
   GenerateSimulateOptions,
   GenerationResultDto,
   ValidationReportDto,
+  ExportResultDto,
+  ImportResultDto,
 } from '../types';
 
 export interface IEngine {
@@ -34,7 +36,7 @@ export interface IEngine {
   deleteGraph(id: string): Promise<void>;
 
   // Event CRUD
-  createEvent(graphId: string, data: { description: string; timestamp: string; actor?: string; target?: string; importance?: number }): Promise<EventDto>;
+  createEvent(graphId: string, data: { description: string; timestamp: string; actor?: string; target?: string; importance?: number; metadata?: Record<string, unknown> }): Promise<EventDto>;
   listEvents(graphId: string, filters?: { actor?: string; from?: string; to?: string }): Promise<EventDto[]>;
   getEvent(graphId: string, eventId: string): Promise<EventDto>;
   updateEvent(graphId: string, eventId: string, data: Partial<{ description: string; timestamp: string; actor?: string; target?: string }>): Promise<EventDto>;
@@ -63,6 +65,6 @@ export interface IEngine {
 
   // Validation & Export
   validateGraph(graphId: string, strict?: boolean, autoRepair?: boolean): Promise<ValidationReportDto>;
-  exportGraph(graphId: string, format: string): Promise<string>;
-  importGraph(content: string, options?: { strategy?: 'skip' | 'overwrite' | 'rename' }): Promise<{ success: boolean; count: number }>;
+  exportGraph(graphId: string, format?: 'json' | 'markdown' | 'dot', outputPath?: string): Promise<ExportResultDto>;
+  importGraph(contentOrPath: string, options?: { strategy?: 'skip' | 'overwrite' | 'rename'; graphId?: string }): Promise<ImportResultDto>;
 }

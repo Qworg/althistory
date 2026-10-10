@@ -16,6 +16,8 @@ import {
   GenerateSimulateOptions,
   GenerationResultDto,
   ValidationReportDto,
+  ExportResultDto,
+  ImportResultDto,
 } from '../types';
 import {
   ConnectionErrorCLI,
@@ -212,7 +214,7 @@ export class RemoteEngine implements IEngine {
 
   async createEvent(
     graphId: string,
-    data: { description: string; timestamp: string; actor?: string; target?: string; importance?: number }
+    data: { description: string; timestamp: string; actor?: string; target?: string; importance?: number; metadata?: Record<string, unknown> }
   ): Promise<EventDto> {
     try {
       const res = await this.client.post('/api/events', {
@@ -531,24 +533,56 @@ export class RemoteEngine implements IEngine {
     }
   }
 
-  async exportGraph(graphId: string, format: string): Promise<string> {
+  async exportGraph(
+    graphId: string,
+    format: 'json' | 'markdown' | 'dot' = 'json',
+    outputPath?: string
+  ): Promise<ExportResultDto> {
     try {
       const res = await this.client.get('/api/export', {
         params: { graphId, format },
       });
-      return typeof res.data === 'string' ? res.data : JSON.stringify(res.data, null, 2);
+      const content = typeof res.data === 'string' ? res.data : JSON.stringify(res.data, null, 2);
+      if (outputPath) {
+        const fs = await import('fs');
+        const path = await import('path');
+        const resolvedPath = path.resolve(outputPath);
+        await fs.promises.mkdir(path.dirname(resolvedPath), { recursive: true });
+        await fs.promises.writeFile(resolvedPath, content, 'utf8');
+      }
+      return {
+        graphId,
+        format,
+        content,
+        outputPath: outputPath ? (await import('path')).resolve(outputPath) : undefined,
+      };
     } catch (err) {
       return this.handleError(err, 'exporting graph');
     }
   }
 
-  async importGraph(content: string, options?: { strategy?: 'skip' | 'overwrite' | 'rename' }): Promise<{ success: boolean; count: number }> {
+  async importGraph(
+    contentOrPath: string,
+    options?: { strategy?: 'skip' | 'overwrite' | 'rename'; graphId?: string }
+  ): Promise<ImportResultDto> {
     try {
+      const fs = await import('fs');
+      let content = contentOrPath;
+      if (fs.existsSync(contentOrPath)) {
+        content = await fs.promises.readFile(contentOrPath, 'utf8');
+      }
       const res = await this.client.post('/api/import', {
         data: JSON.parse(content),
         strategy: options?.strategy,
+        graphId: options?.graphId,
       });
-      return { success: true, count: res.data?.importedCount || 0 };
+      return {
+        graphId: res.data?.graphId || options?.graphId || 'imported',
+        imported: res.data?.imported || { events: 0, arcs: 0, relationships: 0 },
+        skipped: res.data?.skipped || { events: 0, arcs: 0, relationships: 0 },
+        conflicts: res.data?.conflicts || 0,
+        strategy: options?.strategy || 'skip',
+      };
     } catch (err) {
       return this.handleError(err, 'importing graph');
     }
