@@ -1,0 +1,38 @@
+{
+  "name": "althistory",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hierarchical Temporal Graph & Alternate History Platform with Agent-First CLI and Web Interface",
+  "workspaces": [
+    "timeline",
+    "frontend"
+  ],
+  "bin": {
+    "althistory": "./bin/althistory"
+  },
+  "scripts": {
+    "dev": "./start-local.sh",
+    "dev:tailscale": "./start-local.sh --tailscale",
+    "build": "npm run build --workspace=timeline && npm run build --workspace=frontend",
+    "build:timeline": "npm run build --workspace=timeline",
+    "build:frontend": "npm run build --workspace=frontend",
+    "test": "./run-tests.sh",
+    "test:unit": "npm test --workspace=timeline && npm test --workspace=frontend",
+    "test:cli": "npm test --workspace=timeline -- src/cli/",
+    "lint": "npm run lint --workspace=timeline && npm run lint --workspace=frontend",
+    "lint:fix": "npm run lint:fix --workspace=timeline",
+    "format": "npm run format --workspace=timeline",
+    "format:check": "npm run format:check --workspace=timeline",
+    "cli": "./bin/althistory"
+  },
+  "keywords": [
+    "temporal-graph",
+    "alternate-history",
+    "causal-inference",
+    "mcp",
+    "agentic-ai",
+    "timeline"
+  ],
+  "author": "Althistory Contributors",
+  "license": "MIT"
+}

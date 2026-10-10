@@ -2,6 +2,9 @@
   "name": "temporal-graph-backend",
   "version": "1.0.0",
   "description": "Backend API server for the Hierarchical Temporal Graph system",
+  "bin": {
+    "althistory": "../bin/althistory"
+  },
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/index.ts",
     "build": "tsc",

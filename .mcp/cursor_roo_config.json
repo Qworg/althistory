@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "althistory": {
+      "command": "node",
+      "args": [
+        "-r",
+        "tsconfig-paths/register",
+        "timeline/src/cli/index.ts",
+        "mcp"
+      ],
+      "env": {
+        "LOCAL_EXECUTION_ENABLED": "true",
+        "LOCAL_DATA_DIR": "timeline/data"
+      }
+    }
+  }
+}
