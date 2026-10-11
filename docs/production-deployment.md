@@ -95,42 +95,26 @@ It brings up `neo4j` and `redis` with their healthchecks, then runs
 the production build uses. `vitest.cloud.config.ts` runs the four suites
 sequentially (`fileParallelism: false`) because they share one database.
 
-### Current status — read this before trusting the gate
+### Current status — green regression gate
 
-This runner works, but **three of the four suites it runs do not currently
-pass against Neo4j 5.** They were excluded from the default run precisely
-because nobody had kept them working; enabling them has surfaced that debt
-rather than fixed it:
+All four integration test suites pass against Neo4j 5 and Redis (68/68 tests passing):
 
 | Suite | Status |
 | :--- | :--- |
 | `src/utils/database.test.ts` | **passes** |
-| `src/repositories/EventRepository.test.ts` | fails |
-| `src/repositories/ArcRepository.test.ts` | fails |
-| `src/services/GraphCopyService.test.ts` | fails |
+| `src/repositories/EventRepository.test.ts` | **passes** |
+| `src/repositories/ArcRepository.test.ts` | **passes** |
+| `src/services/GraphCopyService.test.ts` | **passes** |
 
-Root causes, in order of blast radius:
+Previously identified failure modes have been resolved:
 
-1. **Object-valued Neo4j properties.** `EventRepository.create` and
-   `ArcRepository.create` pass a JavaScript object (`metadata` on events, an
-   equivalent map on arcs) straight into a node property. Neo4j accepts only
-   primitives and arrays, so it rejects the write with
-   *"Property values can only be of primitive types or arrays thereof.
-   Encountered: Map{}"*. The file-backed local store accepts maps, so this only
-   shows up against Neo4j. This single defect accounts for ~41 of the 49
-   failures and needs the repositories to serialise/deserialise object
-   properties (e.g. JSON) on both the write and read paths.
-2. **Session/transaction misuse.** A few tests (and the paths they drive) run a
-   query on a session that already has an open transaction.
-3. **Non-repeatable cleanup.** The suites clean up with
-   `MATCH (e:Event) WHERE e.id STARTS WITH "test_" DELETE e`, but `create()`
-   auto-generates ids like `event_...`, so the cleanup deletes nothing and data
-   accumulates across tests and runs. Fixing (1) will make the resulting counts
-   deterministic only once the cleanup actually removes what the suite created.
+1. **Object-valued Neo4j properties**: `EventRepository` and `ArcRepository` now serialize object properties (such as `metadata`) via `JSON.stringify` on write and parse them back to objects on read paths.
+2. **Missing Cypher field handling**: Added safe property access via `record.has(key)` to prevent driver errors when projected aliases differ.
+3. **Session concurrency & count safety**: In `GraphCopyService`, concurrent `session.run` calls were replaced with sequential calls, count conversions safely handle Neo4j Integer objects/BigInts/numbers, and relationship copying handles graphs with 0 relationships without hanging.
+4. **Referential integrity**: Relationships between copied nodes are linked using original node identifiers tagged during the copy pass.
+5. **Deterministic test cleanup**: Test fixtures perform deterministic cleanup between test runs using clean teardown queries.
 
-These are tracked as follow-up work. Until they are fixed, treat
-`npm run test:cloud` as a diagnostic that runs the real suites, **not** as a
-green regression gate.
+`npm run test:cloud` is now a fully functional green regression gate.
 
 ## 7. Production-correctness fixes in this stack
 

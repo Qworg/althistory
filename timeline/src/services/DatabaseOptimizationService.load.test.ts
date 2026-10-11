@@ -345,7 +345,7 @@ describe('Database Optimization Load Tests', () => {
           actor: event.actor,
           target: event.target,
           timestamp: event.timestamp.toISOString(),
-          metadata: event.metadata || {}
+          metadata: JSON.stringify(event.metadata || {})
         }))
       };
 
@@ -381,7 +381,7 @@ describe('Database Optimization Load Tests', () => {
           start_time: arc.start_time.toISOString(),
           end_time: arc.end_time.toISOString(),
           level: arc.level,
-          metadata: arc.metadata || {}
+          metadata: JSON.stringify(arc.metadata || {})
         }))
       };
 
@@ -397,10 +397,10 @@ describe('Database Optimization Load Tests', () => {
     
     try {
       // Delete test events
-      await session.run('MATCH (e:Event) WHERE e.id STARTS WITH "test-event-" DELETE e');
+      await session.run('MATCH (e:Event) WHERE e.id STARTS WITH "test-event-" DETACH DELETE e');
       
       // Delete test arcs
-      await session.run('MATCH (a:Arc) WHERE a.id STARTS WITH "test-arc-" DELETE a');
+      await session.run('MATCH (a:Arc) WHERE a.id STARTS WITH "test-arc-" DETACH DELETE a');
       
       console.log('Test data cleanup completed');
     } finally {

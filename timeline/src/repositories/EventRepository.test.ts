@@ -36,7 +36,7 @@ describe('EventRepository Integration Tests', () => {
     
     // Clean up existing test data
     const session = databaseManager.getNeo4jSession();
-    await session.run('MATCH (e:Event) WHERE e.id STARTS WITH "test_" DELETE e');
+    await session.run('MATCH (e:Event) DETACH DELETE e');
     await session.close();
   });
 
@@ -44,6 +44,9 @@ describe('EventRepository Integration Tests', () => {
     if (eventRepository) {
       await eventRepository.close();
     }
+    const session = databaseManager.getNeo4jSession();
+    await session.run('MATCH (e:Event) DETACH DELETE e');
+    await session.close();
     await databaseManager.close();
   });
 
@@ -295,7 +298,7 @@ describe('AdvancedEventRepository Integration Tests', () => {
     
     // Clean up and create test data
     const session = databaseManager.getNeo4jSession();
-    await session.run('MATCH (e:Event) WHERE e.id STARTS WITH "advanced_" DELETE e');
+    await session.run('MATCH (e:Event) DETACH DELETE e');
     await session.close();
 
     // Create test events for advanced search
@@ -331,6 +334,9 @@ describe('AdvancedEventRepository Integration Tests', () => {
     if (advancedRepository) {
       await advancedRepository.close();
     }
+    const session = databaseManager.getNeo4jSession();
+    await session.run('MATCH (e:Event) DETACH DELETE e');
+    await session.close();
     await databaseManager.close();
   });
 

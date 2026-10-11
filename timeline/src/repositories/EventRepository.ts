@@ -15,6 +15,7 @@ type AnySession = Session | LocalSession;
  */
 interface QueryRecord {
   get(key: string): unknown;
+  has(key: string): boolean;
 }
 
 /** Result set whose records expose {@link QueryRecord}. */
@@ -47,7 +48,7 @@ function isGraphNode(value: unknown): value is GraphNode {
 
 /** Reads a named column from a record. */
 function readField(record: QueryRecord, key: string): unknown {
-  return record.get(key);
+  return record.has(key) ? record.get(key) : undefined;
 }
 
 /** Reads a named column from the first record of a result set. */
@@ -106,6 +107,16 @@ function readOptionalString(value: unknown): string | undefined {
 function readMetadata(value: unknown, field: string): Record<string, unknown> {
   if (!value) {
     return {};
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (isPropertyBag(parsed)) {
+        return parsed;
+      }
+    } catch {
+      // Fall through to TypeError below
+    }
   }
   if (!isPropertyBag(value)) {
     throw new TypeError(`Record property "${field}" must be an object`);
@@ -173,7 +184,7 @@ export class EventRepository {
       actor: event.actor,
       target: event.target,
       timestamp: event.timestamp.toISOString(),
-      metadata: event.metadata || {}
+      metadata: JSON.stringify(event.metadata || {})
     };
 
     const session = this.getSession();
@@ -402,7 +413,7 @@ export class EventRepository {
       actor: updatedEvent.actor,
       target: updatedEvent.target,
       timestamp: updatedEvent.timestamp.toISOString(),
-      metadata: updatedEvent.metadata || {}
+      metadata: JSON.stringify(updatedEvent.metadata || {})
     };
 
     const session = this.getSession();

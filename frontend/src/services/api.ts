@@ -53,7 +53,8 @@ import {
   SimulationResult,
   GraphMergeRequest,
   GraphMergeResponse,
-  MergeConflict
+  MergeConflict,
+  MergeAnomaly
 } from '@/types'
 
 // API client configuration
