@@ -65,6 +65,23 @@ export interface CopyConfig {
   validateIntegrity: boolean;
 }
 
+function toNumericCount(val: unknown): number {
+  if (val === null || val === undefined) {
+    return 0;
+  }
+  if (typeof val === 'number') {
+    return val;
+  }
+  if (typeof val === 'bigint') {
+    return Number(val);
+  }
+  if (typeof val === 'object' && 'toNumber' in val && typeof (val as { toNumber: () => number }).toNumber === 'function') {
+    return (val as { toNumber: () => number }).toNumber();
+  }
+  const parsed = Number(val);
+  return isNaN(parsed) ? 0 : parsed;
+}
+
 /**
  * Service for managing graph duplication and subset operations
  */
@@ -278,6 +295,11 @@ export class GraphCopyService {
       const sourceNodeCounts = await this.getNodeCounts(copyResult.sourceGraphId);
       const targetNodeCounts = await this.getNodeCounts(copyResult.targetGraphId);
 
+      if (Object.keys(sourceNodeCounts).length === 0) {
+        report.missingNodes.push(`Source graph "${copyResult.sourceGraphId}" contains no nodes or does not exist`);
+        report.isValid = false;
+      }
+
       for (const [nodeType, sourceCount] of Object.entries(sourceNodeCounts)) {
         const targetCount = targetNodeCounts[nodeType] || 0;
         if (sourceCount !== targetCount) {
@@ -340,14 +362,12 @@ export class GraphCopyService {
     `;
 
     try {
-      const [nodeResult, relResult] = await Promise.all([
-        this.session.run(nodeQuery, { graphId }),
-        this.session.run(relQuery, { graphId })
-      ]);
+      const nodeResult = await this.session.run(nodeQuery, { graphId });
+      const relResult = await this.session.run(relQuery, { graphId });
 
       return {
-        nodes: nodeResult.records[0]?.get('totalNodes')?.toNumber() || 0,
-        relationships: relResult.records[0]?.get('totalRelationships')?.toNumber() || 0
+        nodes: toNumericCount(nodeResult.records[0]?.get('totalNodes')),
+        relationships: toNumericCount(relResult.records[0]?.get('totalRelationships'))
       };
     } catch (error) {
       throw new Error(`Failed to get total counts: ${error}`);
@@ -415,6 +435,18 @@ export class GraphCopyService {
     let offset = 0;
     const totalBatches = Math.ceil(totalCounts.relationships / config.batchSize);
 
+    if (totalCounts.relationships === 0 && config.progressCallback) {
+      config.progressCallback({
+        totalNodes: totalCounts.nodes,
+        copiedNodes: totalCounts.nodes,
+        totalRelationships: 0,
+        copiedRelationships: 0,
+        currentBatch: 1,
+        totalBatches: 1,
+        percentage: 100
+      });
+    }
+
     while (offset < totalCounts.relationships) {
       try {
         const batchResult = await this.copyRelationshipBatch(sourceGraphId, targetGraphId, config.batchSize, offset);
@@ -475,7 +507,10 @@ export class GraphCopyService {
              END as finalProps
         
         CALL apoc.create.node(nodeLabels, 
-          apoc.map.setKey(finalProps, 'graphId', $targetGraphId)) 
+          apoc.map.setKey(
+            apoc.map.setKey(finalProps, 'graphId', $targetGraphId),
+            '_sourceNodeId', id(n)
+          )) 
         YIELD node as newNode
         RETURN count(newNode) as created
       }
@@ -492,7 +527,7 @@ export class GraphCopyService {
 
     try {
       const result = await this.session.run(query, parameters);
-      const copiedCount = result.records[0]?.get('totalCreated')?.toNumber() || 0;
+      const copiedCount = toNumericCount(result.records[0]?.get('totalCreated'));
       return { copiedCount, errors: [] };
     } catch (error) {
       return { copiedCount: 0, errors: [`Node batch copy failed: ${error}`] };
@@ -520,9 +555,8 @@ export class GraphCopyService {
       WHERE newSource.graphId = $targetGraphId 
         AND newTarget.graphId = $targetGraphId
         AND (
-          (newSource.id = source.id AND newTarget.id = target.id) OR
-          (newSource.description = source.description AND newSource.actor = source.actor AND
-           newTarget.description = target.description AND newTarget.actor = target.actor)
+          (newSource._sourceNodeId = id(source) AND newTarget._sourceNodeId = id(target)) OR
+          (newSource.id = source.id AND newTarget.id = target.id)
         )
       
       CALL apoc.create.relationship(newSource, type(r), properties(r), newTarget)
@@ -539,7 +573,7 @@ export class GraphCopyService {
 
     try {
       const result = await this.session.run(query, parameters);
-      const copiedCount = result.records[0]?.get('totalCreated')?.toNumber() || 0;
+      const copiedCount = toNumericCount(result.records[0]?.get('totalCreated'));
       return { copiedCount, errors: [] };
     } catch (error) {
       return { copiedCount: 0, errors: [`Relationship batch copy failed: ${error}`] };
@@ -565,8 +599,7 @@ export class GraphCopyService {
       for (const record of result.records) {
         const label = record.get('label');
         const count = record.get('count');
-        const countValue = typeof count === 'object' && count.toNumber ? count.toNumber() : count;
-        counts[label] = countValue;
+        counts[label] = toNumericCount(count);
       }
       
       return counts;
@@ -593,8 +626,7 @@ export class GraphCopyService {
       for (const record of result.records) {
         const relType = record.get('relType');
         const count = record.get('count');
-        const countValue = typeof count === 'object' && count.toNumber ? count.toNumber() : count;
-        counts[relType] = countValue;
+        counts[relType] = toNumericCount(count);
       }
       
       return counts;
@@ -766,6 +798,18 @@ export class GraphCopyService {
     const relationshipIds = await this.getRelationshipsBetweenNodes(sourceGraphId, nodeIds);
     const totalBatches = Math.ceil(relationshipIds.length / config.batchSize);
 
+    if (relationshipIds.length === 0 && config.progressCallback) {
+      config.progressCallback({
+        totalNodes: nodeIds.length,
+        copiedNodes: nodeIds.length,
+        totalRelationships: 0,
+        copiedRelationships: 0,
+        currentBatch: 1,
+        totalBatches: 1,
+        percentage: 100
+      });
+    }
+
     while (offset < relationshipIds.length) {
       try {
         const batchRelIds = relationshipIds.slice(offset, offset + config.batchSize);
@@ -824,7 +868,10 @@ export class GraphCopyService {
              END as finalProps
         
         CALL apoc.create.node(nodeLabels, 
-          apoc.map.setKey(finalProps, 'graphId', $targetGraphId)) 
+          apoc.map.setKey(
+            apoc.map.setKey(finalProps, 'graphId', $targetGraphId),
+            '_sourceNodeId', id(n)
+          )) 
         YIELD node as newNode
         RETURN count(newNode) as created
       }
@@ -840,7 +887,7 @@ export class GraphCopyService {
 
     try {
       const result = await this.session.run(query, parameters);
-      const copiedCount = result.records[0]?.get('totalCreated')?.toNumber() || 0;
+      const copiedCount = toNumericCount(result.records[0]?.get('totalCreated'));
       return { copiedCount, errors: [] };
     } catch (error) {
       return { copiedCount: 0, errors: [`Node batch copy by IDs failed: ${error}`] };
@@ -885,8 +932,10 @@ export class GraphCopyService {
       MATCH (newSource), (newTarget)
       WHERE newSource.graphId = $targetGraphId 
         AND newTarget.graphId = $targetGraphId
-        AND newSource.id = source.id 
-        AND newTarget.id = target.id
+        AND (
+          (newSource._sourceNodeId = id(source) AND newTarget._sourceNodeId = id(target)) OR
+          (newSource.id = source.id AND newTarget.id = target.id)
+        )
       
       CALL apoc.create.relationship(newSource, type(r), properties(r), newTarget)
       YIELD rel
@@ -901,7 +950,7 @@ export class GraphCopyService {
 
     try {
       const result = await this.session.run(query, parameters);
-      const copiedCount = result.records[0]?.get('totalCreated')?.toNumber() || 0;
+      const copiedCount = toNumericCount(result.records[0]?.get('totalCreated'));
       return { copiedCount, errors: [] };
     } catch (error) {
       return { copiedCount: 0, errors: [`Relationship batch copy by IDs failed: ${error}`] };

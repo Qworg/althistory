@@ -4,7 +4,7 @@ import { Arc, CreateArcRequest } from '../models/Arc';
 import { TimeRange } from '../models/Event';
 import { DatabaseManager } from '../utils/database';
 import { initializeSchema } from '../utils/schema';
-import { createTestDatabaseManager, isNeo4jAvailable, cleanupTestData } from '../utils/test-utils';
+import { createTestDatabaseManager, isNeo4jAvailable } from '../utils/test-utils';
 
 describe('ArcRepository Integration Tests', () => {
   let databaseManager: DatabaseManager | null = null;
@@ -33,7 +33,9 @@ describe('ArcRepository Integration Tests', () => {
     }
     
     arcRepository = new ArcRepository(databaseManager);
-    await cleanupTestData(databaseManager, 'test_');
+    const session = databaseManager.getNeo4jSession();
+    await session.run('MATCH (a:Arc) DETACH DELETE a');
+    await session.close();
   });
 
   /**
@@ -58,6 +60,13 @@ describe('ArcRepository Integration Tests', () => {
       }
     }
     if (databaseManager) {
+      try {
+        const session = databaseManager.getNeo4jSession();
+        await session.run('MATCH (a:Arc) DETACH DELETE a');
+        await session.close();
+      } catch (error) {
+        // ignore
+      }
       await databaseManager.close();
     }
   });
@@ -393,7 +402,9 @@ describe('AdvancedArcRepository Integration Tests', () => {
     }
     
     advancedRepository = new AdvancedArcRepository(databaseManager);
-    await cleanupTestData(databaseManager, 'advanced_');
+    const session = databaseManager.getNeo4jSession();
+    await session.run('MATCH (a:Arc) DETACH DELETE a');
+    await session.close();
 
     // Create test arcs for advanced search
     const testArcs: CreateArcRequest[] = [
@@ -445,6 +456,13 @@ describe('AdvancedArcRepository Integration Tests', () => {
       }
     }
     if (databaseManager) {
+      try {
+        const session = databaseManager.getNeo4jSession();
+        await session.run('MATCH (a:Arc) DETACH DELETE a');
+        await session.close();
+      } catch (error) {
+        // ignore
+      }
       await databaseManager.close();
     }
   });
@@ -522,6 +540,12 @@ describe('AdvancedArcRepository Integration Tests', () => {
     let rootArc: Arc;
 
     beforeEach(async () => {
+      if (databaseManager) {
+        const session = databaseManager.getNeo4jSession();
+        await session.run('MATCH (a:Arc) DETACH DELETE a');
+        await session.close();
+      }
+
       // Create a hierarchy for tree testing
       rootArc = await requireAdvancedRepository().create({
         name: 'Tree Root',

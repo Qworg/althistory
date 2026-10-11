@@ -133,7 +133,13 @@ export async function cleanupTestData(manager: DatabaseManager, prefix: string =
     const session = manager.getNeo4jSession();
     await session.run(`
       MATCH (n) 
-      WHERE n.id IS NOT NULL AND n.id STARTS WITH $prefix 
+      WHERE n.id IS NOT NULL AND (
+        n.id STARTS WITH $prefix OR 
+        n.id STARTS WITH 'test_' OR 
+        n.id STARTS WITH 'arc_' OR 
+        n.id STARTS WITH 'event_' OR 
+        n.id STARTS WITH 'advanced_'
+      )
       DETACH DELETE n
     `, { prefix });
     await session.close();

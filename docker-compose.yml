@@ -1,0 +1,146 @@
+# Production stack for Althistory.
+#
+#   web  - Caddy: serves the SPA and proxies /api + /health to `api`
+#   api  - Express backend + CLI (cloud mode: Neo4j + Redis)
+#   neo4j- graph database with APOC
+#   redis- rate limiting, pub/sub and query cache
+#
+# Usage:
+#   cp .env.production.example .env
+#   docker compose up -d --build
+#   open http://localhost:8080
+#
+# The backend is not published to the host; it is reachable only through Caddy.
+# Run `docker compose exec api node ...` or reuse the `api` image when you need
+# direct access.
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+      NEO4J_dbms_security_procedures_allowlist: apoc.*
+      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_MAX:-1G}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-512M}
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    healthcheck:
+      test:
+        - CMD-SHELL
+        # NEO4J_PASSWORD is not exported into the container; the image only
+        # exposes NEO4J_AUTH=neo4j/<password>, so strip the user prefix here.
+        - cypher-shell -u neo4j -p "$${NEO4J_AUTH#neo4j/}" 'RETURN 1' || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: >
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
+               exec redis-server --requirepass "$$REDIS_PASSWORD";
+             else
+               exec redis-server;
+             fi'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          if [ -n "$$REDIS_PASSWORD" ]; then
+          redis-cli -a "$$REDIS_PASSWORD" ping;
+          else redis-cli ping; fi
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      target: api
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      LOCAL_EXECUTION_ENABLED: "false"
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # Same-origin through Caddy, so this only matters to non-browser clients.
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      QUERY_TIMEOUT_MS: ${QUERY_TIMEOUT_MS:-2000}
+    volumes:
+      # Graph/export/job state is file-backed even in cloud mode, so it must
+      # outlive the container.
+      - timeline-data:/data
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: web
+    environment:
+      CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-:80}
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Cloud integration gate: runs ONLY the suites the default test run excludes
+  # because they need real Neo4j/Redis. Opt in explicitly:
+  #   docker compose --profile test run --rm cloud-tests
+  cloud-tests:
+    profiles: ["test"]
+    build:
+      context: .
+      target: build
+    environment:
+      NODE_ENV: test
+      LOCAL_EXECUTION_ENABLED: "false"
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
+      NEO4J_DATABASE: neo4j
+      # The repository suites read NEO4J_TEST_* rather than NEO4J_*.
+      NEO4J_TEST_URI: bolt://neo4j:7687
+      NEO4J_TEST_USERNAME: neo4j
+      NEO4J_TEST_PASSWORD: ${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
+      # Neo4j Community has no separate `test` database, so both point at neo4j.
+      NEO4J_TEST_DATABASE: neo4j
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_TEST_HOST: redis
+      REDIS_TEST_PORT: "6379"
+      REDIS_TEST_PASSWORD: ${REDIS_PASSWORD:-}
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["npm", "run", "test:cloud", "--workspace=timeline"]
+
+volumes:
+  neo4j-data:
+  neo4j-logs:
+  redis-data:
+  timeline-data:

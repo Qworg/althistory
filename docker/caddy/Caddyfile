@@ -1,0 +1,33 @@
+# Caddy site for the Althistory web image.
+#
+# Serves the compiled SPA and proxies the API on the same origin, so the browser
+# never makes a cross-origin request and no CORS configuration is needed for the
+# bundled UI. WebSocket upgrades under /api/ (the stream endpoint is
+# /api/ws/stream) are forwarded transparently by reverse_proxy.
+#
+# `handle` blocks are used instead of bare directives on purpose: Caddy orders
+# `try_files` before `reverse_proxy`, so a top-level `try_files {path}
+# /index.html` would rewrite /api/* to the SPA before the proxy ever matched.
+# Mutually-exclusive handles evaluate in source order and avoid that entirely.
+#
+# {$CADDY_SITE_ADDRESS} defaults to :80. Set it to a hostname (e.g.
+# "althistory.example.ts.net") to have Caddy obtain TLS automatically, or to
+# ":443" when TLS is terminated upstream.
+
+{$CADDY_SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle /health {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

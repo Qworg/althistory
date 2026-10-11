@@ -5,6 +5,17 @@ import { Arc } from '../models/Arc';
 import { getDatabaseManager, initializeDatabaseManager } from '../utils/database';
 import { Session } from 'neo4j-driver';
 
+function getCount(record: any, key: string = 'count'): number {
+  const val = record?.get ? record.get(key) : undefined;
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number') return val;
+  if (typeof val === 'bigint') return Number(val);
+  if (typeof val === 'object' && 'toNumber' in val && typeof val.toNumber === 'function') {
+    return val.toNumber();
+  }
+  return Number(val) || 0;
+}
+
 describe('GraphCopyService Integration Tests', () => {
   let graphCopyService: GraphCopyService;
   let session: Session;
@@ -60,7 +71,7 @@ describe('GraphCopyService Integration Tests', () => {
           description: 'Event 2',
           actor: 'Actor B',
           target: 'Target B',
-          timestamp: new Date('2023-01-02T10:00:00Z')
+          timestamp: new Date('2023-01-05T10:00:00Z')
         })
       ];
 
@@ -128,6 +139,7 @@ describe('GraphCopyService Integration Tests', () => {
       const result = await graphCopyService.copyFullGraph('test-source', 'test-target');
 
       // Assert: Verify copy result
+      expect(result.errors).toEqual([]);
       expect(result.success).toBe(true);
       expect(result.sourceGraphId).toBe('test-source');
       expect(result.targetGraphId).toBe('test-target');
@@ -141,20 +153,20 @@ describe('GraphCopyService Integration Tests', () => {
         MATCH (e:Event {graphId: 'test-target'})
         RETURN count(e) as count
       `);
-      expect(targetEventCount.records[0].get('count').toNumber()).toBe(2);
+      expect(getCount(targetEventCount.records[0])).toBe(2);
 
       const targetArcCount = await session.run(`
         MATCH (a:Arc {graphId: 'test-target'})
         RETURN count(a) as count
       `);
-      expect(targetArcCount.records[0].get('count').toNumber()).toBe(1);
+      expect(getCount(targetArcCount.records[0])).toBe(1);
 
       const targetRelCount = await session.run(`
         MATCH ()-[r:PART_OF]->()
         WHERE startNode(r).graphId = 'test-target' AND endNode(r).graphId = 'test-target'
         RETURN count(r) as count
       `);
-      expect(targetRelCount.records[0].get('count').toNumber()).toBe(1);
+      expect(getCount(targetRelCount.records[0])).toBe(1);
     });
 
     it('should handle progress tracking during copy', async () => {
@@ -266,7 +278,7 @@ describe('GraphCopyService Integration Tests', () => {
         MATCH (e:Event {graphId: 'test-target'})
         RETURN count(e) as count
       `);
-      expect(targetCount.records[0].get('count').toNumber()).toBe(eventCount);
+      expect(getCount(targetCount.records[0])).toBe(eventCount);
     });
 
     it('should preserve referential integrity during copy', async () => {
@@ -324,21 +336,21 @@ describe('GraphCopyService Integration Tests', () => {
         WHERE e1.graphId = 'test-target' AND e2.graphId = 'test-target'
         RETURN count(r) as count
       `);
-      expect(causesRel.records[0].get('count').toNumber()).toBe(1);
+      expect(getCount(causesRel.records[0])).toBe(1);
 
       const partOfRels = await session.run(`
         MATCH (e:Event)-[r:PART_OF]->(a:Arc)
         WHERE e.graphId = 'test-target' AND a.graphId = 'test-target'
         RETURN count(r) as count
       `);
-      expect(partOfRels.records[0].get('count').toNumber()).toBe(2);
+      expect(getCount(partOfRels.records[0])).toBe(2);
 
       const drivenByRel = await session.run(`
         MATCH (a:Arc)-[r:DRIVEN_BY]->(p:InferredPressure)
         WHERE a.graphId = 'test-target' AND p.graphId = 'test-target'
         RETURN count(r) as count
       `);
-      expect(drivenByRel.records[0].get('count').toNumber()).toBe(1);
+      expect(getCount(drivenByRel.records[0])).toBe(1);
     });
   });
 
@@ -402,7 +414,7 @@ describe('GraphCopyService Integration Tests', () => {
       // Create incomplete target (missing one event)
       await session.run(`
         CREATE (e1:Event {
-          id: 'event1',
+          id: 'event1-target',
           description: 'Event 1',
           actor: 'Actor A',
           target: 'Target A',

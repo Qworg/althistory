@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { createServer } from 'http';
 import type { Server } from 'http';
 import { loadConfig, initializeDatabaseManager } from '@/utils';
+import { initializeSchema } from '@/utils/schema';
 import { initializeContainer, cleanupContainer, getContainer } from '@/container';
 import { apiRouter } from '@/api/routes';
 import { StreamHandler, StreamSessionManager, getStreamTokenStore, STREAM_PATH } from '@/websocket';
@@ -148,6 +149,15 @@ class Application {
       // Initialize service container (includes auth services)
       const container = initializeContainer(dbManager, this.config);
       await container.initialize();
+
+      // Local mode runs on the file-backed store, which does not enforce the
+      // Neo4j schema. Cloud mode must create its constraints and indexes at
+      // startup, or the write path runs without the uniqueness guarantees it
+      // assumes. Failing here is deliberate: a cloud process that cannot
+      // create its schema should not accept writes.
+      if (!this.config.localExecution.enabled) {
+        await initializeSchema();
+      }
 
       // Setup middleware
       this.setupMiddleware();
