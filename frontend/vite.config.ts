@@ -6,6 +6,17 @@ import path from 'path'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    host: process.env.VITE_HOST || (process.env.TAILSCALE === 'true' ? '0.0.0.0' : undefined),
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: process.env.BACKEND_PROXY_URL || 'http://localhost:3000',
+        changeOrigin: true,
+        ws: true,
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

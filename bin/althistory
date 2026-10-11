@@ -2,7 +2,16 @@
 # Althistory CLI runner
 set -e
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SOURCE="${BASH_SOURCE[0]}"
+if command -v realpath >/dev/null 2>&1; then
+  REAL_SOURCE="$(realpath "$SOURCE")"
+elif command -v readlink >/dev/null 2>&1; then
+  REAL_SOURCE="$(readlink -f "$SOURCE")"
+else
+  REAL_SOURCE="$SOURCE"
+fi
+
+DIR="$(cd "$(dirname "$REAL_SOURCE")/.." && pwd)"
 cd "$DIR/timeline"
 
 exec npx ts-node -r tsconfig-paths/register src/cli/index.ts "$@"
