@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { CopyOperation } from '@/types'
 
 interface CopyCompletionNotificationProps {
@@ -17,6 +17,11 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
   const [isVisible, setIsVisible] = useState(true)
   const [progress, setProgress] = useState(100)
 
+  const handleDismiss = useCallback(() => {
+    setIsVisible(false)
+    setTimeout(onDismiss, 300) // Allow fade out animation
+  }, [onDismiss])
+
   useEffect(() => {
     if (autoHideDelay > 0) {
       const interval = setInterval(() => {
@@ -33,12 +38,7 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
 
       return () => clearInterval(interval)
     }
-  }, [autoHideDelay])
-
-  const handleDismiss = () => {
-    setIsVisible(false)
-    setTimeout(onDismiss, 300) // Allow fade out animation
-  }
+  }, [autoHideDelay, handleDismiss])
 
   const handleSwitchToGraph = () => {
     if (onSwitchToGraph) {

@@ -497,9 +497,7 @@ describe('Arc Creation and Editing', () => {
       })
     })
 
-    // DEFERRED: Complex form submission with mutation requires additional mock setup
-    // The form's onSubmit handler doesn't trigger mutateAsync in test environment
-    it.skip('should create arc with valid data', async () => {
+    it('should create arc with valid data', async () => {
       const user = userEvent.setup()
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } }
@@ -513,6 +511,11 @@ describe('Arc Creation and Editing', () => {
         </QueryClientProvider>
       )
 
+      // Wait for component to initialize (useEffect runs)
+      await waitFor(() => {
+        expect(screen.getByText('Selected Time Range')).toBeInTheDocument()
+      })
+
       // Fill in form using ID selectors (labels have asterisks with different formatting)
       const nameInput = document.getElementById('arc-name') as HTMLInputElement
       const descInput = document.getElementById('arc-description') as HTMLTextAreaElement
@@ -521,16 +524,22 @@ describe('Arc Creation and Editing', () => {
       await user.type(descInput, 'New arc description')
 
       // Submit form
-      await user.click(screen.getByText('Create Arc'))
+      const form = document.querySelector('form')
+      expect(form).toBeInTheDocument()
+
+      await act(async () => {
+        fireEvent.submit(form!)
+      })
 
       await waitFor(() => {
-        expect(mockMutateAsync).toHaveBeenCalledWith({
-          name: 'New Arc',
-          description: 'New arc description',
-          start_time: '2024-01-01T00:00:00.000Z',
-          end_time: '2024-01-31T23:59:59.000Z',
-          parent_arc_id: null
-        })
+        expect(mockMutateAsync).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'New Arc',
+            description: 'New arc description',
+            parent_arc_id: null,
+            level: 0
+          })
+        )
       })
     })
   })

@@ -17,6 +17,37 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules')) {
+            if (id.includes('cose-bilkent')) {
+              return 'vendor-cose-bilkent'
+            }
+            if (id.includes('dagre')) {
+              return 'vendor-dagre'
+            }
+            if (id.includes('cytoscape')) {
+              return 'vendor-cytoscape'
+            }
+            if (id.includes('d3')) {
+              return 'vendor-d3'
+            }
+            if (id.includes('@tanstack/react-query') || id.includes('@tanstack/query-devtools')) {
+              return 'vendor-query'
+            }
+            if (id.includes('axios')) {
+              return 'vendor-axios'
+            }
+            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router') || id.includes('zustand')) {
+              return 'vendor-react'
+            }
+          }
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

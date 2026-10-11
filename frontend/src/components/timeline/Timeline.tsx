@@ -203,10 +203,13 @@ const Timeline = memo(function Timeline({
   const onTimeRangeChangeRef = useRef(onTimeRangeChange)
   onTimeRangeChangeRef.current = onTimeRangeChange
 
+  const startDomain = xDomain[0]
+  const endDomain = xDomain[1]
+
   // Expose time range upwards - callback NOT in dependencies to prevent infinite loops
   useEffect(() => {
-    onTimeRangeChangeRef.current?.({ start: xDomain[0], end: xDomain[1] })
-  }, [xDomain[0]?.getTime(), xDomain[1]?.getTime()])
+    onTimeRangeChangeRef.current?.({ start: startDomain, end: endDomain })
+  }, [startDomain, endDomain])
 
   // Refs keep pointer handlers stable across renders so the memoized mark
   // components do not re-render on every Timeline update.
