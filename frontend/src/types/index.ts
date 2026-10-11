@@ -757,3 +757,4 @@ export interface IngestionJobStatus {
 }
 
 export * from './stream'
+export * from './simulation'

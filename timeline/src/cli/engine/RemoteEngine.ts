@@ -27,6 +27,8 @@ import {
   CLIError,
   ExitCode,
 } from '../utils/exitCodes';
+import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
+import type { SimulationResult } from '@/services/SimulationService';
 
 export class RemoteEngine implements IEngine {
   readonly mode = 'remote' as const;
@@ -513,8 +515,23 @@ export class RemoteEngine implements IEngine {
 
   async generateSimulate(options: GenerateSimulateOptions): Promise<GenerationResultDto> {
     try {
-      const res = await this.client.post('/api/generate/simulate', options);
-      return res.data;
+      const res = await this.client.post<{ success: boolean; data: SimulationResult }>(
+        '/api/inference/simulate',
+        {
+          steps: options.steps,
+          stepDurationMs:
+            options.timeAdvanceMonths !== undefined
+              ? options.timeAdvanceMonths * MS_PER_MONTH
+              : undefined,
+          anchorEventId: options.anchorEventId,
+          domain: options.domain,
+          aggressiveness: options.aggressiveness,
+          seedContext: options.seedContext,
+          dryRun: options.dryRun,
+        },
+        { headers: { 'X-Graph-Id': options.graphId } }
+      );
+      return toGenerationResultDto(res.data.data, 'Forward Simulation');
     } catch (err) {
       return this.handleError(err, 'simulating timeline');
     }

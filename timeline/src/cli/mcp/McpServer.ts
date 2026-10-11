@@ -1,6 +1,7 @@
 import * as readline from 'readline';
 import { IEngine } from '../engine/IEngine';
 import { MCP_TOOLS } from './toolDefinitions';
+import { isSimulationDomain } from '@/services/SimulationService';
 
 export interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -180,6 +181,23 @@ export class McpServer {
             counterfactualPrompt: String(args.counterfactualPrompt),
             branchName: String(args.branchName),
             eventCount: typeof args.eventCount === 'number' ? args.eventCount : undefined,
+            dryRun: Boolean(args.dryRun),
+          });
+          break;
+        }
+
+        case 'althistory_simulate_timeline': {
+          const domain = isSimulationDomain(args.domain) ? args.domain : undefined;
+          toolOutput = await this.engine.generateSimulate({
+            graphId: String(args.graphId),
+            steps: typeof args.steps === 'number' ? args.steps : undefined,
+            timeAdvanceMonths:
+              typeof args.timeAdvanceMonths === 'number' ? args.timeAdvanceMonths : undefined,
+            anchorEventId: args.anchorEventId ? String(args.anchorEventId) : undefined,
+            domain,
+            aggressiveness:
+              typeof args.aggressiveness === 'number' ? args.aggressiveness : undefined,
+            seedContext: args.seedContext ? String(args.seedContext) : undefined,
             dryRun: Boolean(args.dryRun),
           });
           break;

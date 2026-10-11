@@ -98,7 +98,7 @@ If `althistory` is not in your global `PATH`, use the repository path directly:
 
 ## 3. Available MCP Tools Reference
 
-The Althistory MCP server exposes 8 typed tools:
+The Althistory MCP server exposes 9 typed tools:
 
 ### 1. `althistory_list_graphs`
 List all accessible historical timeline graphs.
@@ -163,6 +163,18 @@ Export timeline context formatted for LLM prompts, Markdown tables, or Graphviz 
 - **Parameters:**
   - `graphId` *(string, required)*: Graph ID to export.
   - `format` *(string, optional)*: `"markdown"` | `"json"` | `"dot"` (default: `"markdown"`).
+
+### 9. `althistory_simulate_timeline`
+Evolve a timeline forward from a point of divergence, synthesising pressure-driven milestone events and causal links.
+- **Parameters:**
+  - `graphId` *(string, required)*: Graph ID to evolve forward.
+  - `steps` *(number, optional)*: Number of forward hops, 1-10 (default: 3).
+  - `timeAdvanceMonths` *(number, optional)*: Months of history per hop (default: 12).
+  - `anchorEventId` *(string, optional)*: Point of divergence event ID (default: latest event).
+  - `domain` *(string, optional)*: `"political"` | `"military"` | `"economic"` | `"scientific"` | `"social"` | `"environmental"`.
+  - `aggressiveness` *(number, optional)*: Causal pressure bias between 0 and 1 (default: 0.5).
+  - `seedContext` *(string, optional)*: Premise recorded on every generated event.
+  - `dryRun` *(boolean, optional)*: Preview without persisting.
 
 ---
 

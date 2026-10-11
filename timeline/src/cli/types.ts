@@ -2,6 +2,8 @@
  * Types and interfaces for the Althistory CLI.
  */
 
+import type { SimulationDomain } from '@/services/SimulationService';
+
 
 export type OutputFormat = 'json' | 'ndjson' | 'markdown' | 'plain';
 
@@ -229,6 +231,14 @@ export interface GenerateSimulateOptions {
   provider?: 'openai' | 'anthropic';
   model?: string;
   dryRun?: boolean;
+  /** Point of divergence; defaults to the latest event in the graph. */
+  anchorEventId?: string;
+  /** Domain to evolve; defaults to the dominant inferred pressure. */
+  domain?: SimulationDomain;
+  /** 0..1 - biases causal weights and event importance. */
+  aggressiveness?: number;
+  /** Optional premise recorded on every generated event. */
+  seedContext?: string;
 }
 
 export interface GenerationResultDto {

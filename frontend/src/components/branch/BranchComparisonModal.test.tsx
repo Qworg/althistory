@@ -23,6 +23,20 @@ vi.mock('@/services/api', () => ({
       ]),
       switch: vi.fn().mockResolvedValue({ success: true }),
     },
+    inference: {
+      simulate: vi.fn().mockResolvedValue({
+        graphId: 'graph-2',
+        anchorEventId: 'cf_pod',
+        domain: 'political',
+        steps: 1,
+        stepDurationMs: 1000,
+        aggressiveness: 0.5,
+        dryRun: false,
+        events: [],
+        relationships: [],
+        pressures: [],
+      }),
+    },
   },
 }))
 
@@ -177,5 +191,14 @@ describe('BranchComparisonModal', () => {
     const closeBtn = screen.getByRole('button', { name: 'Close' })
     fireEvent.click(closeBtn)
     expect(handleClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('exposes the forward simulation launcher on its own tab', () => {
+    renderWithProviders(<BranchComparisonModal {...defaultProps} />)
+
+    fireEvent.click(screen.getByText(/Forward Simulation/))
+
+    expect(screen.getByTestId('simulation-launcher')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Run Simulation/ })).toBeInTheDocument()
   })
 })

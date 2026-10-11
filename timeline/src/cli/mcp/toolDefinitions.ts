@@ -174,6 +174,54 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     },
   },
   {
+    name: 'althistory_simulate_timeline',
+    description:
+      'Autonomously evolve a timeline forward from a point of divergence, synthesising pressure-driven milestone events and causal links',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'Timeline graph ID to evolve forward',
+        },
+        steps: {
+          type: 'number',
+          description: 'Number of forward hops to simulate (1-10)',
+          default: 3,
+        },
+        timeAdvanceMonths: {
+          type: 'number',
+          description: 'Months of history advanced per hop',
+          default: 12,
+        },
+        anchorEventId: {
+          type: 'string',
+          description: 'Point of divergence event ID (defaults to the latest event)',
+        },
+        domain: {
+          type: 'string',
+          enum: ['political', 'military', 'economic', 'scientific', 'social', 'environmental'],
+          description: 'Dominant domain to evolve (defaults to the strongest inferred pressure)',
+        },
+        aggressiveness: {
+          type: 'number',
+          description: 'Causal pressure bias between 0 and 1',
+          default: 0.5,
+        },
+        seedContext: {
+          type: 'string',
+          description: 'Optional premise recorded on every generated event',
+        },
+        dryRun: {
+          type: 'boolean',
+          description: 'Preview the simulation without persisting',
+          default: false,
+        },
+      },
+      required: ['graphId'],
+    },
+  },
+  {
     name: 'althistory_query_causal_path',
     description: 'Trace all causal pathways connecting a cause event to an effect event across the historical DAG',
     inputSchema: {
