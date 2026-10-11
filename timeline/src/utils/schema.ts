@@ -32,20 +32,22 @@ export class SchemaManager {
    * Create all database constraints
    */
   private async createConstraints(): Promise<void> {
+    // Neo4j Community supports uniqueness constraints only. The property-range
+    // constraints this list used to carry (`REQUIRE x >= 0.0 AND x <= 1.0` on
+    // relationships and on InferredPressure) are not valid Cypher on Neo4j 5,
+    // and swapping them for relationship property existence constraints fails
+    // too because those require Enterprise. The 0..1 bounds they expressed are
+    // enforced by `ValidationService` on the domain objects, so the schema
+    // keeps the uniqueness the write path actually relies on.
     const constraints = [
       // Event node constraints
       'CREATE CONSTRAINT event_id IF NOT EXISTS FOR (e:Event) REQUIRE e.id IS UNIQUE',
-      
+
       // Arc node constraints
       'CREATE CONSTRAINT arc_id IF NOT EXISTS FOR (a:Arc) REQUIRE a.id IS UNIQUE',
-      
+
       // InferredPressure node constraints
       'CREATE CONSTRAINT pressure_id IF NOT EXISTS FOR (p:InferredPressure) REQUIRE p.id IS UNIQUE',
-      
-      // Relationship constraints
-      'CREATE CONSTRAINT temporal_event_arc IF NOT EXISTS FOR ()-[r:PART_OF]-() REQUIRE r.temporal_relevance >= 0.0 AND r.temporal_relevance <= 1.0',
-      'CREATE CONSTRAINT causal_weight IF NOT EXISTS FOR ()-[r:CAUSES]-() REQUIRE r.weight >= 0.0 AND r.weight <= 1.0',
-      'CREATE CONSTRAINT pressure_confidence IF NOT EXISTS FOR (p:InferredPressure) REQUIRE p.confidence_score >= 0.0 AND p.confidence_score <= 1.0'
     ];
 
     for (const constraint of constraints) {
@@ -162,8 +164,7 @@ export class SchemaManager {
       const existingConstraints = constraintsResult.records.map(record => record.get('name'));
       
       const expectedConstraints = [
-        'event_id', 'arc_id', 'pressure_id', 
-        'temporal_event_arc', 'causal_weight', 'pressure_confidence'
+        'event_id', 'arc_id', 'pressure_id'
       ];
       
       result.constraints.expected = expectedConstraints.length;

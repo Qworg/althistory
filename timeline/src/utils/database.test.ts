@@ -50,7 +50,7 @@ describe('DatabaseManager', () => {
       // Test basic query
       const result = await session.run('RETURN 1 as test');
       expect(result.records).toHaveLength(1);
-      expect(result.records[0].get('test').toNumber()).toBe(1);
+      expect(result.records[0].get('test')).toBe(1);
       
       await session.close();
     });

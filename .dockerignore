@@ -1,0 +1,36 @@
+# Keep the Docker build context small and deterministic.
+
+.git
+.gitignore
+.github
+
+# Installed dependencies are rebuilt inside the image.
+node_modules
+**/node_modules
+
+# Build output is produced inside the image.
+dist
+**/dist
+build
+
+# Local execution state must never enter an image.
+data
+**/data
+**.log
+coverage
+**/coverage
+
+# Local secrets and editor state. Env files must never enter an image: config.ts
+# loads .env.local with `override: true`, so a baked-in copy would silently
+# override the container's environment (e.g. forcing local execution mode).
+.env
+**/.env
+**/.env.local
+**/.env.*.local
+.kiro
+.idea
+.vscode
+.DS_Store
+
+# Test scratch space.
+**/test-e2e-data-*
