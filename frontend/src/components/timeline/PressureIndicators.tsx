@@ -178,7 +178,7 @@ export const PressureIndicators: React.FC<PressureIndicatorsProps> = ({
       .attr('stop-color', '#ffffff')
       .attr('stop-opacity', 0.2)
 
-  }, [indicatorData, onPressureClick, onPressureHover, showTooltips])
+  }, [indicatorData, onPressureClick, onPressureHover, showTooltips, svgRef])
 
   // Show pressure tooltip
   const showPressureTooltip = (event: MouseEvent, indicatorData: PressureIndicatorData) => {

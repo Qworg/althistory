@@ -130,6 +130,14 @@ export class CypherQueryParser {
       return this.executeSet(trimmedQuery, parameters, graphData);
     }
 
+    // Handle CREATE queries that contain MATCH (e.g., MATCH ... CREATE ...)
+    if (trimmedQuery.includes('CREATE')) {
+      const matchCreateResult = this.executeMatchCreate(trimmedQuery, parameters, graphData);
+      if (matchCreateResult) {
+        return matchCreateResult;
+      }
+    }
+
     // Handle MATCH queries
     if (trimmedQuery.startsWith('MATCH')) {
       return this.executeMatch(trimmedQuery, parameters, graphData);
@@ -232,6 +240,11 @@ export class CypherQueryParser {
     const correlatedResult = this.executeCorrelatedMatch(normalizedQuery, parameters, graphData);
     if (correlatedResult) {
       return correlatedResult;
+    }
+
+    const relMatchResult = this.executeRelationshipMatch(normalizedQuery, parameters, graphData);
+    if (relMatchResult) {
+      return relMatchResult;
     }
 
     // Parse MATCH patterns - supports:
@@ -521,6 +534,134 @@ export class CypherQueryParser {
       }
 
       records.push(this.createRecord(keys, values));
+    }
+
+    return {
+      records,
+      summary: {
+        query,
+        parameters,
+        counters: { nodesCreated: 0, relationshipsCreated: 0, nodesDeleted: 0, relationshipsDeleted: 0, propertiesSet: 0 }
+      }
+    };
+  }
+
+  private static executeMatchCreate(
+    query: string,
+    parameters: GraphParameters,
+    graphData: GraphData
+  ): LocalQueryResult | null {
+    const normalizedQuery = query.replace(/\s+/g, ' ').trim();
+    const matchCreatePattern = /^MATCH\s*\((\w+):(\w+)\s*\{([^}]+)\}\)\s*,\s*\((\w+):(\w+)\s*\{([^}]+)\}\)\s*CREATE\s*\(\1\)-\[:(\w+)(?:\s*\{([^}]+)\})?\]->\(\4\)(?:\s+RETURN\s+.+)?/i;
+    const match = normalizedQuery.match(matchCreatePattern);
+    if (!match) {
+      return null;
+    }
+
+    const [, , startLabel, startPropsStr, , endLabel, endPropsStr, relType, relPropsStr] = match;
+    const startProps = this.parseProperties(startPropsStr, parameters);
+    const endProps = this.parseProperties(endPropsStr, parameters);
+    const relProps = relPropsStr ? this.parseProperties(relPropsStr, parameters) : {};
+
+    let startNode: GraphNode | undefined;
+    let endNode: GraphNode | undefined;
+
+    for (const node of graphData.nodes.values()) {
+      if (!startNode && node.labels.includes(startLabel) && this.nodeMatchesProperties(node, startProps)) {
+        startNode = node;
+      }
+      if (!endNode && node.labels.includes(endLabel) && this.nodeMatchesProperties(node, endProps)) {
+        endNode = node;
+      }
+      if (startNode && endNode) break;
+    }
+
+    const counters = { nodesCreated: 0, relationshipsCreated: 0, nodesDeleted: 0, relationshipsDeleted: 0, propertiesSet: 0 };
+    const records: LocalQueryRecord[] = [];
+
+    if (startNode && endNode) {
+      const relationship: GraphRelationship = {
+        id: this.generateId(),
+        type: relType,
+        startNodeId: startNode.id,
+        endNodeId: endNode.id,
+        properties: relProps
+      };
+
+      graphData.relationships.set(relationship.id, relationship);
+      if (!graphData.relationshipsByType.has(relType)) {
+        graphData.relationshipsByType.set(relType, new Set());
+      }
+      graphData.relationshipsByType.get(relType)!.add(relationship.id);
+
+      counters.relationshipsCreated = 1;
+      counters.propertiesSet += Object.keys(relProps).length;
+    }
+
+    return {
+      records,
+      summary: {
+        query,
+        parameters,
+        counters
+      }
+    };
+  }
+
+  private static executeRelationshipMatch(
+    query: string,
+    parameters: GraphParameters,
+    graphData: GraphData
+  ): LocalQueryResult | null {
+    const relMatchPattern = /^MATCH\s*\((\w+):(\w+)\)-\[(\w+):(\w+)(?:\s*\{([^}]+)\})?\]->\((\w+):(\w+)\)(?:\s+WHERE\s+(.+?))?\s+RETURN\s+(.+)$/i;
+    const match = query.match(relMatchPattern);
+    if (!match) {
+      return null;
+    }
+
+    const [, startVar, startLabel, relVar, relType, , endVar, endLabel, whereClause, returnClause] = match;
+
+    const relIds = graphData.relationshipsByType.get(relType) || new Set();
+    const records: LocalQueryRecord[] = [];
+    const returnFields = returnClause.split(',').map(f => f.trim());
+
+    for (const relId of relIds) {
+      const rel = graphData.relationships.get(relId);
+      if (!rel) continue;
+
+      const startNode = graphData.nodes.get(rel.startNodeId);
+      const endNode = graphData.nodes.get(rel.endNodeId);
+
+      if (!startNode || !startNode.labels.includes(startLabel)) continue;
+      if (!endNode || !endNode.labels.includes(endLabel)) continue;
+
+      if (whereClause) {
+        const scope = new Map<string, GraphNode>([
+          [startVar, startNode],
+          [endVar, endNode]
+        ]);
+        if (!this.evaluateWhereClause(whereClause, startNode.properties, parameters, scope)) {
+          continue;
+        }
+      }
+
+      const recordValues: LocalRecordValue[] = [];
+      const recordKeys: string[] = [];
+
+      for (const field of returnFields) {
+        recordKeys.push(field);
+        if (field === startVar) {
+          recordValues.push(startNode);
+        } else if (field === relVar) {
+          recordValues.push(rel);
+        } else if (field === endVar) {
+          recordValues.push(endNode);
+        } else {
+          recordValues.push(null);
+        }
+      }
+
+      records.push(this.createRecord(recordKeys, recordValues));
     }
 
     return {

@@ -235,7 +235,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
       .style('stroke-dasharray', '2,2')
       .style('opacity', 0.2)
 
-  }, [timeScale, yScale, innerWidth, innerHeight, margin, events, layoutMode, actor, groupedEvents])
+  }, [timeScale, yScale, innerWidth, innerHeight, margin, events, layoutMode, actor, groupedEvents, state.visibleTimeRange.start, state.visibleTimeRange.end])
 
   // Render arcs as background context
   useEffect(() => {

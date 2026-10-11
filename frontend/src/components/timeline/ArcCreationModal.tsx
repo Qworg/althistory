@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { TimeRange, CreateArcRequest, Event, Arc } from '@/types'
 import { useCreateArc } from '@/hooks/useAPI'
 
@@ -78,12 +78,12 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
   })
 
   // Calculate level based on parent arc selection
-  const calculateLevel = (parentId: string | null): number => {
+  const calculateLevel = useCallback((parentId: string | null): number => {
     if (!parentId) return 0
     const parentArc = parentArcs.find(arc => arc.id === parentId)
     // Use parent's level + 1, or default to 1 if parent has no level
     return parentArc?.level !== undefined ? parentArc.level + 1 : 1
-  }
+  }, [parentArcs])
 
   // Initialize form data when timeRange changes
   useEffect(() => {
@@ -98,7 +98,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
       })
       setErrors({})
     }
-  }, [timeRange, isOpen, selectedParentId, parentArcs])
+  }, [timeRange, isOpen, selectedParentId, calculateLevel])
 
   const resetForm = () => {
     setFormData({

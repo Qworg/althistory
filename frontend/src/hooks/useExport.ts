@@ -213,18 +213,17 @@ export function useExportManagement(graphId?: string) {
     return validateExport.mutateAsync(exportData)
   }, [validateExport])
 
-  // Clear active job when it completes
+  // Clear active job when it completes or fails
+  const jobStatus = activeJob?.status
   useEffect(() => {
-    if (activeJob && (activeJob.status === 'completed' || activeJob.status === 'failed' || activeJob.status === 'cancelled')) {
+    if (jobStatus === 'failed' || jobStatus === 'cancelled') {
       // Keep showing for a moment before clearing
       const timer = setTimeout(() => {
-        if (activeJob.status !== 'completed') {
-          setActiveJobId(null)
-        }
+        setActiveJobId(null)
       }, 5000)
       return () => clearTimeout(timer)
     }
-  }, [activeJob?.status])
+  }, [jobStatus])
 
   return {
     // State
