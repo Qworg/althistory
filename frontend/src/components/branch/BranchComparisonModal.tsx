@@ -5,6 +5,7 @@ import { apiClient } from '@/services/api'
 import { analyzeEventDivergence, analyzeRelationshipDivergence } from '@/utils/divergenceAnalysis'
 import { CounterfactualTimelineCanvas } from './CounterfactualTimelineCanvas'
 import { SimulationLauncherPanel } from './SimulationLauncherPanel'
+import { BranchMergeModal } from './BranchMergeModal'
 import { CausalGraphComponent } from '@/components/causal-graph/CausalGraphComponent'
 
 export interface BranchComparisonModalProps {
@@ -71,6 +72,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
   // Bumped after a simulation run so the counterfactual fetch effect re-runs and
   // the dual-lane canvas picks up the newly persisted milestones.
   const [reloadToken, setReloadToken] = useState(0)
+  const [showMergeModal, setShowMergeModal] = useState(false)
 
   // Initialize selected graphs when modal opens
   useEffect(() => {
@@ -672,6 +674,15 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
             {counterfactualGraphId ? `Viewing branch: ${resolvedCounterfactualName}` : ''}
           </div>
           <div className="flex items-center gap-2">
+            {baselineGraphId && counterfactualGraphId && baselineGraphId !== counterfactualGraphId && (
+              <button
+                type="button"
+                onClick={() => setShowMergeModal(true)}
+                className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-xs"
+              >
+                Merge Branch into Baseline
+              </button>
+            )}
             {counterfactualGraphId && counterfactualGraphId !== activeGraphId && (
               <button
                 type="button"
@@ -692,6 +703,16 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
           </div>
         </div>
       </div>
+
+      <BranchMergeModal
+        isOpen={showMergeModal}
+        onClose={() => setShowMergeModal(false)}
+        targetGraphId={baselineGraphId}
+        targetGraphName={resolvedBaselineName}
+        sourceGraphId={counterfactualGraphId}
+        sourceGraphName={resolvedCounterfactualName}
+        onMerged={() => setReloadToken(token => token + 1)}
+      />
     </div>
   )
 }

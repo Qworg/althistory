@@ -531,6 +531,10 @@ graphRoutes.post('/:id/merge', ...writeGraphAuth, async (req: RequestWithContain
       );
     }
 
+    if (request.dryRun !== undefined && typeof request.dryRun !== 'boolean') {
+      throw new ValidationError('dryRun must be a boolean', 'dryRun', request.dryRun);
+    }
+
     // The route validates the values as well as the service, because a service
     // that is only safe when its one caller validates is not safe. An invalid
     // value must be rejected here rather than reach the merge's keep-target
@@ -561,7 +565,10 @@ graphRoutes.post('/:id/merge', ...writeGraphAuth, async (req: RequestWithContain
       success: true,
       data: result.mergedGraph,
       newVersion: result.newVersion,
-      message: 'Merge completed successfully',
+      // Present (and true) only for a preview, so a client that asked for a dry
+      // run can tell it apart from a commit even when there were no conflicts.
+      dryRun: result.dryRun === true,
+      message: result.dryRun === true ? 'Merge preview generated' : 'Merge completed successfully',
       requestId: req.requestId,
     });
   } catch (error) {

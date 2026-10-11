@@ -447,6 +447,19 @@ export class GraphService {
       // Detect conflicts
       const conflicts = this.detectMergeConflicts(targetData, sourceData);
 
+      if (request.dryRun) {
+        // Report what a real merge would find without committing anything. This
+        // is checked before the manual-resolution requirement because a preview
+        // resolves nothing: requiring a resolution map here would force the
+        // caller to decide before it has seen the conflicts.
+        return {
+          success: conflicts.length === 0,
+          conflicts,
+          mergedGraph: conflicts.length === 0 ? targetGraph.toJSON() : undefined,
+          dryRun: true,
+        };
+      }
+
       if (conflicts.length > 0) {
         if (resolution === 'manual') {
           // A manual merge resolves nothing on its own, so it is only

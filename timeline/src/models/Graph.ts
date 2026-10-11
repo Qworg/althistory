@@ -282,6 +282,13 @@ export interface MergeGraphRequest {
    * through to keep-target and silently discard the source edit.
    */
   manualResolutions?: Record<string, ManualResolution>;
+  /**
+   * Report what the merge would do without committing it. A dry run returns the
+   * conflicts it found (if any) and never writes a version, so the UI can show a
+   * pre-merge diff and only then ask the caller to resolve. Because a preview
+   * applies nothing, it is well-defined even when `manualResolutions` is empty.
+   */
+  dryRun?: boolean;
 }
 
 /**
@@ -424,4 +431,9 @@ export interface MergeResult {
   conflicts?: MergeConflict[];
   mergedGraph?: IGraph;
   newVersion?: number;
+  /**
+   * True when the result describes a preview (`request.dryRun`) rather than a
+   * committed merge. A successful dry run carries no `newVersion`.
+   */
+  dryRun?: boolean;
 }

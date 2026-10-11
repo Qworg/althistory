@@ -485,6 +485,79 @@ describe('GraphService', () => {
       expect(result.newVersion).toBe(2);
     });
 
+    it('should preview a clean merge without committing when dryRun is set', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph', name: 'Source' });
+      const targetData = createMockGraphData();
+      const sourceData: ResolvedGraphData = {
+        events: {
+          event3: { id: 'event3', description: 'Event 3', actor: 'Actor 3', target: 'Target 3', timestamp: '2024-01-03T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+
+      const result = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'manual',
+        dryRun: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.dryRun).toBe(true);
+      expect(result.conflicts).toEqual([]);
+      expect(result.newVersion).toBeUndefined();
+      expect(mockGraphRepository.commitChanges).not.toHaveBeenCalled();
+    });
+
+    it('should report conflicts from a dry run without requiring resolutions', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      const targetData: ResolvedGraphData = {
+        events: {
+          event1: { id: 'event1', description: 'Target version', actor: 'Actor 1', target: 'Target 1', timestamp: '2024-01-01T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+      const sourceData: ResolvedGraphData = {
+        events: {
+          event1: { id: 'event1', description: 'Source version', actor: 'Actor 1', target: 'Target 1', timestamp: '2024-01-01T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+
+      const result = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'manual',
+        dryRun: true,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.dryRun).toBe(true);
+      expect(result.conflicts).toHaveLength(1);
+      expect(result.conflicts?.[0]).toMatchObject({ entityType: 'event', entityId: 'event1' });
+      expect(mockGraphRepository.commitChanges).not.toHaveBeenCalled();
+    });
+
     it('should detect merge conflicts and report them on a successful keep-target merge', async () => {
       const targetGraph = createMockGraph({ id: 'target_graph' });
       const sourceGraph = createMockGraph({ id: 'source_graph' });
