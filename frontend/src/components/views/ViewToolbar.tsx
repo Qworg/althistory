@@ -359,6 +359,17 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         shortcut: 'Ctrl+H'
       },
       {
+        id: 'branch-divergence',
+        label: 'Branch Comparison',
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+          </svg>
+        ),
+        onClick: () => setShowComparisonModal(true),
+        tooltip: 'Compare timeline against counterfactual branches (PoD explorer)'
+      },
+      {
         id: 'import-data',
         label: 'Import',
         icon: (
@@ -615,26 +626,16 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         onDeleteCopy={handleDeleteCopy}
       />
 
-      {/* Graph Comparison Modal */}
-      {/*
-       * Not implemented in this phase: the modal needs each graph's full
-       * events/arcs/relationships, but there is no per-graph data endpoint to
-       * fetch them with (events/arcs are scoped by the X-Graph-Id header, which
-       * apiClient does not expose for reads yet), and a CopyOperation does not
-       * record its source graph id. The modal already renders an honest empty
-       * comparison rather than fabricating data; the fetch + copy-provenance
-       * work belongs to the graph-scoped read phase.
-       */}
+      {/* Graph Comparison / Counterfactual Divergence Explorer Modal */}
       <GraphComparisonModal
         isOpen={showComparisonModal}
         onClose={() => {
           setShowComparisonModal(false)
           setComparisonData(null)
         }}
+        initialBaselineGraphId={activeGraphId ?? undefined}
         originalGraphName={comparisonData?.originalName || ''}
         copiedGraphName={comparisonData?.copiedName || ''}
-        originalData={undefined}
-        copiedData={undefined}
       />
 
       {/* Import Wizard (Req 18) */}

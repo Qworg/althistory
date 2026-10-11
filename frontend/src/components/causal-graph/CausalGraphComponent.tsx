@@ -42,6 +42,7 @@ export interface CausalGraphComponentProps {
   showPerformanceManager?: boolean
   enablePerformanceOptimizations?: boolean
   onLayoutChange?: (layoutName: string) => void
+  divergenceEventIds?: string[]
 }
 
 export interface CausalNodeData {
@@ -52,6 +53,7 @@ export interface CausalNodeData {
   isSelected: boolean
   isHighlighted: boolean
   isForeign?: boolean
+  isDivergencePoint?: boolean
 }
 
 export interface CausalEdgeData {
@@ -93,7 +95,8 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   showOverview = true,
   showPerformanceManager = true,
   enablePerformanceOptimizations = true,
-  onLayoutChange
+  onLayoutChange,
+  divergenceEventIds
 }) => {
   // DEBUG: Render counter to detect infinite loops
   const renderCountRef = useRef(0)
@@ -354,6 +357,23 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
             'opacity': 0.85,
             'shape': 'round-rectangle',
             'z-index': 12
+          }
+        },
+
+        // Divergence point node style (Point of Divergence / Counterfactual branch fork)
+        {
+          selector: 'node.divergence-point',
+          style: {
+            'background-color': '#D97706',
+            'border-color': '#F59E0B',
+            'border-width': 4,
+            'shape': 'diamond',
+            'color': '#FFFFFF',
+            'font-weight': 'bold',
+            'overlay-color': '#FBBF24',
+            'overlay-padding': '5px',
+            'overlay-opacity': 0.35,
+            'z-index': 24
           }
         },
 
@@ -672,7 +692,8 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       label: `${event.actor} → ${event.target}`,
       weight: 0.5, // Default weight, could be calculated based on relationships
       isSelected: selectedEvents.includes(event.id),
-      isHighlighted: false // Highlighting handled separately via useEffect
+      isHighlighted: false, // Highlighting handled separately via useEffect
+      isDivergencePoint: Boolean(divergenceEventIds && divergenceEventIds.includes(event.id))
     }))
 
     // Synthesize placeholder nodes for foreign / missing event references
@@ -743,7 +764,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     })
 
     return { nodes, edges }
-  }, [events, causalRelationships, selectedEvents]) // linkCreationSource removed
+  }, [events, causalRelationships, selectedEvents, divergenceEventIds]) // linkCreationSource removed
 
   // Update graph data
   const updateGraphData = useCallback(() => {
@@ -764,11 +785,18 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     cyRef.current.elements().remove()
 
     // Add nodes
-    const cyNodes = nodes.map(node => ({
-      data: node,
-      classes: node.isForeign ? 'foreign-node' : undefined,
-      position: causalGraphState.nodePositions[node.id] || undefined
-    }))
+    const cyNodes = nodes.map(node => {
+      const classes: string[] = []
+      if (node.isForeign) classes.push('foreign-node')
+      if (node.isDivergencePoint || (divergenceEventIds && divergenceEventIds.includes(node.id))) {
+        classes.push('divergence-point')
+      }
+      return {
+        data: node,
+        classes: classes.length > 0 ? classes.join(' ') : undefined,
+        position: causalGraphState.nodePositions[node.id] || undefined
+      }
+    })
 
     // Add edges
     const cyEdges = edges.map(edge => ({
@@ -801,7 +829,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         node.select()
       }
     })
-  }, [isInitialized, transformDataForCytoscape, armBackgroundTapGuard]) // Removed sessionData dependency to break update cycle
+  }, [isInitialized, transformDataForCytoscape, armBackgroundTapGuard, divergenceEventIds]) // Removed sessionData dependency to break update cycle
 
   // Focus on specific event
   const focusOnEvent = useCallback((eventId: string) => {
@@ -1027,6 +1055,19 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       })
     }
   }, [linkCreationSource, isInitialized])
+
+  // Dynamically update divergence point styling when divergenceEventIds prop changes
+  useEffect(() => {
+    if (!cyRef.current || !isInitialized) return
+    const cy = cyRef.current
+    cy.nodes().forEach(node => {
+      if (divergenceEventIds && divergenceEventIds.includes(node.id())) {
+        node.addClass('divergence-point')
+      } else {
+        node.removeClass('divergence-point')
+      }
+    })
+  }, [divergenceEventIds, isInitialized])
 
   // Note: useImperativeHandle would be used with forwardRef for parent component access
   // For now, these methods can be accessed via ref if needed in the future
