@@ -36,6 +36,8 @@ import {
   GenerateExpandOptions,
   GenerateSimulateOptions,
 } from '../types';
+import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
+import type { SimulationRequest } from '@/services/SimulationService';
 
 export class DirectEngine implements IEngine {
   readonly mode = 'direct' as const;
@@ -798,12 +800,27 @@ export class DirectEngine implements IEngine {
 
   async generateSimulate(options: GenerateSimulateOptions): Promise<GenerationResultDto> {
     const container = await this.getInitializedContainer();
-    const llmClient = createLLMClient({
-      provider: options.provider,
-      model: options.model,
-    });
-    const generator = new TimelineGenerator({ llmClient });
-    return generator.generateSimulate(options, container);
+
+    const request: SimulationRequest = {
+      graphId: options.graphId,
+      steps: options.steps,
+      stepDurationMs:
+        options.timeAdvanceMonths !== undefined
+          ? options.timeAdvanceMonths * MS_PER_MONTH
+          : undefined,
+      anchorEventId: options.anchorEventId,
+      domain: options.domain,
+      aggressiveness: options.aggressiveness,
+      seedContext: options.seedContext,
+    };
+
+    // The engine validates and persists each milestone, so a direct run is the
+    // same operation the HTTP route performs rather than a separate generator.
+    const result = options.dryRun
+      ? await container.simulationService.preview(request)
+      : await container.simulationService.simulate(request);
+
+    return toGenerationResultDto(result, 'Forward Simulation');
   }
 
   async validateGraph(graphId: string, strict?: boolean, autoRepair?: boolean): Promise<ValidationReportDto> {

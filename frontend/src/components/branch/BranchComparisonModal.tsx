@@ -4,6 +4,7 @@ import { useGraphs, useActiveGraphId, useSwitchGraph } from '@/hooks/useGraphs'
 import { apiClient } from '@/services/api'
 import { analyzeEventDivergence, analyzeRelationshipDivergence } from '@/utils/divergenceAnalysis'
 import { CounterfactualTimelineCanvas } from './CounterfactualTimelineCanvas'
+import { SimulationLauncherPanel } from './SimulationLauncherPanel'
 import { CausalGraphComponent } from '@/components/causal-graph/CausalGraphComponent'
 
 export interface BranchComparisonModalProps {
@@ -25,7 +26,7 @@ export interface BranchComparisonModalProps {
   }
 }
 
-type ActiveTab = 'timeline' | 'causal' | 'diff' | 'summary'
+type ActiveTab = 'timeline' | 'causal' | 'diff' | 'summary' | 'simulate'
 type DiffFilter = 'all' | 'divergent' | 'shared' | 'baseline_only' | 'modified'
 
 interface GraphDataState {
@@ -67,6 +68,9 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
 
   const [baselineData, setBaselineData] = useState<GraphDataState>(EMPTY_DATA)
   const [counterfactualData, setCounterfactualData] = useState<GraphDataState>(EMPTY_DATA)
+  // Bumped after a simulation run so the counterfactual fetch effect re-runs and
+  // the dual-lane canvas picks up the newly persisted milestones.
+  const [reloadToken, setReloadToken] = useState(0)
 
   // Initialize selected graphs when modal opens
   useEffect(() => {
@@ -189,7 +193,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
     return () => {
       cancelled = true
     }
-  }, [isOpen, counterfactualGraphId, copiedData])
+  }, [isOpen, counterfactualGraphId, copiedData, reloadToken])
 
   // Compute divergence analysis between baseline and counterfactual datasets
   const divergenceAnalysis = useMemo(() => {
@@ -419,6 +423,17 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
           >
             <span>📊</span> Summary Overview
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('simulate')}
+            className={`py-3 px-4 font-semibold text-xs border-b-2 transition-colors flex items-center gap-1.5 ${
+              activeTab === 'simulate'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <span>🔮</span> Forward Simulation
+          </button>
         </div>
 
         {/* Main Tab Body */}
@@ -638,6 +653,14 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                     )}
                   </div>
                 </div>
+              )}
+              {/* Tab 5: Autonomous Historical Simulation (Option 1) */}
+              {activeTab === 'simulate' && (
+                <SimulationLauncherPanel
+                  graphId={counterfactualGraphId}
+                  graphName={resolvedCounterfactualName}
+                  onSimulated={() => setReloadToken(token => token + 1)}
+                />
               )}
             </>
           )}

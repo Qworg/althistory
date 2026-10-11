@@ -2,6 +2,7 @@
 export * from './TemporalService';
 export * from './CausalService';
 export * from './InferenceService';
+export * from './SimulationService';
 export * from './GraphCopyService';
 export * from './ValidationService';
 export * from './CacheInvalidationService';

@@ -3,6 +3,7 @@ import { ExecutionContext } from './engine/ExecutionContext';
 import { formatOutput, formatErrorJson } from './formatters';
 import { GlobalCLIOptions, OutputFormat } from './types';
 import { CLIError, ExitCode } from './utils/exitCodes';
+import { isSimulationDomain } from '@/services/SimulationService';
 import { logger } from './utils/logger';
 import { McpServer } from './mcp/McpServer';
 import { MCP_TOOLS } from './mcp/toolDefinitions';
@@ -857,6 +858,13 @@ export function createProgram(): Command {
     .requiredOption('-g, --graph-id <id>', 'Target graph ID')
     .option('-s, --steps <steps>', 'Simulation steps (default: 3)', '3')
     .option('-m, --months <months>', 'Months to advance per step (default: 12)', '12')
+    .option(
+      '-d, --domain <domain>',
+      'Domain to evolve: political|military|economic|scientific|social|environmental'
+    )
+    .option('-a, --anchor <eventId>', 'Point of divergence event ID (default: latest event)')
+    .option('--aggressiveness <value>', 'Causal pressure bias between 0 and 1 (default: 0.5)')
+    .option('--seed <text>', 'Premise recorded on every generated event')
     .option('--provider <provider>', 'LLM provider')
     .option('--model <model>', 'LLM model name')
     .option('--dry-run', 'Preview simulation without persisting')
@@ -871,10 +879,31 @@ export function createProgram(): Command {
           ? (cmdOpts.provider as 'openai' | 'anthropic')
           : undefined;
 
+        const domainValue = typeof cmdOpts?.domain === 'string' ? cmdOpts.domain : undefined;
+        if (domainValue !== undefined && !isSimulationDomain(domainValue)) {
+          throw new CLIError(
+            `Invalid domain '${domainValue}'. Expected one of: political, military, economic, scientific, social, environmental`,
+            ExitCode.VALIDATION_FAILED
+          );
+        }
+
+        const aggressivenessValue =
+          cmdOpts?.aggressiveness !== undefined ? parseFloat(String(cmdOpts.aggressiveness)) : undefined;
+        if (aggressivenessValue !== undefined && (isNaN(aggressivenessValue) || aggressivenessValue < 0 || aggressivenessValue > 1)) {
+          throw new CLIError(
+            'aggressiveness must be a number between 0 and 1',
+            ExitCode.VALIDATION_FAILED
+          );
+        }
+
         const result = await engine.generateSimulate({
           graphId: String(cmdOpts?.graphId || ''),
           steps: cmdOpts?.steps ? parseInt(String(cmdOpts.steps), 10) : 3,
           timeAdvanceMonths: cmdOpts?.months ? parseInt(String(cmdOpts.months), 10) : 12,
+          domain: domainValue,
+          anchorEventId: cmdOpts?.anchor as string | undefined,
+          aggressiveness: aggressivenessValue,
+          seedContext: cmdOpts?.seed as string | undefined,
           provider,
           model: cmdOpts?.model as string | undefined,
           dryRun: Boolean(cmdOpts?.dryRun),

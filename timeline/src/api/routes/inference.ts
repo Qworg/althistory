@@ -3,6 +3,15 @@ import { ValidationError, NotFoundError } from '@/utils/errors';
 import { TimeRange } from '@/models/Event';
 import { PressureType } from '@/models/InferredPressure';
 import { requireGraphId, resolveGraphContext } from '@/api/middleware';
+import type { Event } from '@/models/Event';
+import type { InferredPressure } from '@/models/InferredPressure';
+import {
+  isSimulationDomain,
+  SimulationRequest,
+  SimulationResult,
+  SimulationStep,
+} from '@/services/SimulationService';
+import type { StoredCausalRelationship } from '@/services/CausalService';
 
 export const inferenceRoutes = Router();
 
@@ -543,3 +552,210 @@ inferenceRoutes.post('/predict', async (req: Request, res: Response, next: NextF
     next(error);
   }
 });
+/**
+ * POST /inference/simulate - Evolve a timeline forward under inferred pressures
+ *
+ * Each step reads the recent causal window, infers the pressures acting on it,
+ * and persists one milestone event plus a causal link to its precursor. Pass
+ * `dryRun: true` to get the same plan without writes, or `stream: true` (or an
+ * `Accept: text/event-stream` header) to receive each milestone as it lands.
+ */
+inferenceRoutes.post('/simulate', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const graphId = requireGraphId(req);
+    const body = isUnknownRecord(req.body) ? req.body : {};
+    const request = parseSimulationRequest(graphId, body);
+
+    if (readOptionalBoolean(body, 'dryRun') === true) {
+      const preview = await req.container.simulationService.preview(request);
+      res.json({
+        success: true,
+        data: serializeSimulation(preview),
+        requestId: req.requestId
+      });
+      return;
+    }
+
+    if (wantsEventStream(req, body)) {
+      await streamSimulation(req, res, request);
+      return;
+    }
+
+    const result = await req.container.simulationService.simulate(request);
+    res.json({
+      success: true,
+      data: serializeSimulation(result),
+      requestId: req.requestId
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** Read a simulation request out of an untyped body, rejecting bad fields. */
+function parseSimulationRequest(graphId: string, body: Record<string, unknown>): SimulationRequest {
+  const request: SimulationRequest = { graphId };
+
+  const anchorEventId = readOptionalString(body, 'anchorEventId');
+  if (anchorEventId !== undefined) request.anchorEventId = anchorEventId;
+
+  const seedContext = readOptionalString(body, 'seedContext');
+  if (seedContext !== undefined) request.seedContext = seedContext;
+
+  const steps = readOptionalNumber(body, 'steps');
+  if (steps !== undefined) request.steps = steps;
+
+  const stepDurationMs = readOptionalNumber(body, 'stepDurationMs');
+  if (stepDurationMs !== undefined) request.stepDurationMs = stepDurationMs;
+
+  const aggressiveness = readOptionalNumber(body, 'aggressiveness');
+  if (aggressiveness !== undefined) request.aggressiveness = aggressiveness;
+
+  const domain = readOptionalString(body, 'domain');
+  if (domain !== undefined) {
+    if (!isSimulationDomain(domain)) {
+      throw new ValidationError(
+        'domain must be one of: political, military, economic, scientific, social, environmental',
+        'domain',
+        domain
+      );
+    }
+    request.domain = domain;
+  }
+
+  return request;
+}
+
+function wantsEventStream(req: Request, body: Record<string, unknown>): boolean {
+  if (readOptionalBoolean(body, 'stream') === true) {
+    return true;
+  }
+  const accept = req.get('Accept');
+  return typeof accept === 'string' && accept.includes('text/event-stream');
+}
+
+/**
+ * Run a simulation, writing each persisted milestone to the client as an SSE
+ * frame before the next hop begins.
+ *
+ * The response is streamed by hand rather than through the error handler
+ * because headers are committed once the first frame is written: a mid-run
+ * failure is reported as a `simulation_error` frame instead of a status code,
+ * and the stream is always closed.
+ */
+async function streamSimulation(
+  req: Request,
+  res: Response,
+  request: SimulationRequest
+): Promise<void> {
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const writeFrame = (event: string, data: unknown): void => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const result = await req.container.simulationService.simulate(request, (step) => {
+      writeFrame('event_created', serializeSimulationStep(step));
+      if (step.causalLink) {
+        writeFrame('causal_link_created', serializeRelationship(step.causalLink));
+      }
+    });
+    writeFrame('simulation_complete', serializeSimulation(result));
+  } catch (error) {
+    writeFrame('simulation_error', {
+      message: error instanceof Error ? error.message : 'Simulation failed'
+    });
+  } finally {
+    res.end();
+  }
+}
+
+interface SerializedEvent {
+  id: string;
+  description: string;
+  actor: string;
+  target: string;
+  timestamp: string;
+  metadata: Record<string, unknown>;
+}
+
+function serializeEvent(event: Event): SerializedEvent {
+  return {
+    id: event.id,
+    description: event.description,
+    actor: event.actor,
+    target: event.target,
+    timestamp: event.timestamp.toISOString(),
+    metadata: event.metadata ?? {}
+  };
+}
+
+function serializePressure(pressure: InferredPressure): Record<string, unknown> {
+  return {
+    id: pressure.id,
+    description: pressure.description,
+    confidence_score: pressure.confidence_score,
+    pressure_type: pressure.pressure_type,
+    evidence: pressure.evidence
+  };
+}
+
+function serializeRelationship(relationship: StoredCausalRelationship): Record<string, unknown> {
+  return {
+    id: relationship.id,
+    cause_event_id: relationship.cause_event_id,
+    effect_event_id: relationship.effect_event_id,
+    weight: relationship.weight,
+    evidence: relationship.evidence,
+    confidence: relationship.confidence,
+    relationship_type: relationship.relationship_type
+  };
+}
+
+function serializeSimulationStep(step: SimulationStep): Record<string, unknown> {
+  return {
+    index: step.index,
+    event: serializeEvent(step.event),
+    pressure: serializePressure(step.pressure),
+    causalLink: step.causalLink ? serializeRelationship(step.causalLink) : null
+  };
+}
+
+function serializeSimulation(result: SimulationResult): Record<string, unknown> {
+  return {
+    graphId: result.graphId,
+    anchorEventId: result.anchorEventId,
+    domain: result.domain,
+    steps: result.steps,
+    stepDurationMs: result.stepDurationMs,
+    aggressiveness: result.aggressiveness,
+    dryRun: result.dryRun,
+    events: result.events.map(serializeEvent),
+    relationships: result.relationships.map(serializeRelationship),
+    pressures: result.pressures.map(serializePressure)
+  };
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readOptionalString(body: Record<string, unknown>, key: string): string | undefined {
+  const value = body[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function readOptionalNumber(body: Record<string, unknown>, key: string): number | undefined {
+  const value = body[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+function readOptionalBoolean(body: Record<string, unknown>, key: string): boolean | undefined {
+  const value = body[key];
+  return typeof value === 'boolean' ? value : undefined;
+}

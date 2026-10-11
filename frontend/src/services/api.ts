@@ -48,11 +48,19 @@ import {
   WikidataIngestRequest,
   TextIngestRequest,
   ApproveIngestionRequest,
-  StreamTokenResponse
+  StreamTokenResponse,
+  SimulationRequestOptions,
+  SimulationResult
 } from '@/types'
 
 // API client configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+
+/**
+ * Average Gregorian month in milliseconds. Matches the backend CLI's documented
+ * 30.4-day month, so a hop expressed in months means the same span everywhere.
+ */
+const MS_PER_MONTH = 30.4 * 24 * 60 * 60 * 1000
 
 // Shape of the error bodies the API returns alongside a non-2xx status.
 // `data` is `any` on an AxiosResponse, so it is narrowed to this shape here.
@@ -453,6 +461,43 @@ class APIClient {
                         end_time: timeRange.end.toISOString()
                     }
                 })
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        /**
+         * Evolve a graph forward with the backend simulation engine.
+         *
+         * `timeAdvanceMonths` is translated to the engine's millisecond step so
+         * the caller can express a hop either way; an explicit `stepDurationMs`
+         * always wins.
+         */
+        simulate: async (
+            graphId: string,
+            options: SimulationRequestOptions = {},
+            signal?: AbortSignal
+        ): Promise<SimulationResult> => {
+            try {
+                const stepDurationMs = options.stepDurationMs
+                    ?? (options.timeAdvanceMonths !== undefined
+                        ? options.timeAdvanceMonths * MS_PER_MONTH
+                        : undefined)
+
+                const response: AxiosResponse<{ success: boolean; data: SimulationResult }> = await this.client.post(
+                    '/inference/simulate',
+                    {
+                        steps: options.steps,
+                        stepDurationMs,
+                        anchorEventId: options.anchorEventId,
+                        domain: options.domain,
+                        aggressiveness: options.aggressiveness,
+                        seedContext: options.seedContext,
+                        dryRun: options.dryRun,
+                    },
+                    { headers: { 'X-Graph-Id': graphId }, signal }
+                )
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)

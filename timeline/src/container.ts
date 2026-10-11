@@ -7,6 +7,7 @@ import {
   TemporalService, 
   CausalService, 
   InferenceService, 
+  SimulationService, 
   GraphCopyService, 
   ValidationService,
   CacheInvalidationService,
@@ -90,6 +91,7 @@ export interface ServiceContainer {
   temporalService: TemporalService;
   causalService: CausalService;
   inferenceService: InferenceService;
+  simulationService: SimulationService;
   graphCopyService: GraphCopyService;
   validationService: ValidationService;
   cacheInvalidationService: CacheInvalidationService;
@@ -131,6 +133,7 @@ export class Container implements ServiceContainer {
   private _temporalService?: TemporalService;
   private _causalService?: CausalService;
   private _inferenceService?: InferenceService;
+  private _simulationService?: SimulationService;
   private _graphCopyService?: GraphCopyService;
   private _validationService?: ValidationService;
   private _cacheInvalidationService?: CacheInvalidationService;
@@ -198,6 +201,24 @@ export class Container implements ServiceContainer {
       this._inferenceService = new InferenceService();
     }
     return this._inferenceService;
+  }
+
+  /**
+   * Get simulation service instance (singleton).
+   *
+   * The engine holds no storage of its own: it reads and writes through
+   * `graphScopedRepositories`, so a simulation run can never touch a graph the
+   * caller did not name.
+   */
+  get simulationService(): SimulationService {
+    if (!this._simulationService) {
+      this._simulationService = new SimulationService({
+        inferenceService: this.inferenceService,
+        validationService: this.validationService,
+        graphScopedRepositories: (graphId: string) => this.graphScopedRepositories(graphId),
+      });
+    }
+    return this._simulationService;
   }
 
   /**
