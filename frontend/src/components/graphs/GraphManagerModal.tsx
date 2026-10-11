@@ -12,6 +12,7 @@ import {
 } from '@/hooks/useGraphs'
 import { Graph, GraphStatus, GraphVersion } from '@/types'
 import { ModalBase } from '@/components/modals/ModalBase'
+import { BranchComparisonModal } from '@/components/branch/BranchComparisonModal'
 
 interface GraphManagerModalProps {
   isOpen: boolean
@@ -32,6 +33,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
   const [showBranchDialog, setShowBranchDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [branchName, setBranchName] = useState('')
+  const [comparingBranchId, setComparingBranchId] = useState<string | null>(null)
 
   const {
     activeGraphId,
@@ -175,6 +177,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
                 activeGraphId={activeGraphId}
                 isLoading={isLoadingBranches}
                 onSwitch={handleSwitchAndClose}
+                onCompare={setComparingBranchId}
                 onCreateBranch={() => setShowBranchDialog(true)}
               />
             )}
@@ -249,6 +252,16 @@ export const GraphManagerModal = memo(function GraphManagerModal({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Branch Divergence / Comparison Explorer */}
+      {comparingBranchId && (
+        <BranchComparisonModal
+          isOpen={Boolean(comparingBranchId)}
+          onClose={() => setComparingBranchId(null)}
+          initialBaselineGraphId={activeGraphId ?? undefined}
+          initialCounterfactualGraphId={comparingBranchId}
+        />
       )}
     </ModalBase>
   )
@@ -419,6 +432,7 @@ interface BranchesTabProps {
   activeGraphId: string | null
   isLoading: boolean
   onSwitch: (graphId: string) => void
+  onCompare?: (graphId: string) => void
   onCreateBranch: () => void
 }
 
@@ -427,6 +441,7 @@ const BranchesTab = memo(function BranchesTab({
   activeGraphId,
   isLoading,
   onSwitch,
+  onCompare,
   onCreateBranch,
 }: BranchesTabProps) {
   if (isLoading) {
@@ -468,14 +483,23 @@ const BranchesTab = memo(function BranchesTab({
                     {branch.metadata.eventCount} events - v{branch.version}
                   </div>
                 </div>
-                {branch.id !== activeGraphId && (
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={() => onSwitch(branch.id)}
-                    className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                    onClick={() => onCompare?.(branch.id)}
+                    className="px-3 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded text-sm hover:bg-purple-100 font-medium"
+                    title="Compare branch against baseline"
                   >
-                    Switch
+                    Compare
                   </button>
-                )}
+                  {branch.id !== activeGraphId && (
+                    <button
+                      onClick={() => onSwitch(branch.id)}
+                      className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                    >
+                      Switch
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ))}

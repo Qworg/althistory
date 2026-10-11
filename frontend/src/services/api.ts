@@ -182,9 +182,13 @@ class APIClient {
 
     // Event operations
     events = {
-        getAll: async (filters?: EventFilters): Promise<Event[]> => {
+        getAll: async (filters?: EventFilters, options?: { graphId?: string }): Promise<Event[]> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: Event[] }> = await this.client.get('/events', { params: filters })
+                const config: { params?: EventFilters; headers?: Record<string, string> } = { params: filters }
+                if (options?.graphId) {
+                    config.headers = { 'X-Graph-Id': options.graphId }
+                }
+                const response: AxiosResponse<{ success: boolean; data: Event[] }> = await this.client.get('/events', config)
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -240,9 +244,13 @@ class APIClient {
 
     // Arc operations
     arcs = {
-        getAll: async (filters?: ArcFilters): Promise<Arc[]> => {
+        getAll: async (filters?: ArcFilters, options?: { graphId?: string }): Promise<Arc[]> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: Arc[] }> = await this.client.get('/arcs', { params: filters })
+                const config: { params?: ArcFilters; headers?: Record<string, string> } = { params: filters }
+                if (options?.graphId) {
+                    config.headers = { 'X-Graph-Id': options.graphId }
+                }
+                const response: AxiosResponse<{ success: boolean; data: Arc[] }> = await this.client.get('/arcs', config)
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -296,11 +304,15 @@ class APIClient {
 
     // Causal operations
     causal = {
-        getRelationships: async (eventId?: string): Promise<CausalRelationship[]> => {
+        getRelationships: async (eventId?: string, options?: { graphId?: string }): Promise<CausalRelationship[]> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: CausalRelationship[] }> = await this.client.get('/causal/relationships', {
+                const config: { params?: { event_id: string }; headers?: Record<string, string> } = {
                     params: eventId ? { event_id: eventId } : undefined
-                })
+                }
+                if (options?.graphId) {
+                    config.headers = { 'X-Graph-Id': options.graphId }
+                }
+                const response: AxiosResponse<{ success: boolean; data: CausalRelationship[] }> = await this.client.get('/causal/relationships', config)
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)

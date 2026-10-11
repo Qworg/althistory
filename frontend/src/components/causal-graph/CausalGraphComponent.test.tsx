@@ -698,5 +698,52 @@ describe('CausalGraphComponent', () => {
       expect(crossEdge?.classes).toBe('cross-graph')
       expect(crossEdge?.data.crossGraphLabel).toContain('graph-be')
     })
+
+    it('applies divergence-point class to nodes matching divergenceEventIds', async () => {
+      const events: Event[] = [
+        {
+          id: 'event-pod',
+          actor: 'Actor A',
+          target: 'Target B',
+          description: 'Pivotal Divergence Event',
+          timestamp: '2023-01-01T00:00:00Z',
+          created_at: '2023-01-01T00:00:00Z',
+          updated_at: '2023-01-01T00:00:00Z',
+        },
+        {
+          id: 'event-standard',
+          actor: 'Actor C',
+          target: 'Target D',
+          description: 'Standard Event',
+          timestamp: '2023-01-02T00:00:00Z',
+          created_at: '2023-01-02T00:00:00Z',
+          updated_at: '2023-01-02T00:00:00Z',
+        },
+      ]
+
+      render(
+        <CausalGraphComponent
+          events={events}
+          divergenceEventIds={['event-pod']}
+        />
+      )
+
+      await waitFor(() => {
+        expect(mockCy.add).toHaveBeenCalled()
+      })
+
+      const addedElements = (mockCy.add.mock.calls[0] as unknown[][])[0] as Array<{
+        data: { id: string }
+        classes?: string
+      }>
+
+      const podNode = addedElements.find(el => el.data.id === 'event-pod')
+      expect(podNode).toBeDefined()
+      expect(podNode?.classes).toContain('divergence-point')
+
+      const standardNode = addedElements.find(el => el.data.id === 'event-standard')
+      expect(standardNode).toBeDefined()
+      expect(standardNode?.classes).toBeUndefined()
+    })
   })
 })
