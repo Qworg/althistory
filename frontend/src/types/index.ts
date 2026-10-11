@@ -322,6 +322,55 @@ export interface MergeGraphRequest {
   message?: string
 }
 
+export interface MergedResolution {
+  strategy: 'merged'
+  value: Record<string, unknown>
+}
+
+/** A value that actually resolves one merge conflict. */
+export type ManualResolution = 'keep-target' | 'keep-source' | MergedResolution
+
+export type MergeAnomalyType = 'causal_cycle' | 'temporal_inversion' | 'orphan_relationship'
+
+export interface MergeAnomaly {
+  type: MergeAnomalyType
+  message: string
+  details?: Record<string, unknown>
+}
+
+export type MergeEntityType = 'event' | 'arc' | 'relationship' | 'pressure'
+
+/** One entity that differs between the target and source graphs. */
+export interface MergeConflict {
+  entityType: MergeEntityType
+  entityId: string
+  sourceVersion: Record<string, unknown>
+  targetVersion: Record<string, unknown>
+  /** Reserved for a future three-way diff; not populated today. */
+  baseVersion?: Record<string, unknown>
+  suggestedResolution: ManualResolution
+}
+
+/** Request shape accepted by `POST /graphs/:id/merge`. */
+export interface GraphMergeRequest {
+  sourceGraphId: string
+  conflictResolution: 'keep-target' | 'keep-source' | 'manual'
+  /** Keyed `${entityType}:${entityId}`; required for every conflict when manual. */
+  manualResolutions?: Record<string, ManualResolution>
+  /** Preview the merge without committing it. */
+  dryRun?: boolean
+}
+
+/** Result of a merge attempt, including a preview that found conflicts. */
+export interface GraphMergeResponse {
+  success: boolean
+  graph?: Graph
+  newVersion?: number
+  conflicts?: MergeConflict[]
+  anomalies?: MergeAnomaly[]
+  dryRun?: boolean
+}
+
 // Export Types
 export type ExportJobStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
 

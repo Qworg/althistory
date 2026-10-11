@@ -531,6 +531,10 @@ graphRoutes.post('/:id/merge', ...writeGraphAuth, async (req: RequestWithContain
       );
     }
 
+    if (request.dryRun !== undefined && typeof request.dryRun !== 'boolean') {
+      throw new ValidationError('dryRun must be a boolean', 'dryRun', request.dryRun);
+    }
+
     // The route validates the values as well as the service, because a service
     // that is only safe when its one caller validates is not safe. An invalid
     // value must be rejected here rather than reach the merge's keep-target
@@ -538,7 +542,7 @@ graphRoutes.post('/:id/merge', ...writeGraphAuth, async (req: RequestWithContain
     const invalidManualResolutions = findInvalidManualResolutions(request.manualResolutions);
     if (invalidManualResolutions.length > 0) {
       throw new ValidationError(
-        'manualResolutions values must be "keep-source" or "keep-target"',
+        'manualResolutions values must be "keep-source", "keep-target", or { strategy: "merged", value: { ... } }',
         'manualResolutions',
         request.manualResolutions,
         invalidManualResolutions.map(key => `manualResolutions[${key}] is not a valid resolution`)
@@ -551,7 +555,8 @@ graphRoutes.post('/:id/merge', ...writeGraphAuth, async (req: RequestWithContain
       res.status(409).json({
         success: false,
         conflicts: result.conflicts,
-        message: 'Merge has conflicts that need resolution',
+        anomalies: result.anomalies,
+        message: 'Merge has conflicts or validation anomalies that need resolution',
         requestId: req.requestId,
       });
       return;
@@ -561,7 +566,12 @@ graphRoutes.post('/:id/merge', ...writeGraphAuth, async (req: RequestWithContain
       success: true,
       data: result.mergedGraph,
       newVersion: result.newVersion,
-      message: 'Merge completed successfully',
+      conflicts: result.conflicts,
+      anomalies: result.anomalies,
+      // Present (and true) only for a preview, so a client that asked for a dry
+      // run can tell it apart from a commit even when there were no conflicts.
+      dryRun: result.dryRun === true,
+      message: result.dryRun === true ? 'Merge preview generated' : 'Merge completed successfully',
       requestId: req.requestId,
     });
   } catch (error) {

@@ -22,6 +22,11 @@ vi.mock('@/services/api', () => ({
         { id: 'graph-2', name: 'Halifax Branch', branchName: 'halifax-1940', version: 1, metadata: { eventCount: 2 } },
       ]),
       switch: vi.fn().mockResolvedValue({ success: true }),
+      mergeDetailed: vi.fn().mockResolvedValue({
+        success: true,
+        dryRun: true,
+        conflicts: [],
+      }),
     },
     inference: {
       simulate: vi.fn().mockResolvedValue({
@@ -200,5 +205,20 @@ describe('BranchComparisonModal', () => {
 
     expect(screen.getByTestId('simulation-launcher')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Run Simulation/ })).toBeInTheDocument()
+  })
+
+  it('opens the branch merge resolver from the footer', () => {
+    renderWithProviders(
+      <BranchComparisonModal
+        {...defaultProps}
+        initialBaselineGraphId="graph-1"
+        initialCounterfactualGraphId="graph-2"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Merge Branch into Baseline' }))
+
+    expect(screen.getByText('Merge Branch')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Analyze Merge' })).toBeInTheDocument()
   })
 })

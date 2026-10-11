@@ -50,7 +50,10 @@ import {
   ApproveIngestionRequest,
   StreamTokenResponse,
   SimulationRequestOptions,
-  SimulationResult
+  SimulationResult,
+  GraphMergeRequest,
+  GraphMergeResponse,
+  MergeConflict
 } from '@/types'
 
 // API client configuration
@@ -645,6 +648,51 @@ class APIClient {
                     })
                 return response.data.data
             } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        /**
+         * Merge a source graph into a target, returning conflicts instead of
+         * throwing when the server refuses.
+         *
+         * `POST /graphs/:id/merge` answers 409 when the merge cannot proceed and
+         * the conflict list is in the error body. The plain `merge` helper above
+         * discards that body, so the branch-merge UI uses this one: a dry run and
+         * a manual merge both need the conflicts, not an exception.
+         */
+        mergeDetailed: async (
+            targetGraphId: string,
+            request: GraphMergeRequest
+        ): Promise<GraphMergeResponse> => {
+            try {
+                const response: AxiosResponse<{
+                    success: boolean
+                    data?: Graph
+                    newVersion?: number
+                    dryRun?: boolean
+                    conflicts?: MergeConflict[]
+                    anomalies?: MergeAnomaly[]
+                }> = await this.client.post(`/graphs/${targetGraphId}/merge`, request)
+                return {
+                    success: true,
+                    graph: response.data.data,
+                    newVersion: response.data.newVersion,
+                    dryRun: response.data.dryRun === true,
+                    conflicts: response.data.conflicts ?? [],
+                    anomalies: response.data.anomalies ?? [],
+                }
+            } catch (error) {
+                if (axios.isAxiosError(error) && error.response?.status === 409) {
+                    const body: unknown = error.response.data
+                    const conflicts = typeof body === 'object' && body !== null && Array.isArray((body as { conflicts?: unknown }).conflicts)
+                        ? ((body as { conflicts: MergeConflict[] }).conflicts)
+                        : []
+                    const anomalies = typeof body === 'object' && body !== null && Array.isArray((body as { anomalies?: unknown }).anomalies)
+                        ? ((body as { anomalies: MergeAnomaly[] }).anomalies)
+                        : []
+                    return { success: false, conflicts, anomalies, dryRun: request.dryRun === true }
+                }
                 handleAPIError(error as AxiosError)
             }
         },
