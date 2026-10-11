@@ -75,20 +75,37 @@ baseline advanced between the dry run and the commit, the server refuses and
 returns a fresh conflict set, which the UI re-renders instead of retrying
 blindly.
 
-### On "harmonized compromise"
+### Harmonized compromise (Field-level blending)
 
-The merge API resolves a conflict **per entity** by choosing a side; it has no
-field for a merged payload. A field-level “harmonized compromise” would
-therefore have to silently degrade to `keep-target`, discarding the branch edit
-the user thought they were blending. The UI does not offer that button for
-exactly that reason; it tells the user to resolve by side and edit the surviving
-entity afterward. Adding a real compromise needs a backend `merged` payload in
-`manualResolutions`, which is a separate change.
+The merge API and UI support field-level compromises across conflicts. Callers can specify `{ strategy: "merged", value: { ... } }` in `manualResolutions`:
 
-Graph-level circular-causal detection before a merge is likewise **not** part of
-this feature: `detectMergeConflicts` compares entity records, it does not walk
-the causal DAG. A caller who wants that assurance runs the graph validator
-(`GET/POST /validate/graph`) after merging.
+```jsonc
+{
+  "sourceGraphId": "graph_branch",
+  "conflictResolution": "manual",
+  "manualResolutions": {
+    "event:event_abc": {
+      "strategy": "merged",
+      "value": {
+        "description": "Blended description",
+        "actor": "Branch Actor",
+        "target": "Baseline Target"
+      }
+    }
+  }
+}
+```
+
+In `BranchMergeModal.tsx`, choosing **Harmonized compromise** renders an inline field selector allowing users to choose baseline vs. branch values per differing property.
+
+### Pre-merge anomaly detection
+
+During `dryRun: true` (and verified before committing), `GraphService.mergeGraph` performs a DAG and temporal analysis over the candidate merged graph:
+- **Causal cycle detection**: Ensures combined causal relationships form a strict directed acyclic graph (DAG) without circular dependencies.
+- **Temporal inversions**: Identifies causal relationships where the cause event timestamp occurs at or after the effect event timestamp.
+- **Orphan relationships**: Flags relationships referencing missing cause or effect entities.
+
+Detected anomalies are returned in `anomalies: MergeAnomaly[]` and surfaced as blocking warnings in `BranchMergeModal.tsx`.
 
 ---
 

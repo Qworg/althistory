@@ -542,7 +542,7 @@ graphRoutes.post('/:id/merge', ...writeGraphAuth, async (req: RequestWithContain
     const invalidManualResolutions = findInvalidManualResolutions(request.manualResolutions);
     if (invalidManualResolutions.length > 0) {
       throw new ValidationError(
-        'manualResolutions values must be "keep-source" or "keep-target"',
+        'manualResolutions values must be "keep-source", "keep-target", or { strategy: "merged", value: { ... } }',
         'manualResolutions',
         request.manualResolutions,
         invalidManualResolutions.map(key => `manualResolutions[${key}] is not a valid resolution`)
@@ -555,7 +555,8 @@ graphRoutes.post('/:id/merge', ...writeGraphAuth, async (req: RequestWithContain
       res.status(409).json({
         success: false,
         conflicts: result.conflicts,
-        message: 'Merge has conflicts that need resolution',
+        anomalies: result.anomalies,
+        message: 'Merge has conflicts or validation anomalies that need resolution',
         requestId: req.requestId,
       });
       return;
@@ -565,6 +566,8 @@ graphRoutes.post('/:id/merge', ...writeGraphAuth, async (req: RequestWithContain
       success: true,
       data: result.mergedGraph,
       newVersion: result.newVersion,
+      conflicts: result.conflicts,
+      anomalies: result.anomalies,
       // Present (and true) only for a preview, so a client that asked for a dry
       // run can tell it apart from a commit even when there were no conflicts.
       dryRun: result.dryRun === true,

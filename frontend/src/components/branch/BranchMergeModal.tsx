@@ -3,6 +3,8 @@ import { apiClient } from '@/services/api'
 import type {
   GraphMergeResponse,
   ManualResolution,
+  MergedResolution,
+  MergeAnomaly,
   MergeConflict,
 } from '@/types'
 
@@ -23,6 +25,10 @@ type Phase = 'idle' | 'analyzing' | 'conflicts' | 'committing' | 'done'
 /** Conflicts are keyed exactly the way the merge API expects. */
 function conflictKey(conflict: Pick<MergeConflict, 'entityType' | 'entityId'>): string {
   return `${conflict.entityType}:${conflict.entityId}`
+}
+
+function isMerged(resolution: ManualResolution | undefined): resolution is MergedResolution {
+  return typeof resolution === 'object' && resolution !== null && resolution.strategy === 'merged'
 }
 
 /** Keys whose values differ between the target and source records. */
@@ -53,14 +59,8 @@ function conflictLabel(conflict: MergeConflict): string {
  * baseline graph.
  *
  * The flow is two calls to `POST /graphs/:id/merge`:
- *   1. a dry run (`dryRun: true`) that reports the conflicts without writing;
- *   2. a commit carrying one `manualResolution` per conflict.
- *
- * The merge API resolves a conflict per entity by choosing a side, so those are
- * the only two controls offered. A field-level "harmonized compromise" would
- * need the API to accept a merged payload, which it does not today; offering
- * such a button would silently degrade to one of the two sides, so it is
- * deliberately absent.
+ *   1. a dry run (`dryRun: true`) that reports conflicts and pre-merge anomalies without writing;
+ *   2. a commit carrying one `manualResolution` per conflict (keep-target, keep-source, or harmonized compromise).
  */
 export const BranchMergeModal = React.memo(function BranchMergeModal({
   isOpen,
@@ -73,6 +73,7 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
 }: BranchMergeModalProps) {
   const [phase, setPhase] = useState<Phase>('idle')
   const [conflicts, setConflicts] = useState<MergeConflict[]>([])
+  const [anomalies, setAnomalies] = useState<MergeAnomaly[]>([])
   const [resolutions, setResolutions] = useState<Record<string, ManualResolution>>({})
   const [result, setResult] = useState<GraphMergeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -82,6 +83,7 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
     if (isOpen) {
       setPhase('idle')
       setConflicts([])
+      setAnomalies([])
       setResolutions({})
       setResult(null)
       setError(null)
@@ -99,6 +101,8 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
         conflictResolution: 'manual',
         dryRun: true,
       })
+
+      setAnomalies(preview.anomalies ?? [])
 
       if (preview.success) {
         setConflicts([])
@@ -135,7 +139,7 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
 
   const commit = useCallback(async () => {
     if (!targetGraphId || !sourceGraphId) return
-    if (unresolvedCount > 0) return
+    if (unresolvedCount > 0 || anomalies.length > 0) return
 
     setPhase('committing')
     setError(null)
@@ -148,11 +152,15 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
       })
 
       if (!merged.success) {
-        // The target may have advanced since the dry run. Re-seed the resolver
-        // with the fresh conflicts rather than retrying blindly.
+        // The target may have advanced or anomalies may be blocking.
         setConflicts(merged.conflicts ?? [])
+        setAnomalies(merged.anomalies ?? [])
         setPhase('conflicts')
-        setError('The merge was refused because conflicts changed. Review them and try again.')
+        setError(
+          merged.anomalies && merged.anomalies.length > 0
+            ? 'The merge was refused due to temporal anomalies or causal cycles.'
+            : 'The merge was refused because conflicts changed. Review them and try again.'
+        )
         return
       }
 
@@ -163,7 +171,7 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
       setError(err instanceof Error ? err.message : 'Merge failed')
       setPhase('conflicts')
     }
-  }, [targetGraphId, sourceGraphId, resolutions, unresolvedCount, onMerged])
+  }, [targetGraphId, sourceGraphId, resolutions, unresolvedCount, anomalies, onMerged])
 
   if (!isOpen) return null
 
@@ -203,7 +211,7 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
             <div className="bg-white rounded-lg border border-gray-200 p-4 text-xs text-gray-600">
               <p>
                 Analyze the branch against the baseline before writing anything. The dry run
-                reports every entity that differs so you can decide which side survives.
+                reports every entity that differs and checks for causal cycles and temporal paradoxes.
               </p>
               <button
                 type="button"
@@ -228,6 +236,24 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
 
           {phase === 'conflicts' && (
             <>
+              {anomalies.length > 0 && (
+                <div role="alert" className="bg-amber-50 border border-amber-300 rounded-lg p-3 text-xs text-amber-900 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                    <span>⚠️</span> Pre-merge Anomalies Detected ({anomalies.length})
+                  </div>
+                  <p className="text-[11px] text-amber-700">
+                    Combining these graphs introduces circular dependencies or temporal paradoxes:
+                  </p>
+                  <ul className="list-disc list-inside space-y-0.5 text-[11px] text-amber-800 mt-1">
+                    {anomalies.map((anomaly, idx) => (
+                      <li key={idx}>
+                        <span className="font-semibold uppercase text-[10px]">{anomaly.type.replace('_', ' ')}:</span> {anomaly.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {conflicts.length === 0 ? (
                 <div className="bg-white rounded-lg border border-green-200 p-4">
                   <h3 className="text-sm font-bold text-green-800">Fast-forward merge</h3>
@@ -263,6 +289,8 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
                   {conflicts.map(conflict => {
                     const key = conflictKey(conflict)
                     const differing = changedKeys(conflict)
+                    const conflictResolution = resolutions[key]
+                    const isHarmonized = isMerged(conflictResolution)
                     return (
                       <div
                         key={key}
@@ -298,7 +326,7 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
                             <input
                               type="radio"
                               name={`resolution-${key}`}
-                              checked={resolutions[key] === 'keep-target'}
+                              checked={conflictResolution === 'keep-target'}
                               onChange={() => setResolutions(prev => ({ ...prev, [key]: 'keep-target' }))}
                             />
                             Keep baseline
@@ -307,12 +335,100 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
                             <input
                               type="radio"
                               name={`resolution-${key}`}
-                              checked={resolutions[key] === 'keep-source'}
+                              checked={conflictResolution === 'keep-source'}
                               onChange={() => setResolutions(prev => ({ ...prev, [key]: 'keep-source' }))}
                             />
                             Accept counterfactual
                           </label>
+                          <label className="flex items-center gap-1.5 text-xs text-gray-700">
+                            <input
+                              type="radio"
+                              name={`resolution-${key}`}
+                              checked={isHarmonized}
+                              onChange={() => {
+                                const initialMerged = {
+                                  ...conflict.targetVersion,
+                                  ...conflict.sourceVersion,
+                                  id: conflict.entityId,
+                                }
+                                setResolutions(prev => ({
+                                  ...prev,
+                                  [key]: { strategy: 'merged', value: initialMerged },
+                                }))
+                              }}
+                            />
+                            Harmonized compromise
+                          </label>
                         </div>
+
+                        {isHarmonized && (
+                          <div className="mt-3 p-3 bg-gray-50 rounded border border-gray-200 space-y-2">
+                            <p className="text-[11px] font-semibold text-gray-700">Field-level selection:</p>
+                            {differing.map(field => {
+                              const cur = conflictResolution as MergedResolution
+                              const currentVal = cur.value[field]
+                              const targetVal = conflict.targetVersion[field]
+                              const sourceVal = conflict.sourceVersion[field]
+                              const isTargetSelected = JSON.stringify(currentVal) === JSON.stringify(targetVal)
+                              return (
+                                <div
+                                  key={field}
+                                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] py-1 border-b border-gray-100 last:border-0"
+                                >
+                                  <span className="font-mono text-gray-600 font-semibold">{field}:</span>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setResolutions(prev => ({
+                                          ...prev,
+                                          [key]: {
+                                            strategy: 'merged',
+                                            value: {
+                                              ...(prev[key] as MergedResolution).value,
+                                              [field]: targetVal,
+                                              id: conflict.entityId,
+                                            },
+                                          },
+                                        }))
+                                      }}
+                                      className={`px-2 py-0.5 rounded text-[10px] border transition-colors ${
+                                        isTargetSelected
+                                          ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold'
+                                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                                      }`}
+                                    >
+                                      Baseline: {String(targetVal)}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setResolutions(prev => ({
+                                          ...prev,
+                                          [key]: {
+                                            strategy: 'merged',
+                                            value: {
+                                              ...(prev[key] as MergedResolution).value,
+                                              [field]: sourceVal,
+                                              id: conflict.entityId,
+                                            },
+                                          },
+                                        }))
+                                      }}
+                                      className={`px-2 py-0.5 rounded text-[10px] border transition-colors ${
+                                        !isTargetSelected
+                                          ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold'
+                                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                                      }`}
+                                    >
+                                      Branch: {String(sourceVal)}
+                                    </button>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -320,9 +436,8 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
               )}
 
               <div className="text-[11px] text-gray-500">
-                A field-level harmonized compromise needs the merge API to accept a merged
-                payload, which it does not today. Resolve by choosing a side, then edit the
-                surviving entity afterward if you want to blend the two.
+                Pick "Keep baseline", "Accept counterfactual", or "Harmonized compromise" to blend specific fields
+                between the two timeline versions. Pre-merge checks protect against causal cycles and temporal inversions.
               </div>
             </>
           )}
@@ -361,7 +476,7 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
               <button
                 type="button"
                 onClick={commit}
-                disabled={unresolvedCount > 0 || busy}
+                disabled={unresolvedCount > 0 || busy || anomalies.length > 0}
                 className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
               >
                 {conflicts.length === 0 ? 'Merge Branch' : 'Commit Resolutions'}

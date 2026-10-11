@@ -170,4 +170,66 @@ describe('BranchMergeModal', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('graph not found')
     expect(screen.getByRole('button', { name: 'Analyze Merge' })).toBeInTheDocument()
   })
+
+  it('supports harmonized compromise with field-level overrides', async () => {
+    mergeDetailedMock
+      .mockResolvedValueOnce({ success: false, conflicts: [conflict], dryRun: true })
+      .mockResolvedValueOnce({ success: true, graph: makeGraph(), newVersion: 2 })
+
+    renderWithProviders(<BranchMergeModal {...defaultProps} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze Merge' }))
+    await screen.findByTestId('merge-conflict-event:e1')
+
+    fireEvent.click(screen.getByLabelText('Harmonized compromise'))
+
+    // Field-level picker appears
+    expect(screen.getByText('Field-level selection:')).toBeInTheDocument()
+    const baselineBtn = screen.getByRole('button', { name: /Baseline: Target version of the landing/ })
+    fireEvent.click(baselineBtn)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Commit Resolutions' }))
+    await screen.findByText('Merge complete')
+
+    expect(mergeDetailedMock).toHaveBeenLastCalledWith('graph-1', {
+      sourceGraphId: 'graph-2',
+      conflictResolution: 'manual',
+      manualResolutions: {
+        'event:e1': {
+          strategy: 'merged',
+          value: {
+            id: 'e1',
+            actor: 'Allied Command',
+            target: 'Normandy',
+            description: 'Target version of the landing',
+          },
+        },
+      },
+    })
+  })
+
+  it('displays pre-merge anomalies and blocks commit', async () => {
+    mergeDetailedMock.mockResolvedValueOnce({
+      success: false,
+      conflicts: [conflict],
+      anomalies: [
+        {
+          type: 'causal_cycle',
+          message: 'Causal cycle detected: e1 -> e2 -> e1',
+        },
+      ],
+      dryRun: true,
+    })
+
+    renderWithProviders(<BranchMergeModal {...defaultProps} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze Merge' }))
+
+    await screen.findByTestId('merge-conflict-event:e1')
+    expect(screen.getByText(/Pre-merge Anomalies Detected \(1\)/)).toBeInTheDocument()
+    expect(screen.getByText(/Causal cycle detected: e1 -> e2 -> e1/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Keep baseline'))
+
+    // Even when resolved, commit button is disabled because anomalies exist
+    expect(screen.getByRole('button', { name: 'Commit Resolutions' })).toBeDisabled()
+  })
 })

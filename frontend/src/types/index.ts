@@ -322,8 +322,21 @@ export interface MergeGraphRequest {
   message?: string
 }
 
+export interface MergedResolution {
+  strategy: 'merged'
+  value: Record<string, unknown>
+}
+
 /** A value that actually resolves one merge conflict. */
-export type ManualResolution = 'keep-target' | 'keep-source'
+export type ManualResolution = 'keep-target' | 'keep-source' | MergedResolution
+
+export type MergeAnomalyType = 'causal_cycle' | 'temporal_inversion' | 'orphan_relationship'
+
+export interface MergeAnomaly {
+  type: MergeAnomalyType
+  message: string
+  details?: Record<string, unknown>
+}
 
 export type MergeEntityType = 'event' | 'arc' | 'relationship' | 'pressure'
 
@@ -354,6 +367,7 @@ export interface GraphMergeResponse {
   graph?: Graph
   newVersion?: number
   conflicts?: MergeConflict[]
+  anomalies?: MergeAnomaly[]
   dryRun?: boolean
 }
 

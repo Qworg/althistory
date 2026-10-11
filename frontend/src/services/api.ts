@@ -666,13 +666,21 @@ class APIClient {
             request: GraphMergeRequest
         ): Promise<GraphMergeResponse> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data?: Graph; newVersion?: number; dryRun?: boolean }> =
-                    await this.client.post(`/graphs/${targetGraphId}/merge`, request)
+                const response: AxiosResponse<{
+                    success: boolean
+                    data?: Graph
+                    newVersion?: number
+                    dryRun?: boolean
+                    conflicts?: MergeConflict[]
+                    anomalies?: MergeAnomaly[]
+                }> = await this.client.post(`/graphs/${targetGraphId}/merge`, request)
                 return {
                     success: true,
                     graph: response.data.data,
                     newVersion: response.data.newVersion,
                     dryRun: response.data.dryRun === true,
+                    conflicts: response.data.conflicts ?? [],
+                    anomalies: response.data.anomalies ?? [],
                 }
             } catch (error) {
                 if (axios.isAxiosError(error) && error.response?.status === 409) {
@@ -680,7 +688,10 @@ class APIClient {
                     const conflicts = typeof body === 'object' && body !== null && Array.isArray((body as { conflicts?: unknown }).conflicts)
                         ? ((body as { conflicts: MergeConflict[] }).conflicts)
                         : []
-                    return { success: false, conflicts, dryRun: request.dryRun === true }
+                    const anomalies = typeof body === 'object' && body !== null && Array.isArray((body as { anomalies?: unknown }).anomalies)
+                        ? ((body as { anomalies: MergeAnomaly[] }).anomalies)
+                        : []
+                    return { success: false, conflicts, anomalies, dryRun: request.dryRun === true }
                 }
                 handleAPIError(error as AxiosError)
             }

@@ -11,12 +11,14 @@ import {
   BranchGraphRequest,
   MergeGraphRequest,
   MergeConflict,
+  MergeAnomaly,
   MergeResult,
   VersionRef,
   VersionOperation,
   EntityRef,
   ReferenceNotification,
   EntityType,
+  ManualResolution,
   findInvalidManualResolutions,
   isManualResolution,
 } from '../models/Graph';
@@ -447,16 +449,37 @@ export class GraphService {
       // Detect conflicts
       const conflicts = this.detectMergeConflicts(targetData, sourceData);
 
+      // Compute changes for candidate merged graph
+      const candidateChanges = this.calculateMergeChanges(
+        targetData,
+        sourceData,
+        conflicts,
+        resolution,
+        request.manualResolutions
+      );
+
+      // Detect causal cycle and temporal inversion anomalies on candidate graph
+      const anomalies = this.detectMergeAnomalies(targetData, sourceData, candidateChanges);
+
       if (request.dryRun) {
         // Report what a real merge would find without committing anything. This
         // is checked before the manual-resolution requirement because a preview
         // resolves nothing: requiring a resolution map here would force the
         // caller to decide before it has seen the conflicts.
         return {
-          success: conflicts.length === 0,
+          success: conflicts.length === 0 && anomalies.length === 0,
           conflicts,
-          mergedGraph: conflicts.length === 0 ? targetGraph.toJSON() : undefined,
+          anomalies,
+          mergedGraph: (conflicts.length === 0 && anomalies.length === 0) ? targetGraph.toJSON() : undefined,
           dryRun: true,
+        };
+      }
+
+      if (anomalies.length > 0) {
+        return {
+          success: false,
+          conflicts,
+          anomalies,
         };
       }
 
@@ -475,6 +498,7 @@ export class GraphService {
             return {
               success: false,
               conflicts,
+              anomalies,
             };
           }
         } else if (resolution !== 'keep-source' && resolution !== 'keep-target') {
@@ -486,18 +510,13 @@ export class GraphService {
           return {
             success: false,
             conflicts,
+            anomalies,
           };
         }
       }
 
       // Apply merge
-      const changes = this.calculateMergeChanges(
-        targetData,
-        sourceData,
-        conflicts,
-        resolution,
-        request.manualResolutions
-      );
+      const changes = candidateChanges;
 
       try {
         // The expected parent makes the merge commit's first parent exactly the
@@ -520,6 +539,7 @@ export class GraphService {
         return {
           success: true,
           conflicts,
+          anomalies: [],
           mergedGraph: updatedGraph?.toJSON(),
           newVersion: versionRef.version,
         };
@@ -703,7 +723,7 @@ export class GraphService {
     source: ResolvedGraphData,
     conflicts: MergeConflict[],
     resolution: 'keep-target' | 'keep-source' | 'manual' | undefined,
-    manualResolutions?: Record<string, 'keep-target' | 'keep-source'>
+    manualResolutions?: Record<string, ManualResolution>
   ): EntityChanges {
     const changes: EntityChanges = {
       added: [],
@@ -715,7 +735,7 @@ export class GraphService {
     // mergeGraph; the manual branch sets an entry only for a value that is
     // actually a resolution, so an invalid value can never be coerced into
     // keep-target by this function.
-    const resolutionMap = new Map<string, 'keep-target' | 'keep-source'>();
+    const resolutionMap = new Map<string, ManualResolution>();
     for (const conflict of conflicts) {
       const key = `${conflict.entityType}:${conflict.entityId}`;
       if (resolution === 'manual') {
@@ -743,7 +763,7 @@ export class GraphService {
     entityType: EntityType,
     targetEntities: Record<string, Record<string, unknown>>,
     sourceEntities: Record<string, Record<string, unknown>>,
-    resolutionMap: Map<string, 'keep-target' | 'keep-source'>,
+    resolutionMap: Map<string, ManualResolution>,
     changes: EntityChanges
   ): void {
     for (const [id, sourceData] of Object.entries(sourceEntities)) {
@@ -758,11 +778,165 @@ export class GraphService {
         const resolution = resolutionMap.get(key);
         if (resolution === 'keep-source') {
           changes.modified.push({ type: entityType, id, data: sourceData });
+        } else if (typeof resolution === 'object' && resolution !== null && resolution.strategy === 'merged') {
+          // Harmonized compromise: blend fields, ensuring entity id remains intact
+          const mergedData = { ...targetData, ...resolution.value, id };
+          changes.modified.push({ type: entityType, id, data: mergedData });
         }
         // 'keep-target' means no change needed
       }
       // If identical, no change needed
     }
+  }
+
+  private detectMergeAnomalies(
+    targetData: ResolvedGraphData,
+    sourceData: ResolvedGraphData,
+    changes: EntityChanges
+  ): MergeAnomaly[] {
+    const anomalies: MergeAnomaly[] = [];
+
+    // Construct candidate state for events and relationships
+    const candidateEvents: Record<string, Record<string, unknown>> = { ...targetData.events };
+    const candidateRels: Record<string, Record<string, unknown>> = { ...targetData.relationships };
+
+    for (const add of changes.added) {
+      if (add.type === 'event') {
+        candidateEvents[add.id] = add.data;
+      } else if (add.type === 'relationship') {
+        candidateRels[add.id] = add.data;
+      }
+    }
+
+    for (const mod of changes.modified) {
+      if (mod.type === 'event') {
+        candidateEvents[mod.id] = mod.data;
+      } else if (mod.type === 'relationship') {
+        candidateRels[mod.id] = mod.data;
+      }
+    }
+
+    // 1. Causal cycle detection on candidate relationships
+    const adj = new Map<string, string[]>();
+    for (const [relId, rel] of Object.entries(candidateRels)) {
+      const causeId = (rel.cause_event_id || rel.causeEventId || rel.causeId) as string | undefined;
+      const effectId = (rel.effect_event_id || rel.effectEventId || rel.effectId) as string | undefined;
+      if (causeId && effectId) {
+        if (causeId === effectId) {
+          anomalies.push({
+            type: 'causal_cycle',
+            message: `Self-causation detected: event ${causeId} cannot cause itself`,
+            details: { relationshipId: relId, cycle: [causeId, effectId] },
+          });
+        }
+        const list = adj.get(causeId) || [];
+        list.push(effectId);
+        adj.set(causeId, list);
+      }
+    }
+
+    // DFS for unique directed cycle detection
+    const cycles: string[][] = [];
+    const foundCycles = new Set<string>();
+    const globalVisited = new Set<string>();
+
+    for (const startNode of adj.keys()) {
+      if (globalVisited.has(startNode)) continue;
+
+      const visited = new Set<string>();
+      const recursionStack = new Set<string>();
+      const path: string[] = [];
+
+      const dfs = (node: string): void => {
+        visited.add(node);
+        recursionStack.add(node);
+        path.push(node);
+
+        const neighbors = adj.get(node) || [];
+        for (const neighbor of neighbors) {
+          if (!visited.has(neighbor)) {
+            dfs(neighbor);
+          } else if (recursionStack.has(neighbor)) {
+            const cycleStart = path.indexOf(neighbor);
+            const cycle = [...path.slice(cycleStart), neighbor];
+            const nodesWithoutEnd = cycle.slice(0, -1);
+            if (nodesWithoutEnd.length > 0) {
+              const minNode = nodesWithoutEnd.reduce((m, n) => (n < m ? n : m), nodesWithoutEnd[0]);
+              const minIdx = nodesWithoutEnd.indexOf(minNode);
+              const normalized = [...nodesWithoutEnd.slice(minIdx), ...nodesWithoutEnd.slice(0, minIdx), minNode];
+              const cycleKey = normalized.join('->');
+              if (!foundCycles.has(cycleKey)) {
+                foundCycles.add(cycleKey);
+                cycles.push(cycle);
+              }
+            }
+          }
+        }
+
+        path.pop();
+        recursionStack.delete(node);
+      };
+
+      dfs(startNode);
+      for (const v of visited) {
+        globalVisited.add(v);
+      }
+    }
+
+    for (const cycle of cycles) {
+      anomalies.push({
+        type: 'causal_cycle',
+        message: `Causal cycle detected: ${cycle.join(' -> ')}`,
+        details: { cycle },
+      });
+    }
+
+    // 2. Temporal inversions & orphan checks
+    for (const [relId, rel] of Object.entries(candidateRels)) {
+      const causeId = (rel.cause_event_id || rel.causeEventId || rel.causeId) as string | undefined;
+      const effectId = (rel.effect_event_id || rel.effectEventId || rel.effectId) as string | undefined;
+      if (!causeId || !effectId) continue;
+
+      const cause = candidateEvents[causeId];
+      const effect = candidateEvents[effectId];
+
+      if (!cause) {
+        anomalies.push({
+          type: 'orphan_relationship',
+          message: `Causal relationship ${relId} references non-existent cause event ${causeId}`,
+          details: { relationshipId: relId, missingEventId: causeId },
+        });
+      }
+      if (!effect) {
+        anomalies.push({
+          type: 'orphan_relationship',
+          message: `Causal relationship ${relId} references non-existent effect event ${effectId}`,
+          details: { relationshipId: relId, missingEventId: effectId },
+        });
+      }
+
+      if (cause && effect) {
+        const causeTime = new Date((cause.timestamp || cause.time) as string | number | Date).getTime();
+        const effectTime = new Date((effect.timestamp || effect.time) as string | number | Date).getTime();
+        if (!isNaN(causeTime) && !isNaN(effectTime) && causeTime >= effectTime) {
+          const causeDesc = (cause.description || cause.id || causeId) as string;
+          const effectDesc = (effect.description || effect.id || effectId) as string;
+          anomalies.push({
+            type: 'temporal_inversion',
+            message: `Temporal paradox: cause "${causeDesc}" occurs at or after effect "${effectDesc}"`,
+            details: {
+              relationshipId: relId,
+              causeId,
+              effectId,
+              causeTimestamp: cause.timestamp,
+              effectTimestamp: effect.timestamp,
+            },
+          });
+        }
+      }
+    }
+
+    return anomalies;
   }
 
   private async notifyGraphDeleted(graphId: string): Promise<void> {

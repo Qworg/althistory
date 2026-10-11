@@ -222,30 +222,43 @@ export interface BranchGraphRequest {
 
 export type ConflictResolution = 'keep-target' | 'keep-source' | 'manual';
 
+export interface MergedResolution {
+  strategy: 'merged';
+  value: Record<string, unknown>;
+}
+
 /**
- * A resolution value that actually resolves one conflict. `manualResolutions`
- * arrives as JSON, so a value can be `null`, `''`, or any other string; these
- * are the only two values the merge can apply.
+ * A resolution value that actually resolves one conflict: keep-target,
+ * keep-source, or a blended payload providing the merged entity values.
  */
-export type ManualResolution = 'keep-target' | 'keep-source';
+export type ManualResolution = 'keep-target' | 'keep-source' | MergedResolution;
 
 /**
  * True only for a value that can actually resolve one conflict.
  */
 export function isManualResolution(value: unknown): value is ManualResolution {
-  return value === 'keep-target' || value === 'keep-source';
+  if (value === 'keep-target' || value === 'keep-source') {
+    return true;
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as { strategy?: unknown }).strategy === 'merged' &&
+    typeof (value as { value?: unknown }).value === 'object' &&
+    (value as { value?: unknown }).value !== null &&
+    !Array.isArray((value as { value?: unknown }).value)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
  * Lists the entries in a caller-supplied `manualResolutions` map whose value is
- * not exactly `keep-source` or `keep-target`. Returns `['<map>']` when the map
- * is present but is not a plain object, and an empty array when the map is
+ * not a valid ManualResolution ('keep-source', 'keep-target', or { strategy: 'merged', value: { ... } }).
+ * Returns `['<map>']` when the map is present but is not a plain object, and an empty array when the map is
  * absent or every entry is valid.
- *
- * Validating the value (not just the presence of the key) matters: the merge's
- * fallback treats anything that is not `keep-source` as `keep-target`, so a
- * `null`, `''` or `'garbage'` entry would otherwise silently discard the source
- * edit instead of being rejected.
  */
 export function findInvalidManualResolutions(manualResolutions: unknown): string[] {
   if (manualResolutions === undefined) return [];
@@ -422,6 +435,14 @@ export interface MergeConflict {
   suggestedResolution: ManualResolution;
 }
 
+export type MergeAnomalyType = 'causal_cycle' | 'temporal_inversion' | 'orphan_relationship';
+
+export interface MergeAnomaly {
+  type: MergeAnomalyType;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
 export interface MergeResult {
   success: boolean;
   /**
@@ -429,6 +450,11 @@ export interface MergeResult {
    * must resolve them) and on success (the conflicts the strategy resolved).
    */
   conflicts?: MergeConflict[];
+  /**
+   * Structural or temporal anomalies detected when combining the two graphs
+   * (causal cycles, temporal inversions, orphaned relationships).
+   */
+  anomalies?: MergeAnomaly[];
   mergedGraph?: IGraph;
   newVersion?: number;
   /**

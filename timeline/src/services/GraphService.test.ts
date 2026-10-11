@@ -763,6 +763,170 @@ describe('GraphService', () => {
         { type: 'event', id: 'event1', data: sourceData.events.event1 },
       ]);
     });
+
+    it('should resolve conflicts using a harmonized compromise merged payload', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      const targetData: ResolvedGraphData = {
+        events: {
+          event1: { id: 'event1', description: 'Target version', actor: 'Actor 1', target: 'Target 1', timestamp: '2024-01-01T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+      const sourceData: ResolvedGraphData = {
+        events: {
+          event1: { id: 'event1', description: 'Source version', actor: 'Actor 2', target: 'Target 1', timestamp: '2024-01-01T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph)
+        .mockResolvedValue(targetGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+      mockGraphRepository.commitChanges.mockResolvedValue({
+        graphId: 'target_graph',
+        version: 2,
+        timestamp: new Date().toISOString(),
+        parentVersion: 1,
+        operation: 'merge',
+        changes: { added: [], modified: [], deleted: [] },
+        treeHash: 'newhash',
+      });
+
+      const mergedPayload = {
+        description: 'Compromised description',
+        actor: 'Actor 2',
+        target: 'Target 1',
+        timestamp: '2024-01-01T00:00:00Z',
+      };
+
+      const result = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'manual',
+        manualResolutions: {
+          'event:event1': { strategy: 'merged', value: mergedPayload },
+        },
+      });
+
+      expect(result.success).toBe(true);
+      const committedChanges = mockGraphRepository.commitChanges.mock.calls[0][1] as EntityChanges;
+      expect(committedChanges.modified).toEqual([
+        { type: 'event', id: 'event1', data: { ...targetData.events.event1, ...mergedPayload, id: 'event1' } },
+      ]);
+    });
+
+    it('should detect causal cycles introduced by merge in dryRun and refuse commit', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      const targetData: ResolvedGraphData = {
+        events: {
+          e1: { id: 'e1', description: 'E1', timestamp: '2024-01-01T00:00:00Z' },
+          e2: { id: 'e2', description: 'E2', timestamp: '2024-01-02T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {
+          r1: { id: 'r1', cause_event_id: 'e1', effect_event_id: 'e2' },
+        },
+        pressures: {},
+      };
+      const sourceData: ResolvedGraphData = {
+        events: {
+          e1: { id: 'e1', description: 'E1', timestamp: '2024-01-01T00:00:00Z' },
+          e2: { id: 'e2', description: 'E2', timestamp: '2024-01-02T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {
+          r2: { id: 'r2', cause_event_id: 'e2', effect_event_id: 'e1' }, // Creates cycle e1 -> e2 -> e1!
+        },
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+
+      // Dry run detection
+      const dryResult = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'keep-target',
+        dryRun: true,
+      });
+
+      expect(dryResult.success).toBe(false);
+      expect(dryResult.dryRun).toBe(true);
+      expect(dryResult.anomalies).toBeDefined();
+      expect(dryResult.anomalies?.some(a => a.type === 'causal_cycle')).toBe(true);
+      expect(mockGraphRepository.commitChanges).not.toHaveBeenCalled();
+
+      // Real merge refusal
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+
+      const commitResult = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'keep-target',
+      });
+      expect(commitResult.success).toBe(false);
+      expect(commitResult.anomalies?.some(a => a.type === 'causal_cycle')).toBe(true);
+      expect(mockGraphRepository.commitChanges).not.toHaveBeenCalled();
+    });
+
+    it('should detect temporal inversions introduced by merge in dryRun', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      const targetData: ResolvedGraphData = {
+        events: {
+          e_late: { id: 'e_late', description: 'Late', timestamp: '2024-01-02T00:00:00Z' },
+          e_early: { id: 'e_early', description: 'Early', timestamp: '2024-01-01T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+      const sourceData: ResolvedGraphData = {
+        events: {
+          e_late: { id: 'e_late', description: 'Late', timestamp: '2024-01-02T00:00:00Z' },
+          e_early: { id: 'e_early', description: 'Early', timestamp: '2024-01-01T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {
+          r_inverted: { id: 'r_inverted', cause_event_id: 'e_late', effect_event_id: 'e_early' },
+        },
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+
+      const dryResult = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'keep-target',
+        dryRun: true,
+      });
+
+      expect(dryResult.success).toBe(false);
+      expect(dryResult.dryRun).toBe(true);
+      expect(dryResult.anomalies?.some(a => a.type === 'temporal_inversion')).toBe(true);
+    });
   });
 
   describe('getGraphData', () => {
