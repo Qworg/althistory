@@ -261,6 +261,28 @@ describe('Export routes (request-level)', () => {
       expect(response.body.error.message).toContain('contradicts');
     });
 
+    it('pins the export to a committed version with ?version', async () => {
+      const response = await request(app)
+        .get('/api/export')
+        .query({ version: 0 })
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', smallGraph.id)
+        .expect(200);
+
+      expect(response.body.data.events).toHaveLength(2);
+    });
+
+    it('rejects a malformed version', async () => {
+      const response = await request(app)
+        .get('/api/export')
+        .query({ version: 'latest' })
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', smallGraph.id)
+        .expect(400);
+
+      expect(response.body.error.message).toContain('version must be a non-negative integer');
+    });
+
     it('rejects an invalid scope', async () => {
       const response = await request(app)
         .get('/api/export')

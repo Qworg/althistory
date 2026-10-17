@@ -88,7 +88,8 @@ exportRoutes.post(
 /**
  * GET /export - Export a graph (design §Export API)
  *
- * Query: `graphId`, `scope=full|filtered`, `includeProvenance`, `filters[...]`.
+ * Query: `graphId`, `version`, `scope=full|filtered`, `includeProvenance`,
+ * `filters[...]`.
  *
  * Req 5.4 makes the mode depend on size: at or below the entity threshold the
  * export is returned inline as the export document, above it the request
@@ -543,6 +544,7 @@ function parseExportQuery(
   const scope = parseScope(query.scope);
   const includeProvenance = parseBoolean(query.includeProvenance, 'includeProvenance') ?? false;
   const filters = parseFilters(query.filters);
+  const version = parseVersion(query.version);
 
   if (scope === 'filtered' && !filters) {
     throw new ValidationError('Filters are required when scope is "filtered"', 'filters');
@@ -551,7 +553,25 @@ function parseExportQuery(
     validateFilters(filters);
   }
 
-  return { graphId: resolvedGraphId, scope, filters, includeProvenance };
+  return { graphId: resolvedGraphId, scope, filters, includeProvenance, version };
+}
+
+/**
+ * `version` pins the export to a committed graph version. Absent means the
+ * latest, which is also the only case `countEntities` can answer from metadata.
+ */
+function parseVersion(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new ValidationError('version must be a non-negative integer', 'version', value);
+  }
+
+  const version = Number(value);
+  if (!Number.isInteger(version) || version < 0) {
+    throw new ValidationError('version must be a non-negative integer', 'version', value);
+  }
+
+  return version;
 }
 
 function parseScope(value: unknown): 'full' | 'filtered' {
