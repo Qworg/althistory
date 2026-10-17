@@ -1411,6 +1411,122 @@ describe('ImportService', () => {
       });
     });
 
+    it('should re-point a reference at the entity id a rename produced', async () => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const remote = await repository.create({ name: 'Rename Remote Graph' });
+
+      const exportWithRef = createValidExport({
+        data: {
+          events: [
+            {
+              id: 'event-1',
+              description: 'Renamed on the second import',
+              actor: 'A',
+              target: 'B',
+              timestamp: '2023-01-01T00:00:00Z',
+            },
+          ],
+          arcs: [],
+          causalRelationships: [],
+          inferredPressures: [],
+          crossGraphRefs: [
+            {
+              localEntityId: 'event-1',
+              localEntityType: 'event',
+              referencedGraphId: remote.id,
+              referencedEntityId: 'remote-event',
+              referencedEntityType: 'event',
+            },
+          ],
+        },
+      });
+
+      const first = await importService.executeImport(exportWithRef, {
+        mode: 'create-new',
+        conflictResolution: 'rename',
+      });
+      expect(first.success).toBe(true);
+
+      // Same export imported again into the same graph: the duplicate id is
+      // renamed, and the stored reference must follow the new id rather than
+      // the stale one it was exported with.
+      const second = await importService.executeImport(exportWithRef, {
+        mode: 'merge',
+        conflictResolution: 'rename',
+        graphId: first.graphId,
+      });
+      expect(second.success).toBe(true);
+
+      const exportService = new ExportService({ dataDir: testDataDir });
+      await exportService.initialize();
+      const reExported = await exportService.exportGraph({
+        graphId: first.graphId,
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      const localIds = (reExported.export.data.crossGraphRefs ?? []).map((ref) => ref.localEntityId);
+      expect(localIds).toContain('event-1');
+      expect(localIds.some((id) => id.startsWith('event-1_imported_'))).toBe(true);
+    });
+
+    it('should preserve cross-graph relationship endpoints', async () => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const remote = await repository.create({ name: 'Relationship Remote Graph' });
+
+      const exportWithCrossRelationship = createValidExport({
+        data: {
+          events: [
+            {
+              id: 'event-1',
+              description: 'Local effect',
+              actor: 'A',
+              target: 'B',
+              timestamp: '2023-01-01T00:00:00Z',
+            },
+          ],
+          arcs: [],
+          causalRelationships: [
+            {
+              id: 'rel-1',
+              cause_event_id: 'event-1',
+              effect_event_id: 'event-1',
+              weight: 0.7,
+              evidence: 'Remote cause',
+              confidence: 0.8,
+              relationship_type: 'direct',
+              causeGraphId: remote.id,
+            },
+          ],
+          inferredPressures: [],
+        },
+      });
+
+      const result = await importService.executeImport(exportWithCrossRelationship, {
+        mode: 'create-new',
+        conflictResolution: 'skip',
+      });
+      expect(result.success).toBe(true);
+
+      const data = await repository.checkout(result.graphId);
+      expect(data.relationships['rel-1'].causeGraphId).toBe(remote.id);
+
+      const exportService = new ExportService({ dataDir: testDataDir });
+      await exportService.initialize();
+      const reExported = await exportService.exportGraph({
+        graphId: result.graphId,
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(reExported.export.data.causalRelationships[0]).toMatchObject({
+        id: 'rel-1',
+        causeGraphId: remote.id,
+      });
+    });
+
     it('should round-trip through export with the imported ids', async () => {
       const repository = new GraphRepository({ dataDir: testDataDir });
       await repository.initialize();

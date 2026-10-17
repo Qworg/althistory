@@ -5,6 +5,7 @@ import { GraphRepository } from '../repositories/GraphRepository';
 import { ExportService } from './ExportService';
 import { AsyncJob, IAsyncJob } from '../models/AsyncJob';
 import { Graph, IGraph } from '../models/Graph';
+import { ValidationError } from '../utils/errors';
 
 // Mock repositories and services
 vi.mock('../repositories/JobRepository');
@@ -78,7 +79,7 @@ describe('JobService', () => {
       initialize: vi.fn().mockResolvedValue(undefined),
       create: vi.fn(),
       findById: vi.fn(),
-      findAll: vi.fn(),
+      findAll: vi.fn().mockResolvedValue([]),
       update: vi.fn(),
       delete: vi.fn(),
       getNextPending: vi.fn(),
@@ -157,6 +158,39 @@ describe('JobService', () => {
       
       await new Promise(resolve => setTimeout(resolve, 10));
       jobService.stop();
+    });
+  });
+
+  describe('jobs left by a previous process', () => {
+    it('fails a pending import job that no in-process owner will adopt', async () => {
+      const orphan = createMockJob({
+        type: 'import',
+        status: 'pending',
+        parameters: {
+          type: 'import',
+          graphId: 'graph_123',
+          mode: 'merge',
+          conflictResolution: 'skip',
+          dataChecksum: 'abc123',
+        },
+      });
+      mockJobRepository.findAll.mockResolvedValue([orphan]);
+
+      await jobService.initialize();
+
+      expect(mockJobRepository.update).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'job_123', status: 'failed' })
+      );
+      expect(orphan.error).toContain('previous process');
+    });
+
+    it('leaves a pending export job for the worker', async () => {
+      const pendingExport = createMockJob({ status: 'pending' });
+      mockJobRepository.findAll.mockResolvedValue([pendingExport]);
+
+      await jobService.initialize();
+
+      expect(mockJobRepository.update).not.toHaveBeenCalled();
     });
   });
 
@@ -277,6 +311,38 @@ describe('JobService', () => {
           }),
         })
       );
+    });
+
+    it('carries a pinned version into the job parameters', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockJobRepository.create.mockResolvedValue(createMockJob());
+      mockExportService.estimateExportSize.mockResolvedValue(1000);
+
+      await jobService.createExportJob({
+        graphId: 'graph_123',
+        scope: 'full',
+        version: 7,
+      });
+
+      expect(mockJobRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parameters: expect.objectContaining({ version: 7 }),
+        })
+      );
+    });
+
+    it('rejects a webhook target that is not publicly routable', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+
+      await expect(
+        jobService.createExportJob({
+          graphId: 'graph_123',
+          scope: 'full',
+          webhook: 'http://127.0.0.1:9000/hook',
+        })
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(mockJobRepository.create).not.toHaveBeenCalled();
     });
   });
 
@@ -701,7 +767,97 @@ describe('JobService', () => {
     );
   });
 
+  describe('progress reporting', () => {
+    it('persists progress instead of only emitting it', async () => {
+      const mockJob = createMockJob({ status: 'pending' });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(mockJob)
+        .mockResolvedValue(null);
+      // The job object is mutated as it advances, so record the progress value
+      // at call time rather than inspecting the (later) mutated reference.
+      const persistedProgress: number[] = [];
+      mockJobRepository.update.mockImplementation(async (job: AsyncJob) => {
+        persistedProgress.push(job.progress);
+      });
+      mockExportService.exportToFile.mockResolvedValue('/path/to/export.json');
+
+      const completed = new Promise(resolve => jobService.once('jobCompleted', resolve));
+
+      await jobService.initialize();
+      jobService.start();
+      await completed;
+      jobService.stop();
+
+      // GET /export/jobs/:id serves the stored job, so the intermediate values
+      // have to reach the repository, not only the event bus.
+      expect(persistedProgress).toContain(10);
+      expect(persistedProgress).toContain(50);
+      expect(persistedProgress).toContain(100);
+    });
+  });
+
   describe('webhook notifications', () => {
+    it('does not POST to a stored webhook target that fails validation', async () => {
+      // A job created before validation existed, or by a direct repository
+      // write, can still carry an unusable URL; delivery must refuse it without
+      // making the request.
+      const mockJob = createMockJob({
+        status: 'pending',
+        webhookUrl: 'http://127.0.0.1:9000/hook',
+      });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(mockJob)
+        .mockResolvedValue(null);
+      mockJobRepository.update.mockResolvedValue(mockJob);
+      mockExportService.exportToFile.mockResolvedValue('/path/to/export.json');
+
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+      global.fetch = mockFetch;
+
+      const failed = new Promise<{ error: string }>(resolve => {
+        jobService.once('webhookDeliveryFailed', resolve);
+      });
+
+      await jobService.initialize();
+      jobService.start();
+      const event = await failed;
+      jobService.stop();
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(event.error).toContain('private or loopback');
+    });
+
+    it('refuses to follow a redirect', async () => {
+      const mockJob = createMockJob({
+        status: 'pending',
+        webhookUrl: 'https://example.com/webhook',
+      });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(mockJob)
+        .mockResolvedValue(null);
+      mockJobRepository.update.mockResolvedValue(mockJob);
+      mockExportService.exportToFile.mockResolvedValue('/path/to/export.json');
+
+      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 302 });
+      global.fetch = mockFetch;
+
+      const failed = new Promise<{ error: string }>(resolve => {
+        jobService.once('webhookDeliveryFailed', resolve);
+      });
+
+      await jobService.initialize();
+      jobService.start();
+      const event = await failed;
+      jobService.stop();
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0][1]).toEqual(
+        expect.objectContaining({ redirect: 'manual' })
+      );
+      expect(event.error).toContain('HTTP 302');
+    });
+
+
     it('should send webhook on job completion', async () => {
       const mockJob = createMockJob({
         status: 'pending',

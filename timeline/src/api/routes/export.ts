@@ -72,6 +72,10 @@ exportRoutes.post(
       validateFilters(request.filters);
     }
 
+    // A body version is accepted but must be a real version number; otherwise
+    // it would be stored in the job and fail (or silently misread) at run time.
+    request.version = parseVersion(request.version);
+
     const result = await service.createExportJob({ ...request, graphId: requireGraphId(req) });
 
     res.status(202).json({
@@ -349,11 +353,13 @@ exportRoutes.post(
       validateFilters(request.filters);
     }
 
+    const version = parseVersion(request.version);
     const exportOptions = {
       graphId: requireGraphId(req),
       scope: request.scope,
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
+      version,
     };
 
     // Req 5.4: the trigger is the entity count, not the byte estimate. A graph
@@ -374,6 +380,7 @@ exportRoutes.post(
       scope: request.scope,
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
+      version,
     });
 
     const maxSyncSize = 5 * 1024 * 1024; // 5MB
@@ -390,6 +397,7 @@ exportRoutes.post(
       scope: request.scope,
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
+      version,
     });
 
     res.json({
@@ -549,6 +557,14 @@ function parseExportQuery(
   if (scope === 'filtered' && !filters) {
     throw new ValidationError('Filters are required when scope is "filtered"', 'filters');
   }
+  if (scope === 'full' && filters) {
+    // `exportGraph` only applies predicates when the scope says filtered, so
+    // accepting filters here would acknowledge them and then export everything.
+    throw new ValidationError(
+      'Filters are only applied when scope is "filtered"',
+      'filters'
+    );
+  }
   if (filters) {
     validateFilters(filters);
   }
@@ -562,16 +578,19 @@ function parseExportQuery(
  */
 function parseVersion(value: unknown): number | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== 'string' || value.trim() === '') {
+
+  const numeric =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim() !== ''
+        ? Number(value.trim())
+        : Number.NaN;
+
+  if (!Number.isInteger(numeric) || numeric < 0) {
     throw new ValidationError('version must be a non-negative integer', 'version', value);
   }
 
-  const version = Number(value);
-  if (!Number.isInteger(version) || version < 0) {
-    throw new ValidationError('version must be a non-negative integer', 'version', value);
-  }
-
-  return version;
+  return numeric;
 }
 
 function parseScope(value: unknown): 'full' | 'filtered' {

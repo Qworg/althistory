@@ -48,6 +48,8 @@ export interface ExportJobParams {
   scope: 'full' | 'filtered';
   filters?: ExportFilters;
   includeProvenance: boolean;
+  /** Pin the export to a committed version; absent means the head. */
+  version?: number;
 }
 
 export interface ExportFilters {
@@ -307,6 +309,8 @@ export interface CreateExportJobRequest {
   filters?: ExportFilters;
   includeProvenance?: boolean;
   webhook?: string;
+  /** Pin the export to a committed version; absent means the head. */
+  version?: number;
 }
 
 export interface CreateExportJobResponse {

@@ -104,13 +104,55 @@ the export document itself with a `Content-Disposition` filename, not the
 `{ success, data }` envelope the POST routes use, because the design specifies the
 document (it is the downloaded file).
 
+### Review round: things the first version got wrong
+
+An adversarial review of the first cut found four defects, all fixed here:
+
+- **`?version` was dropped on the async path.** `GET /api/export` counted the
+  pinned tree, then handed the request to `JobService`, whose job parameters had
+  no `version` field — so a 12k-entity v3 export returned `202` and the job
+  exported the head. `version` is now carried through
+  `CreateExportJobRequest` → `ExportJobParams` → `executeExportJob`, and both the
+  inline and job paths are tested against a graph with two differing commits.
+- **Cross-graph relationship endpoints were still lost on import.** The commit
+  payload rebuilt relationships field by field and omitted `causeGraphId` /
+  `effectGraphId` / `sourceRef`, so an imported remote cause was stored as a
+  local event id that does not exist. Now preserved, with a round-trip test.
+- **The webhook guard could be bypassed with a redirect.** `fetch` followed 3xx
+  by default, so a public URL could re-POST the payload to
+  `169.254.169.254` or the admin port. The request now uses
+  `redirect: 'manual'` and a 3xx is a terminal delivery failure.
+- **`metadata.graphVersion` named the metadata counter, not the exported
+  version.** `?version=0` returned v0's data labelled with the current counter
+  (and the download filename said so too). The label now comes from the resolved
+  version ref.
+
+The same defect class was fixed on the POST paths: a body `version` is validated
+and carried into `POST /export/jobs`, `POST /export/sync` now honours it (it was
+typed but silently ignored), and `estimateExportSize` estimates a pinned tree
+from that tree rather than from the head's metadata, so a small historical
+export is not refused because the head is large.
+
+Smaller fixes from the same round: progress is persisted through the repository
+instead of only emitted (`GET /export/jobs/:id` used to sit at 0% until
+completion); a rollback now recomputes `graph.metadata` (it commits through the
+version repository directly, so the export entity-count trigger could read
+pre-rollback counts); an unknown `?version` is a 404 instead of a 500; webhook
+targets use `net.BlockList` range matching (`::`, `localhost.`, NAT64 and
+IPv4-mapped forms are covered, and `::ffff:0:0/96` is handled in code because a
+mapped IPv6 subnet also matches every IPv4 lookup); `scope=full` with filters is
+a 400 instead of silently ignoring them; the threshold env var must be digits
+only; and `JobService.initialize` fails import/ingest jobs left runnable by a
+previous process, which the earlier "dead stubs" removal would otherwise have
+orphaned.
+
 ## Verification
 
 | Gate | Result |
 | --- | --- |
 | `npx tsc --noEmit` (timeline) | clean |
 | `npx eslint` (touched files) | clean |
-| `npm test` (timeline) | 87 files, 1667 tests passed |
+| `npm test` (timeline) | 88 files, 1716 tests passed |
 
 New tests:
 
@@ -142,3 +184,11 @@ New tests:
   requirement-driven decision is the entity count. No issue filed.
 - `GET /api/export` accepts `version`, which was the last gap recorded here.
   Adding it removed the residual rather than deferring it.
+- **The async path still materialises the document**, so the 50 MB in-memory
+  estimate caps the export even when it runs as a job; a large enough graph gets
+  `202` and then a failure that advises the async endpoint. Tracked in
+  [#36](https://github.com/Qworg/althistory/issues/36).
+- **Req 4.4's optional embedding is not implemented**: reference metadata is
+  exported, `embeddedEntity` never is. Tracked in
+  [#37](https://github.com/Qworg/althistory/issues/37), which also covers the
+  authorisation question (embedding reads another graph's data into the file).

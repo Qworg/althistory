@@ -260,7 +260,19 @@ export class GraphRepository {
    * Rollback to a specific version
    */
   async rollback(graphId: string, version: number, userId?: string): Promise<VersionRef> {
-    return this.versionRepository.rollback(graphId, version, userId);
+    const versionRef = await this.versionRepository.rollback(graphId, version, userId);
+
+    // Rollback commits a new tree directly through the version repository, so
+    // the metadata recompute in `commitChanges` does not run. Without this the
+    // graph's counts keep describing the pre-rollback head, which the export
+    // entity-count trigger reads.
+    const graph = await this.findById(graphId);
+    if (graph) {
+      const metadata = await this.calculateMetadata(graphId);
+      await this.update(graphId, { metadata });
+    }
+
+    return versionRef;
   }
 
   /**

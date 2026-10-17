@@ -30,6 +30,8 @@ describe('Export routes (request-level)', () => {
   let exportKey: string;
   let smallGraph: IGraph;
   let largeGraph: IGraph;
+  let versionedGraph: IGraph;
+  let versionedLargeGraph: IGraph;
 
   beforeAll(async () => {
     testDataDir = path.join(os.tmpdir(), `export-routes-test-${process.pid}-${Date.now()}`);
@@ -152,6 +154,151 @@ describe('Export routes (request-level)', () => {
       'seed large graph'
     );
 
+    // Two commits, so a pinned export and the head hold different data.
+    versionedGraph = await container.graphService.createGraph({ name: 'Export Route Versioned' });
+    await container.graphRepository.commitChanges(
+      versionedGraph.id,
+      {
+        added: [
+          {
+            type: 'event',
+            id: 'v0-event-1',
+            data: {
+              id: 'v0-event-1',
+              description: 'First version event',
+              actor: 'A',
+              target: 'B',
+              timestamp: '1700-01-01T00:00:00Z',
+            },
+          },
+          {
+            type: 'event',
+            id: 'v0-event-2',
+            data: {
+              id: 'v0-event-2',
+              description: 'Second version event',
+              actor: 'A',
+              target: 'C',
+              timestamp: '1701-01-01T00:00:00Z',
+            },
+          },
+        ],
+        modified: [],
+        deleted: [],
+      },
+      'create',
+      'v0'
+    );
+    await container.graphRepository.commitChanges(
+      versionedGraph.id,
+      {
+        added: [
+          {
+            type: 'event',
+            id: 'v1-event-1',
+            data: {
+              id: 'v1-event-1',
+              description: 'Head-only event',
+              actor: 'D',
+              target: 'E',
+              timestamp: '1702-01-01T00:00:00Z',
+            },
+          },
+        ],
+        modified: [],
+        deleted: [],
+      },
+      'create',
+      'v1'
+    );
+
+    // Above the threshold at v0 (4 > 3) but different again at the head (5),
+    // so the async path can be checked for the version it carries.
+    versionedLargeGraph = await container.graphService.createGraph({
+      name: 'Export Route Versioned Large',
+    });
+    await container.graphRepository.commitChanges(
+      versionedLargeGraph.id,
+      {
+        added: [
+          {
+            type: 'event',
+            id: 'event-1',
+            data: {
+              id: 'event-1',
+              description: 'Large v0 event one',
+              actor: 'A',
+              target: 'B',
+              timestamp: '1800-01-01T00:00:00Z',
+            },
+          },
+          {
+            type: 'event',
+            id: 'event-2',
+            data: {
+              id: 'event-2',
+              description: 'Large v0 event two',
+              actor: 'C',
+              target: 'D',
+              timestamp: '1801-01-01T00:00:00Z',
+            },
+          },
+          {
+            type: 'arc',
+            id: 'arc-1',
+            data: {
+              id: 'arc-1',
+              name: 'Large v0 arc',
+              description: 'Arc',
+              start_time: '1800-01-01',
+              end_time: '1802-01-01',
+              level: 0,
+              parent_arc_id: null,
+            },
+          },
+          {
+            type: 'relationship',
+            id: 'rel-1',
+            data: {
+              id: 'rel-1',
+              cause_event_id: 'event-1',
+              effect_event_id: 'event-2',
+              weight: 0.5,
+              evidence: 'Evidence',
+              confidence: 0.7,
+              relationship_type: 'direct',
+            },
+          },
+        ],
+        modified: [],
+        deleted: [],
+      },
+      'create',
+      'v0'
+    );
+    await container.graphRepository.commitChanges(
+      versionedLargeGraph.id,
+      {
+        added: [
+          {
+            type: 'event',
+            id: 'event-3',
+            data: {
+              id: 'event-3',
+              description: 'Large head-only event',
+              actor: 'E',
+              target: 'F',
+              timestamp: '1803-01-01T00:00:00Z',
+            },
+          },
+        ],
+        modified: [],
+        deleted: [],
+      },
+      'create',
+      'v1'
+    );
+
     app = express();
     app.use(express.json());
     app.use(injectContainer);
@@ -272,6 +419,61 @@ describe('Export routes (request-level)', () => {
       expect(response.body.data.events).toHaveLength(2);
     });
 
+    it('pins the inline export to the requested version', async () => {
+      const pinned = await request(app)
+        .get('/api/export')
+        .query({ version: 0 })
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', versionedGraph.id)
+        .expect(200);
+
+      expect(pinned.body.data.events).toHaveLength(2);
+      expect(pinned.body.metadata.graphVersion).toBe(0);
+
+      const head = await request(app)
+        .get('/api/export')
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', versionedGraph.id)
+        .expect(200);
+
+      expect(head.body.data.events).toHaveLength(3);
+      expect(head.body.metadata.graphVersion).toBe(1);
+    });
+
+    it('carries the pinned version into an async export job', async () => {
+      const response = await request(app)
+        .get('/api/export')
+        .query({ version: 0 })
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', versionedLargeGraph.id)
+        .expect(202);
+
+      const job = await container.jobService.getJob(response.body.data.jobId);
+      expect(job?.parameters).toMatchObject({ type: 'export', version: 0 });
+    });
+
+    it('answers 404 for a version that does not exist', async () => {
+      const response = await request(app)
+        .get('/api/export')
+        .query({ version: 99 })
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', smallGraph.id)
+        .expect(404);
+
+      expect(response.body.error.message).toContain('Graph version 99 not found');
+    });
+
+    it('rejects filters when the scope is full', async () => {
+      const response = await request(app)
+        .get('/api/export')
+        .query({ scope: 'full', 'filters[actors]': 'Napoleon' })
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', smallGraph.id)
+        .expect(400);
+
+      expect(response.body.error.message).toContain('only applied when scope is');
+    });
+
     it('rejects a malformed version', async () => {
       const response = await request(app)
         .get('/api/export')
@@ -306,6 +508,42 @@ describe('Export routes (request-level)', () => {
     });
   });
 
+  describe('POST /api/export/jobs', () => {
+    it('carries a body version into the job', async () => {
+      const response = await request(app)
+        .post('/api/export/jobs')
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', versionedLargeGraph.id)
+        .send({ scope: 'full', version: 0 })
+        .expect(202);
+
+      const job = await container.jobService.getJob(response.body.data.jobId);
+      expect(job?.parameters).toMatchObject({ type: 'export', version: 0 });
+    });
+
+    it('rejects a non-integer body version', async () => {
+      const response = await request(app)
+        .post('/api/export/jobs')
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', smallGraph.id)
+        .send({ scope: 'full', version: 'latest' })
+        .expect(400);
+
+      expect(response.body.error.message).toContain('version must be a non-negative integer');
+    });
+
+    it('rejects a webhook target that is not publicly routable', async () => {
+      const response = await request(app)
+        .post('/api/export/jobs')
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', smallGraph.id)
+        .send({ scope: 'full', webhook: 'http://127.0.0.1:9000/hook' })
+        .expect(400);
+
+      expect(response.body.error.message).toContain('private or loopback');
+    });
+  });
+
   describe('POST /api/export/sync', () => {
     it('rejects an export above the entity threshold and names the job endpoints', async () => {
       const response = await request(app)
@@ -318,6 +556,18 @@ describe('Export routes (request-level)', () => {
       expect(response.body.error.message).toContain('4 entities');
       expect(response.body.error.message).toContain('POST /export/jobs');
       expect(response.body.error.message).toContain('GET /export');
+    });
+
+    it('pins a body version to that tree', async () => {
+      const response = await request(app)
+        .post('/api/export/sync')
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', versionedGraph.id)
+        .send({ scope: 'full', version: 0 })
+        .expect(200);
+
+      expect(response.body.data.data.events).toHaveLength(2);
+      expect(response.body.data.metadata.graphVersion).toBe(0);
     });
 
     it('still serves a small graph synchronously', async () => {

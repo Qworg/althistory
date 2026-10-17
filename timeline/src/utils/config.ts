@@ -99,10 +99,9 @@ export function loadConfig(): AppConfig {
         backupEnabled: parseBooleanEnvVar('LOCAL_BACKUP_ENABLED', true),
         backupInterval: parseInt(getEnvVarWithDefault('LOCAL_BACKUP_INTERVAL', '300000'), 10), // 5 minutes
         maxMemoryUsage: parseInt(getEnvVarWithDefault('LOCAL_MAX_MEMORY_MB', '512'), 10), // 512 MB
-        exportAsyncEntityThreshold:
-          process.env.LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD !== undefined
-            ? parseInt(process.env.LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD, 10)
-            : undefined,
+        exportAsyncEntityThreshold: parseOptionalIntegerEnvVar(
+          'LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD'
+        ),
       },
     };
 
@@ -153,6 +152,26 @@ function parseBooleanEnvVar(key: string, defaultValue: boolean): boolean {
   } else {
     throw new ConfigurationError(`Invalid boolean value for ${key}: ${value}. Use true/false, 1/0, or yes/no`);
   }
+}
+
+/**
+ * Read an optional non-negative integer setting.
+ *
+ * `parseInt` would accept `"1e5"` as 1 and `"10k"` as 10, silently changing a
+ * policy number; this requires the value to be digits only and fails startup
+ * otherwise.
+ */
+function parseOptionalIntegerEnvVar(key: string): number | undefined {
+  const value = process.env[key];
+  if (value === undefined || value.trim() === '') {
+    return undefined;
+  }
+
+  if (!/^\d+$/.test(value.trim())) {
+    throw new ConfigurationError(`Invalid integer value for ${key}: ${value}`, key);
+  }
+
+  return Number.parseInt(value.trim(), 10);
 }
 
 /**

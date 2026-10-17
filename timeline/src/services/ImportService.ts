@@ -2600,6 +2600,12 @@ export class ImportService {
           evidence: data.evidence,
           confidence: data.confidence,
           relationship_type: data.relationship_type,
+          // A relationship's cross-graph endpoints are part of the exported
+          // relationship. Dropping them here left an imported remote cause
+          // recorded as a local event id that does not exist.
+          ...(data.causeGraphId ? { causeGraphId: data.causeGraphId } : {}),
+          ...(data.effectGraphId ? { effectGraphId: data.effectGraphId } : {}),
+          ...(data.sourceRef ? { sourceRef: data.sourceRef } : {}),
           // Kept so an imported cross-graph reference survives to the next
           // export (see `storedCrossRefsFor` above). Absent otherwise.
           ...(data.metadata ? { metadata: data.metadata } : {}),

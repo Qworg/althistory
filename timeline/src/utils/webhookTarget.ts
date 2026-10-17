@@ -7,99 +7,81 @@
  *
  *   - scheme allowlist: `http:` or `https:` only
  *   - no embedded credentials (`https://user:pass@host`)
- *   - no loopback/private/link-local destination, so a webhook cannot be aimed
- *     at the process's own admin surface or the cloud metadata endpoint
+ *   - no loopback/private/link-local/unspecified destination, so a webhook
+ *     cannot be aimed at the process's own admin surface or the cloud metadata
+ *     endpoint
+ *
+ * Addresses are matched with `net.BlockList` over the parsed IP, so the ranges
+ * are real subnets rather than string prefixes: `::`, `::1`, `fc00::/7`,
+ * `fe80::/10`, IPv4-mapped IPv6 (`::ffff:0:0/96`) and NAT64 (`64:ff9b::/96`)
+ * are covered, and a hostname such as `10.example.com` is not mistaken for an
+ * address.
  *
  * Only literal addresses are checked. A hostname that resolves to a private
  * address is not caught here (that needs a resolver, and DNS can change between
- * check and connect); deployments that need that guarantee should route
- * egress through a network policy. Internal targets can be enabled per
- * deployment by extending the policy, which is why the private-address rule
- * lives behind an option rather than being unconditional.
+ * check and connect); deployments that need that guarantee should route egress
+ * through a network policy. Redirects are handled by the caller: `JobService`
+ * posts with `redirect: 'manual'` so a 3xx cannot re-send the body to an
+ * unvalidated destination.
  */
+
+import { BlockList, isIP } from 'net';
+import { ValidationError } from './errors';
 
 export interface WebhookTargetPolicy {
   /** Permit loopback/private/link-local destinations (default false). */
   allowPrivateHosts?: boolean;
 }
 
-const PRIVATE_IPV4_PREFIXES: readonly string[] = [
-  '0.', // "this" network
-  '10.', // private
-  '127.', // loopback
-  '169.254.', // link-local (cloud metadata)
-  '192.168.', // private
-];
+/**
+ * Address ranges a webhook may not target.
+ *
+ * IPv4-mapped IPv6 (`::ffff:0:0/96`) is rejected wholesale rather than mapped
+ * back to IPv4: a mapped literal is an unusual way to name an address. It is
+ * checked in code rather than as a BlockList subnet because a mapped IPv6
+ * subnet also matches every IPv4 lookup, which would block all IPv4 targets.
+ */
+const PRIVATE_ADDRESSES = new BlockList();
+PRIVATE_ADDRESSES.addSubnet('0.0.0.0', 8, 'ipv4');
+PRIVATE_ADDRESSES.addSubnet('10.0.0.0', 8, 'ipv4');
+PRIVATE_ADDRESSES.addSubnet('100.64.0.0', 10, 'ipv4');
+PRIVATE_ADDRESSES.addSubnet('127.0.0.0', 8, 'ipv4');
+PRIVATE_ADDRESSES.addSubnet('169.254.0.0', 16, 'ipv4');
+PRIVATE_ADDRESSES.addSubnet('172.16.0.0', 12, 'ipv4');
+PRIVATE_ADDRESSES.addSubnet('192.168.0.0', 16, 'ipv4');
+PRIVATE_ADDRESSES.addSubnet('::', 128, 'ipv6');
+PRIVATE_ADDRESSES.addSubnet('::1', 128, 'ipv6');
+PRIVATE_ADDRESSES.addSubnet('fc00::', 7, 'ipv6');
+PRIVATE_ADDRESSES.addSubnet('fe80::', 10, 'ipv6');
+PRIVATE_ADDRESSES.addSubnet('64:ff9b::', 96, 'ipv6');
 
-const PRIVATE_IPV6_PREFIXES: readonly string[] = [
-  '::1', // loopback
-  'fc', // unique local
-  'fd', // unique local
-  'fe8', // link-local
-  'fe9',
-  'fea',
-  'feb',
-];
-
-/** 172.16.0.0/12 is a range, not a single prefix. */
-function isPrivateIpv4(hostname: string): boolean {
-  if (PRIVATE_IPV4_PREFIXES.some((prefix) => hostname.startsWith(prefix))) {
-    return true;
-  }
-
-  const match = /^172\.(\d{1,3})\./.exec(hostname);
-  if (match) {
-    const second = Number(match[1]);
-    if (second >= 16 && second <= 31) return true;
-  }
-
-  // 100.64.0.0/10 carrier-grade NAT
-  const cgnat = /^100\.(\d{1,3})\./.exec(hostname);
-  if (cgnat) {
-    const second = Number(cgnat[1]);
-    if (second >= 64 && second <= 127) return true;
-  }
-
-  return false;
-}
-
-/** Dotted-quad check, so a hostname like `10.example.com` is not treated as an IP. */
-function isIpv4Literal(host: string): boolean {
-  return /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
-}
-
-/** Convert an IPv4-mapped IPv6 tail (`7f00:1`) to dotted quad (`127.0.0.1`). */
-function hexTailToIpv4(tail: string): string | null {
-  const parts = tail.split(':');
-  if (parts.length !== 2) return null;
-
-  const high = Number.parseInt(parts[0], 16);
-  const low = Number.parseInt(parts[1], 16);
-  if (Number.isNaN(high) || Number.isNaN(low)) return null;
-
-  return [high >> 8, high & 0xff, low >> 8, low & 0xff].join('.');
+/** Lowercase, strip the IPv6 brackets and any trailing root-label dot. */
+function normalizeHostname(hostname: string): string {
+  return hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
 }
 
 function isPrivateHostname(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const host = normalizeHostname(hostname);
 
   if (host === 'localhost' || host.endsWith('.localhost')) {
     return true;
   }
 
-  // IPv4-mapped IPv6: `::ffff:127.0.0.1`, normalized by URL to `::ffff:7f00:1`.
-  const mapped = /^::ffff:(.+)$/.exec(host);
-  if (mapped) {
-    const tail = mapped[1];
-    const dotted = isIpv4Literal(tail) ? tail : hexTailToIpv4(tail);
-    return dotted !== null && isPrivateIpv4(dotted);
+  const family = isIP(host);
+  if (family === 4) {
+    return PRIVATE_ADDRESSES.check(host, 'ipv4');
+  }
+  if (family === 6) {
+    if (host.startsWith('::ffff:')) {
+      return true;
+    }
+    return PRIVATE_ADDRESSES.check(host, 'ipv6');
   }
 
-  if (host.includes(':')) {
-    return PRIVATE_IPV6_PREFIXES.some((prefix) => host.startsWith(prefix));
-  }
-
-  return isIpv4Literal(host) && isPrivateIpv4(host);
+  return false;
 }
 
 /**
@@ -116,24 +98,34 @@ export function assertWebhookTarget(
   try {
     parsed = new URL(rawUrl);
   } catch {
-    throw new Error('Webhook URL must be an absolute http(s) URL');
+    throw new ValidationError('Webhook URL must be an absolute http(s) URL', 'webhook', rawUrl);
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Webhook URL scheme must be http or https, got ${parsed.protocol}`);
+    throw new ValidationError(
+      `Webhook URL scheme must be http or https, got ${parsed.protocol}`,
+      'webhook',
+      rawUrl
+    );
   }
 
   if (parsed.username !== '' || parsed.password !== '') {
-    throw new Error('Webhook URL must not contain embedded credentials');
+    throw new ValidationError(
+      'Webhook URL must not contain embedded credentials',
+      'webhook',
+      rawUrl
+    );
   }
 
   if (parsed.hostname === '') {
-    throw new Error('Webhook URL must name a host');
+    throw new ValidationError('Webhook URL must name a host', 'webhook', rawUrl);
   }
 
   if (!policy.allowPrivateHosts && isPrivateHostname(parsed.hostname)) {
-    throw new Error(
-      `Refusing webhook to private or loopback address: ${parsed.hostname}`
+    throw new ValidationError(
+      `Refusing webhook to private or loopback address: ${parsed.hostname}`,
+      'webhook',
+      rawUrl
     );
   }
 

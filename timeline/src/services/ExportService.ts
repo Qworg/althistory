@@ -8,6 +8,7 @@ import * as path from 'path';
 import { GraphRepository } from '../repositories/GraphRepository';
 import { ResolvedGraphData } from '../repositories/VersionRepository';
 import { ExportFilters } from '../models/AsyncJob';
+import { NotFoundError } from '../utils/errors';
 
 /**
  * Althistory Export Format v1.0
@@ -202,6 +203,13 @@ export class ExportService {
       );
     }
 
+    // Resolve the version before reading data: a pinned version that does not
+    // exist is a client error, and `graphVersion` must name the version the
+    // data actually came from. `graph.version` is a metadata counter that also
+    // advances on metadata-only updates (see `GraphRepository`), so it is not
+    // the version number `?version=` accepts.
+    const versionRef = await this.resolveVersionRef(options);
+
     // Get graph data
     const data = await this.graphRepository.checkout(options.graphId, options.version);
 
@@ -222,7 +230,7 @@ export class ExportService {
         description: graph.description,
         exportedAt: new Date().toISOString(),
         sourceVersion: this.appVersion,
-        graphVersion: graph.version,
+        graphVersion: versionRef?.version ?? 0,
         checksum: '', // Will be calculated
         filters: options.scope === 'filtered' ? options.filters : undefined,
       },
@@ -250,6 +258,27 @@ export class ExportService {
   }
 
   /**
+   * The committed version an export is built from: the pinned one, or the head.
+   * Absent history yields `null` (an empty graph), which callers label as 0.
+   */
+  private async resolveVersionRef(options: ExportOptions) {
+    if (options.version === undefined) {
+      return this.graphRepository.getLatestVersion(options.graphId);
+    }
+
+    const versionRef = await this.graphRepository.getVersion(options.graphId, options.version);
+    if (!versionRef) {
+      throw new NotFoundError(
+        `Graph version ${options.version} not found`,
+        'GraphVersion',
+        `${options.graphId}@${options.version}`
+      );
+    }
+
+    return versionRef;
+  }
+
+  /**
    * Count the entities an export would contain, without serialising it.
    *
    * Used to decide whether Req 5.4 requires an async job. For an unfiltered
@@ -272,6 +301,12 @@ export class ExportService {
 
       const { eventCount, arcCount, relationshipCount, pressureCount } = graph.metadata;
       return eventCount + arcCount + relationshipCount + pressureCount;
+    }
+
+    // A pinned version that does not exist is a 404, not a 500 from the
+    // version store's own throw.
+    if (options.version !== undefined) {
+      await this.resolveVersionRef(options);
     }
 
     const data = await this.graphRepository.checkout(options.graphId, options.version);
@@ -334,18 +369,42 @@ export class ExportService {
       throw new Error(`Graph not found: ${options.graphId}`);
     }
 
-    // Get counts from metadata
-    const metadata = graph.metadata;
-    
-    // Rough estimate: ~500 bytes per event, ~300 per arc, ~200 per relationship
-    const estimatedSize = 
-      (metadata.eventCount * 500) +
-      (metadata.arcCount * 300) +
-      (metadata.relationshipCount * 200) +
-      (metadata.pressureCount * 400) +
-      2000; // Metadata overhead
+    // A pinned version is estimated from that tree: the metadata counts
+    // describe the head, and using them would reject a small historical export
+    // because the head happens to be large.
+    if (options.version !== undefined) {
+      const data = await this.graphRepository.checkout(options.graphId, options.version);
+      return this.estimateFromCounts(
+        Object.keys(data.events).length,
+        Object.keys(data.arcs).length,
+        Object.keys(data.relationships).length,
+        Object.keys(data.pressures).length
+      );
+    }
 
-    return estimatedSize;
+    const metadata = graph.metadata;
+    return this.estimateFromCounts(
+      metadata.eventCount,
+      metadata.arcCount,
+      metadata.relationshipCount,
+      metadata.pressureCount
+    );
+  }
+
+  /** Rough estimate: ~500 bytes per event, ~300 per arc, ~200 per relationship. */
+  private estimateFromCounts(
+    eventCount: number,
+    arcCount: number,
+    relationshipCount: number,
+    pressureCount: number
+  ): number {
+    return (
+      eventCount * 500 +
+      arcCount * 300 +
+      relationshipCount * 200 +
+      pressureCount * 400 +
+      2000 // Metadata overhead
+    );
   }
 
   /**

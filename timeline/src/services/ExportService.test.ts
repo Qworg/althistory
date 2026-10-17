@@ -31,6 +31,8 @@ describe('ExportService', () => {
     findById: ReturnType<typeof vi.fn>;
     checkout: ReturnType<typeof vi.fn>;
     getVersionHistory: ReturnType<typeof vi.fn>;
+    getLatestVersion: ReturnType<typeof vi.fn>;
+    getVersion: ReturnType<typeof vi.fn>;
   };
 
   const createMockGraph = (overrides: Partial<IGraph> = {}): Graph => {
@@ -110,6 +112,10 @@ describe('ExportService', () => {
       findById: vi.fn(),
       checkout: vi.fn(),
       getVersionHistory: vi.fn().mockResolvedValue({ versions: [], total: 0 }),
+      // The fixture graph is on version 1; that is the committed head the
+      // export labels itself with.
+      getLatestVersion: vi.fn().mockResolvedValue({ version: 1 }),
+      getVersion: vi.fn().mockResolvedValue(null),
     };
 
     vi.mocked(GraphRepository).mockImplementation(() => mockGraphRepository as unknown as GraphRepository);
@@ -183,8 +189,9 @@ describe('ExportService', () => {
       const mockData = createMockGraphData();
       mockGraphRepository.findById.mockResolvedValue(mockGraph);
       mockGraphRepository.checkout.mockResolvedValue(mockData);
+      mockGraphRepository.getVersion.mockResolvedValue({ version: 5 });
 
-      await exportService.exportGraph({
+      const result = await exportService.exportGraph({
         graphId: 'graph_123',
         scope: 'full',
         includeProvenance: false,
@@ -192,6 +199,9 @@ describe('ExportService', () => {
       });
 
       expect(mockGraphRepository.checkout).toHaveBeenCalledWith('graph_123', 5);
+      // The label names the version the data came from, not the metadata
+      // counter that `createMockGraph` carries (1).
+      expect(result.export.metadata.graphVersion).toBe(5);
     });
 
     it('should calculate checksum of data', async () => {
@@ -291,6 +301,29 @@ describe('ExportService', () => {
         scope: 'full',
         includeProvenance: false,
       })).rejects.toThrow('Graph not found: nonexistent');
+    });
+  });
+
+  describe('estimateExportSize for a pinned version', () => {
+    it('uses the pinned tree, not the head metadata', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue({
+        events: { e1: { id: 'e1' }, e2: { id: 'e2' } },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      });
+
+      const size = await exportService.estimateExportSize({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        version: 0,
+      });
+
+      // Two events at 500 bytes plus the 2000-byte metadata overhead, rather
+      // than the fixture metadata's 10 events / 3 arcs / 5 relationships.
+      expect(size).toBe(3000);
     });
   });
 
@@ -851,6 +884,51 @@ describe('ExportService', () => {
 
       expect(result.export.data.events[0].metadata).toEqual({ customField: 'customValue' });
       expect(result.export.data.events[0].sourceRef).toBe('https://example.com');
+    });
+  });
+
+  describe('version labelling', () => {
+    it('labels the export with the committed head, not the metadata counter', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+      mockGraphRepository.getLatestVersion.mockResolvedValue({ version: 7 });
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(result.export.metadata.graphVersion).toBe(7);
+    });
+
+    it('rejects a pinned version that does not exist with NotFoundError', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+      mockGraphRepository.getVersion.mockResolvedValue(null);
+
+      await expect(
+        exportService.exportGraph({
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          version: 99,
+        })
+      ).rejects.toMatchObject({ name: 'NotFoundError' });
+    });
+
+    it('reports a missing pinned version from countEntities too', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.getVersion.mockResolvedValue(null);
+
+      await expect(
+        exportService.countEntities({
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          version: 99,
+        })
+      ).rejects.toMatchObject({ name: 'NotFoundError' });
     });
   });
 

@@ -894,6 +894,42 @@ describe('GraphRepository Unit Tests', () => {
       expect(mockRollback).toHaveBeenCalledWith('test-id', 1, 'user-123');
       expect(result.operation).toBe('rollback');
     });
+
+    it('recomputes metadata for the rolled-back tree', async () => {
+      mockRollback.mockResolvedValue({
+        graphId: 'test-id',
+        version: 4,
+        timestamp: new Date().toISOString(),
+        parentVersion: 3,
+        operation: 'rollback',
+        description: 'Rollback to version 1',
+        changes: { added: [], modified: [], deleted: [] },
+        treeHash: 'rollback-hash',
+      } as VersionRef);
+
+      const graph = new Graph({
+        id: 'test-id',
+        name: 'Rolled Back',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+        version: 3,
+      });
+      const metadata = {
+        eventCount: 1,
+        arcCount: 0,
+        relationshipCount: 0,
+        pressureCount: 0,
+      };
+
+      vi.spyOn(repository, 'findById').mockResolvedValue(graph);
+      const calculateMetadata = vi.spyOn(repository, 'calculateMetadata').mockResolvedValue(metadata);
+      const update = vi.spyOn(repository, 'update').mockResolvedValue(graph);
+
+      await repository.rollback('test-id', 1, 'user-123');
+
+      expect(calculateMetadata).toHaveBeenCalledWith('test-id');
+      expect(update).toHaveBeenCalledWith('test-id', { metadata });
+    });
   });
 
   describe('gc()', () => {

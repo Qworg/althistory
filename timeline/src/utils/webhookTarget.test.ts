@@ -45,9 +45,12 @@ describe('assertWebhookTarget', () => {
     'http://0.0.0.0/hook',
     'http://100.64.0.1/hook',
     'http://[::1]/hook',
+    'http://[::]/hook',
     'http://[fd00::1]/hook',
     'http://[fe80::1]/hook',
     'http://[::ffff:127.0.0.1]/hook',
+    'http://localhost./hook',
+    'http://[64:ff9b::a9fe:a9fe]/hook',
   ])('rejects the private or loopback destination %s', (url) => {
     expect(() => assertWebhookTarget(url)).toThrow('private or loopback');
   });
@@ -56,6 +59,12 @@ describe('assertWebhookTarget', () => {
     expect(assertWebhookTarget('http://localhost:9000/hook', { allowPrivateHosts: true })).toBe(
       'http://localhost:9000/hook'
     );
+  });
+
+  it('matches address ranges rather than string prefixes', () => {
+    // `::1:2` is 0:0:0:0:0:0:1:2, which is not the loopback address, so a
+    // prefix match on "::1" would reject it wrongly.
+    expect(assertWebhookTarget('http://[::1:2]/hook')).toBe('http://[::1:2]/hook');
   });
 
   it('does not mistake a public address that merely starts like a private one', () => {

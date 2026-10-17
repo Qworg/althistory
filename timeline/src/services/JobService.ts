@@ -130,7 +130,37 @@ export class JobService extends EventEmitter {
       this.logger.info('Recovered stalled jobs', { count: recovered });
     }
 
+    await this.failOrphanedNonExportJobs();
+
     this.initialized = true;
+  }
+
+  /**
+   * Fail import/ingest jobs left runnable by a previous process.
+   *
+   * They live in the same store as export jobs but have no in-process owner
+   * after a restart: `ImportService` keeps its in-flight work in memory, and
+   * ingestion runs synchronously in its route. Without this, a job that was
+   * `pending` when the process died stays `pending` forever, because
+   * `recoverStalledJobs` only ages out `processing` rows. This runs once, at
+   * startup, from the only singleton that loads the store; per-request
+   * `ImportService` instances create their jobs afterwards and are unaffected.
+   */
+  private async failOrphanedNonExportJobs(): Promise<void> {
+    const candidates = await this.jobRepository.findAll({
+      status: ['pending', 'processing'],
+    });
+
+    for (const job of candidates) {
+      if (job.type === 'export') continue;
+
+      job.fail(`Job was left ${job.status} by a previous process; re-run the ${job.type}`);
+      await this.jobRepository.update(job);
+      this.logger.warn('Failed orphaned job from a previous process', {
+        jobId: job.id,
+        type: job.type,
+      });
+    }
   }
 
   /**
@@ -204,6 +234,7 @@ export class JobService extends EventEmitter {
       scope: request.scope,
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
+      version: request.version,
     };
 
     // Create the job
@@ -315,9 +346,12 @@ export class JobService extends EventEmitter {
     for (let i = 0; i < availableSlots; i++) {
       // Only export jobs belong to this service. ImportService writes its own
       // `type: 'import'` jobs into the same store and executes them itself, so
-      // claiming any pending job here let this worker fail an import as "not
-      // yet implemented" while its real owner was still running it. Ingestion
-      // is synchronous in the ingest route and never reaches this queue.
+      // These jobs live in the same store but are not this worker's to run.
+      // `ImportService` executes imports itself in-process, and ingestion is
+      // synchronous in the ingest route. The type filter is what keeps a job
+      // written by another service from being failed here with the wrong
+      // reason; `failOrphanedNonExportJobs` handles rows left by a previous
+      // process, which no in-process owner will ever adopt.
       const job = await this.jobRepository.getNextPending('export');
       if (!job) break;
 
@@ -351,9 +385,7 @@ export class JobService extends EventEmitter {
         case 'ingest':
           // Defensive: `processNextJobs` only claims export jobs, so this is
           // reachable only if the repository hands back a type it was not asked
-          // for. Failing loudly beats the old placeholder message, which told
-          // the caller the feature was missing while another service was
-          // executing the same job.
+          // for.
           throw new Error(
             `Job type '${job.type}' is not executed by JobService ` +
               '(imports are owned by ImportService, ingestion by the ingest route)'
@@ -388,23 +420,23 @@ export class JobService extends EventEmitter {
   private async executeExportJob(job: AsyncJob): Promise<JobResult> {
     const params = job.parameters as ExportJobParams;
 
-    // Update progress: starting
-    this.emitProgress(job.id, 10, 'Starting export...');
+    await this.reportProgress(job, 10, 'Starting export...');
 
     const options: ExportOptions = {
       graphId: params.graphId,
       scope: params.scope,
       filters: params.filters,
       includeProvenance: params.includeProvenance,
+      // Carried through the job parameters so a pinned export does not silently
+      // export the head once it crosses the async threshold.
+      version: params.version,
     };
 
-    // Update progress: exporting
-    this.emitProgress(job.id, 50, 'Generating export file...');
+    await this.reportProgress(job, 50, 'Generating export file...');
 
     const filePath = await this.exportService.exportToFile(options);
 
-    // Update progress: complete
-    this.emitProgress(job.id, 100, 'Export complete');
+    await this.reportProgress(job, 100, 'Export complete');
 
     return {
       outputPath: filePath,
@@ -413,6 +445,22 @@ export class JobService extends EventEmitter {
         scope: params.scope,
       },
     };
+  }
+
+  /**
+   * Persist progress as well as emitting it. `GET /export/jobs/:id` serves the
+   * stored job, so an event-only update leaves the caller polling a job that
+   * stays at 0% until it completes.
+   */
+  private async reportProgress(
+    job: AsyncJob,
+    progress: number,
+    message: string
+  ): Promise<void> {
+    job.updateProgress(progress);
+    job.progressMessage = message;
+    await this.jobRepository.update(job);
+    this.emitProgress(job.id, progress, message);
   }
 
   private emitProgress(jobId: string, progress: number, message?: string): void {
@@ -562,6 +610,10 @@ export class JobService extends EventEmitter {
         },
         body: payload,
         signal: controller.signal,
+        // A redirect would re-POST this body to a destination that was never
+        // validated -- the exact hop the SSRF check exists to stop. Refuse it
+        // and let the 3xx fall through as a non-retryable failure.
+        redirect: 'manual',
       });
 
       if (response.ok) {
