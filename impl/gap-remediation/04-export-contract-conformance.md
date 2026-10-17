@@ -124,19 +124,21 @@ New tests:
 - `api/routes/export.test.ts` (new, request-level against the real container):
   raw document response, `202` + job above a lowered threshold, bracket-notation
   and JSON filters, filtered-without-filters 400, contradicting `graphId` 400,
-  invalid scope / `includeProvenance` 400, `POST /export/sync` refusal message,
-  small graph still synchronous, unauthenticated 401.
+  invalid scope / `includeProvenance` 400, `?version` pinning and its 400,
+  `POST /export/sync` refusal message, small graph still synchronous,
+  unauthenticated 401.
 
-## Residual gaps (not fixed here)
+## Residual gaps and where they live
 
-- `GraphService.registerCrossGraphReference` / `getReferencesFromGraph` /
-  `getReferencesToGraph` (and the `cross-references.json` registry plus the
-  reference-change notifications) remain unwritten and unused. The round trip no
-  longer depends on them; consolidating the two representations is a separate
-  decision, not a contract fix.
+- The unused cross-graph registry (`GraphService.registerCrossGraphReference`,
+  `getReferencesFromGraph` / `getReferencesToGraph`, the `cross-references.json`
+  file and the reference-change notifications) still has no writer. The round
+  trip no longer depends on it. Tracked in
+  [#32](https://github.com/Qworg/althistory/issues/32), which asks for a decision:
+  delete the second representation or make it authoritative.
 - `estimateExportSize` still estimates from `graph.metadata` with per-type byte
-  weights (500/300/200/400). That is now only a secondary memory guard for the
-  synchronous path and the job-size estimate; the requirement-driven decision is
-  the entity count.
-- `GET /api/export` does not accept a `version` query parameter; the design does
-  not define one. `ExportService.exportGraph` still supports it.
+  weights (500/300/200/400). That is by design now: it is the secondary memory
+  guard for the synchronous path and the job-size estimate, while the
+  requirement-driven decision is the entity count. No issue filed.
+- `GET /api/export` accepts `version`, which was the last gap recorded here.
+  Adding it removed the residual rather than deferring it.
