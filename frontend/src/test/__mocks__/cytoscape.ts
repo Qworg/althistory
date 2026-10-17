@@ -233,9 +233,15 @@ export function createMockCollection(
     map: vi.fn((callback: (item: MockNode, index: number) => unknown) =>
       items.map((item, index) => callback(wrapAsElement(item, mockData), index))
     ),
-    filter: vi.fn((selectorOrCallback: string | ((item: MockElement) => boolean)) => {
+    filter: vi.fn((selectorOrCallback: string | ((item: MockNode) => boolean)) => {
       if (typeof selectorOrCallback === 'function') {
-        return createMockCollection(items.filter(selectorOrCallback), mockData)
+        // Wrap like forEach/map do: a caller that inspects the element with
+        // `item.data('id')` must not receive the raw backing object here while
+        // every other iteration method hands it the wrapped one.
+        return createMockCollection(
+          items.filter((item) => selectorOrCallback(wrapAsElement(item, mockData))),
+          mockData
+        )
       }
       // Simple selector support - return all for now
       return createMockCollection(items, mockData)
