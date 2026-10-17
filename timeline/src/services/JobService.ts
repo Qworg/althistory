@@ -3,19 +3,18 @@
  */
 
 import { EventEmitter } from 'events';
-import { 
+import {
   AsyncJob, 
   JobStatus,
   JobResult,
   ExportJobParams,
-  ImportJobParams,
-  IngestJobParams,
   CreateExportJobRequest,
   CreateExportJobResponse,
 } from '../models/AsyncJob';
 import { JobRepository, JobFilter, JobStats } from '../repositories/JobRepository';
 import { ExportService, ExportOptions } from './ExportService';
 import { GraphRepository } from '../repositories/GraphRepository';
+import { assertWebhookTarget } from '../utils/webhookTarget';
 import { createLogger, ILogger } from '../utils/logger';
 
 export interface JobServiceConfig {
@@ -191,6 +190,13 @@ export class JobService extends EventEmitter {
       throw new Error(`Graph not found: ${request.graphId}`);
     }
 
+    // Reject an unusable webhook now rather than recording a job whose
+    // completion notification can never be delivered (see
+    // `utils/webhookTarget` for the policy).
+    if (request.webhook) {
+      assertWebhookTarget(request.webhook);
+    }
+
     // Create job parameters
     const params: ExportJobParams = {
       type: 'export',
@@ -225,34 +231,6 @@ export class JobService extends EventEmitter {
       estimatedSize,
       estimatedTime,
     };
-  }
-
-  /**
-   * Create an import job (placeholder for Phase 2)
-   */
-  async createImportJob(params: Omit<ImportJobParams, 'type'>, webhookUrl?: string): Promise<string> {
-    const job = await this.jobRepository.create({
-      type: 'import',
-      parameters: { type: 'import', ...params },
-      webhookUrl,
-    });
-
-    this.emit('jobCreated', { jobId: job.id, type: 'import' });
-    return job.id;
-  }
-
-  /**
-   * Create an ingest job (placeholder for Phase 3)
-   */
-  async createIngestJob(params: Omit<IngestJobParams, 'type'>, webhookUrl?: string): Promise<string> {
-    const job = await this.jobRepository.create({
-      type: 'ingest',
-      parameters: { type: 'ingest', ...params },
-      webhookUrl,
-    });
-
-    this.emit('jobCreated', { jobId: job.id, type: 'ingest' });
-    return job.id;
   }
 
   /**
@@ -335,7 +313,12 @@ export class JobService extends EventEmitter {
     const availableSlots = this.maxConcurrentJobs - this.activeJobs.size;
     
     for (let i = 0; i < availableSlots; i++) {
-      const job = await this.jobRepository.getNextPending();
+      // Only export jobs belong to this service. ImportService writes its own
+      // `type: 'import'` jobs into the same store and executes them itself, so
+      // claiming any pending job here let this worker fail an import as "not
+      // yet implemented" while its real owner was still running it. Ingestion
+      // is synchronous in the ingest route and never reaches this queue.
+      const job = await this.jobRepository.getNextPending('export');
       if (!job) break;
 
       // Skip if already processing
@@ -365,11 +348,16 @@ export class JobService extends EventEmitter {
           result = await this.executeExportJob(job);
           break;
         case 'import':
-          result = await this.executeImportJob(job);
-          break;
         case 'ingest':
-          result = await this.executeIngestJob(job);
-          break;
+          // Defensive: `processNextJobs` only claims export jobs, so this is
+          // reachable only if the repository hands back a type it was not asked
+          // for. Failing loudly beats the old placeholder message, which told
+          // the caller the feature was missing while another service was
+          // executing the same job.
+          throw new Error(
+            `Job type '${job.type}' is not executed by JobService ` +
+              '(imports are owned by ImportService, ingestion by the ingest route)'
+          );
         default:
           throw new Error(`Unknown job type: ${job.type}`);
       }
@@ -425,16 +413,6 @@ export class JobService extends EventEmitter {
         scope: params.scope,
       },
     };
-  }
-
-  private async executeImportJob(_job: AsyncJob): Promise<JobResult> {
-    // Placeholder for Phase 2
-    throw new Error('Import jobs not yet implemented');
-  }
-
-  private async executeIngestJob(_job: AsyncJob): Promise<JobResult> {
-    // Placeholder for Phase 3
-    throw new Error('Ingest jobs not yet implemented');
   }
 
   private emitProgress(jobId: string, progress: number, message?: string): void {
@@ -553,6 +531,20 @@ export class JobService extends EventEmitter {
     webhookUrl: string,
     payload: string
   ): Promise<WebhookAttemptResult> {
+    // Validate (and normalize) the caller-supplied destination before any
+    // request is made. An invalid destination is terminal: retrying cannot make
+    // it valid. The fetch below uses this checked value, never the raw field.
+    let endpoint: string;
+    try {
+      endpoint = assertWebhookTarget(webhookUrl);
+    } catch (error) {
+      return {
+        delivered: false,
+        retryable: false,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+
     let timedOut = false;
     const controller = new AbortController();
     this.webhookControllers.add(controller);
@@ -563,7 +555,7 @@ export class JobService extends EventEmitter {
     this.webhookTimeoutTimers.add(timeoutId);
 
     try {
-      const response = await fetch(webhookUrl, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -280,70 +280,6 @@ describe('JobService', () => {
     });
   });
 
-  describe('createImportJob', () => {
-    it('should create an import job', async () => {
-      const mockJob = createMockJob({ type: 'import' });
-      mockJobRepository.create.mockResolvedValue(mockJob);
-
-      const jobId = await jobService.createImportJob({
-        graphId: 'graph_123',
-        mode: 'merge',
-        conflictResolution: 'skip',
-        dataChecksum: 'abc123',
-      });
-
-      expect(jobId).toBe('job_123');
-      expect(mockJobRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'import',
-        })
-      );
-    });
-
-    it('should emit jobCreated event', async () => {
-      const mockJob = createMockJob({ type: 'import' });
-      mockJobRepository.create.mockResolvedValue(mockJob);
-
-      const eventPromise = new Promise<{ jobId: string; type: string }>(resolve => {
-        jobService.once('jobCreated', resolve);
-      });
-
-      await jobService.createImportJob({
-        graphId: 'graph_123',
-        mode: 'merge',
-        conflictResolution: 'skip',
-        dataChecksum: 'abc123',
-      });
-
-      const event = await eventPromise;
-      expect(event.type).toBe('import');
-    });
-  });
-
-  describe('createIngestJob', () => {
-    it('should create an ingest job', async () => {
-      const mockJob = createMockJob({ type: 'ingest' });
-      mockJobRepository.create.mockResolvedValue(mockJob);
-
-      const jobId = await jobService.createIngestJob({
-        source: {
-          sourceType: 'wikipedia',
-          url: 'https://en.wikipedia.org/wiki/Test',
-          followLinks: false,
-          linkDepth: 0,
-          maxPages: 1,
-        },
-      });
-
-      expect(jobId).toBe('job_123');
-      expect(mockJobRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'ingest',
-        })
-      );
-    });
-  });
-
   describe('getJob', () => {
     it('should return job when found', async () => {
       const mockJob = createMockJob();
@@ -715,68 +651,54 @@ describe('JobService', () => {
       jobService2.stop();
     });
 
-    it('should handle import job type (throws not implemented)', async () => {
-      const mockJob = createMockJob({
-        type: 'import',
-        status: 'pending',
-        parameters: {
-          type: 'import',
-          graphId: 'graph_123',
-          mode: 'merge',
-          conflictResolution: 'skip',
-          dataChecksum: 'abc123',
-        },
-      });
-      mockJobRepository.getNextPending
-        .mockResolvedValueOnce(mockJob)
-        .mockResolvedValue(null);
-      mockJobRepository.update.mockResolvedValue(mockJob);
-
-      const eventPromise = new Promise<{ error: string }>(resolve => {
-        jobService.once('jobFailed', resolve);
-      });
+    it('should only claim export jobs from the queue', async () => {
+      mockJobRepository.getNextPending.mockResolvedValue(null);
 
       await jobService.initialize();
       jobService.start();
 
-      const event = await eventPromise;
+      // Give the immediate first poll a tick to run.
+      await new Promise(resolve => setTimeout(resolve, 20));
       jobService.stop();
 
-      expect(event.error).toContain('Import jobs not yet implemented');
+      // ImportService writes `type: 'import'` jobs into the same store and
+      // executes them itself; claiming them here failed an import that was
+      // still running under its real owner.
+      expect(mockJobRepository.getNextPending).toHaveBeenCalledWith('export');
+      expect(mockJobRepository.getNextPending).not.toHaveBeenCalledWith();
     });
 
-    it('should handle ingest job type (throws not implemented)', async () => {
-      const mockJob = createMockJob({
-        type: 'ingest',
-        status: 'pending',
-        parameters: {
-          type: 'ingest',
-          source: {
-            sourceType: 'wikipedia',
-            url: 'https://example.com',
-            followLinks: false,
-            linkDepth: 0,
-            maxPages: 1,
-          },
-        },
-      });
-      mockJobRepository.getNextPending
-        .mockResolvedValueOnce(mockJob)
-        .mockResolvedValue(null);
-      mockJobRepository.update.mockResolvedValue(mockJob);
+    it.each([
+      ['import', { type: 'import', graphId: 'graph_123', mode: 'merge', conflictResolution: 'skip', dataChecksum: 'abc123' }],
+      ['ingest', { type: 'ingest', source: { sourceType: 'wikipedia', url: 'https://example.com', followLinks: false, linkDepth: 0, maxPages: 1 } }],
+    ] as const)(
+      'fails a %s job the repository should not have handed over, naming its owner',
+      async (jobType, parameters) => {
+        const mockJob = createMockJob({
+          type: jobType,
+          status: 'pending',
+          parameters,
+        });
+        // A correct repository filters by type; this asserts the defensive
+        // branch for one that does not.
+        mockJobRepository.getNextPending
+          .mockResolvedValueOnce(mockJob)
+          .mockResolvedValue(null);
+        mockJobRepository.update.mockResolvedValue(mockJob);
 
-      const eventPromise = new Promise<{ error: string }>(resolve => {
-        jobService.once('jobFailed', resolve);
-      });
+        const eventPromise = new Promise<{ error: string }>(resolve => {
+          jobService.once('jobFailed', resolve);
+        });
 
-      await jobService.initialize();
-      jobService.start();
+        await jobService.initialize();
+        jobService.start();
 
-      const event = await eventPromise;
-      jobService.stop();
+        const event = await eventPromise;
+        jobService.stop();
 
-      expect(event.error).toContain('Ingest jobs not yet implemented');
-    });
+        expect(event.error).toContain(`Job type '${jobType}' is not executed by JobService`);
+      }
+    );
   });
 
   describe('webhook notifications', () => {
