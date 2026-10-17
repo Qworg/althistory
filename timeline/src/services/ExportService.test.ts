@@ -853,4 +853,251 @@ describe('ExportService', () => {
       expect(result.export.data.events[0].sourceRef).toBe('https://example.com');
     });
   });
+
+  describe('entity counts and the async threshold (Req 5.4)', () => {
+    it('should report the exported entity count in the result', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      // 2 events + 1 arc + 1 relationship + 1 pressure
+      expect(result.entityCount).toBe(5);
+    });
+
+    it('should count entities from graph metadata for an unfiltered latest export', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+
+      const count = await exportService.countEntities({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      // metadata says 10 + 3 + 5 + 2
+      expect(count).toBe(20);
+      expect(mockGraphRepository.checkout).not.toHaveBeenCalled();
+    });
+
+    it('should count filtered entities from the resolved graph, not metadata', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+
+      const count = await exportService.countEntities({
+        graphId: 'graph_123',
+        scope: 'filtered',
+        filters: { eventIds: ['event1'] },
+        includeProvenance: false,
+      });
+
+      // Filtered ids only name events, so the arc and the pressure survive; the
+      // relationship is dropped because its effect event did not. The point is
+      // that this is the filtered tree (3), not the metadata total (20).
+      expect(count).toBe(3);
+      expect(mockGraphRepository.checkout).toHaveBeenCalledWith('graph_123', undefined);
+    });
+
+    it('should require an async job above the configured threshold', async () => {
+      const service = new ExportService({
+        dataDir: './test-data',
+        appVersion: '1.0.0-test',
+        asyncExportThreshold: 4,
+      });
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+
+      const decision = await service.shouldUseAsyncExport({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      // metadata: 20 entities > 4
+      expect(decision).toEqual({ entityCount: 20, useAsync: true });
+    });
+
+    it('should stay synchronous at exactly the threshold', async () => {
+      const service = new ExportService({
+        dataDir: './test-data',
+        appVersion: '1.0.0-test',
+        asyncExportThreshold: 20,
+      });
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+
+      const decision = await service.shouldUseAsyncExport({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(decision).toEqual({ entityCount: 20, useAsync: false });
+    });
+
+    it('should default the threshold to 10,000 entities', () => {
+      expect(exportService.asyncExportThreshold).toBe(10_000);
+    });
+  });
+
+  describe('cross-graph references (Req 4.4)', () => {
+    const ref = {
+      referencedGraphId: 'graph_remote',
+      referencedEntityId: 'remote-event',
+      referencedEntityType: 'event' as const,
+    };
+
+    it('should hoist references out of entity metadata into data.crossGraphRefs', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue({
+        events: {
+          event1: {
+            id: 'event1',
+            description: 'Imported event',
+            actor: 'Actor',
+            target: 'Target',
+            timestamp: '2024-01-01T00:00:00Z',
+            metadata: { customField: 'kept', crossGraphRefs: [ref] },
+          },
+        },
+        arcs: {
+          arc1: {
+            id: 'arc1',
+            name: 'Arc',
+            description: 'Imported arc',
+            start_time: '2023-01-01',
+            end_time: '2024-01-01',
+            level: 0,
+            parent_arc_id: null,
+            metadata: { crossGraphRefs: [{ ...ref, referencedEntityType: 'arc' }] },
+          },
+        },
+        relationships: {},
+        pressures: {},
+      });
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(result.export.data.crossGraphRefs).toEqual([
+        { localEntityId: 'event1', localEntityType: 'event', ...ref },
+        {
+          localEntityId: 'arc1',
+          localEntityType: 'arc',
+          ...ref,
+          referencedEntityType: 'arc',
+        },
+      ]);
+
+      // The private storage key is not duplicated into exported metadata.
+      expect(result.export.data.events[0].metadata).toEqual({ customField: 'kept' });
+      expect(result.export.data.arcs[0].metadata).toBeUndefined();
+    });
+
+    it('should keep relationship-local references', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      const mockData = createMockGraphData();
+      mockData.relationships.rel1.metadata = { crossGraphRefs: [ref] };
+      mockGraphRepository.checkout.mockResolvedValue(mockData);
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(result.export.data.crossGraphRefs).toEqual([
+        { localEntityId: 'rel1', localEntityType: 'relationship', ...ref },
+      ]);
+    });
+
+    it('should omit crossGraphRefs when the graph has none', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(result.export.data.crossGraphRefs).toBeUndefined();
+      expect('crossGraphRefs' in result.export.data).toBe(false);
+    });
+
+    it('should not export references belonging to entities the filters exclude', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue({
+        events: {
+          event1: {
+            id: 'event1',
+            description: 'Kept',
+            actor: 'A',
+            target: 'B',
+            timestamp: '2024-01-01T00:00:00Z',
+            metadata: { crossGraphRefs: [ref] },
+          },
+          event2: {
+            id: 'event2',
+            description: 'Filtered out',
+            actor: 'C',
+            target: 'D',
+            timestamp: '2025-01-01T00:00:00Z',
+            metadata: { crossGraphRefs: [ref] },
+          },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      });
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'filtered',
+        filters: { eventIds: ['event1'] },
+        includeProvenance: false,
+      });
+
+      expect(result.export.data.crossGraphRefs).toEqual([
+        { localEntityId: 'event1', localEntityType: 'event', ...ref },
+      ]);
+    });
+
+    it('should drop references without a usable target', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue({
+        events: {
+          event1: {
+            id: 'event1',
+            description: 'Has junk refs',
+            actor: 'Actor',
+            target: 'Target',
+            timestamp: '2024-01-01T00:00:00Z',
+            metadata: {
+              crossGraphRefs: [
+                { referencedEntityId: 'no-graph' },
+                { referencedGraphId: 'g', referencedEntityId: 'e', referencedEntityType: 'pressure' },
+                ref,
+              ],
+            },
+          },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      });
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(result.export.data.crossGraphRefs).toHaveLength(1);
+    });
+  });
 });

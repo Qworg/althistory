@@ -24,7 +24,7 @@ import {
   JobStatusResponse,
   ExportFilters,
 } from '../../models/AsyncJob';
-import { AlthistoryExport } from '../../services/ExportService';
+import { AlthistoryExport, ExportOptions } from '../../services/ExportService';
 import { ValidationError, NotFoundError } from '../../utils/errors';
 
 export const exportRoutes = Router();
@@ -84,6 +84,59 @@ exportRoutes.post(
     next(error);
   }
 });
+
+/**
+ * GET /export - Export a graph (design §Export API)
+ *
+ * Query: `graphId`, `scope=full|filtered`, `includeProvenance`, `filters[...]`.
+ *
+ * Req 5.4 makes the mode depend on size: at or below the entity threshold the
+ * export is returned inline as the export document, above it the request
+ * creates the async job the requirement asks for and answers 202 with the job
+ * id. One GET for callers who should not have to choose; `POST /export/sync`
+ * and `POST /export/jobs` remain the explicit variants.
+ */
+exportRoutes.get(
+  '/',
+  ...exportAuth,
+  resolveGraphContext(),
+  asRequestHandler(authorizeGraphAccess((req) => requireGraphId(req))),
+  async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+    try {
+      const graphId = requireGraphId(req);
+      const request = parseExportQuery(req.query, graphId);
+      const service = req.container.exportService;
+
+      const { entityCount, useAsync } = await service.shouldUseAsyncExport(request);
+
+      if (useAsync) {
+        const job = await req.container.jobService.createExportJob(request);
+        res.status(202).json({
+          success: true,
+          data: { ...job, entityCount },
+          message:
+            `Export has ${entityCount} entities, above the ${service.asyncExportThreshold}-entity ` +
+            'synchronous limit; an export job was created',
+          requestId: req.requestId,
+        });
+        return;
+      }
+
+      const result = await service.exportGraph(request);
+
+      // The design specifies the export document itself, not an envelope: the
+      // body is the downloaded file.
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="export_${graphId}_v${result.export.metadata.graphVersion}.json"`
+      );
+      res.send(JSON.stringify(result.export));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 /**
  * GET /export/jobs - List export jobs
@@ -295,6 +348,25 @@ exportRoutes.post(
       validateFilters(request.filters);
     }
 
+    const exportOptions = {
+      graphId: requireGraphId(req),
+      scope: request.scope,
+      filters: request.filters,
+      includeProvenance: request.includeProvenance ?? false,
+    };
+
+    // Req 5.4: the trigger is the entity count, not the byte estimate. A graph
+    // can be over the limit while serialising small, and the synchronous path
+    // is bounded by the work it does as well as the response it writes.
+    const { entityCount, useAsync } = await service.shouldUseAsyncExport(exportOptions);
+    if (useAsync) {
+      throw new ValidationError(
+        `Export has ${entityCount} entities, above the ${service.asyncExportThreshold}-entity synchronous limit. Use POST /export/jobs or GET /export instead.`,
+        'entityCount',
+        entityCount
+      );
+    }
+
     // Check estimated size - only allow sync for small exports
     const estimatedSize = await service.estimateExportSize({
       graphId: requireGraphId(req),
@@ -443,4 +515,145 @@ function validateFilters(filters: ExportFilters): void {
   if (filters.eventIds && !Array.isArray(filters.eventIds)) {
     throw new ValidationError('Event IDs must be an array', 'filters.eventIds');
   }
+}
+
+/**
+ * Turn `GET /export`'s query string into the same request shape the POST routes
+ * take, so the entity-count rule and the export service see one contract.
+ *
+ * `graphId` follows the `reconcileGraphId` rule used by the body variants: it is
+ * optional, but when present it must agree with the resolved scope.
+ */
+function parseExportQuery(
+  query: RequestWithContainer['query'],
+  resolvedGraphId: string
+): ExportOptions {
+  const rawGraphId = query.graphId;
+  if (rawGraphId !== undefined && typeof rawGraphId !== 'string') {
+    throw new ValidationError('graphId must be a single value', 'graphId');
+  }
+  if (rawGraphId !== undefined && rawGraphId !== '' && rawGraphId !== resolvedGraphId) {
+    throw new ValidationError(
+      `graphId '${rawGraphId}' in the query contradicts the resolved graph scope '${resolvedGraphId}'`,
+      'graphId',
+      rawGraphId
+    );
+  }
+
+  const scope = parseScope(query.scope);
+  const includeProvenance = parseBoolean(query.includeProvenance, 'includeProvenance') ?? false;
+  const filters = parseFilters(query.filters);
+
+  if (scope === 'filtered' && !filters) {
+    throw new ValidationError('Filters are required when scope is "filtered"', 'filters');
+  }
+  if (filters) {
+    validateFilters(filters);
+  }
+
+  return { graphId: resolvedGraphId, scope, filters, includeProvenance };
+}
+
+function parseScope(value: unknown): 'full' | 'filtered' {
+  if (value === undefined) return 'full';
+  if (value === 'full' || value === 'filtered') return value;
+  throw new ValidationError('Scope must be "full" or "filtered"', 'scope', value);
+}
+
+function parseBoolean(value: unknown, name: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new ValidationError(`${name} must be "true" or "false"`, name, value);
+}
+
+/**
+ * Accept both query encodings the design implies: bracket notation
+ * (`filters[actors]=a,b`, parsed by Express's query parser) and a JSON-encoded
+ * `filters={"actors":["a"]}` string. List values may be a repeat/array or a
+ * comma-separated string.
+ */
+function parseFilters(value: unknown): ExportFilters | undefined {
+  if (value === undefined) return undefined;
+
+  if (typeof value === 'string') {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new ValidationError(
+        'filters must be a JSON object or bracket-notation query parameters',
+        'filters'
+      );
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new ValidationError('filters must be a JSON object', 'filters');
+    }
+    return asExportFilters(parsed as Record<string, unknown>);
+  }
+
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return asExportFilters(value as Record<string, unknown>);
+  }
+
+  throw new ValidationError('filters must be an object', 'filters');
+}
+
+function asExportFilters(raw: Record<string, unknown>): ExportFilters {
+  const actors = toStringList(raw.actors, 'actors');
+  const targets = toStringList(raw.targets, 'targets');
+  const arcIds = toStringList(raw.arcIds, 'arcIds');
+  const eventIds = toStringList(raw.eventIds, 'eventIds');
+  const timeRange = toTimeRange(raw.timeRange);
+
+  return {
+    ...(actors ? { actors } : {}),
+    ...(targets ? { targets } : {}),
+    ...(arcIds ? { arcIds } : {}),
+    ...(eventIds ? { eventIds } : {}),
+    ...(timeRange ? { timeRange } : {}),
+  };
+}
+
+function toStringList(value: unknown, name: string): string[] | undefined {
+  if (value === undefined) return undefined;
+
+  const list = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : null;
+
+  if (!list) {
+    throw new ValidationError(`${name} must be a string or an array of strings`, name, value);
+  }
+
+  const strings = list.map((item) => {
+    if (typeof item !== 'string') {
+      throw new ValidationError(`${name} must contain only strings`, name, item);
+    }
+    return item.trim();
+  }).filter((item) => item.length > 0);
+
+  return strings.length > 0 ? strings : undefined;
+}
+
+function toTimeRange(value: unknown): ExportFilters['timeRange'] | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ValidationError(
+      'filters[timeRange] must provide start and end',
+      'filters.timeRange'
+    );
+  }
+
+  const range = value as Record<string, unknown>;
+  if (typeof range.start !== 'string' || typeof range.end !== 'string') {
+    throw new ValidationError(
+      'filters[timeRange] must provide string start and end values',
+      'filters.timeRange'
+    );
+  }
+
+  return { start: range.start, end: range.end };
 }
