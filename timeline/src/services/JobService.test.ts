@@ -29,6 +29,7 @@ describe('JobService', () => {
   let mockGraphRepository: {
     initialize: ReturnType<typeof vi.fn>;
     findById: ReturnType<typeof vi.fn>;
+    getVersion: ReturnType<typeof vi.fn>;
   };
   let mockExportService: {
     initialize: ReturnType<typeof vi.fn>;
@@ -91,6 +92,7 @@ describe('JobService', () => {
     mockGraphRepository = {
       initialize: vi.fn().mockResolvedValue(undefined),
       findById: vi.fn(),
+      getVersion: vi.fn().mockResolvedValue({ version: 0 }),
     };
 
     mockExportService = {
@@ -162,10 +164,12 @@ describe('JobService', () => {
   });
 
   describe('jobs left by a previous process', () => {
-    it('fails a pending import job that no in-process owner will adopt', async () => {
+    it.each(['pending', 'processing'] as const)(
+      'fails a %s import job that no in-process owner will adopt',
+      async (status) => {
       const orphan = createMockJob({
         type: 'import',
-        status: 'pending',
+        status,
         parameters: {
           type: 'import',
           graphId: 'graph_123',
@@ -182,14 +186,47 @@ describe('JobService', () => {
         expect.objectContaining({ id: 'job_123', status: 'failed' })
       );
       expect(orphan.error).toContain('previous process');
+      }
+    );
+
+    it('re-queues an export left processing by a previous process', async () => {
+      const stuck = createMockJob({
+        status: 'processing',
+        startedAt: '2024-01-01T00:00:00.000Z',
+        progress: 50,
+      });
+      mockJobRepository.findAll.mockImplementation(async (filter?: { status?: unknown }) =>
+        Array.isArray(filter?.status) ? [] : [stuck]
+      );
+
+      await jobService.initialize();
+
+      expect(stuck.status).toBe('pending');
+      expect(stuck.progress).toBe(0);
+      expect(mockJobRepository.update).toHaveBeenCalledWith(stuck);
+    });
+
+    it('asks only for rows that need recovering', async () => {
+      await jobService.initialize();
+
+      expect(mockJobRepository.findAll).toHaveBeenCalledWith({ status: ['pending', 'processing'] });
+      expect(mockJobRepository.findAll).toHaveBeenCalledWith({
+        type: 'export',
+        status: 'processing',
+      });
     });
 
     it('leaves a pending export job for the worker', async () => {
       const pendingExport = createMockJob({ status: 'pending' });
-      mockJobRepository.findAll.mockResolvedValue([pendingExport]);
+      // The sweep asks for a status array; the interrupted-export recovery asks
+      // for `processing` exports. A pending export appears in the first only.
+      mockJobRepository.findAll.mockImplementation(async (filter?: { status?: unknown }) =>
+        Array.isArray(filter?.status) ? [pendingExport] : []
+      );
 
       await jobService.initialize();
 
+      expect(pendingExport.status).toBe('pending');
       expect(mockJobRepository.update).not.toHaveBeenCalled();
     });
   });
@@ -315,6 +352,7 @@ describe('JobService', () => {
 
     it('carries a pinned version into the job parameters', async () => {
       mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.getVersion.mockResolvedValue({ version: 7 });
       mockJobRepository.create.mockResolvedValue(createMockJob());
       mockExportService.estimateExportSize.mockResolvedValue(1000);
 
@@ -329,6 +367,17 @@ describe('JobService', () => {
           parameters: expect.objectContaining({ version: 7 }),
         })
       );
+    });
+
+    it('rejects a pinned version that does not exist', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.getVersion.mockResolvedValue(null);
+
+      await expect(
+        jobService.createExportJob({ graphId: 'graph_123', scope: 'full', version: 99 })
+      ).rejects.toMatchObject({ name: 'NotFoundError' });
+
+      expect(mockJobRepository.create).not.toHaveBeenCalled();
     });
 
     it('rejects a webhook target that is not publicly routable', async () => {
@@ -765,6 +814,39 @@ describe('JobService', () => {
         expect(event.error).toContain(`Job type '${jobType}' is not executed by JobService`);
       }
     );
+  });
+
+  describe('pinned export jobs', () => {
+    it('passes the job\'s version to the exporter when it runs', async () => {
+      const mockJob = createMockJob({
+        status: 'pending',
+        parameters: {
+          type: 'export',
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          version: 0,
+        },
+      });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(mockJob)
+        .mockResolvedValue(null);
+      mockJobRepository.update.mockResolvedValue(mockJob);
+      mockExportService.exportToFile.mockResolvedValue('/path/to/export.json');
+
+      const completed = new Promise(resolve => jobService.once('jobCompleted', resolve));
+
+      await jobService.initialize();
+      jobService.start();
+      await completed;
+      jobService.stop();
+
+      // Removing `version: params.version` from executeExportJob would make
+      // this a head export, which is the original async-path bug.
+      expect(mockExportService.exportToFile).toHaveBeenCalledWith(
+        expect.objectContaining({ version: 0 })
+      );
+    });
   });
 
   describe('progress reporting', () => {

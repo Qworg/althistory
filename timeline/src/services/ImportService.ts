@@ -2566,6 +2566,9 @@ export class ImportService {
           actor: data.actor,
           target: data.target,
           timestamp: data.timestamp,
+          // Provenance reference, exported alongside the entity (see
+          // ExportService.convertToExportFormat).
+          ...(data.sourceRef ? { sourceRef: data.sourceRef } : {}),
           metadata: data.metadata,
         },
       });
@@ -2583,6 +2586,7 @@ export class ImportService {
           end_time: data.end_time,
           level: data.level,
           parent_arc_id: data.parent_arc_id,
+          ...(data.sourceRef ? { sourceRef: data.sourceRef } : {}),
           metadata: data.metadata,
         },
       });

@@ -25,6 +25,7 @@ import {
   ExportFilters,
 } from '../../models/AsyncJob';
 import { AlthistoryExport, ExportOptions } from '../../services/ExportService';
+import type { AsyncJob } from '../../models/AsyncJob';
 import { ValidationError, NotFoundError } from '../../utils/errors';
 
 export const exportRoutes = Router();
@@ -53,30 +54,9 @@ exportRoutes.post(
   try {
     const service = req.container.jobService;
 
-    const request: CreateExportJobRequest = req.body;
+    const request = parseExportBody(req.body, requireGraphId(req));
 
-    // The resolved request scope is authoritative; a body graphId may only
-    // agree with it (see `reconcileGraphId`).
-    reconcileGraphId(request, requireGraphId(req));
-
-    if (!request.scope || !['full', 'filtered'].includes(request.scope)) {
-      throw new ValidationError('Scope must be "full" or "filtered"', 'scope', request.scope);
-    }
-
-    if (request.scope === 'filtered' && !request.filters) {
-      throw new ValidationError('Filters are required when scope is "filtered"', 'filters');
-    }
-
-    // Validate filters if provided
-    if (request.filters) {
-      validateFilters(request.filters);
-    }
-
-    // A body version is accepted but must be a real version number; otherwise
-    // it would be stored in the job and fail (or silently misread) at run time.
-    request.version = parseVersion(request.version);
-
-    const result = await service.createExportJob({ ...request, graphId: requireGraphId(req) });
+    const result = await service.createExportJob(request);
 
     res.status(202).json({
       success: true,
@@ -165,8 +145,12 @@ exportRoutes.get('/jobs', ...exportAuth, async (req: RequestWithContainer, res: 
       status: statusFilter as 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled' | undefined,
     });
 
+    // A key restricted to some graphs must not enumerate, download or delete
+    // jobs that were created for another graph.
+    const accessibleJobs = jobs.filter((job) => canAccessJobGraph(req, job));
+
     // Apply pagination
-    const paginatedJobs = jobs.slice(parsedOffset, parsedOffset + parsedLimit);
+    const paginatedJobs = accessibleJobs.slice(parsedOffset, parsedOffset + parsedLimit);
     const responseJobs: JobStatusResponse[] = paginatedJobs.map(job => ({
       id: job.id,
       type: job.type,
@@ -183,10 +167,10 @@ exportRoutes.get('/jobs', ...exportAuth, async (req: RequestWithContainer, res: 
       success: true,
       data: responseJobs,
       pagination: {
-        total: jobs.length,
+        total: accessibleJobs.length,
         limit: parsedLimit,
         offset: parsedOffset,
-        hasMore: parsedOffset + paginatedJobs.length < jobs.length,
+        hasMore: parsedOffset + paginatedJobs.length < accessibleJobs.length,
       },
       requestId: req.requestId,
     });
@@ -208,6 +192,8 @@ exportRoutes.get('/jobs/:jobId', ...exportAuth, async (req: RequestWithContainer
     if (!job) {
       throw new NotFoundError('Export job not found', 'Job', jobId);
     }
+
+    assertJobGraphAccess(req, job);
 
     const response: JobStatusResponse = {
       id: job.id,
@@ -245,6 +231,8 @@ exportRoutes.delete('/jobs/:jobId', ...exportAuth, async (req: RequestWithContai
       throw new NotFoundError('Export job not found', 'Job', jobId);
     }
 
+    assertJobGraphAccess(req, job);
+
     // If pending/processing, cancel it; otherwise delete it
     if (job.status === 'pending' || job.status === 'processing') {
       await service.cancelJob(jobId);
@@ -279,6 +267,8 @@ exportRoutes.get('/jobs/:jobId/download', ...exportAuth, async (req: RequestWith
     if (!job) {
       throw new NotFoundError('Export job not found', 'Job', jobId);
     }
+
+    assertJobGraphAccess(req, job);
 
     if (job.status !== 'completed') {
       throw new ValidationError(`Export job is not completed (status: ${job.status})`, 'status', job.status);
@@ -338,24 +328,10 @@ exportRoutes.post(
   try {
     const service = req.container.exportService;
 
-    const request: CreateExportJobRequest = req.body;
-
-    // The resolved request scope is authoritative; a body graphId may only
-    // agree with it (see `reconcileGraphId`).
-    reconcileGraphId(request, requireGraphId(req));
-
-    if (!request.scope || !['full', 'filtered'].includes(request.scope)) {
-      throw new ValidationError('Scope must be "full" or "filtered"', 'scope', request.scope);
-    }
-
-    // Validate filters if provided
-    if (request.filters) {
-      validateFilters(request.filters);
-    }
-
-    const version = parseVersion(request.version);
+    const request = parseExportBody(req.body, requireGraphId(req));
+    const version = request.version;
     const exportOptions = {
-      graphId: requireGraphId(req),
+      graphId: request.graphId,
       scope: request.scope,
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
@@ -527,6 +503,79 @@ function validateFilters(filters: ExportFilters): void {
 }
 
 /**
+ * Whether the calling key may see a job's graph.
+ *
+ * A key with `export` permission but a restricted `allowedGraphs` list must not
+ * be able to list, fetch, download or delete another graph's export. Jobs with
+ * no graph parameter (ingest) are not graph-scoped and stay visible.
+ */
+function canAccessJobGraph(req: RequestWithContainer, job: AsyncJob): boolean {
+  // Ingest jobs carry no graph; the `in` check narrows the job-parameters union
+  // to the two members that do.
+  if (!('graphId' in job.parameters)) return true;
+
+  const apiKey = req.apiKey;
+  return apiKey === undefined || apiKey.canAccessGraph(job.parameters.graphId);
+}
+
+/**
+ * Reject access to a job outside the key's graphs with the same 404 as a
+ * missing job: a 403 would confirm that the id exists.
+ */
+function assertJobGraphAccess(req: RequestWithContainer, job: AsyncJob): void {
+  if (!canAccessJobGraph(req, job)) {
+    throw new NotFoundError('Export job not found', 'Job', job.id);
+  }
+}
+
+/**
+ * Validate a POST export body once, so `POST /export/jobs` and
+ * `POST /export/sync` accept exactly the same inputs and reject the same ones.
+ * The GET parser below applies the identical scope/filter/version rules.
+ */
+function parseExportBody(
+  body: unknown,
+  resolvedGraphId: string
+): CreateExportJobRequest {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ValidationError('Request body must be a JSON object', 'body');
+  }
+
+  const request = { ...(body as CreateExportJobRequest) };
+
+  // The resolved request scope is authoritative; a body graphId may only
+  // agree with it (see `reconcileGraphId`).
+  reconcileGraphId(request, resolvedGraphId);
+
+  const scope = parseScope(request.scope);
+  const includeProvenance = parseBoolean(request.includeProvenance, 'includeProvenance') ?? false;
+  const filters = request.filters;
+  const version = parseVersion(request.version);
+
+  if (scope === 'filtered' && !filters) {
+    throw new ValidationError('Filters are required when scope is "filtered"', 'filters');
+  }
+  if (scope === 'full' && filters) {
+    throw new ValidationError(
+      'Filters are only applied when scope is "filtered"',
+      'filters'
+    );
+  }
+  if (filters) {
+    validateFilters(filters);
+  }
+
+  return {
+    ...request,
+    graphId: resolvedGraphId,
+    scope,
+    filters,
+    includeProvenance,
+    version,
+  };
+}
+
+/**
  * Turn `GET /export`'s query string into the same request shape the POST routes
  * take, so the entity-count rule and the export service see one contract.
  *
@@ -579,11 +628,13 @@ function parseExportQuery(
 function parseVersion(value: unknown): number | undefined {
   if (value === undefined) return undefined;
 
+  // A JSON body may carry a number; a query string is digits only. `Number()`
+  // would otherwise accept `0x10`, `1e2`, `0b1` and `+1`.
   const numeric =
     typeof value === 'number'
       ? value
-      : typeof value === 'string' && value.trim() !== ''
-        ? Number(value.trim())
+      : typeof value === 'string' && /^\d+$/.test(value)
+        ? Number(value)
         : Number.NaN;
 
   if (!Number.isInteger(numeric) || numeric < 0) {
@@ -601,9 +652,10 @@ function parseScope(value: unknown): 'full' | 'filtered' {
 
 function parseBoolean(value: unknown, name: string): boolean | undefined {
   if (value === undefined) return undefined;
+  if (typeof value === 'boolean') return value;
   if (value === 'true') return true;
   if (value === 'false') return false;
-  throw new ValidationError(`${name} must be "true" or "false"`, name, value);
+  throw new ValidationError(`${name} must be true or false`, name, value);
 }
 
 /**

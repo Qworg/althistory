@@ -15,6 +15,7 @@ import { JobRepository, JobFilter, JobStats } from '../repositories/JobRepositor
 import { ExportService, ExportOptions } from './ExportService';
 import { GraphRepository } from '../repositories/GraphRepository';
 import { assertWebhookTarget } from '../utils/webhookTarget';
+import { NotFoundError } from '../utils/errors';
 import { createLogger, ILogger } from '../utils/logger';
 
 export interface JobServiceConfig {
@@ -130,21 +131,51 @@ export class JobService extends EventEmitter {
       this.logger.info('Recovered stalled jobs', { count: recovered });
     }
 
+    await this.recoverInterruptedExportJobs();
     await this.failOrphanedNonExportJobs();
 
     this.initialized = true;
   }
 
   /**
+   * Re-queue export jobs that were `processing` when a previous process died.
+   *
+   * `recoverStalledJobs` only reaches jobs older than the timeout, so a recent
+   * crash leaves a `processing` export that `getNextPending` will never return
+   * and `cleanupExpiredJobs` will never delete. Re-running an export is safe
+   * (it rewrites the same output file), so they go back to `pending` rather
+   * than being failed.
+   */
+  private async recoverInterruptedExportJobs(): Promise<void> {
+    const interrupted = await this.jobRepository.findAll({
+      type: 'export',
+      status: 'processing',
+    });
+
+    for (const job of interrupted) {
+      job.status = 'pending';
+      job.progress = 0;
+      job.progressMessage = 'Re-queued after a previous process stopped mid-export';
+      job.startedAt = undefined;
+      await this.jobRepository.update(job);
+      this.logger.warn('Re-queued an interrupted export job', { jobId: job.id });
+    }
+  }
+
+  /**
    * Fail import/ingest jobs left runnable by a previous process.
    *
-   * They live in the same store as export jobs but have no in-process owner
-   * after a restart: `ImportService` keeps its in-flight work in memory, and
-   * ingestion runs synchronously in its route. Without this, a job that was
-   * `pending` when the process died stays `pending` forever, because
-   * `recoverStalledJobs` only ages out `processing` rows. This runs once, at
-   * startup, from the only singleton that loads the store; per-request
-   * `ImportService` instances create their jobs afterwards and are unaffected.
+   * They live in the same store as export jobs but have no owner after a
+   * restart: `ImportService` keeps its in-flight work in memory, and ingestion
+   * runs synchronously in its route. Without this, such a row stays `pending`
+   * forever, because `recoverStalledJobs` only ages out `processing` rows.
+   *
+   * This relies on ordering: `container.initialize()` runs before `setupRoutes`
+   * builds the routers, so the sweep sees the disk state and any `ImportService`
+   * created later starts from it. `JobService` is not the only component with a
+   * `JobRepository` (the container and each import/ingest router build their
+   * own), so if that order changes, a sweep could fail a job another component
+   * is about to run.
    */
   private async failOrphanedNonExportJobs(): Promise<void> {
     const candidates = await this.jobRepository.findAll({
@@ -227,6 +258,20 @@ export class JobService extends EventEmitter {
       assertWebhookTarget(request.webhook);
     }
 
+    // A pinned version has to exist now, not when the worker picks the job up:
+    // otherwise the same request is a 404 on GET /export and on /export/sync
+    // but a 202 here, followed by a failed job.
+    if (request.version !== undefined) {
+      const versionRef = await this.graphRepository.getVersion(request.graphId, request.version);
+      if (!versionRef) {
+        throw new NotFoundError(
+          `Graph version ${request.version} not found`,
+          'GraphVersion',
+          `${request.graphId}@${request.version}`
+        );
+      }
+    }
+
     // Create job parameters
     const params: ExportJobParams = {
       type: 'export',
@@ -250,6 +295,7 @@ export class JobService extends EventEmitter {
       scope: request.scope,
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
+      version: request.version,
     });
 
     // Estimate time based on size (rough: 1MB/sec)
@@ -344,9 +390,7 @@ export class JobService extends EventEmitter {
     const availableSlots = this.maxConcurrentJobs - this.activeJobs.size;
     
     for (let i = 0; i < availableSlots; i++) {
-      // Only export jobs belong to this service. ImportService writes its own
-      // `type: 'import'` jobs into the same store and executes them itself, so
-      // These jobs live in the same store but are not this worker's to run.
+      // These jobs live in the same store but are not this worker's to run:
       // `ImportService` executes imports itself in-process, and ingestion is
       // synchronous in the ingest route. The type filter is what keeps a job
       // written by another service from being failed here with the wrong

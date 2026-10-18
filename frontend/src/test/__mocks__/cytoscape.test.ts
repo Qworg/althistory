@@ -60,6 +60,19 @@ describe('cytoscape mock contract', () => {
     expect(filtered.length).toBe(1)
   })
 
+  it('passes the index to filter() callbacks', () => {
+    const raw: MockElement[] = [{ data: { id: 'a' } }, { data: { id: 'b' } }]
+    const collection = createMockCollection(raw)
+
+    const indexes: number[] = []
+    collection.filter((_item: MockNode, index: number) => {
+      indexes.push(index)
+      return true
+    })
+
+    expect(indexes).toEqual([0, 1])
+  });
+
   it('does not hand filter() the raw backing objects', () => {
     const raw: MockElement[] = [{ data: { id: 'a' } }]
     const collection = createMockCollection(raw)

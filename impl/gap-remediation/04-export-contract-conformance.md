@@ -146,13 +146,56 @@ only; and `JobService.initialize` fails import/ingest jobs left runnable by a
 previous process, which the earlier "dead stubs" removal would otherwise have
 orphaned.
 
+## Review round 2
+
+A second adversarial pass over the review fixes found that three of the round-1
+claims were still broader than the code, plus consistency and authorisation
+gaps. All fixed here:
+
+- **`POST /export/jobs` accepted a version that does not exist** (202, then a
+  failed job) while `GET /api/export` and `POST /export/sync` answered 404 for
+  the same input. `createExportJob` now resolves the version before creating
+  the job.
+- **`exportGraph` measured the tree before resolving the version**, so a
+  missing pinned version surfaced as the store's plain `Error` (a 500) for any
+  caller that had not validated first. Resolution now happens before any read.
+- **The job path was tested only up to `job.parameters`** — deleting the
+  `version` pass-through into `exportToFile` failed nothing. A test now runs a
+  pinned job and asserts the version reaches the exporter.
+- **The three routes disagreed on the same input**: `scope=full` with filters
+  was a 400 on GET and silently ignored on both POSTs; `scope=filtered` without
+  filters was a 400 on GET and `/jobs` but a 200 on `/sync`; a string
+  `includeProvenance` was a 400 on GET and truthy on the POSTs. Both POSTs now
+  parse the body through one `parseExportBody`, mirroring the GET parser.
+- **Export job routes were not graph-scoped**: a key with `export` permission
+  but a restricted `allowedGraphs` list could list, fetch and delete another
+  graph's export jobs, and download its file. The list filters by
+  `canAccessGraph`, and get/delete/download answer 404 (not 403, which would
+  confirm the id) for a job outside the key's graphs.
+- **Events and arcs still lost `sourceRef` on import**, the same class as the
+  relationship fix; preserved and covered.
+- **A recent crash left an export `processing` forever**: `recoverStalledJobs`
+  only ages out old rows. Startup now re-queues `processing` exports to
+  `pending` (re-running an export is safe).
+- Webhook ranges extended (`192.0.0.0/24`, `198.18.0.0/15`, `240.0.0.0/4`,
+  `fec0::/10`, `64:ff9b:1::/48`, deprecated IPv4-compatible `::/96`); repeated
+  trailing dots (`localhost...`) stripped; `version` query strings must be
+  digits only (`0x10`, `1e2` rejected); the job-creation size estimate now
+  honours the pinned version; and `config.ts` / `config.test.ts` were restored
+  to their original CRLF endings, which had turned a 27-line change into a
+  583-line diff.
+
+The second round also corrected the round-1 note's claim that a rename test
+"proves a stored reference follows the new id": stored references carry no local
+id, so the test guards the *lookup by exported id*, not a rewriting step.
+
 ## Verification
 
 | Gate | Result |
 | --- | --- |
 | `npx tsc --noEmit` (timeline) | clean |
 | `npx eslint` (touched files) | clean |
-| `npm test` (timeline) | 88 files, 1716 tests passed |
+| `npm test` (timeline) | 88 files, 1740 tests passed |
 
 New tests:
 
@@ -165,10 +208,17 @@ New tests:
   describe and survive import → export with the imported ids.
 - `api/routes/export.test.ts` (new, request-level against the real container):
   raw document response, `202` + job above a lowered threshold, bracket-notation
-  and JSON filters, filtered-without-filters 400, contradicting `graphId` 400,
-  invalid scope / `includeProvenance` 400, `?version` pinning and its 400,
-  `POST /export/sync` refusal message, small graph still synchronous,
-  unauthenticated 401.
+  and JSON filters, filtered-without-filters 400 on both POSTs, contradicting
+  `graphId` 400, invalid scope / `includeProvenance` 400, `?version` pinning and
+  its 400, unknown version 404 on GET and `/jobs`, `POST /export/sync` refusal
+  message, small graph still synchronous, a restricted key unable to list, fetch
+  or delete another graph's job, unauthenticated 401.
+- `JobService.test.ts`: pinned version reaches `exportToFile`; a `processing`
+  export is re-queued at startup; orphan sweep filter pinned; an invalid stored
+  webhook is never POSTed; a redirect ends delivery after one attempt.
+- `webhookTarget.test.ts`: private/loopback/NAT64/IPv4-compatible ranges,
+  repeated trailing dots, and the false-positive cases (`172.15.0.1`,
+  `10.example.com`, `2001:db8::1`).
 
 ## Residual gaps and where they live
 
@@ -178,10 +228,15 @@ New tests:
   trip no longer depends on it. Tracked in
   [#32](https://github.com/Qworg/althistory/issues/32), which asks for a decision:
   delete the second representation or make it authoritative.
-- `estimateExportSize` still estimates from `graph.metadata` with per-type byte
-  weights (500/300/200/400). That is by design now: it is the secondary memory
-  guard for the synchronous path and the job-size estimate, while the
-  requirement-driven decision is the entity count. No issue filed.
+- `estimateExportSize` uses per-type byte weights (500/300/200/400). For an
+  unpinned export it reads them from `graph.metadata`; for a pinned version it
+  counts the pinned tree. That is by design now: it is the secondary memory
+  guard and the job-size estimate, while the requirement-driven decision is the
+  entity count. No issue filed.
+- An *unpinned* async export runs against the head at the time the worker picks
+  the job up, so the `202`'s `entityCount` (computed at request time) can differ
+  from the finished file. Recording the resolved head version in the job at
+  creation would make it deterministic; not done here.
 - `GET /api/export` accepts `version`, which was the last gap recorded here.
   Adding it removed the residual rather than deferring it.
 - **The async path still materialises the document**, so the 50 MB in-memory

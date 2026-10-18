@@ -130,7 +130,7 @@ describe('Configuration System', () => {
       expect(loadConfig().localExecution.exportAsyncEntityThreshold).toBe(250);
     });
 
-    it.each(['1e5', '10k', '2.5', '-1'])(
+    it.each(['1e5', '10k', '2.5', '0x10'])(
       'rejects %j instead of letting parseInt truncate it',
       (value) => {
         process.env.LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD = value;

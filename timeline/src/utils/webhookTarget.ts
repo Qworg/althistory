@@ -48,19 +48,25 @@ PRIVATE_ADDRESSES.addSubnet('100.64.0.0', 10, 'ipv4');
 PRIVATE_ADDRESSES.addSubnet('127.0.0.0', 8, 'ipv4');
 PRIVATE_ADDRESSES.addSubnet('169.254.0.0', 16, 'ipv4');
 PRIVATE_ADDRESSES.addSubnet('172.16.0.0', 12, 'ipv4');
+PRIVATE_ADDRESSES.addSubnet('192.0.0.0', 24, 'ipv4'); // IETF protocol assignments
 PRIVATE_ADDRESSES.addSubnet('192.168.0.0', 16, 'ipv4');
+PRIVATE_ADDRESSES.addSubnet('198.18.0.0', 15, 'ipv4'); // benchmarking
+PRIVATE_ADDRESSES.addSubnet('240.0.0.0', 4, 'ipv4'); // reserved
 PRIVATE_ADDRESSES.addSubnet('::', 128, 'ipv6');
 PRIVATE_ADDRESSES.addSubnet('::1', 128, 'ipv6');
+PRIVATE_ADDRESSES.addSubnet('::', 96, 'ipv6'); // IPv4-compatible (deprecated)
 PRIVATE_ADDRESSES.addSubnet('fc00::', 7, 'ipv6');
+PRIVATE_ADDRESSES.addSubnet('fec0::', 10, 'ipv6'); // deprecated site-local
 PRIVATE_ADDRESSES.addSubnet('fe80::', 10, 'ipv6');
 PRIVATE_ADDRESSES.addSubnet('64:ff9b::', 96, 'ipv6');
+PRIVATE_ADDRESSES.addSubnet('64:ff9b:1::', 48, 'ipv6'); // local-use NAT64
 
 /** Lowercase, strip the IPv6 brackets and any trailing root-label dot. */
 function normalizeHostname(hostname: string): string {
   return hostname
     .toLowerCase()
     .replace(/^\[|\]$/g, '')
-    .replace(/\.$/, '');
+    .replace(/\.+$/, '');
 }
 
 function isPrivateHostname(hostname: string): boolean {

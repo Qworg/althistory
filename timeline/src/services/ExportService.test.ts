@@ -307,6 +307,7 @@ describe('ExportService', () => {
   describe('estimateExportSize for a pinned version', () => {
     it('uses the pinned tree, not the head metadata', async () => {
       mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.getVersion.mockResolvedValue({ version: 0 });
       mockGraphRepository.checkout.mockResolvedValue({
         events: { e1: { id: 'e1' }, e2: { id: 'e2' } },
         arcs: {},
@@ -915,6 +916,25 @@ describe('ExportService', () => {
           version: 99,
         })
       ).rejects.toMatchObject({ name: 'NotFoundError' });
+    });
+
+    it('resolves the version before reading any data', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.getVersion.mockResolvedValue(null);
+      mockGraphRepository.checkout.mockRejectedValue(new Error('Version 99 not found for graph'));
+
+      await expect(
+        exportService.exportGraph({
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          version: 99,
+        })
+      ).rejects.toMatchObject({ name: 'NotFoundError' });
+
+      // The estimate used to run first and reach the store's plain Error,
+      // which surfaced as a 500.
+      expect(mockGraphRepository.checkout).not.toHaveBeenCalled();
     });
 
     it('reports a missing pinned version from countEntities too', async () => {

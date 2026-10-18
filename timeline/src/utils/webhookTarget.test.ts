@@ -50,7 +50,14 @@ describe('assertWebhookTarget', () => {
     'http://[fe80::1]/hook',
     'http://[::ffff:127.0.0.1]/hook',
     'http://localhost./hook',
+    'http://localhost.../hook',
     'http://[64:ff9b::a9fe:a9fe]/hook',
+    'http://[64:ff9b:1::1]/hook',
+    'http://192.0.0.1/hook',
+    'http://198.18.0.1/hook',
+    'http://240.0.0.1/hook',
+    'http://[fec0::1]/hook',
+    'http://[::127.0.0.1]/hook',
   ])('rejects the private or loopback destination %s', (url) => {
     expect(() => assertWebhookTarget(url)).toThrow('private or loopback');
   });
@@ -62,9 +69,12 @@ describe('assertWebhookTarget', () => {
   });
 
   it('matches address ranges rather than string prefixes', () => {
-    // `::1:2` is 0:0:0:0:0:0:1:2, which is not the loopback address, so a
-    // prefix match on "::1" would reject it wrongly.
-    expect(assertWebhookTarget('http://[::1:2]/hook')).toBe('http://[::1:2]/hook');
+    // A documentation-range address is a valid literal target; it only looks
+    // unusual, so nothing about the prefix rules may reject it.
+    expect(assertWebhookTarget('http://[2001:db8::1]/hook')).toBe('http://[2001:db8::1]/hook');
+    // `::1:2` is the deprecated IPv4-compatible form of 0.0.1.2, so it is
+    // rejected for being in 0.0.0.0/8, not for starting with "::1".
+    expect(() => assertWebhookTarget('http://[::1:2]/hook')).toThrow('private or loopback');
   });
 
   it('does not mistake a public address that merely starts like a private one', () => {

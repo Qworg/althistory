@@ -28,6 +28,7 @@ describe('Export routes (request-level)', () => {
   let container: Container;
   let testDataDir: string;
   let exportKey: string;
+  let restrictedKey: string;
   let smallGraph: IGraph;
   let largeGraph: IGraph;
   let versionedGraph: IGraph;
@@ -56,6 +57,7 @@ describe('Export routes (request-level)', () => {
       permissions: ['read:graphs', 'write:graphs', 'export'],
     });
     exportKey = keyResponse.key;
+
 
     smallGraph = await container.graphService.createGraph({ name: 'Export Route Small' });
     await container.graphRepository.commitChanges(
@@ -91,6 +93,15 @@ describe('Export routes (request-level)', () => {
       'create',
       'seed small graph'
     );
+
+    // Same permissions, but scoped to one graph: used to prove a key cannot see
+    // another graph's export jobs.
+    const restrictedResponse = await container.authService.createApiKey({
+      name: 'Export Routes Restricted Key',
+      permissions: ['read:graphs', 'export'],
+      allowedGraphs: [smallGraph.id],
+    });
+    restrictedKey = restrictedResponse.key;
 
     // 2 events + 1 arc + 1 relationship = 4 entities, above the threshold of 3.
     largeGraph = await container.graphService.createGraph({ name: 'Export Route Large' });
@@ -508,7 +519,72 @@ describe('Export routes (request-level)', () => {
     });
   });
 
+  describe('job access scoping', () => {
+    it('hides, and refuses, another graph\'s export jobs', async () => {
+      const job = await container.jobService.createExportJob({
+        graphId: largeGraph.id,
+        scope: 'full',
+      });
+
+      const list = await request(app)
+        .get('/api/export/jobs')
+        .set('X-API-Key', restrictedKey)
+        .expect(200);
+      expect(list.body.data.map((entry: { id: string }) => entry.id)).not.toContain(job.jobId);
+
+      await request(app)
+        .get(`/api/export/jobs/${job.jobId}`)
+        .set('X-API-Key', restrictedKey)
+        .expect(404);
+
+      await request(app)
+        .delete(`/api/export/jobs/${job.jobId}`)
+        .set('X-API-Key', restrictedKey)
+        .expect(404);
+
+      // The unrestricted key still sees its job.
+      const ownList = await request(app)
+        .get('/api/export/jobs')
+        .set('X-API-Key', exportKey)
+        .expect(200);
+      expect(ownList.body.data.map((entry: { id: string }) => entry.id)).toContain(job.jobId);
+    });
+  });
+
   describe('POST /api/export/jobs', () => {
+    it('rejects a version that does not exist', async () => {
+      const response = await request(app)
+        .post('/api/export/jobs')
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', smallGraph.id)
+        .send({ scope: 'full', version: 99 })
+        .expect(404);
+
+      expect(response.body.error.message).toContain('Graph version 99 not found');
+    });
+
+    it('rejects filters with scope "full"', async () => {
+      const response = await request(app)
+        .post('/api/export/jobs')
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', smallGraph.id)
+        .send({ scope: 'full', filters: { actors: ['Napoleon'] } })
+        .expect(400);
+
+      expect(response.body.error.message).toContain('only applied when scope is');
+    });
+
+    it('rejects a non-boolean includeProvenance', async () => {
+      const response = await request(app)
+        .post('/api/export/jobs')
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', smallGraph.id)
+        .send({ scope: 'full', includeProvenance: 'yes' })
+        .expect(400);
+
+      expect(response.body.error.message).toContain('includeProvenance');
+    });
+
     it('carries a body version into the job', async () => {
       const response = await request(app)
         .post('/api/export/jobs')
@@ -556,6 +632,17 @@ describe('Export routes (request-level)', () => {
       expect(response.body.error.message).toContain('4 entities');
       expect(response.body.error.message).toContain('POST /export/jobs');
       expect(response.body.error.message).toContain('GET /export');
+    });
+
+    it('requires filters when scope is "filtered"', async () => {
+      const response = await request(app)
+        .post('/api/export/sync')
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', smallGraph.id)
+        .send({ scope: 'filtered' })
+        .expect(400);
+
+      expect(response.body.error.message).toContain('Filters are required');
     });
 
     it('pins a body version to that tree', async () => {

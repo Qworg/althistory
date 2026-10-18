@@ -194,24 +194,38 @@ export class ExportService {
       throw new Error(`Graph not found: ${options.graphId}`);
     }
 
-    // Check estimated size before proceeding with in-memory export
-    const estimatedSize = await this.estimateExportSize(options);
+    // Resolve the version before reading anything: a pinned version that does
+    // not exist is a client error, not whatever the version store throws, and
+    // `graphVersion` must name the version the data actually came from.
+    // `graph.version` is a metadata counter that also advances on metadata-only
+    // updates (see `GraphRepository`), so it is not the numbering `?version=`
+    // accepts.
+    const versionRef = await this.resolveVersionRef(options);
+
+    let data: ResolvedGraphData;
+    let estimatedSize: number;
+
+    if (options.version !== undefined) {
+      // A pinned tree has to be read before it can be measured; reuse that
+      // read rather than checking the same version out again below.
+      data = await this.graphRepository.checkout(
+        options.graphId,
+        versionRef?.version ?? options.version
+      );
+      estimatedSize = this.estimateExportSizeFromData(data);
+    } else {
+      // The latest-version estimate comes from `graph.metadata`, so the guard
+      // still runs before the tree is loaded into memory.
+      estimatedSize = await this.estimateExportSize(options);
+      data = await this.graphRepository.checkout(options.graphId, versionRef?.version);
+    }
+
     if (estimatedSize > this.maxInMemorySize) {
       throw new Error(
         `Export too large for in-memory operation (estimated ${Math.round(estimatedSize / 1024 / 1024)}MB, max ${Math.round(this.maxInMemorySize / 1024 / 1024)}MB). ` +
         `Use exportToFile() for large exports or create an async export job.`
       );
     }
-
-    // Resolve the version before reading data: a pinned version that does not
-    // exist is a client error, and `graphVersion` must name the version the
-    // data actually came from. `graph.version` is a metadata counter that also
-    // advances on metadata-only updates (see `GraphRepository`), so it is not
-    // the version number `?version=` accepts.
-    const versionRef = await this.resolveVersionRef(options);
-
-    // Get graph data
-    const data = await this.graphRepository.checkout(options.graphId, options.version);
 
     // Apply filters if specified
     const filteredData = options.scope === 'filtered' && options.filters
@@ -371,15 +385,12 @@ export class ExportService {
 
     // A pinned version is estimated from that tree: the metadata counts
     // describe the head, and using them would reject a small historical export
-    // because the head happens to be large.
+    // because the head happens to be large. Resolving first turns a missing
+    // version into the same NotFoundError every other read path produces.
     if (options.version !== undefined) {
+      await this.resolveVersionRef(options);
       const data = await this.graphRepository.checkout(options.graphId, options.version);
-      return this.estimateFromCounts(
-        Object.keys(data.events).length,
-        Object.keys(data.arcs).length,
-        Object.keys(data.relationships).length,
-        Object.keys(data.pressures).length
-      );
+      return this.estimateExportSizeFromData(data);
     }
 
     const metadata = graph.metadata;
@@ -388,6 +399,16 @@ export class ExportService {
       metadata.arcCount,
       metadata.relationshipCount,
       metadata.pressureCount
+    );
+  }
+
+  /** Estimate a tree that has already been resolved. */
+  private estimateExportSizeFromData(data: ResolvedGraphData): number {
+    return this.estimateFromCounts(
+      Object.keys(data.events).length,
+      Object.keys(data.arcs).length,
+      Object.keys(data.relationships).length,
+      Object.keys(data.pressures).length
     );
   }
 
