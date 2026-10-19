@@ -542,6 +542,12 @@ describe('Export routes (request-level)', () => {
         .set('X-API-Key', restrictedKey)
         .expect(404);
 
+      // The download route is the one that actually returns data.
+      await request(app)
+        .get(`/api/export/jobs/${job.jobId}/download`)
+        .set('X-API-Key', restrictedKey)
+        .expect(404);
+
       // The unrestricted key still sees its job.
       const ownList = await request(app)
         .get('/api/export/jobs')
@@ -549,10 +555,134 @@ describe('Export routes (request-level)', () => {
         .expect(200);
       expect(ownList.body.data.map((entry: { id: string }) => entry.id)).toContain(job.jobId);
     });
+
+    it('still lets a restricted key see its own graph\'s jobs', async () => {
+      const own = await container.jobService.createExportJob({
+        graphId: smallGraph.id,
+        scope: 'full',
+      });
+
+      const list = await request(app)
+        .get('/api/export/jobs')
+        .set('X-API-Key', restrictedKey)
+        .expect(200);
+      expect(list.body.data.map((entry: { id: string }) => entry.id)).toContain(own.jobId);
+
+      await request(app)
+        .get(`/api/export/jobs/${own.jobId}`)
+        .set('X-API-Key', restrictedKey)
+        .expect(200);
+    });
+
+    it('does not expose a non-export job through the export routes', async () => {
+      // Import rows share the store; this router must not answer for them.
+      const importJob = await container.jobRepository.create({
+        type: 'import',
+        parameters: {
+          type: 'import',
+          graphId: smallGraph.id,
+          mode: 'merge',
+          conflictResolution: 'skip',
+          dataChecksum: 'abc',
+        },
+        status: 'pending',
+      });
+
+      await request(app)
+        .get(`/api/export/jobs/${importJob.id}`)
+        .set('X-API-Key', exportKey)
+        .expect(404);
+    });
+
+    it('counts only the calling key\'s jobs in /stats', async () => {
+      await container.jobService.createExportJob({ graphId: largeGraph.id, scope: 'full' });
+
+      const restricted = await request(app)
+        .get('/api/export/stats')
+        .set('X-API-Key', restrictedKey)
+        .expect(200);
+      const unrestricted = await request(app)
+        .get('/api/export/stats')
+        .set('X-API-Key', exportKey)
+        .expect(200);
+
+      expect(restricted.body.data.export.total).toBeLessThan(
+        unrestricted.body.data.export.total
+      );
+    });
+  });
+
+  describe('the three export routes agree on the same input', () => {
+    const send = async (
+      route: 'get' | 'sync' | 'jobs',
+      payload: Record<string, unknown> | undefined,
+      query: Record<string, unknown> = {}
+    ) => {
+      const headers = { 'X-API-Key': exportKey, 'X-Graph-Id': smallGraph.id };
+      if (route === 'get') {
+        // Send the same JSON document the POSTs receive. Passing the object
+        // directly would let qs re-serialize it field by field, which turns
+        // `actors: [1]` into the string "1" and would compare different inputs.
+        const asQuery = { ...payload, ...query };
+        if (asQuery.filters !== undefined && typeof asQuery.filters === 'object') {
+          asQuery.filters = JSON.stringify(asQuery.filters);
+        }
+        return request(app).get('/api/export').query(asQuery).set(headers);
+      }
+      const path = route === 'sync' ? '/api/export/sync' : '/api/export/jobs';
+      const req = request(app).post(path).set(headers);
+      return payload === undefined ? req.send({}) : req.send(payload);
+    };
+
+    it.each([
+      // `scope: 'full'` with filters is a client error everywhere.
+      ['full with filters', { scope: 'full', filters: { actors: ['Napoleon'] } }, 400],
+      // `filtered` without filters is a client error everywhere.
+      ['filtered without filters', { scope: 'filtered' }, 400],
+      // A non-object `filters` must not be accepted as "no filter".
+      ['non-object filters', { scope: 'filtered', filters: 'x' }, 400],
+      // A non-string list entry must be rejected, not silently dropped.
+      ['non-string actor', { scope: 'filtered', filters: { actors: [1] } }, 400],
+      // includeProvenance must be a boolean or 'true'/'false'.
+      ['bad includeProvenance', { scope: 'full', includeProvenance: 'yes' }, 400],
+      // version must be a non-negative integer.
+      ['bad version', { scope: 'full', version: 'latest' }, 400],
+    ])('rejects %s the same way on GET, POST /sync and POST /jobs', async (_label, payload, status) => {
+      for (const route of ['get', 'sync', 'jobs'] as const) {
+        const response = await send(route, payload);
+        expect({ route, status: response.status }).toEqual({ route, status });
+      }
+    });
+
+    it.each(['sync', 'jobs'] as const)(
+      'rejects a body with no scope on POST /%s',
+      async (route) => {
+        const response = await send(route, {});
+        expect(response.status).toBe(400);
+        expect(response.body.error.message).toContain('Scope must be');
+      }
+    );
+
+    it.each(['sync', 'jobs'] as const)(
+      'normalises a comma-separated filter list on POST /%s',
+      async (route) => {
+        // Same input, same normalisation as the query-string parser.
+        const response = await send(route, {
+          scope: 'filtered',
+          filters: { actors: 'Napoleon' },
+        });
+        expect(response.status).toBeLessThan(300);
+      }
+    );
   });
 
   describe('POST /api/export/jobs', () => {
-    it('rejects a version that does not exist', async () => {
+    it('rejects a version that does not exist without creating a job', async () => {
+      const before = await request(app)
+        .get('/api/export/jobs')
+        .set('X-API-Key', exportKey)
+        .expect(200);
+
       const response = await request(app)
         .post('/api/export/jobs')
         .set('X-API-Key', exportKey)
@@ -561,6 +691,14 @@ describe('Export routes (request-level)', () => {
         .expect(404);
 
       expect(response.body.error.message).toContain('Graph version 99 not found');
+
+      // The pre-check must run before `create`: a 404 that still left a pending
+      // job behind would be a leak, not a rejection.
+      const after = await request(app)
+        .get('/api/export/jobs')
+        .set('X-API-Key', exportKey)
+        .expect(200);
+      expect(after.body.pagination.total).toBe(before.body.pagination.total);
     });
 
     it('rejects filters with scope "full"', async () => {

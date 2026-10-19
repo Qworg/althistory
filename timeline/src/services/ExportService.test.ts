@@ -937,6 +937,26 @@ describe('ExportService', () => {
       expect(mockGraphRepository.checkout).not.toHaveBeenCalled();
     });
 
+    it('checks out a pinned tree exactly once and resolves first', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.getVersion.mockResolvedValue({ version: 2 });
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+
+      await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        version: 2,
+      });
+
+      // Measuring a pinned tree must reuse the read it already did; the
+      // estimate used to trigger a second checkout of the same version.
+      expect(mockGraphRepository.checkout).toHaveBeenCalledTimes(1);
+      expect(mockGraphRepository.getVersion.mock.invocationCallOrder[0]).toBeLessThan(
+        mockGraphRepository.checkout.mock.invocationCallOrder[0]
+      );
+    });
+
     it('reports a missing pinned version from countEntities too', async () => {
       mockGraphRepository.findById.mockResolvedValue(createMockGraph());
       mockGraphRepository.getVersion.mockResolvedValue(null);

@@ -189,13 +189,56 @@ The second round also corrected the round-1 note's claim that a rename test
 "proves a stored reference follows the new id": stored references carry no local
 id, so the test guards the *lookup by exported id*, not a rewriting step.
 
+## Review round 3
+
+The third pass found that round 2's headline claim — one parser so identical
+input gives identical status codes on all three routes — was still false for
+`filters`, and that two other claims were broader than the code.
+
+- **POST bodies skipped filter normalisation.** `parseExportBody` only ran
+  `validateFilters`, which checks array-typed keys and nothing else, so
+  `{"scope":"filtered","filters":"x"}` was a **200 full export** while the same
+  input on the query string was a 400 — the "acknowledged filter, exported
+  everything" bug reappearing through a type confusion. Both paths now share
+  `normalizeFilters` → `asExportFilters`, so non-objects, non-string list
+  entries and unknown keys are handled identically, and a table-driven test
+  sends six malformed payloads to all three routes and requires the same status.
+- **A POST body without `scope` was accepted** by the new parser (it inherited
+  the GET default), where round 1 returned 400 and the design makes `scope`
+  required in a body. Now a 400 on both POSTs; the GET default stands.
+- **Job scoping was still porous**: a key restricted to graph A could read or
+  delete an *import* or *ingest* row through the export routes (no `job.type`
+  check), `/stats` counted every graph's jobs and every job type, and the access
+  helper failed *open* when no key was attached. Non-export jobs now 404, the
+  helper fails closed, and `/stats` is computed from the jobs the caller may
+  see.
+- **Startup recovery ran after the stall sweep.** `recoverStalledJobs` fails any
+  `processing` row older than the timeout, so an export interrupted by a crash
+  and a restart 31 minutes later was failed instead of re-queued. Re-queueing
+  now runs first. The docstring also stopped claiming a re-run "rewrites the
+  same output file" — every run writes a new timestamped file.
+- **"Checked out once" was true only inside `exportGraph`.** A pinned
+  `POST /export/sync` still reads the tree three times (count, estimate,
+  export). The claim is now stated for what it is, with a test pinning the
+  single checkout and the resolve-before-read order inside `exportGraph`.
+- **`sourceRef` was unvalidated on import.** A number or object was stored under
+  a string-typed field and re-exported. Non-strings are now warned about and
+  dropped.
+- Several new tests were mutation-insensitive: the orphan sweep's `findAll` mock
+  ignored its filter, so narrowing the sweep would not have failed; the `/jobs`
+  unknown-version route test passed even with the pre-create check removed (the
+  estimate threw the same error, after a job had already been written) — it now
+  asserts the job count is unchanged, and a mutation run confirms it fails. The
+  job-scoping test gained a download case and a positive case for the restricted
+  key.
+
 ## Verification
 
 | Gate | Result |
 | --- | --- |
 | `npx tsc --noEmit` (timeline) | clean |
 | `npx eslint` (touched files) | clean |
-| `npm test` (timeline) | 88 files, 1740 tests passed |
+| `npm test` (timeline) | 88 files, 1754 tests passed |
 
 New tests:
 
@@ -237,6 +280,14 @@ New tests:
   the job up, so the `202`'s `entityCount` (computed at request time) can differ
   from the finished file. Recording the resolved head version in the job at
   creation would make it deterministic; not done here.
+- A re-queued export has no attempt counter. Re-running is safe for a normal
+  export, but a graph that reliably exhausts memory would re-queue on every
+  restart. Failing after N attempts needs a counter in the job parameters.
+- An export of a graph with **no versions** is labelled `graphVersion: 0`
+  (an empty tree), and `?version=0` on that graph is a 404 because no version 0
+  exists. The three routes agree with each other, but the label names a version
+  that is not there. Pre-existing; fixing it means deciding what an empty graph
+  exports as.
 - `GET /api/export` accepts `version`, which was the last gap recorded here.
   Adding it removed the residual rather than deferring it.
 - **The async path still materialises the document**, so the 50 MB in-memory

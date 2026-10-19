@@ -87,7 +87,8 @@ export type ImportWarningCode =
   | 'MISSING_PROVENANCE'
   | 'LOW_CONFIDENCE'
   | 'DEPRECATED_FIELD'
-  | 'EMPTY_COLLECTION';
+  | 'EMPTY_COLLECTION'
+  | 'INVALID_VALUE';
 
 export interface ImportSummary {
   eventCount: number;
@@ -856,6 +857,16 @@ export class ImportService {
           });
         }
       }
+
+      // `sourceRef` is a string in the format; a number or object would be
+      // stored under that string-typed field and re-exported unchanged.
+      if (e.sourceRef !== undefined && typeof e.sourceRef !== 'string') {
+        warnings.push({
+          path: `${path}.sourceRef`,
+          message: 'sourceRef must be a string and was dropped',
+          code: 'INVALID_VALUE',
+        });
+      }
     });
   }
 
@@ -864,7 +875,7 @@ export class ImportService {
   private validateArcs(
     arcs: unknown,
     errors: ImportError[],
-    _warnings: ImportWarning[]
+    warnings: ImportWarning[]
   ): void {
     if (!Array.isArray(arcs)) {
       errors.push({
@@ -995,6 +1006,14 @@ export class ImportService {
             code: 'TEMPORAL_VIOLATION',
           });
         }
+      }
+
+      if (a.sourceRef !== undefined && typeof a.sourceRef !== 'string') {
+        warnings.push({
+          path: `${path}.sourceRef`,
+          message: 'sourceRef must be a string and was dropped',
+          code: 'INVALID_VALUE',
+        });
       }
 
       // Validate level
@@ -2567,8 +2586,11 @@ export class ImportService {
           target: data.target,
           timestamp: data.timestamp,
           // Provenance reference, exported alongside the entity (see
-          // ExportService.convertToExportFormat).
-          ...(data.sourceRef ? { sourceRef: data.sourceRef } : {}),
+          // ExportService.convertToExportFormat). Only a string survives;
+          // `validateEvents` warns about anything else.
+          ...(typeof data.sourceRef === 'string' && data.sourceRef !== ''
+            ? { sourceRef: data.sourceRef }
+            : {}),
           metadata: data.metadata,
         },
       });
@@ -2586,7 +2608,9 @@ export class ImportService {
           end_time: data.end_time,
           level: data.level,
           parent_arc_id: data.parent_arc_id,
-          ...(data.sourceRef ? { sourceRef: data.sourceRef } : {}),
+          ...(typeof data.sourceRef === 'string' && data.sourceRef !== ''
+            ? { sourceRef: data.sourceRef }
+            : {}),
           metadata: data.metadata,
         },
       });
@@ -2609,7 +2633,9 @@ export class ImportService {
           // recorded as a local event id that does not exist.
           ...(data.causeGraphId ? { causeGraphId: data.causeGraphId } : {}),
           ...(data.effectGraphId ? { effectGraphId: data.effectGraphId } : {}),
-          ...(data.sourceRef ? { sourceRef: data.sourceRef } : {}),
+          ...(typeof data.sourceRef === 'string' && data.sourceRef !== ''
+            ? { sourceRef: data.sourceRef }
+            : {}),
           // Kept so an imported cross-graph reference survives to the next
           // export (see `storedCrossRefsFor` above). Absent otherwise.
           ...(data.metadata ? { metadata: data.metadata } : {}),

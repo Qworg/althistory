@@ -414,22 +414,31 @@ exportRoutes.post('/validate', ...exportAuth, async (req: RequestWithContainer, 
 
 /**
  * GET /export/stats - Get export job statistics
+ *
+ * Counted from the jobs this key may see, not from the store-wide totals: a
+ * key restricted to one graph must not be able to infer how much work exists on
+ * the others, and the store-wide figures also include import and ingest rows.
  */
 exportRoutes.get('/stats', ...exportAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const service = req.container.jobService;
 
-    const stats = await service.getStats();
+    const jobs = (await service.getJobs({ type: 'export' })).filter((job) =>
+      canAccessJobGraph(req, job)
+    );
+
+    const countBy = (status: string): number =>
+      jobs.filter((job) => job.status === status).length;
 
     res.json({
       success: true,
       data: {
         export: {
-          total: stats.byType.export,
-          pending: stats.byStatus.pending,
-          processing: stats.byStatus.processing,
-          completed: stats.byStatus.completed,
-          failed: stats.byStatus.failed,
+          total: jobs.length,
+          pending: countBy('pending'),
+          processing: countBy('processing'),
+          completed: countBy('completed'),
+          failed: countBy('failed'),
         },
       },
       requestId: req.requestId,
@@ -503,19 +512,22 @@ function validateFilters(filters: ExportFilters): void {
 }
 
 /**
- * Whether the calling key may see a job's graph.
+ * Whether the calling key may see a job.
  *
  * A key with `export` permission but a restricted `allowedGraphs` list must not
- * be able to list, fetch, download or delete another graph's export. Jobs with
- * no graph parameter (ingest) are not graph-scoped and stay visible.
+ * be able to list, fetch, download or delete another graph's export. Only
+ * export jobs are visible here at all: import and ingest rows live in the same
+ * store but are not this router's resource, so answering for them would leak
+ * another subsystem's results. The check fails closed when no key is attached —
+ * `exportAuth` makes that unreachable, but a future auth change must not turn
+ * these routes into an anonymous listing.
  */
 function canAccessJobGraph(req: RequestWithContainer, job: AsyncJob): boolean {
-  // Ingest jobs carry no graph; the `in` check narrows the job-parameters union
-  // to the two members that do.
-  if (!('graphId' in job.parameters)) return true;
+  if (job.type !== 'export') return false;
+  if (!('graphId' in job.parameters)) return false;
 
   const apiKey = req.apiKey;
-  return apiKey === undefined || apiKey.canAccessGraph(job.parameters.graphId);
+  return apiKey !== undefined && apiKey.canAccessGraph(job.parameters.graphId);
 }
 
 /**
@@ -531,7 +543,10 @@ function assertJobGraphAccess(req: RequestWithContainer, job: AsyncJob): void {
 /**
  * Validate a POST export body once, so `POST /export/jobs` and
  * `POST /export/sync` accept exactly the same inputs and reject the same ones.
- * The GET parser below applies the identical scope/filter/version rules.
+ *
+ * The GET parser below applies the identical scope/filter/version rules, and
+ * both share `normalizeFilters`, so a value that is a 400 as a query parameter
+ * is a 400 as a body field too.
  */
 function parseExportBody(
   body: unknown,
@@ -547,9 +562,17 @@ function parseExportBody(
   // agree with it (see `reconcileGraphId`).
   reconcileGraphId(request, resolvedGraphId);
 
+  // The design makes `scope` required in a POST body (only the GET query has a
+  // default), so an omitted scope is a client error rather than an implicit
+  // full export.
+  if (request.scope === undefined) {
+    throw new ValidationError('Scope must be "full" or "filtered"', 'scope');
+  }
+
   const scope = parseScope(request.scope);
   const includeProvenance = parseBoolean(request.includeProvenance, 'includeProvenance') ?? false;
-  const filters = request.filters;
+  const filters =
+    request.filters === undefined ? undefined : normalizeFilters(request.filters);
   const version = parseVersion(request.version);
 
   if (scope === 'filtered' && !filters) {
@@ -573,6 +596,39 @@ function parseExportBody(
     includeProvenance,
     version,
   };
+}
+
+/**
+ * Normalise a filters value from either a query string or a JSON body.
+ *
+ * Accepting a non-object here was the "acknowledged filter, exported
+ * everything" bug in a new form: `{"scope":"filtered","filters":"x"}` passed a
+ * validation that only checked array-typed keys, and `applyFilters` then
+ * matched every entity.
+ */
+function normalizeFilters(value: unknown): ExportFilters {
+  if (typeof value === 'string') {
+    // Query-string form: a JSON-encoded object.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new ValidationError(
+        'filters must be a JSON object or bracket-notation query parameters',
+        'filters'
+      );
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new ValidationError('filters must be a JSON object', 'filters');
+    }
+    return asExportFilters(parsed as Record<string, unknown>);
+  }
+
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return asExportFilters(value as Record<string, unknown>);
+  }
+
+  throw new ValidationError('filters must be an object', 'filters');
 }
 
 /**
@@ -600,7 +656,7 @@ function parseExportQuery(
 
   const scope = parseScope(query.scope);
   const includeProvenance = parseBoolean(query.includeProvenance, 'includeProvenance') ?? false;
-  const filters = parseFilters(query.filters);
+  const filters = query.filters === undefined ? undefined : normalizeFilters(query.filters);
   const version = parseVersion(query.version);
 
   if (scope === 'filtered' && !filters) {
@@ -659,37 +715,11 @@ function parseBoolean(value: unknown, name: string): boolean | undefined {
 }
 
 /**
- * Accept both query encodings the design implies: bracket notation
+ * Accept both encodings the design implies: bracket notation
  * (`filters[actors]=a,b`, parsed by Express's query parser) and a JSON-encoded
  * `filters={"actors":["a"]}` string. List values may be a repeat/array or a
- * comma-separated string.
+ * comma-separated string. Shared by the query and body parsers.
  */
-function parseFilters(value: unknown): ExportFilters | undefined {
-  if (value === undefined) return undefined;
-
-  if (typeof value === 'string') {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(value);
-    } catch {
-      throw new ValidationError(
-        'filters must be a JSON object or bracket-notation query parameters',
-        'filters'
-      );
-    }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new ValidationError('filters must be a JSON object', 'filters');
-    }
-    return asExportFilters(parsed as Record<string, unknown>);
-  }
-
-  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-    return asExportFilters(value as Record<string, unknown>);
-  }
-
-  throw new ValidationError('filters must be an object', 'filters');
-}
-
 function asExportFilters(raw: Record<string, unknown>): ExportFilters {
   const actors = toStringList(raw.actors, 'actors');
   const targets = toStringList(raw.targets, 'targets');

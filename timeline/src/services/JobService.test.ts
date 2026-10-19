@@ -167,25 +167,38 @@ describe('JobService', () => {
     it.each(['pending', 'processing'] as const)(
       'fails a %s import job that no in-process owner will adopt',
       async (status) => {
-      const orphan = createMockJob({
-        type: 'import',
-        status,
-        parameters: {
+        const orphan = createMockJob({
           type: 'import',
-          graphId: 'graph_123',
-          mode: 'merge',
-          conflictResolution: 'skip',
-          dataChecksum: 'abc123',
-        },
-      });
-      mockJobRepository.findAll.mockResolvedValue([orphan]);
+          status,
+          parameters: {
+            type: 'import',
+            graphId: 'graph_123',
+            mode: 'merge',
+            conflictResolution: 'skip',
+            dataChecksum: 'abc123',
+          },
+        });
 
-      await jobService.initialize();
+        // Answer each query the way a repository would, so the test fails if the
+        // sweep narrows its filter: the interrupted-export recovery asks for
+        // `{type:'export', status:'processing'}` and the sweep for a status
+        // array. A `processing` import must be returned by the sweep.
+        mockJobRepository.findAll.mockImplementation(
+          async (filter?: { type?: string; status?: unknown }) => {
+            if (filter?.type === 'export') return [];
+            if (Array.isArray(filter?.status)) {
+              return (filter.status as string[]).includes(status) ? [orphan] : [];
+            }
+            return [];
+          }
+        );
 
-      expect(mockJobRepository.update).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'job_123', status: 'failed' })
-      );
-      expect(orphan.error).toContain('previous process');
+        await jobService.initialize();
+
+        expect(mockJobRepository.update).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'job_123', status: 'failed' })
+        );
+        expect(orphan.error).toContain(`left ${status}`);
       }
     );
 

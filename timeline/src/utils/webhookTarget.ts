@@ -12,10 +12,20 @@
  *     endpoint
  *
  * Addresses are matched with `net.BlockList` over the parsed IP, so the ranges
- * are real subnets rather than string prefixes: `::`, `::1`, `fc00::/7`,
- * `fe80::/10`, IPv4-mapped IPv6 (`::ffff:0:0/96`) and NAT64 (`64:ff9b::/96`)
- * are covered, and a hostname such as `10.example.com` is not mistaken for an
- * address.
+ * are real subnets rather than string prefixes, and a hostname such as
+ * `10.example.com` is not mistaken for an address. The list is the IANA
+ * special-purpose blocks that matter for outbound requests: `0.0.0.0/8`,
+ * `10/8`, `100.64/10`, `127/8`, `169.254/16`, `172.16/12`, `192.0.0/24`,
+ * `192.168/16`, `198.18/15`, `240/4`, plus IPv6 `::/128`, `::1/128`,
+ * deprecated IPv4-compatible `::/96`, `fc00::/7`, deprecated site-local
+ * `fec0::/10`, `fe80::/10`, NAT64 `64:ff9b::/96` and local-use NAT64
+ * `64:ff9b:1::/48`. IPv4-mapped IPv6 is rejected wholesale (see the subnet note
+ * below).
+ *
+ * Not covered: multicast (`224/4`, `ff00::/8`) and transition ranges that embed
+ * an IPv4 address (`2002::/16`, `2001::/32`). None of those is a TCP POST
+ * destination reachable on a default-configured host, and an exhaustive list
+ * would still not replace a network-level egress policy.
  *
  * Only literal addresses are checked. A hostname that resolves to a private
  * address is not caught here (that needs a resolver, and DNS can change between

@@ -125,13 +125,20 @@ export class JobService extends EventEmitter {
     await this.exportService.initialize();
     await this.graphRepository.initialize();
 
-    // Recover any stalled jobs from previous runs
+    // Re-queue interrupted exports FIRST. At startup no process owns any
+    // `processing` row, and `recoverStalledJobs` fails every row older than the
+    // timeout -- which includes any export interrupted by a crash when the
+    // restart took longer than that. Doing it in this order means a long
+    // downtime re-queues the export instead of failing it.
+    await this.recoverInterruptedExportJobs();
+
+    // Recover any stalled jobs from previous runs (import/ingest rows that no
+    // owner will adopt are then failed explicitly below).
     const recovered = await this.jobRepository.recoverStalledJobs(this.jobTimeoutMs);
     if (recovered > 0) {
       this.logger.info('Recovered stalled jobs', { count: recovered });
     }
 
-    await this.recoverInterruptedExportJobs();
     await this.failOrphanedNonExportJobs();
 
     this.initialized = true;
@@ -140,11 +147,16 @@ export class JobService extends EventEmitter {
   /**
    * Re-queue export jobs that were `processing` when a previous process died.
    *
-   * `recoverStalledJobs` only reaches jobs older than the timeout, so a recent
-   * crash leaves a `processing` export that `getNextPending` will never return
-   * and `cleanupExpiredJobs` will never delete. Re-running an export is safe
-   * (it rewrites the same output file), so they go back to `pending` rather
-   * than being failed.
+   * Without this, a `processing` export is unreachable: `getNextPending` only
+   * returns `pending` rows and `cleanupExpiredJobs` only deletes terminal ones,
+   * so the job would report `processing` for ever. It runs before
+   * `recoverStalledJobs` so that downtime longer than the job timeout does not
+   * turn a recoverable export into a failure.
+   *
+   * Re-running is safe in the sense that an export is a pure function of the
+   * graph: it produces the same document. It is not the *same file* -- every run
+   * writes a fresh `export_<graphId>_<timestamp>.json` -- so an interrupted
+   * run's partial file is left on disk rather than overwritten.
    */
   private async recoverInterruptedExportJobs(): Promise<void> {
     const interrupted = await this.jobRepository.findAll({
