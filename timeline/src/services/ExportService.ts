@@ -5,6 +5,8 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import { GraphRepository } from '../repositories/GraphRepository';
 import { ResolvedGraphData } from '../repositories/VersionRepository';
 import { ExportFilters } from '../models/AsyncJob';
@@ -129,6 +131,17 @@ export interface ExportResult {
   entityCount: number;
 }
 
+/**
+ * Optional hooks for a streaming export.
+ *
+ * `onProgress` receives a fraction in [0, 1] that advances as entities are
+ * streamed, so a long async export can report real progress instead of sitting
+ * at a single value until it finishes.
+ */
+export interface ExportHooks {
+  onProgress?: (fraction: number) => void;
+}
+
 export interface ExportServiceConfig {
   dataDir: string;
   appVersion?: string;
@@ -138,6 +151,12 @@ export interface ExportServiceConfig {
    * `DEFAULT_ASYNC_EXPORT_ENTITY_THRESHOLD`.
    */
   asyncExportThreshold?: number;
+  /**
+   * Byte estimate above which `exportGraph` refuses to build the document in
+   * memory. Only the in-memory API is bounded by it; `exportToFile` streams.
+   * Defaults to 50 MB; tests lower it to exercise the boundary.
+   */
+  maxInMemorySize?: number;
 }
 
 // Maximum size for in-memory exports (50MB)
@@ -168,7 +187,7 @@ export class ExportService {
     this.dataDir = config.dataDir;
     this.appVersion = config.appVersion || '1.0.0';
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
-    this.maxInMemorySize = MAX_IN_MEMORY_EXPORT_SIZE;
+    this.maxInMemorySize = config.maxInMemorySize ?? MAX_IN_MEMORY_EXPORT_SIZE;
     this.asyncExportThreshold =
       config.asyncExportThreshold ?? DEFAULT_ASYNC_EXPORT_ENTITY_THRESHOLD;
   }
@@ -223,7 +242,8 @@ export class ExportService {
     if (estimatedSize > this.maxInMemorySize) {
       throw new Error(
         `Export too large for in-memory operation (estimated ${Math.round(estimatedSize / 1024 / 1024)}MB, max ${Math.round(this.maxInMemorySize / 1024 / 1024)}MB). ` +
-        `Use exportToFile() for large exports or create an async export job.`
+          'This method returns the whole document as an object. ' +
+          'Use exportToFile(), GET /export or POST /export/jobs, which stream to a file.'
       );
     }
 
@@ -349,29 +369,184 @@ export class ExportService {
   }
 
   /**
-   * Export and save to file
+   * Export and save to file, streaming the document.
+   *
+   * This is the path an async export job takes, and the one Req 5.4 requires for
+   * large graphs. It deliberately does **not** call `exportGraph`: that method
+   * applies the `maxInMemorySize` guard, which exists because it returns the
+   * whole document as an object. Reporting a graph as "too large to export in
+   * memory, use the async job" and then failing the async job with the same
+   * message made the advice impossible to follow.
+   *
+   * Peak memory here is the resolved graph plus one serialised entity. The data
+   * section is serialised twice -- once to hash it, once to write it -- because
+   * the checksum has to appear in `metadata`, which precedes `data` in the
+   * document. Each pass is generated, not buffered.
+   *
+   * The file is compact JSON rather than the indented output the in-memory path
+   * produced via `JSON.stringify(doc, null, 2)`; nothing reads it by eye, and
+   * the indented form would have to be reproduced string-for-string to keep the
+   * checksum identical.
    */
-  async exportToFile(options: ExportOptions, outputPath?: string): Promise<string> {
-    const result = await this.exportGraph(options);
+  async exportToFile(
+    options: ExportOptions,
+    outputPath?: string,
+    hooks: ExportHooks = {}
+  ): Promise<string> {
+    const graph = await this.graphRepository.findById(options.graphId);
+    if (!graph) {
+      throw new Error(`Graph not found: ${options.graphId}`);
+    }
 
-    // Determine output path
-    const filePath = outputPath || path.join(
-      this.dataDir,
-      'exports',
-      `export_${options.graphId}_${Date.now()}.json`
+    const versionRef = await this.resolveVersionRef(options);
+    const data = await this.graphRepository.checkout(
+      options.graphId,
+      versionRef?.version ?? options.version
     );
 
-    // Ensure directory exists
+    const scoped =
+      options.scope === 'filtered' && options.filters
+        ? this.applyFilters(data, options.filters)
+        : data;
+
+    const filePath =
+      outputPath ||
+      path.join(
+        this.dataDir,
+        'exports',
+        `export_${options.graphId}_${Date.now()}.json`
+      );
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
 
-    // Write file
-    await fs.promises.writeFile(
-      filePath,
-      JSON.stringify(result.export, null, 2),
-      'utf8'
+    const metadata: ExportMetadata = {
+      graphId: graph.id,
+      graphName: graph.name,
+      description: graph.description,
+      exportedAt: new Date().toISOString(),
+      sourceVersion: this.appVersion,
+      graphVersion: versionRef?.version ?? 0,
+      checksum: this.checksumOfExportData(scoped),
+      filters: options.scope === 'filtered' ? options.filters : undefined,
+    };
+
+    const provenance = options.includeProvenance
+      ? await this.getProvenance(options.graphId)
+      : undefined;
+
+    const head =
+      `{"version":"1.0","metadata":${JSON.stringify(metadata)},"data":`;
+    const tail = (provenance ? `,"provenance":${JSON.stringify(provenance)}` : '') + '}';
+
+    await pipeline(
+      Readable.from(this.exportDocumentChunks(head, scoped, tail, hooks.onProgress)),
+      fs.createWriteStream(filePath, { encoding: 'utf8' })
     );
 
     return filePath;
+  }
+
+  /**
+   * The export document as a sequence of string chunks: the pre-computed head,
+   * the streamed data section, then the tail (provenance, if any).
+   */
+  private *exportDocumentChunks(
+    head: string,
+    data: ResolvedGraphData,
+    tail: string,
+    onProgress?: (fraction: number) => void
+  ): Generator<string> {
+    yield head;
+    yield* this.exportDataChunks(data, onProgress);
+    yield tail;
+    onProgress?.(1);
+  }
+
+  /**
+   * Serialise `data` exactly as `JSON.stringify(convertToExportFormat(data))`
+   * would, one entity at a time.
+   *
+   * Byte-identity is the contract, not an implementation detail: the checksum
+   * is taken over these bytes, and the same checksum has to describe the
+   * document `exportGraph` returns for the same graph. `exportDataChunks` is
+   * therefore used for both -- the hashing pass and the writing pass -- so the
+   * two can never disagree.
+   */
+  private *exportDataChunks(
+    data: ResolvedGraphData,
+    onProgress?: (fraction: number) => void
+  ): Generator<string> {
+    const crossGraphRefs: CrossGraphRef[] = [];
+    const total =
+      Object.keys(data.events).length +
+      Object.keys(data.arcs).length +
+      Object.keys(data.relationships).length +
+      Object.keys(data.pressures).length;
+    let written = 0;
+    const advance = (count: number): void => {
+      written += count;
+      if (onProgress && total > 0) {
+        onProgress(Math.min(written / total, 1));
+      }
+    };
+
+    // The key order below matches `convertToExportFormat`; `crossGraphRefs`
+    // last, and absent entirely when the graph has none.
+    const events = Object.entries(data.events);
+    yield '{"events":';
+    yield* this.entityChunks(events, (id, entity) =>
+      this.convertEvent(id, entity as Record<string, unknown>, crossGraphRefs)
+    );
+    advance(events.length);
+
+    const arcs = Object.entries(data.arcs);
+    yield ',"arcs":';
+    yield* this.entityChunks(arcs, (id, entity) =>
+      this.convertArc(id, entity as Record<string, unknown>, crossGraphRefs)
+    );
+    advance(arcs.length);
+
+    const relationships = Object.entries(data.relationships);
+    yield ',"causalRelationships":';
+    yield* this.entityChunks(relationships, (id, entity) =>
+      this.convertRelationship(id, entity as Record<string, unknown>, crossGraphRefs)
+    );
+    advance(relationships.length);
+
+    const pressures = Object.entries(data.pressures);
+    yield ',"inferredPressures":';
+    yield* this.entityChunks(pressures, (id, entity) =>
+      this.convertPressure(id, entity as Record<string, unknown>)
+    );
+    advance(pressures.length);
+
+    if (crossGraphRefs.length > 0) {
+      yield `,"crossGraphRefs":${JSON.stringify(crossGraphRefs)}`;
+    }
+
+    yield '}';
+  }
+
+  /** `[...]` with one JSON-serialised entity per chunk. */
+  private *entityChunks(
+    entries: Array<[string, Record<string, unknown>]>,
+    convert: (id: string, entity: Record<string, unknown>) => unknown
+  ): Generator<string> {
+    yield '[';
+    let separator = '';
+    for (const [id, entity] of entries) {
+      yield separator + JSON.stringify(convert(id, entity));
+      separator = ',';
+    }
+    yield ']';
+  }
+
+  /** SHA-256 of the exported data section, matching `calculateChecksum`. */
+  private checksumOfExportData(data: ResolvedGraphData): string {
+    const hash = crypto.createHash('sha256');
+    for (const chunk of this.exportDataChunks(data)) {
+      hash.update(chunk, 'utf8');
+    }
+    return hash.digest('hex');
   }
 
   /**
@@ -609,70 +784,21 @@ export class ExportService {
     const pressures: ExportedPressure[] = [];
     const crossGraphRefs: CrossGraphRef[] = [];
 
-    // Convert events
     for (const [id, event] of Object.entries(data.events)) {
-      const e = event as Record<string, unknown>;
-      const { metadata, refs } = this.takeCrossGraphRefs(e.metadata, id, 'event');
-      crossGraphRefs.push(...refs);
-      events.push({
-        id,
-        description: e.description as string,
-        actor: e.actor as string,
-        target: e.target as string,
-        timestamp: e.timestamp as string,
-        metadata,
-        sourceRef: e.sourceRef as string | undefined,
-      });
+      events.push(
+        this.convertEvent(id, event as Record<string, unknown>, crossGraphRefs)
+      );
     }
-
-    // Convert arcs
     for (const [id, arc] of Object.entries(data.arcs)) {
-      const a = arc as Record<string, unknown>;
-      const { metadata, refs } = this.takeCrossGraphRefs(a.metadata, id, 'arc');
-      crossGraphRefs.push(...refs);
-      arcs.push({
-        id,
-        name: a.name as string,
-        description: a.description as string,
-        start_time: a.start_time as string,
-        end_time: a.end_time as string,
-        level: a.level as number,
-        parent_arc_id: a.parent_arc_id as string | null,
-        metadata,
-        sourceRef: a.sourceRef as string | undefined,
-      });
+      arcs.push(this.convertArc(id, arc as Record<string, unknown>, crossGraphRefs));
     }
-
-    // Convert relationships
     for (const [id, rel] of Object.entries(data.relationships)) {
-      const r = rel as Record<string, unknown>;
-      const { refs } = this.takeCrossGraphRefs(r.metadata, id, 'relationship');
-      crossGraphRefs.push(...refs);
-      relationships.push({
-        id,
-        cause_event_id: r.cause_event_id as string,
-        effect_event_id: r.effect_event_id as string,
-        weight: r.weight as number,
-        evidence: r.evidence as string,
-        confidence: r.confidence as number,
-        relationship_type: r.relationship_type as 'direct' | 'indirect' | 'contributory',
-        sourceRef: r.sourceRef as string | undefined,
-        causeGraphId: r.causeGraphId as string | undefined,
-        effectGraphId: r.effectGraphId as string | undefined,
-      });
+      relationships.push(
+        this.convertRelationship(id, rel as Record<string, unknown>, crossGraphRefs)
+      );
     }
-
-    // Convert pressures
     for (const [id, pressure] of Object.entries(data.pressures)) {
-      const p = pressure as Record<string, unknown>;
-      pressures.push({
-        id,
-        description: p.description as string,
-        confidence_score: p.confidence_score as number,
-        pressure_type: p.pressure_type as 'economic' | 'social' | 'environmental' | 'political',
-        evidence_event_ids: (p.evidence_event_ids as string[]) || [],
-        affected_arc_ids: (p.affected_arc_ids as string[]) || [],
-      });
+      pressures.push(this.convertPressure(id, pressure as Record<string, unknown>));
     }
 
     return {
@@ -683,6 +809,88 @@ export class ExportService {
       // Omitted entirely when the graph has none, so the key's absence keeps
       // meaning "no cross-graph references" (Req 4.4).
       ...(crossGraphRefs.length > 0 ? { crossGraphRefs } : {}),
+    };
+  }
+
+  /**
+   * Convert one stored entity to its exported shape.
+   *
+   * The per-entity converters exist so the in-memory and streaming paths share
+   * one definition of the format. Two implementations would drift, and the
+   * checksum is taken over the serialised bytes, so drift would silently make
+   * the two paths disagree about the same graph.
+   *
+   * Property order is part of the format here: `JSON.stringify` writes keys in
+   * insertion order, and the streamed data section has to be byte-identical to
+   * `JSON.stringify(convertToExportFormat(data))` for the checksums to match.
+   */
+  private convertEvent(
+    id: string,
+    e: Record<string, unknown>,
+    crossGraphRefs: CrossGraphRef[]
+  ): ExportedEvent {
+    const { metadata, refs } = this.takeCrossGraphRefs(e.metadata, id, 'event');
+    crossGraphRefs.push(...refs);
+    return {
+      id,
+      description: e.description as string,
+      actor: e.actor as string,
+      target: e.target as string,
+      timestamp: e.timestamp as string,
+      metadata,
+      sourceRef: e.sourceRef as string | undefined,
+    };
+  }
+
+  private convertArc(
+    id: string,
+    a: Record<string, unknown>,
+    crossGraphRefs: CrossGraphRef[]
+  ): ExportedArc {
+    const { metadata, refs } = this.takeCrossGraphRefs(a.metadata, id, 'arc');
+    crossGraphRefs.push(...refs);
+    return {
+      id,
+      name: a.name as string,
+      description: a.description as string,
+      start_time: a.start_time as string,
+      end_time: a.end_time as string,
+      level: a.level as number,
+      parent_arc_id: a.parent_arc_id as string | null,
+      metadata,
+      sourceRef: a.sourceRef as string | undefined,
+    };
+  }
+
+  private convertRelationship(
+    id: string,
+    r: Record<string, unknown>,
+    crossGraphRefs: CrossGraphRef[]
+  ): ExportedRelationship {
+    const { refs } = this.takeCrossGraphRefs(r.metadata, id, 'relationship');
+    crossGraphRefs.push(...refs);
+    return {
+      id,
+      cause_event_id: r.cause_event_id as string,
+      effect_event_id: r.effect_event_id as string,
+      weight: r.weight as number,
+      evidence: r.evidence as string,
+      confidence: r.confidence as number,
+      relationship_type: r.relationship_type as 'direct' | 'indirect' | 'contributory',
+      sourceRef: r.sourceRef as string | undefined,
+      causeGraphId: r.causeGraphId as string | undefined,
+      effectGraphId: r.effectGraphId as string | undefined,
+    };
+  }
+
+  private convertPressure(id: string, p: Record<string, unknown>): ExportedPressure {
+    return {
+      id,
+      description: p.description as string,
+      confidence_score: p.confidence_score as number,
+      pressure_type: p.pressure_type as 'economic' | 'social' | 'environmental' | 'political',
+      evidence_event_ids: (p.evidence_event_ids as string[]) || [],
+      affected_arc_ids: (p.affected_arc_ids as string[]) || [],
     };
   }
 

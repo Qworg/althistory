@@ -519,6 +519,39 @@ describe('Export routes (request-level)', () => {
     });
   });
 
+  describe('async export of a graph above the threshold', () => {
+    it('creates a job that completes with the full document', async () => {
+      const response = await request(app)
+        .get('/api/export')
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', largeGraph.id)
+        .expect(202);
+
+      const jobId: string = response.body.data.jobId;
+
+      // The worker polls on an interval; this container polls immediately on
+      // `start()`, so the job is usually done on the first pass.
+      const deadline = Date.now() + 10_000;
+      let job = await container.jobService.getJob(jobId);
+      while (job && job.status !== 'completed' && job.status !== 'failed' && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        job = await container.jobService.getJob(jobId);
+      }
+
+      // The original defect: a 202 followed by "export too large for in-memory
+      // operation, use the async export job you just created".
+      expect(job?.status).toBe('completed');
+
+      const download = await request(app)
+        .get(`/api/export/jobs/${jobId}/download`)
+        .set('X-API-Key', exportKey)
+        .expect(200);
+
+      const document = JSON.parse(download.text) as { data: { events: unknown[] } };
+      expect(document.data.events).toHaveLength(2);
+    }, 20_000);
+  });
+
   describe('job access scoping', () => {
     it('hides, and refuses, another graph\'s export jobs', async () => {
       const job = await container.jobService.createExportJob({

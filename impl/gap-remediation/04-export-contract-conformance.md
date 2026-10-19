@@ -290,10 +290,10 @@ New tests:
   exports as.
 - `GET /api/export` accepts `version`, which was the last gap recorded here.
   Adding it removed the residual rather than deferring it.
-- **The async path still materialises the document**, so the 50 MB in-memory
-  estimate caps the export even when it runs as a job; a large enough graph gets
-  `202` and then a failure that advises the async endpoint. Tracked in
-  [#36](https://github.com/Qworg/althistory/issues/36).
+- ~~**The async path still materialises the document**, so the 50 MB in-memory
+  estimate caps the export even when it runs as a job.~~ Fixed in
+  [`05-streaming-exports.md`](./05-streaming-exports.md) (#36): `exportToFile`
+  streams the document instead of building it.
 - **Req 4.4's optional embedding is not implemented**: reference metadata is
   exported, `embeddedEntity` never is. Tracked in
   [#37](https://github.com/Qworg/althistory/issues/37), which also covers the

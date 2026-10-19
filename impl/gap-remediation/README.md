@@ -221,3 +221,9 @@ These are genuinely absent, not orphaned.
 - No test is skipped, deleted, or weakened to make something pass. Where a test cannot pass, fix the
   cause or document the blocker with evidence.
 - No `any`, `as any`, `@ts-ignore`, `@ts-expect-error` or `eslint-disable` to silence a problem.
+
+## Follow-ups landed
+
+- [05-streaming-exports.md](./05-streaming-exports.md) — issue #36: `exportToFile`
+  streams the document, so Req 5.4's async path can export graphs above the
+  50 MB in-memory ceiling.

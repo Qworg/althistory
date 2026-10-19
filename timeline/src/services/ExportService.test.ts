@@ -11,11 +11,28 @@ import * as fs from 'fs';
 // Mock the GraphRepository
 vi.mock('../repositories/GraphRepository');
 
+/**
+ * Bytes the streaming writer emitted, captured instead of touching disk.
+ * `exportToFile` writes through a real `Writable`, so `pipeline` exercises the
+ * same backpressure and error paths it would in production.
+ */
+const written = vi.hoisted(() => ({ chunks: [] as string[] }));
+
 // Mock fs
 vi.mock('fs', async () => {
-  const actual = await vi.importActual('fs');
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  const { Writable } = await vi.importActual<typeof import('stream')>('stream');
+
   return {
     ...actual,
+    createWriteStream: vi.fn(() =>
+      new Writable({
+        write(chunk: Buffer | string, _encoding, callback) {
+          written.chunks.push(chunk.toString());
+          callback();
+        },
+      })
+    ),
     promises: {
       mkdir: vi.fn().mockResolvedValue(undefined),
       writeFile: vi.fn().mockResolvedValue(undefined),
@@ -124,6 +141,7 @@ describe('ExportService', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    written.chunks.length = 0;
   });
 
   describe('initialize', () => {
@@ -249,9 +267,120 @@ describe('ExportService', () => {
         includeProvenance: false,
       });
 
-      expect(fs.promises.writeFile).toHaveBeenCalled();
+      expect(fs.promises.mkdir).toHaveBeenCalled();
       expect(filePath).toContain('export_graph_123_');
       expect(filePath).toContain('.json');
+
+      // Streamed, not buffered into one write: the document arrives as chunks.
+      expect(written.chunks.length).toBeGreaterThan(1);
+      const document = JSON.parse(written.chunks.join('')) as AlthistoryExport;
+      expect(document.version).toBe('1.0');
+      expect(document.data.events).toHaveLength(2);
+      expect(document.data.arcs).toHaveLength(1);
+    });
+
+    it('should produce the same document the in-memory path returns', async () => {
+      const mockGraph = createMockGraph();
+      const mockData = createMockGraphData();
+      mockGraphRepository.findById.mockResolvedValue(mockGraph);
+      mockGraphRepository.checkout.mockResolvedValue(mockData);
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      await exportService.exportToFile({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      const streamed = JSON.parse(written.chunks.join('')) as AlthistoryExport;
+
+      // `exportedAt` is a timestamp, so it is the one field that may differ;
+      // everything else, checksum included, must be identical.
+      expect(streamed.metadata.checksum).toBe(result.export.metadata.checksum);
+      expect({ ...streamed.metadata, exportedAt: '' }).toEqual({
+        ...result.export.metadata,
+        exportedAt: '',
+      });
+      expect(streamed.data).toEqual(result.export.data);
+    });
+
+    it('should stream a graph that the in-memory path refuses', async () => {
+      const small = new ExportService({
+        dataDir: './test-data',
+        appVersion: '1.0.0-test',
+        maxInMemorySize: 1000,
+      });
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+
+      // The fixture's metadata estimates far above the 1 KB cap.
+      await expect(
+        small.exportGraph({ graphId: 'graph_123', scope: 'full', includeProvenance: false })
+      ).rejects.toThrow('too large for in-memory operation');
+
+      const filePath = await small.exportToFile({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(filePath).toContain('.json');
+      const document = JSON.parse(written.chunks.join('')) as AlthistoryExport;
+      expect(document.data.events).toHaveLength(2);
+    });
+
+    it('should report streaming progress monotonically up to 1', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+
+      const fractions: number[] = [];
+      await exportService.exportToFile(
+        { graphId: 'graph_123', scope: 'full', includeProvenance: false },
+        undefined,
+        { onProgress: (fraction) => fractions.push(fraction) }
+      );
+
+      expect(fractions.length).toBeGreaterThan(0);
+      expect(fractions[fractions.length - 1]).toBe(1);
+      for (let i = 1; i < fractions.length; i++) {
+        expect(fractions[i]).toBeGreaterThanOrEqual(fractions[i - 1]);
+      }
+    });
+
+    it('should stream a filtered export without the excluded entities', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+
+      await exportService.exportToFile({
+        graphId: 'graph_123',
+        scope: 'filtered',
+        filters: { eventIds: ['event1'] },
+        includeProvenance: false,
+      });
+
+      const document = JSON.parse(written.chunks.join('')) as AlthistoryExport;
+      expect(document.data.events).toHaveLength(1);
+      expect(document.data.events[0].id).toBe('event1');
+      expect(document.metadata.filters).toEqual({ eventIds: ['event1'] });
+    });
+
+    it('should include provenance in the streamed document when asked', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+
+      await exportService.exportToFile({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: true,
+      });
+
+      const document = JSON.parse(written.chunks.join('')) as AlthistoryExport;
+      expect(document.provenance).toBeDefined();
     });
 
     it('should use provided output path', async () => {

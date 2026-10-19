@@ -490,7 +490,20 @@ export class JobService extends EventEmitter {
 
     await this.reportProgress(job, 50, 'Generating export file...');
 
-    const filePath = await this.exportService.exportToFile(options);
+    // Stream the document and report real progress. The stream advances by
+    // entity, which for a large graph is the only phase long enough to matter;
+    // it owns the 50-95% band so the final write is not reported as complete
+    // before `complete()` runs. Persisting on every entity would mean thousands
+    // of repository writes, so only whole percentage points are stored.
+    let lastReported = job.progress;
+    const filePath = await this.exportService.exportToFile(options, undefined, {
+      onProgress: (fraction) => {
+        const percent = Math.round(50 + fraction * 45);
+        if (percent <= lastReported) return;
+        lastReported = percent;
+        void this.reportProgress(job, percent, 'Streaming export...');
+      },
+    });
 
     await this.reportProgress(job, 100, 'Export complete');
 

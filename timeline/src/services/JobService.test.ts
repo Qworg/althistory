@@ -857,8 +857,48 @@ describe('JobService', () => {
       // Removing `version: params.version` from executeExportJob would make
       // this a head export, which is the original async-path bug.
       expect(mockExportService.exportToFile).toHaveBeenCalledWith(
-        expect.objectContaining({ version: 0 })
+        expect.objectContaining({ version: 0 }),
+        undefined,
+        expect.objectContaining({ onProgress: expect.any(Function) })
       );
+    });
+  });
+
+  describe('streaming export progress', () => {
+    it('persists the progress the stream reports', async () => {
+      const mockJob = createMockJob({ status: 'pending' });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(mockJob)
+        .mockResolvedValue(null);
+      const persistedProgress: number[] = [];
+      mockJobRepository.update.mockImplementation(async (job: AsyncJob) => {
+        persistedProgress.push(job.progress);
+      });
+
+      // Drive the hook the way a large stream would, then let the job finish.
+      mockExportService.exportToFile.mockImplementation(
+        async (
+          _options: unknown,
+          _path: string | undefined,
+          hooks?: { onProgress?: (fraction: number) => void }
+        ) => {
+          hooks?.onProgress?.(0.25);
+          hooks?.onProgress?.(0.5);
+          return '/path/to/export.json';
+        }
+      );
+
+      const completed = new Promise(resolve => jobService.once('jobCompleted', resolve));
+      await jobService.initialize();
+      jobService.start();
+      await completed;
+      jobService.stop();
+
+      // 50% start + fraction of the 45-point band, rounded: 0.25 -> 61,
+      // 0.5 -> 73. Without the hook the job would only ever report 50 and 100.
+      expect(persistedProgress).toContain(61);
+      expect(persistedProgress).toContain(73);
+      expect(persistedProgress).toContain(100);
     });
   });
 
