@@ -26,6 +26,7 @@ import {
   ExportedArc,
   ExportedRelationship,
   ExportedPressure,
+  CrossGraphRef,
 } from './ExportService';
 import { createLogger, ILogger } from '../utils/logger';
 import * as crypto from 'crypto';
@@ -86,7 +87,8 @@ export type ImportWarningCode =
   | 'MISSING_PROVENANCE'
   | 'LOW_CONFIDENCE'
   | 'DEPRECATED_FIELD'
-  | 'EMPTY_COLLECTION';
+  | 'EMPTY_COLLECTION'
+  | 'INVALID_VALUE';
 
 export interface ImportSummary {
   eventCount: number;
@@ -206,7 +208,6 @@ type ExistingGraphData = {
 export class ImportService {
   private readonly graphRepository: GraphRepository;
   private readonly jobRepository: JobRepository;
-  private readonly dataDir: string;
   private readonly logger: ILogger;
   private activeImports: Map<string, { cancel: boolean; graphId?: string }> = new Map();
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
@@ -217,7 +218,6 @@ export class ImportService {
   private readonly staleJobThresholdMs: number;
 
   constructor(config: ImportServiceConfig) {
-    this.dataDir = config.dataDir;
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
     this.jobRepository = new JobRepository({ dataDir: config.dataDir });
     this.logger = createLogger('ImportService');
@@ -857,6 +857,16 @@ export class ImportService {
           });
         }
       }
+
+      // `sourceRef` is a string in the format; a number or object would be
+      // stored under that string-typed field and re-exported unchanged.
+      if (e.sourceRef !== undefined && typeof e.sourceRef !== 'string') {
+        warnings.push({
+          path: `${path}.sourceRef`,
+          message: 'sourceRef must be a string and was dropped',
+          code: 'INVALID_VALUE',
+        });
+      }
     });
   }
 
@@ -865,7 +875,7 @@ export class ImportService {
   private validateArcs(
     arcs: unknown,
     errors: ImportError[],
-    _warnings: ImportWarning[]
+    warnings: ImportWarning[]
   ): void {
     if (!Array.isArray(arcs)) {
       errors.push({
@@ -996,6 +1006,14 @@ export class ImportService {
             code: 'TEMPORAL_VIOLATION',
           });
         }
+      }
+
+      if (a.sourceRef !== undefined && typeof a.sourceRef !== 'string') {
+        warnings.push({
+          path: `${path}.sourceRef`,
+          message: 'sourceRef must be a string and was dropped',
+          code: 'INVALID_VALUE',
+        });
       }
 
       // Validate level
@@ -1644,6 +1662,8 @@ export class ImportService {
             entityType: 'event',
             entityId: event.id,
             existingEntity: existing,
+            // SAFETY: ExportedEvent has no index signature, but every field is
+            // JSON-serialisable and this payload is only serialised for the client.
             incomingEntity: event as unknown as Record<string, unknown>,
             suggestedResolution: mode === 'merge' ? 'skip' : 'overwrite',
             message: `Event with ID "${event.id}" already exists`,
@@ -1663,6 +1683,8 @@ export class ImportService {
             entityType: 'arc',
             entityId: arc.id,
             existingEntity: existing,
+            // SAFETY: ExportedArc has no index signature, but every field is
+            // JSON-serialisable and this payload is only serialised for the client.
             incomingEntity: arc as unknown as Record<string, unknown>,
             suggestedResolution: mode === 'merge' ? 'skip' : 'overwrite',
             message: `Arc with ID "${arc.id}" already exists`,
@@ -1682,6 +1704,8 @@ export class ImportService {
             entityType: 'relationship',
             entityId: rel.id,
             existingEntity: existing,
+            // SAFETY: ExportedRelationship has no index signature, but every field
+            // is JSON-serialisable and this payload is only serialised for the client.
             incomingEntity: rel as unknown as Record<string, unknown>,
             suggestedResolution: mode === 'merge' ? 'skip' : 'overwrite',
             message: `Relationship with ID "${rel.id}" already exists`,
@@ -1717,6 +1741,8 @@ export class ImportService {
             severity: 'error',
             entityType: 'relationship',
             entityId: rel.id,
+            // SAFETY: ExportedRelationship has no index signature, but every field
+            // is JSON-serialisable and this payload is only serialised for the client.
             incomingEntity: rel as unknown as Record<string, unknown>,
             suggestedResolution: 'skip',
             message: `Causal paradox: cause occurs after effect in relationship "${rel.id}"`,
@@ -2334,19 +2360,51 @@ export class ImportService {
     // Prepare entities for import
     const eventsToImport: Array<{ id: string; data: ExportedEvent }> = [];
     const arcsToImport: Array<{ id: string; data: ExportedArc }> = [];
-    const relationshipsToImport: Array<{ id: string; data: ExportedRelationship }> = [];
+    // Relationships carry no `metadata` field in the export format; the
+    // optional metadata here is where the commit payload keeps the stored
+    // cross-graph references (hoisted back out on export).
+    const relationshipsToImport: Array<{
+      id: string;
+      data: ExportedRelationship & { metadata?: Record<string, unknown> };
+    }> = [];
     const pressuresToImport: Array<{ id: string; data: ExportedPressure }> = [];
 
-    // FIX #9: Process cross-graph references
-    const crossGraphRefs = exportData.crossGraphRefs || [];
-    const crossGraphRefMap = new Map<string, { graphId: string; entityId: string; type: string }>();
-    crossGraphRefs.forEach((ref) => {
-      crossGraphRefMap.set(ref.localEntityId, {
-        graphId: ref.referencedGraphId,
-        entityId: ref.referencedEntityId,
-        type: ref.referencedEntityType,
-      });
-    });
+    // Cross-graph references (Req 4.4). The export format carries them in
+    // `data.crossGraphRefs`, keyed to the local entity by `localEntityId` +
+    // `localEntityType`. They must be re-attached to the entity they describe,
+    // or the next export drops them: gap M1, where this map was built and then
+    // never read. Lookups use the *exported* id, before `getEntityId` remaps
+    // it, because that is the id the reference names.
+    const refsByLocalEntity = new Map<string, CrossGraphRef[]>();
+    for (const ref of exportData.crossGraphRefs || []) {
+      const key = `${ref.localEntityType}:${ref.localEntityId}`;
+      const existing = refsByLocalEntity.get(key);
+      if (existing) {
+        existing.push(ref);
+      } else {
+        refsByLocalEntity.set(key, [ref]);
+      }
+    }
+
+    /**
+     * The stored form of a reference: everything except the local side, which
+     * the containing entity already supplies. `embeddedEntity` is deliberately
+     * not stored -- it is a convenience copy of data the referenced graph owns,
+     * so keeping it here would duplicate that data and let it go stale.
+     */
+    type StoredCrossGraphRef = Omit<CrossGraphRef, 'localEntityId' | 'localEntityType' | 'embeddedEntity'>;
+    const storedCrossRefsFor = (
+      localEntityType: CrossGraphRef['localEntityType'],
+      originalId: string
+    ): StoredCrossGraphRef[] | undefined => {
+      const refs = refsByLocalEntity.get(`${localEntityType}:${originalId}`);
+      if (!refs || refs.length === 0) return undefined;
+      return refs.map((ref) => ({
+        referencedGraphId: ref.referencedGraphId,
+        referencedEntityId: ref.referencedEntityId,
+        referencedEntityType: ref.referencedEntityType,
+      }));
+    };
 
     // Process events first to build ID remap
     (exportData.events || []).forEach((event) => {
@@ -2359,6 +2417,7 @@ export class ImportService {
         // FIX B#26, B#29: Preserve original metadata and created_at
         const originalMetadata = sanitizedEvent.metadata || {};
         const originalCreatedAt = (originalMetadata as Record<string, unknown>).created_at;
+        const storedCrossRefs = storedCrossRefsFor('event', event.id);
         
         eventsToImport.push({
           id: newId,
@@ -2371,6 +2430,7 @@ export class ImportService {
               originalId: event.id !== newId ? event.id : undefined,
               // FIX B#29: Preserve original created_at if it exists
               originalCreatedAt: originalCreatedAt || sanitizedEvent.timestamp,
+              ...(storedCrossRefs ? { crossGraphRefs: storedCrossRefs } : {}),
             },
           },
         });
@@ -2389,6 +2449,7 @@ export class ImportService {
         
         // FIX B#26: Preserve original metadata
         const originalMetadata = sanitizedArc.metadata || {};
+        const storedCrossRefs = storedCrossRefsFor('arc', arc.id);
         
         arcsToImport.push({
           id: newId,
@@ -2400,6 +2461,7 @@ export class ImportService {
               ...originalMetadata,
               ...provenanceData,
               originalId: arc.id !== newId ? arc.id : undefined,
+              ...(storedCrossRefs ? { crossGraphRefs: storedCrossRefs } : {}),
             },
           },
         });
@@ -2423,6 +2485,7 @@ export class ImportService {
         const effectEventId = rel.effectGraphId
           ? rel.effect_event_id  // Cross-graph reference, don't remap
           : getRemappedId('event', rel.effect_event_id);
+        const storedCrossRefs = storedCrossRefsFor('relationship', rel.id);
         
         relationshipsToImport.push({
           id: newId,
@@ -2434,6 +2497,7 @@ export class ImportService {
             // Preserve cross-graph IDs
             causeGraphId: rel.causeGraphId,
             effectGraphId: rel.effectGraphId,
+            ...(storedCrossRefs ? { metadata: { crossGraphRefs: storedCrossRefs } } : {}),
           },
         });
         imported.relationships++;
@@ -2521,6 +2585,12 @@ export class ImportService {
           actor: data.actor,
           target: data.target,
           timestamp: data.timestamp,
+          // Provenance reference, exported alongside the entity (see
+          // ExportService.convertToExportFormat). Only a string survives;
+          // `validateEvents` warns about anything else.
+          ...(typeof data.sourceRef === 'string' && data.sourceRef !== ''
+            ? { sourceRef: data.sourceRef }
+            : {}),
           metadata: data.metadata,
         },
       });
@@ -2538,6 +2608,9 @@ export class ImportService {
           end_time: data.end_time,
           level: data.level,
           parent_arc_id: data.parent_arc_id,
+          ...(typeof data.sourceRef === 'string' && data.sourceRef !== ''
+            ? { sourceRef: data.sourceRef }
+            : {}),
           metadata: data.metadata,
         },
       });
@@ -2555,6 +2628,17 @@ export class ImportService {
           evidence: data.evidence,
           confidence: data.confidence,
           relationship_type: data.relationship_type,
+          // A relationship's cross-graph endpoints are part of the exported
+          // relationship. Dropping them here left an imported remote cause
+          // recorded as a local event id that does not exist.
+          ...(data.causeGraphId ? { causeGraphId: data.causeGraphId } : {}),
+          ...(data.effectGraphId ? { effectGraphId: data.effectGraphId } : {}),
+          ...(typeof data.sourceRef === 'string' && data.sourceRef !== ''
+            ? { sourceRef: data.sourceRef }
+            : {}),
+          // Kept so an imported cross-graph reference survives to the next
+          // export (see `storedCrossRefsFor` above). Absent otherwise.
+          ...(data.metadata ? { metadata: data.metadata } : {}),
         },
       });
     });

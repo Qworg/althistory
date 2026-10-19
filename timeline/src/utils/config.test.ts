@@ -115,6 +115,30 @@ describe('Configuration System', () => {
     });
   });
 
+  describe('LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD', () => {
+    beforeEach(() => {
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      delete process.env.LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD;
+    });
+
+    it('is undefined when unset', () => {
+      expect(loadConfig().localExecution.exportAsyncEntityThreshold).toBeUndefined();
+    });
+
+    it('parses a digits-only value', () => {
+      process.env.LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD = '250';
+      expect(loadConfig().localExecution.exportAsyncEntityThreshold).toBe(250);
+    });
+
+    it.each(['1e5', '10k', '2.5', '0x10'])(
+      'rejects %j instead of letting parseInt truncate it',
+      (value) => {
+        process.env.LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD = value;
+        expect(() => loadConfig()).toThrow(ConfigurationError);
+      }
+    );
+  });
+
   describe('Local Execution Configuration Validation', () => {
     beforeEach(() => {
       // Set minimal required environment variables

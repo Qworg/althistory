@@ -1,5 +1,11 @@
 # Implementation Plan
 
+> **Status:** the checkboxes in this file were not maintained while the package was
+> built, so they are not evidence either way. A task-by-task re-audit is tracked in
+> <https://github.com/Qworg/althistory/issues/29>; the verified state of the
+> subsystems the gap analysis covered lives in
+> [`impl/gap-remediation/`](../../impl/gap-remediation/README.md).
+
 - [x] 1. Set up React application foundation and project structure. This is a SEPARATE PROJECT from "timeline" and should be in the base directory of the repo as "frontend". Do NOT alter the "timeline" folder.
 
 
@@ -39,11 +45,6 @@
     - Implement React Query ^5.84.1 hooks for data fetching, caching, and synchronization
     - Write integration tests for API client methods and error scenarios
     - _Requirements: 1.1, 2.1, 3.1, 4.1, 9.1, 14.1_
-- [x] 3. Create core UI components and layout structure
-
-
-
-
 - [ ] 3. Create core UI components and layout structure
 
   - [x] 3.1 Implement main application layout and navigation
@@ -108,10 +109,6 @@
     - Create drag functionality for event timestamp modification with temporal constraint validation
     - Write interaction tests for event selection, editing, and drag operations
     - _Requirements: 1.1, 1.2, 1.3, 3.1, 3.3, 3.4_
-- [x] 5. Implement arc visualization and management
-
-
-
 - [ ] 5. Implement arc visualization and management
 
   - [x] 5.1 Create hierarchical arc rendering system
@@ -142,7 +139,7 @@
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
 
-- [-] 6. Implement causal graph visualization
+- [ ] 6. Implement causal graph visualization
 
 
 

@@ -516,6 +516,8 @@ export class Container implements ServiceContainer {
     if (!this._exportService) {
       this._exportService = new ExportService({
         dataDir: this.config.localExecution.dataDirectory,
+        // Unset keeps the service's Req 5.4 default (10,000 entities).
+        asyncExportThreshold: this.config.localExecution.exportAsyncEntityThreshold,
       });
     }
     return this._exportService;

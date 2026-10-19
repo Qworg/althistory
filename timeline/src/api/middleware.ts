@@ -44,6 +44,11 @@ declare global {
        * missed mount instead of silently reading an unscoped or global value.
        */
       graphId: string;
+      /**
+       * The API key `authenticate` resolved for this request. Optional because
+       * a route (or a probe) can run without authentication having succeeded.
+       */
+      apiKey?: ApiKey;
     }
   }
 }

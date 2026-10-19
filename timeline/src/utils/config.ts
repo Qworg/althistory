@@ -31,6 +31,11 @@ export interface LocalExecutionConfig {
   backupEnabled: boolean;
   backupInterval: number;
   maxMemoryUsage: number;
+  /**
+   * Entity count above which an export becomes an async job (Req 5.4).
+   * Unset means `ExportService`'s default (10,000).
+   */
+  exportAsyncEntityThreshold?: number;
 }
 
 /**
@@ -94,6 +99,9 @@ export function loadConfig(): AppConfig {
         backupEnabled: parseBooleanEnvVar('LOCAL_BACKUP_ENABLED', true),
         backupInterval: parseInt(getEnvVarWithDefault('LOCAL_BACKUP_INTERVAL', '300000'), 10), // 5 minutes
         maxMemoryUsage: parseInt(getEnvVarWithDefault('LOCAL_MAX_MEMORY_MB', '512'), 10), // 512 MB
+        exportAsyncEntityThreshold: parseOptionalIntegerEnvVar(
+          'LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD'
+        ),
       },
     };
 
@@ -144,6 +152,26 @@ function parseBooleanEnvVar(key: string, defaultValue: boolean): boolean {
   } else {
     throw new ConfigurationError(`Invalid boolean value for ${key}: ${value}. Use true/false, 1/0, or yes/no`);
   }
+}
+
+/**
+ * Read an optional non-negative integer setting.
+ *
+ * `parseInt` would accept `"1e5"` as 1 and `"10k"` as 10, silently changing a
+ * policy number; this requires the value to be digits only and fails startup
+ * otherwise.
+ */
+function parseOptionalIntegerEnvVar(key: string): number | undefined {
+  const value = process.env[key];
+  if (value === undefined || value.trim() === '') {
+    return undefined;
+  }
+
+  if (!/^\d+$/.test(value.trim())) {
+    throw new ConfigurationError(`Invalid integer value for ${key}: ${value}`, key);
+  }
+
+  return Number.parseInt(value.trim(), 10);
 }
 
 /**
@@ -245,6 +273,17 @@ function validateLocalExecutionConfig(config: LocalExecutionConfig): void {
   // Validate memory usage limit
   if (config.maxMemoryUsage < 64) {
     throw new ConfigurationError('Local max memory usage must be at least 64 MB', 'LOCAL_MAX_MEMORY_MB');
+  }
+
+  // Validate the export async threshold when it is set (Req 5.4). Invalid
+  // values fail startup instead of silently disabling the guard.
+  if (config.exportAsyncEntityThreshold !== undefined) {
+    if (!Number.isInteger(config.exportAsyncEntityThreshold) || config.exportAsyncEntityThreshold < 1) {
+      throw new ConfigurationError(
+        'Export async entity threshold must be a positive integer',
+        'LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD'
+      );
+    }
   }
 
   if (config.maxMemoryUsage > 8192) {

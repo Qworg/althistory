@@ -31,6 +31,8 @@ describe('ExportService', () => {
     findById: ReturnType<typeof vi.fn>;
     checkout: ReturnType<typeof vi.fn>;
     getVersionHistory: ReturnType<typeof vi.fn>;
+    getLatestVersion: ReturnType<typeof vi.fn>;
+    getVersion: ReturnType<typeof vi.fn>;
   };
 
   const createMockGraph = (overrides: Partial<IGraph> = {}): Graph => {
@@ -110,6 +112,10 @@ describe('ExportService', () => {
       findById: vi.fn(),
       checkout: vi.fn(),
       getVersionHistory: vi.fn().mockResolvedValue({ versions: [], total: 0 }),
+      // The fixture graph is on version 1; that is the committed head the
+      // export labels itself with.
+      getLatestVersion: vi.fn().mockResolvedValue({ version: 1 }),
+      getVersion: vi.fn().mockResolvedValue(null),
     };
 
     vi.mocked(GraphRepository).mockImplementation(() => mockGraphRepository as unknown as GraphRepository);
@@ -183,8 +189,9 @@ describe('ExportService', () => {
       const mockData = createMockGraphData();
       mockGraphRepository.findById.mockResolvedValue(mockGraph);
       mockGraphRepository.checkout.mockResolvedValue(mockData);
+      mockGraphRepository.getVersion.mockResolvedValue({ version: 5 });
 
-      await exportService.exportGraph({
+      const result = await exportService.exportGraph({
         graphId: 'graph_123',
         scope: 'full',
         includeProvenance: false,
@@ -192,6 +199,9 @@ describe('ExportService', () => {
       });
 
       expect(mockGraphRepository.checkout).toHaveBeenCalledWith('graph_123', 5);
+      // The label names the version the data came from, not the metadata
+      // counter that `createMockGraph` carries (1).
+      expect(result.export.metadata.graphVersion).toBe(5);
     });
 
     it('should calculate checksum of data', async () => {
@@ -291,6 +301,30 @@ describe('ExportService', () => {
         scope: 'full',
         includeProvenance: false,
       })).rejects.toThrow('Graph not found: nonexistent');
+    });
+  });
+
+  describe('estimateExportSize for a pinned version', () => {
+    it('uses the pinned tree, not the head metadata', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.getVersion.mockResolvedValue({ version: 0 });
+      mockGraphRepository.checkout.mockResolvedValue({
+        events: { e1: { id: 'e1' }, e2: { id: 'e2' } },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      });
+
+      const size = await exportService.estimateExportSize({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        version: 0,
+      });
+
+      // Two events at 500 bytes plus the 2000-byte metadata overhead, rather
+      // than the fixture metadata's 10 events / 3 arcs / 5 relationships.
+      expect(size).toBe(3000);
     });
   });
 
@@ -851,6 +885,337 @@ describe('ExportService', () => {
 
       expect(result.export.data.events[0].metadata).toEqual({ customField: 'customValue' });
       expect(result.export.data.events[0].sourceRef).toBe('https://example.com');
+    });
+  });
+
+  describe('version labelling', () => {
+    it('labels the export with the committed head, not the metadata counter', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+      mockGraphRepository.getLatestVersion.mockResolvedValue({ version: 7 });
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(result.export.metadata.graphVersion).toBe(7);
+    });
+
+    it('rejects a pinned version that does not exist with NotFoundError', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+      mockGraphRepository.getVersion.mockResolvedValue(null);
+
+      await expect(
+        exportService.exportGraph({
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          version: 99,
+        })
+      ).rejects.toMatchObject({ name: 'NotFoundError' });
+    });
+
+    it('resolves the version before reading any data', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.getVersion.mockResolvedValue(null);
+      mockGraphRepository.checkout.mockRejectedValue(new Error('Version 99 not found for graph'));
+
+      await expect(
+        exportService.exportGraph({
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          version: 99,
+        })
+      ).rejects.toMatchObject({ name: 'NotFoundError' });
+
+      // The estimate used to run first and reach the store's plain Error,
+      // which surfaced as a 500.
+      expect(mockGraphRepository.checkout).not.toHaveBeenCalled();
+    });
+
+    it('checks out a pinned tree exactly once and resolves first', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.getVersion.mockResolvedValue({ version: 2 });
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+
+      await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        version: 2,
+      });
+
+      // Measuring a pinned tree must reuse the read it already did; the
+      // estimate used to trigger a second checkout of the same version.
+      expect(mockGraphRepository.checkout).toHaveBeenCalledTimes(1);
+      expect(mockGraphRepository.getVersion.mock.invocationCallOrder[0]).toBeLessThan(
+        mockGraphRepository.checkout.mock.invocationCallOrder[0]
+      );
+    });
+
+    it('reports a missing pinned version from countEntities too', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.getVersion.mockResolvedValue(null);
+
+      await expect(
+        exportService.countEntities({
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          version: 99,
+        })
+      ).rejects.toMatchObject({ name: 'NotFoundError' });
+    });
+  });
+
+  describe('entity counts and the async threshold (Req 5.4)', () => {
+    it('should report the exported entity count in the result', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      // 2 events + 1 arc + 1 relationship + 1 pressure
+      expect(result.entityCount).toBe(5);
+    });
+
+    it('should count entities from graph metadata for an unfiltered latest export', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+
+      const count = await exportService.countEntities({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      // metadata says 10 + 3 + 5 + 2
+      expect(count).toBe(20);
+      expect(mockGraphRepository.checkout).not.toHaveBeenCalled();
+    });
+
+    it('should count filtered entities from the resolved graph, not metadata', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+
+      const count = await exportService.countEntities({
+        graphId: 'graph_123',
+        scope: 'filtered',
+        filters: { eventIds: ['event1'] },
+        includeProvenance: false,
+      });
+
+      // Filtered ids only name events, so the arc and the pressure survive; the
+      // relationship is dropped because its effect event did not. The point is
+      // that this is the filtered tree (3), not the metadata total (20).
+      expect(count).toBe(3);
+      expect(mockGraphRepository.checkout).toHaveBeenCalledWith('graph_123', undefined);
+    });
+
+    it('should require an async job above the configured threshold', async () => {
+      const service = new ExportService({
+        dataDir: './test-data',
+        appVersion: '1.0.0-test',
+        asyncExportThreshold: 4,
+      });
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+
+      const decision = await service.shouldUseAsyncExport({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      // metadata: 20 entities > 4
+      expect(decision).toEqual({ entityCount: 20, useAsync: true });
+    });
+
+    it('should stay synchronous at exactly the threshold', async () => {
+      const service = new ExportService({
+        dataDir: './test-data',
+        appVersion: '1.0.0-test',
+        asyncExportThreshold: 20,
+      });
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+
+      const decision = await service.shouldUseAsyncExport({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(decision).toEqual({ entityCount: 20, useAsync: false });
+    });
+
+    it('should default the threshold to 10,000 entities', () => {
+      expect(exportService.asyncExportThreshold).toBe(10_000);
+    });
+  });
+
+  describe('cross-graph references (Req 4.4)', () => {
+    const ref = {
+      referencedGraphId: 'graph_remote',
+      referencedEntityId: 'remote-event',
+      referencedEntityType: 'event' as const,
+    };
+
+    it('should hoist references out of entity metadata into data.crossGraphRefs', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue({
+        events: {
+          event1: {
+            id: 'event1',
+            description: 'Imported event',
+            actor: 'Actor',
+            target: 'Target',
+            timestamp: '2024-01-01T00:00:00Z',
+            metadata: { customField: 'kept', crossGraphRefs: [ref] },
+          },
+        },
+        arcs: {
+          arc1: {
+            id: 'arc1',
+            name: 'Arc',
+            description: 'Imported arc',
+            start_time: '2023-01-01',
+            end_time: '2024-01-01',
+            level: 0,
+            parent_arc_id: null,
+            metadata: { crossGraphRefs: [{ ...ref, referencedEntityType: 'arc' }] },
+          },
+        },
+        relationships: {},
+        pressures: {},
+      });
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(result.export.data.crossGraphRefs).toEqual([
+        { localEntityId: 'event1', localEntityType: 'event', ...ref },
+        {
+          localEntityId: 'arc1',
+          localEntityType: 'arc',
+          ...ref,
+          referencedEntityType: 'arc',
+        },
+      ]);
+
+      // The private storage key is not duplicated into exported metadata.
+      expect(result.export.data.events[0].metadata).toEqual({ customField: 'kept' });
+      expect(result.export.data.arcs[0].metadata).toBeUndefined();
+    });
+
+    it('should keep relationship-local references', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      const mockData = createMockGraphData();
+      mockData.relationships.rel1.metadata = { crossGraphRefs: [ref] };
+      mockGraphRepository.checkout.mockResolvedValue(mockData);
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(result.export.data.crossGraphRefs).toEqual([
+        { localEntityId: 'rel1', localEntityType: 'relationship', ...ref },
+      ]);
+    });
+
+    it('should omit crossGraphRefs when the graph has none', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(result.export.data.crossGraphRefs).toBeUndefined();
+      expect('crossGraphRefs' in result.export.data).toBe(false);
+    });
+
+    it('should not export references belonging to entities the filters exclude', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue({
+        events: {
+          event1: {
+            id: 'event1',
+            description: 'Kept',
+            actor: 'A',
+            target: 'B',
+            timestamp: '2024-01-01T00:00:00Z',
+            metadata: { crossGraphRefs: [ref] },
+          },
+          event2: {
+            id: 'event2',
+            description: 'Filtered out',
+            actor: 'C',
+            target: 'D',
+            timestamp: '2025-01-01T00:00:00Z',
+            metadata: { crossGraphRefs: [ref] },
+          },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      });
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'filtered',
+        filters: { eventIds: ['event1'] },
+        includeProvenance: false,
+      });
+
+      expect(result.export.data.crossGraphRefs).toEqual([
+        { localEntityId: 'event1', localEntityType: 'event', ...ref },
+      ]);
+    });
+
+    it('should drop references without a usable target', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue({
+        events: {
+          event1: {
+            id: 'event1',
+            description: 'Has junk refs',
+            actor: 'Actor',
+            target: 'Target',
+            timestamp: '2024-01-01T00:00:00Z',
+            metadata: {
+              crossGraphRefs: [
+                { referencedEntityId: 'no-graph' },
+                { referencedGraphId: 'g', referencedEntityId: 'e', referencedEntityType: 'pressure' },
+                ref,
+              ],
+            },
+          },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      });
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(result.export.data.crossGraphRefs).toHaveLength(1);
     });
   });
 });

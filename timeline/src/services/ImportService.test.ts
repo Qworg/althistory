@@ -4,7 +4,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ImportService } from './ImportService';
-import { AlthistoryExport } from './ExportService';
+import { AlthistoryExport, ExportService } from './ExportService';
+import { GraphRepository } from '../repositories/GraphRepository';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -1320,6 +1321,314 @@ describe('ImportService', () => {
       // Should warn or error about missing graph reference
       // The validation might pass but with warnings, depending on implementation
       expect(result).toBeTruthy();
+    });
+  });
+
+  // ============================================================================
+  // Req 4.4: cross-graph references survive import and the next export
+  // ============================================================================
+  describe('cross-graph reference preservation', () => {
+    const createExportWithRefs = (
+      remoteEventGraphId: string,
+      remoteArcGraphId: string
+    ): AlthistoryExport =>
+      createValidExport({
+        data: {
+          events: [
+            {
+              id: 'event-1',
+              description: 'Event referencing another graph',
+              actor: 'A',
+              target: 'B',
+              timestamp: '2023-01-01T00:00:00Z',
+            },
+          ],
+          arcs: [
+            {
+              id: 'arc-1',
+              name: 'Arc referencing another graph',
+              description: 'An arc',
+              start_time: '2023-01-01T00:00:00Z',
+              end_time: '2023-12-31T23:59:59Z',
+              level: 0,
+              parent_arc_id: null,
+            },
+          ],
+          causalRelationships: [],
+          inferredPressures: [],
+          crossGraphRefs: [
+            {
+              localEntityId: 'event-1',
+              localEntityType: 'event',
+              referencedGraphId: remoteEventGraphId,
+              referencedEntityId: 'remote-event',
+              referencedEntityType: 'event',
+            },
+            {
+              localEntityId: 'arc-1',
+              localEntityType: 'arc',
+              referencedGraphId: remoteArcGraphId,
+              referencedEntityId: 'remote-arc',
+              referencedEntityType: 'arc',
+            },
+          ],
+        },
+      });
+
+    it('should keep the references on the entities they describe', async () => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const remoteEvents = await repository.create({ name: 'Remote Events' });
+      const remoteArcs = await repository.create({ name: 'Remote Arcs' });
+
+      const result = await importService.executeImport(
+        createExportWithRefs(remoteEvents.id, remoteArcs.id),
+        { mode: 'create-new', conflictResolution: 'skip' }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.errors).toEqual([]);
+
+      const data = await repository.checkout(result.graphId);
+
+      expect(data.events['event-1'].metadata).toMatchObject({
+        crossGraphRefs: [
+          {
+            referencedGraphId: remoteEvents.id,
+            referencedEntityId: 'remote-event',
+            referencedEntityType: 'event',
+          },
+        ],
+      });
+      expect(data.arcs['arc-1'].metadata).toMatchObject({
+        crossGraphRefs: [
+          {
+            referencedGraphId: remoteArcs.id,
+            referencedEntityId: 'remote-arc',
+            referencedEntityType: 'arc',
+          },
+        ],
+      });
+    });
+
+    it('should re-point a reference at the entity id a rename produced', async () => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const remote = await repository.create({ name: 'Rename Remote Graph' });
+
+      const exportWithRef = createValidExport({
+        data: {
+          events: [
+            {
+              id: 'event-1',
+              description: 'Renamed on the second import',
+              actor: 'A',
+              target: 'B',
+              timestamp: '2023-01-01T00:00:00Z',
+            },
+          ],
+          arcs: [],
+          causalRelationships: [],
+          inferredPressures: [],
+          crossGraphRefs: [
+            {
+              localEntityId: 'event-1',
+              localEntityType: 'event',
+              referencedGraphId: remote.id,
+              referencedEntityId: 'remote-event',
+              referencedEntityType: 'event',
+            },
+          ],
+        },
+      });
+
+      const first = await importService.executeImport(exportWithRef, {
+        mode: 'create-new',
+        conflictResolution: 'rename',
+      });
+      expect(first.success).toBe(true);
+
+      // Same export imported again into the same graph: the duplicate id is
+      // renamed, and the stored reference must follow the new id rather than
+      // the stale one it was exported with.
+      const second = await importService.executeImport(exportWithRef, {
+        mode: 'merge',
+        conflictResolution: 'rename',
+        graphId: first.graphId,
+      });
+      expect(second.success).toBe(true);
+
+      const exportService = new ExportService({ dataDir: testDataDir });
+      await exportService.initialize();
+      const reExported = await exportService.exportGraph({
+        graphId: first.graphId,
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      const localIds = (reExported.export.data.crossGraphRefs ?? []).map((ref) => ref.localEntityId);
+      expect(localIds).toContain('event-1');
+      expect(localIds.some((id) => id.startsWith('event-1_imported_'))).toBe(true);
+    });
+
+    it('should preserve entity sourceRef on import and export', async () => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+
+      const exportWithSources = createValidExport({
+        data: {
+          events: [
+            {
+              id: 'event-1',
+              description: 'Sourced event',
+              actor: 'A',
+              target: 'B',
+              timestamp: '2023-01-01T00:00:00Z',
+              sourceRef: 'https://example.com/event-source',
+            },
+          ],
+          arcs: [
+            {
+              id: 'arc-1',
+              name: 'Sourced arc',
+              description: 'Arc',
+              start_time: '2023-01-01T00:00:00Z',
+              end_time: '2023-12-31T00:00:00Z',
+              level: 0,
+              parent_arc_id: null,
+              sourceRef: 'https://example.com/arc-source',
+            },
+          ],
+          causalRelationships: [],
+          inferredPressures: [],
+        },
+      });
+
+      const result = await importService.executeImport(exportWithSources, {
+        mode: 'create-new',
+        conflictResolution: 'skip',
+      });
+      expect(result.success).toBe(true);
+
+      await repository.initialize();
+      const data = await repository.checkout(result.graphId);
+      expect(data.events['event-1'].sourceRef).toBe('https://example.com/event-source');
+      expect(data.arcs['arc-1'].sourceRef).toBe('https://example.com/arc-source');
+
+      const exportService = new ExportService({ dataDir: testDataDir });
+      await exportService.initialize();
+      const reExported = await exportService.exportGraph({
+        graphId: result.graphId,
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(reExported.export.data.events[0].sourceRef).toBe(
+        'https://example.com/event-source'
+      );
+      expect(reExported.export.data.arcs[0].sourceRef).toBe('https://example.com/arc-source');
+    });
+
+    it('should preserve cross-graph relationship endpoints', async () => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const remote = await repository.create({ name: 'Relationship Remote Graph' });
+      const remoteEffect = await repository.create({ name: 'Relationship Remote Effect Graph' });
+
+      const exportWithCrossRelationship = createValidExport({
+        data: {
+          events: [
+            {
+              id: 'event-1',
+              description: 'Local effect',
+              actor: 'A',
+              target: 'B',
+              timestamp: '2023-01-01T00:00:00Z',
+            },
+          ],
+          arcs: [],
+          causalRelationships: [
+            {
+              id: 'rel-1',
+              cause_event_id: 'event-1',
+              effect_event_id: 'event-1',
+              weight: 0.7,
+              evidence: 'Remote cause',
+              confidence: 0.8,
+              relationship_type: 'direct',
+              causeGraphId: remote.id,
+              effectGraphId: remoteEffect.id,
+              sourceRef: 'https://example.com/relationship-source',
+            },
+          ],
+          inferredPressures: [],
+        },
+      });
+
+      const result = await importService.executeImport(exportWithCrossRelationship, {
+        mode: 'create-new',
+        conflictResolution: 'skip',
+      });
+      expect(result.success).toBe(true);
+
+      const data = await repository.checkout(result.graphId);
+      expect(data.relationships['rel-1']).toMatchObject({
+        causeGraphId: remote.id,
+        effectGraphId: remoteEffect.id,
+        sourceRef: 'https://example.com/relationship-source',
+      });
+
+      const exportService = new ExportService({ dataDir: testDataDir });
+      await exportService.initialize();
+      const reExported = await exportService.exportGraph({
+        graphId: result.graphId,
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(reExported.export.data.causalRelationships[0]).toMatchObject({
+        id: 'rel-1',
+        causeGraphId: remote.id,
+        effectGraphId: remoteEffect.id,
+        sourceRef: 'https://example.com/relationship-source',
+      });
+    });
+
+    it('should round-trip through export with the imported ids', async () => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const remoteEvents = await repository.create({ name: 'Round Trip Remote Events' });
+      const remoteArcs = await repository.create({ name: 'Round Trip Remote Arcs' });
+
+      const importResult = await importService.executeImport(
+        createExportWithRefs(remoteEvents.id, remoteArcs.id),
+        { mode: 'create-new', conflictResolution: 'skip' }
+      );
+      expect(importResult.success).toBe(true);
+
+      const exportService = new ExportService({ dataDir: testDataDir });
+      await exportService.initialize();
+      const reExported = await exportService.exportGraph({
+        graphId: importResult.graphId,
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(reExported.export.data.crossGraphRefs).toEqual([
+        {
+          localEntityId: 'event-1',
+          localEntityType: 'event',
+          referencedGraphId: remoteEvents.id,
+          referencedEntityId: 'remote-event',
+          referencedEntityType: 'event',
+        },
+        {
+          localEntityId: 'arc-1',
+          localEntityType: 'arc',
+          referencedGraphId: remoteArcs.id,
+          referencedEntityId: 'remote-arc',
+          referencedEntityType: 'arc',
+        },
+      ]);
     });
   });
 

@@ -1,5 +1,14 @@
 # Implementation Plan
 
+> **Status:** these checkboxes were never maintained. At the time of writing the
+> file was 0/51 while Phases 1-3 of the input/output subsystem were built and
+> tested (`timeline/src/repositories/{Graph,Version}Repository.ts`,
+> `services/{Export,Import,Job}Service.ts`, `routes/{export,import,ingest,stream}.ts`),
+> and the remaining gaps are tracked in
+> [`impl/gap-remediation/README.md`](../../impl/gap-remediation/README.md). Every
+> box below is therefore suspect in both directions; a task-by-task re-audit is
+> tracked in <https://github.com/Qworg/althistory/issues/29>.
+
 ## Phase 1: Foundation (Multi-Graph + Export)
 
 - [ ] 1.1 Create Graph model and types

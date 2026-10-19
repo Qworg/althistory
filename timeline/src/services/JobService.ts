@@ -3,19 +3,19 @@
  */
 
 import { EventEmitter } from 'events';
-import { 
+import {
   AsyncJob, 
   JobStatus,
   JobResult,
   ExportJobParams,
-  ImportJobParams,
-  IngestJobParams,
   CreateExportJobRequest,
   CreateExportJobResponse,
 } from '../models/AsyncJob';
 import { JobRepository, JobFilter, JobStats } from '../repositories/JobRepository';
 import { ExportService, ExportOptions } from './ExportService';
 import { GraphRepository } from '../repositories/GraphRepository';
+import { assertWebhookTarget } from '../utils/webhookTarget';
+import { NotFoundError } from '../utils/errors';
 import { createLogger, ILogger } from '../utils/logger';
 
 export interface JobServiceConfig {
@@ -125,13 +125,85 @@ export class JobService extends EventEmitter {
     await this.exportService.initialize();
     await this.graphRepository.initialize();
 
-    // Recover any stalled jobs from previous runs
+    // Re-queue interrupted exports FIRST. At startup no process owns any
+    // `processing` row, and `recoverStalledJobs` fails every row older than the
+    // timeout -- which includes any export interrupted by a crash when the
+    // restart took longer than that. Doing it in this order means a long
+    // downtime re-queues the export instead of failing it.
+    await this.recoverInterruptedExportJobs();
+
+    // Recover any stalled jobs from previous runs (import/ingest rows that no
+    // owner will adopt are then failed explicitly below).
     const recovered = await this.jobRepository.recoverStalledJobs(this.jobTimeoutMs);
     if (recovered > 0) {
       this.logger.info('Recovered stalled jobs', { count: recovered });
     }
 
+    await this.failOrphanedNonExportJobs();
+
     this.initialized = true;
+  }
+
+  /**
+   * Re-queue export jobs that were `processing` when a previous process died.
+   *
+   * Without this, a `processing` export is unreachable: `getNextPending` only
+   * returns `pending` rows and `cleanupExpiredJobs` only deletes terminal ones,
+   * so the job would report `processing` for ever. It runs before
+   * `recoverStalledJobs` so that downtime longer than the job timeout does not
+   * turn a recoverable export into a failure.
+   *
+   * Re-running is safe in the sense that an export is a pure function of the
+   * graph: it produces the same document. It is not the *same file* -- every run
+   * writes a fresh `export_<graphId>_<timestamp>.json` -- so an interrupted
+   * run's partial file is left on disk rather than overwritten.
+   */
+  private async recoverInterruptedExportJobs(): Promise<void> {
+    const interrupted = await this.jobRepository.findAll({
+      type: 'export',
+      status: 'processing',
+    });
+
+    for (const job of interrupted) {
+      job.status = 'pending';
+      job.progress = 0;
+      job.progressMessage = 'Re-queued after a previous process stopped mid-export';
+      job.startedAt = undefined;
+      await this.jobRepository.update(job);
+      this.logger.warn('Re-queued an interrupted export job', { jobId: job.id });
+    }
+  }
+
+  /**
+   * Fail import/ingest jobs left runnable by a previous process.
+   *
+   * They live in the same store as export jobs but have no owner after a
+   * restart: `ImportService` keeps its in-flight work in memory, and ingestion
+   * runs synchronously in its route. Without this, such a row stays `pending`
+   * forever, because `recoverStalledJobs` only ages out `processing` rows.
+   *
+   * This relies on ordering: `container.initialize()` runs before `setupRoutes`
+   * builds the routers, so the sweep sees the disk state and any `ImportService`
+   * created later starts from it. `JobService` is not the only component with a
+   * `JobRepository` (the container and each import/ingest router build their
+   * own), so if that order changes, a sweep could fail a job another component
+   * is about to run.
+   */
+  private async failOrphanedNonExportJobs(): Promise<void> {
+    const candidates = await this.jobRepository.findAll({
+      status: ['pending', 'processing'],
+    });
+
+    for (const job of candidates) {
+      if (job.type === 'export') continue;
+
+      job.fail(`Job was left ${job.status} by a previous process; re-run the ${job.type}`);
+      await this.jobRepository.update(job);
+      this.logger.warn('Failed orphaned job from a previous process', {
+        jobId: job.id,
+        type: job.type,
+      });
+    }
   }
 
   /**
@@ -191,6 +263,27 @@ export class JobService extends EventEmitter {
       throw new Error(`Graph not found: ${request.graphId}`);
     }
 
+    // Reject an unusable webhook now rather than recording a job whose
+    // completion notification can never be delivered (see
+    // `utils/webhookTarget` for the policy).
+    if (request.webhook) {
+      assertWebhookTarget(request.webhook);
+    }
+
+    // A pinned version has to exist now, not when the worker picks the job up:
+    // otherwise the same request is a 404 on GET /export and on /export/sync
+    // but a 202 here, followed by a failed job.
+    if (request.version !== undefined) {
+      const versionRef = await this.graphRepository.getVersion(request.graphId, request.version);
+      if (!versionRef) {
+        throw new NotFoundError(
+          `Graph version ${request.version} not found`,
+          'GraphVersion',
+          `${request.graphId}@${request.version}`
+        );
+      }
+    }
+
     // Create job parameters
     const params: ExportJobParams = {
       type: 'export',
@@ -198,6 +291,7 @@ export class JobService extends EventEmitter {
       scope: request.scope,
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
+      version: request.version,
     };
 
     // Create the job
@@ -213,6 +307,7 @@ export class JobService extends EventEmitter {
       scope: request.scope,
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
+      version: request.version,
     });
 
     // Estimate time based on size (rough: 1MB/sec)
@@ -225,34 +320,6 @@ export class JobService extends EventEmitter {
       estimatedSize,
       estimatedTime,
     };
-  }
-
-  /**
-   * Create an import job (placeholder for Phase 2)
-   */
-  async createImportJob(params: Omit<ImportJobParams, 'type'>, webhookUrl?: string): Promise<string> {
-    const job = await this.jobRepository.create({
-      type: 'import',
-      parameters: { type: 'import', ...params },
-      webhookUrl,
-    });
-
-    this.emit('jobCreated', { jobId: job.id, type: 'import' });
-    return job.id;
-  }
-
-  /**
-   * Create an ingest job (placeholder for Phase 3)
-   */
-  async createIngestJob(params: Omit<IngestJobParams, 'type'>, webhookUrl?: string): Promise<string> {
-    const job = await this.jobRepository.create({
-      type: 'ingest',
-      parameters: { type: 'ingest', ...params },
-      webhookUrl,
-    });
-
-    this.emit('jobCreated', { jobId: job.id, type: 'ingest' });
-    return job.id;
   }
 
   /**
@@ -335,7 +402,13 @@ export class JobService extends EventEmitter {
     const availableSlots = this.maxConcurrentJobs - this.activeJobs.size;
     
     for (let i = 0; i < availableSlots; i++) {
-      const job = await this.jobRepository.getNextPending();
+      // These jobs live in the same store but are not this worker's to run:
+      // `ImportService` executes imports itself in-process, and ingestion is
+      // synchronous in the ingest route. The type filter is what keeps a job
+      // written by another service from being failed here with the wrong
+      // reason; `failOrphanedNonExportJobs` handles rows left by a previous
+      // process, which no in-process owner will ever adopt.
+      const job = await this.jobRepository.getNextPending('export');
       if (!job) break;
 
       // Skip if already processing
@@ -365,11 +438,14 @@ export class JobService extends EventEmitter {
           result = await this.executeExportJob(job);
           break;
         case 'import':
-          result = await this.executeImportJob(job);
-          break;
         case 'ingest':
-          result = await this.executeIngestJob(job);
-          break;
+          // Defensive: `processNextJobs` only claims export jobs, so this is
+          // reachable only if the repository hands back a type it was not asked
+          // for.
+          throw new Error(
+            `Job type '${job.type}' is not executed by JobService ` +
+              '(imports are owned by ImportService, ingestion by the ingest route)'
+          );
         default:
           throw new Error(`Unknown job type: ${job.type}`);
       }
@@ -400,23 +476,23 @@ export class JobService extends EventEmitter {
   private async executeExportJob(job: AsyncJob): Promise<JobResult> {
     const params = job.parameters as ExportJobParams;
 
-    // Update progress: starting
-    this.emitProgress(job.id, 10, 'Starting export...');
+    await this.reportProgress(job, 10, 'Starting export...');
 
     const options: ExportOptions = {
       graphId: params.graphId,
       scope: params.scope,
       filters: params.filters,
       includeProvenance: params.includeProvenance,
+      // Carried through the job parameters so a pinned export does not silently
+      // export the head once it crosses the async threshold.
+      version: params.version,
     };
 
-    // Update progress: exporting
-    this.emitProgress(job.id, 50, 'Generating export file...');
+    await this.reportProgress(job, 50, 'Generating export file...');
 
     const filePath = await this.exportService.exportToFile(options);
 
-    // Update progress: complete
-    this.emitProgress(job.id, 100, 'Export complete');
+    await this.reportProgress(job, 100, 'Export complete');
 
     return {
       outputPath: filePath,
@@ -427,14 +503,20 @@ export class JobService extends EventEmitter {
     };
   }
 
-  private async executeImportJob(_job: AsyncJob): Promise<JobResult> {
-    // Placeholder for Phase 2
-    throw new Error('Import jobs not yet implemented');
-  }
-
-  private async executeIngestJob(_job: AsyncJob): Promise<JobResult> {
-    // Placeholder for Phase 3
-    throw new Error('Ingest jobs not yet implemented');
+  /**
+   * Persist progress as well as emitting it. `GET /export/jobs/:id` serves the
+   * stored job, so an event-only update leaves the caller polling a job that
+   * stays at 0% until it completes.
+   */
+  private async reportProgress(
+    job: AsyncJob,
+    progress: number,
+    message: string
+  ): Promise<void> {
+    job.updateProgress(progress);
+    job.progressMessage = message;
+    await this.jobRepository.update(job);
+    this.emitProgress(job.id, progress, message);
   }
 
   private emitProgress(jobId: string, progress: number, message?: string): void {
@@ -553,6 +635,20 @@ export class JobService extends EventEmitter {
     webhookUrl: string,
     payload: string
   ): Promise<WebhookAttemptResult> {
+    // Validate (and normalize) the caller-supplied destination before any
+    // request is made. An invalid destination is terminal: retrying cannot make
+    // it valid. The fetch below uses this checked value, never the raw field.
+    let endpoint: string;
+    try {
+      endpoint = assertWebhookTarget(webhookUrl);
+    } catch (error) {
+      return {
+        delivered: false,
+        retryable: false,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+
     let timedOut = false;
     const controller = new AbortController();
     this.webhookControllers.add(controller);
@@ -563,13 +659,17 @@ export class JobService extends EventEmitter {
     this.webhookTimeoutTimers.add(timeoutId);
 
     try {
-      const response = await fetch(webhookUrl, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: payload,
         signal: controller.signal,
+        // A redirect would re-POST this body to a destination that was never
+        // validated -- the exact hop the SSRF check exists to stop. Refuse it
+        // and let the 3xx fall through as a non-retryable failure.
+        redirect: 'manual',
       });
 
       if (response.ok) {

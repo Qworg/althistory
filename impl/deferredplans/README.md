@@ -2,16 +2,22 @@
 
 ## Overview
 
-This directory contains comprehensive implementation plans for addressing the 89 deferred tests across 11 test suites identified in `DEFERREDFIXES.md`. The plans are organized by category, with each plan providing a detailed roadmap for resolution.
+These are the plans and the record of the work that resolved the 89 deferred
+frontend tests identified in the original `DEFERREDFIXES.md`. All four are
+complete: neither package has a skipped or disabled test today (backend
+1689 passed / 88 files, frontend 1652 passed / 100 files at the time of writing —
+re-measure, do not copy). They are kept as the design record for the test
+infrastructure, not as pending work.
 
 ## Plan Summary
 
-| Plan | Category | Tests Affected | Priority | Effort | Status |
-|------|----------|---------------|----------|--------|--------|
-| [01-timeline-architecture-refactor.md](./01-timeline-architecture-refactor.md) | Component Architecture | 65+ tests | HIGH | 2-3 weeks | 📋 Planned |
-| [02-cytoscape-mocking-strategy.md](./02-cytoscape-mocking-strategy.md) | Library Mocking | 8 tests | MEDIUM | 1-2 weeks | 📋 Planned |
-| [03-modal-testing-strategy.md](./03-modal-testing-strategy.md) | Integration Tests | 30+ tests | LOW | 3-4 weeks | 📋 Planned |
-| [04-causal-graph-advanced-features.md](./04-causal-graph-advanced-features.md) | Advanced Features | 17 tests | LOW | 2-3 weeks | 📋 Planned |
+| Plan | Category | Outcome | Status |
+|------|----------|---------|--------|
+| [01-timeline-architecture-refactor.md](./01-timeline-architecture-refactor.md) | Component Architecture | Timeline rebuilt on `useTimelineScales` / `useTimelineEventHandlers`; D3 used for calculations only (see `ADR-001-d3-react-integration.md`) | ✅ Complete |
+| [02-cytoscape-mocking-strategy.md](./02-cytoscape-mocking-strategy.md) | Library Mocking | `test/__mocks__/cytoscape.ts` + `helpers/cytoscapeTestHelpers.ts`; mock contract pinned by `test/__mocks__/cytoscape.test.ts` | ✅ Complete |
+| [03-modal-testing-strategy.md](./03-modal-testing-strategy.md) | Integration Tests | Modal suites pass; `a11yTestHelpers.ts` and vitest-axe assertions in place | ✅ Complete |
+| [04-causal-graph-advanced-features.md](./04-causal-graph-advanced-features.md) | Advanced Features | Causal graph, layout manager and path explorer suites pass | ✅ Complete |
+| [05-parallel-remediation-plan.md](./05-parallel-remediation-plan.md) | Remediation record | Ground-truth baseline (84 failed) and the anti-cheat audit of the fixes that followed | ✅ Complete |
 
 ## Recommended Execution Order
 
@@ -111,10 +117,10 @@ frontend/src/test/
 
 ## Getting Started
 
-1. **Review the deferred fixes document**: Read `DEFERREDFIXES.md` for full context
-2. **Start with Plan 01**: Timeline is the highest priority
-3. **Set up test infrastructure**: Create mock files as outlined
-4. **Follow the phased approach**: Complete each plan before moving to the next
+These plans describe how the suite reached its current state; there is no
+remaining work to schedule from them. For current test status read
+[`DEFERREDFIXES.md`](../../DEFERREDFIXES.md); for the current quality gates read
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
 
 ## Contributing
 
@@ -127,7 +133,7 @@ When implementing fixes:
 
 ## References
 
-- [DEFERREDFIXES.md](../../DEFERREDFIXES.md) - Original analysis document
+- [DEFERREDFIXES.md](../../DEFERREDFIXES.md) - Current test status
 - [React Testing Library Best Practices](https://testing-library.com/docs/react-testing-library/intro/)
 - [Vitest Documentation](https://vitest.dev/)
 - [D3.js + React Patterns](https://d3js.org/)

@@ -8,6 +8,7 @@ import * as path from 'path';
 import { GraphRepository } from '../repositories/GraphRepository';
 import { ResolvedGraphData } from '../repositories/VersionRepository';
 import { ExportFilters } from '../models/AsyncJob';
+import { NotFoundError } from '../utils/errors';
 
 /**
  * Althistory Export Format v1.0
@@ -124,15 +125,33 @@ export interface ExportOptions {
 export interface ExportResult {
   export: AlthistoryExport;
   size: number;
+  /** Entities written to `data` (events + arcs + relationships + pressures). */
+  entityCount: number;
 }
 
 export interface ExportServiceConfig {
   dataDir: string;
   appVersion?: string;
+  /**
+   * Entity count above which an export must run as an async job instead of an
+   * in-memory response (Req 5.4). Defaults to
+   * `DEFAULT_ASYNC_EXPORT_ENTITY_THRESHOLD`.
+   */
+  asyncExportThreshold?: number;
 }
 
 // Maximum size for in-memory exports (50MB)
 const MAX_IN_MEMORY_EXPORT_SIZE = 50 * 1024 * 1024;
+
+/**
+ * Req 5.4: "WHEN exporting a large graph (>10k entities) THEN the system SHALL
+ * create an async job with progress tracking."
+ *
+ * This is an entity count, not a byte estimate. A graph can be large in
+ * entities while still serialising to a modest file, and the synchronous
+ * endpoints are bounded by how much work they do, not only by response size.
+ */
+const DEFAULT_ASYNC_EXPORT_ENTITY_THRESHOLD = 10_000;
 
 /**
  * Service for exporting graph data
@@ -142,12 +161,16 @@ export class ExportService {
   private readonly dataDir: string;
   private readonly appVersion: string;
   private readonly maxInMemorySize: number;
+  /** Entity count above which an export must run as an async job (Req 5.4). */
+  readonly asyncExportThreshold: number;
 
   constructor(config: ExportServiceConfig) {
     this.dataDir = config.dataDir;
     this.appVersion = config.appVersion || '1.0.0';
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
     this.maxInMemorySize = MAX_IN_MEMORY_EXPORT_SIZE;
+    this.asyncExportThreshold =
+      config.asyncExportThreshold ?? DEFAULT_ASYNC_EXPORT_ENTITY_THRESHOLD;
   }
 
   /**
@@ -171,17 +194,38 @@ export class ExportService {
       throw new Error(`Graph not found: ${options.graphId}`);
     }
 
-    // Check estimated size before proceeding with in-memory export
-    const estimatedSize = await this.estimateExportSize(options);
+    // Resolve the version before reading anything: a pinned version that does
+    // not exist is a client error, not whatever the version store throws, and
+    // `graphVersion` must name the version the data actually came from.
+    // `graph.version` is a metadata counter that also advances on metadata-only
+    // updates (see `GraphRepository`), so it is not the numbering `?version=`
+    // accepts.
+    const versionRef = await this.resolveVersionRef(options);
+
+    let data: ResolvedGraphData;
+    let estimatedSize: number;
+
+    if (options.version !== undefined) {
+      // A pinned tree has to be read before it can be measured; reuse that
+      // read rather than checking the same version out again below.
+      data = await this.graphRepository.checkout(
+        options.graphId,
+        versionRef?.version ?? options.version
+      );
+      estimatedSize = this.estimateExportSizeFromData(data);
+    } else {
+      // The latest-version estimate comes from `graph.metadata`, so the guard
+      // still runs before the tree is loaded into memory.
+      estimatedSize = await this.estimateExportSize(options);
+      data = await this.graphRepository.checkout(options.graphId, versionRef?.version);
+    }
+
     if (estimatedSize > this.maxInMemorySize) {
       throw new Error(
         `Export too large for in-memory operation (estimated ${Math.round(estimatedSize / 1024 / 1024)}MB, max ${Math.round(this.maxInMemorySize / 1024 / 1024)}MB). ` +
         `Use exportToFile() for large exports or create an async export job.`
       );
     }
-
-    // Get graph data
-    const data = await this.graphRepository.checkout(options.graphId, options.version);
 
     // Apply filters if specified
     const filteredData = options.scope === 'filtered' && options.filters
@@ -200,7 +244,7 @@ export class ExportService {
         description: graph.description,
         exportedAt: new Date().toISOString(),
         sourceVersion: this.appVersion,
-        graphVersion: graph.version,
+        graphVersion: versionRef?.version ?? 0,
         checksum: '', // Will be calculated
         filters: options.scope === 'filtered' ? options.filters : undefined,
       },
@@ -223,7 +267,85 @@ export class ExportService {
     return {
       export: exportObj,
       size,
+      entityCount: this.countExportDataEntities(exportData),
     };
+  }
+
+  /**
+   * The committed version an export is built from: the pinned one, or the head.
+   * Absent history yields `null` (an empty graph), which callers label as 0.
+   */
+  private async resolveVersionRef(options: ExportOptions) {
+    if (options.version === undefined) {
+      return this.graphRepository.getLatestVersion(options.graphId);
+    }
+
+    const versionRef = await this.graphRepository.getVersion(options.graphId, options.version);
+    if (!versionRef) {
+      throw new NotFoundError(
+        `Graph version ${options.version} not found`,
+        'GraphVersion',
+        `${options.graphId}@${options.version}`
+      );
+    }
+
+    return versionRef;
+  }
+
+  /**
+   * Count the entities an export would contain, without serialising it.
+   *
+   * Used to decide whether Req 5.4 requires an async job. For an unfiltered
+   * export of the latest version the count comes from `graph.metadata`, which
+   * `GraphRepository.commitChanges` recomputes on every commit, so the decision
+   * does not load the whole graph. A filtered or pinned-version export falls
+   * back to loading that exact tree, because neither the metadata counts nor
+   * the filter predicates can be evaluated without it.
+   */
+  async countEntities(options: ExportOptions): Promise<number> {
+    const useMetadata =
+      options.version === undefined &&
+      !(options.scope === 'filtered' && options.filters !== undefined);
+
+    if (useMetadata) {
+      const graph = await this.graphRepository.findById(options.graphId);
+      if (!graph) {
+        throw new Error(`Graph not found: ${options.graphId}`);
+      }
+
+      const { eventCount, arcCount, relationshipCount, pressureCount } = graph.metadata;
+      return eventCount + arcCount + relationshipCount + pressureCount;
+    }
+
+    // A pinned version that does not exist is a 404, not a 500 from the
+    // version store's own throw.
+    if (options.version !== undefined) {
+      await this.resolveVersionRef(options);
+    }
+
+    const data = await this.graphRepository.checkout(options.graphId, options.version);
+    const scoped =
+      options.scope === 'filtered' && options.filters
+        ? this.applyFilters(data, options.filters)
+        : data;
+
+    return (
+      Object.keys(scoped.events).length +
+      Object.keys(scoped.arcs).length +
+      Object.keys(scoped.relationships).length +
+      Object.keys(scoped.pressures).length
+    );
+  }
+
+  /**
+   * Apply the Req 5.4 async rule: more than `asyncExportThreshold` entities
+   * must become a job rather than an in-memory response.
+   */
+  async shouldUseAsyncExport(
+    options: ExportOptions
+  ): Promise<{ entityCount: number; useAsync: boolean }> {
+    const entityCount = await this.countEntities(options);
+    return { entityCount, useAsync: entityCount > this.asyncExportThreshold };
   }
 
   /**
@@ -261,18 +383,49 @@ export class ExportService {
       throw new Error(`Graph not found: ${options.graphId}`);
     }
 
-    // Get counts from metadata
-    const metadata = graph.metadata;
-    
-    // Rough estimate: ~500 bytes per event, ~300 per arc, ~200 per relationship
-    const estimatedSize = 
-      (metadata.eventCount * 500) +
-      (metadata.arcCount * 300) +
-      (metadata.relationshipCount * 200) +
-      (metadata.pressureCount * 400) +
-      2000; // Metadata overhead
+    // A pinned version is estimated from that tree: the metadata counts
+    // describe the head, and using them would reject a small historical export
+    // because the head happens to be large. Resolving first turns a missing
+    // version into the same NotFoundError every other read path produces.
+    if (options.version !== undefined) {
+      await this.resolveVersionRef(options);
+      const data = await this.graphRepository.checkout(options.graphId, options.version);
+      return this.estimateExportSizeFromData(data);
+    }
 
-    return estimatedSize;
+    const metadata = graph.metadata;
+    return this.estimateFromCounts(
+      metadata.eventCount,
+      metadata.arcCount,
+      metadata.relationshipCount,
+      metadata.pressureCount
+    );
+  }
+
+  /** Estimate a tree that has already been resolved. */
+  private estimateExportSizeFromData(data: ResolvedGraphData): number {
+    return this.estimateFromCounts(
+      Object.keys(data.events).length,
+      Object.keys(data.arcs).length,
+      Object.keys(data.relationships).length,
+      Object.keys(data.pressures).length
+    );
+  }
+
+  /** Rough estimate: ~500 bytes per event, ~300 per arc, ~200 per relationship. */
+  private estimateFromCounts(
+    eventCount: number,
+    arcCount: number,
+    relationshipCount: number,
+    pressureCount: number
+  ): number {
+    return (
+      eventCount * 500 +
+      arcCount * 300 +
+      relationshipCount * 200 +
+      pressureCount * 400 +
+      2000 // Metadata overhead
+    );
   }
 
   /**
@@ -454,17 +607,20 @@ export class ExportService {
     const arcs: ExportedArc[] = [];
     const relationships: ExportedRelationship[] = [];
     const pressures: ExportedPressure[] = [];
+    const crossGraphRefs: CrossGraphRef[] = [];
 
     // Convert events
     for (const [id, event] of Object.entries(data.events)) {
       const e = event as Record<string, unknown>;
+      const { metadata, refs } = this.takeCrossGraphRefs(e.metadata, id, 'event');
+      crossGraphRefs.push(...refs);
       events.push({
         id,
         description: e.description as string,
         actor: e.actor as string,
         target: e.target as string,
         timestamp: e.timestamp as string,
-        metadata: e.metadata as Record<string, unknown> | undefined,
+        metadata,
         sourceRef: e.sourceRef as string | undefined,
       });
     }
@@ -472,6 +628,8 @@ export class ExportService {
     // Convert arcs
     for (const [id, arc] of Object.entries(data.arcs)) {
       const a = arc as Record<string, unknown>;
+      const { metadata, refs } = this.takeCrossGraphRefs(a.metadata, id, 'arc');
+      crossGraphRefs.push(...refs);
       arcs.push({
         id,
         name: a.name as string,
@@ -480,7 +638,7 @@ export class ExportService {
         end_time: a.end_time as string,
         level: a.level as number,
         parent_arc_id: a.parent_arc_id as string | null,
-        metadata: a.metadata as Record<string, unknown> | undefined,
+        metadata,
         sourceRef: a.sourceRef as string | undefined,
       });
     }
@@ -488,6 +646,8 @@ export class ExportService {
     // Convert relationships
     for (const [id, rel] of Object.entries(data.relationships)) {
       const r = rel as Record<string, unknown>;
+      const { refs } = this.takeCrossGraphRefs(r.metadata, id, 'relationship');
+      crossGraphRefs.push(...refs);
       relationships.push({
         id,
         cause_event_id: r.cause_event_id as string,
@@ -520,7 +680,80 @@ export class ExportService {
       arcs,
       causalRelationships: relationships,
       inferredPressures: pressures,
+      // Omitted entirely when the graph has none, so the key's absence keeps
+      // meaning "no cross-graph references" (Req 4.4).
+      ...(crossGraphRefs.length > 0 ? { crossGraphRefs } : {}),
     };
+  }
+
+  /**
+   * Split the cross-graph references an import stored next to an entity out of
+   * its metadata.
+   *
+   * `ImportService` keeps them in `metadata.crossGraphRefs` because the entity
+   * commit path copies metadata verbatim and the format defines no per-entity
+   * field for them. They belong in `data.crossGraphRefs` on export, where the
+   * format does declare them, so this hoists rather than duplicates them: the
+   * returned metadata no longer carries the private key.
+   *
+   * `localEntityId`/`localEntityType` are taken from the containing entity, not
+   * from the stored copy, so an id renamed during import cannot produce a ref
+   * that points at the stale id. Entries without a referenced graph, entity or
+   * valid referenced type are dropped: they carry no usable reference.
+   */
+  private takeCrossGraphRefs(
+    metadata: unknown,
+    localEntityId: string,
+    localEntityType: CrossGraphRef['localEntityType']
+  ): { metadata: Record<string, unknown> | undefined; refs: CrossGraphRef[] } {
+    if (!metadata || typeof metadata !== 'object') {
+      return { metadata: undefined, refs: [] };
+    }
+
+    const source = metadata as Record<string, unknown>;
+    if (!('crossGraphRefs' in source)) {
+      return { metadata: source, refs: [] };
+    }
+
+    const { crossGraphRefs: rawRefs, ...rest } = source;
+    const refs: CrossGraphRef[] = [];
+
+    if (Array.isArray(rawRefs)) {
+      for (const raw of rawRefs) {
+        if (!raw || typeof raw !== 'object') continue;
+        const candidate = raw as Record<string, unknown>;
+        const referencedGraphId = candidate.referencedGraphId;
+        const referencedEntityId = candidate.referencedEntityId;
+        const referencedEntityType = candidate.referencedEntityType;
+
+        if (typeof referencedGraphId !== 'string' || referencedGraphId.length === 0) continue;
+        if (typeof referencedEntityId !== 'string' || referencedEntityId.length === 0) continue;
+        if (referencedEntityType !== 'event' && referencedEntityType !== 'arc') continue;
+
+        refs.push({
+          localEntityId,
+          localEntityType,
+          referencedGraphId,
+          referencedEntityId,
+          referencedEntityType,
+        });
+      }
+    }
+
+    return {
+      metadata: Object.keys(rest).length > 0 ? rest : undefined,
+      refs,
+    };
+  }
+
+  /** Entities an export payload contains, in the Req 5.4 sense. */
+  private countExportDataEntities(data: ExportData): number {
+    return (
+      data.events.length +
+      data.arcs.length +
+      data.causalRelationships.length +
+      data.inferredPressures.length
+    );
   }
 
   private async getProvenance(graphId: string): Promise<ExportProvenance> {
