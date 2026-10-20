@@ -20,9 +20,9 @@ data
 coverage
 **/coverage
 
-# Local secrets and editor state. Env files must never enter an image: config.ts
-# loads .env.local with `override: true`, so a baked-in copy would silently
-# override the container's environment (e.g. forcing local execution mode).
+# Local secrets and editor state. Env files must never enter an image: a
+# developer's .env.local is a local override, and a baked-in copy is one more
+# thing that can disagree with the container's settings.
 .env
 **/.env
 **/.env.local

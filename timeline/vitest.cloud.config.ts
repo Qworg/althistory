@@ -25,16 +25,21 @@ export default defineConfig({
       'src/repositories/ArcRepository.test.ts',
       'src/services/GraphCopyService.test.ts',
     ],
-    // These suites share one Neo4j instance and clean up `test_`-prefixed data
-    // in their own hooks, so running the files concurrently makes them race.
-    // One file at a time also keeps the schema-drop suite (database.test.ts,
-    // which sorts last) from pulling constraints out from under the others.
+    // These suites share one Neo4j instance and each deletes every node with
+    // its label in its own hooks, so running the files concurrently makes them
+    // race. One file at a time also keeps the schema-drop suite
+    // (database.test.ts) from pulling constraints out from under the others,
+    // whichever order the runner picks.
     fileParallelism: false,
     testTimeout: 60000,
     hookTimeout: 60000,
     teardownTimeout: 60000,
     // Never silently pass by running nothing: an empty match is a failure.
     passWithNoTests: false,
+    // Fail the run outright if these suites would talk to the local store
+    // instead of Neo4j. They used to, and they still "passed" -- see
+    // `src/test/cloud-guard.setup.ts`.
+    setupFiles: ['./src/test/cloud-guard.setup.ts'],
   },
   resolve: {
     alias: {
