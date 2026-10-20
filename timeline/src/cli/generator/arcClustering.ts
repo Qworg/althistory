@@ -3,6 +3,31 @@ import { ExtractedEvent, ExtractedArc, ExtractionSource } from '@/services/inges
 /**
  * Clusters an array of extracted events into hierarchical narrative arcs
  * based on temporal proximity and dominant actors.
+ *
+ * DECISION (issue #35): this is deliberately NOT the same algorithm as
+ * `InferenceService.clusterEventsIntoArcs`, and it does not delegate to it.
+ * The two solve different problems and merging them would change output:
+ *
+ * - Boundary detection: the CLI picks the boundary adaptively, from the median
+ *   gap between adjacent events (3x the median, or 5 years when there are
+ *   fewer than four events). The API clusters on a caller-supplied fixed
+ *   window (`temporalWindowDays`), which a user can set per request.
+ * - Cluster shape: the CLI also caps a cluster at 8 events; the API has no
+ *   such cap and only a minimum size.
+ * - Output contract: the CLI emits `ExtractedArc` ingestion records (tempId,
+ *   level, source, selected, edited) that a human then curates before they
+ *   become arcs. The API emits advisory `ArcSuggestion` values (computed
+ *   confidence and a human-readable reason) that are only a hint.
+ * - Naming: the CLI names an arc after its dominant actor and a year span;
+ *   the API names it after its actors and a duration in days.
+ *
+ * The shared idea -- "group events that are close in time" -- is the only
+ * thing in common, and the algorithms produce different arcs for the same
+ * input. Keeping one implementation would have meant changing the CLI's
+ * output, so the two are kept apart on purpose. The API-side algorithm lives
+ * in `InferenceService` (its single home) and is covered by
+ * `src/services/InferenceService.arcSuggestion.test.ts`; this file is covered
+ * by `src/cli/ingest.test.ts`.
  */
 export function clusterEventsIntoArcs(
   events: ExtractedEvent[],

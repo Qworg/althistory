@@ -7,6 +7,12 @@ import request from 'supertest';
 import express, { Request } from 'express';
 import { suggestRoutes } from './suggest';
 import { errorHandler } from '@/api/middleware';
+import { InferenceService } from '@/services/InferenceService';
+import type {
+  ArcClusterEvent,
+  CausalRelationshipRef,
+  CompletenessEvent,
+} from '@/services/InferenceService';
 
 // Mock the middleware module before importing routes
 vi.mock('@/api/middleware', async () => {
@@ -63,9 +69,22 @@ describe('Suggest Routes', () => {
       findCausalChain: vi.fn().mockResolvedValue([]),
     };
 
+    // The arc and completeness algorithms live in InferenceService. The route
+    // only wires the request to them, so the mock delegates to a real
+    // instance and the HTTP assertions exercise the production behaviour.
+    const realInferenceService = new InferenceService();
+
     mockInferenceService = {
       suggestCausalLinks: vi.fn().mockReturnValue([]),
       analyzeEventClusters: vi.fn().mockReturnValue([]),
+      clusterEventsIntoArcs: vi.fn(
+        (events: ArcClusterEvent[], temporalWindowDays: number, minClusterSize: number) =>
+          realInferenceService.clusterEventsIntoArcs(events, temporalWindowDays, minClusterSize)
+      ),
+      analyzeCompleteness: vi.fn(
+        (events: CompletenessEvent[], relationships: CausalRelationshipRef[]) =>
+          realInferenceService.analyzeCompleteness(events, relationships)
+      ),
     };
 
     mockGraphScopedRepositories = vi.fn().mockResolvedValue({
@@ -221,6 +240,37 @@ describe('Suggest Routes', () => {
       expect(Array.isArray(response.body.suggestions)).toBe(true);
     });
 
+    it('should delegate the clustering to the inference service', async () => {
+      const events = [];
+      for (let i = 0; i < 5; i++) {
+        const date = new Date('1914-06-15');
+        date.setDate(date.getDate() + i * 5);
+        events.push({
+          id: `e${i}`,
+          description: `Event ${i}`,
+          actor: 'Actor',
+          target: 'Target',
+          timestamp: date.toISOString(),
+        });
+      }
+
+      const response = await request(app)
+        .post('/api/suggest/arcs')
+        .set('X-API-Key', 'valid-read-key')
+        .send({ events, options: { minClusterSize: 3, temporalWindow: 'P30D' } })
+        .expect(200);
+
+      expect(mockInferenceService.clusterEventsIntoArcs).toHaveBeenCalledWith(
+        expect.any(Array),
+        30,
+        3
+      );
+      // The HTTP body is the service result, unchanged.
+      expect(response.body.suggestions).toHaveLength(1);
+      expect(response.body.suggestions[0].eventIds).toEqual(['e0', 'e1', 'e2', 'e3', 'e4']);
+      expect(response.body.suggestions[0].name).toBe('Actor (20 days)');
+    });
+
     it('should respect minimum cluster size', async () => {
       const response = await request(app)
         .post('/api/suggest/arcs')
@@ -285,6 +335,29 @@ describe('Suggest Routes', () => {
       expect(response.body.gaps.temporalGaps).toBeDefined();
       expect(response.body.gaps.actorGaps).toBeDefined();
       expect(response.body.gaps.causalGaps).toBeDefined();
+    });
+
+    it('should delegate the completeness analysis to the inference service', async () => {
+      mockEventRepository.findAll.mockResolvedValue([
+        { id: 'e1', description: 'Event 1', actor: 'A', target: 'B', timestamp: '1914-06-28T00:00:00.000Z' },
+        { id: 'e2', description: 'Event 2', actor: 'A', target: 'B', timestamp: '1914-07-28T00:00:00.000Z' },
+      ]);
+
+      const response = await request(app)
+        .post('/api/suggest/completeness')
+        .set('X-API-Key', 'valid-read-key')
+        .send({})
+        .expect(200);
+
+      expect(mockInferenceService.analyzeCompleteness).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.any(Array)
+      );
+      // The HTTP body is the service result, unchanged.
+      expect(response.body.gaps).toBeDefined();
+      expect(response.body.suggestions).toContain(
+        'No causal relationships defined. Add relationships between events to show cause and effect.'
+      );
     });
   });
 
