@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { KeyUsageStats } from './KeyUsageStats'
+import { KeyCountSummary } from './KeyCountSummary'
 
-describe('KeyUsageStats', () => {
+describe('KeyCountSummary', () => {
   it('shows the active and total key counters', () => {
     render(
-      <KeyUsageStats
+      <KeyCountSummary
         stats={{ total: 5, active: 2, inactive: 2, expired: 1 }}
       />
     )
@@ -14,7 +14,7 @@ describe('KeyUsageStats', () => {
   })
 
   it('renders nothing while the stats are unknown', () => {
-    const { container } = render(<KeyUsageStats stats={undefined} />)
+    const { container } = render(<KeyCountSummary stats={undefined} />)
 
     expect(container).toBeEmptyDOMElement()
   })

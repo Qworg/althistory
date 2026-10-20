@@ -1,11 +1,16 @@
 /**
- * useApiKeys -- data access unit of the API key dashboard.
+ * useApiKeyDashboard -- data access unit of the API key dashboard.
  *
  * The dashboard component no longer talks to React Query directly: it asks
- * this hook for the key list, the usage stats and the create/revoke/delete
+ * this hook for the key list, the aggregate stats and the create/revoke/delete
  * mutations. The underlying queries, mutations and their cache invalidation
  * live in `@/hooks/useApiKeys`; this unit is the single place the dashboard
  * binds them together and where mutation failures are reported.
+ *
+ * The name is deliberately not `useApiKeys`: that is the design's name for the
+ * lower-level hook in `@/hooks/useApiKeys`, which still exists and still owns
+ * the queries. Two exported hooks with the same name and different contracts
+ * would make an auto-import pick the wrong one.
  */
 
 import { useCallback } from 'react'
@@ -18,7 +23,7 @@ import {
 } from '@/hooks/useApiKeys'
 import type { ApiKey, ApiKeyStats, CreateApiKeyRequest, CreateApiKeyResponse } from '@/types'
 
-export interface UseApiKeysResult {
+export interface UseApiKeyDashboardResult {
   /** The API keys known to the server. */
   readonly keys: ApiKey[]
   /** Aggregate usage stats, undefined until they have loaded. */
@@ -48,37 +53,45 @@ export interface UseApiKeysResult {
  * Provides the API key dashboard with its queries, mutations and
  * invalidation.
  */
-export function useApiKeys(): UseApiKeysResult {
+export function useApiKeyDashboard(): UseApiKeyDashboardResult {
   const { data, isLoading, error } = useApiKeysQuery()
   const { data: stats } = useApiKeyStatsQuery()
   const createMutation = useCreateApiKeyMutation()
   const revokeMutation = useRevokeApiKeyMutation()
   const deleteMutation = useDeleteApiKeyMutation()
 
+  // The dependencies are the mutation's stable members, not the mutation
+  // object: `useMutation` returns a new object on every render, so depending
+  // on it would rebuild these callbacks every render -- and the memoized list
+  // item would never skip one either.
+  const { mutateAsync: createAsync } = createMutation
+  const { mutateAsync: revokeAsync } = revokeMutation
+  const { mutateAsync: deleteAsync } = deleteMutation
+
   const createKey = useCallback(async (request: CreateApiKeyRequest): Promise<CreateApiKeyResponse | null> => {
     try {
-      return await createMutation.mutateAsync(request)
+      return await createAsync(request)
     } catch (err) {
       console.error('Failed to create API key:', err)
       return null
     }
-  }, [createMutation])
+  }, [createAsync])
 
   const revokeKey = useCallback(async (id: string): Promise<void> => {
     try {
-      await revokeMutation.mutateAsync(id)
+      await revokeAsync(id)
     } catch (err) {
       console.error('Failed to revoke API key:', err)
     }
-  }, [revokeMutation])
+  }, [revokeAsync])
 
   const deleteKey = useCallback(async (id: string): Promise<void> => {
     try {
-      await deleteMutation.mutateAsync(id)
+      await deleteAsync(id)
     } catch (err) {
       console.error('Failed to delete API key:', err)
     }
-  }, [deleteMutation])
+  }, [deleteAsync])
 
   return {
     keys: data?.keys || [],

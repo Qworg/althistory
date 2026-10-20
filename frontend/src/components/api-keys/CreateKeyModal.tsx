@@ -12,15 +12,20 @@ import type { CreateApiKeyRequest, Permission } from '@/types'
 import { PERMISSION_GROUPS, PERMISSION_LABELS } from './permissions'
 
 export interface CreateKeyModalProps {
-  /** Whether the create view is showing. */
-  readonly isOpen: boolean
-  /** Called with the create request when the form is submitted. */
+  /**
+   * Called with the create request when the form is submitted.
+   *
+   * There is no `isOpen`: the form is mounted only while the create view is
+   * showing, so the prop could only ever be `true`. Keeping it would suggest
+   * the component could be mounted and hidden, and then its form state would
+   * survive a Cancel that currently resets it.
+   */
   readonly onCreate: (request: CreateApiKeyRequest) => void
   /** Whether a create request is in flight. */
   readonly isLoading: boolean
 }
 
-export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({ isOpen, onCreate, isLoading }) => {
+export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({ onCreate, isLoading }) => {
   const [name, setName] = useState('')
   const [permissionPreset, setPermissionPreset] = useState<'readOnly' | 'readWrite' | 'full' | 'custom'>('readOnly')
   const [customPermissions, setCustomPermissions] = useState<Permission[]>([])
@@ -29,9 +34,11 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({ isOpen, onCreate
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
+    // The preset arrays are readonly and shared, so they are copied into the
+    // request: the request body must not be the same array the module holds.
     const permissions = permissionPreset === 'custom'
-      ? customPermissions
-      : PERMISSION_GROUPS[permissionPreset]
+      ? [...customPermissions]
+      : [...PERMISSION_GROUPS[permissionPreset]]
 
     onCreate({
       name,
@@ -47,8 +54,6 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({ isOpen, onCreate
         : [...prev, permission]
     )
   }
-
-  if (!isOpen) return null
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">

@@ -4,17 +4,25 @@
  *
  * This component is the composition root of the feature: it owns the modal
  * chrome and the view switching, while the extracted units own the rest --
- * `useApiKeys` (queries, mutations, invalidation), `CreateKeyModal` (the
- * create form), `KeyListItem` (a key in the list) and `KeyUsageStats` (the
- * usage counters in the footer).
+ * `useApiKeyDashboard` (the dashboard's data access), `CreateKeyModal` (the
+ * create form), `KeyListItem` (a key in the list) and `KeyCountSummary` (the
+ * key counters in the footer).
+ *
+ * The design's four names are `useApiKeys`, `CreateKeyModal`, `KeyListItem`
+ * and `KeyUsageStats`. Two of them are used here under names that describe
+ * what they do: the design's `useApiKeys` is the lower-level hook in
+ * `@/hooks/useApiKeys`, which still owns the queries and the invalidation,
+ * and the design's `KeyUsageStats` is a per-key usage view (Req 20.4) that
+ * this feature does not have -- the footer shows counts, so it is
+ * `KeyCountSummary`. Req 20.4 is tracked as #45.
  */
 
 import React, { useState, useCallback } from 'react'
 import { ModalBase } from '@/components/modals/ModalBase'
-import { useApiKeys } from './useApiKeys'
+import { useApiKeyDashboard } from './useApiKeyDashboard'
 import { CreateKeyModal } from './CreateKeyModal'
 import { KeyListItem } from './KeyListItem'
-import { KeyUsageStats } from './KeyUsageStats'
+import { KeyCountSummary } from './KeyCountSummary'
 import type { ApiKey, CreateApiKeyRequest, CreateApiKeyResponse } from '@/types'
 
 interface ApiKeyDashboardProps {
@@ -38,7 +46,7 @@ export const ApiKeyDashboard: React.FC<ApiKeyDashboardProps> = ({ isOpen, onClos
     createKey,
     revokeKey,
     deleteKey,
-  } = useApiKeys()
+  } = useApiKeyDashboard()
 
   const handleCreateKey = useCallback(async (request: CreateApiKeyRequest) => {
     const response = await createKey(request)
@@ -147,7 +155,7 @@ export const ApiKeyDashboard: React.FC<ApiKeyDashboardProps> = ({ isOpen, onClos
       size="3xl"
       footer={
         <div className="flex justify-between items-center">
-          <KeyUsageStats stats={stats} />
+          <KeyCountSummary stats={stats} />
           <div className="flex gap-2">
             {view === 'create' ? (
               <button
@@ -170,7 +178,6 @@ export const ApiKeyDashboard: React.FC<ApiKeyDashboardProps> = ({ isOpen, onClos
     >
       {view === 'create' ? (
         <CreateKeyModal
-          isOpen={view === 'create'}
           onCreate={handleCreateKey}
           isLoading={isCreating}
         />

@@ -23,9 +23,15 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'admin': 'Admin',
 }
 
-/** Permission presets offered by the create form. */
+/**
+ * Permission presets offered by the create form.
+ *
+ * The arrays are readonly: they are handed straight into the request body, so
+ * a caller that mutated one would change the preset for every later create.
+ * `admin` is deliberately in no preset -- it is not offered by the form.
+ */
 export const PERMISSION_GROUPS = {
-  readOnly: ['read:events', 'read:arcs', 'read:relationships', 'read:graphs', 'export'] as Permission[],
-  readWrite: ['read:events', 'write:events', 'read:arcs', 'write:arcs', 'read:relationships', 'write:relationships', 'read:graphs', 'write:graphs', 'export', 'import'] as Permission[],
-  full: ['read:events', 'write:events', 'read:arcs', 'write:arcs', 'read:relationships', 'write:relationships', 'read:graphs', 'write:graphs', 'export', 'import', 'ingest'] as Permission[],
-}
+  readOnly: ['read:events', 'read:arcs', 'read:relationships', 'read:graphs', 'export'],
+  readWrite: ['read:events', 'write:events', 'read:arcs', 'write:arcs', 'read:relationships', 'write:relationships', 'read:graphs', 'write:graphs', 'export', 'import'],
+  full: ['read:events', 'write:events', 'read:arcs', 'write:arcs', 'read:relationships', 'write:relationships', 'read:graphs', 'write:graphs', 'export', 'import', 'ingest'],
+} as const satisfies Record<string, readonly Permission[]>

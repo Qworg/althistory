@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import React from 'react'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useApiKeys } from './useApiKeys'
+import { useApiKeyDashboard } from './useApiKeyDashboard'
 import type { ApiKey, ApiKeyStats, CreateApiKeyRequest, CreateApiKeyResponse } from '@/types'
 
 const { mockGetAll, mockGetStats, mockCreate, mockRevoke, mockDelete } = vi.hoisted(() => ({
@@ -79,7 +79,7 @@ function createWrapper() {
   }
 }
 
-describe('useApiKeys', () => {
+describe('useApiKeyDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetAll.mockResolvedValue({ keys: [sampleKey], total: 1 })
@@ -90,7 +90,7 @@ describe('useApiKeys', () => {
   })
 
   it('exposes the loaded keys and the usage stats', async () => {
-    const { result } = renderHook(() => useApiKeys(), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useApiKeyDashboard(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.isLoading).toBe(false)
@@ -104,7 +104,7 @@ describe('useApiKeys', () => {
   it('reports an empty key list while the query is still loading', () => {
     mockGetAll.mockReturnValue(new Promise(() => {}))
 
-    const { result } = renderHook(() => useApiKeys(), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useApiKeyDashboard(), { wrapper: createWrapper() })
 
     expect(result.current.isLoading).toBe(true)
     expect(result.current.keys).toEqual([])
@@ -113,7 +113,7 @@ describe('useApiKeys', () => {
   it('surfaces the error of a failed key query', async () => {
     mockGetAll.mockRejectedValue(new Error('boom'))
 
-    const { result } = renderHook(() => useApiKeys(), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useApiKeyDashboard(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.error).toBeInstanceOf(Error)
@@ -122,7 +122,7 @@ describe('useApiKeys', () => {
   })
 
   it('creates a key and refreshes the key list through invalidation', async () => {
-    const { result } = renderHook(() => useApiKeys(), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useApiKeyDashboard(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.keys).toHaveLength(1)
@@ -145,7 +145,7 @@ describe('useApiKeys', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     mockCreate.mockRejectedValue(new Error('nope'))
 
-    const { result } = renderHook(() => useApiKeys(), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useApiKeyDashboard(), { wrapper: createWrapper() })
 
     let response: CreateApiKeyResponse | null = createdKey
     await act(async () => {
@@ -158,7 +158,7 @@ describe('useApiKeys', () => {
   })
 
   it('revokes a key', async () => {
-    const { result } = renderHook(() => useApiKeys(), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useApiKeyDashboard(), { wrapper: createWrapper() })
 
     await act(async () => {
       await result.current.revokeKey('key-1')
@@ -168,7 +168,7 @@ describe('useApiKeys', () => {
   })
 
   it('deletes a key', async () => {
-    const { result } = renderHook(() => useApiKeys(), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useApiKeyDashboard(), { wrapper: createWrapper() })
 
     await act(async () => {
       await result.current.deleteKey('key-1')
@@ -182,7 +182,7 @@ describe('useApiKeys', () => {
     mockRevoke.mockRejectedValue(new Error('revoke failed'))
     mockDelete.mockRejectedValue(new Error('delete failed'))
 
-    const { result } = renderHook(() => useApiKeys(), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useApiKeyDashboard(), { wrapper: createWrapper() })
 
     await act(async () => {
       await expect(result.current.revokeKey('key-1')).resolves.toBeUndefined()

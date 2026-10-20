@@ -2,25 +2,17 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CreateKeyModal } from './CreateKeyModal'
-import { PERMISSION_GROUPS } from './permissions'
 import type { CreateApiKeyRequest } from '@/types'
 
 function renderModal(props: Partial<React.ComponentProps<typeof CreateKeyModal>> = {}) {
   const onCreate = vi.fn()
   const utils = render(
-    <CreateKeyModal isOpen onCreate={onCreate} isLoading={false} {...props} />
+    <CreateKeyModal onCreate={onCreate} isLoading={false} {...props} />
   )
   return { ...utils, onCreate }
 }
 
 describe('CreateKeyModal', () => {
-  it('renders nothing while it is closed', () => {
-    renderModal({ isOpen: false })
-
-    expect(screen.queryByRole('button', { name: 'Create API Key' })).not.toBeInTheDocument()
-    expect(screen.queryByPlaceholderText('e.g., Production API Key')).not.toBeInTheDocument()
-  })
-
   it('renders the name, permission and expiration fields', () => {
     renderModal()
 
@@ -48,9 +40,11 @@ describe('CreateKeyModal', () => {
     await user.type(screen.getByPlaceholderText('e.g., Production API Key'), 'Production API Key')
     await user.click(screen.getByRole('button', { name: 'Create API Key' }))
 
+    // The literal permissions, not the module's own arrays: comparing the
+    // code against itself would pass even if a preset quietly gained `admin`.
     const expected: CreateApiKeyRequest = {
       name: 'Production API Key',
-      permissions: PERMISSION_GROUPS.readOnly,
+      permissions: ['read:events', 'read:arcs', 'read:relationships', 'read:graphs', 'export'],
       expiresAt: undefined,
     }
     expect(onCreate).toHaveBeenCalledWith(expected)
@@ -100,7 +94,7 @@ describe('CreateKeyModal', () => {
 
     expect(onCreate).toHaveBeenCalledWith({
       name: 'Production API Key',
-      permissions: PERMISSION_GROUPS.readOnly,
+      permissions: ['read:events', 'read:arcs', 'read:relationships', 'read:graphs', 'export'],
       expiresAt: '2030-01-01T00:00',
     })
   })

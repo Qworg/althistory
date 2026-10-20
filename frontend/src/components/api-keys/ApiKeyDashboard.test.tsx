@@ -80,7 +80,9 @@ describe('ApiKeyDashboard', () => {
 
     expect(screen.getByText('API Key Management')).toBeInTheDocument()
     expect(await screen.findByText('Production Key')).toBeInTheDocument()
-    expect(screen.getByText('1 active / 2 total keys')).toBeInTheDocument()
+    // The stats come from their own query, so they are awaited rather than
+    // read synchronously.
+    expect(await screen.findByText('1 active / 2 total keys')).toBeInTheDocument()
   })
 
   it('shows the empty state when there is no key', async () => {
@@ -151,7 +153,11 @@ describe('ApiKeyDashboard', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Revoke' }))
 
-    expect(confirmSpy).toHaveBeenCalled()
+    // The message matters: a confirmation that says the wrong thing is a
+    // confirmation the user cannot act on.
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringContaining('revoke this API key')
+    )
     expect(mockRevoke).toHaveBeenCalledWith('key-1')
   })
 
@@ -168,13 +174,28 @@ describe('ApiKeyDashboard', () => {
 
   it('deletes a key once the user confirmed', async () => {
     const user = userEvent.setup()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     renderDashboard()
 
     await user.click(await screen.findByRole('button', { name: 'Delete' }))
 
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringContaining('permanently delete')
+    )
     expect(mockDelete).toHaveBeenCalledWith('key-1')
+  })
+
+  it('does not delete a key when the user declines', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+    renderDashboard()
+
+    await user.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    // The delete is irreversible, so the confirmation has to gate it.
+    expect(mockDelete).not.toHaveBeenCalled()
   })
 
   it('cancels the create view without creating a key', async () => {
