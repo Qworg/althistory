@@ -19,6 +19,7 @@ import { initializeContainer, cleanupContainer, Container } from '@/container';
 import { apiRouter } from '@/api/routes';
 import { errorHandler, injectContainer } from '@/api/middleware';
 import { IGraph } from '@/models/Graph';
+import { ValidationError } from '@/utils/errors';
 import type { CopyResult as GraphCopyServiceResult } from '@/services/GraphCopyService';
 
 describe('Graph routes (request-level)', () => {
@@ -383,5 +384,90 @@ describe('Graph routes (request-level)', () => {
         expect(mergeSpy).not.toHaveBeenCalled();
       }
     );
+
+    it('accepts a harmonized compromise payload and passes it to the service', async () => {
+      const mergeSpy = vi
+        .spyOn(container.graphService, 'mergeGraph')
+        .mockResolvedValue({ success: true, newVersion: 1 });
+
+      const mergedValue = {
+        description: 'Blended',
+        actor: 'Actor 1',
+        target: 'Target 1',
+        timestamp: '2024-01-01T00:00:00Z',
+      };
+
+      const response = await request(app)
+        .post(`/api/graphs/${sourceGraph.id}/merge`)
+        .set('X-API-Key', writeKey)
+        .send({
+          sourceGraphId: sourceGraph.id,
+          conflictResolution: 'manual',
+          manualResolutions: {
+            'event:event-1': { strategy: 'merged', value: mergedValue },
+          },
+        })
+        .expect(200);
+
+      expect(mergeSpy).toHaveBeenCalledWith(
+        sourceGraph.id,
+        expect.objectContaining({
+          conflictResolution: 'manual',
+          manualResolutions: {
+            'event:event-1': { strategy: 'merged', value: mergedValue },
+          },
+        })
+      );
+      expect(response.body.success).toBe(true);
+    });
+
+    it.each([
+      ['a payload that is not an object', { strategy: 'merged', value: 'everything' }],
+      ['a payload that is an array', { strategy: 'merged', value: ['a'] }],
+      ['a payload that is null', { strategy: 'merged', value: null }],
+      ['an unknown strategy', { strategy: 'blend', value: { description: 'x' } }],
+    ])('rejects %s as a harmonized compromise', async (_label, invalidValue) => {
+      const mergeSpy = vi
+        .spyOn(container.graphService, 'mergeGraph')
+        .mockResolvedValue({ success: true, newVersion: 1 });
+
+      const response = await request(app)
+        .post(`/api/graphs/${sourceGraph.id}/merge`)
+        .set('X-API-Key', writeKey)
+        .send({
+          sourceGraphId: sourceGraph.id,
+          conflictResolution: 'manual',
+          manualResolutions: { 'event:any': invalidValue },
+        })
+        .expect(400);
+
+      expect(response.body.error.message).toContain('manualResolutions');
+      expect(mergeSpy).not.toHaveBeenCalled();
+    });
+
+    it('reports a payload the service refuses as a 400', async () => {
+      // The service refuses a payload that would corrupt the entity; the
+      // route has to surface that as a client error rather than a 500.
+      vi.spyOn(container.graphService, 'mergeGraph').mockRejectedValue(
+        new ValidationError(
+          "The merge was refused: The merged event 'event1' is not usable: timestamp must stay a string",
+          'manualResolutions'
+        )
+      );
+
+      const response = await request(app)
+        .post(`/api/graphs/${sourceGraph.id}/merge`)
+        .set('X-API-Key', writeKey)
+        .send({
+          sourceGraphId: sourceGraph.id,
+          conflictResolution: 'manual',
+          manualResolutions: {
+            'event:event-1': { strategy: 'merged', value: { timestamp: 1 } },
+          },
+        })
+        .expect(400);
+
+      expect(response.body.error.message).toContain('must stay a string');
+    });
   });
 });

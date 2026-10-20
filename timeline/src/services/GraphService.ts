@@ -29,6 +29,10 @@ import {
 } from '../repositories/GraphRepository';
 import { ResolvedGraphData, EntityChanges, StaleVersionError } from '../repositories/VersionRepository';
 import { ValidationError, NotFoundError } from '../utils/errors';
+import {
+  validateMergedEntity,
+  describeMergedEntityProblems,
+} from './mergedEntityValidation';
 import { createLogger, ILogger } from '../utils/logger';
 
 /**
@@ -37,6 +41,16 @@ import { createLogger, ILogger } from '../utils/logger';
  * forever.
  */
 const MAX_MERGE_ATTEMPTS = 5;
+
+/**
+ * Whether a record really has a key of its own.
+ *
+ * A plain truthiness lookup would find `Object.prototype` members, so an id of
+ * "constructor" or "toString" would look like an entity that exists.
+ */
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
 
 export interface GraphServiceConfig {
   dataDir: string;
@@ -449,6 +463,19 @@ export class GraphService {
       // Detect conflicts
       const conflicts = this.detectMergeConflicts(targetData, sourceData);
 
+      // A blended payload can change any field of the entity it resolves, so
+      // it is checked before it is applied: a payload that changes a field's
+      // type, drops a field, or renames the entity would otherwise be
+      // committed as a graph the rest of the system cannot read.
+      //
+      // Only a manual merge reads the map at all, so only a manual merge is
+      // checked: a leftover entry in a `keep-source` request is ignored, and
+      // refusing it would make the request fail for a reason the caller did
+      // not ask about.
+      if (resolution === 'manual') {
+        this.assertMergedPayloadsAreUsable(conflicts, request.manualResolutions);
+      }
+
       // Compute changes for candidate merged graph
       const candidateChanges = this.calculateMergeChanges(
         targetData,
@@ -718,6 +745,46 @@ export class GraphService {
     }
   }
 
+  /**
+   * Refuse a merge whose blended payloads would corrupt an entity.
+   *
+   * Only conflicts that are being resolved with a blended payload are
+   * checked; `keep-target` and `keep-source` cannot corrupt anything, because
+   * they copy an entity that already exists.
+   */
+  private assertMergedPayloadsAreUsable(
+    conflicts: MergeConflict[],
+    manualResolutions?: Record<string, ManualResolution>
+  ): void {
+    const problems: string[] = [];
+
+    for (const conflict of conflicts) {
+      const key = `${conflict.entityType}:${conflict.entityId}`;
+      const resolution = manualResolutions?.[key];
+      if (typeof resolution !== 'object' || resolution === null) continue;
+      if (resolution.strategy !== 'merged') continue;
+
+      const found = validateMergedEntity(
+        conflict.entityType,
+        conflict.targetVersion,
+        resolution.value,
+        conflict.sourceVersion
+      );
+      if (found.length > 0) {
+        problems.push(describeMergedEntityProblems(conflict.entityType, conflict.entityId, found));
+      }
+    }
+
+    if (problems.length > 0) {
+      throw new ValidationError(
+        `The merge was refused: ${problems.join('. ')}`,
+        'manualResolutions',
+        manualResolutions,
+        problems
+      );
+    }
+  }
+
   private calculateMergeChanges(
     target: ResolvedGraphData,
     source: ResolvedGraphData,
@@ -796,24 +863,33 @@ export class GraphService {
   ): MergeAnomaly[] {
     const anomalies: MergeAnomaly[] = [];
 
-    // Construct candidate state for events and relationships
+    // Construct candidate state for every entity type. Arcs and pressures are
+    // included because they carry references too: an arc names its parent, a
+    // pressure names the events and arcs it rests on. A blended payload can
+    // move those references, so the candidate -- not the target -- is what has
+    // to stay consistent.
     const candidateEvents: Record<string, Record<string, unknown>> = { ...targetData.events };
     const candidateRels: Record<string, Record<string, unknown>> = { ...targetData.relationships };
+    const candidateArcs: Record<string, Record<string, unknown>> = { ...targetData.arcs };
+    const candidatePressures: Record<string, Record<string, unknown>> = { ...targetData.pressures };
+
+    const applyToCandidate = (
+      type: string,
+      id: string,
+      data: Record<string, unknown>
+    ): void => {
+      if (type === 'event') candidateEvents[id] = data;
+      else if (type === 'relationship') candidateRels[id] = data;
+      else if (type === 'arc') candidateArcs[id] = data;
+      else if (type === 'pressure') candidatePressures[id] = data;
+    };
 
     for (const add of changes.added) {
-      if (add.type === 'event') {
-        candidateEvents[add.id] = add.data;
-      } else if (add.type === 'relationship') {
-        candidateRels[add.id] = add.data;
-      }
+      applyToCandidate(add.type, add.id, add.data);
     }
 
     for (const mod of changes.modified) {
-      if (mod.type === 'event') {
-        candidateEvents[mod.id] = mod.data;
-      } else if (mod.type === 'relationship') {
-        candidateRels[mod.id] = mod.data;
-      }
+      applyToCandidate(mod.type, mod.id, mod.data);
     }
 
     // 1. Causal cycle detection on candidate relationships
@@ -900,14 +976,14 @@ export class GraphService {
       const cause = candidateEvents[causeId];
       const effect = candidateEvents[effectId];
 
-      if (!cause) {
+      if (!cause || !hasOwn(candidateEvents, causeId)) {
         anomalies.push({
           type: 'orphan_relationship',
           message: `Causal relationship ${relId} references non-existent cause event ${causeId}`,
           details: { relationshipId: relId, missingEventId: causeId },
         });
       }
-      if (!effect) {
+      if (!effect || !hasOwn(candidateEvents, effectId)) {
         anomalies.push({
           type: 'orphan_relationship',
           message: `Causal relationship ${relId} references non-existent effect event ${effectId}`,
@@ -936,7 +1012,136 @@ export class GraphService {
       }
     }
 
+    // 3. References from arcs and pressures must survive the merge.
+    //
+    // A relationship's references are checked above, but an arc names its
+    // parent arc and a pressure names the events and arcs it rests on. A
+    // blended payload can point any of those at an entity that does not
+    // exist, which would leave the merged graph referring to nothing.
+    //
+    // Only entities the merge CHANGED are checked. A reference that was
+    // already dangling in the target is not this merge's doing -- deleting an
+    // event cascades to relationships but not to pressures, so a graph can
+    // carry one -- and refusing every merge because of it would make the
+    // graph unmergeable rather than repairing it.
+    const changedArcIds = new Set([
+      ...changes.added.filter((c) => c.type === 'arc').map((c) => c.id),
+      ...changes.modified.filter((c) => c.type === 'arc').map((c) => c.id),
+    ]);
+    const changedPressureIds = new Set([
+      ...changes.added.filter((c) => c.type === 'pressure').map((c) => c.id),
+      ...changes.modified.filter((c) => c.type === 'pressure').map((c) => c.id),
+    ]);
+
+    for (const arcId of changedArcIds) {
+      const arc = candidateArcs[arcId];
+      if (!arc) continue;
+      const parentId = arc.parent_arc_id;
+
+      // A missing parent is fine (a root arc); a parent that is not an id at
+      // all is not.
+      if (parentId === undefined || parentId === null) continue;
+      if (typeof parentId !== 'string') {
+        anomalies.push({
+          type: 'orphan_reference',
+          message: `Arc ${arcId} has a parent that is not an arc id: ${String(parentId)}`,
+          details: { entityType: 'arc', entityId: arcId, missingEntityId: String(parentId) },
+        });
+        continue;
+      }
+      if (parentId.length === 0 || !hasOwn(candidateArcs, parentId)) {
+        anomalies.push({
+          type: 'orphan_reference',
+          message: `Arc ${arcId} references non-existent parent arc ${parentId}`,
+          details: { entityType: 'arc', entityId: arcId, missingEntityId: parentId },
+        });
+      }
+    }
+
+    for (const pressureId of changedPressureIds) {
+      const pressure = candidatePressures[pressureId];
+      if (!pressure) continue;
+
+      const evidenceEventIds = pressure.evidence_event_ids;
+      if (Array.isArray(evidenceEventIds)) {
+        for (const eventId of evidenceEventIds) {
+          if (typeof eventId === 'string' && eventId.length > 0 && hasOwn(candidateEvents, eventId)) {
+            continue;
+          }
+          anomalies.push({
+            type: 'orphan_reference',
+            message: `Pressure ${pressureId} references non-existent event ${String(eventId)}`,
+            details: { entityType: 'pressure', entityId: pressureId, missingEntityId: String(eventId) },
+          });
+        }
+      }
+
+      const affectedArcIds = pressure.affected_arc_ids;
+      if (Array.isArray(affectedArcIds)) {
+        for (const arcId of affectedArcIds) {
+          if (typeof arcId === 'string' && arcId.length > 0 && hasOwn(candidateArcs, arcId)) {
+            continue;
+          }
+          anomalies.push({
+            type: 'orphan_reference',
+            message: `Pressure ${pressureId} references non-existent arc ${String(arcId)}`,
+            details: { entityType: 'pressure', entityId: pressureId, missingEntityId: String(arcId) },
+          });
+        }
+      }
+    }
+
+    // 4. The arc hierarchy must stay acyclic.
+    //
+    // `ImportService` refuses a circular arc hierarchy, so a merge that
+    // creates one would produce a graph that can no longer be exported and
+    // re-imported.
+    const arcCycle = this.detectArcHierarchyCycle(candidateArcs, changedArcIds);
+    if (arcCycle) {
+      anomalies.push({
+        type: 'arc_cycle',
+        message: `Circular arc reference detected: ${arcCycle.join(' → ')}`,
+        details: { cycle: arcCycle },
+      });
+    }
+
     return anomalies;
+  }
+
+  /**
+   * Find a cycle in the arc hierarchy, if the merge created one.
+   *
+   * Only arcs the merge changed can start a cycle, so the walk starts there.
+   */
+  private detectArcHierarchyCycle(
+    candidateArcs: Record<string, Record<string, unknown>>,
+    changedArcIds: Set<string>
+  ): string[] | null {
+    for (const startId of changedArcIds) {
+      const path: string[] = [];
+      const seen = new Set<string>();
+      let currentId: string | undefined = startId;
+
+      while (currentId !== undefined) {
+        if (seen.has(currentId)) {
+          const cycleStart = path.indexOf(currentId);
+          return [...path.slice(cycleStart), currentId];
+        }
+        seen.add(currentId);
+        path.push(currentId);
+
+        // The annotations matter: `currentId` is assigned from the arc below,
+        // so without them TypeScript cannot narrow the types and reports a
+        // circular inference.
+        const arc: Record<string, unknown> | undefined = candidateArcs[currentId];
+        if (!arc) break;
+        const parentId: unknown = arc.parent_arc_id;
+        if (typeof parentId !== 'string' || parentId.length === 0) break;
+        currentId = parentId;
+      }
+    }
+
+    return null;
   }
 
   private async notifyGraphDeleted(graphId: string): Promise<void> {
