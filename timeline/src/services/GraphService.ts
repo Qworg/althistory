@@ -892,13 +892,31 @@ export class GraphService {
       applyToCandidate(mod.type, mod.id, mod.data);
     }
 
+    // Which entities the merge changed. A relationship's checks below are
+    // scoped to these: a causal problem that was already in the target is not
+    // this merge's doing, and refusing every merge because of it would make
+    // the graph unmergeable rather than repairing it. (Editing an event's
+    // timestamp can leave an inversion behind, because the paradox check only
+    // runs when a link is created.)
+    const changedRelIds = new Set([
+      ...changes.added.filter((c) => c.type === 'relationship').map((c) => c.id),
+      ...changes.modified.filter((c) => c.type === 'relationship').map((c) => c.id),
+    ]);
+    const changedEventIds = new Set([
+      ...changes.added.filter((c) => c.type === 'event').map((c) => c.id),
+      ...changes.modified.filter((c) => c.type === 'event').map((c) => c.id),
+    ]);
+
     // 1. Causal cycle detection on candidate relationships
     const adj = new Map<string, string[]>();
+    // The relationship each edge came from, so a cycle can be traced back to
+    // the relationships involved.
+    const edgeSource = new Map<string, string[]>();
     for (const [relId, rel] of Object.entries(candidateRels)) {
       const causeId = (rel.cause_event_id || rel.causeEventId || rel.causeId) as string | undefined;
       const effectId = (rel.effect_event_id || rel.effectEventId || rel.effectId) as string | undefined;
       if (causeId && effectId) {
-        if (causeId === effectId) {
+        if (causeId === effectId && changedRelIds.has(relId)) {
           anomalies.push({
             type: 'causal_cycle',
             message: `Self-causation detected: event ${causeId} cannot cause itself`,
@@ -908,6 +926,9 @@ export class GraphService {
         const list = adj.get(causeId) || [];
         list.push(effectId);
         adj.set(causeId, list);
+        const sources = edgeSource.get(causeId) || [];
+        sources.push(relId);
+        edgeSource.set(causeId, sources);
       }
     }
 
@@ -960,6 +981,14 @@ export class GraphService {
     }
 
     for (const cycle of cycles) {
+      // A cycle that the merge did not touch is not this merge's doing.
+      const involvesChange = cycle.some(
+        (eventId) =>
+          changedEventIds.has(eventId) ||
+          (edgeSource.get(eventId) ?? []).some((relId) => changedRelIds.has(relId))
+      );
+      if (!involvesChange) continue;
+
       anomalies.push({
         type: 'causal_cycle',
         message: `Causal cycle detected: ${cycle.join(' -> ')}`,
@@ -972,6 +1001,14 @@ export class GraphService {
       const causeId = (rel.cause_event_id || rel.causeEventId || rel.causeId) as string | undefined;
       const effectId = (rel.effect_event_id || rel.effectEventId || rel.effectId) as string | undefined;
       if (!causeId || !effectId) continue;
+
+      // The relationship itself changed, or one of its endpoints did: a
+      // merged event's new timestamp can invert a relationship nobody touched.
+      const affectedByMerge =
+        changedRelIds.has(relId) ||
+        changedEventIds.has(causeId) ||
+        changedEventIds.has(effectId);
+      if (!affectedByMerge) continue;
 
       const cause = candidateEvents[causeId];
       const effect = candidateEvents[effectId];
@@ -994,12 +1031,18 @@ export class GraphService {
       if (cause && effect) {
         const causeTime = new Date((cause.timestamp || cause.time) as string | number | Date).getTime();
         const effectTime = new Date((effect.timestamp || effect.time) as string | number | Date).getTime();
-        if (!isNaN(causeTime) && !isNaN(effectTime) && causeTime >= effectTime) {
+        // Strictly after, not "at or after". Two events with the same
+        // timestamp do not invert: the effect does not precede the cause.
+        // The importer uses the same rule (`ImportService` checks
+        // `causeTime > effectTime`), so a graph the importer accepts must not
+        // be refused by the merge. Day-level timestamps make simultaneous
+        // causal pairs common in historical data.
+        if (!isNaN(causeTime) && !isNaN(effectTime) && causeTime > effectTime) {
           const causeDesc = (cause.description || cause.id || causeId) as string;
           const effectDesc = (effect.description || effect.id || effectId) as string;
           anomalies.push({
             type: 'temporal_inversion',
-            message: `Temporal paradox: cause "${causeDesc}" occurs at or after effect "${effectDesc}"`,
+            message: `Temporal paradox: cause "${causeDesc}" occurs after effect "${effectDesc}"`,
             details: {
               relationshipId: relId,
               causeId,

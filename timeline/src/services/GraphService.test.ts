@@ -1457,6 +1457,175 @@ describe('GraphService', () => {
       expect(dryResult.dryRun).toBe(true);
       expect(dryResult.anomalies?.some(a => a.type === 'temporal_inversion')).toBe(true);
     });
+
+    it('should not report a temporal inversion for simultaneous events', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      const events = {
+        e1: { id: 'e1', description: 'First', timestamp: '2024-01-01T00:00:00Z' },
+        e2: { id: 'e2', description: 'Second', timestamp: '2024-01-01T00:00:00Z' },
+      };
+      const targetData: ResolvedGraphData = {
+        events: { ...events },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+      const sourceData: ResolvedGraphData = {
+        events: { ...events },
+        arcs: {},
+        relationships: {
+          r_simultaneous: {
+            id: 'r_simultaneous',
+            cause_event_id: 'e1',
+            effect_event_id: 'e2',
+          },
+        },
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+
+      const dryResult = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'keep-target',
+        dryRun: true,
+      });
+
+      // The effect does not precede the cause, so this is not an inversion.
+      // The importer accepts the same pair (`causeTime > effectTime`).
+      expect(dryResult.anomalies?.some((a) => a.type === 'temporal_inversion')).toBe(false);
+      // And the relationship really was in the candidate: a clean merge with
+      // no anomalies at all, rather than a merge that never saw the edge.
+      expect(dryResult.success).toBe(true);
+      expect(dryResult.anomalies ?? []).toEqual([]);
+    });
+
+    it('should refuse a merge that introduces self-causation', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      const events = {
+        e1: { id: 'e1', description: 'First', timestamp: '2024-01-01T00:00:00Z' },
+      };
+      const targetData: ResolvedGraphData = {
+        events: { ...events },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+      const sourceData: ResolvedGraphData = {
+        events: { ...events },
+        arcs: {},
+        relationships: {
+          r_self: { id: 'r_self', cause_event_id: 'e1', effect_event_id: 'e1' },
+        },
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+
+      const dryResult = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'keep-target',
+        dryRun: true,
+      });
+
+      expect(dryResult.success).toBe(false);
+      expect(dryResult.anomalies?.some((a) => a.type === 'causal_cycle')).toBe(true);
+    });
+
+    it('should report an inversion for a cause one millisecond after the effect', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      const targetData: ResolvedGraphData = {
+        events: {
+          e_late: { id: 'e_late', description: 'Late', timestamp: '2024-01-02T00:00:00.001Z' },
+          e_early: { id: 'e_early', description: 'Early', timestamp: '2024-01-02T00:00:00.000Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+      const sourceData: ResolvedGraphData = {
+        events: { ...targetData.events },
+        arcs: {},
+        relationships: {
+          r_inverted: { id: 'r_inverted', cause_event_id: 'e_late', effect_event_id: 'e_early' },
+        },
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+
+      const dryResult = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'keep-target',
+        dryRun: true,
+      });
+
+      // The margin is one millisecond, not a day: the comparison is on
+      // instants, not on dates.
+      expect(dryResult.anomalies?.some((a) => a.type === 'temporal_inversion')).toBe(true);
+    });
+
+    it('should report no anomalies for a clean merge', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      const targetData: ResolvedGraphData = {
+        events: {
+          e1: { id: 'e1', description: 'First', timestamp: '2024-01-01T00:00:00Z' },
+          e2: { id: 'e2', description: 'Second', timestamp: '2024-01-02T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {
+          r_ok: { id: 'r_ok', cause_event_id: 'e1', effect_event_id: 'e2' },
+        },
+        pressures: {},
+      };
+      const sourceData: ResolvedGraphData = {
+        events: {
+          e1: { id: 'e1', description: 'First', timestamp: '2024-01-01T00:00:00Z' },
+          e2: { id: 'e2', description: 'Second', timestamp: '2024-01-02T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {
+          r_ok: { id: 'r_ok', cause_event_id: 'e1', effect_event_id: 'e2' },
+        },
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph)
+        .mockResolvedValue(targetGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+
+      const dryResult = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'keep-target',
+        dryRun: true,
+      });
+
+      expect(dryResult.success).toBe(true);
+      expect(dryResult.anomalies ?? []).toEqual([]);
+    });
   });
 
   describe('getGraphData', () => {

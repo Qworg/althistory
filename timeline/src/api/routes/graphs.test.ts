@@ -445,6 +445,53 @@ describe('Graph routes (request-level)', () => {
       expect(mergeSpy).not.toHaveBeenCalled();
     });
 
+    it('returns the anomalies of a refused dry run', async () => {
+      // A dry run that finds a causal cycle is refused with 409 and the
+      // anomalies, so the caller can see what is wrong before writing.
+      vi.spyOn(container.graphService, 'mergeGraph').mockResolvedValue({
+        success: false,
+        dryRun: true,
+        conflicts: [],
+        anomalies: [
+          {
+            type: 'causal_cycle',
+            message: 'Causal cycle detected: e1 -> e2 -> e1',
+            details: { cycle: ['e1', 'e2', 'e1'] },
+          },
+        ],
+      });
+
+      const response = await request(app)
+        .post(`/api/graphs/${sourceGraph.id}/merge`)
+        .set('X-API-Key', writeKey)
+        .send({ sourceGraphId: sourceGraph.id, conflictResolution: 'keep-target', dryRun: true })
+        .expect(409);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.anomalies).toHaveLength(1);
+      expect(response.body.anomalies[0].type).toBe('causal_cycle');
+      expect(response.body.anomalies[0].message).toContain('Causal cycle');
+    });
+
+    it('returns the anomalies of a clean dry run', async () => {
+      vi.spyOn(container.graphService, 'mergeGraph').mockResolvedValue({
+        success: true,
+        dryRun: true,
+        conflicts: [],
+        anomalies: [],
+      });
+
+      const response = await request(app)
+        .post(`/api/graphs/${sourceGraph.id}/merge`)
+        .set('X-API-Key', writeKey)
+        .send({ sourceGraphId: sourceGraph.id, conflictResolution: 'keep-target', dryRun: true })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.anomalies).toEqual([]);
+      expect(response.body.dryRun).toBe(true);
+    });
+
     it('reports a payload the service refuses as a 400', async () => {
       // The service refuses a payload that would corrupt the entity; the
       // route has to surface that as a client error rather than a 500.
