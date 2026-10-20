@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useGraphCopy } from './useGraphCopy'
 import { apiClient } from '@/services/api'
 import { useGlobalStore } from '@/stores/globalStore'
+import { useCopyStore } from '@/stores/copyStore'
 import { TimeRange, EntityFilter, CopyResult } from '@/types'
 
 // Mock the API client
@@ -64,10 +65,21 @@ describe('useGraphCopy', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseGlobalStore.mockReturnValue(asStore(mockStoreReturn))
+    // The copy operations are shared state now, so they survive between tests
+    // unless the store is reset. A test that asserts "one completed copy" would
+    // otherwise see the copies of the tests before it.
+    useCopyStore.setState({
+      activeOperations: [],
+      completedOperations: [],
+      pollingIntervals: new Map(),
+    })
   })
 
   afterEach(() => {
     vi.clearAllTimers()
+    // The polling intervals are real timers, and the store is reset between
+    // tests; the ones a test started have to be released here.
+    useCopyStore.getState().stopAllPolling()
   })
 
   it('should initialize with empty state', () => {
@@ -374,9 +386,12 @@ describe('useGraphCopy', () => {
       wrapper: createWrapper()
     })
 
-    // Add an active operation manually
+    // The operation is seeded in the STORE, and the hook instance that
+    // cancels it was rendered before the seed -- so its closure is stale.
+    // Pushing into the store's own array instead would hide a stale-closure
+    // bug, because the closure would see the same mutated array.
     act(() => {
-      result.current.copyState.activeOperations.push({
+      useCopyStore.getState().addOperation({
         id: 'copy-123',
         name: 'Test Copy',
         type: 'full',
@@ -406,28 +421,26 @@ describe('useGraphCopy', () => {
       wrapper: createWrapper()
     })
 
-    // Add completed operations manually
+    // Add completed operations to the store
     act(() => {
-      result.current.copyState.completedOperations.push(
-        {
-          id: 'copy-1',
-          name: 'Copy 1',
-          type: 'full',
-          status: 'completed',
-          progress: 100,
-          created_at: '2023-01-01T00:00:00Z',
-          parameters: {}
-        },
-        {
-          id: 'copy-2',
-          name: 'Copy 2',
-          type: 'filtered',
-          status: 'failed',
-          progress: 30,
-          created_at: '2023-01-02T00:00:00Z',
-          parameters: {}
-        }
-      )
+      useCopyStore.getState().addOperation({
+        id: 'copy-1',
+        name: 'Copy 1',
+        type: 'full',
+        status: 'completed',
+        progress: 100,
+        created_at: '2023-01-01T00:00:00Z',
+        parameters: {}
+      })
+      useCopyStore.getState().addOperation({
+        id: 'copy-2',
+        name: 'Copy 2',
+        type: 'filtered',
+        status: 'failed',
+        progress: 30,
+        created_at: '2023-01-02T00:00:00Z',
+        parameters: {}
+      })
     })
 
     expect(result.current.copyState.completedOperations).toHaveLength(2)

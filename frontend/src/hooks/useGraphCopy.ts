@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useState, useCallback, useMemo } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import { apiClient } from '@/services/api'
 import { useGlobalStore } from '@/stores/globalStore'
+import { useCopyStore } from '@/stores/copyStore'
 import { 
   CopyOperation, 
   CopyResult, 
@@ -9,6 +10,17 @@ import {
   EntityFilter,
   GraphCopyState 
 } from '@/types'
+
+/** How many consecutive status failures end the polling of a copy. */
+const MAX_POLL_FAILURES = 5
+
+/**
+ * The error message of a copy the user cancelled.
+ *
+ * A cancellation is not a failure the user needs to be told about, so the
+ * completion notice skips it.
+ */
+export const CANCELLED_MESSAGE = 'Cancelled by user'
 
 interface UseGraphCopyReturn {
   // State
@@ -36,15 +48,48 @@ interface UseGraphCopyReturn {
 
 export const useGraphCopy = (): UseGraphCopyReturn => {
   const { addError, addLoadingOperation, removeLoadingOperation } = useGlobalStore()
-  
-  const [copyState, setCopyState] = useState<GraphCopyState>({
-    activeOperations: [],
-    completedOperations: [],
+
+  // The operations are shared state, so every component that asks for them
+  // sees the same ones. The form state (name, time range, filter) stays
+  // local: it belongs to the form, not to the application.
+  // Each slice is selected on its own: selecting the whole store would
+  // re-render every consumer whenever the polling map changed.
+  const activeOperations = useCopyStore((state) => state.activeOperations)
+  const completedOperations = useCopyStore((state) => state.completedOperations)
+  const addOperation = useCopyStore((state) => state.addOperation)
+  const updateOperation = useCopyStore((state) => state.updateOperation)
+  const clearCompleted = useCopyStore((state) => state.clearCompletedOperations)
+  const startPolling = useCopyStore((state) => state.startPolling)
+  const stopPolling = useCopyStore((state) => state.stopPolling)
+
+  // The form state is local -- it belongs to the form, not to the
+  // application -- and the operation lists are shared.
+  const [formState, setFormState] = useState<{
+    selectedTimeRange: TimeRange | null
+    selectedFilter: EntityFilter | null
+    copyName: string
+    isCreatingCopy: boolean
+  }>({
     selectedTimeRange: null,
     selectedFilter: null,
     copyName: '',
-    isCreatingCopy: false
+    isCreatingCopy: false,
   })
+
+  // One object, built from the shared lists and the local form state, so the
+  // hook's contract (one `copyState`) still holds for the components that
+  // read it -- without a mirror that lags a commit behind.
+  const copyState: GraphCopyState = useMemo(
+    () => ({
+      activeOperations,
+      completedOperations,
+      selectedTimeRange: formState.selectedTimeRange,
+      selectedFilter: formState.selectedFilter,
+      copyName: formState.copyName,
+      isCreatingCopy: formState.isCreatingCopy,
+    }),
+    [activeOperations, completedOperations, formState]
+  )
 
   // Mutation for creating copies
   const createCopyMutation = useMutation({
@@ -93,24 +138,32 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
         status: result.status,
         progress: result.progress,
         estimated_completion: result.estimated_completion,
+        error_message: result.error_message,
         created_at: result.created_at,
+        completed_at: result.completed_at,
         parameters: {
           timeRange: variables.timeRange,
           filter: variables.filter
         }
       }
-      
-      setCopyState(prev => ({
+
+      addOperation(operation)
+
+      setFormState(prev => ({
         ...prev,
-        activeOperations: [...prev.activeOperations, operation],
         isCreatingCopy: false,
         copyName: '',
         selectedTimeRange: null,
         selectedFilter: null
       }))
-      
-      // Start polling for status updates
-      startStatusPolling(result.id)
+
+      // The backend copies synchronously: the response already says whether it
+      // finished, and a finished copy is not polled. Polling it would replace
+      // the real outcome with the status of the graph the copy created, which
+      // is `completed` even when the copy itself failed.
+      if (result.status === 'pending' || result.status === 'in_progress') {
+        startStatusPolling(result.id)
+      }
     },
     onError: (error) => {
       addError({
@@ -118,109 +171,76 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
         type: 'network'
       })
       
-      setCopyState(prev => ({
+      setFormState(prev => ({
         ...prev,
         isCreatingCopy: false
       }))
     }
   })
 
-  // Query for checking copy status
-  useQuery({
-    queryKey: ['copy-status'],
-    queryFn: async () => {
-      const activeIds = copyState.activeOperations.map(op => op.id)
-      const statusPromises = activeIds.map(id => apiClient.graph.getCopyStatus(id))
-      return Promise.all(statusPromises)
-    },
-    enabled: false, // Only run manually
-    refetchInterval: false
-  })
-
   // Status polling for active operations
-  const [pollingIntervals, setPollingIntervals] = useState<Map<string, number>>(new Map())
-
   const startStatusPolling = useCallback((copyId: string) => {
-    if (pollingIntervals.has(copyId)) {
+    if (useCopyStore.getState().pollingIntervals.has(copyId)) {
       return // Already polling
     }
+
+    // How many consecutive failures are tolerated before the poll gives up.
+    // The copy may be gone (a restarted backend forgets it) or the network may
+    // be down; polling for the life of the page in either case is waste.
+    let consecutiveFailures = 0
 
     const interval = setInterval(async () => {
       try {
         const result = await apiClient.graph.getCopyStatus(copyId)
-        
-        setCopyState(prev => {
-          const updatedActiveOps = prev.activeOperations.map(op => 
-            op.id === copyId ? {
-              ...op,
-              status: result.status,
-              progress: result.progress,
-              estimated_completion: result.estimated_completion,
-              error_message: result.error_message,
-              completed_at: result.completed_at
-            } : op
-          )
-          
-          // Move completed operations to completed list
-          const stillActive = updatedActiveOps.filter(op => 
-            op.status === 'pending' || op.status === 'in_progress'
-          )
-          const nowCompleted = updatedActiveOps.filter(op => 
-            op.status === 'completed' || op.status === 'failed'
-          )
-          
-          return {
-            ...prev,
-            activeOperations: stillActive,
-            completedOperations: [...prev.completedOperations, ...nowCompleted]
-          }
+        consecutiveFailures = 0
+
+        updateOperation(copyId, {
+          status: result.status,
+          progress: result.progress,
+          estimated_completion: result.estimated_completion,
+          error_message: result.error_message,
+          completed_at: result.completed_at,
         })
-        
+
         // Stop polling if operation is complete
         if (result.status === 'completed' || result.status === 'failed') {
-          const interval = pollingIntervals.get(copyId)
-          if (interval) {
-            clearInterval(interval)
-            setPollingIntervals(prev => {
-              const newMap = new Map(prev)
-              newMap.delete(copyId)
-              return newMap
-            })
-          }
+          stopPolling(copyId)
         }
       } catch (error) {
+        consecutiveFailures += 1
         console.error(`Failed to check status for copy ${copyId}:`, error)
+
+        if (consecutiveFailures >= MAX_POLL_FAILURES) {
+          stopPolling(copyId)
+          // The copy is left as it is. A network outage says nothing about the
+          // copy, and recording it as failed would report a successful copy as
+          // a failure for ever, because a finished copy is never polled again.
+          // The user can still refresh it.
+        }
       }
     }, 2000) // Poll every 2 seconds
 
-    setPollingIntervals(prev => new Map(prev).set(copyId, interval))
-  }, [pollingIntervals])
-
-  // Cleanup polling intervals on unmount
-  useEffect(() => {
-    return () => {
-      pollingIntervals.forEach(interval => clearInterval(interval))
-    }
-  }, [pollingIntervals])
+    startPolling(copyId, interval)
+  }, [startPolling, stopPolling, updateOperation])
 
   // Actions
   const setCopyName = useCallback((name: string) => {
-    setCopyState(prev => ({ ...prev, copyName: name }))
+    setFormState(prev => ({ ...prev, copyName: name }))
   }, [])
 
   const setSelectedTimeRange = useCallback((range: TimeRange | null) => {
-    setCopyState(prev => ({ 
-      ...prev, 
+    setFormState(prev => ({
+      ...prev,
       selectedTimeRange: range,
-      selectedFilter: null // Clear filter when time range is selected
+      selectedFilter: null, // Clear filter when time range is selected
     }))
   }, [])
 
   const setSelectedFilter = useCallback((filter: EntityFilter | null) => {
-    setCopyState(prev => ({ 
-      ...prev, 
+    setFormState(prev => ({
+      ...prev,
       selectedFilter: filter,
-      selectedTimeRange: null // Clear time range when filter is selected
+      selectedTimeRange: null, // Clear time range when filter is selected
     }))
   }, [])
 
@@ -233,7 +253,7 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
       return
     }
 
-    setCopyState(prev => ({ ...prev, isCreatingCopy: true }))
+    setFormState(prev => ({ ...prev, isCreatingCopy: true }))
     
     await createCopyMutation.mutateAsync({
       type: 'full',
@@ -258,7 +278,7 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
       return
     }
 
-    setCopyState(prev => ({ ...prev, isCreatingCopy: true }))
+    setFormState(prev => ({ ...prev, isCreatingCopy: true }))
     
     await createCopyMutation.mutateAsync({
       type: 'time_range',
@@ -288,7 +308,7 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
       return
     }
 
-    setCopyState(prev => ({ ...prev, selectedFilter: effectiveFilter, isCreatingCopy: true }))
+    setFormState(prev => ({ ...prev, selectedFilter: effectiveFilter, isCreatingCopy: true }))
     
     await createCopyMutation.mutateAsync({
       type: 'filtered',
@@ -299,46 +319,29 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
 
   const cancelCopy = useCallback((copyId: string) => {
     // Stop polling for this operation
-    const interval = pollingIntervals.get(copyId)
-    if (interval) {
-      clearInterval(interval)
-      setPollingIntervals(prev => {
-        const newMap = new Map(prev)
-        newMap.delete(copyId)
-        return newMap
-      })
-    }
+    stopPolling(copyId)
 
-    // Move to completed with failed status
-    setCopyState(prev => {
-      const operationToCancel = prev.activeOperations.find(op => op.id === copyId)
-      if (!operationToCancel) return prev
+    // The current operations are read from the store, not from the render's
+    // copy of them: a cancel can arrive while the list is out of date.
+    const operationToCancel = useCopyStore
+      .getState()
+      .activeOperations.find((operation) => operation.id === copyId)
+    if (!operationToCancel) return
 
-      const cancelledOperation = {
-        ...operationToCancel,
-        status: 'failed' as const,
-        error_message: 'Cancelled by user',
-        completed_at: new Date().toISOString()
-      }
-
-      return {
-        ...prev,
-        activeOperations: prev.activeOperations.filter(op => op.id !== copyId),
-        completedOperations: [...prev.completedOperations, cancelledOperation]
-      }
+    updateOperation(copyId, {
+      status: 'failed',
+      error_message: CANCELLED_MESSAGE,
+      completed_at: new Date().toISOString(),
     })
-  }, [pollingIntervals])
+  }, [stopPolling, updateOperation])
 
   const refreshCopyStatus = useCallback((copyId: string) => {
     startStatusPolling(copyId)
   }, [startStatusPolling])
 
   const clearCompletedOperations = useCallback(() => {
-    setCopyState(prev => ({
-      ...prev,
-      completedOperations: []
-    }))
-  }, [])
+    clearCompleted()
+  }, [clearCompleted])
 
   return {
     copyState,

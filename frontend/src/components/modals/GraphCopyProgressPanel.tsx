@@ -5,7 +5,8 @@ import { CopyOperation } from '@/types'
 interface GraphCopyProgressPanelProps {
   isOpen: boolean
   onClose: () => void
-  onSwitchToGraph?: (graphName: string) => void
+  /** Called with the copy's graph id: a copy's id is the graph it created. */
+  onSwitchToGraph?: (graphId: string) => void
 }
 
 export const GraphCopyProgressPanel: React.FC<GraphCopyProgressPanelProps> = ({
@@ -120,7 +121,7 @@ export const GraphCopyProgressPanel: React.FC<GraphCopyProgressPanelProps> = ({
           
           {!isActive && operation.status === 'completed' && onSwitchToGraph && (
             <button
-              onClick={() => onSwitchToGraph(operation.name)}
+              onClick={() => onSwitchToGraph(operation.id)}
               className="text-blue-600 hover:text-blue-800 text-sm underline"
             >
               Switch to Graph

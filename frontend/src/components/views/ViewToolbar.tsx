@@ -15,7 +15,7 @@ import { ExportPanel, VersionHistoryPanel } from '@/components/graphs'
 import { ImportWizard } from '@/components/import'
 import { IngestionWizard } from '@/components/ingestion'
 import { useCreateEvent, useCreateArc, useCreateCausalLink } from '@/hooks/useAPI'
-import { useActiveGraphId, useGraphs, useSwitchGraph, useDeleteGraph } from '@/hooks/useGraphs'
+import { useActiveGraphId, useSwitchGraph, useDeleteGraph } from '@/hooks/useGraphs'
 import { StreamingStatusBadge } from '@/components/streaming/StreamingStatusBadge'
 import { useStreamingWrite } from '@/hooks/useStreamingWrite'
 
@@ -44,7 +44,6 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
     sessionData,
     updateSessionData,
     setFilterPanelOpen,
-    addError,
     uiState
   } = useGlobalStore()
 
@@ -77,23 +76,16 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
   // Graph-level operations (copy switching/deletion and the import/export tools)
   // all act on the active graph, so they share the same hooks as GraphSelector.
   const activeGraphId = useActiveGraphId()
-  const { data: graphList } = useGraphs()
   const switchGraphMutation = useSwitchGraph()
   const deleteGraphMutation = useDeleteGraph()
 
-  // Copy operations are keyed by the target graph's *name* (the copy panels only
-  // know the name), so resolve it against the graph list before activating it.
-  const handleSwitchToGraph = useCallback((graphName: string) => {
-    const target = graphList?.graphs.find(graph => graph.name === graphName)
-    if (!target) {
-      addError({
-        message: `Cannot switch to graph "${graphName}": it is not in the graph list`,
-        type: 'validation'
-      })
-      return
-    }
-    switchGraphMutation.mutate(target.id)
-  }, [graphList, switchGraphMutation, addError])
+  // A copy's id is the id of the graph the copy created, so the id is all
+  // that is needed to switch to it. Resolving a name against the graph list
+  // would fail right after a copy: the list has not been refreshed, and the
+  // copy is not in it.
+  const handleSwitchToGraph = useCallback((graphId: string) => {
+    switchGraphMutation.mutate(graphId)
+  }, [switchGraphMutation])
 
   // A copy's id is the id of the graph the copy created (see POST /graphs/copy),
   // so deleting a copy is deleting that graph.
