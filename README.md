@@ -71,6 +71,20 @@ Frequently used variables; the full set with defaults and validation lives in
 | `LOCAL_MAX_MEMORY_MB` | `512` | Local store memory ceiling (minimum 64) |
 | `LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD` | `10000` | Entity count above which an export becomes an async job |
 
+## API description
+
+The HTTP API is described by an OpenAPI 3 document, generated from the route
+table so it cannot describe a route that is not mounted:
+
+```bash
+curl http://localhost:3000/api/openapi.json
+```
+
+A route that is added without a description fails the backend test suite
+(`src/api/openapi/openapi.test.ts`) — the description of each operation is
+hand-written in `timeline/src/api/openapi/operations.ts`, and the document
+builder refuses to describe a route that has no entry there.
+
 ## Documentation
 
 - [`AGENTS.md`](AGENTS.md) — code style, architecture rules and build commands.
