@@ -14,6 +14,9 @@ import { suggestRoutes } from './routes/suggest';
 import { createIngestRouter } from './routes/ingest';
 import { streamRoutes } from './routes/stream';
 import { loadConfig } from '../utils/config';
+import { buildOpenApiDocument } from './openapi/document';
+import { uniqueRoutes } from './openapi/routeInventory';
+import { mountApi } from './openapi/mounts';
 
 /**
  * Main API router
@@ -59,41 +62,46 @@ apiRouter.get('/', (_req, res) => {
 });
 
 // Graph management API endpoints
-apiRouter.use('/graphs', graphRoutes);
+mountApi(apiRouter, '/graphs', graphRoutes);
 
 // Export API endpoints
-apiRouter.use('/export', exportRoutes);
+mountApi(apiRouter, '/export', exportRoutes);
 
 // Import API endpoints
-apiRouter.use('/import', importRoutes);
+mountApi(apiRouter, '/import', importRoutes);
 
 // Web ingestion API endpoints (Wikipedia, Wikidata, free text, LLM)
-apiRouter.use('/ingest', ingestRoutes);
+mountApi(apiRouter, '/ingest', ingestRoutes);
 
 // Event API endpoints
-apiRouter.use('/events', eventRoutes);
+mountApi(apiRouter, '/events', eventRoutes);
 
 // Arc API endpoints
-apiRouter.use('/arcs', arcRoutes);
+mountApi(apiRouter, '/arcs', arcRoutes);
 
 // Causal relationship API endpoints
-apiRouter.use('/causal', causalRoutes);
+mountApi(apiRouter, '/causal', causalRoutes);
 
 // Temporal analysis API endpoints
-apiRouter.use('/temporal', temporalRoutes);
+mountApi(apiRouter, '/temporal', temporalRoutes);
 
 // Inference and pattern detection API endpoints
-apiRouter.use('/inference', inferenceRoutes);
+mountApi(apiRouter, '/inference', inferenceRoutes);
 
 // Phase 3: Authentication & Batch API endpoints
-apiRouter.use('/keys', keyRoutes);
-apiRouter.use('/batch', batchRoutes);
-apiRouter.use('/validate', validateRoutes);
-apiRouter.use('/suggest', suggestRoutes);
+mountApi(apiRouter, '/keys', keyRoutes);
+mountApi(apiRouter, '/batch', batchRoutes);
+mountApi(apiRouter, '/validate', validateRoutes);
+mountApi(apiRouter, '/suggest', suggestRoutes);
 
 // Phase 5: WebSocket stream token issuance (the socket itself is served by the
 // HTTP `upgrade` handler, not by Express).
-apiRouter.use('/stream', streamRoutes);
+mountApi(apiRouter, '/stream', streamRoutes);
+
+// The OpenAPI description of the API.
+apiRouter.get('/openapi.json', (_req, res) => {
+  res.json(getOpenApiDocument());
+});
 
 // Health check endpoint
 apiRouter.get('/health', (_req, res) => {
@@ -143,3 +151,21 @@ apiRouter.get('/info', (_req, res) => {
     }
   });
 });
+
+/**
+ * The OpenAPI description of the API.
+ *
+ * It is built the first time it is asked for, which is after this module has
+ * finished loading -- so every route, including the description route itself,
+ * is in it. A route that is mounted and not described makes the build throw,
+ * and the request answers 500; the test suite catches that case, so the server
+ * never ships a description that is missing a route.
+ */
+let openApiDocument: Record<string, unknown> | undefined;
+
+function getOpenApiDocument(): Record<string, unknown> {
+  if (!openApiDocument) {
+    openApiDocument = buildOpenApiDocument(uniqueRoutes(apiRouter, '/api'));
+  }
+  return openApiDocument;
+}

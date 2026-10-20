@@ -1,6 +1,6 @@
 # Test Status
 
-**Measured:** backend 1789 passed / 89 files, frontend 1658 passed / 101 files, no
+**Measured:** backend 1852 passed / 91 files, frontend 1658 passed / 101 files, no
 skipped or disabled tests in either package. Re-measure with `npm test` in each
 package; do not copy these figures forward without re-running.
 
