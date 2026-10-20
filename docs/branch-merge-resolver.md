@@ -133,10 +133,18 @@ user's own, for a compromise that is neither side.
 ### Pre-merge anomaly detection
 
 During `dryRun: true` (and verified before committing), `GraphService.mergeGraph` performs a DAG and temporal analysis over the candidate merged graph:
-- **Causal cycle detection**: Ensures combined causal relationships form a strict directed acyclic graph (DAG) without circular dependencies.
-- **Temporal inversions**: Identifies causal relationships where the cause event timestamp occurs at or after the effect event timestamp.
+- **Causal cycle detection**: Ensures combined causal relationships form a strict directed acyclic graph (DAG) without circular dependencies. Only a cycle the merge caused is reported: one that was already in the target is not this merge's doing, and refusing every merge because of it would make the graph unmergeable rather than repairing it. The same scoping applies to the inversion and orphan checks -- a relationship is checked when the merge changed it, or changed one of its endpoints.
+- **Temporal inversions**: Identifies causal relationships where the cause event timestamp occurs *after* the effect event timestamp. Two events with the same timestamp are not an inversion -- the effect does not precede the cause -- and the importer accepts them too (`ImportService` checks `causeTime > effectTime`).
+
+  Note that the merge follows the *importer* here, not the link-creation path:
+  `CausalService`, `TemporalService`, `GraphValidator` and `POST /validate/graph`
+  still require a cause to strictly precede its effect, so a graph the merge
+  accepts can be reported as a `causal_direction` error by the validator.
+  Unifying the rule is tracked separately; the merge is permissive because
+  refusing to merge an imported graph is the worse failure.
 - **Orphan relationships**: Flags relationships referencing missing cause or effect entities.
 - **Orphan references**: Flags an arc naming a parent arc that does not exist, and a pressure naming events or arcs that do not exist.
+- **Arc hierarchy cycles**: Flags a blend that makes the arc hierarchy circular, which the importer refuses.
 
 Detected anomalies are returned in `anomalies: MergeAnomaly[]` and surfaced as blocking warnings in `BranchMergeModal.tsx`.
 
