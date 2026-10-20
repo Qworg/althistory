@@ -291,6 +291,15 @@ interface CrossGraphRef {
   referencedEntityType: 'event' | 'arc'
   // Optionally embed the referenced entity
   embeddedEntity?: ExportedEvent | ExportedArc
+  // Why the embedded entity is present or absent. Present only when the
+  // export asked for embedding (`embedReferences`).
+  //
+  //   embedded   - the payload is in embeddedEntity
+  //   forbidden  - the caller may not read the referenced graph
+  //   missing    - the referenced entity (or its graph) does not exist
+  //   unreadable - the referenced graph exists but could not be read
+  //   too-many   - too many references to embed; nothing was embedded
+  embeddedEntityStatus?: 'embedded' | 'forbidden' | 'missing' | 'unreadable' | 'too-many'
 }
 
 interface ExportProvenance {
@@ -741,7 +750,12 @@ POST /api/graphs/:id/merge
 ```
 GET /api/export
   Query: ?graphId=xxx&scope=full&includeProvenance=true&filters[actors]=a,b
+          &embedReferences=true&version=3
   Response: AlthistoryExport (JSON file)
+  // embedReferences embeds the entity each cross-graph reference points at.
+  // It is off by default: the payload is another graph's data, so it is
+  // included only for graphs the caller may read, and an export job that
+  // embeds is downloadable only by the key that asked for it.
 
 POST /api/export/jobs
   Body: {

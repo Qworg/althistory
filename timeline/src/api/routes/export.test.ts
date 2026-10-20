@@ -29,10 +29,13 @@ describe('Export routes (request-level)', () => {
   let testDataDir: string;
   let exportKey: string;
   let restrictedKey: string;
+  let embeddingRestrictedKey: string;
   let smallGraph: IGraph;
   let largeGraph: IGraph;
   let versionedGraph: IGraph;
   let versionedLargeGraph: IGraph;
+  let referencedGraph: IGraph;
+  let embeddingGraph: IGraph;
 
   beforeAll(async () => {
     testDataDir = path.join(os.tmpdir(), `export-routes-test-${process.pid}-${Date.now()}`);
@@ -315,6 +318,75 @@ describe('Export routes (request-level)', () => {
       'v1'
     );
 
+    // A graph whose event references an event in another graph, so the export
+    // has something to embed.
+    referencedGraph = await container.graphService.createGraph({ name: 'Export Route Referenced' });
+    await container.graphRepository.commitChanges(
+      referencedGraph.id,
+      {
+        added: [
+          {
+            type: 'event',
+            id: 'remote-event',
+            data: {
+              id: 'remote-event',
+              description: 'A remote event',
+              actor: 'Remote Actor',
+              target: 'Remote Target',
+              timestamp: '1804-01-01T00:00:00Z',
+            },
+          },
+        ],
+        modified: [],
+        deleted: [],
+      },
+      'create',
+      'seed referenced graph'
+    );
+
+    embeddingGraph = await container.graphService.createGraph({ name: 'Export Route Embedding' });
+    await container.graphRepository.commitChanges(
+      embeddingGraph.id,
+      {
+        added: [
+          {
+            type: 'event',
+            id: 'event-with-ref',
+            data: {
+              id: 'event-with-ref',
+              description: 'An event referencing another graph',
+              actor: 'Napoleon',
+              target: 'Coalition',
+              timestamp: '1805-12-03T00:00:00Z',
+              metadata: {
+                crossGraphRefs: [
+                  {
+                    referencedGraphId: referencedGraph.id,
+                    referencedEntityId: 'remote-event',
+                    referencedEntityType: 'event',
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        modified: [],
+        deleted: [],
+      },
+      'create',
+      'seed a cross-graph reference'
+    );
+
+    // A key that may export the embedding graph but may NOT read the graph
+    // the reference points at: the payload must be withheld, the reference
+    // still reported.
+    const embeddingRestrictedResponse = await container.authService.createApiKey({
+      name: 'Export Routes Embedding Restricted Key',
+      permissions: ['read:graphs', 'export'],
+      allowedGraphs: [embeddingGraph.id],
+    });
+    embeddingRestrictedKey = embeddingRestrictedResponse.key;
+
     app = express();
     app.use(express.json());
     app.use(injectContainer);
@@ -572,6 +644,118 @@ describe('Export routes (request-level)', () => {
       const document = JSON.parse(download.text) as { data: { events: unknown[] } };
       expect(document.data.events).toHaveLength(2);
     }, 20_000);
+  });
+
+  describe('embedding referenced entities (Req 4.4)', () => {
+    it('embeds the referenced entity for a key that may read its graph', async () => {
+      const response = await request(app)
+        .get('/api/export')
+        .query({ embedReferences: 'true' })
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', embeddingGraph.id)
+        .expect(200);
+
+      const ref = response.body.data.crossGraphRefs?.[0];
+      expect(ref.embeddedEntityStatus).toBe('embedded');
+      expect(ref.embeddedEntity.id).toBe('remote-event');
+    });
+
+    it('withholds the payload for a key that may not read the referenced graph', async () => {
+      const response = await request(app)
+        .get('/api/export')
+        .query({ embedReferences: 'true' })
+        .set('X-API-Key', embeddingRestrictedKey)
+        .set('X-Graph-Id', embeddingGraph.id)
+        .expect(200);
+
+      const ref = response.body.data.crossGraphRefs?.[0];
+      // The reference is still reported; the payload is not, because the key
+      // may not read the graph it lives in.
+      expect(ref.embeddedEntityStatus).toBe('forbidden');
+      expect(ref.embeddedEntity).toBeUndefined();
+    });
+
+    it('does not embed anything unless the caller asks', async () => {
+      const response = await request(app)
+        .get('/api/export')
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', embeddingGraph.id)
+        .expect(200);
+
+      const ref = response.body.data.crossGraphRefs?.[0];
+      expect(ref.embeddedEntity).toBeUndefined();
+      expect(ref.embeddedEntityStatus).toBeUndefined();
+    });
+
+    it('rejects a non-boolean embedReferences', async () => {
+      const response = await request(app)
+        .get('/api/export')
+        .query({ embedReferences: 'maybe' })
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', embeddingGraph.id)
+        .expect(400);
+
+      expect(response.body.error.message).toContain('embedReferences');
+    });
+  });
+
+  describe('an embedded export job is downloadable only by its requester', () => {
+    it('refuses the download to a key that can read the graph but not the embedded one', async () => {
+      // The job embeds entities from another graph. A key that may read the
+      // exported graph must not be able to download the file: it would hand out
+      // the embedded payloads of a graph it may not read.
+      const job = await container.jobService.createExportJob({
+        graphId: smallGraph.id,
+        scope: 'full',
+        embedReferences: true,
+        requestedBy: 'key_someone_else',
+      });
+
+      await request(app)
+        .get(`/api/export/jobs/${job.jobId}/download`)
+        .set('X-API-Key', restrictedKey)
+        .expect(404);
+    });
+
+    it('refuses the download to a key that was not the requester', async () => {
+      const job = await container.jobService.createExportJob({
+        graphId: smallGraph.id,
+        scope: 'full',
+        embedReferences: true,
+        requestedBy: 'key_someone_else',
+      });
+
+      // The unrestricted key may read every graph, but it did not ask for this
+      // job, so the embedded payloads are not its to have.
+      await request(app)
+        .get(`/api/export/jobs/${job.jobId}/download`)
+        .set('X-API-Key', exportKey)
+        .expect(404);
+    });
+
+    it('still lets the requester download it', async () => {
+      // The requester is the restricted key itself, so the job has to name its
+      // id. The key's id is server-generated, so it is looked up.
+      const keys = await container.authService.listApiKeys();
+      const requester = keys.find((key) => key.name === 'Export Routes Restricted Key');
+      expect(requester).toBeDefined();
+
+      const job = await container.jobService.createExportJob({
+        graphId: smallGraph.id,
+        scope: 'full',
+        embedReferences: true,
+        requestedBy: requester!.id,
+      });
+
+      // The job is not completed, so the download is refused for THAT reason --
+      // the access check let it through, which is the point.
+      const response = await request(app)
+        .get(`/api/export/jobs/${job.jobId}/download`)
+        .set('X-API-Key', restrictedKey)
+        .expect(400);
+
+      expect(response.body.error.message).toContain('not completed');
+    });
   });
 
   describe('job access scoping', () => {

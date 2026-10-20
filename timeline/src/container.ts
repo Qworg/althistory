@@ -535,6 +535,10 @@ export class Container implements ServiceContainer {
         // The job path streams, so this only has to agree with the container's
         // export service; it keeps the two ceilings from diverging.
         maxInMemorySize: this.config.localExecution.exportMaxInMemoryBytes,
+        // A job that embeds referenced entities has to re-check the requester's
+        // access when it runs, long after the request. The auth service holds
+        // the live key repository, so the key is resolved through it.
+        resolveApiKey: (id) => this.authService.getApiKey(id),
       });
     }
     return this._jobService;
