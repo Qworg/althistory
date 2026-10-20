@@ -11,6 +11,8 @@ import { GraphRepository } from '../repositories/GraphRepository';
 import { ResolvedGraphData } from '../repositories/VersionRepository';
 import { ExportFilters } from '../models/AsyncJob';
 import { NotFoundError } from '../utils/errors';
+import { createLogger, ILogger } from '../utils/logger';
+import { assertSafeGraphId } from '../utils/GraphContextStore';
 
 /**
  * Althistory Export Format v1.0
@@ -85,6 +87,24 @@ export interface ExportedPressure {
   affected_arc_ids: string[];
 }
 
+/**
+ * Why an embedded payload is present or absent.
+ *
+ * `embedded` -- the payload is in `embeddedEntity`.
+ * `forbidden` -- the caller may not read the referenced graph, so the payload
+ *   was withheld.
+ * `missing` -- the referenced entity does not exist (its graph was deleted, or
+ *   the entity was).
+ */
+export type EmbeddedEntityStatus =
+  | 'embedded'
+  | 'forbidden'
+  | 'missing'
+  /** The referenced graph exists but could not be read. */
+  | 'unreadable'
+  /** Too many referenced graphs to embed; nothing was embedded. */
+  | 'too-many';
+
 export interface CrossGraphRef {
   localEntityId: string;
   localEntityType: 'event' | 'arc' | 'relationship';
@@ -92,6 +112,12 @@ export interface CrossGraphRef {
   referencedEntityId: string;
   referencedEntityType: 'event' | 'arc';
   embeddedEntity?: ExportedEvent | ExportedArc;
+  /**
+   * Present only when the export asked for embedding. Its absence with no
+   * `embeddedEntity` means the export did not ask, or nothing referenced
+   * another graph.
+   */
+  embeddedEntityStatus?: EmbeddedEntityStatus;
 }
 
 export interface ExportProvenance {
@@ -122,6 +148,23 @@ export interface ExportOptions {
   filters?: ExportFilters;
   includeProvenance: boolean;
   version?: number;
+  /**
+   * Embed the entity each cross-graph reference points at (Req 4.4).
+   *
+   * Off by default: embedding copies another graph's data into the file the
+   * caller downloads, so it has to be asked for deliberately.
+   */
+  embedReferences?: boolean;
+  /**
+   * Whether the caller may read a graph, used to decide whether a reference
+   * may carry its embedded entity.
+   *
+   * A reference to a graph the caller may not read is still reported -- the
+   * reference metadata is part of the export either way -- but its payload is
+   * withheld. Absent means "no opinion", which withholds the payload as well:
+   * an export that embeds by default would leak any graph it can name.
+   */
+  canReadGraph?: (graphId: string) => boolean;
 }
 
 export interface ExportResult {
@@ -163,6 +206,32 @@ export interface ExportServiceConfig {
   maxInMemorySize?: number;
 }
 
+/**
+ * How many distinct graphs one export may embed from.
+ *
+ * The number of references is not bounded by the entity count: one event's
+ * metadata can name any number of graphs. Each one costs a checkout, so the
+ * count is capped rather than left to the caller.
+ */
+const MAX_EMBEDDED_GRAPHS = 50;
+
+/**
+ * How many references one export may embed, in total.
+ *
+ * The graph cap alone does not bound the work: one graph can be named by ten
+ * thousand references.
+ */
+const MAX_EMBEDDED_REFS = 1000;
+
+/**
+ * How many bytes of embedded payload one export may carry.
+ *
+ * The payloads are copies of other graphs' entities, and they are serialised
+ * into the document twice (once to hash it, once to write it), so their size
+ * has to be bounded as well as their number.
+ */
+const MAX_EMBEDDED_BYTES = 5 * 1024 * 1024;
+
 // Maximum size for in-memory exports (50MB)
 const MAX_IN_MEMORY_EXPORT_SIZE = 50 * 1024 * 1024;
 
@@ -183,6 +252,7 @@ export class ExportService {
   private readonly graphRepository: GraphRepository;
   private readonly dataDir: string;
   private readonly appVersion: string;
+  private readonly logger: ILogger;
   /** Ceiling for `exportGraph`; readable so callers can describe the limit. */
   readonly maxInMemorySize: number;
   /** Entity count above which an export must run as an async job (Req 5.4). */
@@ -193,6 +263,7 @@ export class ExportService {
     this.appVersion = config.appVersion || '1.0.0';
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
     this.maxInMemorySize = config.maxInMemorySize ?? MAX_IN_MEMORY_EXPORT_SIZE;
+    this.logger = createLogger('ExportService');
     this.asyncExportThreshold =
       config.asyncExportThreshold ?? DEFAULT_ASYNC_EXPORT_ENTITY_THRESHOLD;
   }
@@ -262,6 +333,12 @@ export class ExportService {
 
     // Convert to export format
     const exportData = this.convertToExportFormat(scoped);
+
+    // Req 4.4: embed the referenced entity when the caller asked for it and
+    // may read the graph it lives in.
+    if (options.embedReferences && exportData.crossGraphRefs) {
+      await this.embedReferencedEntities(exportData.crossGraphRefs, options);
+    }
 
     // Build export object (without checksum first)
     const exportObj: AlthistoryExport = {
@@ -426,8 +503,20 @@ export class ExportService {
       );
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
 
+    // Req 4.4: embed the referenced entities. The resolution is asynchronous
+    // and a generator cannot await, so it happens before the stream starts and
+    // the results are matched to the references as they are written.
+    //
+    // It happens BEFORE the hashing pass on purpose: the checksum is over the
+    // bytes that are written, and the written bytes carry the embedded
+    // payloads. Hashing first would make the checksum describe a document that
+    // is not the one on disk.
+    const embedded = options.embedReferences
+      ? await this.resolveEmbeddedEntities(scoped, options)
+      : undefined;
+
     hooks.onPhase?.('hashing');
-    const checksum = this.checksumOfExportData(scoped);
+    const checksum = this.checksumOfExportData(scoped, embedded);
 
     const metadata: ExportMetadata = {
       graphId: graph.id,
@@ -450,7 +539,9 @@ export class ExportService {
 
     hooks.onPhase?.('writing');
     await pipeline(
-      Readable.from(this.exportDocumentChunks(head, scoped, tail, hooks.onProgress)),
+      Readable.from(
+        this.exportDocumentChunks(head, scoped, tail, hooks.onProgress, embedded)
+      ),
       fs.createWriteStream(filePath, { encoding: 'utf8' })
     );
 
@@ -465,10 +556,11 @@ export class ExportService {
     head: string,
     data: ResolvedGraphData,
     tail: string,
-    onProgress?: (fraction: number) => void
+    onProgress?: (fraction: number) => void,
+    embedded?: Map<string, { entity?: ExportedEvent | ExportedArc; status: EmbeddedEntityStatus }>
   ): Generator<string> {
     yield head;
-    yield* this.exportDataChunks(data, onProgress);
+    yield* this.exportDataChunks(data, onProgress, embedded);
     yield tail;
     onProgress?.(1);
   }
@@ -485,7 +577,8 @@ export class ExportService {
    */
   private *exportDataChunks(
     data: ResolvedGraphData,
-    onProgress?: (fraction: number) => void
+    onProgress?: (fraction: number) => void,
+    embedded?: Map<string, { entity?: ExportedEvent | ExportedArc; status: EmbeddedEntityStatus }>
   ): Generator<string> {
     const crossGraphRefs: CrossGraphRef[] = [];
     const total =
@@ -535,6 +628,17 @@ export class ExportService {
     );
 
     if (crossGraphRefs.length > 0) {
+      // The payloads were resolved before the stream started (resolution is
+      // asynchronous, and a generator cannot await), so they are matched to the
+      // references here.
+      if (embedded) {
+        for (const ref of crossGraphRefs) {
+          const resolved = embedded.get(ExportService.refKey(ref));
+          if (!resolved) continue;
+          if (resolved.entity) ref.embeddedEntity = resolved.entity;
+          ref.embeddedEntityStatus = resolved.status;
+        }
+      }
       yield `,"crossGraphRefs":${JSON.stringify(crossGraphRefs)}`;
     }
 
@@ -563,10 +667,18 @@ export class ExportService {
     yield ']';
   }
 
-  /** SHA-256 of the exported data section, matching `calculateChecksum`. */
-  private checksumOfExportData(data: ResolvedGraphData): string {
+  /**
+   * SHA-256 of the exported data section, matching `calculateChecksum`.
+   *
+   * The embedded payloads are part of the data section, so the hash has to be
+   * taken over the same bytes the document contains.
+   */
+  private checksumOfExportData(
+    data: ResolvedGraphData,
+    embedded?: Map<string, { entity?: ExportedEvent | ExportedArc; status: EmbeddedEntityStatus }>
+  ): string {
     const hash = crypto.createHash('sha256');
-    for (const chunk of this.exportDataChunks(data)) {
+    for (const chunk of this.exportDataChunks(data, undefined, embedded)) {
       hash.update(chunk, 'utf8');
     }
     return hash.digest('hex');
@@ -915,6 +1027,263 @@ export class ExportService {
       evidence_event_ids: (p.evidence_event_ids as string[]) || [],
       affected_arc_ids: (p.affected_arc_ids as string[]) || [],
     };
+  }
+
+  /**
+   * Resolve the embedded payload of every cross-graph reference.
+   *
+   * Returns a map keyed by the reference's identity, so the serialiser can
+   * match a payload to the reference it belongs to. The in-memory path does
+   * not need this -- it can attach the payloads to the reference objects
+   * directly -- but the streaming path has to resolve before it starts,
+   * because a generator cannot await.
+   */
+  private async resolveEmbeddedEntities(
+    data: ResolvedGraphData,
+    options: ExportOptions
+  ): Promise<Map<string, { entity?: ExportedEvent | ExportedArc; status: EmbeddedEntityStatus }>> {
+    const resolved = new Map<string, { entity?: ExportedEvent | ExportedArc; status: EmbeddedEntityStatus }>();
+
+    const refs = this.collectCrossGraphRefs(data);
+    if (refs.length === 0) return resolved;
+
+    // The resolution writes onto the references; the map is built from the
+    // result, so the in-memory and the streaming path agree.
+    await this.embedReferencedEntities(refs, options);
+
+    for (const ref of refs) {
+      resolved.set(ExportService.refKey(ref), {
+        entity: ref.embeddedEntity,
+        status: ref.embeddedEntityStatus ?? 'missing',
+      });
+    }
+
+    return resolved;
+  }
+
+  /**
+   * Embed the entity each cross-graph reference points at (Req 4.4).
+   *
+   * The payload is read from the referenced graph, so two things decide
+   * whether it is included: whether the caller asked for embedding, and
+   * whether the caller may read the referenced graph at all. A reference to a
+   * graph the caller may not read is still reported -- the reference metadata
+   * is part of the export either way -- but its payload is withheld, and the
+   * reason is recorded so a consumer can tell "not embedded" from "not
+   * allowed to".
+   */
+  private async embedReferencedEntities(
+    refs: CrossGraphRef[],
+    options: ExportOptions
+  ): Promise<void> {
+    const canRead = options.canReadGraph ?? (() => false);
+
+    // The references are grouped by the graph they point at, so each graph is
+    // loaded once -- and, more importantly, so only one referenced graph is in
+    // memory at a time. Holding every referenced tree at once would make the
+    // export's memory a multiple of the graph it exports.
+    const byGraph = new Map<string, CrossGraphRef[]>();
+    for (const ref of refs) {
+      const list = byGraph.get(ref.referencedGraphId);
+      if (list) {
+        list.push(ref);
+      } else {
+        byGraph.set(ref.referencedGraphId, [ref]);
+      }
+    }
+
+    // The caps are checked before anything is loaded, and only the graphs the
+    // caller may read count towards them: a reference the caller may not read
+    // is refused anyway, so it must not use up the budget of the ones it may.
+    const readableGraphs = [...byGraph.keys()].filter((graphId) => canRead(graphId));
+
+    if (readableGraphs.length > MAX_EMBEDDED_GRAPHS || refs.length > MAX_EMBEDDED_REFS) {
+      // The number of references is not bounded by the entity count: one
+      // event's metadata can name any number of graphs. Loading them all would
+      // be unbounded work for a request that looked small.
+      this.logger.warn('Refusing to embed: too many references', {
+        referencedGraphs: readableGraphs.length,
+        references: refs.length,
+        limitGraphs: MAX_EMBEDDED_GRAPHS,
+        limitReferences: MAX_EMBEDDED_REFS,
+      });
+      for (const ref of refs) {
+        ref.embeddedEntityStatus = 'too-many';
+      }
+      return;
+    }
+
+    let embeddedBytes = 0;
+    let tooLarge = false;
+
+    for (const [graphId, graphRefs] of byGraph) {
+      // The access check comes before any load, so a caller cannot learn
+      // whether a graph exists by watching what is embedded.
+      if (!canRead(graphId)) {
+        for (const ref of graphRefs) {
+          ref.embeddedEntityStatus = 'forbidden';
+        }
+        continue;
+      }
+
+      const referenced = await this.loadGraphIfItExists(graphId);
+      if (referenced === null) {
+        for (const ref of graphRefs) {
+          ref.embeddedEntityStatus = 'missing';
+        }
+        continue;
+      }
+      if (referenced === 'unreadable') {
+        for (const ref of graphRefs) {
+          ref.embeddedEntityStatus = 'unreadable';
+        }
+        continue;
+      }
+
+      // One converted copy per entity, not per reference: ten thousand
+      // references to the same entity must not produce ten thousand copies of
+      // it.
+      const converted = new Map<string, ExportedEvent | ExportedArc>();
+
+      for (const ref of graphRefs) {
+        const entityKey = `${ref.referencedEntityType}:${ref.referencedEntityId}`;
+        let embedded = converted.get(entityKey);
+
+        if (embedded === undefined) {
+          const raw =
+            ref.referencedEntityType === 'event'
+              ? referenced.events[ref.referencedEntityId]
+              : referenced.arcs[ref.referencedEntityId];
+
+          // The lookup has to be an own-property one: an id of "constructor"
+          // would otherwise resolve to `Object.prototype` and be embedded as
+          // though it were an entity.
+          const source =
+            ref.referencedEntityType === 'event'
+              ? referenced.events
+              : referenced.arcs;
+          if (!Object.prototype.hasOwnProperty.call(source, ref.referencedEntityId) || !raw) {
+            for (const missing of graphRefs.filter((r) => r.referencedEntityId === ref.referencedEntityId)) {
+              missing.embeddedEntityStatus = 'missing';
+            }
+            continue;
+          }
+
+          // The embedded entity is a copy of another graph's entity. Its own
+          // cross-graph references are not followed: that would make embedding
+          // recursive, and the reference metadata of the embedded copy is not
+          // part of the format for it.
+          const ignoredRefs: CrossGraphRef[] = [];
+          embedded =
+            ref.referencedEntityType === 'event'
+              ? this.convertEvent(ref.referencedEntityId, raw, ignoredRefs)
+              : this.convertArc(ref.referencedEntityId, raw, ignoredRefs);
+          converted.set(entityKey, embedded);
+        }
+
+        embeddedBytes += Buffer.byteLength(JSON.stringify(embedded), 'utf8');
+        if (embeddedBytes > MAX_EMBEDDED_BYTES) {
+          tooLarge = true;
+          break;
+        }
+
+        ref.embeddedEntity = embedded;
+        ref.embeddedEntityStatus = 'embedded';
+      }
+
+      if (tooLarge) break;
+    }
+
+    if (tooLarge) {
+      this.logger.warn('Refusing to embed: the payloads are too large', {
+        embeddedBytes,
+        limit: MAX_EMBEDDED_BYTES,
+      });
+      for (const ref of refs) {
+        if (ref.embeddedEntityStatus === 'embedded') {
+          ref.embeddedEntity = undefined;
+        }
+        ref.embeddedEntityStatus = 'too-many';
+      }
+    }
+  }
+
+  /**
+   * The current contents of a graph.
+   *
+   * `null` means the graph does not exist; `'unreadable'` means it exists but
+   * could not be read, which is a different thing: a consumer must not treat
+   * a transient read error as "the referenced entity is gone".
+   */
+  private async loadGraphIfItExists(
+    graphId: string
+  ): Promise<ResolvedGraphData | null | 'unreadable'> {
+    // The id comes from free-form metadata, so it is checked before it is used
+    // as a path.
+    try {
+      assertSafeGraphId(graphId);
+    } catch {
+      return null;
+    }
+
+    const graph = await this.graphRepository.findById(graphId);
+    if (!graph) {
+      // `findById` answers null both for a graph that does not exist and for
+      // one it could not read. The index says which ids exist.
+      return (await this.graphRepository.exists(graphId)) ? 'unreadable' : null;
+    }
+
+    // A deleted graph is gone as far as the rest of the API is concerned: the
+    // graph context resolver answers 404 for it.
+    if (graph.status === 'deleted') return null;
+
+    try {
+      return await this.graphRepository.checkout(graphId);
+    } catch (error) {
+      this.logger.error('Could not read a referenced graph for embedding', error, { graphId });
+      return 'unreadable';
+    }
+  }
+
+  /**
+   * Identifies a reference, so a resolved payload can be matched to it.
+   *
+   * The parts are joined with a separator that cannot occur in an id, and the
+   * whole thing is JSON-encoded, so two different references cannot produce
+   * the same key.
+   */
+  private static refKey(ref: CrossGraphRef): string {
+    return JSON.stringify([
+      ref.localEntityType,
+      ref.localEntityId,
+      ref.referencedGraphId,
+      ref.referencedEntityId,
+      ref.referencedEntityType,
+    ]);
+  }
+
+  /**
+   * The cross-graph references a tree carries, in the order the serialiser
+   * emits them.
+   *
+   * The streaming path needs the referenced entities resolved before it can
+   * serialise the references, so it collects them first. The traversal is the
+   * same one the serialiser performs, so the two agree.
+   */
+  private collectCrossGraphRefs(data: ResolvedGraphData): CrossGraphRef[] {
+    const refs: CrossGraphRef[] = [];
+
+    for (const [id, event] of Object.entries(data.events)) {
+      this.convertEvent(id, event, refs);
+    }
+    for (const [id, arc] of Object.entries(data.arcs)) {
+      this.convertArc(id, arc, refs);
+    }
+    for (const [id, rel] of Object.entries(data.relationships)) {
+      this.convertRelationship(id, rel, refs);
+    }
+
+    return refs;
   }
 
   /**

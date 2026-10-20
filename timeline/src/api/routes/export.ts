@@ -25,7 +25,7 @@ import {
   ExportFilters,
 } from '../../models/AsyncJob';
 import { AlthistoryExport, ExportOptions } from '../../services/ExportService';
-import type { AsyncJob } from '../../models/AsyncJob';
+import type { AsyncJob, ExportJobParams } from '../../models/AsyncJob';
 import { ValidationError, NotFoundError } from '../../utils/errors';
 
 export const exportRoutes = Router();
@@ -55,6 +55,10 @@ exportRoutes.post(
     const service = req.container.jobService;
 
     const request = parseExportBody(req.body, requireGraphId(req));
+
+    // The job runs later and may embed referenced entities, so it records who
+    // asked: the access check is made again, from the key, when it runs.
+    request.requestedBy = req.apiKey?.id;
 
     const result = await service.createExportJob(request);
 
@@ -92,10 +96,24 @@ exportRoutes.get(
       const request = parseExportQuery(req.query, graphId);
       const service = req.container.exportService;
 
+      // Whether the caller may read a referenced graph. Embedding copies
+      // another graph's data into the file they download, so it is checked
+      // per graph, not once for the export.
+      request.canReadGraph = graphAccessCheck(req);
+
       const { entityCount, useAsync } = await service.shouldUseAsyncExport(request);
 
       if (useAsync) {
-        const job = await req.container.jobService.createExportJob(request);
+        // The job re-checks the access itself, from the recorded key.
+        const job = await req.container.jobService.createExportJob({
+          graphId: request.graphId,
+          scope: request.scope,
+          filters: request.filters,
+          includeProvenance: request.includeProvenance,
+          version: request.version,
+          embedReferences: request.embedReferences,
+          requestedBy: req.apiKey?.id,
+        });
         res.status(202).json({
           success: true,
           data: { ...job, entityCount },
@@ -336,6 +354,10 @@ exportRoutes.post(
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
       version,
+      embedReferences: request.embedReferences,
+      // Whether the caller may read a referenced graph; embedding copies
+      // another graph's data into the file they download.
+      canReadGraph: graphAccessCheck(req),
     };
 
     // Req 5.4: the trigger is the entity count, not the byte estimate. A graph
@@ -368,13 +390,7 @@ exportRoutes.post(
       );
     }
 
-    const result = await service.exportGraph({
-      graphId: requireGraphId(req),
-      scope: request.scope,
-      filters: request.filters,
-      includeProvenance: request.includeProvenance ?? false,
-      version,
-    });
+    const result = await service.exportGraph(exportOptions);
 
     res.json({
       success: true,
@@ -524,10 +540,31 @@ function validateFilters(filters: ExportFilters): void {
  */
 function canAccessJobGraph(req: RequestWithContainer, job: AsyncJob): boolean {
   if (job.type !== 'export') return false;
-  if (!('graphId' in job.parameters)) return false;
+
+  // The job's type and its parameters are separate fields, so the type check
+  // above does not narrow the parameters union.
+  const params = job.parameters as ExportJobParams;
+  if (!('graphId' in params)) return false;
 
   const apiKey = req.apiKey;
-  return apiKey !== undefined && apiKey.canAccessGraph(job.parameters.graphId);
+  if (apiKey === undefined) return false;
+  if (!apiKey.canAccessGraph(params.graphId)) return false;
+
+  // A job that embeds referenced entities carries data from OTHER graphs, and
+  // the access check above only covers the exported one. Letting any key that
+  // can read the exported graph download the file would hand out the embedded
+  // payloads of graphs the caller may not read -- a leak the feature itself
+  // created. So the file is downloadable by the key that asked for it, or by
+  // an admin.
+  if (params.embedReferences) {
+    const requestedBy = params.requestedBy;
+    const isAdmin = apiKey.hasPermission('admin');
+    if (!isAdmin && (requestedBy === undefined || apiKey.id !== requestedBy)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -538,6 +575,21 @@ function assertJobGraphAccess(req: RequestWithContainer, job: AsyncJob): void {
   if (!canAccessJobGraph(req, job)) {
     throw new NotFoundError('Export job not found', 'Job', job.id);
   }
+}
+
+/**
+ * Whether the calling key may read a graph.
+ *
+ * A key with `allowedGraphs: '*'` may read any graph; a key restricted to some
+ * graphs may not read the others, and its export therefore cannot embed
+ * anything from them. A request with no key at all may read nothing, which
+ * fails closed: embedding copies another graph's data into the file the caller
+ * downloads.
+ */
+function graphAccessCheck(req: RequestWithContainer): (graphId: string) => boolean {
+  const apiKey = req.apiKey;
+  if (!apiKey) return () => false;
+  return (graphId: string) => apiKey.canAccessGraph(graphId);
 }
 
 /**
@@ -574,6 +626,7 @@ function parseExportBody(
   const filters =
     request.filters === undefined ? undefined : normalizeFilters(request.filters);
   const version = parseVersion(request.version);
+  const embedReferences = parseBoolean(request.embedReferences, 'embedReferences') ?? false;
 
   if (scope === 'filtered' && !filters) {
     throw new ValidationError('Filters are required when scope is "filtered"', 'filters');
@@ -588,13 +641,19 @@ function parseExportBody(
     validateFilters(filters);
   }
 
+  // `requestedBy` is stripped: it names the API key whose access the job will
+  // re-check, and that must be the caller's own key, never one the body
+  // chooses.
+  const { requestedBy: _ignoredRequestedBy, ...withoutRequestedBy } = request;
+
   return {
-    ...request,
+    ...withoutRequestedBy,
     graphId: resolvedGraphId,
     scope,
     filters,
     includeProvenance,
     version,
+    embedReferences,
   };
 }
 
@@ -658,6 +717,7 @@ function parseExportQuery(
   const includeProvenance = parseBoolean(query.includeProvenance, 'includeProvenance') ?? false;
   const filters = query.filters === undefined ? undefined : normalizeFilters(query.filters);
   const version = parseVersion(query.version);
+  const embedReferences = parseBoolean(query.embedReferences, 'embedReferences') ?? false;
 
   if (scope === 'filtered' && !filters) {
     throw new ValidationError('Filters are required when scope is "filtered"', 'filters');
@@ -674,7 +734,14 @@ function parseExportQuery(
     validateFilters(filters);
   }
 
-  return { graphId: resolvedGraphId, scope, filters, includeProvenance, version };
+  return {
+    graphId: resolvedGraphId,
+    scope,
+    filters,
+    includeProvenance,
+    version,
+    embedReferences,
+  };
 }
 
 /**

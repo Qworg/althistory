@@ -50,6 +50,21 @@ export interface ExportJobParams {
   includeProvenance: boolean;
   /** Pin the export to a committed version; absent means the head. */
   version?: number;
+  /**
+   * Embed the entity each cross-graph reference points at (Req 4.4).
+   *
+   * Off by default: embedding copies another graph's data into the file the
+   * caller downloads, so it has to be asked for deliberately.
+   */
+  embedReferences?: boolean;
+  /**
+   * The id of the API key that asked for the export.
+   *
+   * A job runs long after the request, so it cannot ask the requester
+   * whether it may read a referenced graph. It looks the key up again and
+   * re-checks; a key that has been revoked since cannot embed anything.
+   */
+  requestedBy?: string;
 }
 
 export interface ExportFilters {
@@ -311,6 +326,18 @@ export interface CreateExportJobRequest {
   webhook?: string;
   /** Pin the export to a committed version; absent means the head. */
   version?: number;
+  /**
+   * Embed the entity each cross-graph reference points at (Req 4.4).
+   *
+   * Off by default: embedding copies another graph's data into the file the
+   * caller downloads, so it has to be asked for deliberately.
+   */
+  embedReferences?: boolean;
+  /**
+   * The id of the API key that asked for the export. The route fills it in;
+   * a job re-checks that key's access when it runs.
+   */
+  requestedBy?: string;
 }
 
 export interface CreateExportJobResponse {

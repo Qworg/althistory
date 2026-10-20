@@ -152,6 +152,34 @@ New and changed tests:
   `202`, the job **completes**, and its download contains the full document —
   the end-to-end form of the original failure.
 
+## Embedding referenced entities (Req 4.4)
+
+Added in the follow-up branch `feature/embedded-cross-graph-references`:
+
+- `GET /api/export?embedReferences=true` and `POST /api/export/sync` with
+  `"embedReferences": true` embed the entity each cross-graph reference points
+  at, as `embeddedEntity` on the reference.
+- The payload is only included when the caller may read the referenced graph.
+  A key restricted with `allowedGraphs` therefore gets the reference -- the
+  metadata is part of the export either way -- but not the payload, and the
+  reference records `embeddedEntityStatus: "forbidden"`. A referenced entity
+  that does not exist records `"missing"`.
+- An async export job records the requesting key and re-checks its access when
+  it runs, because the job runs long after the request. A key that has been
+  revoked or expired since then fails the job outright -- it may no longer
+  read the exported graph either, and the export would copy data the caller
+  has lost access to.
+- The references are grouped by the graph they point at, so only one
+  referenced graph is in memory at a time, and the number of referenced graphs
+  is capped (50). The count is not bounded by the entity count: one event's
+  metadata can name any number of graphs.
+- A referenced graph that exists but cannot be read is reported as
+  `unreadable`, not as `missing`: a transient read error must not look like a
+  dangling reference.
+- The streamed and the in-memory documents carry the same checksum: the
+  embedding is resolved before the hashing pass, so the hash is taken over the
+  bytes that are written.
+
 ## Residual
 
 - A job that fails mid-stream leaves a partial file. Nothing serves it (the job

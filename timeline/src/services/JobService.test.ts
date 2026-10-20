@@ -864,6 +864,232 @@ describe('JobService', () => {
     });
   });
 
+  describe('embedding referenced entities in a job', () => {
+    it('should carry the embedding request and the requesting key into the job', async () => {
+      // The job has to know both, or it silently exports the graph without any
+      // embedded payload.
+      const mockJob = createMockJob();
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockJobRepository.create.mockResolvedValue(mockJob);
+      mockExportService.estimateExportSize.mockResolvedValue(1000);
+
+      await jobService.createExportJob({
+        graphId: 'graph_123',
+        scope: 'full',
+        embedReferences: true,
+        requestedBy: 'key_123',
+      });
+
+      expect(mockJobRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'export',
+          parameters: expect.objectContaining({
+            embedReferences: true,
+            requestedBy: 'key_123',
+          }),
+        })
+      );
+    });
+
+    it('should default the embedding request to off', async () => {
+      const mockJob = createMockJob();
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockJobRepository.create.mockResolvedValue(mockJob);
+      mockExportService.estimateExportSize.mockResolvedValue(1000);
+
+      await jobService.createExportJob({
+        graphId: 'graph_123',
+        scope: 'full',
+      });
+
+      expect(mockJobRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parameters: expect.objectContaining({ embedReferences: false }),
+        })
+      );
+    });
+
+    it('re-checks the requesting key before embedding anything', async () => {
+      const mockJob = createMockJob({
+        status: 'pending',
+        parameters: {
+          type: 'export',
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          embedReferences: true,
+          requestedBy: 'key_123',
+        },
+      });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(mockJob)
+        .mockResolvedValue(null);
+      mockJobRepository.update.mockResolvedValue(mockJob);
+      mockExportService.exportToFile.mockResolvedValue('/path/to/export.json');
+
+      // The key may read the exported graph and one other, but not a third:
+      // that is the graph a reference points at and the key may not read.
+      const resolveApiKey = vi.fn().mockResolvedValue({
+        isValid: () => true,
+        hasPermission: () => true,
+        canAccessGraph: (graphId: string) =>
+          graphId === 'graph_123' || graphId === 'graph_allowed',
+      });
+
+      const service = new JobService({ dataDir: './test-data', resolveApiKey });
+      await service.initialize();
+      service.start();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      service.stop();
+
+      expect(resolveApiKey).toHaveBeenCalledWith('key_123');
+      expect(mockExportService.exportToFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          embedReferences: true,
+          canReadGraph: expect.any(Function),
+        }),
+        undefined,
+        expect.any(Object)
+      );
+
+      const options = mockExportService.exportToFile.mock.calls[0][0] as {
+        canReadGraph: (graphId: string) => boolean;
+      };
+      expect(options.canReadGraph('graph_allowed')).toBe(true);
+      expect(options.canReadGraph('graph_forbidden')).toBe(false);
+    });
+
+    it('fails the job when the requesting key has been revoked', async () => {
+      // A revoked key is still in the repository, so the lookup finds it; only
+      // `isValid` says it may no longer be used. The job must not export the
+      // graph at all, and must not embed anything.
+      const mockJob = createMockJob({
+        status: 'pending',
+        parameters: {
+          type: 'export',
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          embedReferences: true,
+          requestedBy: 'key_revoked',
+        },
+      });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(mockJob)
+        .mockResolvedValue(null);
+      mockJobRepository.update.mockResolvedValue(mockJob);
+      mockExportService.exportToFile.mockResolvedValue('/path/to/export.json');
+
+      const resolveApiKey = vi.fn().mockResolvedValue({
+        isValid: () => false,
+        hasPermission: () => true,
+        canAccessGraph: () => true,
+      });
+
+      const service = new JobService({ dataDir: './test-data', resolveApiKey });
+      await service.initialize();
+      service.start();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      service.stop();
+
+      expect(mockExportService.exportToFile).not.toHaveBeenCalled();
+      expect(mockJob.status).toBe('failed');
+    });
+
+    it('fails the job when the requesting key may no longer read the graph', async () => {
+      const mockJob = createMockJob({
+        status: 'pending',
+        parameters: {
+          type: 'export',
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          requestedBy: 'key_lost_access',
+        },
+      });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(mockJob)
+        .mockResolvedValue(null);
+      mockJobRepository.update.mockResolvedValue(mockJob);
+      mockExportService.exportToFile.mockResolvedValue('/path/to/export.json');
+
+      const resolveApiKey = vi.fn().mockResolvedValue({
+        isValid: () => true,
+        hasPermission: () => true,
+        canAccessGraph: (graphId: string) => graphId === 'graph_other',
+      });
+
+      const service = new JobService({ dataDir: './test-data', resolveApiKey });
+      await service.initialize();
+      service.start();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      service.stop();
+
+      expect(mockExportService.exportToFile).not.toHaveBeenCalled();
+      expect(mockJob.status).toBe('failed');
+    });
+
+    it('embeds nothing when the requesting key is gone', async () => {
+      const mockJob = createMockJob({
+        status: 'pending',
+        parameters: {
+          type: 'export',
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          embedReferences: true,
+          requestedBy: 'key_revoked',
+        },
+      });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(mockJob)
+        .mockResolvedValue(null);
+      mockJobRepository.update.mockResolvedValue(mockJob);
+      mockExportService.exportToFile.mockResolvedValue('/path/to/export.json');
+
+      const resolveApiKey = vi.fn().mockResolvedValue(null);
+
+      const service = new JobService({ dataDir: './test-data', resolveApiKey });
+      await service.initialize();
+      service.start();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      service.stop();
+
+      // The key is gone, so the job is refused rather than run.
+      expect(mockExportService.exportToFile).not.toHaveBeenCalled();
+      expect(mockJob.status).toBe('failed');
+    });
+
+    it('embeds nothing when no key was recorded', async () => {
+      const mockJob = createMockJob({
+        status: 'pending',
+        parameters: {
+          type: 'export',
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          embedReferences: true,
+        },
+      });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(mockJob)
+        .mockResolvedValue(null);
+      mockJobRepository.update.mockResolvedValue(mockJob);
+      mockExportService.exportToFile.mockResolvedValue('/path/to/export.json');
+
+      const service = new JobService({ dataDir: './test-data' });
+      await service.initialize();
+      service.start();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      service.stop();
+
+      const options = mockExportService.exportToFile.mock.calls[0][0] as {
+        canReadGraph: (graphId: string) => boolean;
+      };
+      expect(options.canReadGraph('graph_123')).toBe(false);
+    });
+  });
+
   describe('streaming export progress', () => {
     it('persists the progress the stream reports', async () => {
       const mockJob = createMockJob({ status: 'pending' });

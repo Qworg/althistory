@@ -14,6 +14,7 @@ import {
 import { JobRepository, JobFilter, JobStats } from '../repositories/JobRepository';
 import { ExportService, ExportOptions } from './ExportService';
 import { GraphRepository } from '../repositories/GraphRepository';
+import type { ApiKey } from '../models/ApiKey';
 import { assertWebhookTarget } from '../utils/webhookTarget';
 import { NotFoundError } from '../utils/errors';
 import { createLogger, ILogger } from '../utils/logger';
@@ -38,6 +39,12 @@ export interface JobServiceConfig {
    * container's value; it exists so the boundary can be exercised in tests.
    */
   maxInMemorySize?: number;
+  /**
+   * Resolve an API key by id, used to re-check access when a job embeds
+   * referenced entities. The job runs after the request, so the permission
+   * decision has to be made again from the key itself.
+   */
+  resolveApiKey?: (id: string) => Promise<ApiKey | null>;
 }
 
 export interface JobProgress {
@@ -84,6 +91,11 @@ export class JobService extends EventEmitter {
   private readonly maxConcurrentJobs: number;
   private readonly jobTimeoutMs: number;
   private readonly pollIntervalMs: number;
+  /**
+   * Resolves an API key by id, when the caller supplied one. Used to re-check
+   * access when a job embeds referenced entities.
+   */
+  private readonly resolveApiKey?: (id: string) => Promise<ApiKey | null>;
   
   private activeJobs: Map<string, Promise<void>> = new Map();
   private pollInterval?: NodeJS.Timeout;
@@ -107,6 +119,7 @@ export class JobService extends EventEmitter {
     this.maxConcurrentJobs = config.maxConcurrentJobs || 3;
     this.jobTimeoutMs = config.jobTimeoutMs || 30 * 60 * 1000; // 30 minutes
     this.pollIntervalMs = config.pollIntervalMs || 5000; // 5 seconds
+    this.resolveApiKey = config.resolveApiKey;
     this.webhookMaxAttempts = config.webhookMaxAttempts ?? DEFAULT_WEBHOOK_MAX_ATTEMPTS;
     this.webhookInitialBackoffMs = config.webhookInitialBackoffMs ?? DEFAULT_WEBHOOK_INITIAL_BACKOFF_MS;
     this.webhookMaxBackoffMs = config.webhookMaxBackoffMs ?? DEFAULT_WEBHOOK_MAX_BACKOFF_MS;
@@ -299,6 +312,11 @@ export class JobService extends EventEmitter {
       filters: request.filters,
       includeProvenance: request.includeProvenance ?? false,
       version: request.version,
+      // Req 4.4: the job has to know whether to embed, and whose access to
+      // check. Without these the job silently exported the graph without any
+      // embedded payload.
+      embedReferences: request.embedReferences ?? false,
+      requestedBy: request.requestedBy,
     };
 
     // Create the job
@@ -493,7 +511,27 @@ export class JobService extends EventEmitter {
       // Carried through the job parameters so a pinned export does not silently
       // export the head once it crosses the async threshold.
       version: params.version,
+      embedReferences: params.embedReferences,
+      // Whether the requesting key may read a referenced graph. The job runs
+      // after the request, so the decision is made again here from the key
+      // itself; a key that has been revoked since cannot embed anything. The
+      // check is only made when the job embeds: a job that does not embed has
+      // no reason to resolve a key for that purpose. (The key IS resolved for
+      // every job, by `mayStillExport`, because the job may no longer be
+      // allowed to read the graph it exports.)
+      canReadGraph: params.embedReferences
+        ? await this.buildGraphAccessCheck(params.requestedBy)
+        : undefined,
     };
+
+    // The key may have been revoked, or lost access to the graph, since the
+    // request. An export that would copy a graph the caller may no longer
+    // read must not run.
+    if (!(await this.mayStillExport(params.graphId, params.requestedBy))) {
+      throw new Error(
+        'The API key that requested this export may no longer read the exported graph'
+      );
+    }
 
     await this.reportProgress(job, 50, 'Preparing export...');
 
@@ -549,6 +587,67 @@ export class JobService extends EventEmitter {
         scope: params.scope,
       },
     };
+  }
+
+  /**
+   * The graph-access check an export job uses when it embeds referenced
+   * entities.
+   *
+   * With no key to consult -- the job was created by something that is not a
+   * request, or the key has been revoked -- nothing may be embedded. Failing
+   * closed matters here: embedding copies another graph's data into a file
+   * the caller downloads.
+   */
+  private async buildGraphAccessCheck(
+    requestedBy: string | undefined
+  ): Promise<(graphId: string) => boolean> {
+    // No key to check against means nothing may be embedded. Failing open here
+    // would let a service built without a resolver embed whatever it liked.
+    if (!requestedBy || !this.resolveApiKey) {
+      return () => false;
+    }
+
+    const apiKey = await this.resolveApiKey(requestedBy);
+    // A revoked or expired key is still in the repository, so the lookup finds
+    // it: only `isValid` says whether it may still be used. A key that was
+    // revoked after the request must not embed anything.
+    if (!apiKey || !apiKey.isValid()) {
+      this.logger.warn('Export job cannot embed references: the requesting key is not valid', {
+        requestedBy,
+      });
+      return () => false;
+    }
+
+    return (graphId: string) => apiKey.canAccessGraph(graphId);
+  }
+
+  /**
+   * Whether the requesting key may still read the graph the job exports.
+   *
+   * The job runs long after the request, so the key may have been revoked, or
+   * lost access to the graph, in between. An export that would copy a graph
+   * the caller may no longer read must not run.
+   */
+  private async mayStillExport(
+    graphId: string,
+    requestedBy: string | undefined
+  ): Promise<boolean> {
+    // Without a key there is nothing to check against, and the job was not
+    // created by a request: it is not refused here. A key that WAS recorded
+    // but cannot be resolved is a different case, and it fails closed.
+    if (!requestedBy) return true;
+    if (!this.resolveApiKey) {
+      this.logger.warn('Export job cannot verify the requesting key', { graphId });
+      return false;
+    }
+
+    const apiKey = await this.resolveApiKey(requestedBy);
+    if (!apiKey || !apiKey.isValid()) return false;
+
+    // The permission may have been narrowed since the request too.
+    if (!apiKey.hasPermission('export')) return false;
+
+    return apiKey.canAccessGraph(graphId);
   }
 
   /**

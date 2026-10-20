@@ -100,6 +100,20 @@ export class GraphRepository {
   }
 
   /**
+   * Whether a graph is known to exist.
+   *
+   * `findById` answers `null` both for a graph that does not exist and for one
+   * whose metadata could not be read, and the two mean different things to a
+   * caller: a missing graph is a dangling reference, an unreadable one is a
+   * transient failure. The index says which ids exist, so a caller can tell
+   * them apart.
+   */
+  async exists(id: string): Promise<boolean> {
+    const index = await this.loadIndex();
+    return index.graphs.includes(id);
+  }
+
+  /**
    * List all graphs
    */
   async findAll(options: GraphListOptions = {}): Promise<GraphListResult> {

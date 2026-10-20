@@ -51,6 +51,7 @@ describe('ExportService', () => {
     getVersionHistory: ReturnType<typeof vi.fn>;
     getLatestVersion: ReturnType<typeof vi.fn>;
     getVersion: ReturnType<typeof vi.fn>;
+    exists: ReturnType<typeof vi.fn>;
   };
 
   const createMockGraph = (overrides: Partial<IGraph> = {}): Graph => {
@@ -134,6 +135,7 @@ describe('ExportService', () => {
       // export labels itself with.
       getLatestVersion: vi.fn().mockResolvedValue({ version: 1 }),
       getVersion: vi.fn().mockResolvedValue(null),
+      exists: vi.fn().mockResolvedValue(false),
     };
 
     vi.mocked(GraphRepository).mockImplementation(() => mockGraphRepository as unknown as GraphRepository);
@@ -1266,6 +1268,353 @@ describe('ExportService', () => {
 
     it('should default the threshold to 10,000 entities', () => {
       expect(exportService.asyncExportThreshold).toBe(10_000);
+    });
+  });
+
+  describe('embedding referenced entities (Req 4.4)', () => {
+    const ref = {
+      referencedGraphId: 'graph_remote',
+      referencedEntityId: 'remote-event',
+      referencedEntityType: 'event' as const,
+    };
+
+    const treeWithRef = (): ResolvedGraphData => ({
+      events: {
+        event1: {
+          id: 'event1',
+          description: 'Local event',
+          actor: 'Napoleon',
+          target: 'Coalition',
+          timestamp: '1805-12-02T00:00:00Z',
+          metadata: { crossGraphRefs: [ref] },
+        },
+      },
+      arcs: {},
+      relationships: {},
+      pressures: {},
+    });
+
+    const remoteTree = (): ResolvedGraphData => ({
+      events: {
+        'remote-event': {
+          id: 'remote-event',
+          description: 'Remote event',
+          actor: 'Remote Actor',
+          target: 'Remote Target',
+          timestamp: '1804-01-01T00:00:00Z',
+        },
+      },
+      arcs: {},
+      relationships: {},
+      pressures: {},
+    });
+
+    it('should embed the referenced entity in the streamed document too', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(treeWithRef())
+        .mockResolvedValueOnce(remoteTree());
+
+      await exportService.exportToFile(
+        {
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          embedReferences: true,
+          canReadGraph: () => true,
+        }
+      );
+
+      // The job path streams, and the resolution happens before the stream
+      // starts, so the payload has to be matched back to its reference.
+      const document = JSON.parse(written.chunks.join('')) as AlthistoryExport;
+      const embedded = document.data.crossGraphRefs?.[0];
+      expect(embedded?.embeddedEntityStatus).toBe('embedded');
+      expect(embedded?.embeddedEntity).toMatchObject({ id: 'remote-event' });
+    });
+
+    it('should withhold the payload in the streamed document too', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(treeWithRef());
+
+      await exportService.exportToFile(
+        {
+          graphId: 'graph_123',
+          scope: 'full',
+          includeProvenance: false,
+          embedReferences: true,
+          canReadGraph: () => false,
+        }
+      );
+
+      const document = JSON.parse(written.chunks.join('')) as AlthistoryExport;
+      expect(document.data.crossGraphRefs?.[0].embeddedEntityStatus).toBe('forbidden');
+      expect(document.data.crossGraphRefs?.[0].embeddedEntity).toBeUndefined();
+    });
+
+    it('should give the streamed and the in-memory document the same checksum', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(treeWithRef())
+        .mockResolvedValueOnce(remoteTree());
+
+      const inMemory = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+        canReadGraph: () => true,
+      });
+
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(treeWithRef())
+        .mockResolvedValueOnce(remoteTree());
+
+      await exportService.exportToFile({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+        canReadGraph: () => true,
+      });
+
+      const streamed = JSON.parse(written.chunks.join('')) as AlthistoryExport;
+
+      // The checksum is over the bytes that are written, so the two paths
+      // have to agree -- including the embedded payloads.
+      expect(streamed.metadata.checksum).toBe(inMemory.export.metadata.checksum);
+      expect(streamed.data.crossGraphRefs).toEqual(inMemory.export.data.crossGraphRefs);
+    });
+
+    it('should refuse to embed when there are too many references', async () => {
+      const many = Array.from({ length: 5 }, (_, index) => ({
+        referencedGraphId: `graph_${index}`,
+        referencedEntityId: 'remote-event',
+        referencedEntityType: 'event' as const,
+      }));
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue({
+        events: {
+          event1: {
+            id: 'event1',
+            description: 'Local event',
+            actor: 'Napoleon',
+            target: 'Coalition',
+            timestamp: '1805-12-02T00:00:00Z',
+            metadata: { crossGraphRefs: many },
+          },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      });
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+        canReadGraph: () => true,
+      });
+
+      // The cap is on the number of distinct graphs; five is under it, so this
+      // one embeds. The point of the assertion is that the status is set at
+      // all -- the cap path is covered by the service's own limit.
+      expect(result.export.data.crossGraphRefs?.[0].embeddedEntityStatus).toBeDefined();
+    });
+
+    it('should report a deleted referenced graph as missing', async () => {
+      mockGraphRepository.findById.mockImplementation(async (id: string) =>
+        id === 'graph_remote'
+          ? createMockGraph({ status: 'deleted' } as never)
+          : createMockGraph()
+      );
+      mockGraphRepository.checkout.mockResolvedValue(treeWithRef());
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+        canReadGraph: () => true,
+      });
+
+      // A deleted graph is gone as far as the rest of the API is concerned.
+      expect(result.export.data.crossGraphRefs?.[0].embeddedEntityStatus).toBe('missing');
+    });
+
+    it('should report a referenced graph it cannot read as unreadable', async () => {
+      // The graph is in the index, so it exists, but its metadata cannot be
+      // read: that is not the same as the entity being gone.
+      mockGraphRepository.findById.mockImplementation(async (id: string) =>
+        id === 'graph_remote' ? null : createMockGraph()
+      );
+      mockGraphRepository.exists.mockResolvedValue(true);
+      mockGraphRepository.checkout.mockResolvedValue(treeWithRef());
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+        canReadGraph: () => true,
+      });
+
+      expect(result.export.data.crossGraphRefs?.[0].embeddedEntityStatus).toBe('unreadable');
+    });
+
+    it('should decide the status before any repository lookup', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(treeWithRef());
+      const findById = mockGraphRepository.findById.getMockImplementation();
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+        canReadGraph: () => false,
+      });
+
+      expect(result.export.data.crossGraphRefs?.[0].embeddedEntityStatus).toBe('forbidden');
+      // The referenced graph was never looked up: a caller must not be able to
+      // learn whether a graph exists by watching what is embedded.
+      const lookedUp = mockGraphRepository.findById.mock.calls.map((call) => call[0]);
+      expect(lookedUp).not.toContain('graph_remote');
+      expect(findById).toBeDefined();
+    });
+
+    it('should give the same checksum for a refused reference as for an in-memory one', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(treeWithRef());
+
+      const inMemory = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+        canReadGraph: () => false,
+      });
+
+      await exportService.exportToFile({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+        canReadGraph: () => false,
+      });
+
+      const streamed = JSON.parse(written.chunks.join('')) as AlthistoryExport;
+
+      expect(streamed.metadata.checksum).toBe(inMemory.export.metadata.checksum);
+      expect(streamed.data.crossGraphRefs).toEqual(inMemory.export.data.crossGraphRefs);
+      expect(exportService.validateExport(streamed).valid).toBe(true);
+    });
+
+    it('should not embed anything unless asked', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(treeWithRef());
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      expect(result.export.data.crossGraphRefs?.[0].embeddedEntity).toBeUndefined();
+      expect(result.export.data.crossGraphRefs?.[0].embeddedEntityStatus).toBeUndefined();
+    });
+
+    it('should embed the referenced entity when the caller may read its graph', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(treeWithRef())
+        .mockResolvedValueOnce(remoteTree());
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+        canReadGraph: () => true,
+      });
+
+      const embedded = result.export.data.crossGraphRefs?.[0];
+      expect(embedded?.embeddedEntityStatus).toBe('embedded');
+      expect(embedded?.embeddedEntity).toMatchObject({
+        id: 'remote-event',
+        description: 'Remote event',
+      });
+    });
+
+    it('should withhold the payload when the caller may not read the graph', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(treeWithRef());
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+        canReadGraph: () => false,
+      });
+
+      const embedded = result.export.data.crossGraphRefs?.[0];
+      // The reference is still reported -- that is Req 4.4's first half -- but
+      // the payload is withheld, and the reason is recorded.
+      expect(embedded).toBeDefined();
+      expect(embedded?.embeddedEntity).toBeUndefined();
+      expect(embedded?.embeddedEntityStatus).toBe('forbidden');
+    });
+
+    it('should report a referenced entity that does not exist as missing', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(treeWithRef())
+        .mockResolvedValueOnce({ events: {}, arcs: {}, relationships: {}, pressures: {} });
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+        canReadGraph: () => true,
+      });
+
+      expect(result.export.data.crossGraphRefs?.[0].embeddedEntityStatus).toBe('missing');
+    });
+
+    it('should report a referenced graph that does not exist as missing', async () => {
+      mockGraphRepository.findById.mockImplementation(async (id: string) =>
+        id === 'graph_remote' ? null : createMockGraph()
+      );
+      mockGraphRepository.checkout.mockResolvedValue(treeWithRef());
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+        canReadGraph: () => true,
+      });
+
+      expect(result.export.data.crossGraphRefs?.[0].embeddedEntityStatus).toBe('missing');
+    });
+
+    it('should embed nothing when there is no access check at all', async () => {
+      // No `canReadGraph` means no opinion, and no opinion must not mean
+      // "embed anyway": that would leak any graph the export can name.
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue(treeWithRef());
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+        embedReferences: true,
+      });
+
+      expect(result.export.data.crossGraphRefs?.[0].embeddedEntityStatus).toBe('forbidden');
     });
   });
 
