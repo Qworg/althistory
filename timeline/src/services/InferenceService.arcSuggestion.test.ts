@@ -273,6 +273,75 @@ describe('InferenceService - arc suggestions', () => {
       ]);
     });
 
+    it('should score the deductions exactly', () => {
+      // The score is `1` minus the capped deductions plus the capped
+      // relationship bonus:
+      //   temporal gaps: min(0.3, 0.1 each)
+      //   actor gaps:    min(0.2, 0.05 each)
+      //   causal gaps:   min(0.4, ratio * 0.4)
+      //   bonus:         min(1, relationships / events * 0.1)
+      //
+      // Two events 182 days apart: one temporal gap, and the first event's
+      // actor has not been seen for 182 days, which is more than the 180-day
+      // actor threshold, so one actor gap as well. No causal gap: with two
+      // events there is no interior event. 1 - 0.1 - 0.05 = 0.85.
+      const events = [
+        completenessEvent('e0', '2020-01-01T00:00:00.000Z', 'Alice'),
+        completenessEvent('e1', '2020-07-01T00:00:00.000Z', 'Bob'),
+      ];
+
+      const response = inferenceService.analyzeCompleteness(events, []);
+
+      expect(response.gaps.temporalGaps).toHaveLength(1);
+      expect(response.gaps.actorGaps).toHaveLength(1);
+      expect(response.overallCompleteness).toBeCloseTo(0.85, 5);
+    });
+
+    it('should cap the temporal deduction at 0.3', () => {
+      // Four temporal gaps would deduct 0.4, but the cap holds it at 0.3.
+      // Every event shares one actor, so the actor gaps cancel out: the last
+      // event's actor was seen most recently, and the others are more than
+      // 180 days back -- so the actor deduction applies too. The score is
+      // therefore asserted against the same arithmetic as the other test.
+      const events = [
+        completenessEvent('e0', '2020-01-01T00:00:00.000Z', 'Alice'),
+        completenessEvent('e1', '2020-07-01T00:00:00.000Z', 'Alice'),
+        completenessEvent('e2', '2021-01-01T00:00:00.000Z', 'Alice'),
+        completenessEvent('e3', '2021-07-01T00:00:00.000Z', 'Alice'),
+        completenessEvent('e4', '2022-01-01T00:00:00.000Z', 'Alice'),
+      ];
+
+      const response = inferenceService.analyzeCompleteness(events, []);
+
+      expect(response.gaps.temporalGaps.length).toBeGreaterThanOrEqual(4);
+      // The full arithmetic, so the test fails if any weight or cap changes:
+      // the temporal deduction is held at 0.3 by its cap even though four
+      // gaps would deduct 0.4.
+      const causalRatio =
+        response.gaps.causalGaps.length / Math.max(1, events.length - 2);
+      const expected =
+        1 -
+        Math.min(0.3, response.gaps.temporalGaps.length * 0.1) -
+        Math.min(0.2, response.gaps.actorGaps.length * 0.05) -
+        Math.min(0.4, causalRatio * 0.4);
+      expect(response.overallCompleteness).toBeCloseTo(expected, 5);
+      // And the cap really is what holds the temporal deduction down.
+      expect(response.overallCompleteness).toBeCloseTo(0.3, 5);
+    });
+
+    it('should count a gap of exactly 90 days as no gap', () => {
+      // The comparison is strictly greater than 90 days, so a gap of exactly
+      // 90 days is not one. 2020-01-01 + 90 days is 2020-03-31.
+      const events = [
+        completenessEvent('e0', '2020-01-01T00:00:00.000Z'),
+        completenessEvent('e1', '2020-03-31T00:00:00.000Z'),
+      ];
+
+      const response = inferenceService.analyzeCompleteness(events, []);
+
+      expect(response.gaps.temporalGaps).toHaveLength(0);
+    });
+
     it('should keep the completeness score within [0, 1]', () => {
       const events = [
         completenessEvent('e0', '2010-01-01T00:00:00.000Z', 'Alice'),

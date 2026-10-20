@@ -27,7 +27,13 @@ import { ExtractedEvent, ExtractedArc, ExtractionSource } from '@/services/inges
  * output, so the two are kept apart on purpose. The API-side algorithm lives
  * in `InferenceService` (its single home) and is covered by
  * `src/services/InferenceService.arcSuggestion.test.ts`; this file is covered
- * by `src/cli/ingest.test.ts`.
+ * by `src/cli/ingest.test.ts` (the adaptive boundary, the eight-event cap and
+ * the single-event case).
+ *
+ * Two further differences: the CLI's boundary is never below thirty days (the
+ * median-based one falls back to thirty days when the median gap is zero), and
+ * the CLI never drops events -- a group of one is still an arc -- whereas the
+ * API drops groups smaller than the caller's minimum.
  */
 export function clusterEventsIntoArcs(
   events: ExtractedEvent[],

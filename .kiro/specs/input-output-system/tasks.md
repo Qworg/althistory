@@ -270,12 +270,12 @@
   - Write API tests
   - _Requirements: 14_
 
-- [ ] 3.9 Enhance InferenceService for suggestions API
+- [x] 3.9 Enhance InferenceService for suggestions API
   - Update `timeline/src/services/InferenceService.ts`
-  - Expose relationship suggestions as API-friendly format
-  - Add arc suggestion generation (cluster events)
-  - Add completeness analysis (gaps, missing links)
-  - Write unit tests
+  - ~~Expose relationship suggestions as API-friendly format~~ — still in the route; tracked separately (#43)
+  - Add arc suggestion generation (cluster events) — `InferenceService.clusterEventsIntoArcs`
+  - Add completeness analysis (gaps, missing links) — `InferenceService.analyzeCompleteness`
+  - Write unit tests — `src/services/InferenceService.arcSuggestion.test.ts`
   - _Requirements: 15_
 
 - [ ] 3.10 Create suggestion routes

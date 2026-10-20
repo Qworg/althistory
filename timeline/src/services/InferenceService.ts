@@ -14,10 +14,13 @@ interface EventCluster {
 }
 
 /**
- * Minimal event shape required to build arc suggestions.
+ * Event shape required to build arc suggestions.
  *
- * Contract: `timestamp` is already a parsed `Date`; the caller owns parsing
- * (and rejecting malformed input) so the service stays free of HTTP concerns.
+ * Contract: `timestamp` is already a parsed `Date`. The service neither
+ * validates nor transforms the input -- a malformed date reaches the
+ * algorithm as an Invalid Date -- so the caller has to reject it. The route
+ * does not do that yet, which is a known gap, not a guarantee of this
+ * contract.
  */
 export interface ArcClusterEvent {
   id: string;
@@ -29,8 +32,10 @@ export interface ArcClusterEvent {
 
 /**
  * An API-friendly arc suggestion: a group of events that a user may promote
- * into a narrative arc. The shape is the wire format of
- * `POST /api/suggest/arcs`; it is deliberately flat and free of model classes.
+ * into a narrative arc. The shape IS the wire format of
+ * `POST /api/suggest/arcs` -- the route passes it through unchanged -- so it
+ * is deliberately flat and free of model classes. A change here is a change to
+ * the public API.
  */
 export interface ArcSuggestion {
   name: string;
@@ -185,8 +190,8 @@ export class InferenceService {
    *   forms one group even when its total span exceeds the window.
    * - Groups smaller than `minClusterSize` are dropped.
    * - Output: one `ArcSuggestion` per surviving group, in chronological order.
-   *   The service neither validates nor transforms the input; the caller owns
-   *   that.
+   *   The service neither validates nor transforms the input; a caller that
+   *   passes a malformed date gets an Invalid Date back, not an error.
    */
   clusterEventsIntoArcs(
     events: ArcClusterEvent[],

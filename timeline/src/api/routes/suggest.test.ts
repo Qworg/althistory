@@ -87,8 +87,13 @@ describe('Suggest Routes', () => {
       ),
     };
 
+    // The route reads `causalService` from here. Without it the call throws
+    // inside the route and the empty catch swallows it, so `relationships`
+    // would always be empty and the route's relationship building would never
+    // be exercised.
     mockGraphScopedRepositories = vi.fn().mockResolvedValue({
       eventRepository: mockEventRepository,
+      causalService: mockCausalService,
     });
 
     // Create fresh app for each test
@@ -257,13 +262,16 @@ describe('Suggest Routes', () => {
       const response = await request(app)
         .post('/api/suggest/arcs')
         .set('X-API-Key', 'valid-read-key')
-        .send({ events, options: { minClusterSize: 3, temporalWindow: 'P30D' } })
+        // Deliberately not the defaults (30 days, 3 events): with the
+        // defaults the assertion would pass even if the route ignored the
+        // caller's options entirely.
+        .send({ events, options: { minClusterSize: 4, temporalWindow: 'P10D' } })
         .expect(200);
 
       expect(mockInferenceService.clusterEventsIntoArcs).toHaveBeenCalledWith(
         expect.any(Array),
-        30,
-        3
+        10,
+        4
       );
       // The HTTP body is the service result, unchanged.
       expect(response.body.suggestions).toHaveLength(1);
@@ -335,6 +343,37 @@ describe('Suggest Routes', () => {
       expect(response.body.gaps.temporalGaps).toBeDefined();
       expect(response.body.gaps.actorGaps).toBeDefined();
       expect(response.body.gaps.causalGaps).toBeDefined();
+    });
+
+    it('should pass the causal relationships it builds to the service', async () => {
+      // The route builds `relationships` from the causal chains it finds. A
+      // regression there (swapped cause and effect, a dropped push) has to be
+      // visible, which it is not when the causal service is missing from the
+      // mock and every call throws into the route's empty catch.
+      mockCausalService.findCausalChain.mockResolvedValue([
+        { events: ['e0', 'e1'] } as never,
+      ]);
+      mockEventRepository.findAll.mockResolvedValue([
+        {
+          id: 'e0',
+          description: 'First',
+          actor: 'A',
+          target: 'B',
+          timestamp: '2024-01-01T00:00:00Z',
+        },
+      ]);
+
+      const response = await request(app)
+        .post('/api/suggest/completeness')
+        .set('X-API-Key', 'valid-read-key')
+        .send({})
+        .expect(200);
+
+      expect(mockInferenceService.analyzeCompleteness).toHaveBeenCalledWith(
+        expect.any(Array),
+        [{ cause_event_id: 'e0', effect_event_id: 'e1' }]
+      );
+      expect(response.body.overallCompleteness).toBeDefined();
     });
 
     it('should delegate the completeness analysis to the inference service', async () => {

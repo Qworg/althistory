@@ -51,6 +51,90 @@ describe('CLI Arc Clustering (clusterEventsIntoArcs)', () => {
     expect(arcs[0].name).toContain('American Patriots');
   });
 
+  it('splits on the adaptive boundary once there are enough events for a median', () => {
+    // With four events there are three gaps, so the median is used: the
+    // boundary is three times the median gap (and at least thirty days).
+    // Two events are a day apart and two are a year apart, so the median
+    // falls on the short gap and the year-long pair is split off.
+    const events: ExtractedEvent[] = [
+      {
+        tempId: 'e-1',
+        description: 'First',
+        actor: 'Alice',
+        target: 'Bob',
+        timestamp: '2000-01-01T00:00:00Z',
+        confidence: 0.9,
+        source: mockSource,
+        selected: true,
+        edited: false,
+      },
+      {
+        tempId: 'e-2',
+        description: 'Second',
+        actor: 'Alice',
+        target: 'Bob',
+        timestamp: '2000-01-02T00:00:00Z',
+        confidence: 0.9,
+        source: mockSource,
+        selected: true,
+        edited: false,
+      },
+      {
+        tempId: 'e-3',
+        description: 'Third',
+        actor: 'Alice',
+        target: 'Bob',
+        timestamp: '2000-01-03T00:00:00Z',
+        confidence: 0.9,
+        source: mockSource,
+        selected: true,
+        edited: false,
+      },
+      {
+        tempId: 'e-4',
+        description: 'Fourth',
+        actor: 'Carol',
+        target: 'Dave',
+        timestamp: '2001-01-03T00:00:00Z',
+        confidence: 0.9,
+        source: mockSource,
+        selected: true,
+        edited: false,
+      },
+    ];
+
+    const arcs = clusterEventsIntoArcs(events, mockSource);
+
+    expect(arcs).toHaveLength(2);
+    expect(arcs[0].start_time).toBe('2000-01-01T00:00:00Z');
+    expect(arcs[0].end_time).toBe('2000-01-03T00:00:00Z');
+    expect(arcs[1].start_time).toBe('2001-01-03T00:00:00Z');
+  });
+
+  it('caps a cluster at eight events', () => {
+    // Nine events a day apart: the eighth fills the cluster, the ninth starts
+    // a new one. The cap is the CLI's own, and it is the reason the CLI
+    // clusterer is not the API's.
+    const events: ExtractedEvent[] = Array.from({ length: 9 }, (_, index) => ({
+      tempId: `e-${index}`,
+      description: `Event ${index}`,
+      actor: 'Alice',
+      target: 'Bob',
+      timestamp: `2000-01-${String(index + 1).padStart(2, '0')}T00:00:00Z`,
+      confidence: 0.9,
+      source: mockSource,
+      selected: true,
+      edited: false,
+    }));
+
+    const arcs = clusterEventsIntoArcs(events, mockSource);
+
+    expect(arcs).toHaveLength(2);
+    expect(arcs[0].start_time).toBe('2000-01-01T00:00:00Z');
+    expect(arcs[0].end_time).toBe('2000-01-08T00:00:00Z');
+    expect(arcs[1].start_time).toBe('2000-01-09T00:00:00Z');
+  });
+
   it('clusters distant events into separate arcs', () => {
     const events: ExtractedEvent[] = [
       {

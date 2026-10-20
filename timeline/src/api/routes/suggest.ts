@@ -196,8 +196,8 @@ suggestRoutes.post(
       }
 
       // Cluster events by temporal proximity. The algorithm lives in
-      // InferenceService; this route only validates the request and shapes the
-      // HTTP response.
+      // InferenceService, and its result IS the response body for this route
+      // (the service's type is the wire format). The route does not map it.
       const suggestions: ArcSuggestion[] = req.container.inferenceService.clusterEventsIntoArcs(
         events,
         temporalWindowDays,
