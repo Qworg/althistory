@@ -1,43 +1,25 @@
 /**
  * API Key Dashboard Modal
- * Admin interface for managing API keys
+ * Admin interface for managing API keys.
+ *
+ * This component is the composition root of the feature: it owns the modal
+ * chrome and the view switching, while the extracted units own the rest --
+ * `useApiKeys` (queries, mutations, invalidation), `CreateKeyModal` (the
+ * create form), `KeyListItem` (a key in the list) and `KeyUsageStats` (the
+ * usage counters in the footer).
  */
 
 import React, { useState, useCallback } from 'react'
 import { ModalBase } from '@/components/modals/ModalBase'
-import { 
-  useApiKeys, 
-  useApiKeyStats, 
-  useCreateApiKey, 
-  useRevokeApiKey,
-  useDeleteApiKey 
-} from '@/hooks/useApiKeys'
-import type { ApiKey, Permission, CreateApiKeyRequest, CreateApiKeyResponse } from '@/types'
+import { useApiKeys } from './useApiKeys'
+import { CreateKeyModal } from './CreateKeyModal'
+import { KeyListItem } from './KeyListItem'
+import { KeyUsageStats } from './KeyUsageStats'
+import type { ApiKey, CreateApiKeyRequest, CreateApiKeyResponse } from '@/types'
 
 interface ApiKeyDashboardProps {
   isOpen: boolean
   onClose: () => void
-}
-
-const PERMISSION_LABELS: Record<Permission, string> = {
-  'read:events': 'Read Events',
-  'write:events': 'Write Events',
-  'read:arcs': 'Read Arcs',
-  'write:arcs': 'Write Arcs',
-  'read:relationships': 'Read Relationships',
-  'write:relationships': 'Write Relationships',
-  'read:graphs': 'Read Graphs',
-  'write:graphs': 'Write Graphs',
-  'export': 'Export',
-  'import': 'Import',
-  'ingest': 'Ingest',
-  'admin': 'Admin',
-}
-
-const PERMISSION_GROUPS = {
-  readOnly: ['read:events', 'read:arcs', 'read:relationships', 'read:graphs', 'export'] as Permission[],
-  readWrite: ['read:events', 'write:events', 'read:arcs', 'write:arcs', 'read:relationships', 'write:relationships', 'read:graphs', 'write:graphs', 'export', 'import'] as Permission[],
-  full: ['read:events', 'write:events', 'read:arcs', 'write:arcs', 'read:relationships', 'write:relationships', 'read:graphs', 'write:graphs', 'export', 'import', 'ingest'] as Permission[],
 }
 
 export const ApiKeyDashboard: React.FC<ApiKeyDashboardProps> = ({ isOpen, onClose }) => {
@@ -45,20 +27,25 @@ export const ApiKeyDashboard: React.FC<ApiKeyDashboardProps> = ({ isOpen, onClos
   const [newKeyResponse, setNewKeyResponse] = useState<CreateApiKeyResponse | null>(null)
   const [copiedKey, setCopiedKey] = useState(false)
 
-  const { data: keysData, isLoading, error } = useApiKeys()
-  const { data: stats } = useApiKeyStats()
-  const createMutation = useCreateApiKey()
-  const revokeMutation = useRevokeApiKey()
-  const deleteMutation = useDeleteApiKey()
+  const {
+    keys,
+    stats,
+    isLoading,
+    error,
+    isCreating,
+    isRevoking,
+    isDeleting,
+    createKey,
+    revokeKey,
+    deleteKey,
+  } = useApiKeys()
 
   const handleCreateKey = useCallback(async (request: CreateApiKeyRequest) => {
-    try {
-      const response = await createMutation.mutateAsync(request)
+    const response = await createKey(request)
+    if (response) {
       setNewKeyResponse(response)
-    } catch (err) {
-      console.error('Failed to create API key:', err)
     }
-  }, [createMutation])
+  }, [createKey])
 
   const handleCopyKey = useCallback(async () => {
     if (newKeyResponse?.key) {
@@ -75,23 +62,15 @@ export const ApiKeyDashboard: React.FC<ApiKeyDashboardProps> = ({ isOpen, onClos
 
   const handleRevoke = useCallback(async (id: string) => {
     if (confirm('Are you sure you want to revoke this API key? This action cannot be undone.')) {
-      try {
-        await revokeMutation.mutateAsync(id)
-      } catch (err) {
-        console.error('Failed to revoke API key:', err)
-      }
+      await revokeKey(id)
     }
-  }, [revokeMutation])
+  }, [revokeKey])
 
   const handleDelete = useCallback(async (id: string) => {
     if (confirm('Are you sure you want to permanently delete this API key? This action cannot be undone.')) {
-      try {
-        await deleteMutation.mutateAsync(id)
-      } catch (err) {
-        console.error('Failed to delete API key:', err)
-      }
+      await deleteKey(id)
     }
-  }, [deleteMutation])
+  }, [deleteKey])
 
   // Show new key response
   if (newKeyResponse) {
@@ -168,11 +147,7 @@ export const ApiKeyDashboard: React.FC<ApiKeyDashboardProps> = ({ isOpen, onClos
       size="3xl"
       footer={
         <div className="flex justify-between items-center">
-          {stats && (
-            <div className="text-sm text-gray-600">
-              {stats.active} active / {stats.total} total keys
-            </div>
-          )}
+          <KeyUsageStats stats={stats} />
           <div className="flex gap-2">
             {view === 'create' ? (
               <button
@@ -194,130 +169,23 @@ export const ApiKeyDashboard: React.FC<ApiKeyDashboardProps> = ({ isOpen, onClos
       }
     >
       {view === 'create' ? (
-        <CreateKeyForm 
-          onSubmit={handleCreateKey} 
-          isLoading={createMutation.isPending}
+        <CreateKeyModal
+          isOpen={view === 'create'}
+          onCreate={handleCreateKey}
+          isLoading={isCreating}
         />
       ) : (
         <KeyList
-          keys={keysData?.keys || []}
+          keys={keys}
           isLoading={isLoading}
           error={error}
           onRevoke={handleRevoke}
           onDelete={handleDelete}
-          isRevoking={revokeMutation.isPending}
-          isDeleting={deleteMutation.isPending}
+          isRevoking={isRevoking}
+          isDeleting={isDeleting}
         />
       )}
     </ModalBase>
-  )
-}
-
-interface CreateKeyFormProps {
-  onSubmit: (data: CreateApiKeyRequest) => void
-  isLoading: boolean
-}
-
-const CreateKeyForm: React.FC<CreateKeyFormProps> = ({ onSubmit, isLoading }) => {
-  const [name, setName] = useState('')
-  const [permissionPreset, setPermissionPreset] = useState<'readOnly' | 'readWrite' | 'full' | 'custom'>('readOnly')
-  const [customPermissions, setCustomPermissions] = useState<Permission[]>([])
-  const [expiresAt, setExpiresAt] = useState('')
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    const permissions = permissionPreset === 'custom' 
-      ? customPermissions 
-      : PERMISSION_GROUPS[permissionPreset]
-
-    onSubmit({
-      name,
-      permissions,
-      expiresAt: expiresAt || undefined,
-    })
-  }
-
-  const togglePermission = (permission: Permission) => {
-    setCustomPermissions(prev => 
-      prev.includes(permission)
-        ? prev.filter(p => p !== permission)
-        : [...prev, permission]
-    )
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Key Name *
-        </label>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g., Production API Key"
-          required
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Permissions
-        </label>
-        <div className="space-y-2">
-          <select
-            value={permissionPreset}
-            onChange={(e) => setPermissionPreset(e.target.value as typeof permissionPreset)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="readOnly">Read Only</option>
-            <option value="readWrite">Read & Write</option>
-            <option value="full">Full Access</option>
-            <option value="custom">Custom</option>
-          </select>
-
-          {permissionPreset === 'custom' && (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-3 bg-gray-50 rounded-md">
-              {Object.entries(PERMISSION_LABELS).map(([key, label]) => (
-                <label key={key} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={customPermissions.includes(key as Permission)}
-                    onChange={() => togglePermission(key as Permission)}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Expiration (optional)
-        </label>
-        <input
-          type="datetime-local"
-          value={expiresAt}
-          onChange={(e) => setExpiresAt(e.target.value)}
-          min={new Date().toISOString().slice(0, 16)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        />
-        <p className="text-xs text-gray-500 mt-1">Leave empty for no expiration</p>
-      </div>
-
-      <button
-        type="submit"
-        disabled={!name || isLoading || (permissionPreset === 'custom' && customPermissions.length === 0)}
-        className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-      >
-        {isLoading ? 'Creating...' : 'Create API Key'}
-      </button>
-    </form>
   )
 }
 
@@ -331,14 +199,14 @@ interface KeyListProps {
   isDeleting: boolean
 }
 
-const KeyList: React.FC<KeyListProps> = ({ 
-  keys, 
-  isLoading, 
-  error, 
-  onRevoke, 
+const KeyList: React.FC<KeyListProps> = ({
+  keys,
+  isLoading,
+  error,
+  onRevoke,
   onDelete,
   isRevoking,
-  isDeleting 
+  isDeleting
 }) => {
   if (isLoading) {
     return (
@@ -381,92 +249,6 @@ const KeyList: React.FC<KeyListProps> = ({
           isDeleting={isDeleting}
         />
       ))}
-    </div>
-  )
-}
-
-interface KeyListItemProps {
-  apiKey: ApiKey
-  onRevoke: (id: string) => void
-  onDelete: (id: string) => void
-  isRevoking: boolean
-  isDeleting: boolean
-}
-
-const KeyListItem: React.FC<KeyListItemProps> = ({ 
-  apiKey, 
-  onRevoke, 
-  onDelete,
-  isRevoking,
-  isDeleting 
-}) => {
-  const isExpired = apiKey.expiresAt && new Date(apiKey.expiresAt) < new Date()
-  const statusColor = !apiKey.isActive 
-    ? 'bg-gray-100 text-gray-600' 
-    : isExpired 
-      ? 'bg-red-100 text-red-600'
-      : 'bg-green-100 text-green-600'
-  const statusText = !apiKey.isActive 
-    ? 'Revoked' 
-    : isExpired 
-      ? 'Expired' 
-      : 'Active'
-
-  return (
-    <div className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors">
-      <div className="flex justify-between items-start">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <h4 className="font-medium text-gray-900">{apiKey.name}</h4>
-            <span className={`px-2 py-0.5 text-xs rounded-full ${statusColor}`}>
-              {statusText}
-            </span>
-          </div>
-          <p className="text-sm font-mono text-gray-500">{apiKey.keyPrefix}...</p>
-        </div>
-        
-        <div className="flex gap-2">
-          {apiKey.isActive && !isExpired && (
-            <button
-              onClick={() => onRevoke(apiKey.id)}
-              disabled={isRevoking}
-              className="px-3 py-1 text-sm text-yellow-600 hover:bg-yellow-50 rounded-md transition-colors disabled:opacity-50"
-            >
-              Revoke
-            </button>
-          )}
-          <button
-            onClick={() => onDelete(apiKey.id)}
-            disabled={isDeleting}
-            className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-1">
-        {apiKey.permissions.slice(0, 5).map((perm) => (
-          <span key={perm} className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
-            {PERMISSION_LABELS[perm]}
-          </span>
-        ))}
-        {apiKey.permissions.length > 5 && (
-          <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
-            +{apiKey.permissions.length - 5} more
-          </span>
-        )}
-      </div>
-
-      <div className="mt-2 flex gap-4 text-xs text-gray-500">
-        <span>Created: {new Date(apiKey.createdAt).toLocaleDateString()}</span>
-        {apiKey.lastUsedAt && (
-          <span>Last used: {new Date(apiKey.lastUsedAt).toLocaleDateString()}</span>
-        )}
-        {apiKey.expiresAt && (
-          <span>Expires: {new Date(apiKey.expiresAt).toLocaleDateString()}</span>
-        )}
-      </div>
     </div>
   )
 }
