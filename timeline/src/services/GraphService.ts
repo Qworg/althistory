@@ -29,6 +29,10 @@ import {
 } from '../repositories/GraphRepository';
 import { ResolvedGraphData, EntityChanges, StaleVersionError } from '../repositories/VersionRepository';
 import { ValidationError, NotFoundError } from '../utils/errors';
+import {
+  validateMergedEntity,
+  describeMergedEntityProblems,
+} from './mergedEntityValidation';
 import { createLogger, ILogger } from '../utils/logger';
 
 /**
@@ -449,6 +453,12 @@ export class GraphService {
       // Detect conflicts
       const conflicts = this.detectMergeConflicts(targetData, sourceData);
 
+      // A blended payload can change any field of the entity it resolves, so
+      // it is checked before it is applied: a payload that changes a field's
+      // type, drops a field, or renames the entity would otherwise be
+      // committed as a graph the rest of the system cannot read.
+      this.assertMergedPayloadsAreUsable(conflicts, request.manualResolutions);
+
       // Compute changes for candidate merged graph
       const candidateChanges = this.calculateMergeChanges(
         targetData,
@@ -718,6 +728,44 @@ export class GraphService {
     }
   }
 
+  /**
+   * Refuse a merge whose blended payloads would corrupt an entity.
+   *
+   * Only conflicts that are being resolved with a blended payload are
+   * checked; `keep-target` and `keep-source` cannot corrupt anything, because
+   * they copy an entity that already exists.
+   */
+  private assertMergedPayloadsAreUsable(
+    conflicts: MergeConflict[],
+    manualResolutions?: Record<string, ManualResolution>
+  ): void {
+    const problems: string[] = [];
+
+    for (const conflict of conflicts) {
+      const key = `${conflict.entityType}:${conflict.entityId}`;
+      const resolution = manualResolutions?.[key];
+      if (typeof resolution !== 'object' || resolution === null) continue;
+      if (resolution.strategy !== 'merged') continue;
+
+      const found = validateMergedEntity(
+        conflict.entityType,
+        conflict.targetVersion,
+        resolution.value
+      );
+      if (found.length > 0) {
+        problems.push(describeMergedEntityProblems(conflict.entityType, conflict.entityId, found));
+      }
+    }
+
+    if (problems.length > 0) {
+      throw new ValidationError(
+        `The merge was refused: ${problems.join('. ')}`,
+        'manualResolutions',
+        problems
+      );
+    }
+  }
+
   private calculateMergeChanges(
     target: ResolvedGraphData,
     source: ResolvedGraphData,
@@ -796,24 +844,33 @@ export class GraphService {
   ): MergeAnomaly[] {
     const anomalies: MergeAnomaly[] = [];
 
-    // Construct candidate state for events and relationships
+    // Construct candidate state for every entity type. Arcs and pressures are
+    // included because they carry references too: an arc names its parent, a
+    // pressure names the events and arcs it rests on. A blended payload can
+    // move those references, so the candidate -- not the target -- is what has
+    // to stay consistent.
     const candidateEvents: Record<string, Record<string, unknown>> = { ...targetData.events };
     const candidateRels: Record<string, Record<string, unknown>> = { ...targetData.relationships };
+    const candidateArcs: Record<string, Record<string, unknown>> = { ...targetData.arcs };
+    const candidatePressures: Record<string, Record<string, unknown>> = { ...targetData.pressures };
+
+    const applyToCandidate = (
+      type: string,
+      id: string,
+      data: Record<string, unknown>
+    ): void => {
+      if (type === 'event') candidateEvents[id] = data;
+      else if (type === 'relationship') candidateRels[id] = data;
+      else if (type === 'arc') candidateArcs[id] = data;
+      else if (type === 'pressure') candidatePressures[id] = data;
+    };
 
     for (const add of changes.added) {
-      if (add.type === 'event') {
-        candidateEvents[add.id] = add.data;
-      } else if (add.type === 'relationship') {
-        candidateRels[add.id] = add.data;
-      }
+      applyToCandidate(add.type, add.id, add.data);
     }
 
     for (const mod of changes.modified) {
-      if (mod.type === 'event') {
-        candidateEvents[mod.id] = mod.data;
-      } else if (mod.type === 'relationship') {
-        candidateRels[mod.id] = mod.data;
-      }
+      applyToCandidate(mod.type, mod.id, mod.data);
     }
 
     // 1. Causal cycle detection on candidate relationships
@@ -931,6 +988,50 @@ export class GraphService {
               causeTimestamp: cause.timestamp,
               effectTimestamp: effect.timestamp,
             },
+          });
+        }
+      }
+    }
+
+    // 3. References from arcs and pressures must survive the merge.
+    //
+    // A relationship's references are checked above, but an arc names its
+    // parent arc and a pressure names the events and arcs it rests on. A
+    // blended payload can point any of those at an entity that does not
+    // exist, which would leave the merged graph referring to nothing.
+    for (const [arcId, arc] of Object.entries(candidateArcs)) {
+      const parentId = arc.parent_arc_id;
+      if (typeof parentId !== 'string' || parentId.length === 0) continue;
+      if (candidateArcs[parentId]) continue;
+
+      anomalies.push({
+        type: 'orphan_reference',
+        message: `Arc ${arcId} references non-existent parent arc ${parentId}`,
+        details: { entityType: 'arc', entityId: arcId, missingEntityId: parentId },
+      });
+    }
+
+    for (const [pressureId, pressure] of Object.entries(candidatePressures)) {
+      const evidenceEventIds = pressure.evidence_event_ids;
+      if (Array.isArray(evidenceEventIds)) {
+        for (const eventId of evidenceEventIds) {
+          if (typeof eventId !== 'string' || candidateEvents[eventId]) continue;
+          anomalies.push({
+            type: 'orphan_reference',
+            message: `Pressure ${pressureId} references non-existent event ${eventId}`,
+            details: { entityType: 'pressure', entityId: pressureId, missingEntityId: eventId },
+          });
+        }
+      }
+
+      const affectedArcIds = pressure.affected_arc_ids;
+      if (Array.isArray(affectedArcIds)) {
+        for (const arcId of affectedArcIds) {
+          if (typeof arcId !== 'string' || candidateArcs[arcId]) continue;
+          anomalies.push({
+            type: 'orphan_reference',
+            message: `Pressure ${pressureId} references non-existent arc ${arcId}`,
+            details: { entityType: 'pressure', entityId: pressureId, missingEntityId: arcId },
           });
         }
       }

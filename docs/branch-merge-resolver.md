@@ -98,12 +98,29 @@ The merge API and UI support field-level compromises across conflicts. Callers c
 
 In `BranchMergeModal.tsx`, choosing **Harmonized compromise** renders an inline field selector allowing users to choose baseline vs. branch values per differing property.
 
+A blended payload is applied as `{ ...target, ...payload, id }`, so it can change
+any field of the entity it resolves. Because that is unchecked, the service
+validates the payload before applying it (`services/mergedEntityValidation.ts`)
+and refuses the merge with a message naming the conflict and the field:
+
+- the payload may not rename the entity (`id` is fixed by the merge);
+- a field the graph has must keep its kind -- a `timestamp` that becomes a
+  number is a different instant, or no instant at all;
+- a field may not be set to `undefined`, which would drop it;
+- a field the graph does not have may be added, and must be a JSON value.
+
+The merge is also refused when the *result* would not hold together. Beyond the
+anomalies below, a blended arc may not name a parent arc that does not exist,
+and a blended pressure may not name events or arcs that do not exist
+(`orphan_reference`).
+
 ### Pre-merge anomaly detection
 
 During `dryRun: true` (and verified before committing), `GraphService.mergeGraph` performs a DAG and temporal analysis over the candidate merged graph:
 - **Causal cycle detection**: Ensures combined causal relationships form a strict directed acyclic graph (DAG) without circular dependencies.
 - **Temporal inversions**: Identifies causal relationships where the cause event timestamp occurs at or after the effect event timestamp.
 - **Orphan relationships**: Flags relationships referencing missing cause or effect entities.
+- **Orphan references**: Flags an arc naming a parent arc that does not exist, and a pressure naming events or arcs that do not exist.
 
 Detected anomalies are returned in `anomalies: MergeAnomaly[]` and surfaced as blocking warnings in `BranchMergeModal.tsx`.
 

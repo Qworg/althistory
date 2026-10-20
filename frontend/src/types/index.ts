@@ -330,7 +330,12 @@ export interface MergedResolution {
 /** A value that actually resolves one merge conflict. */
 export type ManualResolution = 'keep-target' | 'keep-source' | MergedResolution
 
-export type MergeAnomalyType = 'causal_cycle' | 'temporal_inversion' | 'orphan_relationship'
+export type MergeAnomalyType =
+  | 'causal_cycle'
+  | 'temporal_inversion'
+  | 'orphan_relationship'
+  /** A reference from an arc or a pressure to an entity the graph lacks. */
+  | 'orphan_reference'
 
 export interface MergeAnomaly {
   type: MergeAnomalyType

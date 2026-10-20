@@ -207,6 +207,26 @@ describe('BranchMergeModal', () => {
     })
   })
 
+  it('surfaces the server\'s refusal of an unusable merged payload', async () => {
+    mergeDetailedMock
+      .mockResolvedValueOnce({ success: false, conflicts: [conflict], dryRun: true })
+      .mockRejectedValueOnce(
+        new Error(
+          "The merge was refused: The merged event 'e1' is not usable: timestamp must stay a string"
+        )
+      )
+
+    renderWithProviders(<BranchMergeModal {...defaultProps} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze Merge' }))
+    await screen.findByTestId('merge-conflict-event:e1')
+
+    fireEvent.click(screen.getByLabelText('Harmonized compromise'))
+    fireEvent.click(screen.getByRole('button', { name: 'Commit Resolutions' }))
+
+    // The message names the field, so the user knows what to change.
+    expect(await screen.findByRole('alert')).toHaveTextContent('timestamp must stay a string')
+  })
+
   it('displays pre-merge anomalies and blocks commit', async () => {
     mergeDetailedMock.mockResolvedValueOnce({
       success: false,

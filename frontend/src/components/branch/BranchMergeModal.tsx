@@ -158,7 +158,7 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
         setPhase('conflicts')
         setError(
           merged.anomalies && merged.anomalies.length > 0
-            ? 'The merge was refused due to temporal anomalies or causal cycles.'
+            ? `The merge was refused: ${merged.anomalies[0]?.message ?? 'the merged graph is not consistent'}`
             : 'The merge was refused because conflicts changed. Review them and try again.'
         )
         return
