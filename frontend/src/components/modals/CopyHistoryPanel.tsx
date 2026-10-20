@@ -5,7 +5,8 @@ import { CopyOperation } from '@/types'
 interface CopyHistoryPanelProps {
   isOpen: boolean
   onClose: () => void
-  onSwitchToGraph?: (graphName: string) => void
+  /** Called with the copy's graph id: a copy's id is the graph it created. */
+  onSwitchToGraph?: (graphId: string) => void
   onCompareGraphs?: (originalName: string, copiedName: string) => void
   onDeleteCopy?: (copyId: string) => void
 }
@@ -309,7 +310,7 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
                         <div className="flex space-x-2">
                           {operation.status === 'completed' && onSwitchToGraph && (
                             <button
-                              onClick={() => onSwitchToGraph(operation.name)}
+                              onClick={() => onSwitchToGraph(operation.id)}
                               className="text-blue-600 hover:text-blue-800 text-sm underline"
                               title="Switch to this graph"
                             >

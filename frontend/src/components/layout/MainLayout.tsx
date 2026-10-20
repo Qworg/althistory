@@ -6,6 +6,7 @@ import { useViewStateManager } from '@/hooks/useViewStateManager'
 import { useViewShortcuts } from '@/hooks/useViewShortcuts'
 import { useGlobalStore } from '@/stores/globalStore'
 import { ActiveFiltersBar, FilterPanelContainer } from '@/components/filters/FilterPanelContainer'
+import { CopyCompletionNotifier } from '@/components/notifications/CopyCompletionNotifier'
 
 interface MainLayoutProps {
   children: ReactNode
@@ -113,6 +114,10 @@ export function MainLayout({ children }: MainLayoutProps) {
       </div>
 
       {isMobile && <MobileBottomBar />}
+
+      {/* The copy completion notice lives here so it outlives the modal that
+          started the copy. */}
+      <CopyCompletionNotifier />
     </div>
   )
 }

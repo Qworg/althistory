@@ -261,7 +261,10 @@ describe('CopyHistoryPanel', () => {
     const openButton = screen.getByText('Open')
     await user.click(openButton)
 
-    expect(mockOnSwitchToGraph).toHaveBeenCalledWith('Test Copy 1')
+    // The copy's id is the id of the graph it created, so that is what the
+    // switch needs -- resolving the name against the graph list would fail
+    // right after a copy, because the list has not been refreshed.
+    expect(mockOnSwitchToGraph).toHaveBeenCalledWith('1')
   })
 
   it('should call onCompareGraphs when Compare button is clicked', async () => {
