@@ -75,6 +75,19 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
   const [conflicts, setConflicts] = useState<MergeConflict[]>([])
   const [anomalies, setAnomalies] = useState<MergeAnomaly[]>([])
   const [resolutions, setResolutions] = useState<Record<string, ManualResolution>>({})
+  /**
+   * Change one conflict's resolution.
+   *
+   * Going through one function means the anomalies detected for the previous
+   * resolutions are cleared whenever a resolution changes. They described the
+   * graph that was about to be committed; once the user changes an answer,
+   * they are stale, and leaving them in place blocked the commit button with
+   * no way to clear them.
+   */
+  const setResolution = useCallback((key: string, resolution: ManualResolution) => {
+    setResolutions(prev => ({ ...prev, [key]: resolution }))
+    setAnomalies([])
+  }, [])
   const [result, setResult] = useState<GraphMergeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -327,7 +340,7 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
                               type="radio"
                               name={`resolution-${key}`}
                               checked={conflictResolution === 'keep-target'}
-                              onChange={() => setResolutions(prev => ({ ...prev, [key]: 'keep-target' }))}
+                              onChange={() => setResolution(key, 'keep-target')}
                             />
                             Keep baseline
                           </label>
@@ -336,7 +349,7 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
                               type="radio"
                               name={`resolution-${key}`}
                               checked={conflictResolution === 'keep-source'}
-                              onChange={() => setResolutions(prev => ({ ...prev, [key]: 'keep-source' }))}
+                              onChange={() => setResolution(key, 'keep-source')}
                             />
                             Accept counterfactual
                           </label>
@@ -351,10 +364,7 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
                                   ...conflict.sourceVersion,
                                   id: conflict.entityId,
                                 }
-                                setResolutions(prev => ({
-                                  ...prev,
-                                  [key]: { strategy: 'merged', value: initialMerged },
-                                }))
+                                setResolution(key, { strategy: 'merged', value: initialMerged })
                               }}
                             />
                             Harmonized compromise
@@ -367,6 +377,7 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
                             {differing.map(field => {
                               const cur = conflictResolution as MergedResolution
                               const currentVal = cur.value[field]
+                              const customValue = cur.value[field]
                               const targetVal = conflict.targetVersion[field]
                               const sourceVal = conflict.sourceVersion[field]
                               const isTargetSelected = JSON.stringify(currentVal) === JSON.stringify(targetVal)
@@ -380,17 +391,14 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        setResolutions(prev => ({
-                                          ...prev,
-                                          [key]: {
-                                            strategy: 'merged',
-                                            value: {
-                                              ...(prev[key] as MergedResolution).value,
-                                              [field]: targetVal,
-                                              id: conflict.entityId,
-                                            },
+                                        setResolution(key, {
+                                          strategy: 'merged',
+                                          value: {
+                                            ...((resolutions[key] as MergedResolution | undefined)?.value ?? {}),
+                                            [field]: targetVal,
+                                            id: conflict.entityId,
                                           },
-                                        }))
+                                        })
                                       }}
                                       className={`px-2 py-0.5 rounded text-[10px] border transition-colors ${
                                         isTargetSelected
@@ -403,17 +411,14 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        setResolutions(prev => ({
-                                          ...prev,
-                                          [key]: {
-                                            strategy: 'merged',
-                                            value: {
-                                              ...(prev[key] as MergedResolution).value,
-                                              [field]: sourceVal,
-                                              id: conflict.entityId,
-                                            },
+                                        setResolution(key, {
+                                          strategy: 'merged',
+                                          value: {
+                                            ...((resolutions[key] as MergedResolution | undefined)?.value ?? {}),
+                                            [field]: sourceVal,
+                                            id: conflict.entityId,
                                           },
-                                        }))
+                                        })
                                       }}
                                       className={`px-2 py-0.5 rounded text-[10px] border transition-colors ${
                                         !isTargetSelected
@@ -423,6 +428,26 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
                                     >
                                       Branch: {String(sourceVal)}
                                     </button>
+                                    {/* A value of the caller's own, for a
+                                        compromise that is neither side. */}
+                                    <input
+                                      type="text"
+                                      aria-label={`Custom value for ${field}`}
+                                      placeholder="Custom…"
+                                      value={customValue === undefined ? '' : String(customValue)}
+                                      onChange={e => {
+                                        const raw = e.target.value
+                                        setResolution(key, {
+                                          strategy: 'merged',
+                                          value: {
+                                            ...((resolutions[key] as MergedResolution | undefined)?.value ?? {}),
+                                            [field]: raw,
+                                            id: conflict.entityId,
+                                          },
+                                        })
+                                      }}
+                                      className="w-24 px-1.5 py-0.5 rounded text-[10px] border border-gray-200 text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                                    />
                                   </div>
                                 </div>
                               )

@@ -1069,6 +1069,290 @@ describe('GraphService', () => {
       expect(mockGraphRepository.commitChanges).not.toHaveBeenCalled();
     });
 
+    it('should ignore a leftover merged payload when the strategy is not manual', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      const targetData: ResolvedGraphData = {
+        events: {
+          event1: { id: 'event1', description: 'Target version', actor: 'Actor 1', target: 'Target 1', timestamp: '2024-01-01T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+      const sourceData: ResolvedGraphData = {
+        events: {
+          event1: { id: 'event1', description: 'Source version', actor: 'Actor 2', target: 'Target 1', timestamp: '2024-01-01T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph)
+        .mockResolvedValue(targetGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+      mockGraphRepository.commitChanges.mockResolvedValue({
+        graphId: 'target_graph',
+        version: 2,
+        timestamp: new Date().toISOString(),
+        parentVersion: 1,
+        operation: 'merge',
+        changes: { added: [], modified: [], deleted: [] },
+        treeHash: 'newhash',
+      });
+
+      // A `keep-source` merge never reads the map, so an unusable entry in it
+      // must not make the request fail.
+      const result = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'keep-source',
+        manualResolutions: {
+          'event:event1': { strategy: 'merged', value: { timestamp: 42 } },
+        },
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should not refuse a merge because of a reference that was already broken', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      // The pressure names an event that does not exist. Deleting an event
+      // cascades to relationships but not to pressures, so a graph can carry
+      // one -- and it must not make the graph unmergeable.
+      const targetData: ResolvedGraphData = {
+        events: {
+          event1: { id: 'event1', description: 'E1', actor: 'A', target: 'B', timestamp: '2024-01-01T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {
+          pressure1: {
+            id: 'pressure1',
+            description: 'Pressure',
+            confidence_score: 0.5,
+            pressure_type: 'political',
+            evidence_event_ids: ['event-deleted-long-ago'],
+            affected_arc_ids: [],
+          },
+        },
+      };
+      const sourceData: ResolvedGraphData = {
+        events: {
+          event2: { id: 'event2', description: 'E2', actor: 'A', target: 'B', timestamp: '2024-01-02T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph)
+        .mockResolvedValue(targetGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+      mockGraphRepository.commitChanges.mockResolvedValue({
+        graphId: 'target_graph',
+        version: 2,
+        timestamp: new Date().toISOString(),
+        parentVersion: 1,
+        operation: 'merge',
+        changes: { added: [], modified: [], deleted: [] },
+        treeHash: 'newhash',
+      });
+
+      const result = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'keep-source',
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockGraphRepository.commitChanges).toHaveBeenCalled();
+    });
+
+    it('should refuse a merged payload that clears a field to null', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      const targetData: ResolvedGraphData = {
+        events: {
+          event1: { id: 'event1', description: 'Target version', actor: 'Actor 1', target: 'Target 1', timestamp: '2024-01-01T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+      const sourceData: ResolvedGraphData = {
+        events: {
+          event1: { id: 'event1', description: 'Source version', actor: 'Actor 2', target: 'Target 1', timestamp: '2024-01-01T00:00:00Z' },
+        },
+        arcs: {},
+        relationships: {},
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph)
+        .mockResolvedValue(targetGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+
+      // An event with no instant would be committed by the merge and then
+      // rejected by the importer.
+      await expect(
+        graphService.mergeGraph('target_graph', {
+          sourceGraphId: 'source_graph',
+          conflictResolution: 'manual',
+          manualResolutions: {
+            'event:event1': { strategy: 'merged', value: { timestamp: null } },
+          },
+        })
+      ).rejects.toThrow(/must not be cleared to null/);
+
+      expect(mockGraphRepository.commitChanges).not.toHaveBeenCalled();
+    });
+
+    it('should refuse a merged arc whose parent is not an arc id', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      const targetData: ResolvedGraphData = {
+        events: {},
+        arcs: {
+          arc1: {
+            id: 'arc1',
+            name: 'Arc',
+            description: 'Target arc',
+            start_time: '2024-01-01',
+            end_time: '2024-02-01',
+            level: 0,
+            parent_arc_id: null,
+          },
+        },
+        relationships: {},
+        pressures: {},
+      };
+      const sourceData: ResolvedGraphData = {
+        events: {},
+        arcs: {
+          arc1: {
+            id: 'arc1',
+            name: 'Arc renamed',
+            description: 'Source arc',
+            start_time: '2024-01-01',
+            end_time: '2024-02-01',
+            level: 0,
+            parent_arc_id: null,
+          },
+        },
+        relationships: {},
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph)
+        .mockResolvedValue(targetGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+
+      const result = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'manual',
+        manualResolutions: {
+          'arc:arc1': { strategy: 'merged', value: { parent_arc_id: 42 } },
+        },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.anomalies?.some((a) => a.type === 'orphan_reference')).toBe(true);
+      expect(mockGraphRepository.commitChanges).not.toHaveBeenCalled();
+    });
+
+    it('should refuse a merge that creates a cycle in the arc hierarchy', async () => {
+      const targetGraph = createMockGraph({ id: 'target_graph' });
+      const sourceGraph = createMockGraph({ id: 'source_graph' });
+      const targetData: ResolvedGraphData = {
+        events: {},
+        arcs: {
+          arc1: {
+            id: 'arc1',
+            name: 'Arc one',
+            description: 'Target arc one',
+            start_time: '2024-01-01',
+            end_time: '2024-02-01',
+            level: 0,
+            parent_arc_id: null,
+          },
+          arc2: {
+            id: 'arc2',
+            name: 'Arc two',
+            description: 'Target arc two',
+            start_time: '2024-01-01',
+            end_time: '2024-02-01',
+            level: 1,
+            parent_arc_id: 'arc1',
+          },
+        },
+        relationships: {},
+        pressures: {},
+      };
+      const sourceData: ResolvedGraphData = {
+        events: {},
+        arcs: {
+          arc1: {
+            id: 'arc1',
+            name: 'Arc one',
+            description: 'Source arc one',
+            start_time: '2024-01-01',
+            end_time: '2024-02-01',
+            level: 0,
+            parent_arc_id: null,
+          },
+          arc2: {
+            id: 'arc2',
+            name: 'Arc two',
+            description: 'Source arc two',
+            start_time: '2024-01-01',
+            end_time: '2024-02-01',
+            level: 1,
+            parent_arc_id: 'arc1',
+          },
+        },
+        relationships: {},
+        pressures: {},
+      };
+
+      mockGraphRepository.findById
+        .mockResolvedValueOnce(targetGraph)
+        .mockResolvedValueOnce(sourceGraph)
+        .mockResolvedValue(targetGraph);
+      mockGraphRepository.checkout
+        .mockResolvedValueOnce(targetData)
+        .mockResolvedValueOnce(sourceData);
+
+      // arc1 -> arc2 -> arc1: a hierarchy the importer would refuse.
+      const result = await graphService.mergeGraph('target_graph', {
+        sourceGraphId: 'source_graph',
+        conflictResolution: 'manual',
+        manualResolutions: {
+          'arc:arc1': { strategy: 'merged', value: { parent_arc_id: 'arc2' } },
+        },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.anomalies?.some((a) => a.type === 'arc_cycle')).toBe(true);
+      expect(mockGraphRepository.commitChanges).not.toHaveBeenCalled();
+    });
+
     it('should detect causal cycles introduced by merge in dryRun and refuse commit', async () => {
       const targetGraph = createMockGraph({ id: 'target_graph' });
       const sourceGraph = createMockGraph({ id: 'source_graph' });

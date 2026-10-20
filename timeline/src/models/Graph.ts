@@ -443,7 +443,9 @@ export type MergeAnomalyType =
    * A reference from an arc (to its parent) or a pressure (to the events and
    * arcs it rests on) that names an entity the merged graph does not contain.
    */
-  | 'orphan_reference';
+  | 'orphan_reference'
+  /** A cycle in the arc hierarchy (an arc whose ancestor chain returns to it). */
+  | 'arc_cycle';
 
 export interface MergeAnomaly {
   type: MergeAnomalyType;

@@ -107,12 +107,28 @@ and refuses the merge with a message naming the conflict and the field:
 - a field the graph has must keep its kind -- a `timestamp` that becomes a
   number is a different instant, or no instant at all;
 - a field may not be set to `undefined`, which would drop it;
-- a field the graph does not have may be added, and must be a JSON value.
+- a field may only be cleared to `null` where the data has a null to clear
+  (either side being null means the field is nullable here), so a link cannot
+  be emptied;
+- a field the graph does not have may be added, and must be a JSON value;
+- `__proto__`, `constructor` and `prototype` are not field names an entity may
+  carry.
 
 The merge is also refused when the *result* would not hold together. Beyond the
-anomalies below, a blended arc may not name a parent arc that does not exist,
-and a blended pressure may not name events or arcs that do not exist
-(`orphan_reference`).
+anomalies below, a blended arc may not name a parent arc that does not exist
+(or name one that is not an arc id at all), and a blended pressure may not name
+events or arcs that do not exist (`orphan_reference`). A blend that makes the
+arc hierarchy circular is refused too (`arc_cycle`), because the importer
+refuses it and the merged graph could not be exported and re-imported.
+
+Only entities the merge *changed* are checked for dangling references. A
+reference that was already broken in the target is not this merge's doing --
+deleting an event cascades to relationships but not to pressures -- and
+refusing every merge because of it would make the graph unmergeable rather
+than repairing it.
+
+In `BranchMergeModal.tsx` the field selector also accepts a value of the
+user's own, for a compromise that is neither side.
 
 ### Pre-merge anomaly detection
 

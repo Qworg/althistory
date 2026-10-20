@@ -72,6 +72,16 @@ interface APIErrorPayload {
   message?: string
   code?: string
   details?: unknown
+  /**
+   * The shape the backend's error handler actually sends: `{ error: { message,
+   * details, ... } }`. A flat `{ message }` is accepted too, because some
+   * responses are produced outside that handler.
+   */
+  error?: {
+    message?: string
+    code?: string
+    details?: unknown
+  }
 }
 
 // Shape of the `relationship` object returned by POST/PUT /causal/link.
@@ -125,9 +135,14 @@ function handleAPIError(error: AxiosError): never {
     // Server responded with error status
     const { status, data } = error.response
     const payload = data as APIErrorPayload
-    const message = payload?.message || error.message
-    const code = payload?.code
-    const details = payload?.details
+    // The backend nests the message under `error`; reading only the flat
+    // `message` made every server error read as axios's own
+    // "Request failed with status code N", which hid the reason -- including
+    // a validation message that says which field is wrong.
+    const message =
+      payload?.error?.message || payload?.message || error.message
+    const code = payload?.error?.code || payload?.code
+    const details = payload?.error?.details ?? payload?.details
     throw new APIError(message, status, code, details)
   } else if (error.request) {
     // Network error

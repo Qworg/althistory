@@ -15,6 +15,9 @@
 
 import { EntityType } from '../models/Graph';
 
+/** Keys that would reach `Object.prototype` rather than the entity. */
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 export interface MergedEntityProblem {
   /** The field at fault, or `id` for a payload that tries to rename the entity. */
   field: string;
@@ -62,7 +65,14 @@ const KIND_NAMES: Record<string, string> = {
 export function validateMergedEntity(
   entityType: EntityType,
   targetEntity: Record<string, unknown>,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  /**
+   * The source entity the payload was blended from. A field may be cleared to
+   * null only where the data already allows a null -- that is, where either
+   * side has null for it. Without this, a payload could clear a relationship's
+   * `cause_event_id` and leave a link pointing at nothing.
+   */
+  sourceEntity?: Record<string, unknown>
 ): MergedEntityProblem[] {
   const problems: MergedEntityProblem[] = [];
 
@@ -77,6 +87,16 @@ export function validateMergedEntity(
 
   for (const [field, value] of Object.entries(payload)) {
     if (field === 'id') continue;
+
+    if (FORBIDDEN_KEYS.has(field)) {
+      // `__proto__` in a spread writes the prototype rather than a field, and
+      // `constructor` shadows the object's own constructor.
+      problems.push({
+        field,
+        message: 'is not a field name an entity may carry',
+      });
+      continue;
+    }
 
     if (value === undefined) {
       // `{ ...target, ...payload }` would leave the key present with an
@@ -97,7 +117,7 @@ export function validateMergedEntity(
       continue;
     }
 
-    if (!(field in targetEntity)) {
+    if (!Object.prototype.hasOwnProperty.call(targetEntity, field)) {
       // A field the target does not have is a new one. That is allowed (the
       // source side may have introduced it), and it is the payload's own
       // business what it contains.
@@ -109,9 +129,21 @@ export function validateMergedEntity(
     const targetKind = valueKind(targetValue);
     const payloadKind = valueKind(value);
 
-    // A nullable field may take any value, and a non-null field may be
-    // cleared; anything else has to keep its kind.
-    if (targetKind === 'null' || payloadKind === 'null') continue;
+    if (payloadKind === 'null') {
+      // Clearing a field is only allowed where the data has a null to clear:
+      // either side being null means the field is nullable here.
+      const sourceValue = sourceEntity ? sourceEntity[field] : undefined;
+      if (targetKind !== 'null' && valueKind(sourceValue) !== 'null') {
+        problems.push({
+          field,
+          message: 'must not be cleared to null; the field has no null in the graph',
+        });
+      }
+      continue;
+    }
+
+    // A field that is null in the graph may take any value.
+    if (targetKind === 'null') continue;
     if (targetKind !== payloadKind) {
       problems.push({
         field,

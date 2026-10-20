@@ -207,6 +207,35 @@ describe('BranchMergeModal', () => {
     })
   })
 
+  it('accepts a value of the user\'s own for a field', async () => {
+    mergeDetailedMock
+      .mockResolvedValueOnce({ success: false, conflicts: [conflict], dryRun: true })
+      .mockResolvedValueOnce({ success: true, graph: makeGraph(), newVersion: 2 })
+
+    renderWithProviders(<BranchMergeModal {...defaultProps} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze Merge' }))
+    await screen.findByTestId('merge-conflict-event:e1')
+
+    fireEvent.click(screen.getByLabelText('Harmonized compromise'))
+    fireEvent.change(screen.getByLabelText('Custom value for description'), {
+      target: { value: 'Neither side exactly' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Commit Resolutions' }))
+    await screen.findByText('Merge complete')
+
+    expect(mergeDetailedMock).toHaveBeenLastCalledWith('graph-1', {
+      sourceGraphId: 'graph-2',
+      conflictResolution: 'manual',
+      manualResolutions: {
+        'event:e1': {
+          strategy: 'merged',
+          value: expect.objectContaining({ description: 'Neither side exactly' }),
+        },
+      },
+    })
+  })
+
   it('surfaces the server\'s refusal of an unusable merged payload', async () => {
     mergeDetailedMock
       .mockResolvedValueOnce({ success: false, conflicts: [conflict], dryRun: true })
@@ -249,7 +278,11 @@ describe('BranchMergeModal', () => {
 
     fireEvent.click(screen.getByLabelText('Keep baseline'))
 
-    // Even when resolved, commit button is disabled because anomalies exist
-    expect(screen.getByRole('button', { name: 'Commit Resolutions' })).toBeDisabled()
+    // Changing an answer invalidates the analysis that produced the
+    // anomalies, so they are cleared and the commit can be attempted again.
+    // The backend re-checks the candidate graph on every commit, so a merge
+    // that still has anomalies is refused there with the reason.
+    expect(screen.queryByText(/Pre-merge Anomalies Detected/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Commit Resolutions' })).not.toBeDisabled()
   })
 })
