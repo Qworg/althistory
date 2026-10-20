@@ -14,6 +14,102 @@ interface EventCluster {
 }
 
 /**
+ * Event shape required to build arc suggestions.
+ *
+ * Contract: `timestamp` is already a parsed `Date`. The service neither
+ * validates nor transforms the input -- a malformed date reaches the
+ * algorithm as an Invalid Date -- so the caller has to reject it. The route
+ * does not do that yet, which is a known gap, not a guarantee of this
+ * contract.
+ */
+export interface ArcClusterEvent {
+  id: string;
+  description: string;
+  actor: string;
+  target: string;
+  timestamp: Date;
+}
+
+/**
+ * An API-friendly arc suggestion: a group of events that a user may promote
+ * into a narrative arc. The shape IS the wire format of
+ * `POST /api/suggest/arcs` -- the route passes it through unchanged -- so it
+ * is deliberately flat and free of model classes. A change here is a change to
+ * the public API.
+ */
+export interface ArcSuggestion {
+  name: string;
+  description: string;
+  start_time: string;
+  end_time: string;
+  eventIds: string[];
+  confidence: number;
+  reason: string;
+}
+
+/**
+ * Minimal event shape required to analyze graph completeness.
+ *
+ * Contract: `timestamp` is an ISO-8601 string; the service parses it so the
+ * caller does not have to. Events are treated as immutable.
+ */
+export interface CompletenessEvent {
+  id: string;
+  description: string;
+  actor: string;
+  target: string;
+  timestamp: string;
+}
+
+/**
+ * A causal relationship as far as completeness analysis is concerned: only the
+ * two endpoint ids matter.
+ */
+export interface CausalRelationshipRef {
+  cause_event_id: string;
+  effect_event_id: string;
+}
+
+/** A period of time longer than the temporal gap threshold with no events. */
+export interface TemporalGap {
+  start: string;
+  end: string;
+  durationDays: number;
+  suggestion: string;
+}
+
+/** An actor that has not been seen for longer than the actor gap threshold. */
+export interface ActorGap {
+  actor: string;
+  lastSeen: string;
+  daysSinceLastSeen: number;
+  suggestion: string;
+}
+
+/** An event that is missing a cause and/or an effect relationship. */
+export interface CausalGap {
+  eventId: string;
+  description: string;
+  missingCause: boolean;
+  missingEffect: boolean;
+  suggestion: string;
+}
+
+/**
+ * The result of a completeness analysis: the gaps that were found, an overall
+ * completeness score in [0, 1] and human-readable suggestions.
+ */
+export interface CompletenessResponse {
+  gaps: {
+    temporalGaps: TemporalGap[];
+    actorGaps: ActorGap[];
+    causalGaps: CausalGap[];
+  };
+  overallCompleteness: number;
+  suggestions: string[];
+}
+
+/**
  * Service for pattern detection and pressure inference
  */
 export class InferenceService {
@@ -22,6 +118,10 @@ export class InferenceService {
   private readonly MIN_DENSITY_THRESHOLD = 0.1; // Reduced from 0.3 to 0.1
   private readonly HIGH_CONFIDENCE_THRESHOLD = 0.8;
   private readonly MEDIUM_CONFIDENCE_THRESHOLD = 0.3; // Reduced from 0.5 to 0.3
+
+  // Completeness analysis thresholds (in days)
+  private readonly TEMPORAL_GAP_THRESHOLD_DAYS = 90;
+  private readonly ACTOR_GAP_THRESHOLD_DAYS = 180;
 
   /**
    * Analyze event clusters to identify patterns and infer pressures
@@ -75,6 +175,254 @@ export class InferenceService {
     return suggestions
       .sort((a, b) => b.suggested_relationship.confidence - a.suggested_relationship.confidence)
       .slice(0, 10); // Limit to top 10 suggestions
+  }
+
+  /**
+   * Group events into candidate narrative arcs by temporal proximity.
+   *
+   * Contract:
+   * - Input: events with already-parsed `Date` timestamps, a window size in
+   *   days and the smallest number of events a group must contain to be
+   *   reported.
+   * - Clustering is adjacency-based: consecutive events (after sorting by
+   *   timestamp) stay in the same group while the distance to the previous
+   *   event is at most `temporalWindowDays`. A chain of close events therefore
+   *   forms one group even when its total span exceeds the window.
+   * - Groups smaller than `minClusterSize` are dropped.
+   * - Output: one `ArcSuggestion` per surviving group, in chronological order.
+   *   The service neither validates nor transforms the input; a caller that
+   *   passes a malformed date gets an Invalid Date back, not an error.
+   */
+  clusterEventsIntoArcs(
+    events: ArcClusterEvent[],
+    temporalWindowDays: number,
+    minClusterSize: number
+  ): ArcSuggestion[] {
+    if (events.length === 0) {
+      return [];
+    }
+
+    const suggestions: ArcSuggestion[] = [];
+    const windowMs = temporalWindowDays * 24 * 60 * 60 * 1000;
+
+    // Sort events by timestamp
+    const sortedEvents = [...events].sort(
+      (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
+    );
+
+    // Cluster by temporal proximity
+    const clusters: ArcClusterEvent[][] = [];
+    let currentCluster: ArcClusterEvent[] = [sortedEvents[0]];
+
+    for (let i = 1; i < sortedEvents.length; i++) {
+      const prevTime = sortedEvents[i - 1].timestamp.getTime();
+      const currTime = sortedEvents[i].timestamp.getTime();
+
+      if (currTime - prevTime <= windowMs) {
+        currentCluster.push(sortedEvents[i]);
+      } else {
+        if (currentCluster.length >= minClusterSize) {
+          clusters.push(currentCluster);
+        }
+        currentCluster = [sortedEvents[i]];
+      }
+    }
+
+    if (currentCluster.length >= minClusterSize) {
+      clusters.push(currentCluster);
+    }
+
+    // Create arc suggestions for each cluster
+    for (const cluster of clusters) {
+      const startTime = cluster[0].timestamp;
+      const endTime = cluster[cluster.length - 1].timestamp;
+      const actors = [...new Set(cluster.map((e) => e.actor))];
+      const durationDays = Math.ceil(
+        (endTime.getTime() - startTime.getTime()) / (24 * 60 * 60 * 1000)
+      );
+
+      // Generate a descriptive name based on actors and time
+      const actorStr = actors.length <= 2 ? actors.join(' & ') : `${actors.length} actors`;
+      const name = `${actorStr} (${durationDays} days)`;
+
+      suggestions.push({
+        name,
+        description: `Cluster of ${cluster.length} events involving ${actorStr}`,
+        start_time: startTime.toISOString(),
+        end_time: endTime.toISOString(),
+        eventIds: cluster.map((e) => e.id),
+        confidence: Math.min(0.9, 0.5 + cluster.length * 0.05),
+        reason: `${cluster.length} temporally related events within ${temporalWindowDays}-day window`,
+      });
+    }
+
+    return suggestions;
+  }
+
+  /**
+   * Analyze how complete a graph is: which periods, actors and events are
+   * missing coverage.
+   *
+   * Contract:
+   * - Input: events with ISO-8601 `timestamp` strings plus the causal
+   *   relationships that exist between them (only endpoint ids are used).
+   * - Events are sorted by timestamp before the analysis; the first and last
+   *   event are never reported as missing a cause or an effect, because it is
+   *   natural for a boundary event to have only one side.
+   * - Output: a `CompletenessResponse` with the temporal, actor and causal
+   *   gaps that were found, an `overallCompleteness` score in [0, 1] and
+   *   human-readable suggestions. The response is always populated, including
+   *   for an empty graph.
+   */
+  analyzeCompleteness(
+    events: CompletenessEvent[],
+    relationships: CausalRelationshipRef[]
+  ): CompletenessResponse {
+    const response: CompletenessResponse = {
+      gaps: {
+        temporalGaps: [],
+        actorGaps: [],
+        causalGaps: [],
+      },
+      overallCompleteness: 0,
+      suggestions: [],
+    };
+
+    if (events.length === 0) {
+      response.suggestions.push('No events found. Start by adding historical events.');
+      return response;
+    }
+
+    // Sort events by timestamp
+    const sortedEvents = [...events].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    // Find temporal gaps (periods > TEMPORAL_GAP_THRESHOLD_DAYS with no events)
+    const temporalGapThreshold = this.daysToMs(this.TEMPORAL_GAP_THRESHOLD_DAYS);
+    for (let i = 1; i < sortedEvents.length; i++) {
+      const prevTime = new Date(sortedEvents[i - 1].timestamp).getTime();
+      const currTime = new Date(sortedEvents[i].timestamp).getTime();
+      const gap = currTime - prevTime;
+
+      if (gap > temporalGapThreshold) {
+        const durationDays = Math.round(gap / (24 * 60 * 60 * 1000));
+        response.gaps.temporalGaps.push({
+          start: sortedEvents[i - 1].timestamp,
+          end: sortedEvents[i].timestamp,
+          durationDays,
+          suggestion: `Consider adding events for the ${durationDays}-day period between these events`,
+        });
+      }
+    }
+
+    // Find actor gaps (actors not seen in last 180 days)
+    const actorLastSeen = new Map<string, string>();
+    for (const event of sortedEvents) {
+      actorLastSeen.set(event.actor, event.timestamp);
+    }
+
+    const latestEventTime = new Date(sortedEvents[sortedEvents.length - 1].timestamp).getTime();
+    const actorGapThreshold = this.daysToMs(this.ACTOR_GAP_THRESHOLD_DAYS);
+
+    for (const [actor, lastSeen] of actorLastSeen) {
+      const lastSeenTime = new Date(lastSeen).getTime();
+      const gap = latestEventTime - lastSeenTime;
+
+      if (gap > actorGapThreshold) {
+        const daysSince = Math.round(gap / (24 * 60 * 60 * 1000));
+        response.gaps.actorGaps.push({
+          actor,
+          lastSeen,
+          daysSinceLastSeen: daysSince,
+          suggestion: `Actor "${actor}" hasn't appeared in ${daysSince} days. Consider adding recent events.`,
+        });
+      }
+    }
+
+    // Find causal gaps (events with no causes or effects)
+    const causesSet = new Set(relationships.map((r) => r.effect_event_id));
+    const effectsSet = new Set(relationships.map((r) => r.cause_event_id));
+
+    // Skip first and last events (natural to not have cause/effect)
+    for (let i = 1; i < sortedEvents.length - 1; i++) {
+      const event = sortedEvents[i];
+      const hasCause = causesSet.has(event.id);
+      const hasEffect = effectsSet.has(event.id);
+
+      if (!hasCause || !hasEffect) {
+        response.gaps.causalGaps.push({
+          eventId: event.id,
+          description: event.description.substring(0, 100),
+          missingCause: !hasCause,
+          missingEffect: !hasEffect,
+          suggestion: !hasCause && !hasEffect
+            ? 'Consider adding both cause and effect relationships'
+            : !hasCause
+              ? 'Consider adding a cause relationship'
+              : 'Consider adding an effect relationship',
+        });
+      }
+    }
+
+    // Calculate overall completeness score
+    let completenessScore = 1.0;
+
+    // Deduct for temporal gaps
+    completenessScore -= Math.min(0.3, response.gaps.temporalGaps.length * 0.1);
+
+    // Deduct for actor gaps
+    completenessScore -= Math.min(0.2, response.gaps.actorGaps.length * 0.05);
+
+    // Deduct for causal gaps
+    const causalGapRatio = response.gaps.causalGaps.length / Math.max(1, events.length - 2);
+    completenessScore -= Math.min(0.4, causalGapRatio * 0.4);
+
+    // Bonus for having relationships
+    if (relationships.length > 0) {
+      const relationshipRatio = relationships.length / events.length;
+      completenessScore = Math.min(1.0, completenessScore + relationshipRatio * 0.1);
+    }
+
+    response.overallCompleteness = Math.max(0, Math.min(1, completenessScore));
+
+    // Generate overall suggestions
+    if (response.gaps.temporalGaps.length > 0) {
+      response.suggestions.push(
+        `Found ${response.gaps.temporalGaps.length} temporal gap(s). Consider adding events to fill these periods.`
+      );
+    }
+
+    if (response.gaps.actorGaps.length > 0) {
+      response.suggestions.push(
+        `${response.gaps.actorGaps.length} actor(s) haven't appeared recently. Consider adding their recent activities.`
+      );
+    }
+
+    if (response.gaps.causalGaps.length > 0) {
+      response.suggestions.push(
+        `${response.gaps.causalGaps.length} event(s) lack causal relationships. Consider adding connections.`
+      );
+    }
+
+    if (events.length > 0 && relationships.length === 0) {
+      response.suggestions.push(
+        'No causal relationships defined. Add relationships between events to show cause and effect.'
+      );
+    }
+
+    if (response.suggestions.length === 0) {
+      response.suggestions.push('Graph looks complete! Consider reviewing for accuracy.');
+    }
+
+    return response;
+  }
+
+  /**
+   * Convert days to milliseconds
+   */
+  private daysToMs(days: number): number {
+    return days * 24 * 60 * 60 * 1000;
   }
 
   /**
