@@ -4,20 +4,54 @@ import { DatabaseConfig } from './database';
 import * as path from 'path';
 import * as fs from 'fs';
 
-// Load environment variables from .env and .env.local (local takes precedence)
-const rootDir = process.cwd();
-const envPath = path.resolve(rootDir, '.env');
-const envLocalPath = path.resolve(rootDir, '.env.local');
+// Load environment variables from .env and .env.local.
+//
+// Precedence, strongest first:
+//
+//   1. the process environment (what the operator or the container runtime set)
+//   2. .env.local
+//   3. .env
+//
+// `.env.local` is a developer's local override, so it beats `.env` -- but it
+// must NOT beat the real environment. Loading it with `override: true` made it
+// win over `process.env`, which is how a developer checkout of
+// `timeline/.env.local` (LOCAL_EXECUTION_ENABLED=true) silently forced local
+// execution mode in a container that had asked for cloud mode, and how the
+// "cloud" integration suites ended up running against the local JSON store
+// instead of Neo4j. The environment is restored after the files are read, so
+// the file order still decides between the two files and the environment still
+// decides over both.
+export function loadDotEnvFiles(
+  envPath: string = path.resolve(process.cwd(), '.env'),
+  envLocalPath: string = path.resolve(process.cwd(), '.env.local')
+): void {
+  // Snapshot the environment before any file is read, so the values an
+  // operator set can be restored afterwards.
+  const environmentSnapshot = new Map<string, string | undefined>(
+    Object.keys(process.env).map((key) => [key, process.env[key]])
+  );
 
-// Load .env first (base configuration)
-if (fs.existsSync(envPath)) {
-  config({ path: envPath });
+  // Load .env first (base configuration)
+  if (fs.existsSync(envPath)) {
+    config({ path: envPath });
+  }
+
+  // Load .env.local second (overrides .env - takes precedence)
+  if (fs.existsSync(envLocalPath)) {
+    config({ path: envLocalPath, override: true });
+  }
+
+  // Restore anything the environment set explicitly. `dotenv` cannot express
+  // "this file may override that file but not the environment", so the
+  // distinction is made here.
+  for (const [key, value] of environmentSnapshot) {
+    // `Object.keys(process.env)` never yields an undefined value, so this is
+    // always an assignment.
+    process.env[key] = value as string;
+  }
 }
 
-// Load .env.local second (overrides - takes precedence)
-if (fs.existsSync(envLocalPath)) {
-  config({ path: envLocalPath, override: true });
-}
+loadDotEnvFiles();
 
 /**
  * Local execution configuration interface

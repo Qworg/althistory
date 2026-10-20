@@ -17,6 +17,15 @@
 #   npx vitest --run --coverage             npx vitest --run --coverage
 #                                           npm run build
 #
+#   cloud (timeline/)                       e2e (e2e/)
+#   ------------------------------------    ------------------------------------
+#   npm ci                                  npm ci
+#   npm run test:cloud                      npx playwright test --grep-invert @visual
+#
+# The cloud job is the only one that starts services: a real Neo4j 5 and a
+# real Redis, so the four suites that exercise the Neo4j path actually run
+# against it. The e2e job is hermetic (no services).
+#
 # The two lint gates are deliberately NOT symmetric. The backend's script
 # carries --max-warnings 0, so any warning fails it. The frontend's does not:
 # it has
@@ -46,8 +55,9 @@
 #
 # The two packages are independent and each saturates a machine's CPUs, so they
 # run as separate parallel jobs on separate runners rather than sequentially.
-# Both suites run in local execution mode with no external services (no Neo4j,
-# no Redis), so no service containers are required.
+# Both suites run in local execution mode, so they need no external services.
+# The `cloud` job is the exception: it starts a real Neo4j and Redis, because
+# the four suites that exercise the Neo4j path cannot be tested any other way.
 
 name: CI
 
@@ -131,6 +141,96 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  cloud:
+    name: Cloud integration (real Neo4j + Redis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Independent of the other jobs for the same reason the e2e job is: a
+    # failure here must not gate them, and vice versa.
+    #
+    # These four suites are the only ones that exercise the Neo4j path. They
+    # are excluded from the default run because the services are not present on
+    # a developer machine; here they are, as service containers.
+    #
+    # The suites fail outright if local execution is enabled (see
+    # `timeline/src/test/cloud-guard.setup.ts`). That guard exists because the
+    # suites used to run against the local JSON store and "pass" -- the local
+    # store implements a Neo4j-shaped session, so a green run could mean
+    # nothing at all.
+    services:
+      neo4j:
+        image: neo4j:5-community
+        env:
+          NEO4J_AUTH: neo4j/test_password_12345
+          # APOC is not optional here: GraphCopyService copies nodes with
+          # `apoc.create.node` / `apoc.map.setKey` and relationships with
+          # `apoc.create.relationship`. Without the plugin those calls fail
+          # with "Unknown procedure" and the copy reports an error. The compose
+          # `neo4j` service installs it for the same reason.
+          NEO4J_PLUGINS: '["apoc"]'
+          NEO4J_dbms_security_procedures_unrestricted: apoc.*
+          NEO4J_dbms_security_procedures_allowlist: apoc.*
+        ports:
+          - 7687:7687
+        options: >-
+          --health-cmd "cypher-shell -u neo4j -p test_password_12345 'RETURN 1' || exit 1"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 20
+          --health-start-period 40s
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: timeline
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # See the backend job for why Node 24.
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: timeline/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cloud integration suites
+        run: npm run test:cloud
+        env:
+          # Cloud mode: the suites must use the real driver, and the guard
+          # fails the run if this is not the case.
+          LOCAL_EXECUTION_ENABLED: 'false'
+          # Both the plain and the _TEST_ variables are needed, and they are
+          # the same set the compose `cloud-tests` service uses. The repository
+          # suites read the _TEST_ ones; GraphCopyService goes through
+          # `getDatabaseManager()`, which is configured from the plain ones.
+          NEO4J_URI: bolt://localhost:7687
+          NEO4J_USERNAME: neo4j
+          NEO4J_PASSWORD: test_password_12345
+          # Community edition has no separate `test` database.
+          NEO4J_DATABASE: neo4j
+          NEO4J_TEST_URI: bolt://localhost:7687
+          NEO4J_TEST_USERNAME: neo4j
+          NEO4J_TEST_PASSWORD: test_password_12345
+          NEO4J_TEST_DATABASE: neo4j
+          REDIS_HOST: localhost
+          REDIS_PORT: '6379'
+          REDIS_PASSWORD: ''
+          REDIS_TEST_HOST: localhost
+          REDIS_TEST_PORT: '6379'
+          REDIS_TEST_PASSWORD: ''
 
   e2e:
     name: E2E (real browser, stubbed API)
