@@ -32,6 +32,12 @@ export interface JobServiceConfig {
   webhookMaxBackoffMs?: number;
   /** Per-attempt AbortController timeout. Defaults to 30000ms. */
   webhookTimeoutMs?: number;
+  /**
+   * Ceiling for `ExportService.exportGraph`, which returns the document as an
+   * object. The job path streams instead, so this only has to match the
+   * container's value; it exists so the boundary can be exercised in tests.
+   */
+  maxInMemorySize?: number;
 }
 
 export interface JobProgress {
@@ -107,9 +113,10 @@ export class JobService extends EventEmitter {
     this.webhookTimeoutMs = config.webhookTimeoutMs ?? DEFAULT_WEBHOOK_TIMEOUT_MS;
 
     this.jobRepository = new JobRepository({ dataDir: config.dataDir });
-    this.exportService = new ExportService({ 
+    this.exportService = new ExportService({
       dataDir: config.dataDir,
       appVersion: config.appVersion,
+      maxInMemorySize: config.maxInMemorySize,
     });
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
     this.logger = createLogger('JobService');
@@ -488,9 +495,50 @@ export class JobService extends EventEmitter {
       version: params.version,
     };
 
-    await this.reportProgress(job, 50, 'Generating export file...');
+    await this.reportProgress(job, 50, 'Preparing export...');
 
-    const filePath = await this.exportService.exportToFile(options);
+    // Progress writes are serialised through one promise chain and awaited
+    // before the terminal write.
+    //
+    // - Ordering: `JobRepository` persists by truncating and rewriting the same
+    //   file, so two overlapping writes can leave a shorter document over a
+    //   longer one. A job file that no longer parses is dropped on the next
+    //   start, silently losing the job.
+    // - Failures: `reportProgress` rejects when the job is no longer
+    //   `processing` (a cancel during a long stream) or when the write fails.
+    //   Firing it without handling that rejection terminates the process on
+    //   current Node, so a cancel would take the server down.
+    //
+    // Persisting every entity would mean thousands of writes; the percent
+    // de-duplication keeps one per whole point instead.
+    let writes: Promise<void> = Promise.resolve();
+    let lastReported = job.progress;
+    const report = (percent: number, message: string): void => {
+      if (job.status !== 'processing') return;
+      writes = writes
+        .then(() => this.reportProgress(job, percent, message))
+        .catch((error: unknown) => {
+          this.logger.error('Failed to persist export progress', error, { jobId: job.id });
+        });
+    };
+
+    let filePath: string;
+    try {
+      filePath = await this.exportService.exportToFile(options, undefined, {
+        onPhase: (phase) => {
+          report(55, phase === 'hashing' ? 'Hashing export...' : 'Writing export...');
+        },
+        onProgress: (fraction) => {
+          const percent = Math.round(60 + fraction * 35);
+          if (percent <= lastReported) return;
+          lastReported = percent;
+          report(percent, 'Writing export...');
+        },
+      });
+    } finally {
+      // Never leave a dangling write behind: it would race the terminal update.
+      await writes;
+    }
 
     await this.reportProgress(job, 100, 'Export complete');
 

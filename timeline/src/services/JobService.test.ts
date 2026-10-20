@@ -857,8 +857,107 @@ describe('JobService', () => {
       // Removing `version: params.version` from executeExportJob would make
       // this a head export, which is the original async-path bug.
       expect(mockExportService.exportToFile).toHaveBeenCalledWith(
-        expect.objectContaining({ version: 0 })
+        expect.objectContaining({ version: 0 }),
+        undefined,
+        expect.objectContaining({ onProgress: expect.any(Function) })
       );
+    });
+  });
+
+  describe('streaming export progress', () => {
+    it('persists the progress the stream reports', async () => {
+      const mockJob = createMockJob({ status: 'pending' });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(mockJob)
+        .mockResolvedValue(null);
+      const persistedProgress: number[] = [];
+      mockJobRepository.update.mockImplementation(async (job: AsyncJob) => {
+        persistedProgress.push(job.progress);
+      });
+
+      // Drive the hooks the way a large stream would, then let the job finish.
+      mockExportService.exportToFile.mockImplementation(
+        async (
+          _options: unknown,
+          _path: string | undefined,
+          hooks?: {
+            onPhase?: (phase: 'hashing' | 'writing') => void;
+            onProgress?: (fraction: number) => void;
+          }
+        ) => {
+          hooks?.onPhase?.('hashing');
+          hooks?.onPhase?.('writing');
+          hooks?.onProgress?.(0.25);
+          hooks?.onProgress?.(0.5);
+          return '/path/to/export.json';
+        }
+      );
+
+      const completed = new Promise(resolve => jobService.once('jobCompleted', resolve));
+      await jobService.initialize();
+      jobService.start();
+      await completed;
+      jobService.stop();
+
+      // Hashing and writing are announced, and 0.25 / 0.5 of the 60-95 band
+      // round to 69 and 78. Without the hooks the job would only ever report
+      // 50 and 100.
+      expect(persistedProgress).toContain(55);
+      expect(persistedProgress).toContain(69);
+      expect(persistedProgress).toContain(78);
+      expect(persistedProgress).toContain(100);
+    });
+  });
+
+  describe('cancelling an export mid-stream', () => {
+    it('does not reject the progress writes when the job is cancelled', async () => {
+      const mockJob = createMockJob({ status: 'pending' });
+      mockJobRepository.getNextPending
+        .mockResolvedValueOnce(mockJob)
+        .mockResolvedValue(null);
+      mockJobRepository.update.mockResolvedValue(mockJob);
+      // `cancelJob` looks the job up again; the repository hands back the same
+      // in-memory instance the worker is streaming for.
+      mockJobRepository.findById.mockResolvedValue(mockJob);
+
+      // Cancel the job the way the API does, then keep reporting progress the
+      // way a mid-stream export does. `updateProgress` throws once the status
+      // is `cancelled`; an unhandled rejection there would terminate the
+      // process on current Node.
+      mockExportService.exportToFile.mockImplementation(
+        async (
+          _options: unknown,
+          _path: string | undefined,
+          hooks?: { onProgress?: (fraction: number) => void }
+        ) => {
+          await jobService.cancelJob(mockJob.id);
+          hooks?.onProgress?.(0.5);
+          hooks?.onProgress?.(0.9);
+          return '/path/to/export.json';
+        }
+      );
+
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on('unhandledRejection', onUnhandled);
+
+      try {
+        await jobService.initialize();
+        jobService.start();
+        // Give the worker's promise chain time to settle.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        jobService.stop();
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+
+      expect(unhandled).toEqual([]);
+      // Cancelling a `processing` job has always ended it as `failed` (the
+      // terminal write cannot move a cancelled job to completed); what matters
+      // here is that no progress write escaped as an unhandled rejection.
+      expect(['cancelled', 'failed']).toContain(mockJob.status);
     });
   });
 

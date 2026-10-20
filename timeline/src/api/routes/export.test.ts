@@ -43,6 +43,9 @@ describe('Export routes (request-level)', () => {
     process.env.LOCAL_MAX_MEMORY_MB = '64';
     // Req 5.4 threshold, lowered so the async branch is reachable here.
     process.env.LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD = '3';
+    // In-memory ceiling, lowered so `largeGraph` (estimated 3,500 bytes) is
+    // refused by `exportGraph` while the streaming job path still exports it.
+    process.env.LOCAL_EXPORT_MAX_IN_MEMORY_BYTES = '3200';
 
     await fs.mkdir(testDataDir, { recursive: true });
 
@@ -203,20 +206,22 @@ describe('Export routes (request-level)', () => {
     await container.graphRepository.commitChanges(
       versionedGraph.id,
       {
-        added: [
+        // Modified, not added: the head must differ from v0 without pushing the
+        // estimate over the lowered in-memory ceiling this suite configures.
+        added: [],
+        modified: [
           {
             type: 'event',
-            id: 'v1-event-1',
+            id: 'v0-event-2',
             data: {
-              id: 'v1-event-1',
-              description: 'Head-only event',
-              actor: 'D',
-              target: 'E',
-              timestamp: '1702-01-01T00:00:00Z',
+              id: 'v0-event-2',
+              description: 'Second version event, edited at the head',
+              actor: 'A',
+              target: 'C',
+              timestamp: '1701-01-01T00:00:00Z',
             },
           },
         ],
-        modified: [],
         deleted: [],
       },
       'create',
@@ -438,8 +443,10 @@ describe('Export routes (request-level)', () => {
         .set('X-Graph-Id', versionedGraph.id)
         .expect(200);
 
-      expect(pinned.body.data.events).toHaveLength(2);
       expect(pinned.body.metadata.graphVersion).toBe(0);
+      expect(
+        pinned.body.data.events.find((e: { id: string }) => e.id === 'v0-event-2').description
+      ).toBe('Second version event');
 
       const head = await request(app)
         .get('/api/export')
@@ -447,8 +454,10 @@ describe('Export routes (request-level)', () => {
         .set('X-Graph-Id', versionedGraph.id)
         .expect(200);
 
-      expect(head.body.data.events).toHaveLength(3);
       expect(head.body.metadata.graphVersion).toBe(1);
+      expect(
+        head.body.data.events.find((e: { id: string }) => e.id === 'v0-event-2').description
+      ).toBe('Second version event, edited at the head');
     });
 
     it('carries the pinned version into an async export job', async () => {
@@ -517,6 +526,52 @@ describe('Export routes (request-level)', () => {
 
       expect(response.body.error.message).toContain('includeProvenance');
     });
+  });
+
+  describe('async export of a graph above the threshold', () => {
+    it('creates a job that completes with the full document', async () => {
+      const response = await request(app)
+        .get('/api/export')
+        .set('X-API-Key', exportKey)
+        .set('X-Graph-Id', largeGraph.id)
+        .expect(202);
+
+      const jobId: string = response.body.data.jobId;
+
+      // This is the failure being fixed, stated in full: the same options are
+      // refused by the in-memory API and delivered by the streaming job.
+      const options = {
+        graphId: largeGraph.id,
+        scope: 'full' as const,
+        includeProvenance: false,
+      };
+      const estimate = await container.exportService.estimateExportSize(options);
+      expect(estimate).toBeGreaterThan(container.exportService.maxInMemorySize);
+      await expect(container.exportService.exportGraph(options)).rejects.toThrow(
+        'too large for in-memory operation'
+      );
+
+      // The worker polls on an interval; this container polls immediately on
+      // `start()`, so the job is usually done on the first pass.
+      const deadline = Date.now() + 10_000;
+      let job = await container.jobService.getJob(jobId);
+      while (job && job.status !== 'completed' && job.status !== 'failed' && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        job = await container.jobService.getJob(jobId);
+      }
+
+      // The original defect: a 202 followed by "export too large for in-memory
+      // operation, use the async export job you just created".
+      expect(job?.status).toBe('completed');
+
+      const download = await request(app)
+        .get(`/api/export/jobs/${jobId}/download`)
+        .set('X-API-Key', exportKey)
+        .expect(200);
+
+      const document = JSON.parse(download.text) as { data: { events: unknown[] } };
+      expect(document.data.events).toHaveLength(2);
+    }, 20_000);
   });
 
   describe('job access scoping', () => {

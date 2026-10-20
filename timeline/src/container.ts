@@ -518,6 +518,8 @@ export class Container implements ServiceContainer {
         dataDir: this.config.localExecution.dataDirectory,
         // Unset keeps the service's Req 5.4 default (10,000 entities).
         asyncExportThreshold: this.config.localExecution.exportAsyncEntityThreshold,
+        // Unset keeps the 50 MB in-memory ceiling.
+        maxInMemorySize: this.config.localExecution.exportMaxInMemoryBytes,
       });
     }
     return this._exportService;
@@ -530,6 +532,9 @@ export class Container implements ServiceContainer {
     if (!this._jobService) {
       this._jobService = new JobService({
         dataDir: this.config.localExecution.dataDirectory,
+        // The job path streams, so this only has to agree with the container's
+        // export service; it keeps the two ceilings from diverging.
+        maxInMemorySize: this.config.localExecution.exportMaxInMemoryBytes,
       });
     }
     return this._jobService;
