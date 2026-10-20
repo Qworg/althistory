@@ -134,11 +134,15 @@ export interface ExportResult {
 /**
  * Optional hooks for a streaming export.
  *
- * `onProgress` receives a fraction in [0, 1] that advances as entities are
- * streamed, so a long async export can report real progress instead of sitting
- * at a single value until it finishes.
+ * A streamed export serialises the data section twice: once to hash it (the
+ * checksum belongs in `metadata`, which precedes `data`) and once to write it.
+ * `onPhase` announces which pass is running so a caller can say so, and
+ * `onProgress` reports a fraction in [0, 1] within the writing pass, after
+ * every entity. Both passes are proportional to the graph, so neither alone
+ * describes the whole run.
  */
 export interface ExportHooks {
+  onPhase?: (phase: 'hashing' | 'writing') => void;
   onProgress?: (fraction: number) => void;
 }
 
@@ -179,7 +183,8 @@ export class ExportService {
   private readonly graphRepository: GraphRepository;
   private readonly dataDir: string;
   private readonly appVersion: string;
-  private readonly maxInMemorySize: number;
+  /** Ceiling for `exportGraph`; readable so callers can describe the limit. */
+  readonly maxInMemorySize: number;
   /** Entity count above which an export must run as an async job (Req 5.4). */
   readonly asyncExportThreshold: number;
 
@@ -221,39 +226,42 @@ export class ExportService {
     // accepts.
     const versionRef = await this.resolveVersionRef(options);
 
+    const isFiltered = options.scope === 'filtered' && options.filters !== undefined;
+
     let data: ResolvedGraphData;
+    let scoped: ResolvedGraphData;
     let estimatedSize: number;
 
-    if (options.version !== undefined) {
-      // A pinned tree has to be read before it can be measured; reuse that
-      // read rather than checking the same version out again below.
+    if (options.version !== undefined || isFiltered) {
+      // Both cases have to read the tree before it can be measured: a pinned
+      // version is not described by the metadata's counts, and filters change
+      // which entities survive. Reading is unavoidable -- `checkout` loads the
+      // tree either way -- while the guard exists to stop this method building
+      // the *document*, which is the allocation on top of the tree.
       data = await this.graphRepository.checkout(
         options.graphId,
         versionRef?.version ?? options.version
       );
-      estimatedSize = this.estimateExportSizeFromData(data);
+      scoped = isFiltered ? this.applyFilters(data, options.filters!) : data;
+      estimatedSize = this.estimateExportSizeFromData(scoped);
     } else {
-      // The latest-version estimate comes from `graph.metadata`, so the guard
-      // still runs before the tree is loaded into memory.
+      // An unfiltered latest-version estimate comes from `graph.metadata`, so
+      // the guard runs before the tree is loaded.
       estimatedSize = await this.estimateExportSize(options);
       data = await this.graphRepository.checkout(options.graphId, versionRef?.version);
+      scoped = data;
     }
 
     if (estimatedSize > this.maxInMemorySize) {
       throw new Error(
         `Export too large for in-memory operation (estimated ${Math.round(estimatedSize / 1024 / 1024)}MB, max ${Math.round(this.maxInMemorySize / 1024 / 1024)}MB). ` +
           'This method returns the whole document as an object. ' +
-          'Use exportToFile(), GET /export or POST /export/jobs, which stream to a file.'
+          'Use GET /export, POST /export/jobs or exportToFile(), which stream to a file.'
       );
     }
 
-    // Apply filters if specified
-    const filteredData = options.scope === 'filtered' && options.filters
-      ? this.applyFilters(data, options.filters)
-      : data;
-
     // Convert to export format
-    const exportData = this.convertToExportFormat(filteredData);
+    const exportData = this.convertToExportFormat(scoped);
 
     // Build export object (without checksum first)
     const exportObj: AlthistoryExport = {
@@ -418,6 +426,9 @@ export class ExportService {
       );
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
 
+    hooks.onPhase?.('hashing');
+    const checksum = this.checksumOfExportData(scoped);
+
     const metadata: ExportMetadata = {
       graphId: graph.id,
       graphName: graph.name,
@@ -425,7 +436,7 @@ export class ExportService {
       exportedAt: new Date().toISOString(),
       sourceVersion: this.appVersion,
       graphVersion: versionRef?.version ?? 0,
-      checksum: this.checksumOfExportData(scoped),
+      checksum,
       filters: options.scope === 'filtered' ? options.filters : undefined,
     };
 
@@ -437,6 +448,7 @@ export class ExportService {
       `{"version":"1.0","metadata":${JSON.stringify(metadata)},"data":`;
     const tail = (provenance ? `,"provenance":${JSON.stringify(provenance)}` : '') + '}';
 
+    hooks.onPhase?.('writing');
     await pipeline(
       Readable.from(this.exportDocumentChunks(head, scoped, tail, hooks.onProgress)),
       fs.createWriteStream(filePath, { encoding: 'utf8' })
@@ -482,42 +494,45 @@ export class ExportService {
       Object.keys(data.relationships).length +
       Object.keys(data.pressures).length;
     let written = 0;
-    const advance = (count: number): void => {
-      written += count;
+    // Reported after every entity, not after every section: a 110k-event graph
+    // is four sections, so section granularity would leave progress motionless
+    // for the entire run -- the behaviour this hook exists to avoid.
+    const advance = (): void => {
+      written += 1;
       if (onProgress && total > 0) {
-        onProgress(Math.min(written / total, 1));
+        onProgress(written / total);
       }
     };
 
     // The key order below matches `convertToExportFormat`; `crossGraphRefs`
     // last, and absent entirely when the graph has none.
-    const events = Object.entries(data.events);
     yield '{"events":';
-    yield* this.entityChunks(events, (id, entity) =>
-      this.convertEvent(id, entity as Record<string, unknown>, crossGraphRefs)
+    yield* this.entityChunks(
+      data.events,
+      (id, entity) => this.convertEvent(id, entity, crossGraphRefs),
+      advance
     );
-    advance(events.length);
 
-    const arcs = Object.entries(data.arcs);
     yield ',"arcs":';
-    yield* this.entityChunks(arcs, (id, entity) =>
-      this.convertArc(id, entity as Record<string, unknown>, crossGraphRefs)
+    yield* this.entityChunks(
+      data.arcs,
+      (id, entity) => this.convertArc(id, entity, crossGraphRefs),
+      advance
     );
-    advance(arcs.length);
 
-    const relationships = Object.entries(data.relationships);
     yield ',"causalRelationships":';
-    yield* this.entityChunks(relationships, (id, entity) =>
-      this.convertRelationship(id, entity as Record<string, unknown>, crossGraphRefs)
+    yield* this.entityChunks(
+      data.relationships,
+      (id, entity) => this.convertRelationship(id, entity, crossGraphRefs),
+      advance
     );
-    advance(relationships.length);
 
-    const pressures = Object.entries(data.pressures);
     yield ',"inferredPressures":';
-    yield* this.entityChunks(pressures, (id, entity) =>
-      this.convertPressure(id, entity as Record<string, unknown>)
+    yield* this.entityChunks(
+      data.pressures,
+      (id, entity) => this.convertPressure(id, entity),
+      advance
     );
-    advance(pressures.length);
 
     if (crossGraphRefs.length > 0) {
       yield `,"crossGraphRefs":${JSON.stringify(crossGraphRefs)}`;
@@ -526,16 +541,24 @@ export class ExportService {
     yield '}';
   }
 
-  /** `[...]` with one JSON-serialised entity per chunk. */
+  /**
+   * `[...]` with one JSON-serialised entity per chunk.
+   *
+   * Iterates the record's keys directly rather than through `Object.entries`:
+   * the pair array would be one more O(entities) allocation held for the whole
+   * section, which is exactly what this method exists to avoid.
+   */
   private *entityChunks(
-    entries: Array<[string, Record<string, unknown>]>,
-    convert: (id: string, entity: Record<string, unknown>) => unknown
+    entities: Record<string, Record<string, unknown>>,
+    convert: (id: string, entity: Record<string, unknown>) => unknown,
+    onEntity?: () => void
   ): Generator<string> {
     yield '[';
     let separator = '';
-    for (const [id, entity] of entries) {
-      yield separator + JSON.stringify(convert(id, entity));
+    for (const id of Object.keys(entities)) {
+      yield separator + JSON.stringify(convert(id, entities[id]));
       separator = ',';
+      onEntity?.();
     }
     yield ']';
   }

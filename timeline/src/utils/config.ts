@@ -36,6 +36,11 @@ export interface LocalExecutionConfig {
    * Unset means `ExportService`'s default (10,000).
    */
   exportAsyncEntityThreshold?: number;
+  /**
+   * Byte ceiling for the in-memory export API (`ExportService.exportGraph`).
+   * Unset means the service default (50 MB). Unrelated to the streaming paths.
+   */
+  exportMaxInMemoryBytes?: number;
 }
 
 /**
@@ -101,6 +106,9 @@ export function loadConfig(): AppConfig {
         maxMemoryUsage: parseInt(getEnvVarWithDefault('LOCAL_MAX_MEMORY_MB', '512'), 10), // 512 MB
         exportAsyncEntityThreshold: parseOptionalIntegerEnvVar(
           'LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD'
+        ),
+        exportMaxInMemoryBytes: parseOptionalIntegerEnvVar(
+          'LOCAL_EXPORT_MAX_IN_MEMORY_BYTES'
         ),
       },
     };
@@ -273,6 +281,15 @@ function validateLocalExecutionConfig(config: LocalExecutionConfig): void {
   // Validate memory usage limit
   if (config.maxMemoryUsage < 64) {
     throw new ConfigurationError('Local max memory usage must be at least 64 MB', 'LOCAL_MAX_MEMORY_MB');
+  }
+
+  if (config.exportMaxInMemoryBytes !== undefined) {
+    if (!Number.isInteger(config.exportMaxInMemoryBytes) || config.exportMaxInMemoryBytes < 1) {
+      throw new ConfigurationError(
+        'Export in-memory byte ceiling must be a positive integer',
+        'LOCAL_EXPORT_MAX_IN_MEMORY_BYTES'
+      );
+    }
   }
 
   // Validate the export async threshold when it is set (Req 5.4). Invalid

@@ -7,6 +7,7 @@ import { GraphRepository } from '../repositories/GraphRepository';
 import { Graph, IGraph } from '../models/Graph';
 import { ResolvedGraphData } from '../repositories/VersionRepository';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 
 // Mock the GraphRepository
 vi.mock('../repositories/GraphRepository');
@@ -271,8 +272,10 @@ describe('ExportService', () => {
       expect(filePath).toContain('export_graph_123_');
       expect(filePath).toContain('.json');
 
-      // Streamed, not buffered into one write: the document arrives as chunks.
-      expect(written.chunks.length).toBeGreaterThan(1);
+      // Streamed, not buffered: the fixture has 5 entities, so the count must
+      // exceed the head/data/tail envelope alone. A single JSON.stringify of
+      // the data section would still arrive as three chunks.
+      expect(written.chunks.length).toBeGreaterThanOrEqual(5 + 3);
       const document = JSON.parse(written.chunks.join('')) as AlthistoryExport;
       expect(document.version).toBe('1.0');
       expect(document.data.events).toHaveLength(2);
@@ -334,6 +337,80 @@ describe('ExportService', () => {
       expect(document.data.events).toHaveLength(2);
     });
 
+    it('should stream non-ASCII and referenced entities with the same checksum', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValue({
+        events: {
+          'event-1': {
+            id: 'event-1',
+            description: 'Крымская война — 1853 · 東京',
+            actor: 'Николай I',
+            target: 'Османская империя',
+            timestamp: '1853-10-16T00:00:00Z',
+            metadata: {
+              crossGraphRefs: [
+                {
+                  referencedGraphId: 'graph_remote',
+                  referencedEntityId: 'remote-event',
+                  referencedEntityType: 'event',
+                },
+              ],
+              nested: { list: [1, 'two', null] },
+              created_at: '2020-01-01T00:00:00Z',
+            },
+            sourceRef: 'https://example.com/источник',
+          },
+        },
+        arcs: {
+          'arc-1': {
+            id: 'arc-1',
+            name: 'Война',
+            description: 'Arc',
+            start_time: '1853-01-01',
+            end_time: '1856-01-01',
+            level: 0,
+            parent_arc_id: null,
+            metadata: {
+              crossGraphRefs: [
+                {
+                  referencedGraphId: 'graph_remote',
+                  referencedEntityId: 'remote-arc',
+                  referencedEntityType: 'arc',
+                },
+              ],
+            },
+          },
+        },
+        relationships: {},
+        pressures: {},
+      });
+
+      const result = await exportService.exportGraph({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+      await exportService.exportToFile({
+        graphId: 'graph_123',
+        scope: 'full',
+        includeProvenance: false,
+      });
+
+      const streamed = JSON.parse(written.chunks.join('')) as AlthistoryExport;
+
+      expect(streamed.data.crossGraphRefs).toEqual(result.export.data.crossGraphRefs);
+      expect(streamed.data.crossGraphRefs).toHaveLength(2);
+      expect(streamed.data.events[0].sourceRef).toBe('https://example.com/источник');
+      expect(streamed.data.events[0].description).toBe('Крымская война — 1853 · 東京');
+
+      // The checksum is over the bytes that were actually written, so this is
+      // what proves the streaming serialisation matches the in-memory one.
+      expect(streamed.metadata.checksum).toBe(
+        crypto.createHash('sha256').update(JSON.stringify(streamed.data), 'utf8').digest('hex')
+      );
+      expect(exportService.validateExport(streamed).valid).toBe(true);
+    });
+
     it('should report streaming progress monotonically up to 1', async () => {
       mockGraphRepository.findById.mockResolvedValue(createMockGraph());
       mockGraphRepository.checkout.mockResolvedValue(createMockGraphData());
@@ -345,7 +422,11 @@ describe('ExportService', () => {
         { onProgress: (fraction) => fractions.push(fraction) }
       );
 
-      expect(fractions.length).toBeGreaterThan(0);
+      // Five entities in the fixture, so a per-entity report yields five
+      // in-band values plus the terminal 1. Section-boundary reporting would
+      // produce at most four values, all at section ends.
+      expect(fractions).toHaveLength(5 + 1);
+      expect(fractions.some((fraction) => fraction > 0 && fraction < 1)).toBe(true);
       expect(fractions[fractions.length - 1]).toBe(1);
       for (let i = 1; i < fractions.length; i++) {
         expect(fractions[i]).toBeGreaterThanOrEqual(fractions[i - 1]);

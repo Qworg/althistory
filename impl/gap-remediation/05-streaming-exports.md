@@ -47,9 +47,14 @@ checks out the tree, applies the filters, then **streams** the document to disk:
   stream semantics rather than an ignored `write()` return value.
 - The data section is serialised twice: once to hash, once to write. It has to
   be, because the checksum appears in `metadata`, which precedes `data` in the
-  document. Each pass is generated and discarded per entity, so peak memory is
-  the resolved tree plus one serialised entity — not the tree plus the document
-  plus the document's JSON string.
+  document. Each pass is generated and discarded per entity.
+
+  The honest bound is the resolved tree plus **O(entities) bookkeeping, not
+  one entity**: the accumulated `crossGraphRefs`, the provenance object (whose
+  `entityIds` lists every entity added across up to 1000 versions), and one
+  `Object.keys` array per section. That is still far below the previous peak
+  (tree + document + two document-sized JSON strings), and the serialisation
+  itself allocates one entity at a time.
 
 `maxInMemorySize` is now a constructor option (default 50 MB) so the boundary is
 testable. The ceiling still applies to `exportGraph`, which genuinely returns the
@@ -59,11 +64,15 @@ that stream.
 ### Progress
 
 Req 5.4 also asks for "progress tracking", and until now the job reported exactly
-three values (10, 50, 100). `exportToFile` accepts an `ExportHooks` argument whose
-`onProgress` receives a fraction as entities are streamed. `JobService` maps it
-into the 50–95% band and persists whole percentage points only — writing on every
-entity would mean thousands of repository writes for the graphs this feature
-exists for.
+three values (10, 50, 100).
+
+`exportToFile` accepts `ExportHooks`. `onPhase` announces which of the two
+serialisation passes is running (the hashing pass is about half the work and was
+otherwise invisible), and `onProgress` receives a fraction **after every entity**
+in the writing pass. `JobService` reports 55 for each phase, maps the fraction
+into 60–95, and persists whole percentage points only: the first draft reported
+at section boundaries, which for a graph of any size meant progress moved four
+times and the de-duplication guarded a case that could not happen.
 
 ## Deliberate behaviour changes
 
@@ -76,13 +85,52 @@ exists for.
   of the issue. The real ceiling for a streamed export is the process heap, which
   the tree already dominates.
 
+## Review round
+
+An adversarial review of the first cut found one blocker and several
+claim-vs-code gaps. All fixed:
+
+- **Blocker: cancelling a job mid-stream could terminate the process.** Progress
+  was persisted with `void this.reportProgress(...)`; `reportProgress` rejects
+  when the job is no longer `processing`, and Node ends the process on an
+  unhandled rejection. A `DELETE` during a long export was enough. Progress
+  writes now go through one promise chain that is awaited before the terminal
+  write, skips once the job leaves `processing`, and logs (rather than throws)
+  a failed write.
+- **The same chain fixes overlapping writes.** `JobRepository` persists by
+  truncating and rewriting one file; two unordered `writeFile` calls could leave
+  a shorter document over a longer one, and a job file that no longer parses is
+  dropped on the next start.
+- **Progress moved only at section boundaries** — at most four times for any
+  graph, so the "whole percentage points only" throttle protected a case that
+  could not happen, and a 110k-event graph sat still for its entire run.
+  `onProgress` now fires after every entity, and the hashing pass announces
+  itself.
+- **The request-level test did not reproduce the failure.** `largeGraph` has 4
+  entities (~3.7 KB), nowhere near the 50 MB ceiling, so restoring the old
+  `exportToFile` would not have failed it. The suite now configures
+  `LOCAL_EXPORT_MAX_IN_MEMORY_BYTES` low enough that the same options are refused
+  by `exportGraph` and delivered by the job.
+- **The `exportGraph` message could re-recommend the failing path.** For an
+  unfiltered filtered-scope export the estimate came from `graph.metadata` and
+  ignored filters, so a small filtered export could be refused with advice to use
+  the endpoint the caller had just used. A filtered or pinned export is now
+  estimated from the tree it will actually export.
+- Test sensitivity, per the review's mutations: the "chunked" test now requires
+  more chunks than the head/data/tail envelope (a single `JSON.stringify` of the
+  data section would still pass the old assertion); the progress test requires
+  one in-band value per entity; and the streaming test now hashes the *written*
+  bytes, runs `validateExport` on the streamed document, and covers
+  `crossGraphRefs`, `sourceRef`, nested metadata and non-ASCII text, which the
+  original fixture never reached.
+
 ## Verification
 
 | Gate | Result |
 | --- | --- |
 | `npx tsc --noEmit` (timeline) | clean |
 | `npx eslint` (touched files) | clean |
-| `npm test` (timeline) | 88 files, 1761 tests passed |
+| `npm test` (timeline) | 88 files, 1763 tests passed |
 
 New and changed tests:
 
@@ -106,10 +154,11 @@ New and changed tests:
 
 ## Residual
 
-- A job that fails mid-stream leaves a partial file. Nothing reads it (the job
-  is `failed`, and `getExportFilePath` only serves `completed` jobs), but nothing
-  deletes it either until the job expires. Cleaning partial files on failure is a
-  small follow-up.
+- A job that fails mid-stream leaves a partial file. Nothing serves it (the job
+  is `failed`, and `getExportFilePath` only answers for `completed` jobs), but
+  nothing ever deletes it either: job expiry removes `jobs/<id>.json` only, and
+  no code path cleans `exports/`. Cleaning both partial and completed files on
+  expiry is a small follow-up.
 - The tree itself is still resolved into memory (`GraphRepository.checkout`), so
   a graph larger than the heap cannot be exported regardless of streaming. Fixing
   that means a version-store read path that yields entities instead of a map.
