@@ -66,6 +66,26 @@ describe('isInternalHost', () => {
     }
   });
 
+  it('refuses every IPv6 form that carries an internal IPv4 address', () => {
+    // Each of these names 127.0.0.1 through a different IPv6 form. Checking
+    // only the mapped form leaves the others as a way to name the loopback.
+    for (const host of [
+      '[::ffff:127.0.0.1]',
+      '[::ffff:7f00:1]',
+      '[::127.0.0.1]',
+      '[::7f00:1]',
+      '[::ffff:0:127.0.0.1]',
+      '[2002:7f00:1::]',
+      '[2001:0000:7f00:1::]',
+    ]) {
+      expect(isInternalHost(host)).toBe(true);
+    }
+  });
+
+  it('still allows a 6to4 address that carries a public IPv4 address', () => {
+    expect(isInternalHost('[2002:5db8:d822::]')).toBe(false);
+  });
+
   it('allows the public IPv6 addresses', () => {
     for (const host of ['2001:4860:4860::8888', '2606:4700:4700::1111', '2a00:1450:4001:80f::200e']) {
       expect(isInternalHost(host), host).toBe(false);
@@ -163,6 +183,16 @@ describe('assertPublicWebUrlResolved', () => {
     await expect(
       assertPublicWebUrlResolved('https://six.example/history', resolver)
     ).rejects.toThrow(/internal address/);
+  });
+
+  it('gives up on a DNS lookup that never answers', async () => {
+    // The abort timer covers the fetch, not the lookup: a resolver that never
+    // answers would otherwise hold the request open past its own timeout.
+    const resolver: HostResolver = () => new Promise<string[]>(() => {});
+
+    await expect(
+      assertPublicWebUrlResolved('https://slow.example/history', resolver, 10)
+    ).rejects.toThrow(/did not answer within 10 ms/);
   });
 
   it('refuses a name that cannot be resolved', async () => {

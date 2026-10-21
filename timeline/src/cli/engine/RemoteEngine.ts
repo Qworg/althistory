@@ -46,7 +46,10 @@ import type { SimulationResult } from '@/services/SimulationService';
  * is served against the *active* graph instead. Every request that names a
  * graph therefore has to send it here.
  */
-export const GRAPH_ID_HEADER = 'X-Graph-Id';
+export /** How long the export download may take: a large graph is a large file. */
+const DOWNLOAD_TIMEOUT_MS = 120000;
+
+const GRAPH_ID_HEADER = 'X-Graph-Id';
 
 /** Page size for the list routes, which are paginated. */
 const PAGE_LIMIT = 1000;
@@ -1241,7 +1244,9 @@ export class RemoteEngine implements IEngine {
         // Validated for every format: a document that is not an export
         // document must not be written to a file as if it were one.
         parseExportDocument(document);
-        content = typeof document === 'string' ? document : JSON.stringify(document, null, 2);
+        // Compact: a large export is already held whole, and indenting it
+        // doubles that again for no benefit to a machine-read file.
+        content = typeof document === 'string' ? document : JSON.stringify(document);
       } else {
         const parsed = parseExportDocument(document);
         const exporter = new GraphExporter();
@@ -1292,8 +1297,12 @@ export class RemoteEngine implements IEngine {
       );
     }
 
-    const pollIntervalMs = 250;
-    const maxAttempts = 120; // 30 seconds
+    // The status route is behind the daemon's rate limiter, which allows 60
+    // requests a minute per key by default. Polling every 250 ms would spend
+    // 240 a minute and be turned away before a large export finished; two
+    // seconds is 30 a minute and leaves room for the rest of the command.
+    const pollIntervalMs = 2000;
+    const maxAttempts = 60; // two minutes
     let lastStatus = 'pending';
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -1306,8 +1315,11 @@ export class RemoteEngine implements IEngine {
       if (jobStatus) lastStatus = jobStatus;
 
       if (jobStatus === 'completed') {
+        // The download is the whole document, which is the reason the job
+        // ran: the default request timeout would cut a large export off.
         const download = await this.client.get(`/api/export/jobs/${jobId}/download`, {
           headers: this.graphHeaders(graphId),
+          timeout: DOWNLOAD_TIMEOUT_MS,
         });
         return download.data;
       }
@@ -1323,10 +1335,30 @@ export class RemoteEngine implements IEngine {
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     }
 
+    // The job is still running, and this command is giving up on it: it is
+    // cancelled so that it does not keep working and leave its file behind.
+    await this.cancelExportJob(jobId, graphId);
+
     throw new CLIError(
-      `The daemon's export job ${jobId} did not finish within the wait (last status: ${lastStatus})`,
+      `The daemon's export job ${jobId} did not finish within the wait (last status: ${lastStatus}); it was cancelled`,
       ExitCode.GENERAL_ERROR
     );
+  }
+
+  /**
+   * Ask the daemon to cancel an export job, without failing the command.
+   *
+   * This runs on a path that is already reporting a failure, so a failure to
+   * cancel is not allowed to replace the reason the command failed.
+   */
+  private async cancelExportJob(jobId: string, graphId: string): Promise<void> {
+    try {
+      await this.client.delete(`/api/export/jobs/${jobId}`, {
+        headers: this.graphHeaders(graphId),
+      });
+    } catch {
+      // The command is already reporting a failure; the cancel is best effort.
+    }
   }
 
   async importGraph(

@@ -36,6 +36,29 @@ const DEFAULT_TIMEOUT_MS = 15000;
 /** The largest document the client will read, in bytes. */
 export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
 
+/** How long a host name may take to resolve before the fetch gives up. */
+export const DNS_TIMEOUT_MS = 5000;
+
+/**
+ * Resolve a promise, but not for longer than `ms`.
+ *
+ * A resolver that never answers would otherwise hold the request open past
+ * its own timeout: the abort timer covers the fetch, not the lookup.
+ */
+async function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`${what} did not answer within ${ms} ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** Host names that always name the local machine or an internal network. */
 const RESERVED_HOST_SUFFIXES = ['.local', '.internal', '.localhost', '.home.arpa'];
 
@@ -140,18 +163,45 @@ export function isInternalIPv6(address: string): boolean {
   if (isZeroPrefix(15) && bytes[15] === 0) return true;
   if (isZeroPrefix(15) && bytes[15] === 1) return true;
 
-  // An IPv4-mapped (`::ffff:a.b.c.d`) or NAT64 (`64:ff9b::/96`) address names
-  // the IPv4 address it carries.
+  // Several IPv6 forms carry an IPv4 address, and each of them reaches the
+  // IPv4 address it names. Checking only the mapped form leaves the others as
+  // a way to name the loopback.
+  const ipv4From = (from: number): string =>
+    `${bytes[from]}.${bytes[from + 1]}.${bytes[from + 2]}.${bytes[from + 3]}`;
+
+  // The IPv4-mapped form (`::ffff:a.b.c.d`).
   const isIpv4Mapped = isZeroPrefix(10) && bytes[10] === 0xff && bytes[11] === 0xff;
+  // The IPv4-translated form (`::ffff:0:a.b.c.d`).
+  const isIpv4Translated =
+    isZeroPrefix(8) &&
+    bytes[8] === 0xff &&
+    bytes[9] === 0xff &&
+    bytes[10] === 0x00 &&
+    bytes[11] === 0x00;
+  // The IPv4-compatible form (`::a.b.c.d`), deprecated but still routable to
+  // the address it names.
+  const isIpv4Compatible = isZeroPrefix(12) && !(isZeroPrefix(15) && (bytes[15] === 0 || bytes[15] === 1));
+  // NAT64 (`64:ff9b::/96`).
   const isNat64 =
     bytes[0] === 0x00 &&
     bytes[1] === 0x64 &&
     bytes[2] === 0xff &&
     bytes[3] === 0x9b &&
     bytes.slice(4, 12).every((byte) => byte === 0);
-  if (isIpv4Mapped || isNat64) {
-    const mapped = `${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`;
-    return isInternalIPv4(mapped);
+
+  if (isIpv4Mapped || isIpv4Translated || isIpv4Compatible || isNat64) {
+    return isInternalIPv4(ipv4From(12));
+  }
+
+  // 6to4 (`2002:a.b.c.d::/48`) carries the IPv4 address of its relay in the
+  // second and third hextets.
+  if (bytes[0] === 0x20 && bytes[1] === 0x02) {
+    return isInternalIPv4(ipv4From(2));
+  }
+
+  // Teredo (`2001:0000::/32`) carries the server's IPv4 address next.
+  if (bytes[0] === 0x20 && bytes[1] === 0x01 && bytes[2] === 0x00 && bytes[3] === 0x00) {
+    return isInternalIPv4(ipv4From(4));
   }
 
   // The unique local range (`fc00::/7`).
@@ -247,7 +297,8 @@ export function assertPublicWebUrl(rawUrl: string): URL {
  */
 export async function assertPublicWebUrlResolved(
   rawUrl: string,
-  resolver: HostResolver = defaultResolver
+  resolver: HostResolver = defaultResolver,
+  resolveTimeoutMs: number = DNS_TIMEOUT_MS
 ): Promise<URL> {
   const parsed = assertPublicWebUrl(rawUrl);
 
@@ -259,7 +310,11 @@ export async function assertPublicWebUrlResolved(
 
   let addresses: string[];
   try {
-    addresses = await resolver(host);
+    addresses = await withTimeout(
+      resolver(host),
+      resolveTimeoutMs,
+      `The DNS lookup for ${parsed.hostname}`
+    );
   } catch (error) {
     throw new Error(
       `Could not resolve ${parsed.hostname}: ${error instanceof Error ? error.message : String(error)}`

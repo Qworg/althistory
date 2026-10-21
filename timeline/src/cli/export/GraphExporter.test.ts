@@ -160,6 +160,49 @@ describe('generateGraphML', () => {
     expect(graphml).toContain('<edge source="a1" target="e1">');
   });
 
+  it('keeps the node ids unique when a forbidden character is dropped', () => {
+    // Two ids that differ only by a character XML forbids would collapse to
+    // the same `<node id>`, which is invalid GraphML: node ids must be
+    // unique.
+    const graphml = exporter.generateGraphML(
+      'g1',
+      'Graph',
+      [event('e\u00001', 'First'), event('e1', 'Second')],
+      [],
+      []
+    );
+
+    const ids = [...graphml.matchAll(/<node id="([^"]*)"/g)].map((match) => match[1]);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    for (const id of ids) {
+      expect(id).not.toBe('');
+    }
+  });
+
+  it('never emits an empty node id', () => {
+    // An id made only of characters XML forbids would become `id=""`.
+    const graphml = exporter.generateGraphML('g1', 'Graph', [event('\u0000\u0001', 'Nameless')], [], []);
+
+    expect(graphml).not.toContain('id=""');
+    expect(graphml).toContain('id="node"');
+  });
+
+  it('points an edge at the mapped id, not the original', () => {
+    const graphml = exporter.generateGraphML(
+      'g1',
+      'Graph',
+      [event('e\u00001', 'First'), event('e2', 'Second')],
+      [],
+      [relationship('e\u00001', 'e2')]
+    );
+
+    const declared = declaredNodeIds(graphml);
+    for (const endpoint of edgeEndpoints(graphml)) {
+      expect(declared.has(endpoint)).toBe(true);
+    }
+  });
+
   it('leaves out a containment edge to an arc this document does not hold', () => {
     const withMissingArc = event('e1', 'The Congress votes', 'A', 'B', { arcId: 'a-missing' });
 
