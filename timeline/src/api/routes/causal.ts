@@ -5,6 +5,7 @@ import { requireGraphId, resolveGraphContext } from '@/api/middleware';
 import { EventRepository } from '@/repositories/EventRepository';
 import { CausalService } from '@/services/CausalService';
 import { createLogger } from '@/utils/logger';
+import { isTemporalInversion } from '@/utils/causalOrder';
 
 const logger = createLogger('CausalRoutes');
 
@@ -322,6 +323,16 @@ causalRoutes.post('/validate', async (req: Request, res: Response, next: NextFun
     // Use validation service instead
     const validationService = req.container.validationService;
     const validation = validationService.validateCausalRelationship(relationship);
+
+    // The route's own temporal check: the cause may not follow the effect,
+    // but it may happen at the same moment. The rule lives in
+    // `@/utils/causalOrder`, which every other path uses too.
+    if (isTemporalInversion(causeEvent.timestamp, effectEvent.timestamp)) {
+      validation.isValid = false;
+      validation.errors.push(
+        `Cause event ${causeEventId} occurs after effect event ${effectEventId}`
+      );
+    }
 
     res.json({
       success: true,

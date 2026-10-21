@@ -16,6 +16,7 @@ import {
 } from '../middleware';
 import { IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
+import { isTemporalInversion } from '@/utils/causalOrder';
 
 export const validateRoutes = Router();
 
@@ -271,18 +272,18 @@ validateRoutes.post(
             continue;
           }
 
-          // Temporal causality check (cause must precede effect)
+          // Temporal causality check (the cause may not follow the effect)
           if (causeEvent && effectEvent) {
             const causeTime = new Date(causeEvent.timestamp);
             const effectTime = new Date(effectEvent.timestamp);
 
-            if (causeTime >= effectTime) {
+            if (isTemporalInversion(causeTime, effectTime)) {
               response.errors.causal.push({
                 type: 'causal',
                 relationshipId: rel.id,
                 causeEventId: rel.cause_event_id,
                 effectEventId: rel.effect_event_id,
-                message: 'Cause event must occur before effect event',
+                message: 'Cause event must not occur after the effect event',
                 details: {
                   causeTimestamp: causeEvent.timestamp,
                   effectTimestamp: effectEvent.timestamp,

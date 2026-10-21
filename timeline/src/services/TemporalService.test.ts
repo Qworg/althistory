@@ -310,7 +310,7 @@ describe('TemporalService', () => {
       expect(temporalService.preventTemporalParadox(causeEvent, effectEvent)).toBe(true);
     });
 
-    it('should throw TemporalConstraintError when cause event occurs at same time as effect event', () => {
+    it('should allow a cause and an effect at the same moment', () => {
       // Arrange
       const timestamp = new Date('2023-06-01T10:00:00Z');
       const causeEvent = new Event({
@@ -328,18 +328,10 @@ describe('TemporalService', () => {
       });
 
       // Act & Assert
+      // The rule the whole project uses: a cause may not follow its effect,
+      // but it may happen at the same moment.
       expect(() => temporalService.preventTemporalParadox(causeEvent, effectEvent))
-        .toThrow(TemporalConstraintError);
-      
-      try {
-        temporalService.preventTemporalParadox(causeEvent, effectEvent);
-      } catch (error) {
-        expect(error).toBeInstanceOf(TemporalConstraintError);
-        const temporalError = error as TemporalConstraintError;
-        expect(temporalError.message).toContain('Temporal paradox');
-        expect(temporalError.eventId).toBe(causeEvent.id);
-        expect(temporalError.arcId).toBe(effectEvent.id);
-      }
+        .not.toThrow();
     });
 
     it('should throw TemporalConstraintError when cause event occurs after effect event', () => {
@@ -367,7 +359,7 @@ describe('TemporalService', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(TemporalConstraintError);
         const temporalError = error as TemporalConstraintError;
-        expect(temporalError.message).toContain('occurs at or after effect event');
+        expect(temporalError.message).toContain('occurs after effect event');
         expect(temporalError.eventId).toBe(causeEvent.id);
         expect(temporalError.arcId).toBe(effectEvent.id);
         expect(temporalError.eventTime).toEqual(causeEvent.timestamp);
@@ -673,9 +665,10 @@ describe('TemporalService', () => {
       // Event in arc should work
       expect(temporalService.validateEventInArc(event1, arc)).toBe(true);
       
-      // Causal relationship should fail (same timestamp)
+      // A causal relationship at the same moment is allowed: the cause and
+      // the effect can be part of the same occurrence.
       expect(() => temporalService.preventTemporalParadox(event1, event2))
-        .toThrow(TemporalConstraintError);
+        .not.toThrow();
     });
 
     it('should handle complex nested arc validation scenarios', () => {

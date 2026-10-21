@@ -109,6 +109,140 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
       expect(paradoxIssue?.severity).toBe('error');
     });
 
+    it('accepts a cause and an effect at the same moment', async () => {
+      // The rule the whole project uses: a cause may not follow its effect,
+      // but it may happen at the same moment. The importer and the merge
+      // accept the same pair, and the link-creation path creates it.
+      const evt1 = await engine.createEvent(testGraphId, {
+        description: 'Treaty of Versailles Signed',
+        timestamp: '1919-06-28T00:00:00.000Z',
+      });
+
+      const evt2 = await engine.createEvent(testGraphId, {
+        description: 'Treaty of Versailles Ratified',
+        timestamp: '1919-06-28T00:00:00.000Z',
+      });
+
+      await engine.createCausalLink(testGraphId, {
+        causeId: evt1.id,
+        effectId: evt2.id,
+        weight: 0.8,
+      });
+
+      const report = await engine.validateGraph(testGraphId);
+      expect(report.valid).toBe(true);
+      expect(report.issues.filter((i) => i.type === 'causal_direction')).toHaveLength(0);
+    });
+
+    it('auto-repairs every temporal paradox it reports', async () => {
+      const evt1 = await engine.createEvent(testGraphId, {
+        description: 'Sputnik Launch',
+        timestamp: '1957-10-04T19:28:00.000Z',
+      });
+
+      const evt2 = await engine.createEvent(testGraphId, {
+        description: 'First Moon Landing',
+        timestamp: '1969-07-20T20:17:00.000Z',
+      });
+
+      await engine.createCausalLink(testGraphId, {
+        causeId: evt1.id,
+        effectId: evt2.id,
+        weight: 0.8,
+      });
+
+      // Move the cause after the effect: the validator reports it.
+      await engine.updateEvent(testGraphId, evt1.id, {
+        timestamp: '1975-01-01T00:00:00.000Z',
+      });
+
+      const before = await engine.validateGraph(testGraphId);
+      expect(before.valid).toBe(false);
+      expect(before.issues.some((i) => i.type === 'causal_direction')).toBe(true);
+
+      // The repair has to clear what the validator reported: after it, the
+      // graph must be clean.
+      const after = await engine.validateGraph(testGraphId, false, true);
+      expect(after.errorCount).toBe(0);
+
+      const revalidated = await engine.validateGraph(testGraphId);
+      expect(revalidated.valid).toBe(true);
+      expect(revalidated.issues.filter((i) => i.severity === 'error')).toHaveLength(0);
+    });
+
+    it('removes the inverted link before it adds the reversed one', async () => {
+      // The shape matters here. `r1` comes first in the store, so the graph
+      // is walked from B, and the cycle that the pair forms is broken at
+      // B -> A -- the link the repair itself would have added. A repair that
+      // only adds the reversed link would then have its own new link removed
+      // and the inverted one would survive.
+      const validator = new GraphValidator();
+      const mockEvents = [
+        new Event({ id: 'c1', description: 'Event Alpha', timestamp: new Date('2003-01-01'), actor: 'A', target: 'B' }),
+        new Event({ id: 'c2', description: 'Event Beta', timestamp: new Date('2001-01-01'), actor: 'A', target: 'B' }),
+        new Event({ id: 'c3', description: 'Event Gamma', timestamp: new Date('2002-01-01'), actor: 'A', target: 'B' }),
+      ];
+      let rels: Array<{
+        id: string;
+        cause_event_id: string;
+        effect_event_id: string;
+        weight: number;
+        confidence: number;
+        evidence: string;
+        relationship_type: 'direct' | 'indirect' | 'contributory';
+      }> = [
+        { id: 'r1', cause_event_id: 'c2', effect_event_id: 'c3', weight: 0.9, confidence: 0.9, evidence: 'e1', relationship_type: 'direct' },
+        { id: 'r2', cause_event_id: 'c1', effect_event_id: 'c2', weight: 0.5, confidence: 0.5, evidence: 'e2', relationship_type: 'direct' },
+      ];
+
+      const scopedMock: ScopedGraphServices = {
+        eventRepository: {
+          findAll: async () => mockEvents,
+          findById: async (id) => mockEvents.find((e) => e.id === id) || null,
+          update: async () => null,
+          delete: async () => true,
+        },
+        arcRepository: {
+          findAll: async () => [],
+          findById: async () => null,
+          update: async () => null,
+          delete: async () => true,
+        },
+        causalService: {
+          getAllRelationships: async () => rels,
+          createCausalLink: async (cause, effect, relationship) => {
+            rels = [
+              ...rels,
+              {
+                id: `r${rels.length + 1}`,
+                cause_event_id: cause.id,
+                effect_event_id: effect.id,
+                weight: relationship.weight,
+                confidence: relationship.confidence,
+                evidence: relationship.evidence,
+                relationship_type: relationship.relationship_type,
+              },
+            ];
+          },
+          deleteCausalLink: async (causeId, effectId) => {
+            rels = rels.filter((r) => !(r.cause_event_id === causeId && r.effect_event_id === effectId));
+            return true;
+          },
+        },
+      };
+
+      const repaired = await validator.validate('mock-graph', scopedMock, { autoRepair: true });
+
+      expect(repaired.repairsApplied?.some((r) => r.includes('Reversed temporally inverted'))).toBe(true);
+      // The inverted link is gone, and the reversed one is in its place.
+      expect(rels.some((r) => r.cause_event_id === 'c1' && r.effect_event_id === 'c2')).toBe(false);
+      expect(rels.some((r) => r.cause_event_id === 'c2' && r.effect_event_id === 'c1')).toBe(true);
+
+      // And the graph validates clean afterwards.
+      const postReport = await validator.validate('mock-graph', scopedMock, { autoRepair: false });
+      expect(postReport.valid).toBe(true);
+    });
+
     it('detects causal DAG cycles and auto-repairs them by breaking the cycle', async () => {
       const validator = new GraphValidator();
       const mockEvents = [
@@ -137,7 +271,22 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
         },
         causalService: {
           getAllRelationships: async () => rels,
-          createCausalLink: async () => {},
+          // The store really holds the new link, so the repair's result can
+          // be seen in the graph afterwards.
+          createCausalLink: async (cause, effect, relationship) => {
+            rels = [
+              ...rels,
+              {
+                id: `r${rels.length + 1}`,
+                cause_event_id: cause.id,
+                effect_event_id: effect.id,
+                weight: relationship.weight,
+                confidence: relationship.confidence,
+                evidence: relationship.evidence,
+                relationship_type: relationship.relationship_type,
+              },
+            ];
+          },
           deleteCausalLink: async (causeId, effectId) => {
             rels = rels.filter((r) => !(r.cause_event_id === causeId && r.effect_event_id === effectId));
             return true;
@@ -154,7 +303,9 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
       // 2. With auto-repair: cycle is broken
       const repaired = await validator.validate('mock-graph', scopedMock, { autoRepair: true });
       expect(repaired.repaired).toBe(true);
-      expect(repaired.repairsApplied?.some((r) => r.includes('break cycle'))).toBe(true);
+      // The cycle ran through c3 -> c1, whose cause is after its effect, so
+      // the repair removed that link and put it back the right way round.
+      expect(repaired.repairsApplied?.some((r) => r.includes('Reversed temporally inverted'))).toBe(true);
 
       // Verify that after auto-repair, no cycle remains
       const postReport = await validator.validate('mock-graph', scopedMock, { autoRepair: false });

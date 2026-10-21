@@ -26,6 +26,7 @@ import {
 } from '../types';
 import { clusterEventsIntoArcs } from './arcClustering';
 import { ExtractedEvent } from '@/services/ingestion/types';
+import { isTemporalInversion } from '@/utils/causalOrder';
 
 export interface TimelineGeneratorConfig {
   readonly llmClient?: LLMClient | null;
@@ -853,15 +854,15 @@ Generate ${eventCount} chronological historical events demonstrating this counte
       }
     }
 
-    // Causal direction (cause < effect)
+    // Causal direction (the cause may not follow the effect)
     for (const link of links) {
       const causeTime = new Date(events[link.causeIndex].timestamp).getTime();
       const effectTime = new Date(events[link.effectIndex].timestamp).getTime();
-      if (causeTime >= effectTime) {
+      if (isTemporalInversion(causeTime, effectTime)) {
         issues.push({
           type: 'causal_direction',
           severity: 'error',
-          message: `Causal link invalid: cause (${events[link.causeIndex].timestamp}) >= effect (${events[link.effectIndex].timestamp})`,
+          message: `Causal link invalid: cause (${events[link.causeIndex].timestamp}) is after effect (${events[link.effectIndex].timestamp})`,
         });
       }
     }

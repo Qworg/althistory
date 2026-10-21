@@ -30,6 +30,7 @@ import {
 } from './ExportService';
 import { createLogger, ILogger } from '../utils/logger';
 import * as crypto from 'crypto';
+import { isTemporalInversion } from '@/utils/causalOrder';
 
 // ============================================================================
 // Constants
@@ -1176,7 +1177,7 @@ export class ImportService {
       if (r.cause_event_id && r.effect_event_id && !r.causeGraphId && !r.effectGraphId) {
         const causeTime = eventTimestamps.get(r.cause_event_id);
         const effectTime = eventTimestamps.get(r.effect_event_id);
-        if (causeTime && effectTime && causeTime > effectTime) {
+        if (causeTime && effectTime && isTemporalInversion(causeTime, effectTime)) {
           errors.push({
             path: `${path}`,
             message: `Causal paradox: cause event (${r.cause_event_id}) occurs after effect event (${r.effect_event_id})`,
@@ -1734,7 +1735,7 @@ export class ImportService {
         const causeTime = allEvents.get(rel.cause_event_id);
         const effectTime = allEvents.get(rel.effect_event_id);
 
-        if (causeTime && effectTime && causeTime > effectTime) {
+        if (causeTime && effectTime && isTemporalInversion(causeTime, effectTime)) {
           addConflict({
             id: `conflict-paradox-${rel.id}`,
             type: 'causal-paradox',

@@ -459,6 +459,65 @@ describe('InferenceService - Pattern Detection', () => {
       });
     });
 
+    it('should suggest a link between two events at the same moment', () => {
+      // The rule the whole project uses: a cause may not follow its effect,
+      // but it may happen at the same moment. The link-creation path creates
+      // such a link, so the suggestion path has to be able to suggest one.
+      const events = [
+        new Event({
+          id: 'event1',
+          description: 'Government announces new tax policy',
+          actor: 'Government',
+          target: 'Tax System',
+          timestamp: new Date('2023-01-01')
+        }),
+        new Event({
+          id: 'event2',
+          description: 'Businesses react to tax changes',
+          actor: 'Business Community',
+          target: 'Market Strategy',
+          timestamp: new Date('2023-01-01')
+        })
+      ];
+
+      const suggestions = inferenceService.suggestCausalLinks(events);
+
+      expect(suggestions.length).toBeGreaterThan(0);
+      suggestions.forEach(suggestion => {
+        const causeEvent = events.find(e => e.id === suggestion.cause_event_id);
+        const effectEvent = events.find(e => e.id === suggestion.effect_event_id);
+        // The cause may not follow the effect.
+        expect(causeEvent!.timestamp.getTime()).toBeLessThanOrEqual(effectEvent!.timestamp.getTime());
+      });
+    });
+
+    it('should not suggest a link whose cause follows its effect', () => {
+      const events = [
+        new Event({
+          id: 'event1',
+          description: 'Government announces new tax policy',
+          actor: 'Government',
+          target: 'Tax System',
+          timestamp: new Date('2023-01-05')
+        }),
+        new Event({
+          id: 'event2',
+          description: 'Businesses react to tax changes',
+          actor: 'Business Community',
+          target: 'Market Strategy',
+          timestamp: new Date('2023-01-01')
+        })
+      ];
+
+      const suggestions = inferenceService.suggestCausalLinks(events);
+
+      suggestions.forEach(suggestion => {
+        const causeEvent = events.find(e => e.id === suggestion.cause_event_id);
+        const effectEvent = events.find(e => e.id === suggestion.effect_event_id);
+        expect(causeEvent!.timestamp.getTime()).toBeLessThan(effectEvent!.timestamp.getTime());
+      });
+    });
+
     it('should prioritize direct actor-target relationships', () => {
       const events = [
         new Event({

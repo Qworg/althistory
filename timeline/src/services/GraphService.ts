@@ -34,6 +34,7 @@ import {
   describeMergedEntityProblems,
 } from './mergedEntityValidation';
 import { createLogger, ILogger } from '../utils/logger';
+import { isTemporalInversion } from '@/utils/causalOrder';
 
 /**
  * How many times a merge is recomputed when a concurrent commit advances the
@@ -1031,13 +1032,9 @@ export class GraphService {
       if (cause && effect) {
         const causeTime = new Date((cause.timestamp || cause.time) as string | number | Date).getTime();
         const effectTime = new Date((effect.timestamp || effect.time) as string | number | Date).getTime();
-        // Strictly after, not "at or after". Two events with the same
-        // timestamp do not invert: the effect does not precede the cause.
-        // The importer uses the same rule (`ImportService` checks
-        // `causeTime > effectTime`), so a graph the importer accepts must not
-        // be refused by the merge. Day-level timestamps make simultaneous
-        // causal pairs common in historical data.
-        if (!isNaN(causeTime) && !isNaN(effectTime) && causeTime > effectTime) {
+        // The rule lives in `@/utils/causalOrder`, which every other path
+        // uses too, so a graph the importer accepts cannot be refused here.
+        if (!isNaN(causeTime) && !isNaN(effectTime) && isTemporalInversion(causeTime, effectTime)) {
           const causeDesc = (cause.description || cause.id || causeId) as string;
           const effectDesc = (effect.description || effect.id || effectId) as string;
           anomalies.push({

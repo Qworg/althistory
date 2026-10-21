@@ -71,11 +71,11 @@
   - [x] 5.1 Implement `althistory validate <graph-id>` command  `timeline/src/cli/index.ts:924`, `timeline/src/cli/validation/GraphValidator.ts:33`:
     - Temporal order validation ($t_{start} \le t_{end}$).
     - Arc containment checks ($arc_{start} \le event_{time} \le arc_{end}$).
-    - Causal direction check ($cause_{time} < effect_{time}$).
+    - Causal direction check: the cause may not follow the effect ($cause_{time} \le effect_{time}$; a cause at the same moment is allowed -- the rule is in `timeline/src/utils/causalOrder.ts`).
     - Causal cycle detection (DAG topological sort).
     - Cross-graph reference referential integrity check. _(NOT DONE: there is no such check in `GraphValidator`; and in remote mode the command always passes, because the CLI sends no arrays for the validator to check — `timeline/src/api/routes/validate.ts:166-167`, `timeline/src/cli/engine/RemoteEngine.ts:540-547`)_
     - Structured diagnostic output with exit code 2 on violations.
-  - [x] 5.2 Implement automated self-healing (`--auto-repair` / `--fix`)  `timeline/src/cli/index.ts:927` _(PARTIAL: there is no `--fix`; and the edge reversal adds the reversed edge without removing the original (`timeline/src/cli/validation/GraphValidator.ts:370-384`), which creates a two-node cycle rather than repairing one — tracked in [#52](https://github.com/Qworg/althistory/issues/52))_:
+  - [x] 5.2 Implement automated self-healing (`--auto-repair` / `--fix`)  `timeline/src/cli/index.ts:927` _(PARTIAL: there is no `--fix`; the edge reversal removes the inverted edge before it adds the reversed one (`timeline/src/cli/validation/GraphValidator.ts:371-407`), so it repairs the graph rather than making a two-node cycle — tracked in [#52](https://github.com/Qworg/althistory/issues/52))_:
     - Automatically expand arc bounds to fit contained events; remove or reverse paradoxical cycle edges.
   - [x] 5.3 Implement `althistory export <graph-id>` command  `timeline/src/cli/index.ts:956`, `timeline/src/cli/export/GraphExporter.ts:17`:
     - Formats: `--format json`, `--format markdown` (LLM-optimized context table), `--format dot`, `--format graphml` _(PARTIAL: json, markdown and dot are implemented (`GraphExporter.ts:31-37`); `graphml` is not)_

@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { CausalSuggestion, CausalRelationshipData } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
+import { isTemporalInversion } from '@/utils/causalOrder'
 
 export interface SuggestionFeedback {
   rating: 'helpful' | 'not_helpful' | 'needs_improvement'
@@ -191,9 +192,11 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
 
       const causeTime = new Date(causeEvent.timestamp)
       const effectTime = new Date(effectEvent.timestamp)
-      
-      if (causeTime > effectTime) {
-        throw new Error('Cause event must occur before effect event')
+
+      // The rule the whole project uses: a cause may not follow its effect,
+      // but it may happen at the same moment.
+      if (isTemporalInversion(causeTime, effectTime)) {
+        throw new Error('Cause event must not occur after the effect event')
       }
 
       // Create relationship data

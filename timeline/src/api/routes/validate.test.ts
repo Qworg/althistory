@@ -219,7 +219,29 @@ describe('Validate Routes', () => {
         .expect(200);
 
       expect(response.body.valid).toBe(false);
-      expect(response.body.errors.causal[0].message).toContain('must occur before');
+      expect(response.body.errors.causal[0].message).toContain('must not occur after');
+    });
+
+    it('should accept a cause and an effect at the same moment', async () => {
+      // The rule the whole project uses: a cause may not follow its effect,
+      // but it may happen at the same moment. The importer and the merge
+      // accept such a pair, so this route has to accept it too.
+      const response = await request(app)
+        .post('/api/validate/graph')
+        .set('X-API-Key', 'valid-read-key')
+        .send({
+          events: [
+            { id: 'e1', description: 'Event 1', timestamp: '1914-07-28T00:00:00.000Z', actor: 'A', target: 'B' },
+            { id: 'e2', description: 'Event 2', timestamp: '1914-07-28T00:00:00.000Z', actor: 'A', target: 'B' },
+          ],
+          relationships: [
+            { cause_event_id: 'e1', effect_event_id: 'e2' },
+          ],
+          checks: ['causal'],
+        })
+        .expect(200);
+
+      expect(response.body.errors.causal).toHaveLength(0);
     });
 
     it('should detect missing referenced events', async () => {

@@ -7,6 +7,7 @@ import {
   CausalRelationshipDto,
   IngestTextOptions,
   IngestResultDto,
+  SkippedRelationship,
   GenerateTimelineOptions,
   GenerateBranchOptions,
   GenerationResultDto,
@@ -38,6 +39,8 @@ import {
 } from '../types';
 import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
+import { isTemporalInversion } from '@/utils/causalOrder';
+import { validateCausalRelationshipFields } from '@/services/CausalService';
 
 export class DirectEngine implements IEngine {
   readonly mode = 'direct' as const;
@@ -440,15 +443,15 @@ export class DirectEngine implements IEngine {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
 
-    // Verify temporal constraint: cause must precede effect
+    // Verify temporal constraint: the cause may not follow the effect
     const cause = await scoped.eventRepository.findById(data.causeId);
     const effect = await scoped.eventRepository.findById(data.effectId);
     if (!cause) throw new NotFoundErrorCLI(`Cause event not found: ${data.causeId}`);
     if (!effect) throw new NotFoundErrorCLI(`Effect event not found: ${data.effectId}`);
 
-    if (cause.timestamp.getTime() >= effect.timestamp.getTime()) {
+    if (isTemporalInversion(cause.timestamp, effect.timestamp)) {
       throw new ValidationErrorCLI(
-        `Temporal ordering violation: cause timestamp (${cause.timestamp.toISOString()}) must precede effect timestamp (${effect.timestamp.toISOString()})`
+        `Temporal ordering violation: cause timestamp (${cause.timestamp.toISOString()}) must not be after effect timestamp (${effect.timestamp.toISOString()})`
       );
     }
 
@@ -594,11 +597,32 @@ export class DirectEngine implements IEngine {
     }
 
     if (options.dryRun) {
+      // The dry run has to count what the real run would create, or the two
+      // disagree. The real run skips a link whose cause follows its effect,
+      // and a link the server would refuse, so the dry run skips those too.
+      const timestampsByTempId = new Map<string, Date>();
+      for (const event of events) {
+        timestampsByTempId.set(event.tempId, new Date(event.timestamp));
+      }
+
+      const creatableRelationships = relationships.filter((r) => {
+        const causeTime = timestampsByTempId.get(r.causeEventTempId);
+        const effectTime = timestampsByTempId.get(r.effectEventTempId);
+        if (!causeTime || !effectTime) return false;
+        if (isTemporalInversion(causeTime, effectTime)) return false;
+        return validateCausalRelationshipFields({
+          weight: r.weight ?? 1.0,
+          evidence: r.reasoning || '',
+          confidence: r.confidence ?? 1.0,
+          relationship_type: 'direct',
+        }).length === 0;
+      });
+
       return {
         graphId: targetGraphId,
         eventsCreated: events.length,
         arcsCreated: arcs.length,
-        relationshipsCreated: relationships.length,
+        relationshipsCreated: creatableRelationships.length,
         dryRun: true,
         entities: {
           events: events.map((e) => ({
@@ -617,7 +641,9 @@ export class DirectEngine implements IEngine {
             startTime: a.start_time,
             endTime: a.end_time,
           })),
-          relationships: relationships.map((r) => ({
+          // The links the real run would create, so that the preview and
+          // the run agree.
+          relationships: creatableRelationships.map((r) => ({
             id: r.tempId,
             graphId: targetGraphId,
             causeId: r.causeEventTempId,
@@ -687,30 +713,45 @@ export class DirectEngine implements IEngine {
     }
 
     const createdRelDtos: CausalRelationshipDto[] = [];
+    const skippedRelationships: SkippedRelationship[] = [];
     for (const r of relationships) {
       const cause = tempIdToRealEvent.get(r.causeEventTempId);
       const effect = tempIdToRealEvent.get(r.effectEventTempId);
-      if (cause && effect && cause.timestamp.getTime() < effect.timestamp.getTime()) {
+      // The rule the whole project uses: the cause may not follow the
+      // effect, but it may happen at the same moment.
+      if (cause && effect && !isTemporalInversion(cause.timestamp, effect.timestamp)) {
         const linkRel: CausalRelationship = {
           weight: r.weight ?? 1.0,
           evidence: r.reasoning || '',
           confidence: r.confidence ?? 1.0,
           relationship_type: 'direct',
         };
-        const created = await scoped.causalService.createCausalLink(cause, effect, linkRel);
         try {
-          await container.graphWriteVersioningService.recordRelationship(targetGraphId, created, 'create');
-        } catch {
-          // Best effort
+          const created = await scoped.causalService.createCausalLink(cause, effect, linkRel);
+          try {
+            await container.graphWriteVersioningService.recordRelationship(targetGraphId, created, 'create');
+          } catch {
+            // Best effort
+          }
+          createdRelDtos.push({
+            id: created.id,
+            graphId: targetGraphId,
+            causeId: created.cause_event_id,
+            effectId: created.effect_event_id,
+            weight: created.weight,
+            reasoning: created.evidence,
+          });
+        } catch (error) {
+          // One link that cannot be created -- a cycle, say -- must not throw
+          // the whole ingest away half way through: the events and the arcs
+          // are already stored. The link is skipped, and the ingest says
+          // which ones it skipped.
+          skippedRelationships.push({
+            causeEventId: r.causeEventTempId,
+            effectEventId: r.effectEventTempId,
+            reason: error instanceof Error ? error.message : String(error),
+          });
         }
-        createdRelDtos.push({
-          id: created.id,
-          graphId: targetGraphId,
-          causeId: created.cause_event_id,
-          effectId: created.effect_event_id,
-          weight: created.weight,
-          reasoning: created.evidence,
-        });
       }
     }
 
@@ -725,6 +766,7 @@ export class DirectEngine implements IEngine {
         arcs: createdArcDtos,
         relationships: createdRelDtos,
       },
+      ...(skippedRelationships.length > 0 ? { skippedRelationships } : {}),
     };
   }
 

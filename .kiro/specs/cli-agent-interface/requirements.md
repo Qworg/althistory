@@ -106,8 +106,8 @@ The CLI is engineered from the ground up to follow the **Unix philosophy** and *
    - `--start-date <iso>` and `--end-date <iso>`: Temporal boundary of the simulation.
    - `--event-count <n>`: Target number of pivotal historical events (default 15).
    - `--depth <levels>`: Depth of arc hierarchy (1 = epochs only, 2 = epochs + campaigns, 3 = deep detail).
-2. WHEN generating whole-cloth histories THEN the generator SHALL enforce strict historical causality:
-   - Causes must strictly precede effects in time.
+2. WHEN generating whole-cloth histories THEN the generator SHALL enforce historical causality:
+   - Causes must not follow their effects in time. A cause and an effect at the same moment are allowed: the two can be part of the same occurrence. The rule is the project's single rule, in `timeline/src/utils/causalOrder.ts`, and every path that compares a cause with its effect uses it. (The generator's own sequence of events is a separate rule: the events it produces have to advance in time.)
    - The divergence point must be the earliest counterfactual event.
    - Cascading societal, military, and political ripple effects must be logically linked via causal relationships.
 3. WHEN generation finishes THEN the CLI SHALL automatically run the validation engine:
@@ -180,7 +180,7 @@ The CLI is engineered from the ground up to follow the **Unix philosophy** and *
 1. WHEN invoking `althistory validate <graph-id>` THEN the CLI SHALL verify:
    - **Temporal Order**: Event timestamps are valid ISO-8601; arc start $\le$ arc end.
    - **Arc Containment**: Every assigned event satisfies $arc.start \le event.time \le arc.end$; child arcs fall strictly inside parent arcs.
-   - **Causal Consistency**: Cause timestamp strictly precedes effect timestamp ($cause.time < effect.time$).
+   - **Causal Consistency**: The cause timestamp does not follow the effect timestamp ($cause.time \le effect.time$). A cause at the same moment as its effect is allowed, and only a strictly later cause is an error.
    - **Causal Acyclicity**: The causal graph is a directed acyclic graph (DAG); no causal cycles or bootstrap paradoxes exist.
    - **Cross-Graph Integrity**: Cross-graph entity references resolve to existing entities.
 2. WHEN errors are detected THEN the CLI SHALL output structured diagnostic error objects detailing the exact entity IDs, violation types, and suggested remediation steps.

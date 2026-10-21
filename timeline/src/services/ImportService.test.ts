@@ -347,6 +347,50 @@ describe('ImportService', () => {
       );
     });
 
+    it('should accept a cause and an effect at the same moment', async () => {
+      // The rule the whole project uses: a cause may not follow its effect,
+      // but it may happen at the same moment. The merge accepts the same
+      // pair, and the link-creation path creates it.
+      const exportWithSimultaneousPair = createValidExport({
+        data: {
+          events: [
+            {
+              id: 'event-cause',
+              description: 'Cause',
+              actor: 'A',
+              target: 'B',
+              timestamp: '2023-06-01T00:00:00Z',
+            },
+            {
+              id: 'event-effect',
+              description: 'Effect',
+              actor: 'B',
+              target: 'C',
+              timestamp: '2023-06-01T00:00:00Z',
+            },
+          ],
+          arcs: [],
+          causalRelationships: [
+            {
+              id: 'rel-1',
+              cause_event_id: 'event-cause',
+              effect_event_id: 'event-effect',
+              weight: 0.8,
+              evidence: 'Test',
+              confidence: 0.9,
+              relationship_type: 'direct',
+            },
+          ],
+          inferredPressures: [],
+        },
+      });
+
+      const result = await importService.validateFormat(exportWithSimultaneousPair);
+
+      expect(result.valid).toBe(true);
+      expect(result.errors ?? []).toEqual([]);
+    });
+
     it('should detect causal paradoxes', async () => {
       const exportWithParadox = createValidExport({
         data: {

@@ -390,7 +390,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     ],
   },
   'POST /api/causal/validate': {
-    summary: 'Check one proposed causal link for cycles and temporal paradoxes.',
+    summary: 'Check one proposed causal link for a temporal paradox and for problems with its own fields.',
     request: 'GenericObject',
     response: 'ValidationReport',
     auth: 'optional',
