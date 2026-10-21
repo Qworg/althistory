@@ -1,12 +1,20 @@
 import React, { useState, useCallback } from 'react'
-import { Event } from '@/types'
+import { Arc, Event } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { usePressures } from '@/hooks/usePressures'
 import PressureDetailModal from '@/components/modals/PressureDetailModal'
 import PressureConfidenceTracker from './PressureConfidenceTracker'
 
 export interface PressureExplorationProps {
-  arcId?: string
+  /**
+   * The arcs and events of the graph being shown.
+   *
+   * They are needed to build the pressure context -- which arcs a pressure
+   * falls in, and which events it rests on -- and they are not in the store
+   * (which only holds what the current session wrote).
+   */
+  arcs?: Arc[]
+  events?: Event[]
   selectedEvents?: Set<string>
   onEventHighlight?: (eventIds: Set<string>) => void
   onEventSelect?: (event: Event) => void
@@ -14,7 +22,8 @@ export interface PressureExplorationProps {
 }
 
 export const PressureExploration: React.FC<PressureExplorationProps> = ({
-  arcId,
+  arcs = [],
+  events = [],
   onEventHighlight,
   onEventSelect,
   className = ''
@@ -22,6 +31,8 @@ export const PressureExploration: React.FC<PressureExplorationProps> = ({
   const {
     visiblePressures,
     pressureStats,
+    isLoading,
+    error,
     selectedPressure,
     explorationState,
     visualConfig,
@@ -33,7 +44,7 @@ export const PressureExploration: React.FC<PressureExplorationProps> = ({
     trackConfidenceChange,
     setConfidenceThreshold,
     togglePressureIndicators
-  } = usePressures(arcId)
+  } = usePressures(arcs, events)
 
   const [showConfidenceTracker, setShowConfidenceTracker] = useState(false)
 
@@ -164,7 +175,24 @@ export const PressureExploration: React.FC<PressureExplorationProps> = ({
           <h3 className="text-lg font-medium text-gray-900">Detected Pressures</h3>
         </div>
         <div className="divide-y divide-gray-200">
-          {visiblePressures.length === 0 ? (
+          {isLoading ? (
+            // A request in flight is not an absence of pressures. Showing the
+            // empty state here sent the user to the confidence slider, which
+            // was not the problem.
+            <div className="p-8 text-center text-gray-500" role="status">
+              <div className="text-4xl mb-4">⏳</div>
+              <p className="text-lg font-medium mb-2">Inferring pressures…</p>
+              <p className="text-sm">The graph is being analysed for systemic pressures.</p>
+            </div>
+          ) : error ? (
+            <div className="p-8 text-center text-red-600" role="alert">
+              <div className="text-4xl mb-4">⚠️</div>
+              <p className="text-lg font-medium mb-2">The pressures could not be loaded</p>
+              <p className="text-sm">
+                {error instanceof Error ? error.message : 'The request failed.'}
+              </p>
+            </div>
+          ) : visiblePressures.length === 0 ? (
             <div className="p-8 text-center text-gray-500">
               <div className="text-4xl mb-4">🔍</div>
               <p className="text-lg font-medium mb-2">No pressures detected</p>

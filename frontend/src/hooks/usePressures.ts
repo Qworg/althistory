@@ -1,13 +1,8 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useInferredPressures } from './useAPI'
-import { useGlobalStore } from '@/stores/globalStore'
-import { 
-  PressureWithContext, 
-  PressureExplorationState,
-  PressureVisualizationConfig,
-  DEFAULT_PRESSURE_COLORS 
-} from '@/types/pressure'
-import { InferredPressure } from '@/types'
+import { usePressureStore } from '@/stores/pressureStore'
+import { PressureWithContext } from '@/types/pressure'
+import { Arc, Event } from '@/types'
 import { 
   processPressuresWithContext,
   filterPressuresByConfidence,
@@ -21,52 +16,69 @@ import {
  * runtime and typed explicitly, so the call site stays visible until it is
  * migrated to an effect that syncs the store.
  */
-type InferredPressuresQueryOptions = NonNullable<Parameters<typeof useInferredPressures>[1]>
-
 /**
  * Hook for managing pressure data and visualization state
  */
-export function usePressures(arcId?: string) {
-  // Global state
-  const { arcs, events, inferredPressures, setInferredPressures } = useGlobalStore()
-  
-  // Local state for pressure exploration
-  const [explorationState, setExplorationState] = useState<PressureExplorationState>({
-    selectedPressure: null,
-    highlightedEvidence: new Set(),
-    showEvidenceModal: false,
-    confidenceTracking: new Map()
-  })
+export function usePressures(
+  /**
+   * The arcs and events of the graph being shown.
+   *
+   * They are passed in rather than read from the store: the store's copies are
+   * only filled by writes made in the current session, so the pressure context
+   * was built from an empty graph and every pressure came out with no arcs and
+   * no evidence.
+   */
+  arcs: Arc[] = [],
+  events: Event[] = []
+) {
+  // The visualisation configuration and the exploration state are shared, so
+  // the panel's controls reach the timeline and not only the panel.
+  const visualConfig = usePressureStore((state) => state.visualConfig)
+  const explorationState = usePressureStore((state) => state.explorationState)
+  const updateVisualizationConfig = usePressureStore(
+    (state) => state.updateVisualizationConfig
+  )
+  const setConfidenceThreshold = usePressureStore(
+    (state) => state.setConfidenceThreshold
+  )
+  const togglePressureIndicators = usePressureStore(
+    (state) => state.togglePressureIndicators
+  )
+  const selectPressureInStore = usePressureStore((state) => state.selectPressure)
+  const highlightEvidenceInStore = usePressureStore(
+    (state) => state.highlightPressureEvidence
+  )
+  const clearHighlightInStore = usePressureStore(
+    (state) => state.clearPressureHighlight
+  )
+  const setEvidenceModalVisible = usePressureStore(
+    (state) => state.setEvidenceModalVisible
+  )
+  const trackConfidence = usePressureStore((state) => state.trackConfidenceChange)
 
-  // Visualization configuration
-  const [visualConfig, setVisualConfig] = useState<PressureVisualizationConfig>({
-    showIndicators: true,
-    confidenceThreshold: 0.1,
-    colorScheme: DEFAULT_PRESSURE_COLORS,
-    opacityRange: [0.2, 0.8],
-    showTooltips: true,
-    showEvidenceHighlight: true
-  })
-
-  // Fetch pressure data
-  const pressureQueryOptions: InferredPressuresQueryOptions & {
-    onSuccess?: (data: InferredPressure[]) => void
-  } = {
-    onSuccess: (data) => {
-      setInferredPressures(data)
-    }
-  }
-
+  // Fetch the pressures.
+  //
+  // The confidence threshold is NOT part of the request: the analyzer never
+  // produces a pressure below its own MEDIUM_CONFIDENCE_THRESHOLD, so the
+  // server's filter is enough and the threshold is applied to what came back.
+  // Sending it meant every step of the slider refetched (and re-ran the cluster
+  // analysis over the graph's events) and the indicators disappeared between
+  // the answers.
   const { 
     data: pressureData, 
     isLoading, 
     error, 
     refetch 
-  } = useInferredPressures(arcId, pressureQueryOptions)
+  } = useInferredPressures({
+    // The backend's default limit is 50, which silently cut a graph with more
+    // clusters; and the total came back in the pagination, which the client
+    // dropped.
+    limit: 500,
+  })
 
   // Process pressures with context
   const pressuresWithContext = useMemo(() => {
-    const rawPressures = pressureData || inferredPressures
+    const rawPressures = pressureData ?? []
     const selectedPressureIds = explorationState.selectedPressure 
       ? new Set([explorationState.selectedPressure.id]) 
       : new Set<string>()
@@ -79,7 +91,7 @@ export function usePressures(arcId?: string) {
       selectedPressureIds,
       highlightedPressureIds
     )
-  }, [pressureData, inferredPressures, arcs, events, explorationState.selectedPressure])
+  }, [pressureData, arcs, events, explorationState.selectedPressure])
 
   // Filter pressures by confidence threshold
   const visiblePressures = useMemo(() => {
@@ -93,79 +105,33 @@ export function usePressures(arcId?: string) {
 
   // Pressure selection handlers
   const selectPressure = useCallback((pressure: PressureWithContext | null) => {
-    setExplorationState(prev => ({
-      ...prev,
-      selectedPressure: pressure,
-      highlightedEvidence: pressure ? new Set(pressure.evidenceEvents.map(e => e.id)) : new Set()
-    }))
-  }, [])
+    selectPressureInStore(pressure)
+  }, [selectPressureInStore])
 
   const highlightPressureEvidence = useCallback((pressure: PressureWithContext) => {
-    setExplorationState(prev => ({
-      ...prev,
-      highlightedEvidence: new Set(pressure.evidenceEvents.map(e => e.id))
-    }))
-  }, [])
+    highlightEvidenceInStore(pressure)
+  }, [highlightEvidenceInStore])
 
   const clearPressureHighlight = useCallback(() => {
-    setExplorationState(prev => ({
-      ...prev,
-      highlightedEvidence: new Set()
-    }))
-  }, [])
+    clearHighlightInStore()
+  }, [clearHighlightInStore])
 
   // Evidence modal handlers
   const showEvidenceModal = useCallback((pressure: PressureWithContext) => {
-    setExplorationState(prev => ({
-      ...prev,
-      selectedPressure: pressure,
-      showEvidenceModal: true,
-      highlightedEvidence: new Set(pressure.evidenceEvents.map(e => e.id))
-    }))
-  }, [])
+    selectPressureInStore(pressure)
+    setEvidenceModalVisible(true)
+  }, [selectPressureInStore, setEvidenceModalVisible])
 
   const hideEvidenceModal = useCallback(() => {
-    setExplorationState(prev => ({
-      ...prev,
-      showEvidenceModal: false,
-      highlightedEvidence: new Set()
-    }))
-  }, [])
+    setEvidenceModalVisible(false)
+  }, [setEvidenceModalVisible])
 
   // Confidence tracking
   const trackConfidenceChange = useCallback((pressureId: string, newConfidence: number) => {
-    setExplorationState(prev => {
-      const newTracking = new Map(prev.confidenceTracking)
-      const history = newTracking.get(pressureId) || []
-      history.push(newConfidence)
-      
-      // Keep only last 10 confidence scores
-      if (history.length > 10) {
-        history.shift()
-      }
-      
-      newTracking.set(pressureId, history)
-      
-      return {
-        ...prev,
-        confidenceTracking: newTracking
-      }
-    })
-  }, [])
+    trackConfidence(pressureId, newConfidence)
+  }, [trackConfidence])
 
   // Configuration handlers
-  const updateVisualizationConfig = useCallback((updates: Partial<PressureVisualizationConfig>) => {
-    setVisualConfig(prev => ({ ...prev, ...updates }))
-  }, [])
-
-  const setConfidenceThreshold = useCallback((threshold: number) => {
-    setVisualConfig(prev => ({ ...prev, confidenceThreshold: threshold }))
-  }, [])
-
-  const togglePressureIndicators = useCallback(() => {
-    setVisualConfig(prev => ({ ...prev, showIndicators: !prev.showIndicators }))
-  }, [])
-
   // Statistics
   const pressureStats = useMemo(() => {
     const totalPressures = pressuresWithContext.length

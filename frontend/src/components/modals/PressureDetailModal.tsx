@@ -233,12 +233,20 @@ export const PressureDetailModal: React.FC<PressureDetailModalProps> = ({
                 <span className="ml-2 text-gray-900">{formatPressureType(pressure.pressure_type)}</span>
               </div>
               <div>
-                <span className="font-medium text-gray-500">Created:</span>
-                <span className="ml-2 text-gray-900">{new Date(pressure.created_at).toLocaleString()}</span>
+                <span className="font-medium text-gray-500">Period:</span>
+                <span className="ml-2 text-gray-900">
+                  {pressure.time_range
+                    ? `${new Date(pressure.time_range.start).toLocaleString()} – ${new Date(
+                        pressure.time_range.end
+                      ).toLocaleString()}`
+                    : 'not reported'}
+                </span>
               </div>
               <div>
-                <span className="font-medium text-gray-500">Updated:</span>
-                <span className="ml-2 text-gray-900">{new Date(pressure.updated_at).toLocaleString()}</span>
+                <span className="font-medium text-gray-500">Evidence events:</span>
+                <span className="ml-2 text-gray-900">
+                  {pressure.evidence_event_ids?.length ?? 0}
+                </span>
               </div>
             </div>
           </div>

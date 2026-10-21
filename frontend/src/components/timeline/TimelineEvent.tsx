@@ -5,6 +5,13 @@ export interface TimelineEventProps {
   event: Event
   x: number
   y: number
+  /**
+   * Whether the event is part of the evidence of the selected pressure.
+   *
+   * The exploration panel's "highlight evidence" button sets the ids; without
+   * a mark for them the button changed nothing anyone could see.
+   */
+  isHighlighted?: boolean
   onClick?: (event: Event) => void
   onContextMenu?: (e: React.MouseEvent, event: Event) => void
   /**
@@ -39,6 +46,7 @@ export const TimelineEvent = memo(function TimelineEvent({
   event,
   x,
   y,
+  isHighlighted = false,
   onClick,
   onContextMenu,
   onDragStart,
@@ -86,10 +94,10 @@ export const TimelineEvent = memo(function TimelineEvent({
     >
       <circle
         className="event-marker"
-        r={6}
+        r={isHighlighted ? 9 : 6}
         fill="#f59e0b"
-        stroke="#ffffff"
-        strokeWidth={2}
+        stroke={isHighlighted ? '#1d4ed8' : '#ffffff'}
+        strokeWidth={isHighlighted ? 3 : 2}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
       />

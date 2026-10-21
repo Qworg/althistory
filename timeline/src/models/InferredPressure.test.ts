@@ -352,7 +352,28 @@ describe('InferredPressure Model', () => {
           'Rising national debt from military expenditures',
           'Inflation due to currency debasement',
           'Trade disruptions affecting commerce'
-        ]
+        ],
+        // The ids of the events the inference rests on, so a client can link
+        // the pressure to them.
+        evidence_event_ids: []
+      });
+    });
+
+    it('should carry the evidence ids and the period in the JSON', () => {
+      const pressure = new InferredPressure({
+        ...validPressureData,
+        evidence_event_ids: ['event-1', 'event-2'],
+        time_range: { start: '2023-01-01T00:00:00.000Z', end: '2023-01-31T00:00:00.000Z' }
+      });
+
+      const json = pressure.toJSON();
+
+      // A client that only sees the JSON has to be able to link the pressure
+      // to its events and place it in time.
+      expect(json.evidence_event_ids).toEqual(['event-1', 'event-2']);
+      expect(json.time_range).toEqual({
+        start: '2023-01-01T00:00:00.000Z',
+        end: '2023-01-31T00:00:00.000Z'
       });
     });
 

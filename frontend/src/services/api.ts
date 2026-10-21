@@ -450,10 +450,23 @@ class APIClient {
 
     // Inference operations
     inference = {
-        getPressures: async (arcId?: string): Promise<InferredPressure[]> => {
+        /**
+         * The pressures inferred over the graph.
+         *
+         * The backend serves these at `GET /inference/pressures` and infers
+         * them from the graph's events; it has no per-arc filter, so the
+         * request carries the filters it does have.
+         */
+        getPressures: async (options?: {
+            type?: string
+            minStrength?: number
+            minConfidence?: number
+            limit?: number
+            offset?: number
+        }): Promise<InferredPressure[]> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: InferredPressure[] }> = await this.client.get('/inferred-pressures', {
-                    params: arcId ? { arc_id: arcId } : undefined
+                const response: AxiosResponse<{ success: boolean; data: InferredPressure[] }> = await this.client.get('/inference/pressures', {
+                    params: options
                 })
                 return response.data.data
             } catch (error) {

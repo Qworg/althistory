@@ -54,6 +54,54 @@ describe('InferenceService - Pattern Detection', () => {
       expect(economicPressure!.description).toContain('Economic pressure detected');
     });
 
+    it('should report the evidence events by id and the period inferred over', () => {
+      const events = [
+        new Event({
+          description: 'Trade embargo imposed on neighboring country',
+          actor: 'Government A',
+          target: 'Country B',
+          timestamp: new Date('2023-01-01')
+        }),
+        new Event({
+          description: 'Market prices surge due to trade restrictions',
+          actor: 'Market Forces',
+          target: 'Local Economy',
+          timestamp: new Date('2023-01-05')
+        }),
+        new Event({
+          description: 'Currency devaluation begins',
+          actor: 'Central Bank',
+          target: 'National Currency',
+          timestamp: new Date('2023-01-10')
+        }),
+        new Event({
+          description: 'Economic recession officially declared',
+          actor: 'Government A',
+          target: 'National Economy',
+          timestamp: new Date('2023-01-15')
+        })
+      ];
+
+      const pressures = inferenceService.analyzeEventClusters(events);
+      const economicPressure = pressures.find(p => p.pressure_type === 'economic');
+      expect(economicPressure).toBeDefined();
+
+      // The ids of the events the inference rests on, so a client can link the
+      // pressure to them instead of guessing from the display strings.
+      expect(economicPressure!.evidence_event_ids.length).toBeGreaterThanOrEqual(2);
+      const eventIds = new Set(events.map(event => event.id));
+      for (const id of economicPressure!.evidence_event_ids) {
+        expect(eventIds.has(id)).toBe(true);
+      }
+
+      // The period the pressure was inferred over, so a client can place it in
+      // time. Before this it appeared only inside the description text.
+      expect(economicPressure!.time_range).toBeDefined();
+      const start = new Date(economicPressure!.time_range!.start).getTime();
+      const end = new Date(economicPressure!.time_range!.end).getTime();
+      expect(start).toBeLessThanOrEqual(end);
+    });
+
     it('should detect social pressure from protest-related events', () => {
       const events = [
         new Event({

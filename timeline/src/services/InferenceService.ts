@@ -538,12 +538,19 @@ export class InferenceService {
     if (confidence < this.MEDIUM_CONFIDENCE_THRESHOLD) return null;
 
     const evidence = economicEvents.map(e => `Event: ${e.description} (${e.timestamp.toISOString()})`);
+    const evidenceEventIds = economicEvents.map(e => e.id);
+    const timeRange = {
+      start: cluster.timeRange.start.toISOString(),
+      end: cluster.timeRange.end.toISOString(),
+    };
     
     return new InferredPressure({
       description: `Economic pressure detected in cluster from ${cluster.timeRange.start.toDateString()} to ${cluster.timeRange.end.toDateString()}`,
       confidence_score: confidence,
       pressure_type: 'economic',
-      evidence
+      evidence,
+      evidence_event_ids: evidenceEventIds,
+      time_range: timeRange
     });
   }
 
@@ -566,12 +573,19 @@ export class InferenceService {
     if (confidence < this.MEDIUM_CONFIDENCE_THRESHOLD) return null;
 
     const evidence = socialEvents.map(e => `Event: ${e.description} (${e.timestamp.toISOString()})`);
+    const evidenceEventIds = socialEvents.map(e => e.id);
+    const timeRange = {
+      start: cluster.timeRange.start.toISOString(),
+      end: cluster.timeRange.end.toISOString(),
+    };
     
     return new InferredPressure({
       description: `Social pressure detected in cluster from ${cluster.timeRange.start.toDateString()} to ${cluster.timeRange.end.toDateString()}`,
       confidence_score: confidence,
       pressure_type: 'social',
-      evidence
+      evidence,
+      evidence_event_ids: evidenceEventIds,
+      time_range: timeRange
     });
   }
 
@@ -594,12 +608,19 @@ export class InferenceService {
     if (confidence < this.MEDIUM_CONFIDENCE_THRESHOLD) return null;
 
     const evidence = politicalEvents.map(e => `Event: ${e.description} (${e.timestamp.toISOString()})`);
+    const evidenceEventIds = politicalEvents.map(e => e.id);
+    const timeRange = {
+      start: cluster.timeRange.start.toISOString(),
+      end: cluster.timeRange.end.toISOString(),
+    };
     
     return new InferredPressure({
       description: `Political pressure detected in cluster from ${cluster.timeRange.start.toDateString()} to ${cluster.timeRange.end.toDateString()}`,
       confidence_score: confidence,
       pressure_type: 'political',
-      evidence
+      evidence,
+      evidence_event_ids: evidenceEventIds,
+      time_range: timeRange
     });
   }
 
@@ -622,12 +643,19 @@ export class InferenceService {
     if (confidence < this.MEDIUM_CONFIDENCE_THRESHOLD) return null;
 
     const evidence = environmentalEvents.map(e => `Event: ${e.description} (${e.timestamp.toISOString()})`);
+    const evidenceEventIds = environmentalEvents.map(e => e.id);
+    const timeRange = {
+      start: cluster.timeRange.start.toISOString(),
+      end: cluster.timeRange.end.toISOString(),
+    };
     
     return new InferredPressure({
       description: `Environmental pressure detected in cluster from ${cluster.timeRange.start.toDateString()} to ${cluster.timeRange.end.toDateString()}`,
       confidence_score: confidence,
       pressure_type: 'environmental',
-      evidence
+      evidence,
+      evidence_event_ids: evidenceEventIds,
+      time_range: timeRange
     });
   }
 
