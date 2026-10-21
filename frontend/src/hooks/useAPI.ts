@@ -6,6 +6,7 @@ import {
   UseMutationOptions
 } from '@tanstack/react-query'
 import { apiClient, APIError } from '@/services/api'
+import { useActiveGraphId } from './useGraphs'
 import { submitMutation, type OfflineWriteOutcome } from '@/offline/offlineSync'
 import { useGlobalStore } from '@/stores/globalStore'
 import { 
@@ -55,7 +56,10 @@ export const queryKeys = {
   },
   inference: {
     all: ['inference'] as const,
-    pressures: (arcId?: string) => [...queryKeys.inference.all, 'pressures', arcId] as const,
+    // The graph is part of the key: the backend scopes the request to the
+    // active graph, so two graphs must not share a cache entry.
+    pressures: (graphId?: string | null, filters?: unknown) =>
+      [...queryKeys.inference.all, 'pressures', graphId ?? '', filters ?? {}] as const,
   },
   graph: {
     all: ['graph'] as const,
@@ -357,10 +361,26 @@ export function useDeleteCausalLink(options?: UseMutationOptions<void, APIError,
 }
 
 // Inference hooks
-export function useInferredPressures(arcId?: string, options?: Omit<UseQueryOptions<InferredPressure[], APIError>, 'queryKey' | 'queryFn'>) {
+export function useInferredPressures(
+  /**
+   * The filters the backend applies. They are sent with the request, because
+   * the backend filters on them server-side.
+   */
+  filters?: {
+    type?: string
+    minStrength?: number
+    minConfidence?: number
+    limit?: number
+    offset?: number
+  },
+  options?: Omit<UseQueryOptions<InferredPressure[], APIError>, 'queryKey' | 'queryFn'>
+) {
+  // The pressures are inferred over the graph, so the key carries the active
+  // graph: without it, the pressures of one graph were served for another.
+  const graphId = useActiveGraphId()
   return useQuery({
-    queryKey: queryKeys.inference.pressures(arcId),
-    queryFn: () => apiClient.inference.getPressures(arcId),
+    queryKey: queryKeys.inference.pressures(graphId, filters),
+    queryFn: () => apiClient.inference.getPressures(filters),
     staleTime: 10 * 60 * 1000, // 10 minutes - inference data changes less frequently
     ...options
   })

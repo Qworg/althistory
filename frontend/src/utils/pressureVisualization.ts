@@ -19,23 +19,25 @@ export function processPressuresWithContext(
   highlightedPressures: Set<string> = new Set()
 ): PressureWithContext[] {
   return pressures.map(pressure => {
-    // Find arcs affected by this pressure (simplified - in real implementation would come from backend)
-    const affectedArcs = arcs.filter(() => {
-      // For now, assume pressure affects arcs that contain events in the same time period
-      // In a real implementation, this would be determined by the backend inference engine
-      return true // Placeholder logic
-    })
+    // The arcs the pressure falls in, by the period the backend inferred it
+    // over. The backend reports that period (`time_range`); without it the
+    // pressure could not be placed in time at all.
+    const affectedArcs = pressure.time_range
+      ? arcs.filter(arc => {
+          const arcStart = new Date(arc.start_time).getTime()
+          const arcEnd = new Date(arc.end_time).getTime()
+          const rangeStart = new Date(pressure.time_range!.start).getTime()
+          const rangeEnd = new Date(pressure.time_range!.end).getTime()
+          return arcStart <= rangeEnd && arcEnd >= rangeStart
+        })
+      : []
 
-    // Find evidence events (simplified - would come from backend)
-    const evidenceEvents = events.filter(event => {
-      // Placeholder logic - in reality, evidence events would be explicitly linked
-      return affectedArcs.some(arc => {
-        const eventTime = new Date(event.timestamp).getTime()
-        const arcStart = new Date(arc.start_time).getTime()
-        const arcEnd = new Date(arc.end_time).getTime()
-        return eventTime >= arcStart && eventTime <= arcEnd
-      })
-    })
+    // The events the inference rests on, by their ids. The backend reports
+    // them (`evidence_event_ids`); before that, every event inside every arc
+    // counted as evidence for every pressure.
+    const evidenceIds = new Set(pressure.evidence_event_ids ?? [])
+    const evidenceEvents =
+      evidenceIds.size > 0 ? events.filter(event => evidenceIds.has(event.id)) : []
 
     // Calculate influence strength based on confidence and evidence count
     const influenceStrength = Math.min(
@@ -86,7 +88,11 @@ export function generatePressureIndicators(
     if (!pressure.isVisible) return
 
     pressure.affectedArcs.forEach(arc => {
-      const arcLevel = arcLevelMap.get(arc.id) || 0
+      // An arc that is not in the rendered hierarchy (a collapsed child) has
+      // no level, and defaulting it to 0 drew its indicator in the root's row
+      // -- on top of the root's own indicator.
+      const arcLevel = arcLevelMap.get(arc.id)
+      if (arcLevel === undefined) return
       const startX = timeScale(new Date(arc.start_time))
       const endX = timeScale(new Date(arc.end_time))
       const y = yScale(arcLevel)

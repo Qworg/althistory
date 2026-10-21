@@ -21,16 +21,18 @@ describe('pressureVisualization utils', () => {
       description: 'Economic pressure from trade sanctions',
       confidence_score: 0.8,
       pressure_type: 'economic',
-      created_at: '2023-01-01T00:00:00Z',
-      updated_at: '2023-01-01T00:00:00Z'
+      evidence: ['Event: Test event (2023-01-15T00:00:00.000Z)'],
+      evidence_event_ids: ['event-1'],
+      time_range: { start: '2023-01-01T00:00:00.000Z', end: '2023-01-31T00:00:00.000Z' }
     },
     {
       id: 'pressure-2',
       description: 'Social unrest due to policy changes',
       confidence_score: 0.3,
       pressure_type: 'social',
-      created_at: '2023-01-02T00:00:00Z',
-      updated_at: '2023-01-02T00:00:00Z'
+      evidence: ['Event: Test event (2023-01-15T00:00:00.000Z)'],
+      evidence_event_ids: ['event-1'],
+      time_range: { start: '2023-01-01T00:00:00.000Z', end: '2023-01-31T00:00:00.000Z' }
     },
     {
       id: 'pressure-3',
@@ -79,6 +81,35 @@ describe('pressureVisualization utils', () => {
       expect(result[0]).toHaveProperty('isVisible')
       expect(result[0]).toHaveProperty('renderColor')
       expect(result[0]).toHaveProperty('renderOpacity')
+    })
+
+    it('takes the arcs from the period and the evidence from the ids', () => {
+      const result = processPressuresWithContext(mockPressures, mockArcs, mockEvents)
+
+      // The arc the pressure falls in: the period the backend inferred it
+      // over overlaps the arc's.
+      expect(result[0]?.affectedArcs.map(arc => arc.id)).toEqual(['arc-1'])
+
+      // The evidence: the events the backend named, not every event that
+      // happens to sit inside an arc.
+      expect(result[0]?.evidenceEvents.map(event => event.id)).toEqual(['event-1'])
+    })
+
+    it('gives a pressure no arcs and no evidence when the backend reported none', () => {
+      const withoutStructure: InferredPressure[] = [
+        {
+          id: 'pressure-bare',
+          description: 'No period, no evidence',
+          confidence_score: 0.5,
+          pressure_type: 'economic',
+          evidence: []
+        }
+      ]
+
+      const result = processPressuresWithContext(withoutStructure, mockArcs, mockEvents)
+
+      expect(result[0]?.affectedArcs).toEqual([])
+      expect(result[0]?.evidenceEvents).toEqual([])
     })
 
     it('filters out low confidence pressures', () => {

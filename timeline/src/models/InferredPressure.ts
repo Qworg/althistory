@@ -19,8 +19,28 @@ export interface IInferredPressure {
   /** Type of pressure */
   pressure_type: PressureType;
   
-  /** Evidence supporting this pressure inference */
+  /** Evidence supporting this pressure inference, as display strings */
   evidence: string[];
+
+  /**
+   * The ids of the events the inference rests on.
+   *
+   * `evidence` is a display string (`Event: ... (2024-01-01T...)`), which a
+   * client cannot use to link the pressure to the events it came from. These
+   * ids can.
+   */
+  evidence_event_ids: string[];
+
+  /**
+   * The period the pressure was inferred over.
+   *
+   * Without it a client cannot place the pressure in time; the period used to
+   * appear only inside the description text.
+   */
+  time_range?: {
+    start: string;
+    end: string;
+  };
 }
 
 /**
@@ -32,6 +52,8 @@ export class InferredPressure implements IInferredPressure {
   public readonly confidence_score: number;
   public readonly pressure_type: PressureType;
   public readonly evidence: string[];
+  public readonly evidence_event_ids: string[];
+  public readonly time_range?: { start: string; end: string };
 
   constructor(data: CreateInferredPressureRequest & { id?: string }) {
     // Generate ID if not provided
@@ -47,6 +69,10 @@ export class InferredPressure implements IInferredPressure {
     this.confidence_score = data.confidence_score;
     this.pressure_type = data.pressure_type;
     this.evidence = [...data.evidence]; // Create a copy of the array
+    this.evidence_event_ids = [...(data.evidence_event_ids ?? [])];
+    this.time_range = data.time_range
+      ? { start: data.time_range.start, end: data.time_range.end }
+      : undefined;
   }
 
   /**
@@ -123,7 +149,12 @@ export class InferredPressure implements IInferredPressure {
       description: this.description,
       confidence_score: updatedConfidence,
       pressure_type: this.pressure_type,
-      evidence: updatedEvidence
+      evidence: updatedEvidence,
+      // The evidence ids and the period belong to the pressure, so a copy
+      // keeps them: dropping them left the copy claiming to rest on no events
+      // and to cover no time.
+      evidence_event_ids: this.evidence_event_ids,
+      time_range: this.time_range
     });
   }
 
@@ -136,7 +167,9 @@ export class InferredPressure implements IInferredPressure {
       description: updates.description ?? this.description,
       confidence_score: updates.confidence_score ?? this.confidence_score,
       pressure_type: updates.pressure_type ?? this.pressure_type,
-      evidence: updates.evidence ?? this.evidence
+      evidence: updates.evidence ?? this.evidence,
+      evidence_event_ids: this.evidence_event_ids,
+      time_range: this.time_range
     });
   }
 
@@ -149,7 +182,9 @@ export class InferredPressure implements IInferredPressure {
       description: this.description,
       confidence_score: this.confidence_score,
       pressure_type: this.pressure_type,
-      evidence: [...this.evidence] // Return a copy of the array
+      evidence: [...this.evidence], // Return a copy of the array
+      evidence_event_ids: [...this.evidence_event_ids],
+      ...(this.time_range ? { time_range: { ...this.time_range } } : {})
     };
   }
 
@@ -169,6 +204,13 @@ export interface CreateInferredPressureRequest {
   confidence_score: number;
   pressure_type: PressureType;
   evidence: string[];
+  /** The ids of the events the inference rests on. */
+  evidence_event_ids?: string[];
+  /** The period the pressure was inferred over. */
+  time_range?: {
+    start: string;
+    end: string;
+  };
 }
 
 /**

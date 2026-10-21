@@ -42,13 +42,35 @@ export interface CausalRelationship {
   isCrossGraph?: boolean
 }
 
+/**
+ * A pressure inferred over the graph.
+ *
+ * The shape is the backend's (`timeline/src/models/InferredPressure.ts`): it
+ * carries the evidence as display strings, the ids of the events the inference
+ * rests on, and the period it was inferred over. It does NOT carry
+ * `created_at`/`updated_at` -- the backend never sent them, and the client
+ * declared them, so every date the UI showed was an "Invalid Date".
+ */
 export interface InferredPressure {
   id: string
   description: string
   confidence_score: number
   pressure_type: 'economic' | 'social' | 'environmental' | 'political'
-  created_at: string
-  updated_at: string
+  /** Evidence as display strings. */
+  evidence?: string[]
+  /** The ids of the events the inference rests on. */
+  evidence_event_ids?: string[]
+  /** The period the pressure was inferred over. */
+  time_range?: {
+    start: string
+    end: string
+  }
+  /**
+   * The backend does not send these. They are kept optional so an older
+   * cached response still typechecks; nothing renders them.
+   */
+  created_at?: string
+  updated_at?: string
 }
 
 // API request/response types
@@ -100,6 +122,10 @@ export interface EventFilters {
   start_date?: string
   end_date?: string
   search?: string
+  /** How many events to return; the backend's default is 50, its maximum 1000. */
+  limit?: number
+  /** How many events to skip. */
+  offset?: number
 }
 
 export interface ArcFilters {

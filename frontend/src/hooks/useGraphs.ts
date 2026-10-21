@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
 import { apiClient } from '@/services/api'
 import { useGlobalStore } from '@/stores/globalStore'
+import { usePressureStore } from '@/stores/pressureStore'
 import {
   CreateGraphRequest,
   UpdateGraphRequest,
@@ -181,6 +182,9 @@ export function useMergeGraph() {
       queryClient.invalidateQueries({ queryKey: graphKeys.lists() })
       queryClient.invalidateQueries({ queryKey: graphKeys.branches(id) })
       queryClient.invalidateQueries({ queryKey: graphKeys.versions(id) })
+      // A rollback changes the graph's contents, so the pressures inferred
+      // over it change too.
+      queryClient.invalidateQueries({ queryKey: ['inference'] })
     },
   })
 }
@@ -224,7 +228,14 @@ export function useSwitchGraph() {
       queryClient.invalidateQueries({ queryKey: ['events'] })
       queryClient.invalidateQueries({ queryKey: ['arcs'] })
       queryClient.invalidateQueries({ queryKey: ['causal'] })
-      queryClient.invalidateQueries({ queryKey: ['pressures'] })
+      // The pressures are keyed under 'inference' (see `queryKeys` in
+      // `useAPI.ts`), so invalidating 'pressures' never matched them and the
+      // previous graph's pressures stayed on screen.
+      queryClient.invalidateQueries({ queryKey: ['inference'] })
+
+      // The exploration state belongs to the graph that was open: a pressure
+      // selected in the previous graph would otherwise still be selected.
+      usePressureStore.getState().resetForGraphSwitch()
     },
   })
 }

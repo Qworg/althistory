@@ -3,6 +3,8 @@ import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { usePressures } from './usePressures'
 import { useInferredPressures } from './useAPI'
 import { useGlobalStore } from '@/stores/globalStore'
+import { usePressureStore } from '@/stores/pressureStore'
+import { DEFAULT_PRESSURE_COLORS } from '@/types/pressure'
 import { InferredPressure } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { APIError } from '@/services/api'
@@ -163,7 +165,27 @@ describe('usePressures', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    
+
+    // The visualisation configuration is shared state, so it survives between
+    // tests unless the store is reset: a test that moved the confidence
+    // threshold would otherwise change the next test's results.
+    usePressureStore.setState({
+      visualConfig: {
+        showIndicators: true,
+        confidenceThreshold: 0.1,
+        colorScheme: DEFAULT_PRESSURE_COLORS,
+        opacityRange: [0.2, 0.8],
+        showTooltips: true,
+        showEvidenceHighlight: true,
+      },
+      explorationState: {
+        selectedPressure: null,
+        highlightedEvidence: new Set(),
+        showEvidenceModal: false,
+        confidenceTracking: new Map(),
+      },
+    })
+
     mockUseGlobalStore.mockReturnValue(asStore(mockGlobalStoreState))
     mockUseInferredPressures.mockReturnValue(
       createQueryResult({ kind: 'success', data: mockPressures })
@@ -351,11 +373,12 @@ describe('usePressures', () => {
     expect(result.current.error).toBe(mockError)
   })
 
-  it('handles arc-specific pressure fetching', () => {
-    const arcId = 'arc-1'
-    renderHook(() => usePressures(arcId))
+  it('fetches the pressures of the graph', () => {
+    // The backend infers the pressures over the whole graph; it has no
+    // per-arc filter, so there is nothing to narrow the request by.
+    renderHook(() => usePressures())
 
-    expect(mockUseInferredPressures).toHaveBeenCalledWith(arcId, expect.any(Object))
+    expect(mockUseInferredPressures).toHaveBeenCalledWith(expect.any(Object))
   })
 
   it('limits confidence tracking history', () => {

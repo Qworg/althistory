@@ -1,5 +1,9 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Timeline } from '@/components/timeline/Timeline'
+import { PressureExploration } from '@/components/timeline/PressureExploration'
+import { usePressures } from '@/hooks/usePressures'
+import { usePressureStore } from '@/stores/pressureStore'
+import { PressureWithContext } from '@/types/pressure'
 import { useEvents } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
 import {
@@ -44,7 +48,11 @@ type EditModalState = {
 } | null
 
 export function TimelineView() {
-  const { data: fetchedEvents = [], isLoading: eventsLoading } = useEvents()
+  // The pressures are inferred over the graph's events (up to a thousand of
+  // them), and the evidence of a pressure is joined against the events the
+  // view holds. With the default fifty, the evidence of a larger graph was
+  // dropped: the panel said "no evidence events" while the modal counted them.
+  const { data: fetchedEvents = [], isLoading: eventsLoading } = useEvents({ limit: 1000 })
   const { data: fetchedArcs = [], isLoading: arcsLoading } = useArcs()
   const { sessionData, activeFilters, addError } = useGlobalStore()
 
@@ -71,6 +79,44 @@ export function TimelineView() {
   // descendants enter the rendered hierarchy), so this view keeps no mirror of
   // it -- a second copy here would be state nothing reads.
   const [createTimestamp, setCreateTimestamp] = useState<Date | null>(null)
+
+  // The pressures inferred over the graph. The timeline draws them as
+  // indicators, and the exploration panel below is where they can be opened.
+  //
+  // The two halves share the exploration state (see `stores/pressureStore.ts`),
+  // so clicking an indicator opens the panel on that pressure, and the panel's
+  // evidence buttons reach the timeline.
+  //
+  // The arcs and events are passed in: the context that places a pressure in
+  // time and links it to its evidence is built from them, and they are not in
+  // the store (which only holds what this session wrote).
+  const {
+    visiblePressures,
+    visualConfig,
+    selectPressure,
+    showEvidenceModalAction,
+  } = usePressures(arcs, events)
+
+  // Clicking an indicator on the timeline opens the exploration panel on that
+  // pressure. The indicator's tooltip promises it ("Click to explore evidence
+  // and relationships"), and without this the click did nothing.
+  const handlePressureSelect = useCallback(
+    (pressure: PressureWithContext) => {
+      selectPressure(pressure)
+      showEvidenceModalAction(pressure)
+    },
+    [selectPressure, showEvidenceModalAction]
+  )
+
+  // The evidence of the selected pressure is highlighted on the timeline, so
+  // the panel's "highlight evidence" button reaches the graph.
+  const highlightedEventIds = usePressureStore(
+    (state) => state.explorationState.highlightedEvidence
+  )
+
+  const handlePressureEvidenceHighlight = useCallback((eventIds: Set<string>) => {
+    usePressureStore.getState().setHighlightedEvidence(eventIds)
+  }, [])
 
   // Mutation hooks
   const deleteEventMutation = useDeleteEvent()
@@ -411,6 +457,10 @@ export function TimelineView() {
           <Timeline
             events={events}
             arcs={arcs}
+            pressures={visiblePressures}
+            showPressureIndicators={visualConfig.showIndicators}
+            highlightedEventIds={highlightedEventIds}
+            onPressureSelect={handlePressureSelect}
             width={dimensions.width}
             height={dimensions.height}
             fitToViewTrigger={sessionData.viewportState.timeline.fitToViewTrigger}
@@ -422,6 +472,17 @@ export function TimelineView() {
             onArcResize={handleArcResize}
             onEventContextMenu={handleEventContextMenu}
             onArcContextMenu={handleArcContextMenu}
+          />
+        </div>
+
+        {/* The pressure exploration: the detail modal, the evidence highlighting
+            and the confidence tracker all live inside it. */}
+        <div className="mt-4">
+          <PressureExploration
+            arcs={arcs}
+            events={events}
+            onEventHighlight={handlePressureEvidenceHighlight}
+            onEventSelect={handleEventSelect}
           />
         </div>
 

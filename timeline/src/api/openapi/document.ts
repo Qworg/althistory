@@ -317,7 +317,19 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
         type: 'string',
         enum: ['economic', 'social', 'environmental', 'political'],
       },
+      // The evidence as display strings, the ids of the events the inference
+      // rests on, and the period it was inferred over.
+      evidence: { type: 'array', items: { type: 'string' } },
+      evidence_event_ids: { type: 'array', items: { type: 'string' } },
+      time_range: {
+        type: 'object',
+        properties: {
+          start: { type: 'string', format: 'date-time' },
+          end: { type: 'string', format: 'date-time' },
+        },
+      },
     },
+    required: ['id', 'description', 'confidence_score', 'pressure_type', 'evidence'],
   },
   ExportRequest: {
     type: 'object',

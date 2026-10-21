@@ -39,6 +39,13 @@ export interface TimelineProps {
   onEventAssignToArc?: (event: Event, arc: Arc) => void
   onEventContextMenu?: (event: Event, position: { x: number; y: number }) => void
   onArcContextMenu?: (arc: Arc, position: { x: number; y: number }) => void
+  /**
+   * The ids of the events that are the evidence of the selected pressure.
+   *
+   * The exploration panel's "highlight evidence" button sets them; without a
+   * mark for them the button changed nothing anyone could see.
+   */
+  highlightedEventIds?: Set<string>
   showPressureIndicators?: boolean
   className?: string
 }
@@ -113,6 +120,7 @@ const Timeline = memo(function Timeline({
   onEventAssignToArc,
   onEventContextMenu,
   onArcContextMenu,
+  highlightedEventIds,
   showPressureIndicators = true,
   className = '',
 }: TimelineProps) {
@@ -681,6 +689,7 @@ const Timeline = memo(function Timeline({
                   event={ev}
                   x={x}
                   y={eventY}
+                  isHighlighted={highlightedEventIds?.has(ev.id) ?? false}
                   onClick={handleEventClick}
                   onContextMenu={handleEventContextMenu}
                   onDragStart={handleEventDragStart}
