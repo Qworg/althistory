@@ -8,10 +8,12 @@ import express, { Request } from 'express';
 import { suggestRoutes } from './suggest';
 import { errorHandler } from '@/api/middleware';
 import { InferenceService } from '@/services/InferenceService';
+import type { Event as GraphEvent } from '@/models/Event';
 import type {
   ArcClusterEvent,
   CausalRelationshipRef,
   CompletenessEvent,
+  RelationshipSuggestionOptions,
 } from '@/services/InferenceService';
 
 // Mock the middleware module before importing routes
@@ -77,6 +79,14 @@ describe('Suggest Routes', () => {
     mockInferenceService = {
       suggestCausalLinks: vi.fn().mockReturnValue([]),
       analyzeEventClusters: vi.fn().mockReturnValue([]),
+      // The relationship suggestions are filtered and mapped in
+      // InferenceService now, so the route delegates. The mock forwards to a
+      // real instance -- whose `suggestCausalLinks` is the mocked one below --
+      // so the HTTP assertions exercise the production filtering.
+      suggestRelationships: vi.fn(
+        (events: GraphEvent[], options?: RelationshipSuggestionOptions) =>
+          realInferenceService.suggestRelationships(events, options)
+      ),
       clusterEventsIntoArcs: vi.fn(
         (events: ArcClusterEvent[], temporalWindowDays: number, minClusterSize: number) =>
           realInferenceService.clusterEventsIntoArcs(events, temporalWindowDays, minClusterSize)
@@ -86,6 +96,14 @@ describe('Suggest Routes', () => {
           realInferenceService.analyzeCompleteness(events, relationships)
       ),
     };
+
+    // The real service's own `suggestCausalLinks` is the one the route's
+    // suggestions come from, so it has to be the mock: the fixtures below
+    // replace the mock's copy, and the filtering is what is under test.
+    vi.spyOn(realInferenceService, 'suggestCausalLinks').mockImplementation(
+      (...args: Parameters<typeof mockInferenceService.suggestCausalLinks>) =>
+        mockInferenceService.suggestCausalLinks(...args)
+    );
 
     // The route reads `causalService` from here. Without it the call throws
     // inside the route and the empty catch swallows it, so `relationships`
@@ -168,6 +186,27 @@ describe('Suggest Routes', () => {
 
       expect(response.body.suggestions).toBeDefined();
       expect(response.body.suggestions.length).toBe(1);
+    });
+
+    it('should pass the request options to the service', async () => {
+      await request(app)
+        .post('/api/suggest/relationships')
+        .set('X-API-Key', 'valid-read-key')
+        .send({
+          events: [
+            { id: 'e1', description: 'Event 1', actor: 'A', target: 'B', timestamp: '1914-06-28T00:00:00.000Z' },
+            { id: 'e2', description: 'Event 2', actor: 'A', target: 'B', timestamp: '1914-07-28T00:00:00.000Z' },
+          ],
+          options: { minConfidence: 0.42, maxSuggestions: 3, includeIndirect: false },
+        })
+        .expect(200);
+
+      // The options belong to the service now: the route must hand them over
+      // rather than applying its own defaults.
+      expect(mockInferenceService.suggestRelationships).toHaveBeenCalledWith(
+        expect.any(Array),
+        { minConfidence: 0.42, maxSuggestions: 3, includeIndirect: false }
+      );
     });
 
     it('should filter by minimum confidence', async () => {

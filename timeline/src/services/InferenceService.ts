@@ -22,6 +22,35 @@ interface EventCluster {
  * does not do that yet, which is a known gap, not a guarantee of this
  * contract.
  */
+/**
+ * A relationship the graph suggests.
+ *
+ * The shape is the wire format of `POST /api/suggest/relationships`.
+ */
+export interface RelationshipSuggestion {
+  cause_event_id: string;
+  effect_event_id: string;
+  confidence: number;
+  reason: string;
+  relationship_type: 'direct' | 'indirect' | 'contributory';
+}
+
+/** The options the relationship suggestions are filtered by. */
+export interface RelationshipSuggestionOptions {
+  /** Suggestions below this confidence are dropped. Defaults to 0.3. */
+  minConfidence?: number;
+  /**
+   * How many suggestions to return at most. Defaults to 10.
+   *
+   * The effective ceiling is 10 whatever this is set to: the candidate links
+   * are cut to the ten most confident before this filter runs, so a larger
+   * number cannot bring back suggestions that were already dropped.
+   */
+  maxSuggestions?: number;
+  /** Whether indirect relationships are included. Defaults to true. */
+  includeIndirect?: boolean;
+}
+
 export interface ArcClusterEvent {
   id: string;
   description: string;
@@ -146,6 +175,46 @@ export class InferenceService {
     }
 
     return pressures;
+  }
+
+  /**
+   * The relationship suggestions for a graph, in the API's shape.
+   *
+   * The filtering and the mapping live here rather than in the route, so the
+   * route is left with what is HTTP-shaped: reading the events, the
+   * permissions and the response.
+   */
+  suggestRelationships(
+    events: Event[],
+    options: RelationshipSuggestionOptions = {}
+  ): RelationshipSuggestion[] {
+    const minConfidence = options.minConfidence ?? 0.3;
+    const maxSuggestions = Math.min(options.maxSuggestions ?? 10, 50);
+    const includeIndirect = options.includeIndirect !== false;
+
+    if (events.length < 2) {
+      return [];
+    }
+
+    return this.suggestCausalLinks(events)
+      .filter((suggestion) => {
+        if (suggestion.suggested_relationship.confidence < minConfidence) return false;
+        if (
+          !includeIndirect &&
+          suggestion.suggested_relationship.relationship_type === 'indirect'
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .slice(0, maxSuggestions)
+      .map((suggestion) => ({
+        cause_event_id: suggestion.cause_event_id,
+        effect_event_id: suggestion.effect_event_id,
+        confidence: suggestion.suggested_relationship.confidence,
+        reason: suggestion.reasoning,
+        relationship_type: suggestion.suggested_relationship.relationship_type,
+      }));
   }
 
   /**
