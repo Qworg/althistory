@@ -114,6 +114,16 @@ export interface ValidationReportDto {
   issues: ValidationIssueDto[];
   repaired?: boolean;
   repairsApplied?: string[];
+  /**
+   * The repairs that were tried and could not be carried out.
+   *
+   * A repair that fails is reported rather than hidden. The issue it was
+   * meant to clear may or may not still be in `issues`: a repair that
+   * removed the link and then failed to put the reversed one in its place
+   * has cleared the issue by removing the link altogether, and the report
+   * says that.
+   */
+  repairsFailed?: string[];
 }
 
 export interface ExportResultDto {
@@ -175,6 +185,16 @@ export interface IngestWikidataOptions {
   graphName?: string;
 }
 
+/**
+ * A causal relationship that could not be created.
+ */
+export interface SkippedRelationship {
+  causeEventId: string;
+  effectEventId: string;
+  /** Why it was skipped. */
+  reason: string;
+}
+
 export interface IngestResultDto {
   graphId: string;
   eventsCreated: number;
@@ -186,6 +206,13 @@ export interface IngestResultDto {
     arcs: ArcDto[];
     relationships: CausalRelationshipDto[];
   };
+  /**
+   * The relationships that were not created.
+   *
+   * They are reported rather than dropped: a link that the server refused
+   * is a fact about the ingest, not a detail to hide.
+   */
+  skippedRelationships?: SkippedRelationship[];
 }
 
 export interface GenerateTimelineOptions {

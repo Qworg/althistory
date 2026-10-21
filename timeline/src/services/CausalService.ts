@@ -6,6 +6,7 @@ import { CausalParadoxError, ValidationError, DatabaseError, NotFoundError } fro
 import { getCacheManager, CacheKeyGenerator } from '@/utils/cache';
 import { CacheInvalidationService } from './CacheInvalidationService';
 import { loadConfig } from '@/utils/config';
+import { isTemporalInversion, isSimultaneous } from '@/utils/causalOrder';
 
 /**
  * Property bag accepted by `LocalGraphStore.updateRelationship` for a CAUSES edge.
@@ -117,6 +118,39 @@ interface CausalQueryResult {
 /**
  * Service for managing causal relationships and chain analysis
  */
+/**
+ * The problems with a causal relationship's own fields.
+ *
+ * The CLI's dry run asks the same question, so that the dry run and the
+ * real run count the same links.
+ */
+export function validateCausalRelationshipFields(relationship: CausalRelationship): string[] {
+  const errors: string[] = [];
+
+  // Validate weight (0.0 to 1.0)
+  if (typeof relationship.weight !== 'number' || relationship.weight < 0.0 || relationship.weight > 1.0) {
+    errors.push('Weight must be a number between 0.0 and 1.0');
+  }
+
+  // Validate confidence (0.0 to 1.0)
+  if (typeof relationship.confidence !== 'number' || relationship.confidence < 0.0 || relationship.confidence > 1.0) {
+    errors.push('Confidence must be a number between 0.0 and 1.0');
+  }
+
+  // Validate evidence
+  if (!relationship.evidence || typeof relationship.evidence !== 'string' || relationship.evidence.trim().length === 0) {
+    errors.push('Evidence is required and must be a non-empty string');
+  }
+
+  // Validate relationship type
+  const validTypes = ['direct', 'indirect', 'contributory'];
+  if (!validTypes.includes(relationship.relationship_type)) {
+    errors.push(`Relationship type must be one of: ${validTypes.join(', ')}`);
+  }
+
+  return errors;
+}
+
 export class CausalService {
   private cacheManager = getCacheManager();
   private cacheInvalidationService = new CacheInvalidationService();
@@ -202,6 +236,36 @@ export class CausalService {
     // Check for temporal paradox
     this.preventTemporalParadox(cause, effect);
 
+    // The project's rule lets a cause and an effect share a moment, so the
+    // ordering check on its own no longer keeps the graph acyclic. It still
+    // does for everything but one case: every other link moves forward in
+    // time, and a path that came back would have to move backwards. A link
+    // between two events at the same moment is the one that can close a
+    // cycle, so that is the case that has to be checked.
+    //
+    // This is a guard, not a guarantee: an event that is re-timed after its
+    // link was made, a graph that came in through the importer, or two
+    // requests at the same moment can still leave a cycle behind. The
+    // validator and the merge are the backstop -- they report the cycles
+    // they find.
+    //
+    // The walk reads every relationship the service can see, and in cloud
+    // mode that is every graph's relationships: the cloud data model has no
+    // graph filter on the relationships yet, so a scoped service still sees
+    // the whole database. That is the gap #59 tracks.
+    if (isSimultaneous(cause.timestamp, effect.timestamp)) {
+      const cycle = await this.findPathBetween(effect.id, cause.id);
+      if (cycle) {
+        throw new CausalParadoxError(
+          `Causal cycle detected: the link "${cause.id}" -> "${effect.id}" would close the cycle ${cycle.join(' -> ')}`,
+          cause.id,
+          effect.id,
+          cause.timestamp,
+          effect.timestamp
+        );
+      }
+    }
+
     // Create the relationship in the database
     const storedRelationship = await this.storeCausalRelationship(cause, effect, relationship);
 
@@ -209,6 +273,57 @@ export class CausalService {
     await this.cacheInvalidationService.invalidateCausalCache();
 
     return storedRelationship;
+  }
+
+  /**
+   * The events on a path from one event to another, or null when there is
+   * no such path.
+   *
+   * The relationships are read in full, which is enough: the check only
+   * runs for a link between two events at the same moment, and it is the
+   * only way a cycle can be closed under the project's rule.
+   */
+  private async findPathBetween(fromEventId: string, toEventId: string): Promise<string[] | null> {
+    const relationships = await this.getAllRelationships();
+
+    const adjacency = new Map<string, string[]>();
+    for (const relationship of relationships) {
+      const targets = adjacency.get(relationship.cause_event_id) ?? [];
+      targets.push(relationship.effect_event_id);
+      adjacency.set(relationship.cause_event_id, targets);
+    }
+
+    // The walk keeps its own stack rather than recursing: a chain of
+    // thousands of events would overflow the call stack, and the check runs
+    // on every same-moment link.
+    const visited = new Set<string>([fromEventId]);
+    const path: string[] = [fromEventId];
+    const stack: Array<{ id: string; next: number }> = [{ id: fromEventId, next: 0 }];
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1]!;
+
+      if (frame.id === toEventId) {
+        return path;
+      }
+
+      const targets = adjacency.get(frame.id) ?? [];
+      if (frame.next >= targets.length) {
+        stack.pop();
+        path.pop();
+        continue;
+      }
+
+      const nextId = targets[frame.next]!;
+      frame.next += 1;
+      if (visited.has(nextId)) continue;
+
+      visited.add(nextId);
+      path.push(nextId);
+      stack.push({ id: nextId, next: 0 });
+    }
+
+    return null;
   }
 
   /**
@@ -570,6 +685,14 @@ export class CausalService {
     const session = this.getSession();
     
     try {
+      // A cycle needs a hop that does not move forward in time. A hop
+      // between two events at the same moment is such a hop, so the cycle is
+      // found with ">=" -- but only a hop that really is inverted counts
+      // towards the severity, because a simultaneous hop is allowed by the
+      // project's rule.
+      //
+      // The comments are outside the query on purpose: Cypher has no `--`
+      // comment syntax, and one would make Neo4j reject the whole query.
       const query = `
         MATCH path = (start:Event)-[:CAUSES*2..]->(start)
         WITH path, relationships(path) as rels, nodes(path) as events
@@ -586,7 +709,7 @@ export class CausalService {
             relationship_type: rel.relationship_type
           }] as relationships,
           reduce(severity = 0, i in range(0, size(timestamps)-2) | 
-            CASE WHEN timestamps[i] >= timestamps[i+1] 
+            CASE WHEN timestamps[i] > timestamps[i+1] 
             THEN severity + 1 
             ELSE severity END
           ) as paradoxSeverity
@@ -636,26 +759,7 @@ export class CausalService {
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    // Validate weight (0.0 to 1.0)
-    if (typeof relationship.weight !== 'number' || relationship.weight < 0.0 || relationship.weight > 1.0) {
-      errors.push('Weight must be a number between 0.0 and 1.0');
-    }
-
-    // Validate confidence (0.0 to 1.0)
-    if (typeof relationship.confidence !== 'number' || relationship.confidence < 0.0 || relationship.confidence > 1.0) {
-      errors.push('Confidence must be a number between 0.0 and 1.0');
-    }
-
-    // Validate evidence
-    if (!relationship.evidence || typeof relationship.evidence !== 'string' || relationship.evidence.trim().length === 0) {
-      errors.push('Evidence is required and must be a non-empty string');
-    }
-
-    // Validate relationship type
-    const validTypes = ['direct', 'indirect', 'contributory'];
-    if (!validTypes.includes(relationship.relationship_type)) {
-      errors.push(`Relationship type must be one of: ${validTypes.join(', ')}`);
-    }
+    errors.push(...validateCausalRelationshipFields(relationship));
 
     // Validate that cause and effect are different events
     if (cause.id === effect.id) {
@@ -675,12 +779,16 @@ export class CausalService {
   }
 
   /**
-   * Prevents temporal paradoxes by ensuring cause precedes effect
+   * Prevents temporal paradoxes by ensuring cause does not follow effect.
+   *
+   * A cause at the same moment as its effect is allowed: the two can be part
+   * of the same occurrence. The rule lives in `@/utils/causalOrder`, which
+   * every other path uses too.
    */
   private preventTemporalParadox(cause: Event, effect: Event): void {
-    if (cause.timestamp >= effect.timestamp) {
+    if (isTemporalInversion(cause.timestamp, effect.timestamp)) {
       throw new CausalParadoxError(
-        `Causal paradox detected: cause event "${cause.id}" at ${cause.timestamp.toISOString()} cannot occur after or simultaneously with effect event "${effect.id}" at ${effect.timestamp.toISOString()}`,
+        `Causal paradox detected: cause event "${cause.id}" at ${cause.timestamp.toISOString()} cannot occur after effect event "${effect.id}" at ${effect.timestamp.toISOString()}`,
         cause.id,
         effect.id,
         cause.timestamp,

@@ -197,7 +197,7 @@ sequenceDiagram
   ```text
   Analyze the following generated events. Link causes to effects.
   Strict constraints:
-  1. A cause MUST strictly precede its effect in time (cause.timestamp < effect.timestamp).
+  1. A cause MUST NOT follow its effect in time (cause.timestamp <= effect.timestamp). A cause at the same moment as its effect is allowed; the two can be part of the same occurrence.
   2. No circular dependencies (DAG).
   3. Specify the causal strength (0.0 to 1.0) and historical mechanism.
   ```

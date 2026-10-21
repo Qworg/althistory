@@ -116,11 +116,63 @@ describe('CausalService', () => {
         .rejects.toThrow(CausalParadoxError);
     });
 
-    it('should prevent temporal paradox when cause and effect are simultaneous', async () => {
+    it('should allow a cause and an effect at the same moment', async () => {
+      // The rule the whole project uses: a cause may not follow its effect,
+      // but it may happen at the same moment. The importer and the merge
+      // accept such a pair, so the link-creation path has to accept it too.
       const timestamp = new Date('2023-01-01T10:00:00Z');
       const cause = createTestEvent('cause1', timestamp);
       const effect = createTestEvent('effect1', timestamp);
       const relationship = createValidRelationship();
+
+      mockSession.run.mockResolvedValue({
+        records: [{ get: () => ({ properties: relationship }) }]
+      });
+
+      await expect(causalService.createCausalLink(cause, effect, relationship))
+        .resolves.toBeDefined();
+    });
+
+    it('should refuse a link that would close a cycle', async () => {
+      // The project's rule lets a cause and an effect share a moment, so the
+      // ordering check alone no longer keeps the graph acyclic. A link
+      // between two events at the same moment is the one that can close a
+      // cycle, and it has to be refused.
+      const timestamp = new Date('2023-01-01T10:00:00Z');
+      const cause = createTestEvent('cause1', timestamp);
+      const effect = createTestEvent('effect1', timestamp);
+      const relationship = createValidRelationship();
+
+      // The relationships the cycle check reads: the link already runs the
+      // other way round, so a new link from cause to effect closes a cycle.
+      const existing = {
+        id: 'r1',
+        cause_event_id: 'effect1',
+        effect_event_id: 'cause1',
+        weight: 0.8,
+        confidence: 0.9,
+        evidence: '',
+        relationship_type: 'direct',
+      };
+
+      vi.mocked(getDatabaseManager).mockReturnValue({
+        getNeo4jSession: vi.fn().mockReturnValue({
+          run: vi.fn().mockImplementation(async (query: string) => {
+            if (query.includes('CREATE (cause)-[r:CAUSES')) {
+              return { records: [{ get: () => ({ properties: relationship }) }] };
+            }
+            return {
+              records: [
+                {
+                  get: (key: string) =>
+                    key in existing ? existing[key as keyof typeof existing] : '',
+                },
+              ],
+            };
+          }),
+          close: vi.fn(),
+        }),
+      } as any);
 
       await expect(causalService.createCausalLink(cause, effect, relationship))
         .rejects.toThrow(CausalParadoxError);

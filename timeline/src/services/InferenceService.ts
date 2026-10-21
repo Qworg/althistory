@@ -1,5 +1,6 @@
 import { Event, InferredPressure, PressureType } from '@/models';
 import { CausalSuggestion, CausalRelationshipType, DrivenByRelationship } from '@/models/relationships';
+import { isTemporalInversion } from '@/utils/causalOrder';
 
 /**
  * Represents a cluster of temporally related events
@@ -755,8 +756,8 @@ export class InferenceService {
    * Evaluate potential causal relationship between two events
    */
   private evaluateCausalRelationship(causeEvent: Event, effectEvent: Event): CausalSuggestion | null {
-    // Check temporal ordering (cause must precede effect)
-    if (causeEvent.timestamp >= effectEvent.timestamp) {
+    // Check temporal ordering (the cause may not follow the effect)
+    if (isTemporalInversion(causeEvent.timestamp, effectEvent.timestamp)) {
       return null;
     }
 

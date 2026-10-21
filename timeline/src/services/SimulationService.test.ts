@@ -64,7 +64,9 @@ function makeHarness(seedEvents: Event[]): Harness {
   }));
 
   const preventTemporalParadox = vi.fn((cause: Event, effect: Event): boolean => {
-    if (cause.timestamp.getTime() >= effect.timestamp.getTime()) {
+    // The project's rule: a cause may not follow its effect, but it may
+    // happen at the same moment.
+    if (cause.timestamp.getTime() > effect.timestamp.getTime()) {
       throw new Error('temporal paradox');
     }
     return true;

@@ -1,6 +1,7 @@
 import { Event, Arc } from '@/models';
 import { CausalRelationship, CausalRelationshipType } from '@/models/relationships';
 import { ValidationIssueDto, ValidationReportDto } from '../types';
+import { isTemporalInversion } from '@/utils/causalOrder';
 
 export interface ScopedGraphServices {
   eventRepository: {
@@ -204,11 +205,11 @@ export class GraphValidator {
       }
 
       if (cause && effect) {
-        if (cause.timestamp.getTime() >= effect.timestamp.getTime()) {
+        if (isTemporalInversion(cause.timestamp, effect.timestamp)) {
           issues.push({
             type: 'causal_direction',
             severity: 'error',
-            message: `Temporal paradox: cause "${cause.description}" (${cause.timestamp.toISOString()}) occurs at or after effect "${effect.description}" (${effect.timestamp.toISOString()})`,
+            message: `Temporal paradox: cause "${cause.description}" (${cause.timestamp.toISOString()}) occurs after effect "${effect.description}" (${effect.timestamp.toISOString()})`,
             entityId: rel.id,
             entityType: 'relationship',
             details: {
@@ -272,6 +273,7 @@ export class GraphValidator {
     strict: boolean
   ): Promise<ValidationReportDto> {
     const repairsApplied: string[] = [];
+    const repairsFailed: string[] = [];
 
     // Step 1: Repair arc temporal inversions (start > end)
     const initialArcs = await scoped.arcRepository.findAll();
@@ -367,28 +369,58 @@ export class GraphValidator {
       }
 
       // Temporal paradox: cause occurs after effect
-      if (cause.timestamp.getTime() > effect.timestamp.getTime()) {
-        // Try reversing the relationship
+      if (isTemporalInversion(cause.timestamp, effect.timestamp)) {
         const relType: CausalRelationshipType =
           rel.relationship_type === 'indirect' || rel.relationship_type === 'contributory'
             ? rel.relationship_type
             : 'direct';
-        await scoped.causalService.createCausalLink(effect, cause, {
-          weight: rel.weight,
-          confidence: rel.confidence,
-          evidence: rel.evidence || 'Auto-repaired causal direction',
-          relationship_type: relType,
-        });
-        repairsApplied.push(
-          `Reversed temporally inverted causal link ${rel.id} to (${effect.id} -> ${cause.id})`
-        );
-      } else if (cause.timestamp.getTime() === effect.timestamp.getTime()) {
-        // Simultaneous events cannot have strict causality, delete link
-        await scoped.causalService.deleteCausalLink(rel.cause_event_id, rel.effect_event_id);
-        repairsApplied.push(
-          `Removed invalid causal link between simultaneous events ${cause.id} and ${effect.id}`
-        );
+
+        // Remove the inverted link BEFORE adding the reversed one. Leaving
+        // both in place would make a two-node cycle, and the cycle breaker
+        // would then have to guess which of the two to remove -- it may well
+        // pick the one that was just added, and the inverted link would
+        // survive.
+        try {
+          await scoped.causalService.deleteCausalLink(rel.cause_event_id, rel.effect_event_id);
+        } catch (error) {
+          // The link could not be removed, so the reversed one must not be
+          // added: both would be in the graph, and the pair would be a cycle.
+          // The validator still reports the paradox, so the failure is not
+          // hidden.
+          repairsFailed.push(
+            `Could not remove temporally inverted causal link ${rel.id} (${rel.cause_event_id} -> ${rel.effect_event_id}): ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+          continue;
+        }
+
+        try {
+          await scoped.causalService.createCausalLink(effect, cause, {
+            weight: rel.weight,
+            confidence: rel.confidence,
+            evidence: rel.evidence || 'Auto-repaired causal direction',
+            relationship_type: relType,
+          });
+          repairsApplied.push(
+            `Reversed temporally inverted causal link ${rel.id} to (${effect.id} -> ${cause.id})`
+          );
+        } catch (error) {
+          // The inverted link is already gone, and it cannot be put back
+          // through `createCausalLink` -- that is the call that refuses an
+          // inverted pair. The report has to say that the link was removed
+          // and not replaced, so that nobody is left looking for a link that
+          // is not there.
+          repairsFailed.push(
+            `Removed temporally inverted causal link ${rel.id} (${rel.cause_event_id} -> ${rel.effect_event_id}) but could not add the reversed link (${effect.id} -> ${cause.id}): ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
       }
+      // A simultaneous pair is not an error: the cause and the effect can be
+      // part of the same occurrence, and the validator does not report it, so
+      // the repair leaves it alone.
     }
 
     // Step 4: Repair causal cycles
@@ -440,6 +472,7 @@ export class GraphValidator {
       ...postValidation,
       repaired: repairsApplied.length > 0,
       repairsApplied,
+      repairsFailed: repairsFailed.length > 0 ? repairsFailed : undefined,
     };
   }
 

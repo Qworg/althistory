@@ -5,6 +5,7 @@ import { ArcRepository } from '@/repositories/ArcRepository';
 import { getCacheManager, CacheKeyGenerator } from '@/utils/cache';
 import { getDatabaseManager } from '@/utils/database';
 import { loadConfig } from '@/utils/config';
+import { isTemporalInversion } from '@/utils/causalOrder';
 
 /**
  * Service for handling temporal operations and constraint enforcement
@@ -223,12 +224,16 @@ export class TemporalService {
   }
 
   /**
-   * Prevent temporal paradoxes in causal relationships
+   * Prevent temporal paradoxes in causal relationships.
+   *
+   * A cause at the same moment as its effect is allowed; only a cause that
+   * follows its effect is a paradox. The rule lives in
+   * `@/utils/causalOrder`, which every other path uses too.
    */
   preventTemporalParadox(cause: Event, effect: Event): boolean {
-    if (cause.timestamp.getTime() >= effect.timestamp.getTime()) {
+    if (isTemporalInversion(cause.timestamp, effect.timestamp)) {
       throw new TemporalConstraintError(
-        `Temporal paradox: cause event ${cause.id} occurs at or after effect event ${effect.id}`,
+        `Temporal paradox: cause event ${cause.id} occurs after effect event ${effect.id}`,
         cause.id,
         effect.id,
         cause.timestamp,

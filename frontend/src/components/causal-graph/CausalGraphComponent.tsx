@@ -5,6 +5,7 @@ import { Event, CausalRelationship, CausalRelationshipData, CausalPath, CausalSu
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
 import { toCytoscapeLayoutOptions } from '@/utils/layoutManagerUtils'
+import { isCausalOrderValid, isTemporalInversion } from '@/utils/causalOrder'
 import CausalPathHighlighter from './CausalPathHighlighter'
 import CausalChainNavigationControls from './CausalChainNavigationControls'
 import CausalSuggestionManager from './CausalSuggestionManager'
@@ -213,7 +214,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   const validateTemporalOrdering = useCallback((causeEvent: Event, effectEvent: Event): boolean => {
     const causeTime = new Date(causeEvent.timestamp)
     const effectTime = new Date(effectEvent.timestamp)
-    return causeTime <= effectTime
+    return isCausalOrderValid(causeTime, effectTime)
   }, [])
 
   // Create causal relationship with validation
@@ -521,9 +522,9 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
 
       if (currentIsCreatingLink) {
         if (currentLinkCreationSource) {
-          // Check if target is a valid effect (must occur after the cause)
+          // Check if target is a valid effect (must not occur before the cause)
           if (node.hasClass('invalid-target')) {
-            console.log('[CausalGraph] Cannot create link - target event occurs before or at the same time as source')
+            console.log('[CausalGraph] Cannot create link - target event occurs before the source')
             // Just ignore the click on invalid targets - they're greyed out to indicate they can't be selected
             return
           }
@@ -1025,11 +1026,13 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         sourceNode.addClass('link-source')
       }
 
-      // Mark nodes that can't be valid targets (events that occurred before or at the same time as source)
-      const sourceTimestamp = new Date(linkCreationSource.timestamp).getTime()
+      // Mark nodes that can't be valid targets (events that occurred before
+      // the source). The names say which is which, so that a comparison
+      // between the two is recognisable as a causal-order comparison.
+      const causeTimestamp = new Date(linkCreationSource.timestamp).getTime()
 
       // Guard against invalid timestamp
-      if (isNaN(sourceTimestamp)) {
+      if (isNaN(causeTimestamp)) {
         console.warn('[CausalGraph] Invalid source timestamp:', linkCreationSource.timestamp)
         return
       }
@@ -1041,15 +1044,18 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           return
         }
 
-        const nodeTimestamp = new Date(nodeData.event.timestamp).getTime()
+        const effectTimestamp = new Date(nodeData.event.timestamp).getTime()
 
         // Skip if timestamp is invalid
-        if (isNaN(nodeTimestamp)) {
+        if (isNaN(effectTimestamp)) {
           console.warn('[CausalGraph] Invalid node timestamp:', nodeData.event.timestamp)
           return
         }
 
-        if (nodeTimestamp <= sourceTimestamp) {
+        // The rule the whole project uses: the cause may not follow the
+        // effect, but it may happen at the same moment. A target at the
+        // same moment is a valid effect.
+        if (isTemporalInversion(causeTimestamp, effectTimestamp)) {
           node.addClass('invalid-target')
         }
       })
@@ -1270,13 +1276,19 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
             </div>
             {isCreatingLink && (
               <div className={`text-xs mt-2 pt-2 border-t border-gray-200 font-medium ${
-                linkCreationSource && new Date(hoveredNode.timestamp).getTime() <= new Date(linkCreationSource.timestamp).getTime()
+                linkCreationSource && isTemporalInversion(
+                  new Date(linkCreationSource.timestamp).getTime(),
+                  new Date(hoveredNode.timestamp).getTime()
+                )
                   ? 'text-gray-500'
                   : 'text-blue-600'
               }`}>
                 {linkCreationSource
-                  ? (new Date(hoveredNode.timestamp).getTime() <= new Date(linkCreationSource.timestamp).getTime()
-                    ? 'Cannot link - this event occurs before or at the same time as the source'
+                  ? (isTemporalInversion(
+                      new Date(linkCreationSource.timestamp).getTime(),
+                      new Date(hoveredNode.timestamp).getTime()
+                    )
+                    ? 'Cannot link - this event occurs before the source'
                     : 'Click to create link to this event')
                   : 'Click to select as link source'}
               </div>
