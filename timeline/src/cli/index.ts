@@ -1,12 +1,14 @@
 import { Command } from 'commander';
 import { ExecutionContext } from './engine/ExecutionContext';
 import { formatOutput, formatErrorJson } from './formatters';
-import { GlobalCLIOptions, OutputFormat } from './types';
+import { GlobalCLIOptions, OutputFormat, ExportFormat } from './types';
 import { CLIError, ExitCode } from './utils/exitCodes';
 import { isSimulationDomain } from '@/services/SimulationService';
 import { logger } from './utils/logger';
 import { McpServer } from './mcp/McpServer';
 import { MCP_TOOLS } from './mcp/toolDefinitions';
+import { buildCommandJsonSchema } from './schema/commandSchema';
+import { readInputText } from './utils/inputText';
 import { formatSuccessJson } from './formatters/jsonFormatter';
 
 export function createProgram(): Command {
@@ -458,6 +460,34 @@ export function createProgram(): Command {
       }
     });
 
+  arcCmd
+    .command('assign <eventId>')
+    .description('Place an event inside an arc')
+    .requiredOption('-g, --graph-id <id>', 'Target graph ID')
+    .requiredOption('-a, --arc <arcId>', 'Arc the event belongs to')
+    .action(async (eventId: string, cmdOpts?: Record<string, unknown>) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const engine = await ctx.getEngine();
+        const event = await engine.assignEventToArc(
+          String(cmdOpts?.graphId),
+          eventId,
+          String(cmdOpts?.arc)
+        );
+        const output = formatOutput(
+          { success: true, event, arcId: String(cmdOpts?.arc) },
+          getFormat(opts),
+          engine.mode,
+          { durationMs: Date.now() - start, graphId: String(cmdOpts?.graphId) }
+        );
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
   // --- Causal Commands (Phase 4) ---
   const causalCmd = program.command('causal').description('Manage cause-and-effect relationships');
 
@@ -582,17 +612,12 @@ export function createProgram(): Command {
       const ctx = new ExecutionContext(opts);
       const start = Date.now();
       try {
-        let text = inlineText || '';
-        if (cmdOpts?.file) {
-          const fs = await import('fs');
-          text = fs.readFileSync(String(cmdOpts.file), 'utf-8');
-        } else if (!text && !process.stdin.isTTY) {
-          const chunks: Buffer[] = [];
-          for await (const chunk of process.stdin) {
-            chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-          }
-          text = Buffer.concat(chunks).toString('utf-8').trim();
-        }
+        const text = await readInputText({
+          inlineText,
+          file: cmdOpts?.file as string | undefined,
+          stdin: process.stdin,
+          stdinIsTerminal: Boolean(process.stdin.isTTY),
+        });
 
         if (!text || text.trim().length === 0) {
           throw new CLIError('No text provided. Specify text argument, --file, or pipe input via stdin.', ExitCode.GENERAL_ERROR);
@@ -639,6 +664,9 @@ export function createProgram(): Command {
     .option('--depth <depth>', 'Link following traversal depth (1 to 3)')
     .option('--max-pages <max>', 'Maximum pages to fetch')
     .option('--filter <filter>', 'Regex filter for followed URLs')
+    .option('--provider <provider>', 'LLM provider: openai or anthropic')
+    .option('--model <model>', 'LLM model name')
+    .option('--temperature <val>', 'LLM sampling temperature')
     .option('--group-arcs', 'Automatically cluster extracted events into narrative arcs')
     .option('--infer-causes', 'Automatically infer cause-and-effect links')
     .option('--min-confidence <threshold>', 'Minimum confidence threshold (0 to 1)')
@@ -654,6 +682,11 @@ export function createProgram(): Command {
           depth: cmdOpts?.depth ? parseInt(String(cmdOpts.depth), 10) : undefined,
           maxPages: cmdOpts?.maxPages ? parseInt(String(cmdOpts.maxPages), 10) : undefined,
           filter: cmdOpts?.filter as string | undefined,
+          provider: typeof cmdOpts?.provider === 'string' && (['openai', 'anthropic'] as readonly string[]).includes(cmdOpts.provider)
+            ? (cmdOpts.provider as 'openai' | 'anthropic')
+            : undefined,
+          model: cmdOpts?.model as string | undefined,
+          temperature: cmdOpts?.temperature ? parseFloat(String(cmdOpts.temperature)) : undefined,
           groupArcs: Boolean(cmdOpts?.groupArcs),
           inferCauses: Boolean(cmdOpts?.inferCauses),
           minConfidence: cmdOpts?.minConfidence ? parseFloat(String(cmdOpts.minConfidence)) : undefined,
@@ -954,8 +987,8 @@ export function createProgram(): Command {
   // --- Export Command ---
   program
     .command('export <graphId>')
-    .description('Export graph data to JSON, Markdown, or Graphviz DOT')
-    .option('-f, --format <format>', 'Export format: json, markdown, or dot', 'json')
+    .description('Export graph data to JSON, Markdown, Graphviz DOT or GraphML')
+    .option('-f, --format <format>', 'Export format: json, markdown, dot or graphml', 'json')
     .option('-o, --output <path>', 'Output file path')
     .action(async (graphId: string, cmdOpts?: Record<string, unknown>) => {
       const opts = program.opts<GlobalCLIOptions>();
@@ -963,10 +996,11 @@ export function createProgram(): Command {
       const start = Date.now();
       try {
         const engine = await ctx.getEngine();
-        const validFormats = ['json', 'markdown', 'dot'] as const;
-        const requestedFormat = typeof cmdOpts?.format === 'string' && (validFormats as readonly string[]).includes(cmdOpts.format)
-          ? (cmdOpts.format as 'json' | 'markdown' | 'dot')
-          : 'json';
+        const validFormats = ['json', 'markdown', 'dot', 'graphml'] as const;
+        const requestedFormat =
+          typeof cmdOpts?.format === 'string' && (validFormats as readonly string[]).includes(cmdOpts.format)
+            ? (cmdOpts.format as ExportFormat)
+            : 'json';
 
         const result = await engine.exportGraph(
           graphId,
@@ -1061,8 +1095,9 @@ export function createProgram(): Command {
   // --- Schema Command ---
   program
     .command('schema')
-    .description('Output JSON Schema specifications for MCP tools and operations')
+    .description('Output the JSON Schema of the CLI commands, or of the MCP tools')
     .option('--tool <name>', 'Filter by specific MCP tool name')
+    .option('--mcp', 'Output the schemas of the MCP tools instead of the commands')
     .action(async (cmdOpts?: Record<string, unknown>) => {
       const opts = program.opts<GlobalCLIOptions>();
       const toolName = cmdOpts?.tool as string | undefined;
@@ -1077,16 +1112,17 @@ export function createProgram(): Command {
         } else {
           process.stdout.write(formatSuccessJson(found, 'direct') + '\n');
         }
+        return;
+      }
+
+      const document = cmdOpts?.mcp
+        ? { protocolVersion: '2024-11-05', tools: MCP_TOOLS }
+        : buildCommandJsonSchema(program);
+
+      if (opts.plain) {
+        process.stdout.write(JSON.stringify(document, null, 2) + '\n');
       } else {
-        const allSchemas = {
-          protocolVersion: '2024-11-05',
-          tools: MCP_TOOLS,
-        };
-        if (opts.plain) {
-          process.stdout.write(JSON.stringify(allSchemas, null, 2) + '\n');
-        } else {
-          process.stdout.write(formatSuccessJson(allSchemas, 'direct') + '\n');
-        }
+        process.stdout.write(formatSuccessJson(document, 'direct') + '\n');
       }
     });
 

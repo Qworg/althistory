@@ -12,10 +12,11 @@ import {
   GenerateBranchOptions,
   GenerationResultDto,
   ValidationReportDto,
+  ExportFormat,
   ExportResultDto,
   ImportResultDto,
 } from '../types';
-import { GraphValidator } from '../validation/GraphValidator';
+import { GraphValidator, CrossGraphLookup } from '../validation/GraphValidator';
 import { GraphExporter } from '../export/GraphExporter';
 import { GraphImporter } from '../export/GraphImporter';
 import { loadConfig, initializeDatabaseManager } from '@/utils';
@@ -26,7 +27,10 @@ import { CausalRelationship, CausalRelationshipType } from '@/models/relationshi
 import { TextExtractor } from '@/services/ingestion/TextExtractor';
 import { WikipediaExtractor } from '@/services/ingestion/WikipediaExtractor';
 import { WikidataExtractor } from '@/services/ingestion/WikidataExtractor';
-import { FetchHttpClient } from '@/services/ingestion/http';
+import { WebDocumentExtractor, isWikipediaUrl } from '@/services/ingestion/WebDocumentExtractor';
+import { PublicWebHttpClient } from '@/services/ingestion/publicWebHttp';
+import { mergeExtractionResults } from '@/services/ingestion/mergeExtractions';
+import { FetchHttpClient, HttpClient } from '@/services/ingestion/http';
 import { createLLMClient } from '@/services/llm';
 import { clusterEventsIntoArcs } from '../generator/arcClustering';
 import { TimelineGenerator } from '../generator/TimelineGenerator';
@@ -42,9 +46,24 @@ import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
 import { validateCausalRelationshipFields } from '@/services/CausalService';
 
+export interface DirectEngineOptions {
+  /**
+   * The HTTP client the ingestion extractors use.
+   *
+   * The default fetches the web. A test injects a client backed by recorded
+   * fixtures, so the ingestion tests never touch the network.
+   */
+  httpClient?: HttpClient;
+}
+
 export class DirectEngine implements IEngine {
   readonly mode = 'direct' as const;
   private containerPromise?: Promise<Container>;
+  private readonly httpClient?: HttpClient;
+
+  constructor(options: DirectEngineOptions = {}) {
+    this.httpClient = options.httpClient;
+  }
 
   private async getInitializedContainer(): Promise<Container> {
     if (!this.containerPromise) {
@@ -406,6 +425,7 @@ export class DirectEngine implements IEngine {
       startTime: a.start_time.toISOString(),
       endTime: a.end_time.toISOString(),
       parentArcId: (a.metadata?.parentArcId as string) || undefined,
+      level: a.level,
     }));
   }
 
@@ -424,6 +444,7 @@ export class DirectEngine implements IEngine {
       startTime: arc.start_time.toISOString(),
       endTime: arc.end_time.toISOString(),
       parentArcId: (arc.metadata?.parentArcId as string) || undefined,
+      level: arc.level,
     };
   }
 
@@ -434,6 +455,48 @@ export class DirectEngine implements IEngine {
     if (!deleted) {
       throw new NotFoundErrorCLI(`Arc not found: ${arcId} in graph ${graphId}`);
     }
+  }
+
+  /**
+   * Put an event inside an arc.
+   *
+   * The arc is recorded on the event's metadata, which is where the
+   * validator, the exporters and the dot renderer look for it.
+   */
+  async assignEventToArc(graphId: string, eventId: string, arcId: string): Promise<EventDto> {
+    const container = await this.getInitializedContainer();
+    const scoped = await container.graphScopedRepositories(graphId);
+
+    const event = await scoped.eventRepository.findById(eventId);
+    if (!event) {
+      throw new NotFoundErrorCLI(`Event not found: ${eventId} in graph ${graphId}`);
+    }
+    const arc = await scoped.arcRepository.findById(arcId);
+    if (!arc) {
+      throw new NotFoundErrorCLI(`Arc not found: ${arcId} in graph ${graphId}`);
+    }
+
+    const updated = await scoped.eventRepository.update(eventId, {
+      metadata: { ...(event.metadata || {}), arcId },
+    });
+    if (!updated) {
+      throw new NotFoundErrorCLI(`Event not found: ${eventId}`);
+    }
+
+    try {
+      await container.graphWriteVersioningService.recordEvent(graphId, updated, 'update');
+    } catch {
+      // Best effort
+    }
+
+    return {
+      id: updated.id,
+      graphId,
+      description: updated.description,
+      timestamp: updated.timestamp.toISOString(),
+      actor: updated.actor,
+      target: updated.target,
+    };
   }
 
   async createCausalLink(
@@ -770,32 +833,107 @@ export class DirectEngine implements IEngine {
     };
   }
 
+  /**
+   * The graph an ingestion writes into.
+   *
+   * A dry run writes nothing, so it must not create a graph either: the
+   * preview names the graph it would have written to, and the graph is only
+   * created when the ingestion is committed.
+   */
+  private async resolveTargetGraph(
+    graphId: string | undefined,
+    graphName: string | undefined,
+    fallbackName: string,
+    dryRun: boolean | undefined
+  ): Promise<string> {
+    if (graphId) return graphId;
+    if (dryRun) return `dry-run-${fallbackName.replace(/\s+/g, '-').toLowerCase()}`;
+    const created = await this.createGraph(graphName || fallbackName);
+    return created.id;
+  }
+
+  /**
+   * Extract events from text in the mode the caller asked for.
+   *
+   * The three modes are three different things:
+   *
+   * - `pattern` reads the text with the deterministic extractor only;
+   * - `llm` asks the model, and fails when no model answered, rather than
+   *   quietly reporting a pattern extraction as a model one;
+   * - `hybrid` reads the text both ways and keeps the union, so a page the
+   *   patterns miss still contributes its events.
+   */
+  private async extractText(
+    text: string,
+    extractor: TextExtractor,
+    mode: 'pattern' | 'llm' | 'hybrid'
+  ): Promise<ExtractionResult> {
+    if (mode === 'pattern') {
+      return extractor.extract({ text, useLLM: false });
+    }
+
+    const llmResult = await extractor.extractWithLLM({ text });
+
+    if (mode === 'llm') {
+      if (!llmResult) {
+        throw new ValidationErrorCLI(
+          'LLM extraction produced nothing: no provider answered the request. ' +
+            'Configure a provider (--provider/--model), or use --mode hybrid, which falls back to pattern extraction.'
+        );
+      }
+      return llmResult;
+    }
+
+    const patternResult = await extractor.extract({ text, useLLM: false });
+    return mergeExtractionResults(patternResult, llmResult);
+  }
+
   async ingestText(graphId: string | undefined, text: string, options: IngestTextOptions): Promise<IngestResultDto> {
-    const targetGraphId = graphId || (await this.createGraph(options.graphName || 'Ingested Text History')).id;
+    const targetGraphId = await this.resolveTargetGraph(
+      graphId,
+      options.graphName,
+      'Ingested Text History',
+      options.dryRun
+    );
     const llmClient = options.mode !== 'pattern' ? createLLMClient({ provider: options.provider, model: options.model, temperature: options.temperature }) : null;
     const extractor = new TextExtractor({ llmClient });
-    const extractionResult = await extractor.extract({ text, useLLM: options.mode !== 'pattern' });
+    const extractionResult = await this.extractText(text, extractor, options.mode || 'hybrid');
     return this.persistExtractedEntities(targetGraphId, extractionResult, options);
   }
 
   async ingestUrl(graphId: string | undefined, url: string, options: IngestUrlOptions): Promise<IngestResultDto> {
-    const targetGraphId = graphId || (await this.createGraph(options.graphName || 'Wikipedia Ingestion')).id;
-    const extractor = new WikipediaExtractor({ httpClient: new FetchHttpClient() });
-    const extractionResult = await extractor.extract({
-      url,
-      options: {
-        followLinks: options.followLinks,
-        linkDepth: options.depth,
-        maxPages: options.maxPages,
-        linkFilter: options.filter,
-      },
-    });
+    const targetGraphId = await this.resolveTargetGraph(
+      graphId,
+      options.graphName,
+      'Web Document Ingestion',
+      options.dryRun
+    );
+    const llmClient = createLLMClient({ provider: options.provider, model: options.model, temperature: options.temperature });
+    const extractionResult = isWikipediaUrl(url)
+      ? await new WikipediaExtractor({ httpClient: this.httpClient ?? new FetchHttpClient() }).extract({
+          url,
+          options: {
+            followLinks: options.followLinks,
+            linkDepth: options.depth,
+            maxPages: options.maxPages,
+            linkFilter: options.filter,
+          },
+        })
+      : await new WebDocumentExtractor({
+          httpClient: this.httpClient ?? new PublicWebHttpClient(),
+          llmClient,
+        }).extract({ url });
     return this.persistExtractedEntities(targetGraphId, extractionResult, options);
   }
 
   async ingestWikidata(graphId: string | undefined, options: IngestWikidataOptions): Promise<IngestResultDto> {
-    const targetGraphId = graphId || (await this.createGraph(options.graphName || 'Wikidata Ingestion')).id;
-    const extractor = new WikidataExtractor({ httpClient: new FetchHttpClient() });
+    const targetGraphId = await this.resolveTargetGraph(
+      graphId,
+      options.graphName,
+      'Wikidata Ingestion',
+      options.dryRun
+    );
+    const extractor = new WikidataExtractor({ httpClient: this.httpClient ?? new FetchHttpClient() });
     const queryType = options.sparql
       ? 'custom'
       : options.preset === 'person-timeline'
@@ -869,12 +1007,73 @@ export class DirectEngine implements IEngine {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
     const validator = new GraphValidator();
-    return validator.validate(graphId, scoped, { strict, autoRepair });
+    return validator.validate(graphId, scoped, {
+      strict,
+      autoRepair,
+      crossGraphLookup: this.createCrossGraphLookup(graphId),
+    });
   }
 
+  /**
+   * The lookup the validator uses to name the graph a broken reference points
+   * into.
+   *
+   * The answer is cached, because a graph can hold hundreds of references to
+   * the same missing arc and the answer is the same every time. The list of
+   * the graphs is fetched once for the same reason: the lookup runs per
+   * broken reference, and a scan of every graph per reference is work nobody
+   * asked for.
+   *
+   * A failure is not cached: the list of the graphs is fetched again after a
+   * failed request, and the answer for an entity is looked up again after a
+   * failed one. A failed lookup is not an answer, and a failed lookup that
+   * was cached would make every later lookup of the run fail as well.
+   */
+  private createCrossGraphLookup(graphId: string): CrossGraphLookup {
+    const answers = new Map<string, Promise<string | undefined>>();
+    let graphIds: Promise<string[]> | null = null;
+
+    const otherGraphIds = (): Promise<string[]> => {
+      if (!graphIds) {
+        const attempt = this.getInitializedContainer()
+          .then((container) => container.graphService.listGraphs({ limit: 1000, offset: 0 }))
+          .then((result) => result.graphs.map((graph) => graph.id).filter((id) => id !== graphId));
+        graphIds = attempt;
+        attempt.catch(() => {
+          if (graphIds === attempt) graphIds = null;
+        });
+      }
+      return graphIds;
+    };
+
+    return (entityId: string): Promise<string | undefined> => {
+      const cached = answers.get(entityId);
+      if (cached) return cached;
+      const answer = otherGraphIds().then(async (ids) => {
+        const container = await this.getInitializedContainer();
+        for (const id of ids) {
+          const scoped = await container.graphScopedRepositories(id);
+          const event = await scoped.eventRepository.findById(entityId);
+          if (event) return id;
+          const arc = await scoped.arcRepository.findById(entityId);
+          if (arc) return id;
+        }
+        return undefined;
+      });
+      answers.set(entityId, answer);
+      answer.catch(() => {
+        if (answers.get(entityId) === answer) answers.delete(entityId);
+      });
+      return answer;
+    };
+  }
+
+  /**
+   * Export a graph in the format the caller asked for.
+   */
   async exportGraph(
     graphId: string,
-    format: 'json' | 'markdown' | 'dot' = 'json',
+    format: ExportFormat = 'json',
     outputPath?: string
   ): Promise<ExportResultDto> {
     const container = await this.getInitializedContainer();

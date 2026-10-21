@@ -249,9 +249,21 @@ describe('CLI Phase 6: Model Context Protocol (MCP) Server & Tooling', () => {
   });
 
   describe('CLI Schema Command', () => {
-    it('outputs full JSON schema dictionary', async () => {
+    it('outputs the JSON schema of the commands', async () => {
       const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
       const exitCode = await runCLI(['node', 'althistory', 'schema', '--direct', '--json']);
+      expect(exitCode).toBe(ExitCode.SUCCESS);
+      expect(stdoutSpy).toHaveBeenCalled();
+      const output = stdoutSpy.mock.calls.map((c) => c[0].toString()).join('');
+      expect(output).toContain('json-schema.org/draft/2020-12/schema');
+      expect(output).toContain('ingest text');
+      expect(output).toContain('generate timeline');
+      stdoutSpy.mockRestore();
+    });
+
+    it('outputs the MCP tool schemas when --mcp is specified', async () => {
+      const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      const exitCode = await runCLI(['node', 'althistory', 'schema', '--mcp', '--direct', '--json']);
       expect(exitCode).toBe(ExitCode.SUCCESS);
       expect(stdoutSpy).toHaveBeenCalled();
       const output = stdoutSpy.mock.calls.map((c) => c[0].toString()).join('');

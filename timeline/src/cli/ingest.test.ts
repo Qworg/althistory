@@ -6,6 +6,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DirectEngine } from './engine/DirectEngine';
 import { clusterEventsIntoArcs } from './generator/arcClustering';
 import { ExtractedEvent } from '../services/ingestion/types';
+import { HttpClient, HttpRequest, HttpResponse } from '../services/ingestion/http';
+import wikipediaFixture from '../services/ingestion/fixtures/wikipedia-battle-of-hastings.json';
+import wikidataFixture from '../services/ingestion/fixtures/wikidata-historical-events.json';
 
 const mockSource = {
   type: 'text' as const,
@@ -181,6 +184,7 @@ describe('DirectEngine Ingestion', () => {
 
   it('ingests pattern-based text with dry-run without writing to graph', async () => {
     const text = 'The Treaty of Paris was signed on 10 February 1763 by representatives of Great Britain and France.';
+
     const result = await engine.ingestText(undefined, text, {
       mode: 'pattern',
       dryRun: true,
@@ -193,9 +197,31 @@ describe('DirectEngine Ingestion', () => {
     expect(result.entities.events[0].actor).toBe('Treaty of Paris');
     expect(result.entities.events[0].target).toBe('Great Britain');
 
-    // Because dryRun is true, the created graph should have 0 persisted events
-    const graphEvents = await engine.listEvents(result.graphId);
-    expect(graphEvents).toHaveLength(0);
+    // A dry run creates nothing at all -- not even the graph it would have
+    // written to. The graph it names is a preview id, not a stored graph.
+    expect(result.graphId).toContain('dry-run');
+    await expect(engine.getGraph(result.graphId)).rejects.toThrow(/not found/i);
+  });
+
+  it('refuses to pretend a pattern extraction was a model extraction', async () => {
+    const text = 'The Treaty of Paris was signed on 10 February 1763 by Great Britain and France.';
+
+    // No provider is configured in the test environment, so the model path
+    // has nothing to offer and the command says so.
+    await expect(
+      engine.ingestText(undefined, text, { mode: 'llm', dryRun: true })
+    ).rejects.toThrow(/LLM extraction produced nothing/);
+  });
+
+  it('reads the text both ways in hybrid mode', async () => {
+    const text = 'The Treaty of Paris was signed on 10 February 1763 by representatives of Great Britain and France.';
+    const result = await engine.ingestText(undefined, text, {
+      mode: 'hybrid',
+      dryRun: true,
+    });
+
+    // The pattern path still contributes when the model does not answer.
+    expect(result.eventsCreated).toBeGreaterThanOrEqual(1);
   });
 
   it('ingests and persists events with arc grouping', async () => {
@@ -217,5 +243,91 @@ describe('DirectEngine Ingestion', () => {
 
     const persistedArcs = await engine.listArcs(result.graphId);
     expect(persistedArcs.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+/**
+ * A client that answers from recorded fixtures, so the ingestion tests never
+ * touch the network.
+ */
+class FixtureHttpClient implements HttpClient {
+  readonly requests: HttpRequest[] = [];
+
+  constructor(private readonly handler: (url: string) => { body: string; headers?: Record<string, string> }) {}
+
+  async request(request: HttpRequest): Promise<HttpResponse> {
+    this.requests.push(request);
+    const answer = this.handler(request.url);
+    return { status: 200, body: answer.body, headers: answer.headers || {} };
+  }
+}
+
+const WEB_PAGE = `<!doctype html>
+<html>
+  <head><title>History of the Battle</title><style>body { color: red; }</style></head>
+  <body>
+    <script>console.log('ignored')</script>
+    <h1>The Battle of Hastings</h1>
+    <p>The Battle of Hastings was fought on 14 October 1066 between the Normans and the Anglo-Saxons.</p>
+  </body>
+</html>`;
+
+describe('DirectEngine Ingestion from the web', () => {
+  let engine: DirectEngine;
+  let http: FixtureHttpClient;
+
+  afterEach(async () => {
+    await engine.shutdown();
+  });
+
+  it('reads a Wikipedia article through the Wikipedia extractor', async () => {
+    http = new FixtureHttpClient((url) => {
+      if (url.includes('/w/api.php')) {
+        return { body: JSON.stringify(wikipediaFixture), headers: { 'content-type': 'application/json' } };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    engine = new DirectEngine({ httpClient: http });
+
+    const result = await engine.ingestUrl(undefined, 'https://en.wikipedia.org/wiki/Battle_of_Hastings', {
+      dryRun: true,
+    });
+
+    expect(http.requests[0].url).toContain('en.wikipedia.org');
+    expect(result.eventsCreated).toBeGreaterThanOrEqual(1);
+  });
+
+  it('reads a page on any other site as a web document', async () => {
+    http = new FixtureHttpClient((url) => {
+      if (url === 'https://example.org/history') {
+        return { body: WEB_PAGE, headers: { 'content-type': 'text/html' } };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    engine = new DirectEngine({ httpClient: http });
+
+    const result = await engine.ingestUrl(undefined, 'https://example.org/history', { dryRun: true });
+
+    expect(result.eventsCreated).toBe(1);
+    expect(result.entities.events[0].description).toContain('Battle of Hastings');
+    // The script and the style are not part of the text.
+    expect(result.entities.events[0].description).not.toContain('console.log');
+  });
+
+  it('reads Wikidata through the SPARQL endpoint', async () => {
+    http = new FixtureHttpClient((url) => {
+      if (url.includes('query.wikidata.org')) {
+        return { body: JSON.stringify(wikidataFixture), headers: { 'content-type': 'application/sparql-results+json' } };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    engine = new DirectEngine({ httpClient: http });
+
+    const result = await engine.ingestWikidata(undefined, { preset: 'historical-events', dryRun: true });
+
+    expect(http.requests[0].url).toContain('query.wikidata.org');
+    // The recorded fixture holds ten rows, eight of which are BCE and cannot
+    // be represented by a date.
+    expect(result.eventsCreated).toBe(2);
   });
 });

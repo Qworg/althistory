@@ -167,6 +167,46 @@ describe('CLI Phase 4: Graph, Event, Arc & Causal CRUD Engine', () => {
     });
   });
 
+  describe('Arc assignment', () => {
+    it('places an event inside an arc', async () => {
+      const arc = await engine.createArc(graphId, {
+        name: 'The Revolutionary War',
+        startTime: '1775-04-19T00:00:00Z',
+        endTime: '1783-09-03T00:00:00Z',
+      });
+
+      const event = await engine.createEvent(graphId, {
+        description: 'The Congress declares independence',
+        timestamp: '1776-07-04T00:00:00Z',
+        actor: 'Continental Congress',
+        target: 'King George III',
+      });
+
+      const assigned = await engine.assignEventToArc(graphId, event.id, arc.id);
+      expect(assigned.id).toBe(event.id);
+
+      // The dot export groups the events by the arc they name, so the event
+      // shows up inside the arc's cluster.
+      const exported = await engine.exportGraph(graphId, 'dot');
+      expect(exported.content).toContain(`subgraph "cluster_${arc.id}"`);
+      const cluster = exported.content?.split(`subgraph "cluster_${arc.id}"`)[1] ?? '';
+      expect(cluster).toContain(event.id);
+    });
+
+    it('reports an arc that does not exist', async () => {
+      const event = await engine.createEvent(graphId, {
+        description: 'An event with nowhere to go',
+        timestamp: '1776-07-04T00:00:00Z',
+        actor: 'Continental Congress',
+        target: 'King George III',
+      });
+
+      await expect(engine.assignEventToArc(graphId, event.id, 'arc-that-does-not-exist')).rejects.toThrow(
+        /Arc not found/
+      );
+    });
+  });
+
   describe('Graph Management', () => {
     it('creates, inspects, and diffs history graphs', async () => {
       const g2 = await engine.createGraph('Branch Graph for Diff');

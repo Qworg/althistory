@@ -2,7 +2,10 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Event, Arc } from '@/models';
-import { ExportResultDto } from '../types';
+import { ExportFormat, ExportResultDto } from '../types';
+
+/** The formats an export can be rendered in. */
+export type { ExportFormat };
 
 export interface ExportRelationship {
   id: string;
@@ -22,7 +25,7 @@ export class GraphExporter {
     events: Event[],
     arcs: Arc[],
     relationships: ExportRelationship[],
-    format: 'json' | 'markdown' | 'dot' = 'json',
+    format: ExportFormat = 'json',
     outputPath?: string
   ): Promise<ExportResultDto> {
     let content = '';
@@ -36,6 +39,9 @@ export class GraphExporter {
         break;
       case 'dot':
         content = this.generateDot(graphId, graphName, events, arcs, relationships);
+        break;
+      case 'graphml':
+        content = this.generateGraphML(graphId, graphName, events, arcs, relationships);
         break;
       default:
         content = this.generateJson(graphId, graphName, description, events, arcs, relationships);
@@ -187,6 +193,138 @@ export class GraphExporter {
     }
 
     return md;
+  }
+
+  /**
+   * Render the graph as GraphML.
+   *
+   * GraphML is the interchange format the graph editors read, so the events
+   * and the arcs are both nodes: an arc is a node that contains the events
+   * whose `arcId` metadata names it, and the causal links are the edges
+   * between the event nodes.
+   */
+  generateGraphML(
+    graphId: string,
+    graphName: string,
+    events: Event[],
+    arcs: Arc[],
+    relationships: ExportRelationship[]
+  ): string {
+    // XML 1.0 does not allow the C0 controls other than tab, newline and
+    // carriage return, nor the two non-characters below -- not even as
+    // numeric references. They are dropped rather than escaped: a document
+    // that carries one would not parse at all.
+    const isXmlChar = (code: number): boolean =>
+      code === 0x09 ||
+      code === 0x0a ||
+      code === 0x0d ||
+      (code >= 0x20 && code <= 0xd7ff) ||
+      (code >= 0xe000 && code <= 0xfffd) ||
+      (code >= 0x10000 && code <= 0x10ffff);
+
+    const escapeXml = (value: string): string =>
+      Array.from(value)
+        .filter((character) => isXmlChar(character.codePointAt(0) ?? 0))
+        .join('')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+
+    // Node and edge ids are unique and non-empty in GraphML. Dropping the
+    // characters XML forbids can make two ids equal, or make an id empty, so
+    // ids are mapped once and made unique here; the edges then name the
+    // mapped id, not the original.
+    const idByOriginal = new Map<string, string>();
+    const usedIds = new Set<string>();
+    const xmlId = (raw: string): string => {
+      const known = idByOriginal.get(raw);
+      if (known !== undefined) return known;
+
+      let candidate = escapeXml(raw);
+      if (candidate.length === 0) candidate = 'node';
+      if (usedIds.has(candidate)) {
+        let suffix = 2;
+        while (usedIds.has(`${candidate}-${suffix}`)) suffix += 1;
+        candidate = `${candidate}-${suffix}`;
+      }
+
+      usedIds.add(candidate);
+      idByOriginal.set(raw, candidate);
+      return candidate;
+    };
+
+    const lines: string[] = [];
+    lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+    lines.push('<graphml xmlns="http://graphml.graphdrawing.org/xmlns">');
+    lines.push('  <key id="d_kind" for="node" attr.name="kind" attr.type="string"/>');
+    lines.push('  <key id="d_description" for="node" attr.name="description" attr.type="string"/>');
+    lines.push('  <key id="d_actor" for="node" attr.name="actor" attr.type="string"/>');
+    lines.push('  <key id="d_target" for="node" attr.name="target" attr.type="string"/>');
+    lines.push('  <key id="d_timestamp" for="node" attr.name="timestamp" attr.type="string"/>');
+    lines.push('  <key id="d_start" for="node" attr.name="start_time" attr.type="string"/>');
+    lines.push('  <key id="d_end" for="node" attr.name="end_time" attr.type="string"/>');
+    lines.push('  <key id="d_weight" for="edge" attr.name="weight" attr.type="double"/>');
+    lines.push('  <key id="d_type" for="edge" attr.name="relationship_type" attr.type="string"/>');
+    lines.push('  <key id="d_reasoning" for="edge" attr.name="reasoning" attr.type="string"/>');
+    lines.push(`  <graph id="${xmlId(graphId)}" edgedefault="directed">`);
+    lines.push(`    <data key="d_kind">graph</data>`);
+    lines.push(`    <data key="d_description">${escapeXml(graphName || graphId)}</data>`);
+
+    for (const arc of arcs) {
+      lines.push(`    <node id="${xmlId(arc.id)}">`);
+      lines.push(`      <data key="d_kind">arc</data>`);
+      lines.push(`      <data key="d_description">${escapeXml(arc.name)}</data>`);
+      lines.push(`      <data key="d_start">${escapeXml(arc.start_time.toISOString())}</data>`);
+      lines.push(`      <data key="d_end">${escapeXml(arc.end_time.toISOString())}</data>`);
+      lines.push('    </node>');
+    }
+
+    for (const e of events) {
+      lines.push(`    <node id="${xmlId(e.id)}">`);
+      lines.push('      <data key="d_kind">event</data>');
+      lines.push(`      <data key="d_description">${escapeXml(e.description)}</data>`);
+      lines.push(`      <data key="d_actor">${escapeXml(e.actor)}</data>`);
+      lines.push(`      <data key="d_target">${escapeXml(e.target)}</data>`);
+      lines.push(`      <data key="d_timestamp">${escapeXml(e.timestamp.toISOString())}</data>`);
+      lines.push('    </node>');
+    }
+
+    for (const e of events) {
+      const arcId = (e.metadata?.arcId || e.metadata?.arc_id) as string | undefined;
+      if (!arcId) continue;
+      if (!arcs.some((a) => a.id === arcId)) continue;
+      lines.push(`    <edge source="${xmlId(arcId)}" target="${xmlId(e.id)}">`);
+      lines.push('      <data key="d_type">contains</data>');
+      lines.push('    </edge>');
+    }
+
+    // An edge whose endpoints are not nodes of this document would make the
+    // GraphML invalid: a cross-graph relationship names an event this graph
+    // does not hold. The edge is left out, and the export says how many were
+    // left out rather than pretending the graph has no relationships.
+    const nodeIds = new Set<string>([
+      ...arcs.map((arc) => arc.id),
+      ...events.map((event) => event.id),
+    ]);
+
+    for (const r of relationships) {
+      if (!nodeIds.has(r.cause_event_id) || !nodeIds.has(r.effect_event_id)) {
+        continue;
+      }
+      lines.push(`    <edge source="${xmlId(r.cause_event_id)}" target="${xmlId(r.effect_event_id)}">`);
+      lines.push(`      <data key="d_weight">${r.weight}</data>`);
+      lines.push(`      <data key="d_type">${escapeXml(r.relationship_type)}</data>`);
+      if (r.evidence) {
+        lines.push(`      <data key="d_reasoning">${escapeXml(r.evidence)}</data>`);
+      }
+      lines.push('    </edge>');
+    }
+
+    lines.push('  </graph>');
+    lines.push('</graphml>');
+    return lines.join('\n') + '\n';
   }
 
   generateDot(

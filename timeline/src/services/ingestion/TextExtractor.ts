@@ -78,17 +78,36 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
     const wantsLLM = input.useLLM !== false && this.llmClient !== null;
 
     if (wantsLLM && this.llmClient) {
-      try {
-        const events = await this.llmClient.extractEvents(input.text, context);
-        if (events.length > 0) {
-          return this.toResult(events, 'llm', await this.suggestRelationships(events));
-        }
-      } catch {
-        // Fall through to the deterministic pattern path (spec Req 10.3).
+      const llmResult = await this.extractWithLLM(input, context);
+      if (llmResult) {
+        return llmResult;
       }
     }
 
     return this.extractWithPatterns(input.text, context);
+  }
+
+  /**
+   * Extract with the language model only.
+   *
+   * Returns `null` when no model is configured, when the call fails, or when
+   * the model returned nothing. A caller that wants to know whether the model
+   * was actually used -- the CLI's `hybrid` mode merges the two paths, and its
+   * `llm` mode refuses to pretend a pattern extraction was a model extraction
+   * -- needs that difference, which {@link extract} does not expose.
+   */
+  async extractWithLLM(
+    input: TextExtractionInput,
+    context?: ExtractionContext
+  ): Promise<ExtractionResult | null> {
+    if (!this.llmClient) return null;
+    try {
+      const events = await this.llmClient.extractEvents(input.text, context);
+      if (events.length === 0) return null;
+      return this.toResult(events, 'llm', await this.suggestRelationships(events));
+    } catch {
+      return null;
+    }
   }
 
   /**
