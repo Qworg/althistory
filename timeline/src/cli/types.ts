@@ -98,7 +98,13 @@ export interface CausalRelationshipDto {
 }
 
 export interface ValidationIssueDto {
-  type: 'temporal' | 'containment' | 'causal_direction' | 'causal_cycle' | 'orphan_reference';
+  type:
+    | 'temporal'
+    | 'containment'
+    | 'causal_direction'
+    | 'causal_cycle'
+    | 'orphan_reference'
+    | 'cross_graph_reference';
   severity: 'error' | 'warning';
   message: string;
   entityId?: string;
@@ -115,20 +121,27 @@ export interface ValidationReportDto {
   repaired?: boolean;
   repairsApplied?: string[];
   /**
-   * The repairs that were tried and could not be carried out.
+   * The repairs that were not made, and why.
    *
-   * A repair that fails is reported rather than hidden. The issue it was
-   * meant to clear may or may not still be in `issues`: a repair that
-   * removed the link and then failed to put the reversed one in its place
-   * has cleared the issue by removing the link altogether, and the report
-   * says that.
+   * A repair that fails is reported rather than hidden. A reference that
+   * points into another graph, a cross-graph lookup that failed and a store
+   * that refused a delete are reported here too: they are not repairs, so
+   * they are not counted as one.
+   *
+   * The issue a failed repair meant to clear may or may not still be in
+   * `issues`: a repair that removed the link and then failed to put the
+   * reversed one in its place has cleared the issue by removing the link
+   * altogether, and the report says that.
    */
-  repairsFailed?: string[];
+  repairFailures?: string[];
 }
+
+/** The formats an export can be rendered in. */
+export type ExportFormat = 'json' | 'markdown' | 'dot' | 'graphml';
 
 export interface ExportResultDto {
   graphId: string;
-  format: 'json' | 'markdown' | 'dot';
+  format: ExportFormat;
   content?: string;
   outputPath?: string;
   bytesWritten?: number;
@@ -167,6 +180,9 @@ export interface IngestUrlOptions {
   depth?: number;
   maxPages?: number;
   filter?: string;
+  provider?: 'openai' | 'anthropic';
+  model?: string;
+  temperature?: number;
   groupArcs?: boolean;
   inferCauses?: boolean;
   minConfidence?: number;
@@ -201,6 +217,20 @@ export interface IngestResultDto {
   arcsCreated: number;
   relationshipsCreated: number;
   dryRun: boolean;
+  /**
+   * Set when the extraction was returned for review and nothing was written.
+   *
+   * The daemon's ingestion routes return a review job that holds the
+   * extracted entities until a reviewer approves it, so a remote ingestion
+   * creates nothing. The job is named here, so the caller knows where the
+   * entities are waiting.
+   */
+  pendingReview?: {
+    jobId: string;
+    events: number;
+    arcs: number;
+    relationships: number;
+  };
   entities: {
     events: EventDto[];
     arcs: ArcDto[];

@@ -2,7 +2,10 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Event, Arc } from '@/models';
-import { ExportResultDto } from '../types';
+import { ExportFormat, ExportResultDto } from '../types';
+
+/** The formats an export can be rendered in. */
+export type { ExportFormat };
 
 export interface ExportRelationship {
   id: string;
@@ -22,7 +25,7 @@ export class GraphExporter {
     events: Event[],
     arcs: Arc[],
     relationships: ExportRelationship[],
-    format: 'json' | 'markdown' | 'dot' = 'json',
+    format: ExportFormat = 'json',
     outputPath?: string
   ): Promise<ExportResultDto> {
     let content = '';
@@ -36,6 +39,9 @@ export class GraphExporter {
         break;
       case 'dot':
         content = this.generateDot(graphId, graphName, events, arcs, relationships);
+        break;
+      case 'graphml':
+        content = this.generateGraphML(graphId, graphName, events, arcs, relationships);
         break;
       default:
         content = this.generateJson(graphId, graphName, description, events, arcs, relationships);
@@ -187,6 +193,89 @@ export class GraphExporter {
     }
 
     return md;
+  }
+
+  /**
+   * Render the graph as GraphML.
+   *
+   * GraphML is the interchange format the graph editors read, so the events
+   * and the arcs are both nodes: an arc is a node that contains the events
+   * whose `arcId` metadata names it, and the causal links are the edges
+   * between the event nodes.
+   */
+  generateGraphML(
+    graphId: string,
+    graphName: string,
+    events: Event[],
+    arcs: Arc[],
+    relationships: ExportRelationship[]
+  ): string {
+    const escapeXml = (value: string): string =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+
+    const lines: string[] = [];
+    lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+    lines.push('<graphml xmlns="http://graphml.graphdrawing.org/xmlns">');
+    lines.push('  <key id="d_kind" for="node" attr.name="kind" attr.type="string"/>');
+    lines.push('  <key id="d_description" for="node" attr.name="description" attr.type="string"/>');
+    lines.push('  <key id="d_actor" for="node" attr.name="actor" attr.type="string"/>');
+    lines.push('  <key id="d_target" for="node" attr.name="target" attr.type="string"/>');
+    lines.push('  <key id="d_timestamp" for="node" attr.name="timestamp" attr.type="string"/>');
+    lines.push('  <key id="d_start" for="node" attr.name="start_time" attr.type="string"/>');
+    lines.push('  <key id="d_end" for="node" attr.name="end_time" attr.type="string"/>');
+    lines.push('  <key id="d_weight" for="edge" attr.name="weight" attr.type="double"/>');
+    lines.push('  <key id="d_type" for="edge" attr.name="relationship_type" attr.type="string"/>');
+    lines.push('  <key id="d_reasoning" for="edge" attr.name="reasoning" attr.type="string"/>');
+    lines.push(`  <graph id="${escapeXml(graphId)}" edgedefault="directed">`);
+    lines.push(`    <data key="d_kind">graph</data>`);
+    lines.push(`    <data key="d_description">${escapeXml(graphName || graphId)}</data>`);
+
+    for (const arc of arcs) {
+      lines.push(`    <node id="${escapeXml(arc.id)}">`);
+      lines.push(`      <data key="d_kind">arc</data>`);
+      lines.push(`      <data key="d_description">${escapeXml(arc.name)}</data>`);
+      lines.push(`      <data key="d_start">${escapeXml(arc.start_time.toISOString())}</data>`);
+      lines.push(`      <data key="d_end">${escapeXml(arc.end_time.toISOString())}</data>`);
+      lines.push('    </node>');
+    }
+
+    for (const e of events) {
+      lines.push(`    <node id="${escapeXml(e.id)}">`);
+      lines.push('      <data key="d_kind">event</data>');
+      lines.push(`      <data key="d_description">${escapeXml(e.description)}</data>`);
+      lines.push(`      <data key="d_actor">${escapeXml(e.actor)}</data>`);
+      lines.push(`      <data key="d_target">${escapeXml(e.target)}</data>`);
+      lines.push(`      <data key="d_timestamp">${escapeXml(e.timestamp.toISOString())}</data>`);
+      lines.push('    </node>');
+    }
+
+    for (const e of events) {
+      const arcId = (e.metadata?.arcId || e.metadata?.arc_id) as string | undefined;
+      if (!arcId) continue;
+      if (!arcs.some((a) => a.id === arcId)) continue;
+      lines.push(`    <edge source="${escapeXml(arcId)}" target="${escapeXml(e.id)}">`);
+      lines.push('      <data key="d_type">contains</data>');
+      lines.push('    </edge>');
+    }
+
+    for (const r of relationships) {
+      lines.push(`    <edge source="${escapeXml(r.cause_event_id)}" target="${escapeXml(r.effect_event_id)}">`);
+      lines.push(`      <data key="d_weight">${r.weight}</data>`);
+      lines.push(`      <data key="d_type">${escapeXml(r.relationship_type)}</data>`);
+      if (r.evidence) {
+        lines.push(`      <data key="d_reasoning">${escapeXml(r.evidence)}</data>`);
+      }
+      lines.push('    </edge>');
+    }
+
+    lines.push('  </graph>');
+    lines.push('</graphml>');
+    return lines.join('\n') + '\n';
   }
 
   generateDot(

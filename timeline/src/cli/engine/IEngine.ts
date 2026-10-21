@@ -14,6 +14,7 @@ import {
   GenerateSimulateOptions,
   GenerationResultDto,
   ValidationReportDto,
+  ExportFormat,
   ExportResultDto,
   ImportResultDto,
 } from '../types';
@@ -47,6 +48,8 @@ export interface IEngine {
   listArcs(graphId: string): Promise<ArcDto[]>;
   getArc(graphId: string, arcId: string): Promise<ArcDto>;
   deleteArc(graphId: string, arcId: string): Promise<void>;
+  /** Put an event inside an arc, by recording the arc on the event. */
+  assignEventToArc(graphId: string, eventId: string, arcId: string): Promise<EventDto>;
 
   // Causal Relationships
   createCausalLink(graphId: string, data: { causeId: string; effectId: string; weight?: number; type?: string; reasoning?: string }): Promise<CausalRelationshipDto>;
@@ -65,6 +68,6 @@ export interface IEngine {
 
   // Validation & Export
   validateGraph(graphId: string, strict?: boolean, autoRepair?: boolean): Promise<ValidationReportDto>;
-  exportGraph(graphId: string, format?: 'json' | 'markdown' | 'dot', outputPath?: string): Promise<ExportResultDto>;
+  exportGraph(graphId: string, format?: ExportFormat, outputPath?: string): Promise<ExportResultDto>;
   importGraph(contentOrPath: string, options?: { strategy?: 'skip' | 'overwrite' | 'rename'; graphId?: string }): Promise<ImportResultDto>;
 }

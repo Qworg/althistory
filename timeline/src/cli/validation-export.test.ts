@@ -416,6 +416,16 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
       expect(result.content).toContain('->');
     });
 
+    it('exports GraphML with the events, the arcs and the causal links', async () => {
+      const result = await engine.exportGraph(testGraphId, 'graphml');
+      expect(result.format).toBe('graphml');
+      expect(result.content).toContain('<?xml version="1.0" encoding="UTF-8"?>');
+      expect(result.content).toContain('<graphml');
+      expect(result.content).toContain('Yuri Gagarin orbits Earth');
+      expect(result.content).toContain('<edge source=');
+      expect(result.content).toContain('</graphml>');
+    });
+
     it('writes export to disk when outputPath is supplied', async () => {
       const filePath = path.join(tempDir, 'exported-timeline.md');
       const result = await engine.exportGraph(testGraphId, 'markdown', filePath);

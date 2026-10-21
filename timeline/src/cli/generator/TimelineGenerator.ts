@@ -11,6 +11,7 @@
 import { Container } from '@/container';
 import { LLMClient } from '@/services/llm/LLMClient';
 import { Event } from '@/models/Event';
+import { Arc } from '@/models/Arc';
 import { CausalRelationship } from '@/models/relationships';
 import {
   GenerateTimelineOptions,
@@ -25,7 +26,7 @@ import {
   ValidationIssueDto,
 } from '../types';
 import { clusterEventsIntoArcs } from './arcClustering';
-import { ExtractedEvent } from '@/services/ingestion/types';
+import { ExtractedArc, ExtractedEvent } from '@/services/ingestion/types';
 import { isTemporalInversion } from '@/utils/causalOrder';
 
 export interface TimelineGeneratorConfig {
@@ -46,6 +47,68 @@ interface IntermediateCausalLink {
   weight: number;
   type: 'direct' | 'indirect' | 'contributory';
   reasoning: string;
+}
+
+/** An arc together with its place in the hierarchy. */
+interface StructuredArc {
+  tempId: string;
+  name: string;
+  description: string;
+  start_time: string;
+  end_time: string;
+  level: number;
+  parentArcId?: string;
+}
+
+/** The narrative styles the generator can write in. */
+type NarrativeStyle = 'academic' | 'narrative' | 'concise';
+
+/** How each style words a milestone of the generated timeline. */
+const STYLE_RENDERERS: Record<NarrativeStyle, (milestone: string, premise: string) => string> = {
+  academic: (milestone, premise) => `${milestone}, a direct consequence of ${premise}.`,
+  narrative: (milestone, premise) => `In the wake of ${premise}, ${lowerFirst(milestone)}.`,
+  concise: (milestone) => `${milestone}.`,
+};
+
+/** What each style asks of the language model. */
+const STYLE_GUIDANCE: Record<NarrativeStyle, string> = {
+  academic: 'formal, analytical, precise in its claims',
+  narrative: 'narrated in the voice of a historian telling the story',
+  concise: 'terse, one sentence per event',
+};
+
+function lowerFirst(text: string): string {
+  return text.length === 0 ? text : text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+/**
+ * Read a `start/end` time window.
+ *
+ * The window is two ISO-8601 instants separated by a slash (`2020-01-01T00:00:00Z/2020-12-31T00:00:00Z`).
+ * A window that cannot be read is a mistake the caller has to hear about, so
+ * it raises rather than falling back to the graph's own span.
+ */
+export function parseTimeWindow(value: string): { start: number; end: number } {
+  const separator = value.includes('/') ? '/' : value.includes('..') ? '..' : null;
+  if (!separator) {
+    throw new Error(
+      `Invalid time window "${value}": expected two ISO-8601 instants separated by a slash, for example ` +
+        '"2020-01-01T00:00:00Z/2020-12-31T00:00:00Z"'
+    );
+  }
+
+  const [rawStart, rawEnd] = value.split(separator);
+  const start = Date.parse(rawStart.trim());
+  const end = Date.parse(rawEnd.trim());
+
+  if (Number.isNaN(start) || Number.isNaN(end)) {
+    throw new Error(`Invalid time window "${value}": both instants must be ISO-8601 dates`);
+  }
+  if (start >= end) {
+    throw new Error(`Invalid time window "${value}": the start must be before the end`);
+  }
+
+  return { start, end };
 }
 
 export class TimelineGenerator {
@@ -94,11 +157,14 @@ export class TimelineGenerator {
       extractedAt: new Date().toISOString(),
     });
 
+    // The requested depth decides how many levels of arcs the timeline has.
+    const structuredArcs = this.buildArcHierarchy(clusteredArcs, options.depth ?? 1);
+
     // Pass 4: Causal Ripple Synthesis
     const causalLinks = this.generateCausalRipplesPass(intermediateEvents);
 
     // Pass 5: Integrity Verification
-    const validation = this.verifyIntegrityPass(intermediateEvents, clusteredArcs, causalLinks);
+    const validation = this.verifyIntegrityPass(intermediateEvents, structuredArcs, causalLinks);
 
     // Persist or Dry-Run
     if (options.dryRun) {
@@ -113,14 +179,18 @@ export class TimelineGenerator {
         importance: e.importance,
       }));
 
-      const arcDtos: ArcDto[] = clusteredArcs.map((a, idx) => ({
+      const dryArcIdByTempId = new Map<string, string>(
+        structuredArcs.map((arc, index) => [arc.tempId, `arc-dry-${index}`])
+      );
+      const arcDtos: ArcDto[] = structuredArcs.map((a, idx) => ({
         id: `arc-dry-${idx}`,
         graphId: dryGraphId,
         name: a.name,
         description: a.description,
         startTime: a.start_time,
         endTime: a.end_time,
-        level: a.level ?? 0,
+        level: a.level,
+        parentArcId: a.parentArcId ? dryArcIdByTempId.get(a.parentArcId) : undefined,
       }));
 
       const relDtos: CausalRelationshipDto[] = causalLinks.map((l, idx) => ({
@@ -185,7 +255,11 @@ export class TimelineGenerator {
     }
 
     const persistedArcs: ArcDto[] = [];
-    for (const a of clusteredArcs) {
+    // The parents are created first, so that a child arc can name the arc it
+    // belongs to by its real id.
+    const arcIdByTempId = new Map<string, string>();
+    const orderedArcs = [...structuredArcs].sort((a, b) => a.level - b.level);
+    for (const a of orderedArcs) {
       const startTime = new Date(a.start_time);
       let endTime = new Date(a.end_time);
       if (startTime.getTime() >= endTime.getTime()) {
@@ -196,8 +270,10 @@ export class TimelineGenerator {
         description: a.description || '',
         start_time: startTime,
         end_time: endTime,
-        level: a.level ?? 0,
+        level: a.level,
+        metadata: a.parentArcId ? { parentArcId: arcIdByTempId.get(a.parentArcId) } : {},
       });
+      arcIdByTempId.set(a.tempId, created.id);
       try {
         await container.graphWriteVersioningService.recordArc(graphId, created, 'create');
       } catch {
@@ -257,6 +333,118 @@ export class TimelineGenerator {
       relationships: persistedRels,
       validation,
     };
+  }
+
+  /**
+   * Build the arc hierarchy for a generated timeline.
+   *
+   * The clustered arcs are the deepest level. Each further level wraps the
+   * level below it in an enclosing arc, so a depth of two produces a set of
+   * periods inside a set of eras, and a depth of three adds a set of eras
+   * inside a set of grand-eras. The levels are counted from the top: the
+   * arcs with no parent are the top level, and every arc is one level below
+   * its parent. A child is therefore never at the same level as its parent,
+   * and never above it.
+   */
+  private buildArcHierarchy(baseArcs: ExtractedArc[], depth: number): StructuredArc[] {
+    const maxDepth = Math.max(1, Math.min(Math.trunc(depth) || 1, 4));
+
+    let current: StructuredArc[] = baseArcs.map((arc) => ({
+      tempId: arc.tempId,
+      name: arc.name,
+      description: arc.description,
+      start_time: arc.start_time,
+      end_time: arc.end_time,
+      level: 0,
+    }));
+    const all: StructuredArc[] = [...current];
+
+    for (let pass = 0; pass < maxDepth - 1; pass++) {
+      const groups = this.groupArcsForParents(current);
+      const parents: StructuredArc[] = [];
+
+      groups.forEach((group, index) => {
+        const parentId = `arc-era-${pass}-${index}`;
+        const start = group[0].start_time;
+        const end = group[group.length - 1].end_time;
+        const parent: StructuredArc = {
+          tempId: parentId,
+          name: `Era ${start.slice(0, 4)}-${end.slice(0, 4)}`,
+          description: `Enclosing narrative arc for ${group.length} periods`,
+          start_time: start,
+          end_time: end,
+          level: 0,
+        };
+        for (const child of group) {
+          child.parentArcId = parentId;
+        }
+        parents.push(parent);
+      });
+
+      all.push(...parents);
+      current = parents;
+    }
+
+    // The level of an arc is the number of its ancestors. Counting it from
+    // the top keeps a child below its parent at every depth: the levels are
+    // not the pass number, which would put a child of a grand-era on the
+    // same level as the periods it holds.
+    const byTempId = new Map(all.map((arc) => [arc.tempId, arc]));
+    const levelOf = (arc: StructuredArc, seen: Set<string>): number => {
+      if (seen.has(arc.tempId)) return 0;
+      seen.add(arc.tempId);
+      const parentId = arc.parentArcId;
+      if (!parentId) return 0;
+      const parent = byTempId.get(parentId);
+      if (!parent) return 0;
+      return levelOf(parent, seen) + 1;
+    };
+    for (const arc of all) {
+      arc.level = levelOf(arc, new Set<string>());
+    }
+
+    return all;
+  }
+
+  /**
+   * Group arcs into the eras that enclose them.
+   *
+   * The arcs that are close together in time belong to the same era, so the
+   * boundary is drawn where the gap between two arcs is much larger than the
+   * gaps around it.
+   */
+  private groupArcsForParents(arcs: StructuredArc[]): StructuredArc[][] {
+    const sorted = [...arcs].sort(
+      (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+    );
+
+    const gaps: number[] = [];
+    for (let i = 1; i < sorted.length; i++) {
+      const previousEnd = new Date(sorted[i - 1].end_time).getTime();
+      const currentStart = new Date(sorted[i].start_time).getTime();
+      gaps.push(Math.max(0, currentStart - previousEnd));
+    }
+    const sortedGaps = [...gaps].sort((a, b) => a - b);
+    const medianGap = sortedGaps[Math.floor(sortedGaps.length / 2)] || 0;
+    const fiveYearsMs = 5 * 365.25 * 24 * 60 * 60 * 1000;
+    const threshold = Math.max(medianGap * 3, fiveYearsMs);
+
+    const groups: StructuredArc[][] = [];
+    let current: StructuredArc[] = [sorted[0]];
+
+    for (let i = 1; i < sorted.length; i++) {
+      const previousEnd = new Date(sorted[i - 1].end_time).getTime();
+      const currentStart = new Date(sorted[i].start_time).getTime();
+      if (currentStart - previousEnd > threshold) {
+        groups.push(current);
+        current = [sorted[i]];
+      } else {
+        current.push(sorted[i]);
+      }
+    }
+    groups.push(current);
+
+    return groups;
   }
 
   /**
@@ -451,6 +639,12 @@ export class TimelineGenerator {
 
   /**
    * Expands an arc or time window with intermediate micro-events.
+   *
+   * The window is the arc's own span, the span of a `--time-window` range, or
+   * the span of the graph's events, in that order of preference. The events
+   * are placed inside the window and describe what happens between the
+   * milestones that surround them, and the expansion is recorded as an arc of
+   * its own -- a child of the arc that was expanded, when there is one.
    */
   async generateExpand(
     options: GenerateExpandOptions,
@@ -463,14 +657,41 @@ export class TimelineGenerator {
     }
 
     const count = Math.max(2, Math.min(options.eventCount || 3, 10));
-    let windowStart = existingEvents[0].timestamp.getTime();
-    let windowEnd = existingEvents[existingEvents.length - 1].timestamp.getTime();
+    const sorted = [...existingEvents].sort(
+      (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
+    );
+
+    let windowStart = sorted[0].timestamp.getTime();
+    let windowEnd = sorted[sorted.length - 1].timestamp.getTime();
+    let parentArc: Arc | null = null;
 
     if (options.arcId) {
       const arc = await scoped.arcRepository.findById(options.arcId);
       if (arc) {
+        parentArc = arc;
         windowStart = arc.start_time.getTime();
         windowEnd = arc.end_time.getTime();
+      }
+    }
+
+    if (options.timeWindow) {
+      const parsed = parseTimeWindow(options.timeWindow);
+      if (parentArc) {
+        // The expansion has to stay inside the arc it expands, or the graph
+        // would hold an arc that is not contained by its parent.
+        const start = Math.max(parsed.start, windowStart);
+        const end = Math.min(parsed.end, windowEnd);
+        if (start >= end) {
+          throw new Error(
+            `The time window ${options.timeWindow} does not overlap the arc ${parentArc.id} ` +
+              `(${parentArc.start_time.toISOString()} - ${parentArc.end_time.toISOString()})`
+          );
+        }
+        windowStart = start;
+        windowEnd = end;
+      } else {
+        windowStart = parsed.start;
+        windowEnd = parsed.end;
       }
     }
 
@@ -479,14 +700,20 @@ export class TimelineGenerator {
 
     for (let i = 1; i <= count; i++) {
       const timeMs = windowStart + interval * i;
+      const before = [...sorted].reverse().find((e) => e.timestamp.getTime() <= timeMs);
+      const after = sorted.find((e) => e.timestamp.getTime() >= timeMs);
       intermediateEvents.push({
-        description: `Granular escalation event ${i}: localized developments between major milestones`,
+        description: this.describeExpansion(before, after, i, count),
         timestamp: new Date(timeMs).toISOString(),
-        actor: existingEvents[0]?.actor || 'Regional Faction',
-        target: existingEvents[0]?.target || 'Opposing Coalition',
+        actor: before?.actor || existingEvents[0]?.actor || 'Regional Faction',
+        target: before?.target || existingEvents[0]?.target || 'Opposing Coalition',
         importance: 0.6,
       });
     }
+
+    const expansionArcName = parentArc
+      ? `Expansion within ${parentArc.name}`
+      : `Expansion ${new Date(windowStart).toISOString().slice(0, 10)} to ${new Date(windowEnd).toISOString().slice(0, 10)}`;
 
     if (options.dryRun) {
       return {
@@ -495,7 +722,7 @@ export class TimelineGenerator {
         premise: 'Expansion',
         divergencePoint: 'Interpolation',
         eventCount: count,
-        arcCount: 0,
+        arcCount: 1,
         relationshipCount: 0,
         events: intermediateEvents.map((e, idx) => ({
           id: `evt-expand-${idx}`,
@@ -506,7 +733,17 @@ export class TimelineGenerator {
           target: e.target,
           importance: e.importance,
         })),
-        arcs: [],
+        arcs: [
+          {
+            id: 'arc-expand-preview',
+            graphId: options.graphId,
+            name: expansionArcName,
+            description: 'Arc covering the expanded window',
+            startTime: new Date(windowStart).toISOString(),
+            endTime: new Date(windowEnd).toISOString(),
+            parentArcId: parentArc?.id,
+          },
+        ],
         relationships: [],
         validation: {
           valid: true,
@@ -518,6 +755,19 @@ export class TimelineGenerator {
       };
     }
 
+    // The expansion is recorded as an arc, so that the new events are
+    // contained by a narrative arc rather than floating on their own.
+    const createdArc = await scoped.arcRepository.create({
+      name: expansionArcName,
+      description: parentArc
+        ? `Sub-arc of ${parentArc.name} holding ${count} interpolated events`
+        : `Arc holding ${count} interpolated events`,
+      start_time: new Date(windowStart),
+      end_time: new Date(windowEnd),
+      level: parentArc ? parentArc.level + 1 : 0,
+      metadata: parentArc ? { parentArcId: parentArc.id } : {},
+    });
+
     const createdEvents: EventDto[] = [];
     for (const e of intermediateEvents) {
       const created = await scoped.eventRepository.create({
@@ -525,7 +775,7 @@ export class TimelineGenerator {
         timestamp: new Date(e.timestamp),
         actor: e.actor,
         target: e.target,
-        metadata: { importance: e.importance },
+        metadata: { importance: e.importance, arcId: createdArc.id },
       });
       createdEvents.push({
         id: created.id,
@@ -538,16 +788,28 @@ export class TimelineGenerator {
       });
     }
 
+    const createdArcs: ArcDto[] = [
+      {
+        id: createdArc.id,
+        graphId: options.graphId,
+        name: createdArc.name,
+        description: createdArc.description,
+        startTime: createdArc.start_time.toISOString(),
+        endTime: createdArc.end_time.toISOString(),
+        parentArcId: parentArc?.id,
+      },
+    ];
+
     return {
       graphId: options.graphId,
       graphName: 'Expanded Timeline',
       premise: 'Detailed expansion of narrative window',
       divergencePoint: 'Intermediate interpolation',
       eventCount: createdEvents.length,
-      arcCount: 0,
+      arcCount: createdArcs.length,
       relationshipCount: 0,
       events: createdEvents,
-      arcs: [],
+      arcs: createdArcs,
       relationships: [],
       validation: {
         valid: true,
@@ -557,6 +819,23 @@ export class TimelineGenerator {
         issues: [],
       },
     };
+  }
+
+  /**
+   * Describe one interpolated event by the milestones it sits between.
+   *
+   * The description names the events on either side, so a reader can tell
+   * which gap the event fills instead of reading a numbered placeholder.
+   */
+  private describeExpansion(
+    before: Event | undefined,
+    after: Event | undefined,
+    index: number,
+    count: number
+  ): string {
+    const from = before ? `"${before.description}"` : 'the start of the window';
+    const to = after ? `"${after.description}"` : 'the end of the window';
+    return `Local development ${index} of ${count} between ${from} and ${to}`;
   }
 
   /**
@@ -723,12 +1002,15 @@ export class TimelineGenerator {
     startMs: number,
     stepMs: number
   ): Promise<IntermediateEvent[]> {
+    const style: NarrativeStyle = options.style || 'academic';
+
     // If LLM client is available, prompt LLM for structured counterfactual narrative
     if (this.llmClient) {
       try {
         const prompt = `You are an expert counterfactual historian.
 Premise: ${options.premise}
 Point of Divergence: ${options.divergencePoint}
+Style: ${style} (${STYLE_GUIDANCE[style]})
 Generate ${eventCount} chronological historical events demonstrating this counterfactual reality.`;
         const extracted = await this.llmClient.extractEvents(prompt);
         if (extracted.length >= 3) {
@@ -780,7 +1062,10 @@ Generate ${eventCount} chronological historical events demonstrating this counte
     for (let i = 0; i < eventCount; i++) {
       const timeMs = startMs + stepMs * i;
       const milestone = narrativeMilestones[i % narrativeMilestones.length];
-      const desc = i === 0 ? options.divergencePoint : `${milestone} (${options.premise.slice(0, 50)})`;
+      const desc =
+        i === 0
+          ? options.divergencePoint
+          : STYLE_RENDERERS[style](milestone, options.premise.slice(0, 50));
       events.push({
         description: desc,
         timestamp: new Date(timeMs).toISOString(),
@@ -867,6 +1152,20 @@ Generate ${eventCount} chronological historical events demonstrating this counte
       }
     }
 
+    // Acyclicity: the causal links must form a directed acyclic graph. A cycle
+    // is not a temporal paradox -- every link in it can point forwards in
+    // time -- but it makes the timeline causally impossible, so it is
+    // reported as an error of its own.
+    const cycle = this.detectIndexCycle(links);
+    if (cycle) {
+      issues.push({
+        type: 'causal_cycle',
+        severity: 'error',
+        message: `Causal links form a cycle: ${cycle.map((i) => i + 1).join(' -> ')}`,
+        details: { cycle },
+      });
+    }
+
     return {
       valid: issues.length === 0,
       graphId: 'preview',
@@ -874,5 +1173,53 @@ Generate ${eventCount} chronological historical events demonstrating this counte
       warningCount: issues.filter((i) => i.severity === 'warning').length,
       issues,
     };
+  }
+
+  /**
+   * Find a cycle among the causal links, if there is one.
+   *
+   * Returns the event indexes the cycle runs through, or `null` when the
+   * links are acyclic.
+   */
+  private detectIndexCycle(links: IntermediateCausalLink[]): number[] | null {
+    const adjacency = new Map<number, number[]>();
+    for (const link of links) {
+      const neighbours = adjacency.get(link.causeIndex) || [];
+      neighbours.push(link.effectIndex);
+      adjacency.set(link.causeIndex, neighbours);
+    }
+
+    const visited = new Set<number>();
+    const stack: number[] = [];
+    const onStack = new Set<number>();
+
+    const walk = (node: number): number[] | null => {
+      visited.add(node);
+      stack.push(node);
+      onStack.add(node);
+
+      for (const neighbour of adjacency.get(node) || []) {
+        if (onStack.has(neighbour)) {
+          const start = stack.indexOf(neighbour);
+          return [...stack.slice(start), neighbour];
+        }
+        if (!visited.has(neighbour)) {
+          const found = walk(neighbour);
+          if (found) return found;
+        }
+      }
+
+      stack.pop();
+      onStack.delete(node);
+      return null;
+    };
+
+    for (const node of adjacency.keys()) {
+      if (visited.has(node)) continue;
+      const found = walk(node);
+      if (found) return found;
+    }
+
+    return null;
   }
 }

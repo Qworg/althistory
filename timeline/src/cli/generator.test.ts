@@ -138,6 +138,153 @@ describe('TimelineGenerator Multi-Pass Engine', () => {
     expect(allEvents.length).toBe(5); // 3 base + 2 expanded
   });
 
+  it('expands the time window it is given and records the expansion as an arc', async () => {
+    const base = await engine.generateTimeline({
+      premise: 'Space Race',
+      divergencePoint: 'Soviets land on the moon first in 1968',
+      startDate: '1960-01-01T00:00:00Z',
+      endDate: '1980-01-01T00:00:00Z',
+      eventCount: 3,
+      dryRun: false,
+    });
+
+    const expanded = await engine.generateExpand({
+      graphId: base.graphId,
+      timeWindow: '1965-01-01T00:00:00Z/1966-01-01T00:00:00Z',
+      eventCount: 2,
+      dryRun: false,
+    });
+
+    expect(expanded.eventCount).toBe(2);
+    expect(expanded.arcCount).toBe(1);
+
+    // The events are inside the window that was asked for.
+    for (const event of expanded.events) {
+      const time = new Date(event.timestamp).getTime();
+      expect(time).toBeGreaterThanOrEqual(new Date('1965-01-01T00:00:00Z').getTime());
+      expect(time).toBeLessThanOrEqual(new Date('1966-01-01T00:00:00Z').getTime());
+    }
+
+    // The expansion is recorded as an arc, and the events belong to it.
+    const arcs = await engine.listArcs(base.graphId);
+    const expansionArc = arcs.find((arc) => arc.id === expanded.arcs[0].id);
+    expect(expansionArc).toBeDefined();
+    expect(expansionArc?.startTime).toBe('1965-01-01T00:00:00.000Z');
+    expect(expansionArc?.endTime).toBe('1966-01-01T00:00:00.000Z');
+  });
+
+  it('refuses a time window it cannot read', async () => {
+    const base = await engine.generateTimeline({
+      premise: 'Space Race',
+      divergencePoint: 'Soviets land on the moon first in 1968',
+      eventCount: 3,
+      dryRun: false,
+    });
+
+    await expect(
+      engine.generateExpand({
+        graphId: base.graphId,
+        timeWindow: '1965-01-01T00:00:00Z',
+        eventCount: 2,
+        dryRun: true,
+      })
+    ).rejects.toThrow(/Invalid time window/);
+  });
+
+  it('builds an arc hierarchy of the requested depth', async () => {
+    const flat = await engine.generateTimeline({
+      premise: 'What if Napoleon won Waterloo?',
+      divergencePoint: 'The charge succeeds on 18 June 1815',
+      eventCount: 6,
+      depth: 1,
+      dryRun: true,
+    });
+    const nested = await engine.generateTimeline({
+      premise: 'What if Napoleon won Waterloo?',
+      divergencePoint: 'The charge succeeds on 18 June 1815',
+      eventCount: 6,
+      depth: 2,
+      dryRun: true,
+    });
+
+    expect(flat.arcs.every((arc) => arc.level === 0)).toBe(true);
+    expect(nested.arcs.length).toBeGreaterThan(flat.arcs.length);
+    expect(nested.arcs.some((arc) => arc.level === 0)).toBe(true);
+    expect(nested.arcs.some((arc) => arc.level === 1)).toBe(true);
+  });
+
+  it('keeps every arc one level below its parent at every depth', async () => {
+    for (const depth of [2, 3, 4]) {
+      const result = await engine.generateTimeline({
+        premise: 'What if Napoleon won Waterloo?',
+        divergencePoint: 'The charge succeeds on 18 June 1815',
+        eventCount: 8,
+        depth,
+        dryRun: true,
+      });
+
+      const byId = new Map(result.arcs.map((arc) => [arc.id, arc]));
+      const children = result.arcs.filter((arc) => arc.parentArcId);
+      expect(children.length, `depth ${depth}`).toBeGreaterThan(0);
+
+      for (const arc of children) {
+        const parent = byId.get(arc.parentArcId as string);
+        expect(parent, `the parent of ${arc.id} at depth ${depth}`).toBeDefined();
+        // A child is below its parent, never on the same level and never
+        // above it.
+        expect(arc.level).toBe((parent?.level ?? -1) + 1);
+      }
+
+      // The top level is the level without a parent, and the deepest level
+      // is one below the number of levels asked for.
+      expect(result.arcs.some((arc) => arc.level === 0)).toBe(true);
+      expect(result.arcs.some((arc) => arc.level === depth - 1)).toBe(true);
+    }
+  });
+
+  it('persists the parents of the hierarchy before their children', async () => {
+    const result = await engine.generateTimeline({
+      premise: 'What if Napoleon won Waterloo?',
+      divergencePoint: 'The charge succeeds on 18 June 1815',
+      eventCount: 8,
+      depth: 3,
+      dryRun: false,
+    });
+
+    const arcs = await engine.listArcs(result.graphId);
+    const byId = new Map(arcs.map((arc) => [arc.id, arc]));
+    const children = arcs.filter((arc) => arc.parentArcId);
+
+    expect(children.length).toBeGreaterThan(0);
+    for (const arc of children) {
+      // The parent is a real arc of this graph, not an id that names nothing.
+      const parent = byId.get(arc.parentArcId as string);
+      expect(parent).toBeDefined();
+      expect(parent?.level).toBe((arc.level ?? 0) - 1);
+    }
+  });
+
+  it('writes the timeline in the style it is asked for', async () => {
+    const academic = await engine.generateTimeline({
+      premise: 'What if Napoleon won Waterloo?',
+      divergencePoint: 'The charge succeeds on 18 June 1815',
+      eventCount: 4,
+      style: 'academic',
+      dryRun: true,
+    });
+    const concise = await engine.generateTimeline({
+      premise: 'What if Napoleon won Waterloo?',
+      divergencePoint: 'The charge succeeds on 18 June 1815',
+      eventCount: 4,
+      style: 'concise',
+      dryRun: true,
+    });
+
+    expect(academic.events[1].description).toContain('a direct consequence of');
+    expect(concise.events[1].description).not.toContain('a direct consequence of');
+    expect(concise.events[1].description.length).toBeLessThan(academic.events[1].description.length);
+  });
+
   it('simulates forward progression into the future', async () => {
     const base = await engine.generateTimeline({
       premise: 'Pax Romana',
