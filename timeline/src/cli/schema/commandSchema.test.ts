@@ -38,8 +38,47 @@ describe('the JSON Schema of the commands', () => {
     const options = optionsOf(definition);
 
     expect(options.required).toEqual(['graphId', 'arc']);
-    // The options object itself is required when it holds required options.
-    expect(definition.required).toEqual(['options']);
+    // The options object itself is required when it holds required options,
+    // and so are the arguments: `minItems` inside an optional property is
+    // inert, so the array has to be required for it to constrain anything.
+    expect(definition.required).toEqual(['options', 'arguments']);
+  });
+
+  it('requires the arguments of a command that has a required argument', () => {
+    // `arc assign <event-id> --graph-id … --arc …` cannot run without its
+    // event id. `minItems` inside an optional `arguments` property is inert,
+    // so the array itself has to be required for the count to constrain
+    // anything: a document with no `arguments` at all must not validate.
+    const definition = definitionOf(schema, 'arc assign');
+    const properties = definition.properties as Record<string, Record<string, unknown>>;
+    const args = properties.arguments;
+
+    expect(definition.required).toContain('arguments');
+    expect(args.minItems).toBe(1);
+  });
+
+  it('does not require the arguments of a command that takes none', () => {
+    // The other direction: a command whose arguments are all optional must not
+    // be made to carry an `arguments` array.
+    const definition = definitionOf(schema, 'graph list');
+    const required = (definition.required as string[] | undefined) ?? [];
+
+    expect(required).not.toContain('arguments');
+  });
+
+  it('ties every command to its own definition', () => {
+    // The `command` enum alone would let any command name any shape; the
+    // `allOf`/`if`/`then` wiring is what makes the definition apply.
+    const branches = schema.allOf as Array<Record<string, unknown>>;
+    expect(branches).toHaveLength((schema.$defs as Record<string, unknown>) ? branches.length : 0);
+
+    for (const branch of branches) {
+      const condition = branch.if as { properties: { command: { const: string } } };
+      const then = branch.then as { $ref: string };
+      const path = condition.properties.command.const;
+      expect(then.$ref).toBe(`#/$defs/${encodeURIComponent(path)}`);
+      expect(definitionOf(schema, path)).toBeDefined();
+    }
   });
 
   it('leaves the options of a command that needs none alone', () => {

@@ -24,7 +24,7 @@ to the daemon over HTTP, and every request that names a graph says so in the
 | `validate` | Validates a graph, and with `--auto-repair` repairs what it can. |
 | `export` | Exports a graph as `json`, `markdown`, `dot` or `graphml`. |
 | `import` | Imports a graph from a JSON document. |
-| `schema` | The JSON Schema of every command (`--mcp` for the MCP tools, `--tool` for one of them). |
+| `schema` | The JSON Schema of every command, with the required options and arguments marked required (`--mcp` for the MCP tool dictionary, `--tool` for one tool). The default output used to be the MCP tool dictionary; it is now the command schema, which is what the flag list has always described. |
 | `mcp` | The stdio MCP server. |
 
 ## The ingestion modes

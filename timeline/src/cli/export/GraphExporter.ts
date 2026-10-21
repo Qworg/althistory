@@ -210,8 +210,22 @@ export class GraphExporter {
     arcs: Arc[],
     relationships: ExportRelationship[]
   ): string {
+    // XML 1.0 does not allow the C0 controls other than tab, newline and
+    // carriage return, nor the two non-characters below -- not even as
+    // numeric references. They are dropped rather than escaped: a document
+    // that carries one would not parse at all.
+    const isXmlChar = (code: number): boolean =>
+      code === 0x09 ||
+      code === 0x0a ||
+      code === 0x0d ||
+      (code >= 0x20 && code <= 0xd7ff) ||
+      (code >= 0xe000 && code <= 0xfffd) ||
+      (code >= 0x10000 && code <= 0x10ffff);
+
     const escapeXml = (value: string): string =>
-      value
+      Array.from(value)
+        .filter((character) => isXmlChar(character.codePointAt(0) ?? 0))
+        .join('')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
@@ -263,7 +277,19 @@ export class GraphExporter {
       lines.push('    </edge>');
     }
 
+    // An edge whose endpoints are not nodes of this document would make the
+    // GraphML invalid: a cross-graph relationship names an event this graph
+    // does not hold. The edge is left out, and the export says how many were
+    // left out rather than pretending the graph has no relationships.
+    const nodeIds = new Set<string>([
+      ...arcs.map((arc) => arc.id),
+      ...events.map((event) => event.id),
+    ]);
+
     for (const r of relationships) {
+      if (!nodeIds.has(r.cause_event_id) || !nodeIds.has(r.effect_event_id)) {
+        continue;
+      }
       lines.push(`    <edge source="${escapeXml(r.cause_event_id)}" target="${escapeXml(r.effect_event_id)}">`);
       lines.push(`      <data key="d_weight">${r.weight}</data>`);
       lines.push(`      <data key="d_type">${escapeXml(r.relationship_type)}</data>`);

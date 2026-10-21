@@ -61,10 +61,20 @@ export function parseExportDocument(document: unknown): ParsedExportDocument {
     throw new Error('Export response has no "data" section');
   }
 
+  // An export document always carries its three collections, even when the
+  // graph they describe is empty. Their absence means this is something else
+  // -- most often the 202 answer that carries an export job -- and rendering
+  // it would produce a well-formed document describing an empty graph.
+  if (!Array.isArray(data.events) || !Array.isArray(data.arcs)) {
+    throw new Error(
+      'Export response is not an export document: it has no "events" and "arcs" collections'
+    );
+  }
+
   const metadata = isRecord(document.metadata) ? document.metadata : {};
 
-  const rawEvents = Array.isArray(data.events) ? data.events : [];
-  const rawArcs = Array.isArray(data.arcs) ? data.arcs : [];
+  const rawEvents = data.events;
+  const rawArcs = data.arcs;
   const rawRelationships = Array.isArray(data.causalRelationships) ? data.causalRelationships : [];
 
   const events: Event[] = [];

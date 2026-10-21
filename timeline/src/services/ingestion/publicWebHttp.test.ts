@@ -12,8 +12,10 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   PublicWebHttpClient,
   assertPublicWebUrl,
+  assertPublicWebUrlResolved,
   isInternalHost,
   MAX_DOCUMENT_BYTES,
+  type HostResolver,
 } from './publicWebHttp';
 
 afterEach(() => {
@@ -105,12 +107,108 @@ describe('assertPublicWebUrl', () => {
   });
 });
 
+/**
+ * A resolver that answers from a table instead of from the network.
+ *
+ * The client is given one in every test: without it the tests would depend on
+ * `example.org` really resolving.
+ */
+function resolverFor(table: Record<string, string[]>): HostResolver {
+  return async (host) => {
+    const addresses = table[host];
+    if (!addresses) {
+      throw new Error(`getaddrinfo ENOTFOUND ${host}`);
+    }
+    return addresses;
+  };
+}
+
+const PUBLIC = resolverFor({
+  'example.org': ['93.184.216.34'],
+  'public.example': ['93.184.216.35'],
+});
+
+describe('assertPublicWebUrlResolved', () => {
+  it('refuses a public-looking name that resolves to the loopback', async () => {
+    // `127.0.0.1.nip.io` and `sslip.io` are the classic way round a check
+    // that only reads the URL's text: the name is public, the address is not.
+    const resolver = resolverFor({ '127.0.0.1.nip.io': ['127.0.0.1'] });
+
+    await expect(
+      assertPublicWebUrlResolved('https://127.0.0.1.nip.io/history', resolver)
+    ).rejects.toThrow(/resolves to the internal address 127\.0\.0\.1/);
+  });
+
+  it('refuses a name that resolves to the link-local metadata address', async () => {
+    const resolver = resolverFor({ 'metadata.example': ['169.254.169.254'] });
+
+    await expect(
+      assertPublicWebUrlResolved('https://metadata.example/latest', resolver)
+    ).rejects.toThrow(/internal address/);
+  });
+
+  it('refuses a name when *any* of its addresses is internal', async () => {
+    // A name with several `A` records is not safe just because the first one
+    // is public: the connection may go to any of them.
+    const resolver = resolverFor({ 'split.example': ['93.184.216.34', '10.0.0.7'] });
+
+    await expect(
+      assertPublicWebUrlResolved('https://split.example/history', resolver)
+    ).rejects.toThrow(/10\.0\.0\.7/);
+  })
+
+  it('refuses a name that resolves to an internal IPv6 address', async () => {
+    const resolver = resolverFor({ 'six.example': ['fd00::1'] });
+
+    await expect(
+      assertPublicWebUrlResolved('https://six.example/history', resolver)
+    ).rejects.toThrow(/internal address/);
+  });
+
+  it('refuses a name that cannot be resolved', async () => {
+    const resolver = resolverFor({});
+
+    await expect(
+      assertPublicWebUrlResolved('https://nowhere.example/history', resolver)
+    ).rejects.toThrow(/Could not resolve nowhere\.example/);
+  });
+
+  it('refuses a name that resolves to nothing', async () => {
+    const resolver = resolverFor({ 'empty.example': [] });
+
+    await expect(
+      assertPublicWebUrlResolved('https://empty.example/history', resolver)
+    ).rejects.toThrow(/names no address/);
+  });
+
+  it('accepts a name that resolves only to public addresses', async () => {
+    const resolver = resolverFor({ 'example.org': ['93.184.216.34', '2606:2800:220:1::1'] });
+
+    await expect(
+      assertPublicWebUrlResolved('https://example.org/history', resolver)
+    ).resolves.toBeInstanceOf(URL);
+  });
+
+  it('does not resolve a literal address, because it has already been checked', async () => {
+    let asked = false;
+    const resolver: HostResolver = async () => {
+      asked = true;
+      return ['10.0.0.1'];
+    };
+
+    await expect(
+      assertPublicWebUrlResolved('https://93.184.216.34/history', resolver)
+    ).resolves.toBeInstanceOf(URL);
+    expect(asked).toBe(false);
+  });
+});
+
 describe('PublicWebHttpClient', () => {
   it('never asks for an internal address', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
-    const client = new PublicWebHttpClient();
+    const client = new PublicWebHttpClient(undefined, PUBLIC);
     await expect(client.request({ url: 'https://127.0.0.1/history' })).rejects.toThrow(/internal host/);
     await expect(client.request({ url: 'https://[::1]/history' })).rejects.toThrow(/internal host/);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -122,8 +220,40 @@ describe('PublicWebHttpClient', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const client = new PublicWebHttpClient();
+    const client = new PublicWebHttpClient(undefined, PUBLIC);
     await expect(client.request({ url: 'https://example.org/history' })).rejects.toThrow(/internal host/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a name that resolves to an internal address', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const internal = resolverFor({ '127.0.0.1.nip.io': ['127.0.0.1'] });
+    const client = new PublicWebHttpClient(undefined, internal);
+
+    await expect(client.request({ url: 'https://127.0.0.1.nip.io/history' })).rejects.toThrow(
+      /internal address/
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('checks the addresses of every redirect hop, not only its text', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(null, { status: 302, headers: { location: 'https://metadata.example/latest' } })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const resolver = resolverFor({
+      'example.org': ['93.184.216.34'],
+      'metadata.example': ['169.254.169.254'],
+    });
+    const client = new PublicWebHttpClient(undefined, resolver);
+
+    await expect(client.request({ url: 'https://example.org/history' })).rejects.toThrow(
+      /internal address/
+    );
+    // The first hop was fetched; the second was refused before it was.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -133,7 +263,7 @@ describe('PublicWebHttpClient', () => {
       vi.fn(async () => new Response('<p>hello</p>', { status: 200, headers: { 'content-type': 'text/html' } }))
     );
 
-    const client = new PublicWebHttpClient();
+    const client = new PublicWebHttpClient(undefined, PUBLIC);
     const response = await client.request({ url: 'https://example.org/history' });
 
     expect(response.status).toBe(200);
@@ -148,7 +278,7 @@ describe('PublicWebHttpClient', () => {
     const oversized = 'é'.repeat(3 * 1024 * 1024);
     vi.stubGlobal('fetch', vi.fn(async () => new Response(oversized, { status: 200 })));
 
-    const client = new PublicWebHttpClient();
+    const client = new PublicWebHttpClient(undefined, PUBLIC);
     await expect(client.request({ url: 'https://example.org/big' })).rejects.toThrow(/larger than/);
   });
 
@@ -165,7 +295,7 @@ describe('PublicWebHttpClient', () => {
       vi.fn(async () => new Response(stream, { status: 200 }))
     );
 
-    const client = new PublicWebHttpClient();
+    const client = new PublicWebHttpClient(undefined, PUBLIC);
     await expect(client.request({ url: 'https://example.org/stream' })).rejects.toThrow(/larger than/);
   });
 
@@ -173,7 +303,7 @@ describe('PublicWebHttpClient', () => {
     const body = 'x'.repeat(1024);
     vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 200 })));
 
-    const client = new PublicWebHttpClient();
+    const client = new PublicWebHttpClient(undefined, PUBLIC);
     const response = await client.request({ url: 'https://example.org/small' });
     expect(response.body).toBe(body);
   });

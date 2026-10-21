@@ -1191,13 +1191,15 @@ export class RemoteEngine implements IEngine {
   }
 
   /**
-   * Validate a graph over the wire.
+   * Validate a graph that lives on the daemon.
    *
-   * The daemon's `POST /api/validate/graph` validates the arrays it is given
-   * and nothing else, so the CLI sends the graph's own events, arcs and
-   * relationships. The same validator the direct engine runs is used, which
-   * means remote validation reports the same issues -- including causal
-   * cycles, which the daemon's validator does not look for.
+   * The daemon's own validation route is not used: `POST /api/validate/graph`
+   * validates the arrays it is given and nothing else, so it cannot look at
+   * the graph that is stored. The CLI therefore fetches the graph's events,
+   * arcs and relationships and runs the same `GraphValidator` the direct
+   * engine runs over them, which is why remote validation reports the same
+   * issues -- including the causal cycles the daemon's route does not look
+   * for -- and can repair them the same way.
    */
   async validateGraph(
     graphId: string,
@@ -1225,10 +1227,20 @@ export class RemoteEngine implements IEngine {
       const res = await this.client.get('/api/export', {
         headers: this.graphHeaders(graphId),
       });
-      const document = res.data;
+
+      // A graph above the daemon's entity threshold is exported as a job
+      // rather than inline: the daemon answers 202 with the job, and the
+      // document has to be fetched once the job has finished. Treating that
+      // answer as a document would write a well-formed, empty graph and
+      // report success.
+      const document =
+        res.status === 202 ? await this.awaitExportJob(res.data, graphId) : res.data;
 
       let content: string;
       if (format === 'json') {
+        // Validated for every format: a document that is not an export
+        // document must not be written to a file as if it were one.
+        parseExportDocument(document);
         content = typeof document === 'string' ? document : JSON.stringify(document, null, 2);
       } else {
         const parsed = parseExportDocument(document);
@@ -1259,6 +1271,62 @@ export class RemoteEngine implements IEngine {
     } catch (err) {
       return this.handleError(err, 'exporting graph');
     }
+  }
+
+  /**
+   * Wait for an export job and read the document it produced.
+   *
+   * The daemon answers `GET /export` with 202 and the job when the graph is
+   * too large to render synchronously. The job's status is polled until it
+   * finishes, and the finished export is downloaded.
+   */
+  private async awaitExportJob(answer: unknown, graphId: string): Promise<unknown> {
+    const jobId = isRecord(answer) && isRecord(answer.data)
+      ? answer.data.jobId ?? answer.data.id
+      : undefined;
+
+    if (typeof jobId !== 'string' || jobId.length === 0) {
+      throw new CLIError(
+        'The daemon started an asynchronous export but did not name the job',
+        ExitCode.GENERAL_ERROR
+      );
+    }
+
+    const pollIntervalMs = 250;
+    const maxAttempts = 120; // 30 seconds
+    let lastStatus = 'pending';
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const status = await this.client.get(`/api/export/jobs/${jobId}`, {
+        headers: this.graphHeaders(graphId),
+      });
+      const job = isRecord(status.data) && isRecord(status.data.data) ? status.data.data : undefined;
+      const jobStatus = typeof job?.status === 'string' ? job.status : undefined;
+
+      if (jobStatus) lastStatus = jobStatus;
+
+      if (jobStatus === 'completed') {
+        const download = await this.client.get(`/api/export/jobs/${jobId}/download`, {
+          headers: this.graphHeaders(graphId),
+        });
+        return download.data;
+      }
+
+      if (jobStatus === 'failed' || jobStatus === 'cancelled') {
+        const reason = typeof job?.error === 'string' ? `: ${job.error}` : '';
+        throw new CLIError(
+          `The daemon's export job ${jobId} ended as "${jobStatus}"${reason}`,
+          ExitCode.GENERAL_ERROR
+        );
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+
+    throw new CLIError(
+      `The daemon's export job ${jobId} did not finish within the wait (last status: ${lastStatus})`,
+      ExitCode.GENERAL_ERROR
+    );
   }
 
   async importGraph(

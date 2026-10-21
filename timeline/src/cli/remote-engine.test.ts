@@ -303,17 +303,47 @@ function createDaemon(): { app: Express; requests: RecordedRequest[]; state: Dae
     });
   });
 
+  const exportDocument = (): Record<string, unknown> => ({
+    version: '1.0',
+    metadata: { graphId: 'g1', graphName: 'First', description: '', graphVersion: 1 },
+    data: {
+      events: state.events,
+      arcs: state.arcs,
+      causalRelationships: state.relationships,
+      inferredPressures: [],
+    },
+  });
+
   app.get('/api/export', (_req, res) => {
+    // A graph above the entity threshold is answered with a job instead of
+    // the document, exactly as the daemon does.
+    if (state.asyncExport) {
+      res.status(202).json({
+        success: true,
+        data: { jobId: 'job-1', type: 'export', status: 'pending', entityCount: 5000 },
+        message: 'Export has 5000 entities, above the 1000-entity synchronous limit; an export job was created',
+      });
+      return;
+    }
+    res.json(exportDocument());
+  });
+
+  app.get('/api/export/jobs/:jobId', (_req, res) => {
+    const status = state.exportJobStatus ?? 'completed';
     res.json({
-      version: '1.0',
-      metadata: { graphId: 'g1', graphName: 'First', description: '', graphVersion: 1 },
+      success: true,
       data: {
-        events: state.events,
-        arcs: state.arcs,
-        causalRelationships: state.relationships,
-        inferredPressures: [],
+        id: 'job-1',
+        type: 'export',
+        status,
+        progress: status === 'completed' ? 100 : 10,
+        ...(status === 'failed' ? { error: 'the export ran out of room' } : {}),
       },
     });
+  });
+
+  app.get('/api/export/jobs/:jobId/download', (_req, res) => {
+    res.json(exportDocument());
   });
 
   return { app, requests, state };
@@ -328,6 +358,10 @@ interface DaemonState {
    * model answered, `text` when the patterns did.
    */
   ingestSourceType?: 'llm' | 'text';
+  /** Whether `GET /export` answers 202 with a job instead of the document. */
+  asyncExport?: boolean;
+  /** The status the export job reports while it is being polled. */
+  exportJobStatus?: 'pending' | 'completed' | 'failed';
   /** The graphs the daemon lists. */
   graphs?: Array<{ id: string; name: string; version: number }>;
   /** Whether the next request for the graphs is rate limited. */
@@ -710,5 +744,44 @@ describe('RemoteEngine against a stand-in daemon', () => {
     const graphml = await engine.exportGraph('g1', 'graphml');
     expect(graphml.content).toContain('<graphml');
     expect(graphml.content).toContain('event-1');
+  });
+
+  it('follows the export job the daemon starts for a large graph', async () => {
+    // The daemon answers 202 with a job above its entity threshold. Rendering
+    // that answer as a document would write a well-formed, empty graph and
+    // report success.
+    daemon.state.asyncExport = true;
+    daemon.state.exportJobStatus = 'pending';
+    daemon.state.events.push({
+      id: 'event-1',
+      description: 'The Congress votes',
+      actor: 'Continental Congress',
+      target: 'King George III',
+      timestamp: '1776-07-04T00:00:00Z',
+      metadata: { graphId: 'g1' },
+    });
+
+    // The job finishes on the second poll.
+    let polls = 0;
+    const originalStatus = daemon.state.exportJobStatus;
+    const statusTimer = setInterval(() => {
+      polls += 1;
+      if (polls >= 2) daemon.state.exportJobStatus = 'completed';
+    }, 20);
+
+    try {
+      const markdown = await engine.exportGraph('g1', 'markdown');
+      expect(markdown.content).toContain('The Congress votes');
+    } finally {
+      clearInterval(statusTimer);
+      daemon.state.exportJobStatus = originalStatus;
+    }
+  });
+
+  it('reports a failed export job instead of writing an empty graph', async () => {
+    daemon.state.asyncExport = true;
+    daemon.state.exportJobStatus = 'failed';
+
+    await expect(engine.exportGraph('g1', 'markdown')).rejects.toThrow(/export job job-1 ended as "failed"/);
   });
 });

@@ -13,16 +13,22 @@
  *   internal address, neither as a literal nor as a name that is reserved for
  *   internal use (`localhost`, `*.local`, `*.internal`);
  * - redirects are followed, and every hop is checked again;
+ * - a host name is resolved, and the fetch is refused when *any* address it
+ *   resolves to is internal -- checking the name's literal text alone would
+ *   let `127.0.0.1.nip.io` or an attacker's own `A` record reach the loopback
+ *   or the link-local metadata address;
  * - the body is read as a stream and is refused once it grows past the size
  *   cap, so a page that never ends is not buffered in full.
  *
- * A host *name* that resolves to an internal address is not caught by these
- * rules -- that needs DNS resolution and an address check, which is out of
- * scope here. The rules above are the ones that can be enforced, and they are
- * enforced on every hop.
+ * What this does not close is a name that resolves externally for the check
+ * and internally for the connection (DNS rebinding): `fetch` resolves the
+ * name again when it connects. Closing that needs the connection pinned to
+ * the checked address, which the standard `fetch` does not expose. The gap is
+ * named here rather than papered over.
  */
 
 import { isIP } from 'net';
+import { lookup } from 'dns/promises';
 import { HttpClient, HttpRequest, HttpResponse, HttpRequestError } from './http';
 
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -185,6 +191,32 @@ export function isInternalHost(host: string): boolean {
 }
 
 /**
+ * How a host name is turned into the addresses it names.
+ *
+ * Injected so the tests can answer without asking a real resolver.
+ */
+export type HostResolver = (host: string) => Promise<string[]>;
+
+const defaultResolver: HostResolver = async (host) => {
+  const records = await lookup(host, { all: true, verbatim: true });
+  return records.map((record) => record.address);
+};
+
+/**
+ * Whether a resolved address is one the client must not connect to.
+ *
+ * The value is an address rather than a name, so this is the address check
+ * alone.
+ */
+export function isInternalAddress(address: string): boolean {
+  const version = isIP(normalizeHost(address));
+  if (version === 4) return isInternalIPv4(normalizeHost(address));
+  if (version === 6) return isInternalIPv6(normalizeHost(address));
+  // Not an address at all: treat it as internal rather than letting it past.
+  return true;
+}
+
+/**
  * Validate a URL for a web document fetch.
  *
  * Throws when the URL cannot be fetched safely; the message names the reason
@@ -207,13 +239,58 @@ export function assertPublicWebUrl(rawUrl: string): URL {
 }
 
 /**
+ * Validate a URL, including the addresses its host name resolves to.
+ *
+ * A literal address is already checked by {@link assertPublicWebUrl}. A name
+ * is resolved, and the fetch is refused when any address it names is
+ * internal: a public-looking name is not evidence of a public destination.
+ */
+export async function assertPublicWebUrlResolved(
+  rawUrl: string,
+  resolver: HostResolver = defaultResolver
+): Promise<URL> {
+  const parsed = assertPublicWebUrl(rawUrl);
+
+  const host = normalizeHost(parsed.hostname);
+  if (isIP(host) !== 0) {
+    // A literal address: `assertPublicWebUrl` has already checked it.
+    return parsed;
+  }
+
+  let addresses: string[];
+  try {
+    addresses = await resolver(host);
+  } catch (error) {
+    throw new Error(
+      `Could not resolve ${parsed.hostname}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  if (addresses.length === 0) {
+    throw new Error(`Could not resolve ${parsed.hostname}: it names no address`);
+  }
+
+  for (const address of addresses) {
+    if (isInternalAddress(address)) {
+      throw new Error(
+        `Refusing to fetch ${parsed.hostname}: it resolves to the internal address ${address}`
+      );
+    }
+  }
+
+  return parsed;
+}
+
+/**
  * An {@link HttpClient} that fetches documents from the open web.
  */
 export class PublicWebHttpClient implements HttpClient {
   private readonly defaultTimeoutMs: number;
+  private readonly resolver: HostResolver;
 
-  constructor(defaultTimeoutMs: number = DEFAULT_TIMEOUT_MS) {
+  constructor(defaultTimeoutMs: number = DEFAULT_TIMEOUT_MS, resolver: HostResolver = defaultResolver) {
     this.defaultTimeoutMs = defaultTimeoutMs;
+    this.resolver = resolver;
   }
 
   async request(request: HttpRequest): Promise<HttpResponse> {
@@ -225,8 +302,10 @@ export class PublicWebHttpClient implements HttpClient {
 
     try {
       while (redirects <= 5) {
-        const validated = assertPublicWebUrl(currentUrl);
-        // The URL was checked above: HTTPS, and not an internal host.
+        // Every hop is checked, and every hop's name is resolved: a redirect
+        // to a public-looking name that points at the loopback is refused
+        // just as a redirect to `127.0.0.1` is.
+        const validated = await assertPublicWebUrlResolved(currentUrl, this.resolver);
         const safeUrl: string = validated.toString();
 
         const response = await fetch(safeUrl, {

@@ -111,12 +111,14 @@ function commandDefinition(schema: CommandSchema): Record<string, unknown> {
 
   const properties: Record<string, unknown> = { options: optionsSchema };
 
+  const requiredArguments = schema.arguments.filter((argument) => argument.required).length;
+
   if (schema.arguments.length > 0) {
     properties.arguments = {
       type: 'array',
       description: 'The positional arguments of the command, in order.',
       items: { type: 'string' },
-      minItems: schema.arguments.filter((argument) => argument.required).length,
+      minItems: requiredArguments,
       maxItems: schema.arguments.length,
     };
   }
@@ -126,8 +128,20 @@ function commandDefinition(schema: CommandSchema): Record<string, unknown> {
     description: schema.description,
     properties,
   };
+
+  const required: string[] = [];
   if (requiredOptions.length > 0) {
-    definition.required = ['options'];
+    required.push('options');
+  }
+  if (requiredArguments > 0) {
+    // A required positional argument only constrains a document that has an
+    // `arguments` array at all: `minItems` inside an optional property is
+    // inert, so `{ "command": "event get" }` would validate although
+    // `event get <id>` cannot run.
+    required.push('arguments');
+  }
+  if (required.length > 0) {
+    definition.required = required;
   }
   return definition;
 }
