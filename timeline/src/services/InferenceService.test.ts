@@ -301,6 +301,106 @@ describe('InferenceService - Pattern Detection', () => {
     });
   });
 
+  describe('suggestRelationships', () => {
+    const events = [
+      new Event({
+        id: 'event1',
+        description: 'Government announces new tax policy',
+        actor: 'Government',
+        target: 'Tax System',
+        timestamp: new Date('2023-01-01')
+      }),
+      new Event({
+        id: 'event2',
+        description: 'Businesses react to tax changes',
+        actor: 'Business Community',
+        target: 'Market Strategy',
+        timestamp: new Date('2023-01-05')
+      }),
+      new Event({
+        id: 'event3',
+        description: 'Economic indicators show impact',
+        actor: 'Economic Analysts',
+        target: 'Economic Data',
+        timestamp: new Date('2023-01-10')
+      })
+    ];
+
+    it('should return the suggestions in the API shape', () => {
+      // These events produce low-confidence suggestions, which the default
+      // threshold (0.3) drops -- the route has always applied it. The
+      // threshold is lowered here so the SHAPE is what is under test.
+      const suggestions = inferenceService.suggestRelationships(events, {
+        minConfidence: 0,
+      });
+
+      expect(suggestions.length).toBeGreaterThan(0);
+      for (const suggestion of suggestions) {
+        expect(suggestion).toEqual({
+          cause_event_id: expect.any(String),
+          effect_event_id: expect.any(String),
+          confidence: expect.any(Number),
+          reason: expect.any(String),
+          relationship_type: expect.stringMatching(/^(direct|indirect|contributory)$/)
+        });
+      }
+    });
+
+    it('should drop the suggestions below the confidence threshold', () => {
+      const all = inferenceService.suggestRelationships(events, { minConfidence: 0 });
+      const highest = Math.max(...all.map(s => s.confidence));
+
+      const filtered = inferenceService.suggestRelationships(events, {
+        minConfidence: highest
+      });
+
+      // Everything at or above the highest confidence survives; anything below
+      // it is dropped.
+      expect(filtered.every(s => s.confidence >= highest)).toBe(true);
+      expect(filtered.length).toBeLessThanOrEqual(all.length);
+    });
+
+    it('should cap the number of suggestions', () => {
+      const suggestions = inferenceService.suggestRelationships(events, {
+        minConfidence: 0,
+        maxSuggestions: 1,
+      });
+
+      expect(suggestions.length).toBeLessThanOrEqual(1);
+    });
+
+    it('should return nothing for fewer than two events', () => {
+      expect(inferenceService.suggestRelationships([events[0]!])).toEqual([]);
+    });
+
+    it('should drop the indirect relationships when they are excluded', () => {
+      const all = inferenceService.suggestRelationships(events, { minConfidence: 0 });
+      const indirect = all.filter(s => s.relationship_type === 'indirect');
+      expect(indirect.length).toBeGreaterThan(0);
+
+      const directOnly = inferenceService.suggestRelationships(events, {
+        minConfidence: 0,
+        includeIndirect: false,
+      });
+
+      expect(directOnly.every(s => s.relationship_type !== 'indirect')).toBe(true);
+      expect(directOnly.length).toBe(all.length - indirect.length);
+    });
+
+    it('should apply its own defaults when no options are given', () => {
+      // The defaults live in the service alone: the route passes the
+      // request's options straight through, so they have to be here or nowhere.
+      const withDefaults = inferenceService.suggestRelationships(events);
+      const explicitly = inferenceService.suggestRelationships(events, {
+        minConfidence: 0.3,
+        maxSuggestions: 10,
+        includeIndirect: true,
+      });
+
+      expect(withDefaults).toEqual(explicitly);
+    });
+  });
+
   describe('suggestCausalLinks', () => {
     it('should return empty array for insufficient events', () => {
       const events = [

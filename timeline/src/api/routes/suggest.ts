@@ -54,14 +54,6 @@ interface ArcSuggestionRequest {
   };
 }
 
-interface RelationshipSuggestion {
-  cause_event_id: string;
-  effect_event_id: string;
-  confidence: number;
-  reason: string;
-  relationship_type: 'direct' | 'indirect' | 'contributory';
-}
-
 /**
  * Get relationship suggestions
  * POST /api/suggest/relationships
@@ -79,9 +71,6 @@ suggestRoutes.post(
     try {
       const request = req.body as RelationshipSuggestionRequest;
       const options = request.options || {};
-      const minConfidence = options.minConfidence || 0.3;
-      const maxSuggestions = Math.min(options.maxSuggestions || 10, 50);
-      const includeIndirect = options.includeIndirect !== false;
 
       let events: Event[] = [];
 
@@ -112,31 +101,13 @@ suggestRoutes.post(
         );
       }
 
-      if (events.length < 2) {
-        return res.json({ suggestions: [] });
-      }
-
-      // Use inference service to get suggestions
-      const inferenceService = req.container.inferenceService;
-      const allSuggestions = inferenceService.suggestCausalLinks(events);
-
-      // Filter and transform suggestions
-      const suggestions: RelationshipSuggestion[] = allSuggestions
-        .filter((s) => {
-          if (s.suggested_relationship.confidence < minConfidence) return false;
-          if (!includeIndirect && s.suggested_relationship.relationship_type === 'indirect') {
-            return false;
-          }
-          return true;
-        })
-        .slice(0, maxSuggestions)
-        .map((s) => ({
-          cause_event_id: s.cause_event_id,
-          effect_event_id: s.effect_event_id,
-          confidence: s.suggested_relationship.confidence,
-          reason: s.reasoning,
-          relationship_type: s.suggested_relationship.relationship_type,
-        }));
+      // The filtering and the mapping live in InferenceService; the route
+      // passes the options through and returns the result, which is the
+      // response body.
+      const suggestions = req.container.inferenceService.suggestRelationships(
+        events,
+        options
+      );
 
       res.json({ suggestions });
     } catch (error) {
