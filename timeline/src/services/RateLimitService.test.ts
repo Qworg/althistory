@@ -227,6 +227,26 @@ describe('RateLimitService', () => {
       expect(state?.hour.count).toBe(1);
       expect(state?.day.count).toBe(1);
     });
+
+    it('should report zero for a window that has already reset', () => {
+      rateLimitService.recordRequest('key-expired-window', defaultRateLimit);
+
+      const state = rateLimitService.getState('key-expired-window');
+      expect(state?.minute.count).toBe(1);
+
+      // The minute window is over. The limiter clears it when the key makes
+      // its next request, which may never come -- but the state must not keep
+      // reporting the usage of a window that is long gone.
+      const internalState = (rateLimitService as any).limits.get('key-expired-window');
+      internalState.minute.resetAt = Date.now() - 1000;
+
+      const afterExpiry = rateLimitService.getState('key-expired-window');
+      expect(afterExpiry?.minute.count).toBe(0);
+      // A window that is not running has no reset time.
+      expect(afterExpiry?.minute.resetAt).toBeNull();
+      expect(afterExpiry?.hour.count).toBe(1);
+      expect(afterExpiry?.hour.resetAt).not.toBeNull();
+    });
   });
 
   describe('resetLimits', () => {

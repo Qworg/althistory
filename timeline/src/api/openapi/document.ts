@@ -386,6 +386,54 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       expiresAt: { type: 'string', format: 'date-time' },
     },
   },
+  ApiKeyUsage: {
+    type: 'object',
+    required: ['keyId', 'rateLimit', 'currentUsage'],
+    properties: {
+      keyId: { type: 'string' },
+      rateLimit: { $ref: '#/components/schemas/ApiKeyRateLimit' },
+      currentUsage: {
+        type: 'object',
+        required: ['minute', 'hour', 'day'],
+        properties: {
+          minute: { $ref: '#/components/schemas/ApiKeyUsageWindow' },
+          hour: { $ref: '#/components/schemas/ApiKeyUsageWindow' },
+          day: { $ref: '#/components/schemas/ApiKeyUsageWindow' },
+        },
+      },
+    },
+  },
+  ApiKeyRateLimit: {
+    type: 'object',
+    required: [
+      'requestsPerMinute',
+      'requestsPerHour',
+      'requestsPerDay',
+      'batchSizeLimit',
+      'concurrentStreams',
+    ],
+    properties: {
+      requestsPerMinute: { type: 'integer' },
+      requestsPerHour: { type: 'integer' },
+      requestsPerDay: { type: 'integer' },
+      batchSizeLimit: { type: 'integer' },
+      concurrentStreams: { type: 'integer' },
+    },
+  },
+  ApiKeyUsageWindow: {
+    type: 'object',
+    required: ['count', 'resetAt'],
+    properties: {
+      count: { type: 'integer' },
+      resetAt: {
+        type: 'integer',
+        nullable: true,
+        description:
+          'When the window resets, or null when no window is running -- the ' +
+          'key was never used, or the window it used has ended.',
+      },
+    },
+  },
   CreateApiKeyResponse: {
     type: 'object',
     properties: {

@@ -1,8 +1,32 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { KeyListItem } from './KeyListItem'
+import { apiClient } from '@/services/api'
 import type { ApiKey } from '@/types'
+
+vi.mock('@/services/api', () => ({
+  apiClient: {
+    keys: {
+      getUsage: vi.fn().mockResolvedValue({
+        keyId: 'key-1',
+        rateLimit: {
+          requestsPerMinute: 60,
+          requestsPerHour: 1000,
+          requestsPerDay: 10000,
+          batchSizeLimit: 1000,
+          concurrentStreams: 5,
+        },
+        currentUsage: {
+          minute: { count: 12, resetAt: 1700000000000 },
+          hour: { count: 340, resetAt: 1700000000000 },
+          day: { count: 5600, resetAt: 1700000000000 },
+        },
+      }),
+    },
+  },
+}))
 
 const rateLimit = {
   requestsPerMinute: 60,
@@ -43,6 +67,32 @@ function renderItem(props: Partial<React.ComponentProps<typeof KeyListItem>> = {
 }
 
 describe('KeyListItem', () => {
+  it('does not ask for the usage until it is opened', async () => {
+    const user = userEvent.setup()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <QueryClientProvider client={client}>
+        <KeyListItem
+          apiKey={makeKey()}
+          onRevoke={vi.fn()}
+          onDelete={vi.fn()}
+          isRevoking={false}
+          isDeleting={false}
+        />
+      </QueryClientProvider>
+    )
+
+    expect(apiClient.keys.getUsage).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Usage' }))
+
+    await waitFor(() => {
+      expect(apiClient.keys.getUsage).toHaveBeenCalledWith('key-1')
+    })
+    expect(await screen.findByText('12 / 60')).toBeInTheDocument()
+  })
+
   it('shows the name, the prefix and the active status', () => {
     renderItem()
 

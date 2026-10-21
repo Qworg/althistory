@@ -43,6 +43,7 @@ import {
   CreateApiKeyResponse,
   UpdateApiKeyRequest,
   ApiKeyStats,
+  ApiKeyUsage,
   IngestResponse,
   WikipediaIngestRequest,
   WikidataIngestRequest,
@@ -958,6 +959,15 @@ class APIClient {
         getById: async (id: string): Promise<ApiKey> => {
             try {
                 const response: AxiosResponse<ApiKey> = await this.client.get(`/keys/${id}`)
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        getUsage: async (id: string): Promise<ApiKeyUsage> => {
+            try {
+                const response: AxiosResponse<ApiKeyUsage> = await this.client.get(`/keys/${id}/usage`)
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)

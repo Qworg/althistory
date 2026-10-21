@@ -9,12 +9,12 @@
  * key counters in the footer).
  *
  * The design's four names are `useApiKeys`, `CreateKeyModal`, `KeyListItem`
- * and `KeyUsageStats`. Two of them are used here under names that describe
- * what they do: the design's `useApiKeys` is the lower-level hook in
- * `@/hooks/useApiKeys`, which still owns the queries and the invalidation,
- * and the design's `KeyUsageStats` is a per-key usage view (Req 20.4) that
- * this feature does not have -- the footer shows counts, so it is
- * `KeyCountSummary`. Req 20.4 is tracked as #45.
+ * and `KeyUsageStats`. One of them is used here under a name that describes
+ * what it does: the design's `useApiKeys` is the lower-level hook in
+ * `@/hooks/useApiKeys`, which still owns the queries and the invalidation.
+ * The design's `KeyUsageStats` is the per-key usage view (Req 20.4); it is
+ * `KeyUsageStats` too, and the footer counter -- which is not a usage view --
+ * is `KeyCountSummary`.
  */
 
 import React, { useState, useCallback } from 'react'

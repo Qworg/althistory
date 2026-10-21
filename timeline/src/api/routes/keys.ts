@@ -13,6 +13,7 @@ import {
 } from '../middleware';
 import { CreateApiKeyRequest, UpdateApiKeyRequest, Permission } from '@/models/ApiKey';
 import { createLogger } from '@/utils/logger';
+import { currentUsageWindow } from '@/services/RateLimitService';
 
 const logger = createLogger('KeyRoutes');
 
@@ -97,6 +98,64 @@ keyRoutes.get(
 
     // Return current key info without the hash
     res.json(req.apiKey.toJSON());
+  })
+);
+
+/**
+ * Get the current usage of one API key.
+ *
+ * GET /api/keys/:id/usage
+ *
+ * The rate limits are the ones configured on the key; the usage is what the
+ * rate limiter has counted against them in the window that is still running.
+ * A key that has not been used yet has no window, and its usage reads as zero
+ * with no reset time.
+ */
+keyRoutes.get(
+  '/:id/usage',
+  authenticate as RequestHandler,
+  requireAuth as RequestHandler,
+  authorize('admin') as RequestHandler,
+  rateLimit() as RequestHandler,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const authService = req.container.authService;
+      const { id } = req.params;
+      const key = await authService.getApiKey(id);
+
+      if (!key) {
+        return res.status(404).json({
+          error: { message: `API key not found: ${id}`, code: 'KEY_NOT_FOUND' },
+        });
+      }
+
+      const state = req.container.rateLimitService.getState(id);
+      const now = Date.now();
+
+      // A key that has never been used has no window at all, and a window
+      // that has already reset is not running either: both read as a count of
+      // zero with no reset time.
+      const window_ = (w: { count: number; resetAt: number | null } | undefined): {
+        count: number;
+        resetAt: number | null;
+      } =>
+        w ? currentUsageWindow(w, now) : { count: 0, resetAt: null };
+
+      res.json({
+        keyId: key.id,
+        rateLimit: key.rateLimit,
+        currentUsage: {
+          minute: window_(state?.minute),
+          hour: window_(state?.hour),
+          day: window_(state?.day),
+        },
+      });
+    } catch (error) {
+      logger.error('Error getting key usage', error);
+      res.status(500).json({
+        error: { message: 'Failed to get API key usage' },
+      });
+    }
   })
 );
 

@@ -49,6 +49,22 @@ interface InternalRateLimitState {
 /**
  * Service for tracking and enforcing rate limits
  */
+/**
+ * Service for tracking and enforcing rate limits
+ */
+export function currentUsageWindow(
+  window: { count: number; resetAt: number | null },
+  now: number = Date.now()
+): { count: number; resetAt: number | null } {
+  if (window.resetAt === null || window.resetAt <= now) {
+    return { count: 0, resetAt: null };
+  }
+  return { count: window.count, resetAt: window.resetAt };
+}
+
+/**
+ * Service for tracking and enforcing rate limits
+ */
 export class RateLimitService {
   private readonly dataDir: string;
   private readonly limitsDir: string;
@@ -199,17 +215,24 @@ export class RateLimitService {
   }
 
   /**
-   * Get current rate limit state for a key
+   * Get current rate limit state for a key.
+   *
+   * A window that has already reset reports a count of zero, whatever it
+   * held before: the windows are only cleared when the key itself makes a
+   * request, so the stored count of an idle key would otherwise keep
+   * reporting the usage of a window that is long gone.
    */
   getState(keyId: string): RateLimitState | null {
     const state = this.limits.get(keyId);
     if (!state) return null;
 
+    const now = Date.now();
+
     return {
       keyId: state.keyId,
-      minute: { count: state.minute.count, resetAt: state.minute.resetAt },
-      hour: { count: state.hour.count, resetAt: state.hour.resetAt },
-      day: { count: state.day.count, resetAt: state.day.resetAt },
+      minute: currentUsageWindow(state.minute, now),
+      hour: currentUsageWindow(state.hour, now),
+      day: currentUsageWindow(state.day, now),
     };
   }
 
