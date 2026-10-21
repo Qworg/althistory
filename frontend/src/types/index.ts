@@ -694,6 +694,49 @@ export interface ApiKeyStats {
   expired: number
 }
 
+/**
+ * The rate limits configured on an API key.
+ *
+ * Mirrors `RateLimitConfig` in `timeline/src/models/ApiKey.ts`.
+ */
+export interface ApiKeyRateLimit {
+  requestsPerMinute: number
+  requestsPerHour: number
+  requestsPerDay: number
+  batchSizeLimit: number
+  concurrentStreams: number
+}
+
+/**
+ * How much of a rate limit window has been used.
+ */
+export interface ApiKeyUsageWindow {
+  /** The number of requests counted in this window. */
+  count: number
+  /**
+   * When the window resets, as a millisecond timestamp.
+   *
+   * Null when no window is running: either the key was never used, or the
+   * window it used has ended.
+   */
+  resetAt: number | null
+}
+
+/**
+ * The current usage of one API key.
+ *
+ * The shape of `GET /api/keys/:id/usage`.
+ */
+export interface ApiKeyUsage {
+  keyId: string
+  rateLimit: ApiKeyRateLimit
+  currentUsage: {
+    minute: ApiKeyUsageWindow
+    hour: ApiKeyUsageWindow
+    day: ApiKeyUsageWindow
+  }
+}
+
 // Web Ingestion Types (Req 19). Mirrors the shapes returned by
 // `timeline/src/services/ingestion/types.ts`; the frontend bundle cannot import
 // from the timeline package, so these are declared here.

@@ -286,7 +286,7 @@
   - Write API tests
   - _Requirements: 15_
 
-- [x] 3.11 Frontend: API key dashboard  `frontend/src/components/api-keys/ApiKeyDashboard.tsx:33`, `CreateKeyModal.tsx:27`, `KeyListItem.tsx:33`, `frontend/src/hooks/useApiKeys.ts:24`-`:58`, `frontend/src/components/api-keys/useApiKeyDashboard.ts`; one-time key display + copy at `ApiKeyDashboard.tsx:60`; tests `frontend/src/components/api-keys/ApiKeyDashboard.test.tsx`, `CreateKeyModal.test.tsx`, `KeyListItem.test.tsx`, `KeyCountSummary.test.tsx` _(there is no `KeyUsageStats.tsx` — the footer counter is `KeyCountSummary.tsx`; the per-key usage view of Req 20.4 is not implemented, see the comment at `ApiKeyDashboard.tsx:13-19`)_
+- [x] 3.11 Frontend: API key dashboard  `frontend/src/components/api-keys/ApiKeyDashboard.tsx:33`, `CreateKeyModal.tsx:27`, `KeyListItem.tsx:33`, `frontend/src/hooks/useApiKeys.ts:24`-`:58`, `frontend/src/components/api-keys/useApiKeyDashboard.ts`; one-time key display + copy at `ApiKeyDashboard.tsx:60`; tests `frontend/src/components/api-keys/ApiKeyDashboard.test.tsx`, `CreateKeyModal.test.tsx`, `KeyListItem.test.tsx`, `KeyCountSummary.test.tsx`, `KeyUsageStats.test.tsx`, `KeyUsagePanel.test.tsx` _(the footer counter is `KeyCountSummary.tsx`; the per-key usage view of Req 20.4 is `KeyUsageStats.tsx`, rendered by `KeyUsagePanel.tsx` and opened per key from `KeyListItem.tsx`; its data comes from `GET /api/keys/:id/usage`)_
   - Create `frontend/src/components/api-keys/ApiKeyDashboard.tsx`
   - Create `frontend/src/components/api-keys/CreateKeyModal.tsx`
   - Create `frontend/src/components/api-keys/KeyListItem.tsx`

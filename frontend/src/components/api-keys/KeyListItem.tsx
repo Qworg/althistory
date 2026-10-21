@@ -5,9 +5,10 @@
  * flags of the surrounding mutations are handed in by the parent.
  */
 
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import type { ApiKey } from '@/types'
 import { PERMISSION_LABELS } from './permissions'
+import { KeyUsagePanel } from './KeyUsagePanel'
 
 export interface KeyListItemProps {
   /** The key to render. */
@@ -29,6 +30,7 @@ export const KeyListItem = memo(function KeyListItem({
   isRevoking,
   isDeleting,
 }: KeyListItemProps) {
+  const [showUsage, setShowUsage] = useState(false)
   const isExpired = apiKey.expiresAt && new Date(apiKey.expiresAt) < new Date()
   const statusColor = !apiKey.isActive
     ? 'bg-gray-100 text-gray-600'
@@ -55,6 +57,13 @@ export const KeyListItem = memo(function KeyListItem({
         </div>
 
         <div className="flex gap-2">
+          <button
+            onClick={() => setShowUsage((open) => !open)}
+            className="px-3 py-1 text-sm text-gray-600 hover:bg-gray-50 rounded-md transition-colors"
+            aria-expanded={showUsage}
+          >
+            {showUsage ? 'Hide usage' : 'Usage'}
+          </button>
           {apiKey.isActive && !isExpired && (
             <button
               onClick={() => onRevoke(apiKey.id)}
@@ -86,6 +95,8 @@ export const KeyListItem = memo(function KeyListItem({
           </span>
         )}
       </div>
+
+      {showUsage && <KeyUsagePanel keyId={apiKey.id} />}
 
       <div className="mt-2 flex gap-4 text-xs text-gray-500">
         <span>Created: {new Date(apiKey.createdAt).toLocaleDateString()}</span>

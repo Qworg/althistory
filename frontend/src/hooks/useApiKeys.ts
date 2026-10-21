@@ -9,13 +9,15 @@ import type {
   CreateApiKeyRequest, 
   CreateApiKeyResponse, 
   UpdateApiKeyRequest,
-  ApiKeyStats 
+  ApiKeyStats,
+  ApiKeyUsage
 } from '@/types'
 
 const QUERY_KEYS = {
   keys: ['apiKeys'] as const,
   key: (id: string) => ['apiKeys', id] as const,
   stats: ['apiKeys', 'stats'] as const,
+  usage: (id: string) => ['apiKeys', id, 'usage'] as const,
 }
 
 /**
@@ -49,6 +51,24 @@ export function useApiKeyStats() {
     queryKey: QUERY_KEYS.stats,
     queryFn: () => apiClient.keys.getStats(),
     staleTime: 60000, // 1 minute
+  })
+}
+
+/**
+ * Hook to fetch the current usage of one API key.
+ *
+ * The query is disabled without an id, so a component can hold the hook for
+ * the key it is showing and only fetch when there is one.
+ */
+export function useApiKeyUsage(id: string) {
+  return useQuery({
+    queryKey: QUERY_KEYS.usage(id),
+    queryFn: (): Promise<ApiKeyUsage> => apiClient.keys.getUsage(id),
+    enabled: !!id,
+    staleTime: 15000, // 15 seconds -- the usage moves quickly
+    // An open panel would otherwise keep showing a count whose window has
+    // already reset, until the window regains focus.
+    refetchInterval: 30000,
   })
 }
 

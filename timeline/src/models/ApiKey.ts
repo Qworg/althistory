@@ -361,9 +361,15 @@ export interface UpdateApiKeyRequest {
  */
 export interface RateLimitState {
   keyId: string;
-  minute: { count: number; resetAt: number };
-  hour: { count: number; resetAt: number };
-  day: { count: number; resetAt: number };
+  /**
+   * A window, and when it resets.
+   *
+   * The reset time is null when no window is running -- either the key was
+   * never used, or the window it used is over.
+   */
+  minute: { count: number; resetAt: number | null };
+  hour: { count: number; resetAt: number | null };
+  day: { count: number; resetAt: number | null };
 }
 
 /**

@@ -809,6 +809,12 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     envelope: 'bare',
     auth: 'required',
   },
+  'GET /api/keys/:id/usage': {
+    summary: 'How much of the key\'s rate limits has been used.',
+    response: 'ApiKeyUsage',
+    envelope: 'bare',
+    auth: 'required',
+  },
   'PUT /api/keys/:id': {
     summary: 'Change an API key: its name, its permissions or the graphs it may read.',
     request: 'ApiKeyUpdate',
