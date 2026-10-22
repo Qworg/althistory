@@ -96,11 +96,16 @@ class OperationRateLimiter {
  *
  * ## Cross-graph references
  *
- * There is exactly one stored representation of a cross-graph reference: the
- * referencing entity's own `metadata.crossGraphRefs` array. `ImportService`
- * writes it when it reads `data.crossGraphRefs`, and `ExportService` hoists it
- * back into `data.crossGraphRefs` on the way out (round-trip covered by
- * `ImportService.test.ts` and `ExportService.test.ts`).
+ * An event or an arc that points into another graph records it in its own
+ * `metadata.crossGraphRefs` array -- that is the one representation for those
+ * entities. `ImportService` writes it when it reads `data.crossGraphRefs`,
+ * and `ExportService` hoists it back into `data.crossGraphRefs` on the way out
+ * (round-trip covered by `ImportService.test.ts` and `ExportService.test.ts`).
+ *
+ * A causal relationship that reaches into another graph is recorded
+ * differently: the relationship itself carries `causeGraphId`/
+ * `effectGraphId`. That is a property of the link, not a reference hanging off
+ * an entity, and it is validated separately (graph existence).
  *
  * A second, parallel registry used to live here -- `cross-references.json`,
  * `registerCrossGraphReference`, `getReferencesFromGraph`/`ToGraph`, a

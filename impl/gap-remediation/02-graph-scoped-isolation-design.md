@@ -52,9 +52,14 @@ structurally correct design rather than the least invasive one.
   `jobService` when `localExecution.enabled`, and `RateLimitService`/`JobRepository`/
   `VersionRepository` are file-backed only. Cloud mode does not support the I/O system yet (gap M4).
   This design keeps a seam for it but implements local mode.
-- Cross-graph causal references (gap M1). The model exists (`CrossGraphCausalRelationship`) and
-  `registerCrossGraphReference` has no callers. Deliberately out of scope; noted as the natural
-  follow-on since it is the one feature that legitimately reads two graphs.
+- Cross-graph causal references (gap M1). The model exists
+  (`CrossGraphCausalRelationship`) and a relationship records the graphs its
+  endpoints live in through `causeGraphId`/`effectGraphId`; resolving one
+  across a graph boundary is deliberately out of scope. It is noted here as
+  the one feature that legitimately reads two graphs. (The parallel
+  `registerCrossGraphReference` registry this note used to mention was removed
+  in [#32](https://github.com/Qworg/althistory/issues/32): nothing ever wrote
+  it.)
 - Real-time streaming or ingestion (Phase 5).
 
 ---

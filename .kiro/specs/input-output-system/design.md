@@ -189,7 +189,12 @@ interface CrossGraphCausalRelationship {
   isCrossGraph: boolean
 }
 
-// Notification when referenced entity changes
+// Notification when referenced entity changes.
+//
+// NOT IMPLEMENTED. The queue this describes was removed in
+// https://github.com/Qworg/althistory/issues/32: nothing ever wrote it, so no
+// notification could be produced. Req 4.3 is unimplemented, and this sketch is
+// kept only to say what the feature would need.
 interface ReferenceNotification {
   id: string
   sourceGraphId: string

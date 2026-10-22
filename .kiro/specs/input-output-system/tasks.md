@@ -490,7 +490,7 @@
 - [x] 5.8 Cross-graph reference UI  _(PARTIAL: a broken local reference is labelled "Cross-graph" (`frontend/src/components/causal-graph/CausalGraphComponent.tsx:706`))_ `frontend/src/components/modals/CausalRelationshipModal.tsx:16`/`:39`/`:57` (graph picker for the effect graph), `frontend/src/components/causal-graph/CausalGraphComponent.tsx:746`-`:762` (`isCrossGraph` / `crossGraphLabel`), `:804` (`cross-graph` edge class), `:1298` (hover detail), `frontend/src/types/index.ts:40`-`:41`; test `frontend/src/components/causal-graph/CausalGraphComponent.test.tsx:658` _(there is no UI for reference-change notifications, and no backend queue for them either: the registry that fed `getReferenceNotifications` was removed in [#32](https://github.com/Qworg/althistory/issues/32) because nothing wrote it. A cross-graph reference lives on the entity's `metadata.crossGraphRefs` and nothing consumes that for notifications)_
   - Update relationship creation to allow cross-graph selection
   - Add visual indicators for cross-graph references
-  - Show notifications for referenced entity changes
+  - Show notifications for referenced entity changes _(NOT DONE -- there is no backend queue; see the note on 5.8 above and [#32](https://github.com/Qworg/althistory/issues/32))_
   - Handle broken references gracefully
   - Write component tests
   - _Requirements: 4.2, 4.3, 4.5_
