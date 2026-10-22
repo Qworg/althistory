@@ -268,7 +268,12 @@ flowchart TD
   - `timeline/src/services/RateLimitService.ts`
 - **Tasks:**
   - [x] When `LOCAL_EXECUTION_ENABLED=false`, bind `graphScopedRepositories` to Neo4j sessions rather than `LocalGraphStore`.
-  - [x] Implement Redis backing for rate limits and streaming tokens in distributed deployments.
+  - [ ] Implement Redis backing for rate limits and streaming tokens in distributed deployments.
+        _(NOT DONE, and the tick this replaces was wrong: the counters and the token
+        store are per process — Redis holds only a periodic snapshot of the counters.
+        Cloud mode is therefore constrained to one replica, enforced at startup;
+        see [#31](https://github.com/Qworg/althistory/issues/31) and
+        `docs/production-deployment.md` §4.)_
 
 ---
 

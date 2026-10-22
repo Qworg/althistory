@@ -298,8 +298,8 @@ function validateConfig(config: AppConfig): void {
         'with a persistent volume. Set CLOUD_SINGLE_REPLICA_STATE=true to confirm the deployment is ' +
         'one, and make sure the data directory is on a volume that outlives the container. Running ' +
         'more than one replica or an ephemeral disk loses jobs and versions written by another ' +
-        'process -- and this applies to the CLI as well as the server, since both load this ' +
-        'configuration.',
+        'process. Any script that loads this configuration (the server, `migrate-data`) is ' +
+        'subject to it; the `althistory` CLI pins itself to local execution before loading it.',
       'CLOUD_SINGLE_REPLICA_STATE'
     );
   }

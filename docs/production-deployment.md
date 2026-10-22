@@ -68,6 +68,7 @@ full list. The values that matter most:
 | Graph metadata, export/import jobs, graph versions | `LOCAL_DATA_DIR` (`/data`) | **no** — files on the node |
 | Rate-limit counters | in-memory, snapshotted to Redis every 30 s | **no** — each process counts separately |
 | API keys | `LOCAL_DATA_DIR` (`/data`) | **no** — files on the node |
+| Streaming tokens (`/api/stream`) | in-memory | **no** — a token issued on one replica is unknown to another |
 
 Graph, export and job repositories are file-backed **even in cloud mode** —
 there is no Neo4j-backed implementation of them — so the `api` service mounts
@@ -96,7 +97,9 @@ LOCAL_DATA_DIR=/data
 ```
 
 Without `CLOUD_SINGLE_REPLICA_STATE=true` the process exits with a
-`ConfigurationError` that names the variable and the reason.
+`ConfigurationError` that names the variable and the reason. The one exemption
+is `NODE_ENV=test`, which is how the cloud test suite runs; do not copy that
+environment into a deployment — it also skips the Neo4j credential checks.
 
 **The flag is an assertion, not a detection.** It cannot count replicas or
 inspect a volume; it records that the operator confirmed the deployment. Setting

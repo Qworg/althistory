@@ -3,7 +3,7 @@
 #   web  - Caddy: serves the SPA and proxies /api + /health to `api`
 #   api  - Express backend + CLI (cloud mode: Neo4j + Redis)
 #   neo4j- graph database with APOC
-#   redis- rate limiting, pub/sub and query cache
+#   redis- rate-limit snapshot and query cache (the counters are per process)
 #
 # Usage:
 #   cp .env.production.example .env

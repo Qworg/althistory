@@ -65,7 +65,7 @@ describe('Configuration System', () => {
       expect(loadConfig().cloudState.singleReplicaAcknowledged).toBe(false);
     });
 
-    it('should skip the check under NODE_ENV=test, which is the documented escape hatch', () => {
+    it('should skip the check under NODE_ENV=test, which is how the cloud suite runs', () => {
       // The cloud integration suites run cloud mode under NODE_ENV=test, so the
       // check has to stand down there. This test pins that, because the same
       // variable also skips the Neo4j credential checks -- copying a test
