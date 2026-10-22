@@ -649,9 +649,12 @@ export class Container implements ServiceContainer {
           'no Redis/Neo4j backend is implemented for graph, export, job, rate-limit or API-key state.'
       );
       if (!this.config.localExecution.enabled) {
-        console.warn(
-          '⚠️  Cloud Mode uses the same local JSON files for Phase 1/3 I/O state as Local Mode. ' +
-            'That state is per-process, not the shared Redis/Neo4j store the input/output design describes.'
+        // Enforced at startup by `validateConfig`: cloud mode refuses to run
+        // without CLOUD_SINGLE_REPLICA_STATE, so reaching here means the
+        // operator confirmed the single-replica, persistent-volume deployment.
+        console.info(
+          `Cloud mode: graph metadata, jobs and versions are files under ${this.config.localExecution.dataDirectory} ` +
+            '(single replica, persistent volume); entities are in Neo4j and rate-limit counters in Redis.'
         );
       }
     } catch (error) {

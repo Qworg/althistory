@@ -265,4 +265,8 @@ NEO4J_USERNAME=user
 NEO4J_PASSWORD=password
 REDIS_HOST=localhost
 REDIS_PORT=6379
+# Required in cloud mode: graph metadata, jobs and versions are files, so the
+# deployment must be one replica with a persistent volume.
+CLOUD_SINGLE_REPLICA_STATE=true
+LOCAL_DATA_DIR=/data
 ```

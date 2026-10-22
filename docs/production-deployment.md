@@ -71,6 +71,40 @@ Graph, export and job repositories are file-backed **even in cloud mode** —
 there is no Neo4j-backed implementation of them — so the `api` service mounts
 `/data` as a named volume. Deleting that volume loses timelines.
 
+### Single replica, persistent volume — enforced
+
+Because that state is on disk, cloud mode is **one replica with a volume that
+outlives the container**. Two replicas would each keep their own graph
+metadata, job records and graph versions: a job created on one would be
+invisible to the other, and a version written on one would be missing from the
+other. (Entities live in Neo4j and rate-limit counters in Redis, so those *are*
+shared; the three file-backed stores are not.)
+
+The server refuses to start in cloud mode unless the deployment says it is the
+one it must be:
+
+```env
+LOCAL_EXECUTION_ENABLED=false
+CLOUD_SINGLE_REPLICA_STATE=true
+LOCAL_DATA_DIR=/data
+```
+
+Without `CLOUD_SINGLE_REPLICA_STATE=true` the process exits with a
+`ConfigurationError` that names the variable and the reason. That check is the
+guard: it is not possible to scale the deployment out by accident and end up
+with silently per-process state.
+
+If you need more than one replica, the file-backed stores have to move to
+shared storage first — that is [issue
+#31](https://github.com/Qworg/althistory/issues/31)'s other half, not a
+configuration flag.
+
+There is no Kubernetes manifest in this repository. If you write one, the
+Deployment must not set `replicas` above `1`, and its volume must be
+`ReadWriteOnce` (or a filesystem volume) — `ReadWriteMany` on a
+`Deployment` with `replicas: 2` is exactly the configuration this guard exists
+to prevent, and it will pass the startup check if you set the variable.
+
 ## 5. Health checks
 
 - Container liveness probes `GET /` and expects `200`.

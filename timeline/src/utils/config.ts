@@ -90,6 +90,26 @@ export interface AppConfig {
     cacheExpirationMs: number;
   };
   localExecution: LocalExecutionConfig;
+  cloudState: CloudStateConfig;
+}
+
+/**
+ * What cloud mode keeps where.
+ *
+ * Cloud mode shares the *entities* through Neo4j and the rate-limit counters
+ * through Redis, but three pieces of state are still files under
+ * `localExecution.dataDirectory`: the graph metadata, the job records and the
+ * graph versions. Files are node-local, so two replicas would each have their
+ * own -- a job created on one would be invisible to the other, and a version
+ * written on one would be missing from the other.
+ *
+ * The deployment therefore has to be a single replica with a volume that
+ * outlives the container, and `singleReplicaAcknowledged` is the operator
+ * saying that it is. It is required in cloud mode; the server refuses to start
+ * without it rather than serving state that is silently per-process.
+ */
+export interface CloudStateConfig {
+  singleReplicaAcknowledged: boolean;
 }
 
 /**
@@ -128,6 +148,14 @@ export function loadConfig(): AppConfig {
         queryTimeoutMs: parseInt(process.env.QUERY_TIMEOUT_MS || '2000', 10),
         maxQueryResults: parseInt(process.env.MAX_QUERY_RESULTS || '10000', 10),
         cacheExpirationMs: parseInt(process.env.CACHE_EXPIRATION_MS || '300000', 10), // 5 minutes
+      },
+      cloudState: {
+        // A deliberately explicit value rather than "on": an operator should
+        // have to mean this one.
+        singleReplicaAcknowledged: parseBooleanEnvVar(
+          'CLOUD_SINGLE_REPLICA_STATE',
+          false
+        ),
       },
       localExecution: {
         enabled: localExecutionEnabled,
@@ -245,6 +273,21 @@ function validateConfig(config: AppConfig): void {
     if (config.database.redis.port < 1 || config.database.redis.port > 65535) {
       throw new ConfigurationError('Redis port must be between 1 and 65535', 'REDIS_PORT');
     }
+  }
+
+  // Cloud mode keeps graph metadata, jobs and versions in files, so it only
+  // works as a single replica with a persistent volume. The operator has to
+  // say that the deployment is one, and the server refuses to start otherwise
+  // rather than serving state that is per-process and silently incomplete.
+  if (!config.localExecution.enabled && !isTestEnvironment && !config.cloudState.singleReplicaAcknowledged) {
+    throw new ConfigurationError(
+      'Cloud mode keeps graph metadata, export/import jobs and graph versions in files under ' +
+        'LOCAL_DATA_DIR, so it requires a single replica with a persistent volume. ' +
+        'Set CLOUD_SINGLE_REPLICA_STATE=true to confirm the deployment is one, and make sure the ' +
+        'data directory is on a volume that outlives the container. Running more than one replica ' +
+        'or an ephemeral disk loses jobs and versions written by another process.',
+      'CLOUD_SINGLE_REPLICA_STATE'
+    );
   }
 
   // Validate performance settings
