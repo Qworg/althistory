@@ -37,7 +37,7 @@
   - Write unit tests for graph operations
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 21.1_
 
-- [x] 1.4 Implement GraphService  `timeline/src/services/GraphService.ts:113` (class), `:361` (`branchGraph`), `:409` (`mergeGraph`), `:631` (`validateCrossGraphReference`), `:193` (`registerCrossGraphReference`); wired in `timeline/src/container.ts:488`; tests `timeline/src/services/GraphService.test.ts` (`'should detect merge conflicts and report them on a successful keep-target merge'`, `'should resolve conflicts with keep-source strategy without a manual map'`)
+- [x] 1.4 Implement GraphService  `timeline/src/services/GraphService.ts` (`GraphService` class, `branchGraph`, `mergeGraph`); wired in `timeline/src/container.ts`; tests `timeline/src/services/GraphService.test.ts` (`'should detect merge conflicts and report them on a successful keep-target merge'`, `'should resolve conflicts with keep-source strategy without a manual map'`)
   - Create `timeline/src/services/GraphService.ts`
   - Implement graph management business logic
   - Add branching functionality (create graph sharing parent history)
@@ -487,7 +487,7 @@
   - Write component tests
   - _Requirements: 16_
 
-- [x] 5.8 Cross-graph reference UI  _(PARTIAL: a broken local reference is labelled "Cross-graph" (`frontend/src/components/causal-graph/CausalGraphComponent.tsx:706`))_ `frontend/src/components/modals/CausalRelationshipModal.tsx:16`/`:39`/`:57` (graph picker for the effect graph), `frontend/src/components/causal-graph/CausalGraphComponent.tsx:746`-`:762` (`isCrossGraph` / `crossGraphLabel`), `:804` (`cross-graph` edge class), `:1298` (hover detail), `frontend/src/types/index.ts:40`-`:41`; test `frontend/src/components/causal-graph/CausalGraphComponent.test.tsx:658` _(there is no UI for the backend's reference-change notifications — `timeline/src/services/GraphService.ts:652` `getReferenceNotifications` has no frontend consumer)_
+- [x] 5.8 Cross-graph reference UI  _(PARTIAL: a broken local reference is labelled "Cross-graph" (`frontend/src/components/causal-graph/CausalGraphComponent.tsx:706`))_ `frontend/src/components/modals/CausalRelationshipModal.tsx:16`/`:39`/`:57` (graph picker for the effect graph), `frontend/src/components/causal-graph/CausalGraphComponent.tsx:746`-`:762` (`isCrossGraph` / `crossGraphLabel`), `:804` (`cross-graph` edge class), `:1298` (hover detail), `frontend/src/types/index.ts:40`-`:41`; test `frontend/src/components/causal-graph/CausalGraphComponent.test.tsx:658` _(there is no UI for reference-change notifications, and no backend queue for them either: the registry that fed `getReferenceNotifications` was removed in [#32](https://github.com/Qworg/althistory/issues/32) because nothing wrote it. A cross-graph reference lives on the entity's `metadata.crossGraphRefs` and nothing consumes that for notifications)_
   - Update relationship creation to allow cross-graph selection
   - Add visual indicators for cross-graph references
   - Show notifications for referenced entity changes

@@ -1726,78 +1726,6 @@ describe('GraphService', () => {
     });
   });
 
-  describe('validateCrossGraphReference', () => {
-    it('should return true for valid reference', async () => {
-      const mockGraph = createMockGraph();
-      const mockData = createMockGraphData();
-      mockGraphRepository.findById.mockResolvedValue(mockGraph);
-      mockGraphRepository.checkout.mockResolvedValue(mockData);
-
-      const result = await graphService.validateCrossGraphReference({
-        graphId: 'graph_123',
-        entityType: 'event',
-        entityId: 'event1',
-      });
-
-      expect(result).toBe(true);
-    });
-
-    it('should return false when graph does not exist', async () => {
-      mockGraphRepository.findById.mockResolvedValue(null);
-
-      const result = await graphService.validateCrossGraphReference({
-        graphId: 'nonexistent',
-        entityType: 'event',
-        entityId: 'event1',
-      });
-
-      expect(result).toBe(false);
-    });
-
-    it('should return false when graph is not active', async () => {
-      const mockGraph = createMockGraph({ status: 'deleted' });
-      mockGraphRepository.findById.mockResolvedValue(mockGraph);
-
-      const result = await graphService.validateCrossGraphReference({
-        graphId: 'graph_123',
-        entityType: 'event',
-        entityId: 'event1',
-      });
-
-      expect(result).toBe(false);
-    });
-
-    it('should return false when entity does not exist', async () => {
-      const mockGraph = createMockGraph();
-      const mockData = createMockGraphData();
-      mockGraphRepository.findById.mockResolvedValue(mockGraph);
-      mockGraphRepository.checkout.mockResolvedValue(mockData);
-
-      const result = await graphService.validateCrossGraphReference({
-        graphId: 'graph_123',
-        entityType: 'event',
-        entityId: 'nonexistent_event',
-      });
-
-      expect(result).toBe(false);
-    });
-
-    it('should validate arc references', async () => {
-      const mockGraph = createMockGraph();
-      const mockData = createMockGraphData();
-      mockGraphRepository.findById.mockResolvedValue(mockGraph);
-      mockGraphRepository.checkout.mockResolvedValue(mockData);
-
-      const result = await graphService.validateCrossGraphReference({
-        graphId: 'graph_123',
-        entityType: 'arc',
-        entityId: 'arc1',
-      });
-
-      expect(result).toBe(true);
-    });
-  });
-
   describe('gcGraph', () => {
     it('should run garbage collection successfully', async () => {
       const mockGraph = createMockGraph();
@@ -1815,20 +1743,6 @@ describe('GraphService', () => {
 
       await expect(graphService.gcGraph('nonexistent'))
         .rejects.toThrow(NotFoundError);
-    });
-  });
-
-  describe('getReferenceNotifications', () => {
-    it('should return empty array when no notifications', async () => {
-      const result = await graphService.getReferenceNotifications('graph_123');
-      expect(result).toEqual([]);
-    });
-  });
-
-  describe('acknowledgeNotification', () => {
-    it('should not throw when notification does not exist', async () => {
-      await expect(graphService.acknowledgeNotification('nonexistent'))
-        .resolves.not.toThrow();
     });
   });
 });

@@ -265,12 +265,18 @@ New tests:
 
 ## Residual gaps and where they live
 
-- The unused cross-graph registry (`GraphService.registerCrossGraphReference`,
+- ~~The unused cross-graph registry (`GraphService.registerCrossGraphReference`,
   `getReferencesFromGraph` / `getReferencesToGraph`, the `cross-references.json`
-  file and the reference-change notifications) still has no writer. The round
-  trip no longer depends on it. Tracked in
-  [#32](https://github.com/Qworg/althistory/issues/32), which asks for a decision:
-  delete the second representation or make it authoritative.
+  file and the reference-change notifications) still has no writer.~~
+  **Resolved (issue [#32](https://github.com/Qworg/althistory/issues/32)):
+  removed.** There is now exactly one stored representation of a cross-graph
+  reference -- the referencing entity's `metadata.crossGraphRefs`, which
+  `ImportService` writes and `ExportService` hoists into
+  `data.crossGraphRefs`. The parallel registry, the per-commit scan and the
+  `ReferenceNotification` queue were deleted: nothing wrote them, so they
+  were always empty and could never fire. Making the registry authoritative
+  would have meant building the notification feature; removing it is what the
+  round trip actually uses.
 - `estimateExportSize` uses per-type byte weights (500/300/200/400). For an
   unpinned export it reads them from `graph.metadata`; for a pinned version it
   counts the pinned tree. That is by design now: it is the secondary memory
