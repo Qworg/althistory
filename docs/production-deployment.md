@@ -39,7 +39,7 @@ needed for the bundled UI.
 | `web` | `caddy:2-alpine` | Serves `frontend/dist`, proxies `/api/*` and `/health` to `api` |
 | `api` | `node:20-bookworm-slim` | Compiled Express backend, WebSocket stream, and the `althistory` CLI |
 | `neo4j` | `neo4j:5-community` | Graph database with APOC enabled |
-| `redis` | `redis:7-alpine` | Rate limiting, pub/sub and query cache |
+| `redis` | `redis:7-alpine` | Rate-limit snapshot and query cache (the counters themselves are per process) |
 | `cloud-tests` | build stage | Opt-in gate that runs the Neo4j/Redis-only suites (see §6) |
 
 Only `web` is published (`WEB_PORT`, default 8080). The API is reachable only
@@ -62,14 +62,61 @@ full list. The values that matter most:
 
 ## 4. State and persistence
 
-| State | Where | Volume |
+| State | Where | Shared between replicas? |
 | :--- | :--- | :--- |
-| Graph nodes/relationships (Neo4j-backed paths) | Neo4j | `neo4j-data` |
-| Graph/export/job/API-key state | `LOCAL_DATA_DIR` (default `/data`) | `timeline-data` |
+| Entities (events, arcs, relationships, pressures) | Neo4j | yes |
+| Graph metadata, export/import jobs, graph versions | `LOCAL_DATA_DIR` (`/data`) | **no** — files on the node |
+| Rate-limit counters | in-memory, snapshotted to Redis every 30 s | **no** — each process counts separately |
+| API keys | `LOCAL_DATA_DIR` (`/data`) | **no** — files on the node |
+| Streaming tokens (`/api/stream`) | in-memory | **no** — a token issued on one replica is unknown to another |
 
 Graph, export and job repositories are file-backed **even in cloud mode** —
 there is no Neo4j-backed implementation of them — so the `api` service mounts
 `/data` as a named volume. Deleting that volume loses timelines.
+
+### Single replica, persistent volume — enforced
+
+Because that state is per process, cloud mode is **one replica with a volume
+that outlives the container**. Two replicas would each keep their own graph
+metadata, job records and graph versions: a job created on one would be
+invisible to the other, and a version written on one would be missing from the
+other. Rate limiting is per process too: Redis holds a snapshot that each
+replica overwrites (the whole map, at most every 30 seconds while it is
+changing), not the count each request increments, so two replicas allow roughly
+twice the configured rate.
+
+Only the entities are genuinely shared, through Neo4j.
+
+The server refuses to start in cloud mode unless the deployment says it is the
+one it must be:
+
+```env
+LOCAL_EXECUTION_ENABLED=false
+CLOUD_SINGLE_REPLICA_STATE=true
+LOCAL_DATA_DIR=/data
+```
+
+Without `CLOUD_SINGLE_REPLICA_STATE=true` the process exits with a
+`ConfigurationError` that names the variable and the reason. The one exemption
+is `NODE_ENV=test`, which is how the cloud test suite runs; do not copy that
+environment into a deployment — it also skips the Neo4j credential checks.
+
+**The flag is an assertion, not a detection.** It cannot count replicas or
+inspect a volume; it records that the operator confirmed the deployment. Setting
+it on a two-replica deployment silences the refusal and changes nothing about
+the divergence — which is why the section above lists exactly what is not
+shared.
+
+If you need more than one replica, the file-backed stores have to move to
+shared storage first — that is [issue
+#31](https://github.com/Qworg/althistory/issues/31)'s other half, not a
+configuration flag.
+
+There is no Kubernetes manifest in this repository. If you write one, the
+Deployment must not set `replicas` above `1`, and its volume must be
+`ReadWriteOnce` (or a filesystem volume) — `ReadWriteMany` on a
+`Deployment` with `replicas: 2` is exactly the configuration this guard exists
+to prevent, and it will pass the startup check if you set the variable.
 
 ## 5. Health checks
 

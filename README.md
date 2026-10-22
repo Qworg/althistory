@@ -29,9 +29,12 @@ cd frontend && npm run dev                                                      
 ```
 
 Local mode stores graphs, versions and jobs as JSON under `LOCAL_DATA_DIR`
-(default `./data`). Cloud mode (`LOCAL_EXECUTION_ENABLED=false`) expects Neo4j
-and Redis; the Phase 1/3 input/output state is still file-backed in both modes
-(see `timeline/src/container.ts`).
+(default `./data`). Cloud mode (`LOCAL_EXECUTION_ENABLED=false`) puts the
+entities in Neo4j and uses Redis, but graph metadata, jobs, versions and API
+keys are still files, and the rate-limit counters are per process — so cloud
+mode is **one replica with a persistent volume** and refuses to start without
+`CLOUD_SINGLE_REPLICA_STATE=true`. See
+[`docs/production-deployment.md`](docs/production-deployment.md#4-state-and-persistence).
 
 ## Tests
 
@@ -67,7 +70,8 @@ Frequently used variables; the full set with defaults and validation lives in
 | `LOCAL_EXECUTION_ENABLED` | `false` | Use the local JSON store instead of Neo4j/Redis |
 | `LOCAL_DATA_DIR` | `./data` | Where local graphs, versions, jobs and exports live |
 | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD` | — | Cloud-mode graph store |
-| `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | `localhost:6379` | Cloud-mode cache |
+| `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | `localhost:6379` | Cloud-mode cache and rate-limit snapshot |
+| `CLOUD_SINGLE_REPLICA_STATE` | — | **Required in cloud mode.** Confirms the deployment is one replica with a persistent volume; the API refuses to start without it |
 | `LOCAL_MAX_MEMORY_MB` | `512` | Local store memory ceiling (minimum 64) |
 | `LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD` | `10000` | Entity count above which an export becomes an async job |
 

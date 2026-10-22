@@ -36,6 +36,9 @@ function createConfig(dataDirectory: string): AppConfig {
       maxQueryResults: 10000,
       cacheExpirationMs: 300000,
     },
+    cloudState: {
+      singleReplicaAcknowledged: true,
+    },
     localExecution: {
       enabled: true,
       dataDirectory,

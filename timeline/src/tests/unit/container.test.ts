@@ -85,6 +85,9 @@ describe('Container Unit Tests', () => {
         maxQueryResults: 10000,
         cacheExpirationMs: 300000
       },
+      cloudState: {
+        singleReplicaAcknowledged: true,
+      },
       localExecution: {
         enabled: false,
         dataDirectory: './data',

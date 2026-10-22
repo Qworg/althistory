@@ -15,6 +15,92 @@ describe('Configuration System', () => {
     process.env = originalEnv;
   });
 
+  describe('cloud state constraint', () => {
+    it('should refuse cloud mode without the single-replica acknowledgement', () => {
+      // Cloud mode keeps graph metadata, jobs and versions in files, so two
+      // replicas would each have their own. The server refuses to start rather
+      // than serving state that is silently per-process.
+      process.env.NEO4J_URI = 'bolt://localhost:7687';
+      process.env.NEO4J_USERNAME = 'neo4j';
+      process.env.NEO4J_PASSWORD = 'password';
+      process.env.NODE_ENV = 'production';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      delete process.env.CLOUD_SINGLE_REPLICA_STATE;
+
+      // `loadConfig` wraps whatever it caught, so the reason to look at is
+      // the cause: that is where the requirement and the variable are named.
+      let caught: unknown;
+      try {
+        loadConfig();
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(ConfigurationError);
+      const cause = (caught as ConfigurationError).cause as ConfigurationError;
+      expect(cause).toBeInstanceOf(ConfigurationError);
+      expect(cause.message).toMatch(/single replica with a persistent volume/);
+      expect(cause.configKey).toBe('CLOUD_SINGLE_REPLICA_STATE');
+    });
+
+    it('should accept cloud mode when the deployment is acknowledged as one', () => {
+      process.env.NEO4J_URI = 'bolt://localhost:7687';
+      process.env.NEO4J_USERNAME = 'neo4j';
+      process.env.NEO4J_PASSWORD = 'password';
+      process.env.NODE_ENV = 'production';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      process.env.CLOUD_SINGLE_REPLICA_STATE = 'true';
+
+      expect(loadConfig().cloudState.singleReplicaAcknowledged).toBe(true);
+    });
+
+    it('should not require the acknowledgement in local mode', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      delete process.env.CLOUD_SINGLE_REPLICA_STATE;
+
+      // Local mode keeps everything in one directory by design, so there is
+      // nothing to acknowledge.
+      expect(() => loadConfig()).not.toThrow();
+      expect(loadConfig().cloudState.singleReplicaAcknowledged).toBe(false);
+    });
+
+    it('should skip the check under NODE_ENV=test, which is how the cloud suite runs', () => {
+      // The cloud integration suites run cloud mode under NODE_ENV=test, so the
+      // check has to stand down there. This test pins that, because the same
+      // variable also skips the Neo4j credential checks -- copying a test
+      // environment into a deployment would disable both.
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      delete process.env.CLOUD_SINGLE_REPLICA_STATE;
+
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('should refuse a value that is not a boolean rather than guess', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      process.env.NEO4J_URI = 'bolt://localhost:7687';
+      process.env.NEO4J_USERNAME = 'neo4j';
+      process.env.NEO4J_PASSWORD = 'password';
+      process.env.CLOUD_SINGLE_REPLICA_STATE = 'yes-please';
+
+      // `loadConfig` wraps what it catches in a ConfigurationError, so the
+      // class alone would not tell a bad boolean apart from the refusal. The
+      // cause names the variable that could not be parsed.
+      let caught: unknown;
+      try {
+        loadConfig();
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(ConfigurationError);
+      const cause = (caught as ConfigurationError).cause as ConfigurationError;
+      expect(cause.message).toMatch(/Invalid boolean value for CLOUD_SINGLE_REPLICA_STATE/);
+    });
+  });
+
   describe('loadConfig', () => {
     it('should load default configuration when no environment variables are set', () => {
       // Set required environment variables
@@ -25,6 +111,9 @@ describe('Configuration System', () => {
       delete process.env.NODE_ENV;
       // Clear LOCAL_EXECUTION_ENABLED to test default
       delete process.env.LOCAL_EXECUTION_ENABLED;
+      // Cloud mode now requires the deployment to acknowledge that it is a
+      // single replica with a persistent volume; see the tests below.
+      process.env.CLOUD_SINGLE_REPLICA_STATE = 'true';
 
       const config = loadConfig();
 

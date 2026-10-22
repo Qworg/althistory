@@ -90,6 +90,38 @@ export interface AppConfig {
     cacheExpirationMs: number;
   };
   localExecution: LocalExecutionConfig;
+  cloudState: CloudStateConfig;
+}
+
+/**
+ * What cloud mode keeps where.
+ *
+ * The *entities* are shared through Neo4j. Everything else is per process:
+ *
+ * - graph metadata, export/import job records and graph versions are files
+ *   under `localExecution.dataDirectory`;
+ * - the rate-limit counters are an in-memory map that is *snapshotted* to
+ *   Redis (the whole map, at most every 30 seconds while it is changing) and
+ *   re-read once at startup, so a second replica does not share the count --
+ *   it keeps its own and overwrites the snapshot. Two replicas therefore allow
+ *   roughly twice the configured rate.
+ * - export artifacts (`export-*` files) are written under the same directory.
+ *
+ * API keys are files too (`keys/keys.json`), so a key created on one replica
+ * does not authenticate on another.
+ *
+ * Everything but the entities is per process, so the deployment has to be a
+ * single replica with a volume that outlives the container, and
+ * `singleReplicaAcknowledged` is the operator saying that it is. It is required
+ * in cloud mode; the server refuses to start without it rather than serving
+ * state that is silently per-process.
+ *
+ * The flag is a statement of intent, not a detection: it cannot tell how many
+ * replicas exist. Setting it on a two-replica deployment silences the refusal
+ * and changes nothing about the divergence.
+ */
+export interface CloudStateConfig {
+  singleReplicaAcknowledged: boolean;
 }
 
 /**
@@ -128,6 +160,14 @@ export function loadConfig(): AppConfig {
         queryTimeoutMs: parseInt(process.env.QUERY_TIMEOUT_MS || '2000', 10),
         maxQueryResults: parseInt(process.env.MAX_QUERY_RESULTS || '10000', 10),
         cacheExpirationMs: parseInt(process.env.CACHE_EXPIRATION_MS || '300000', 10), // 5 minutes
+      },
+      cloudState: {
+        // A deliberately explicit value rather than "on": an operator should
+        // have to mean this one.
+        singleReplicaAcknowledged: parseBooleanEnvVar(
+          'CLOUD_SINGLE_REPLICA_STATE',
+          false
+        ),
       },
       localExecution: {
         enabled: localExecutionEnabled,
@@ -245,6 +285,23 @@ function validateConfig(config: AppConfig): void {
     if (config.database.redis.port < 1 || config.database.redis.port > 65535) {
       throw new ConfigurationError('Redis port must be between 1 and 65535', 'REDIS_PORT');
     }
+  }
+
+  // Cloud mode keeps graph metadata, jobs and versions in files, so it only
+  // works as a single replica with a persistent volume. The operator has to
+  // say that the deployment is one, and the server refuses to start otherwise
+  // rather than serving state that is per-process and silently incomplete.
+  if (!config.localExecution.enabled && !isTestEnvironment && !config.cloudState.singleReplicaAcknowledged) {
+    throw new ConfigurationError(
+      'Cloud mode keeps graph metadata, export/import jobs, graph versions and API keys in files ' +
+        'under LOCAL_DATA_DIR and counts rate limits per process, so it requires a single replica ' +
+        'with a persistent volume. Set CLOUD_SINGLE_REPLICA_STATE=true to confirm the deployment is ' +
+        'one, and make sure the data directory is on a volume that outlives the container. Running ' +
+        'more than one replica or an ephemeral disk loses jobs and versions written by another ' +
+        'process. Any script that loads this configuration (the server, `migrate-data`) is ' +
+        'subject to it; the `althistory` CLI pins itself to local execution before loading it.',
+      'CLOUD_SINGLE_REPLICA_STATE'
+    );
   }
 
   // Validate performance settings

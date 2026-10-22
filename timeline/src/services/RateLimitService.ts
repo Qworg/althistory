@@ -1,11 +1,19 @@
 /**
- * In-process rate limiting persisted to a JSON file under
- * `<dataDir>/rate-limits/limits.json`.
+ * In-process rate limiting, snapshotted to disk and -- in cloud mode -- to
+ * Redis.
  *
- * The state is file-backed in every mode: the service is constructed with
- * `localExecution.dataDirectory` and writes there even when local execution is
- * disabled, and it counts requests in this process only. No Redis-backed
- * implementation exists; see `Container.initialize`.
+ * The counters live in this process. `checkLimit` and `recordRequest` only
+ * touch the in-memory map; nothing reads Redis on the request path. Once every
+ * `persistenceIntervalMs` (30 s by default) the whole map is written to
+ * `<dataDir>/rate-limits/limits.json` and, when a Redis client is configured,
+ * to the `althistory:rate-limits:state` key. `initialize` reads one of those
+ * back, preferring Redis.
+ *
+ * That makes the state resilient to a restart, but it does **not** make it
+ * shared: two replicas each keep their own counters and each overwrite the
+ * whole Redis value, so they allow roughly twice the configured rate and lose
+ * increments in between. Cloud mode is therefore a single replica; see
+ * `CloudStateConfig`.
  */
 
 import * as fs from 'fs';

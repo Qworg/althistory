@@ -3,7 +3,7 @@
 #   web  - Caddy: serves the SPA and proxies /api + /health to `api`
 #   api  - Express backend + CLI (cloud mode: Neo4j + Redis)
 #   neo4j- graph database with APOC
-#   redis- rate limiting, pub/sub and query cache
+#   redis- rate-limit snapshot and query cache (the counters are per process)
 #
 # Usage:
 #   cp .env.production.example .env
@@ -78,12 +78,20 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # Graph metadata, export/import jobs, graph versions and API keys are
+      # files under /data, and the rate-limit counters are per process -- none
+      # of it is shared between replicas. This deployment is therefore ONE
+      # replica with a persistent volume, and the flag asserts that; it does
+      # not verify it. The server refuses to start in cloud mode without it.
+      CLOUD_SINGLE_REPLICA_STATE: "true"
+      LOCAL_DATA_DIR: /data
       # Same-origin through Caddy, so this only matters to non-browser clients.
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
       QUERY_TIMEOUT_MS: ${QUERY_TIMEOUT_MS:-2000}
     volumes:
-      # Graph/export/job state is file-backed even in cloud mode, so it must
-      # outlive the container.
+      # Graph/export/job/version/key state is file-backed even in cloud mode, so
+      # it must outlive the container. One replica only: see
+      # docs/production-deployment.md §4.
       - timeline-data:/data
     depends_on:
       neo4j:
