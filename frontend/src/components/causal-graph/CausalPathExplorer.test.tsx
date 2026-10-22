@@ -83,13 +83,19 @@ const mockRelationships: CausalRelationship[] = [
   }
 ]
 
-// Component calculates totalWeight as product of (weight × confidence) for each relationship
-// rel1: 0.8 × 0.9 = 0.72, rel2: 0.6 × 0.7 = 0.42, total: 0.72 × 0.42 = 0.3024
+// The route answers with event *ids* and the links between them, which is the
+// shape a path really has -- `events[i]` to `events[i + 1]`.
+// The component scores a path as the product of (weight x confidence):
+// rel1: 0.8 x 0.9 = 0.72, rel2: 0.6 x 0.7 = 0.42, total: 0.72 x 0.42 = 0.3024
 const mockCausalPath: CausalPath = {
-  events: mockEvents,
-  relationships: mockRelationships,
-  totalWeight: 0.3024, // Will be recalculated by component
-  confidence: 0.8
+  events: ['1', '2', '3'],
+  relationships: [
+    { weight: 0.8, evidence: 'Strong evidence', confidence: 0.9, relationship_type: 'direct' },
+    { weight: 0.6, evidence: 'Moderate evidence', confidence: 0.7, relationship_type: 'indirect' }
+  ],
+  total_strength: 0.3024,
+  relationship_weights: [0.8, 0.6],
+  depth: 2
 }
 
 describe('CausalPathExplorer', () => {
@@ -229,14 +235,14 @@ describe('CausalPathExplorer', () => {
   })
 
   it('should not render when not exploring', () => {
-    render(<CausalPathExplorer />)
+    render(<CausalPathExplorer events={mockEvents} />)
     
     // Component should not render anything when not exploring
     expect(screen.queryByText('Causal Chain Explorer')).not.toBeInTheDocument()
   })
 
   it('should start exploration when focusEventId is provided', async () => {
-    render(<CausalPathExplorer focusEventId="1" maxDepth={3} />)
+    render(<CausalPathExplorer events={mockEvents} focusEventId="1" maxDepth={3} />)
 
     await waitFor(() => {
       expect(mockFindChain).toHaveBeenCalledWith('1', 3, expect.any(AbortSignal))
@@ -249,6 +255,7 @@ describe('CausalPathExplorer', () => {
 
     render(
       <CausalPathExplorer
+        events={mockEvents}
         focusEventId="1"
         onPathSelect={onPathSelect}
         onPathHighlight={onPathHighlight}
@@ -265,25 +272,26 @@ describe('CausalPathExplorer', () => {
     // Should show current step info
     expect(screen.getByText('Actor 1 → Target 1')).toBeInTheDocument()
 
-    // Should call callbacks with path containing recalculated totalWeight
+    // The callbacks receive the path as the route sends it -- event ids and
+    // the links between them -- plus the strength the explorer computed.
     expect(onPathHighlight).toHaveBeenCalledWith(
       expect.objectContaining({
-        events: mockEvents,
-        relationships: mockRelationships,
+        events: mockCausalPath.events,
+        relationships: mockCausalPath.relationships,
         totalWeight: expect.closeTo(0.3024, 4)
       })
     )
     expect(onPathSelect).toHaveBeenCalledWith(
       expect.objectContaining({
-        events: mockEvents,
-        relationships: mockRelationships,
+        events: mockCausalPath.events,
+        relationships: mockCausalPath.relationships,
         totalWeight: expect.closeTo(0.3024, 4)
       })
     )
   })
 
   it('should navigate between steps', async () => {
-    render(<CausalPathExplorer focusEventId="1" />)
+    render(<CausalPathExplorer events={mockEvents} focusEventId="1" />)
 
     await waitFor(() => {
       expect(screen.getByText('Causal Chain Explorer')).toBeInTheDocument()
@@ -306,7 +314,7 @@ describe('CausalPathExplorer', () => {
   })
 
   it('should handle keyboard navigation', async () => {
-    render(<CausalPathExplorer focusEventId="1" />)
+    render(<CausalPathExplorer events={mockEvents} focusEventId="1" />)
 
     await waitFor(() => {
       expect(screen.getByText('Causal Chain Explorer')).toBeInTheDocument()
@@ -342,7 +350,7 @@ describe('CausalPathExplorer', () => {
   })
 
   it('should display relationship details', async () => {
-    render(<CausalPathExplorer focusEventId="1" />)
+    render(<CausalPathExplorer events={mockEvents} focusEventId="1" />)
 
     await waitFor(() => {
       expect(screen.getByText('Causal Chain Explorer')).toBeInTheDocument()
@@ -366,7 +374,7 @@ describe('CausalPathExplorer', () => {
   })
 
   it('should display cumulative strength indicators', async () => {
-    render(<CausalPathExplorer focusEventId="1" />)
+    render(<CausalPathExplorer events={mockEvents} focusEventId="1" />)
     
     await waitFor(() => {
       expect(screen.getByText('Causal Chain Explorer')).toBeInTheDocument()
@@ -381,7 +389,7 @@ describe('CausalPathExplorer', () => {
   })
 
   it('should display path summary', async () => {
-    render(<CausalPathExplorer focusEventId="1" />)
+    render(<CausalPathExplorer events={mockEvents} focusEventId="1" />)
 
     await waitFor(() => {
       expect(screen.getByText('Causal Chain Explorer')).toBeInTheDocument()
@@ -398,7 +406,7 @@ describe('CausalPathExplorer', () => {
   it('should handle API errors gracefully', async () => {
     mockFindChain.mockRejectedValue(new Error('API Error'))
     
-    render(<CausalPathExplorer focusEventId="1" />)
+    render(<CausalPathExplorer events={mockEvents} focusEventId="1" />)
     
     await waitFor(() => {
       expect(mockAddError).toHaveBeenCalledWith({
@@ -411,7 +419,7 @@ describe('CausalPathExplorer', () => {
   it('should display no paths found message', async () => {
     mockFindChain.mockResolvedValue([])
     
-    render(<CausalPathExplorer focusEventId="1" />)
+    render(<CausalPathExplorer events={mockEvents} focusEventId="1" />)
     
     await waitFor(() => {
       expect(screen.getByText('No causal chains found')).toBeInTheDocument()
@@ -421,17 +429,20 @@ describe('CausalPathExplorer', () => {
 
   it('should handle multiple paths selection', async () => {
     const secondPath: CausalPath = {
-      events: [mockEvents[0]!, mockEvents[2]!],
-      relationships: [mockRelationships[0]!],
-      totalWeight: 0.5,
-      confidence: 0.6
+      events: ['1', '3'],
+      relationships: [
+        { weight: 0.8, evidence: 'Strong evidence', confidence: 0.9, relationship_type: 'direct' }
+      ],
+      total_strength: 0.72,
+      relationship_weights: [0.8],
+      depth: 1
     }
 
     // Clear and set up mock before rendering
     mockFindChain.mockReset()
     mockFindChain.mockResolvedValue([mockCausalPath, secondPath])
 
-    render(<CausalPathExplorer focusEventId="1" />)
+    render(<CausalPathExplorer events={mockEvents} focusEventId="1" />)
 
     // Wait for the API call
     await waitFor(() => {
@@ -467,7 +478,7 @@ describe('CausalPathExplorer', () => {
   })
 
   it('should show keyboard shortcuts help', async () => {
-    render(<CausalPathExplorer focusEventId="1" />)
+    render(<CausalPathExplorer events={mockEvents} focusEventId="1" />)
     
     await waitFor(() => {
       expect(screen.getByText('Causal Chain Explorer')).toBeInTheDocument()

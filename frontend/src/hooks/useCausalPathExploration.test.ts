@@ -79,11 +79,19 @@ const mockRelationships: CausalRelationship[] = [
   }
 ]
 
+// The route answers with event ids and the links between them: link `i`
+// connects `events[i]` to `events[i + 1]`.
 const mockCausalPath: CausalPath = {
-  events: mockEvents,
-  relationships: mockRelationships,
-  totalWeight: 0.7,
-  confidence: 0.8
+  events: mockEvents.map((event) => event.id),
+  relationships: mockRelationships.map((relationship) => ({
+    weight: relationship.weight,
+    evidence: relationship.evidence,
+    confidence: relationship.confidence,
+    relationship_type: relationship.relationship_type
+  })),
+  total_strength: 0.7,
+  relationship_weights: mockRelationships.map((relationship) => relationship.weight),
+  depth: mockRelationships.length
 }
 
 describe('useCausalPathExploration', () => {
@@ -259,13 +267,16 @@ describe('useCausalPathExploration', () => {
 
   it('should filter paths based on options', async () => {
     const lowConfidencePath: CausalPath = {
-      events: mockEvents.slice(0, 2),
+      events: mockEvents.slice(0, 2).map((event) => event.id),
       relationships: mockRelationships.slice(0, 1).map(relationship => ({
-        ...relationship,
-        confidence: 0.05 // Below default threshold
+        weight: relationship.weight,
+        evidence: relationship.evidence,
+        confidence: 0.05, // Below default threshold
+        relationship_type: relationship.relationship_type
       })),
-      totalWeight: 0.5,
-      confidence: 0.05
+      total_strength: 0.5,
+      relationship_weights: [mockRelationships[0]?.weight ?? 0],
+      depth: 1
     }
     
     mockFindChain.mockResolvedValue([mockCausalPath, lowConfidencePath])
@@ -283,10 +294,16 @@ describe('useCausalPathExploration', () => {
 
   it('should navigate between paths', async () => {
     const secondPath: CausalPath = {
-      events: mockEvents.slice(0, 2),
-      relationships: mockRelationships.slice(0, 1),
-      totalWeight: 0.6,
-      confidence: 0.7
+      events: mockEvents.slice(0, 2).map((event) => event.id),
+      relationships: mockRelationships.slice(0, 1).map((relationship) => ({
+        weight: relationship.weight,
+        evidence: relationship.evidence,
+        confidence: relationship.confidence,
+        relationship_type: relationship.relationship_type
+      })),
+      total_strength: 0.6,
+      relationship_weights: [mockRelationships[0]?.weight ?? 0],
+      depth: 1
     }
 
     mockFindChain.mockResolvedValue([mockCausalPath, secondPath])
@@ -409,7 +426,8 @@ describe('useCausalPathExploration', () => {
     const pathInfo = result.current.getCurrentPathInfo()
     
     expect(pathInfo).not.toBeNull()
-    expect(pathInfo?.event).toBe(mockEvents[0])
+    // The path names events by id: the hook does not hold the event objects.
+    expect(pathInfo?.eventId).toBe(mockEvents[0]!.id)
     expect(pathInfo?.stepIndex).toBe(0)
     expect(pathInfo?.pathIndex).toBe(0)
     expect(pathInfo?.isFirstStep).toBe(true)

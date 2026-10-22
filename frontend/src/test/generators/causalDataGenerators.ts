@@ -121,10 +121,16 @@ export function generateCausalPath(length: number = 3): CausalPath {
   const relationships = generateRelationshipChain(events)
 
   return {
-    events,
-    relationships,
-    totalWeight: relationships.reduce((acc, r) => acc * r.weight, 1),
-    confidence: relationships.reduce((acc, r) => acc * r.confidence, 1)
+    events: events.map((event) => event.id),
+    relationships: relationships.map((r) => ({
+      weight: r.weight,
+      evidence: r.evidence,
+      confidence: r.confidence,
+      relationship_type: r.relationship_type
+    })),
+    total_strength: relationships.reduce((acc, r) => acc * r.weight, 1),
+    relationship_weights: relationships.map((r) => r.weight),
+    depth: relationships.length
   }
 }
 
@@ -140,10 +146,16 @@ export function generatePathFromEvents(
   )
 
   return {
-    events,
-    relationships,
-    totalWeight: relationships.reduce((acc, r) => acc * r.weight, 1),
-    confidence: relationships.reduce((acc, r) => acc * r.confidence, 1)
+    events: events.map((event) => event.id),
+    relationships: relationships.map((r) => ({
+      weight: r.weight,
+      evidence: r.evidence,
+      confidence: r.confidence,
+      relationship_type: r.relationship_type
+    })),
+    total_strength: relationships.reduce((acc, r) => acc * r.weight, 1),
+    relationship_weights: relationships.map((r) => r.weight),
+    depth: relationships.length
   }
 }
 

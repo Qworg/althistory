@@ -138,6 +138,28 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
   const animationRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previousPathRef = useRef<CausalPath | null>(null)
 
+  /**
+   * The drawn edge from one event to another, if the graph has one.
+   *
+   * A path names its events by id and carries the link between each pair, but
+   * not an edge id: the id belongs to the drawing, not to the path. The edge
+   * is therefore found by its endpoints, comparing `data` values rather than
+   * building a selector out of them (an id may contain selector syntax).
+   */
+  const findEdge = useCallback(
+    (fromEventId: string, toEventId: string) => {
+      if (!cytoscapeInstance) return null
+      const match = cytoscapeInstance
+        .edges()
+        .filter(
+          (edge) =>
+            edge.data('source') === fromEventId && edge.data('target') === toEventId
+        )
+      return match.length > 0 ? match[0] ?? null : null
+    },
+    [cytoscapeInstance]
+  )
+
   // Clear all path highlights
   const clearHighlights = useCallback(() => {
     if (!cytoscapeInstance) return
@@ -161,8 +183,8 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
 
     let cumulativeStrength = 1.0
 
-    path.events.forEach((event, index) => {
-      const node = cytoscapeInstance.getElementById(event.id)
+    path.events.forEach((eventId, index) => {
+      const node = cytoscapeInstance.getElementById(eventId)
       if (node.length === 0) return
 
       // Calculate cumulative strength up to this point
@@ -188,9 +210,13 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
     })
 
     // Apply strength-based edge styling
-    path.relationships.forEach((relationship) => {
-      const edge = cytoscapeInstance.getElementById(relationship.id)
-      if (edge.length === 0) return
+    path.relationships.forEach((relationship, index) => {
+      const fromEventId = path.events[index]
+      const toEventId = path.events[index + 1]
+      if (!fromEventId || !toEventId) return
+
+      const edge = findEdge(fromEventId, toEventId)
+      if (!edge) return
 
       const strength = relationship.weight * relationship.confidence
       const strengthWidth = 2 + (strength * 8) // 2-10px range
@@ -201,7 +227,7 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
         'opacity': strengthOpacity
       })
     })
-  }, [cytoscapeInstance, showCumulativeStrength])
+  }, [cytoscapeInstance, showCumulativeStrength, findEdge])
 
   // Highlight entire path
   const highlightPath = useCallback((path: CausalPath) => {
@@ -211,8 +237,8 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
     clearHighlights()
 
     // Highlight all nodes in path
-    path.events.forEach(event => {
-      const node = cytoscapeInstance.getElementById(event.id)
+    path.events.forEach(eventId => {
+      const node = cytoscapeInstance.getElementById(eventId)
       if (node.length > 0) {
         node.addClass('path-highlighted')
         node.style(highlightStyles.node.highlighted)
@@ -220,9 +246,13 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
     })
 
     // Highlight all edges in path
-    path.relationships.forEach(relationship => {
-      const edge = cytoscapeInstance.getElementById(relationship.id)
-      if (edge.length > 0) {
+    path.relationships.forEach((_relationship, index) => {
+      const fromEventId = path.events[index]
+      const toEventId = path.events[index + 1]
+      if (!fromEventId || !toEventId) return
+
+      const edge = findEdge(fromEventId, toEventId)
+      if (edge) {
         edge.addClass('path-highlighted')
         edge.style(highlightStyles.edge.highlighted)
       }
@@ -246,7 +276,7 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
         duration: animationDuration
       })
     }
-  }, [cytoscapeInstance, clearHighlights, applyCumulativeStrength, animationDuration])
+  }, [cytoscapeInstance, clearHighlights, applyCumulativeStrength, animationDuration, findEdge])
 
   // Highlight path with step progression
   const highlightPathWithSteps = useCallback((path: CausalPath, stepIndex: number) => {
@@ -256,8 +286,8 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
     clearHighlights()
 
     // Apply step-based highlighting
-    path.events.forEach((event, index) => {
-      const node = cytoscapeInstance.getElementById(event.id)
+    path.events.forEach((eventId, index) => {
+      const node = cytoscapeInstance.getElementById(eventId)
       if (node.length === 0) return
 
       if (index === stepIndex) {
@@ -276,9 +306,13 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
     })
 
     // Apply step-based edge highlighting
-    path.relationships.forEach((relationship, index) => {
-      const edge = cytoscapeInstance.getElementById(relationship.id)
-      if (edge.length === 0) return
+    path.relationships.forEach((_relationship, index) => {
+      const fromEventId = path.events[index]
+      const toEventId = path.events[index + 1]
+      if (!fromEventId || !toEventId) return
+
+      const edge = findEdge(fromEventId, toEventId)
+      if (!edge) return
 
       if (index === stepIndex - 1 && stepIndex > 0) {
         // Current relationship (leading to current step)
@@ -300,10 +334,10 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
 
     // Focus on current step
     if (stepIndex < path.events.length) {
-      const currentEvent = path.events[stepIndex]
-      if (!currentEvent) return
+      const currentEventId = path.events[stepIndex]
+      if (!currentEventId) return
       
-      const currentNode = cytoscapeInstance.getElementById(currentEvent.id)
+      const currentNode = cytoscapeInstance.getElementById(currentEventId)
       
       if (currentNode.length > 0) {
         cytoscapeInstance.animate({
@@ -315,7 +349,7 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
         })
       }
     }
-  }, [cytoscapeInstance, clearHighlights, applyCumulativeStrength, animationDuration, onPathAnimationComplete])
+  }, [cytoscapeInstance, clearHighlights, applyCumulativeStrength, animationDuration, onPathAnimationComplete, findEdge])
 
   // Stop any ongoing animation
   const stopAnimation = useCallback(() => {
@@ -338,7 +372,7 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
     }
 
     // Check if this is a new path or step change
-    const isNewPath = previousPathRef.current?.events[0]?.id !== highlightedPath.events[0]?.id
+    const isNewPath = previousPathRef.current?.events[0] !== highlightedPath.events[0]
     
     if (isNewPath) {
       // New path - highlight entire path first, then focus on current step

@@ -53,7 +53,7 @@ export interface DrivenByRelationship {
  * Causal path representing a chain of causal relationships
  */
 export interface CausalPath {
-  /** Events in the causal chain */
+  /** Events in the causal chain, in order */
   events: string[]; // Event IDs
   
   /** Total strength of the causal path */
@@ -61,6 +61,21 @@ export interface CausalPath {
   
   /** Individual relationship weights in the path */
   relationship_weights: number[];
+
+  /**
+   * The links of the path, in order: entry `i` connects `events[i]` to
+   * `events[i + 1]`.
+   *
+   * The chain query already reads them, and a client that wants to filter by
+   * confidence or relationship type -- the causal path explorer does -- cannot
+   * do it from the weights alone.
+   */
+  relationships: Array<{
+    weight: number;
+    evidence: string;
+    confidence: number;
+    relationship_type: string;
+  }>;
   
   /** Length of the causal chain */
   depth: number;

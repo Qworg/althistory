@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react'
-import { CausalPath } from '@/types'
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { CausalPath, Event } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
 import {
@@ -10,6 +10,8 @@ import {
 
 export interface CausalPathExplorerProps {
   className?: string
+  /** The graph's events, so a step can show what the event is. */
+  events?: Event[]
   focusEventId?: string
   maxDepth?: number
   onPathSelect?: (path: CausalPath) => void
@@ -19,21 +21,39 @@ export interface CausalPathExplorerProps {
 // Re-export CausalChainStep for backwards compatibility
 export type { CausalChainStep }
 
+/**
+ * A path plus the cumulative strength this explorer computes from it.
+ *
+ * The server sends `total_strength`, a geometric mean of the link weights;
+ * the explorer scores a path by the product of weight and confidence across
+ * its links, which is a different number and is kept under its own name.
+ */
+export interface ExploredCausalPath extends CausalPath {
+  totalWeight: number
+}
+
 export interface ExplorationState {
   isExploring: boolean
-  currentPath: CausalPath | null
-  availablePaths: CausalPath[]
+  currentPath: ExploredCausalPath | null
+  availablePaths: ExploredCausalPath[]
   currentStepIndex: number
   explorationDepth: number
 }
 
 export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
   className = '',
+  events = [],
   focusEventId,
   maxDepth = 3,
   onPathSelect,
   onPathHighlight
 }) => {
+  const eventsById = useMemo(() => {
+    const index = new Map<string, Event>()
+    for (const event of events) index.set(event.id, event)
+    return index
+  }, [events])
+
   const [explorationState, setExplorationState] = useState<ExplorationState>({
     isExploring: false,
     currentPath: null,
@@ -339,7 +359,7 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
           <div className="space-y-3">
             {currentSteps.map((step, index) => (
               <div
-                key={step.event.id}
+                key={step.eventId}
                 className={`flex items-center space-x-3 p-3 rounded-lg border transition-all cursor-pointer ${
                   index === explorationState.currentStepIndex
                     ? 'bg-blue-50 border-blue-200 shadow-sm'
@@ -365,11 +385,16 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="truncate">
                       <span className="font-medium text-gray-800">
-                        {step.event.actor} → {step.event.target}
+                        {eventsById.get(step.eventId)?.actor ?? step.eventId} →{' '}
+                        {eventsById.get(step.eventId)?.target ?? 'Unknown'}
                       </span>
                     </div>
                     <div className="flex items-center space-x-2 text-xs text-gray-500">
-                      <span>{new Date(step.event.timestamp).toLocaleDateString()}</span>
+                      <span>
+                        {eventsById.get(step.eventId)?.timestamp
+                          ? new Date(eventsById.get(step.eventId)!.timestamp).toLocaleDateString()
+                          : 'Unknown date'}
+                      </span>
                       {step.relationship && (
                         <span className="px-2 py-1 bg-gray-200 rounded-full">
                           W: {step.relationship.weight.toFixed(2)}
@@ -378,7 +403,7 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
                     </div>
                   </div>
                   <p className="text-sm text-gray-600 truncate mt-1">
-                    {step.event.description}
+                    {eventsById.get(step.eventId)?.description ?? step.eventId}
                   </p>
                   
                   {/* Relationship details */}
