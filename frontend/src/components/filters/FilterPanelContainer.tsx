@@ -119,7 +119,6 @@ export function FilterPanelContainer() {
         onFiltersChange={handleFiltersChange}
         availableActors={availableActors}
         availableTargets={availableTargets}
-        availableEventTypes={[]}
         timeRange={timeRange}
       />
     </aside>

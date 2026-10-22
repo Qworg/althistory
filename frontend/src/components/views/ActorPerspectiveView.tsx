@@ -49,6 +49,16 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
   const [layoutMode, setLayoutMode] = useState<'chronological' | 'thematic'>('chronological')
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
 
+  /**
+   * The event that was selected under each actor.
+   *
+   * Switching actor used to clear the selection for good, so going back to an
+   * actor started from nothing. The selection is remembered per actor and
+   * restored when the actor is chosen again; it is derived from what has been
+   * selected, so it never holds an event that was not chosen.
+   */
+  const [selectionByActor, setSelectionByActor] = useState<Record<string, string>>({})
+
   // Get all unique actors from events
   const availableActors = useMemo(() => {
     const actorSet = new Set<string>()
@@ -130,15 +140,26 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
   }, [selectedActor, actorEvents])
 
   const handleActorSelect = useCallback((actor: string) => {
-    // Preserve current state before switching
-    if (selectedActor && selectedActor !== actor) {
-      // Could save current state to session storage or global store here
-      console.log(`Switching from ${selectedActor} to ${actor}`)
-    }
-    
-    setSelectedActor(actor)
-    setSelectedEvent(null) // Clear event selection when switching actors
-  }, [selectedActor])
+    setSelectedActor((previousActor) => {
+      // Remember what was selected under the actor being left.
+      if (previousActor && previousActor !== actor && selectedEvent) {
+        setSelectionByActor((remembered) => ({
+          ...remembered,
+          [previousActor]: selectedEvent.id,
+        }))
+      }
+
+      // Restore what was selected under the actor being entered, if it is
+      // still in that actor's events.
+      const rememberedId = selectionByActor[actor]
+      const restored = rememberedId
+        ? allEvents.find((event) => event.id === rememberedId) ?? null
+        : null
+      setSelectedEvent(restored)
+
+      return actor
+    })
+  }, [selectedEvent, selectionByActor, allEvents])
 
   const handleEventSelect = useCallback((event: Event) => {
     setSelectedEvent(event)

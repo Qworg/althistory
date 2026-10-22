@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'vitest-axe'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -281,10 +281,18 @@ describe('CopyHistoryPanel', () => {
       { wrapper: createWrapper() }
     )
 
-    const compareButton = screen.getByText('Compare')
+    // The row is found by its name, so the assertion names the copy whose
+    // Compare button was clicked rather than depending on the sort order.
+    const row = screen.getByText('Test Copy 1').closest('tr')
+    if (!row) throw new Error('expected the copy to be in a table row')
+
+    const compareButton = within(row).getByText('Compare')
     await user.click(compareButton)
 
-    expect(mockOnCompareGraphs).toHaveBeenCalledWith('Original', 'Test Copy 1')
+    // The copy's graph id is passed too: without it the comparison falls back
+    // to "the first graph that is not the active one", which is not
+    // necessarily the copy that was clicked.
+    expect(mockOnCompareGraphs).toHaveBeenCalledWith('Original', 'Test Copy 1', '1')
   })
 
   it('should call onDeleteCopy when Delete button is clicked', async () => {
@@ -306,8 +314,40 @@ describe('CopyHistoryPanel', () => {
     if (!firstDeleteButton) throw new Error('expected at least one Delete button')
     await user.click(firstDeleteButton)
 
+    // Deleting a copy deletes a graph, so it asks first and nothing happens
+    // until the confirmation is accepted.
+    expect(mockOnDeleteCopy).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: 'Delete this copy?' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Delete copy' }))
+
     // Operations are sorted by created_at desc, so first row is most recent (id: '3')
-    expect(mockOnDeleteCopy).toHaveBeenCalled()
+    expect(mockOnDeleteCopy).toHaveBeenCalledWith('3')
+  })
+
+  it('should not delete when the confirmation is cancelled', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <CopyHistoryPanel
+        isOpen={true}
+        onClose={mockOnClose}
+        onSwitchToGraph={mockOnSwitchToGraph}
+        onCompareGraphs={mockOnCompareGraphs}
+        onDeleteCopy={mockOnDeleteCopy}
+      />,
+      { wrapper: createWrapper() }
+    )
+
+    const deleteButtons = screen.getAllByText('Delete')
+    const firstDeleteButton = deleteButtons[0]
+    if (!firstDeleteButton) throw new Error('expected at least one Delete button')
+    await user.click(firstDeleteButton)
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(mockOnDeleteCopy).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: 'Delete this copy?' })).not.toBeInTheDocument()
   })
 
   it('should call clearCompletedOperations when Clear History is clicked', async () => {

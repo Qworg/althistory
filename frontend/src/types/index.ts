@@ -7,6 +7,13 @@ export interface Event {
   timestamp: string
   created_at: string
   updated_at: string
+  /**
+   * Free-form server-side metadata.
+   *
+   * The arc an event belongs to is recorded here as `arcId` -- the same key
+   * the CLI writes and the exporter reads. It is not a column of its own.
+   */
+  metadata?: Record<string, unknown>
 }
 
 export interface Arc {
@@ -86,6 +93,8 @@ export interface UpdateEventRequest {
   actor?: string
   target?: string
   timestamp?: string
+  /** Replaces the event's metadata; send the whole object, not a patch. */
+  metadata?: Record<string, unknown>
 }
 
 export interface CreateArcRequest {

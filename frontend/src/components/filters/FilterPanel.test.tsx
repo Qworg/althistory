@@ -20,7 +20,7 @@ const mockProps = {
   onFiltersChange: vi.fn(),
   availableActors: ['Actor 1', 'Actor 2', 'Actor 3'],
   availableTargets: ['Target 1', 'Target 2'],
-  availableEventTypes: ['Type A', 'Type B'],
+
   timeRange: { start: '2020-01-01', end: '2023-12-31' }
 }
 
@@ -45,7 +45,9 @@ describe('FilterPanel', () => {
     expect(screen.getByText('Date Range')).toBeInTheDocument()
     expect(screen.getByText('Actors (0 selected)')).toBeInTheDocument()
     expect(screen.getByText('Targets (0 selected)')).toBeInTheDocument()
-    expect(screen.getByText('Event Types (0 selected)')).toBeInTheDocument()
+    // There is no event-type section: `Event` has no type field, so the list
+    // of types could only ever be empty and the section never rendered.
+    expect(screen.queryByText(/Event Types/)).not.toBeInTheDocument()
   })
 
   it('shows active filter count', () => {
@@ -110,16 +112,12 @@ describe('FilterPanel', () => {
     })
   })
 
-  it('handles event type selection', () => {
+  it('has no event type control to select', () => {
+    // `Event` has no type field, so there is nothing to filter by. The
+    // section was removed rather than wired to a list that is always empty.
     renderWithRouter(<FilterPanel {...mockProps} />)
-    
-    const eventTypeCheckbox = screen.getByRole('checkbox', { name: /Type A/ })
-    fireEvent.click(eventTypeCheckbox)
-    
-    expect(mockProps.onFiltersChange).toHaveBeenCalledWith({
-      ...mockFilters,
-      eventTypes: ['Type A']
-    })
+
+    expect(screen.queryByRole('checkbox', { name: /Type A/ })).not.toBeInTheDocument()
   })
 
   it('handles confidence threshold changes', () => {
@@ -200,15 +198,13 @@ describe('FilterPanel', () => {
     const propsWithoutOptions = {
       ...mockProps,
       availableActors: [],
-      availableTargets: [],
-      availableEventTypes: []
+      availableTargets: []
     }
     
     renderWithRouter(<FilterPanel {...propsWithoutOptions} />)
     
     expect(screen.queryByText('Actors')).not.toBeInTheDocument()
     expect(screen.queryByText('Targets')).not.toBeInTheDocument()
-    expect(screen.queryByText('Event Types')).not.toBeInTheDocument()
   })
 
   it('has proper accessibility attributes', () => {

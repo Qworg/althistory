@@ -20,7 +20,6 @@ interface FilterPanelProps {
   onFiltersChange: (filters: FilterState) => void
   availableActors: string[]
   availableTargets: string[]
-  availableEventTypes: string[]
   timeRange: { start: string; end: string }
   className?: string
 }
@@ -41,7 +40,6 @@ export function FilterPanel({
   onFiltersChange,
   availableActors = [],
   availableTargets = [],
-  availableEventTypes = [],
   className = ''
 }: FilterPanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
@@ -305,31 +303,6 @@ export function FilterPanel({
                       className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                     />
                     <span className="ml-2 text-sm text-gray-700">{target}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Event Types */}
-          {availableEventTypes.length > 0 && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Event Types ({filters.eventTypes.length} selected)
-              </label>
-              <div className="max-h-32 overflow-y-auto border border-gray-300 rounded-md">
-                {availableEventTypes.map((eventType) => (
-                  <label
-                    key={eventType}
-                    className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={filters.eventTypes.includes(eventType)}
-                      onChange={(e) => handleMultiSelectChange('eventTypes', eventType, e.target.checked)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    <span className="ml-2 text-sm text-gray-700">{eventType}</span>
                   </label>
                 ))}
               </div>

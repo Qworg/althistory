@@ -1,3 +1,13 @@
+/**
+ * The copy panel: what happened to each copy, and how to get to it.
+ *
+ * There is no progress bar. `POST /graphs/copy` is synchronous: the graph is
+ * copied inside the request, so the answer is already `completed` or
+ * `failed` and there is no in-progress state to draw. The panel used to show
+ * a 0-100% bar and an ETA for a status the server never produces, which read
+ * as "still working" when nothing was.
+ */
+
 import React from 'react'
 import { useGraphCopy } from '@/hooks/useGraphCopy'
 import { CopyOperation } from '@/types'
@@ -20,22 +30,6 @@ export const GraphCopyProgressPanel: React.FC<GraphCopyProgressPanelProps> = ({
     refreshCopyStatus,
     clearCompletedOperations
   } = useGraphCopy()
-
-  const formatEstimatedTime = (estimatedCompletion?: string) => {
-    if (!estimatedCompletion) return 'Calculating...'
-    
-    const now = new Date()
-    const completion = new Date(estimatedCompletion)
-    const diffMs = completion.getTime() - now.getTime()
-    
-    if (diffMs <= 0) return 'Almost done'
-    
-    const diffMinutes = Math.ceil(diffMs / (1000 * 60))
-    if (diffMinutes < 60) return `~${diffMinutes} min`
-    
-    const diffHours = Math.ceil(diffMinutes / 60)
-    return `~${diffHours} hour${diffHours > 1 ? 's' : ''}`
-  }
 
   const getStatusColor = (status: CopyOperation['status']) => {
     switch (status) {
@@ -143,22 +137,6 @@ export const GraphCopyProgressPanel: React.FC<GraphCopyProgressPanelProps> = ({
           </span>
         )}
       </div>
-
-      {/* Progress Bar */}
-      {isActive && (
-        <div className="mb-2">
-          <div className="flex justify-between text-sm text-gray-600 mb-1">
-            <span>Progress: {operation.progress}%</span>
-            <span>{formatEstimatedTime(operation.estimated_completion)}</span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${operation.progress}%` }}
-            />
-          </div>
-        </div>
-      )}
 
       {/* Error Message */}
       {operation.error_message && (

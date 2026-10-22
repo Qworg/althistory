@@ -62,6 +62,8 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
   const [comparisonData, setComparisonData] = useState<{
     originalName: string
     copiedName: string
+    /** The copy's graph id: the graph the comparison is against. */
+    copiedGraphId: string
   } | null>(null)
 
   // Actor perspective state
@@ -610,8 +612,11 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           handleSwitchToGraph(graphName)
           setShowHistoryPanel(false)
         }}
-        onCompareGraphs={(originalName, copiedName) => {
-          setComparisonData({ originalName, copiedName })
+        onCompareGraphs={(originalName, copiedName, copiedGraphId) => {
+          // The copy's id is passed all the way through: without it the
+          // comparison falls back to "the first graph that is not the active
+          // one", which is not necessarily the copy that was clicked.
+          setComparisonData({ originalName, copiedName, copiedGraphId })
           setShowComparisonModal(true)
           setShowHistoryPanel(false)
         }}
@@ -626,6 +631,7 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           setComparisonData(null)
         }}
         initialBaselineGraphId={activeGraphId ?? undefined}
+        initialCounterfactualGraphId={comparisonData?.copiedGraphId}
         originalGraphName={comparisonData?.originalName || ''}
         copiedGraphName={comparisonData?.copiedName || ''}
       />
