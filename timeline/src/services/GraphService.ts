@@ -2,8 +2,6 @@
  * Graph Service for business logic around multi-graph management
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
 import {
   IGraph,
   CreateGraphRequest,
@@ -15,8 +13,6 @@ import {
   MergeResult,
   VersionRef,
   VersionOperation,
-  EntityRef,
-  ReferenceNotification,
   EntityType,
   ManualResolution,
   findInvalidManualResolutions,
@@ -58,19 +54,6 @@ export interface GraphServiceConfig {
 }
 
 /**
- * Cross-graph reference tracking entry
- */
-interface CrossGraphReference {
-  sourceGraphId: string;
-  sourceEntityId: string;
-  sourceEntityType: EntityType;
-  targetGraphId: string;
-  targetEntityId: string;
-  targetEntityType: EntityType;
-  createdAt: string;
-}
-
-/**
  * Simple in-memory rate limiter for expensive operations
  */
 class OperationRateLimiter {
@@ -109,21 +92,36 @@ class OperationRateLimiter {
 }
 
 /**
- * Service for managing graphs with business logic
+ * Service for managing graphs with business logic.
+ *
+ * ## Cross-graph references
+ *
+ * An event or an arc that points into another graph records it in its own
+ * `metadata.crossGraphRefs` array -- that is the one representation for those
+ * entities. `ImportService` writes it when it reads `data.crossGraphRefs`,
+ * and `ExportService` hoists it back into `data.crossGraphRefs` on the way out
+ * (round-trip covered by `ImportService.test.ts` and `ExportService.test.ts`).
+ *
+ * A causal relationship that reaches into another graph is recorded
+ * differently: the relationship itself carries `causeGraphId`/
+ * `effectGraphId`. That is a property of the link, not a reference hanging off
+ * an entity, and it is validated separately (graph existence).
+ *
+ * A second, parallel registry used to live here -- `cross-references.json`,
+ * `registerCrossGraphReference`, `getReferencesFromGraph`/`ToGraph`, a
+ * per-commit scan and a `ReferenceNotification` queue. Nothing wrote it, so it
+ * was always empty, and the scans and notifications it drove could never fire.
+ * It was removed rather than wired up: the entity metadata is what import and
+ * export actually use, and a notification system is a feature, not a cleanup.
+ * See `impl/gap-remediation/04-export-contract-conformance.md`.
  */
 export class GraphService {
   private readonly graphRepository: GraphRepository;
-  private referenceNotifications: ReferenceNotification[] = [];
-  private crossGraphReferences: CrossGraphReference[] = [];
-  private notificationsPath: string;
-  private referencesPath: string;
   private readonly rateLimiter: OperationRateLimiter;
   private readonly logger: ILogger;
 
   constructor(config: GraphServiceConfig) {
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
-    this.notificationsPath = path.join(config.dataDir, 'notifications.json');
-    this.referencesPath = path.join(config.dataDir, 'cross-references.json');
     // Allow 10 expensive operations per minute
     this.rateLimiter = new OperationRateLimiter(10, 60000);
     this.logger = createLogger('GraphService');
@@ -134,105 +132,6 @@ export class GraphService {
    */
   async initialize(): Promise<void> {
     await this.graphRepository.initialize();
-    
-    // Load persisted notifications and references
-    await this.loadNotifications();
-    await this.loadCrossGraphReferences();
-  }
-
-  /**
-   * Load notifications from disk
-   */
-  private async loadNotifications(): Promise<void> {
-    try {
-      const content = await fs.promises.readFile(this.notificationsPath, 'utf-8');
-      this.referenceNotifications = JSON.parse(content);
-    } catch {
-      // File doesn't exist yet, start with empty array
-      this.referenceNotifications = [];
-    }
-  }
-
-  /**
-   * Save notifications to disk
-   */
-  private async saveNotifications(): Promise<void> {
-    await fs.promises.writeFile(
-      this.notificationsPath,
-      JSON.stringify(this.referenceNotifications, null, 2),
-      'utf-8'
-    );
-  }
-
-  /**
-   * Load cross-graph references from disk
-   */
-  private async loadCrossGraphReferences(): Promise<void> {
-    try {
-      const content = await fs.promises.readFile(this.referencesPath, 'utf-8');
-      this.crossGraphReferences = JSON.parse(content);
-    } catch {
-      // File doesn't exist yet, start with empty array
-      this.crossGraphReferences = [];
-    }
-  }
-
-  /**
-   * Save cross-graph references to disk
-   */
-  private async saveCrossGraphReferences(): Promise<void> {
-    await fs.promises.writeFile(
-      this.referencesPath,
-      JSON.stringify(this.crossGraphReferences, null, 2),
-      'utf-8'
-    );
-  }
-
-  /**
-   * Register a cross-graph reference
-   */
-  async registerCrossGraphReference(
-    sourceGraphId: string,
-    sourceEntityId: string,
-    sourceEntityType: EntityType,
-    targetGraphId: string,
-    targetEntityId: string,
-    targetEntityType: EntityType
-  ): Promise<void> {
-    // Check if reference already exists
-    const existing = this.crossGraphReferences.find(
-      r => r.sourceGraphId === sourceGraphId &&
-           r.sourceEntityId === sourceEntityId &&
-           r.targetGraphId === targetGraphId &&
-           r.targetEntityId === targetEntityId
-    );
-    
-    if (!existing) {
-      this.crossGraphReferences.push({
-        sourceGraphId,
-        sourceEntityId,
-        sourceEntityType,
-        targetGraphId,
-        targetEntityId,
-        targetEntityType,
-        createdAt: new Date().toISOString(),
-      });
-      await this.saveCrossGraphReferences();
-    }
-  }
-
-  /**
-   * Get all references to a specific graph
-   */
-  getReferencesToGraph(graphId: string): CrossGraphReference[] {
-    return this.crossGraphReferences.filter(r => r.targetGraphId === graphId);
-  }
-
-  /**
-   * Get all references from a specific graph
-   */
-  getReferencesFromGraph(graphId: string): CrossGraphReference[] {
-    return this.crossGraphReferences.filter(r => r.sourceGraphId === graphId);
   }
 
   /**
@@ -295,9 +194,6 @@ export class GraphService {
     if (!success) {
       throw new NotFoundError('Graph not found', 'Graph', id);
     }
-
-    // Create notifications for any graphs that reference this one
-    await this.notifyGraphDeleted(id);
   }
 
   /**
@@ -614,9 +510,6 @@ export class GraphService {
       throw new NotFoundError('Graph not found', 'Graph', graphId);
     }
 
-    // Notify about cross-graph reference changes
-    await this.checkCrossGraphReferences(graphId, changes);
-
     return this.graphRepository.commitChanges(
       graphId,
       changes,
@@ -624,75 +517,6 @@ export class GraphService {
       description,
       userId
     );
-  }
-
-  /**
-   * Validate a cross-graph reference
-   */
-  async validateCrossGraphReference(ref: EntityRef): Promise<boolean> {
-    const graph = await this.graphRepository.findById(ref.graphId);
-    if (!graph || graph.status !== 'active') {
-      return false;
-    }
-
-    const data = await this.graphRepository.checkout(ref.graphId);
-    
-    switch (ref.entityType) {
-      case 'event':
-        return ref.entityId in data.events;
-      case 'arc':
-        return ref.entityId in data.arcs;
-      default:
-        return false;
-    }
-  }
-
-  /**
-   * Get reference notifications for a graph
-   */
-  async getReferenceNotifications(
-    graphId: string,
-    unacknowledgedOnly = true
-  ): Promise<ReferenceNotification[]> {
-    return this.referenceNotifications.filter(n => {
-      if (n.targetGraphId !== graphId) return false;
-      if (unacknowledgedOnly && n.acknowledged) return false;
-      return true;
-    });
-  }
-
-  /**
-   * Acknowledge a reference notification
-   */
-  async acknowledgeNotification(notificationId: string): Promise<void> {
-    const notification = this.referenceNotifications.find(n => n.id === notificationId);
-    if (notification) {
-      notification.acknowledged = true;
-      await this.saveNotifications();
-    }
-  }
-
-  /**
-   * Delete old acknowledged notifications (cleanup)
-   */
-  async cleanupNotifications(olderThanDays: number = 30): Promise<number> {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - olderThanDays);
-    const cutoffStr = cutoff.toISOString();
-
-    const originalLength = this.referenceNotifications.length;
-    this.referenceNotifications = this.referenceNotifications.filter(n => {
-      // Keep unacknowledged notifications
-      if (!n.acknowledged) return true;
-      // Keep recent acknowledged notifications
-      return n.timestamp > cutoffStr;
-    });
-
-    const removed = originalLength - this.referenceNotifications.length;
-    if (removed > 0) {
-      await this.saveNotifications();
-    }
-    return removed;
   }
 
   /**
@@ -1182,93 +1006,5 @@ export class GraphService {
     }
 
     return null;
-  }
-
-  private async notifyGraphDeleted(graphId: string): Promise<void> {
-    // Find all graphs that reference this deleted graph
-    const referencingGraphs = this.getReferencesToGraph(graphId);
-    
-    // Group by source graph to create one notification per affected graph
-    const affectedGraphs = new Set<string>();
-    for (const ref of referencingGraphs) {
-      affectedGraphs.add(ref.sourceGraphId);
-    }
-
-    // Create notifications for each affected graph
-    for (const sourceGraphId of affectedGraphs) {
-      const affectedRefs = referencingGraphs.filter(r => r.sourceGraphId === sourceGraphId);
-      
-      const notification: ReferenceNotification = {
-        id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
-        type: 'graph_deleted',
-        sourceGraphId: graphId,
-        targetGraphId: sourceGraphId,
-        entityId: affectedRefs.map(r => r.sourceEntityId).join(','),
-        entityType: 'event', // Use first type
-        message: `Graph "${graphId}" has been deleted. ${affectedRefs.length} cross-graph reference(s) in this graph may be broken.`,
-        timestamp: new Date().toISOString(),
-        acknowledged: false,
-      };
-      
-      this.referenceNotifications.push(notification);
-    }
-
-    // Persist notifications
-    if (affectedGraphs.size > 0) {
-      await this.saveNotifications();
-    }
-
-    // Mark cross-graph references as broken (keep them for reference but note the deletion)
-    this.logger.warn('Graph deleted with cross-graph references affected', {
-      graphId,
-      affectedReferences: referencingGraphs.length,
-    });
-  }
-
-  private async checkCrossGraphReferences(
-    graphId: string,
-    changes: EntityChanges
-  ): Promise<void> {
-    // Check modified and deleted entities for cross-graph references
-    const modifiedOrDeletedIds = new Set([
-      ...changes.modified.map(c => c.id),
-      ...changes.deleted.map(c => c.id),
-    ]);
-
-    if (modifiedOrDeletedIds.size === 0) return;
-
-    // Find references to this graph's entities
-    const referencesToThisGraph = this.getReferencesToGraph(graphId);
-    
-    // Check if any referenced entities are being modified or deleted
-    for (const ref of referencesToThisGraph) {
-      if (modifiedOrDeletedIds.has(ref.targetEntityId)) {
-        const isDeleted = changes.deleted.some(c => c.id === ref.targetEntityId);
-        const change = changes.modified.find(c => c.id === ref.targetEntityId) ||
-                       changes.deleted.find(c => c.id === ref.targetEntityId);
-        
-        // Create notification for the referencing graph
-        const notification: ReferenceNotification = {
-          id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
-          type: isDeleted ? 'entity_deleted' : 'entity_modified',
-          sourceGraphId: graphId,
-          targetGraphId: ref.sourceGraphId,
-          entityId: ref.targetEntityId,
-          entityType: change?.type || ref.targetEntityType,
-          message: isDeleted
-            ? `Referenced ${ref.targetEntityType} "${ref.targetEntityId}" has been deleted in graph "${graphId}".`
-            : `Referenced ${ref.targetEntityType} "${ref.targetEntityId}" has been modified in graph "${graphId}".`,
-          timestamp: new Date().toISOString(),
-          acknowledged: false,
-        };
-        
-        this.referenceNotifications.push(notification);
-      }
-    }
-
-    // Persist notifications if any were created
-    if (this.referenceNotifications.length > 0) {
-      await this.saveNotifications();
-    }
   }
 }

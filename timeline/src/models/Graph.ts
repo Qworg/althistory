@@ -324,18 +324,6 @@ export interface CrossGraphCausalRelationship {
   isCrossGraph: boolean;
 }
 
-export interface ReferenceNotification {
-  id: string;
-  type: 'entity_modified' | 'entity_deleted' | 'graph_deleted';
-  sourceGraphId: string;
-  targetGraphId: string;
-  entityId: string;
-  entityType: EntityType | 'event' | 'arc';
-  message: string;
-  timestamp: string;
-  acknowledged: boolean;
-}
-
 /**
  * Git-like versioning types
  */
