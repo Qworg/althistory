@@ -304,15 +304,34 @@ describe('APIClient', () => {
         totalWeight: 0.8,
         confidence: 0.9
       }]
-      mockAxiosInstance.get.mockResolvedValue({ data: { success: true, data: mockChain } })
+
+      // The route answers `{ startEvent, causalPaths, maxDepth }`, not a bare
+      // array: the client has to unwrap `causalPaths`.
+      mockAxiosInstance.get.mockResolvedValue({
+        status: 200,
+        data: {
+          success: true,
+          data: { startEvent: { id: 'event1' }, causalPaths: mockChain, maxDepth: 3 }
+        }
+      })
 
       const result = await apiClient.causal.findChain('event1', 3)
 
+      // The route reads `maxDepth`; `max_depth` was silently ignored.
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/causal/chain/event1', {
-        params: { max_depth: 3 },
+        params: { maxDepth: 3 },
         signal: undefined
       })
       expect(result).toEqual(mockChain)
+    })
+
+    it('should reject an answer without a causalPaths array', async () => {
+      mockAxiosInstance.get.mockResolvedValue({
+        status: 200,
+        data: { success: true, data: { startEvent: { id: 'event1' }, maxDepth: 3 } }
+      })
+
+      await expect(apiClient.causal.findChain('event1', 3)).rejects.toThrow(/causalPaths/)
     })
 
     it('should get causal suggestions', async () => {

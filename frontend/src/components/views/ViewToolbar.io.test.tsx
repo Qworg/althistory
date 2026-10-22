@@ -170,6 +170,10 @@ describe('ViewToolbar graph data operation entry points', () => {
     const dialog = await screen.findByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }))
 
+    // Deleting a copy deletes a graph, so it asks first.
+    expect(graphSpies.deleteGraph).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Delete copy' }))
+
     expect(graphSpies.deleteGraph).toHaveBeenCalledWith('graph-copy-1')
   })
 })

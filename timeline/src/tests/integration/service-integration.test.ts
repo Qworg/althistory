@@ -153,6 +153,9 @@ describe('Service Integration Tests', () => {
         events: [causeEvent.id, effectEvent.id],
         total_strength: 0,
         relationship_weights: [0.8],
+        relationships: [
+          { weight: 0.8, evidence: 'test', confidence: 0.9, relationship_type: 'direct' },
+        ],
         depth: 1
       };
       expect(causalService.calculateCausalStrength(path)).toBeGreaterThan(0);

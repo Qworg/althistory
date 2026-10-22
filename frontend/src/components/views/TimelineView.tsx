@@ -18,6 +18,7 @@ import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
 import { Event, Arc, TimeRange } from '@/types'
 import { ContextMenu, ConfirmDialog } from '@/components/ui'
 import { EventDetailModal, ArcDetailPanel } from '@/components/modals'
+import { EventArcAssignment } from '@/components/timeline/EventArcAssignment'
 import {
   findExcludedContainedEvents,
   findExcludedContainingArcs,
@@ -31,11 +32,17 @@ function describeError(error: unknown): string {
   return 'Unknown error'
 }
 
-type ContextMenuState = {
-  type: 'event' | 'arc'
-  item: Event | Arc
-  position: { x: number; y: number }
-} | null
+/**
+ * A context menu that was opened, and what it was opened on.
+ *
+ * `type` and `item` are tied together: `type: 'event'` means `item` is an
+ * `Event`. They used to be independent unions, which is why every consumer
+ * had to cast and a mistake could not be caught.
+ */
+type ContextMenuState = (
+  | { type: 'event'; item: Event; position: { x: number; y: number } }
+  | { type: 'arc'; item: Arc; position: { x: number; y: number } }
+) | null
 
 type DeleteConfirmState = {
   type: 'event' | 'arc'
@@ -73,6 +80,14 @@ export function TimelineView() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState>(null)
   const [editModal, setEditModal] = useState<EditModalState>(null)
+  /**
+   * The event whose arc assignment was asked for from the context menu.
+   *
+   * `Timeline` has a fallback assignment popup, but it only opens when no
+   * context-menu handler is passed -- and this view always passes one, so in
+   * the app that popup was unreachable. The action is offered here instead.
+   */
+  const [assignmentTarget, setAssignmentTarget] = useState<Event | null>(null)
 
   // The timeline double-click opens the create flow prefilled with the clicked
   // time. Arc expansion is owned entirely by Timeline (it drives which
@@ -301,10 +316,44 @@ export function TimelineView() {
     setContextMenu(null)
   }, [])
 
+  /**
+   * Persist an event's arc assignment.
+   *
+   * The association lives in the event's `metadata.arcId` -- the same key the
+   * CLI writes and the exporter reads. Passing `null` clears it.
+   */
+  const handleAssignToArc = useCallback(async (eventId: string, arcId: string | null) => {
+    const target = assignmentTarget
+    if (!target) return
+
+    // The event as it is *now*, not as it was when the menu opened. A PUT
+    // replaces the whole metadata object, so merging a snapshot would drop
+    // anything another writer added while the modal was open.
+    const latest = fetchedEvents.find((event) => event.id === eventId) ?? target
+
+    const metadata: Record<string, unknown> = { ...(latest.metadata ?? {}) }
+    if (arcId) {
+      metadata.arcId = arcId
+    } else {
+      delete metadata.arcId
+    }
+
+    await updateEventMutation.mutateAsync({ id: eventId, data: { metadata } })
+    setAssignmentTarget(null)
+  }, [assignmentTarget, fetchedEvents, updateEventMutation])
+
   // Edit action from context menu
   const handleEdit = useCallback(() => {
     if (contextMenu) {
       setEditModal({ type: contextMenu.type, item: contextMenu.item })
+      setContextMenu(null)
+    }
+  }, [contextMenu])
+
+  // "Assign to arc" action from the event context menu
+  const handleAssignRequest = useCallback(() => {
+    if (contextMenu?.type === 'event') {
+      setAssignmentTarget(contextMenu.item)
       setContextMenu(null)
     }
   }, [contextMenu])
@@ -428,6 +477,29 @@ export function TimelineView() {
     setEditModal(null)
   }, [])
 
+  /**
+   * The events and child arcs of the arc being edited.
+   *
+   * The panel needs both: it refuses a time range that would leave a
+   * contained event outside it, and it warns that deleting an arc deletes
+   * its children. It was mounted with neither, so both checks were silent.
+   */
+  const editModalArcContents = useMemo(() => {
+    if (editModal?.type !== 'arc') {
+      return { containedEvents: [], childArcs: [] }
+    }
+
+    const arcId = editModal.item.id
+    // `fetchedEvents`, not the filtered list: the drag handler refuses a
+    // resize that would leave a contained event outside the arc, and it
+    // checks every event. Using the filtered list here would report a
+    // smaller set and let the panel accept what the drag then refuses.
+    return {
+      containedEvents: fetchedEvents.filter((event) => event.metadata?.arcId === arcId),
+      childArcs: fetchedArcs.filter((arc) => arc.parent_arc_id === arcId),
+    }
+  }, [editModal, fetchedEvents, fetchedArcs])
+
   if (eventsLoading || arcsLoading) {
     return (
       <div className="space-y-6">
@@ -518,6 +590,10 @@ export function TimelineView() {
           position={contextMenu.position}
           items={[
             { id: 'edit', label: 'Edit', onClick: handleEdit },
+            // Only an event belongs to an arc; an arc has no such action.
+            ...(contextMenu.type === 'event'
+              ? [{ id: 'assign', label: 'Assign to arc', onClick: handleAssignRequest }]
+              : []),
             { id: 'delete', label: 'Delete', onClick: handleDeleteRequest, danger: true }
           ]}
           onClose={handleContextMenuClose}
@@ -536,6 +612,27 @@ export function TimelineView() {
           isLoading={isDeleting}
           variant="danger"
         />
+      )}
+
+      {/* Arc assignment for a single event, opened from the context menu.
+          The current arc is read from the event's metadata, so the modal
+          opens on the assignment the event already has. */}
+      {assignmentTarget && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <EventArcAssignment
+              event={assignmentTarget}
+              availableArcs={fetchedArcs}
+              currentArcId={
+                typeof assignmentTarget.metadata?.arcId === 'string'
+                  ? assignmentTarget.metadata.arcId
+                  : null
+              }
+              onAssign={handleAssignToArc}
+              onCancel={() => setAssignmentTarget(null)}
+            />
+          </div>
+        </div>
       )}
 
       {/* Event Edit Modal */}
@@ -557,6 +654,8 @@ export function TimelineView() {
           onClose={handleEditModalClose}
           onSave={handleArcSave}
           onDelete={handleArcDelete}
+          containedEvents={editModalArcContents.containedEvents}
+          childArcs={editModalArcContents.childArcs}
         />
       )}
 

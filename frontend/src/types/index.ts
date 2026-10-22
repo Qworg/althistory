@@ -7,6 +7,13 @@ export interface Event {
   timestamp: string
   created_at: string
   updated_at: string
+  /**
+   * Free-form server-side metadata.
+   *
+   * The arc an event belongs to is recorded here as `arcId` -- the same key
+   * the CLI writes and the exporter reads. It is not a column of its own.
+   */
+  metadata?: Record<string, unknown>
 }
 
 export interface Arc {
@@ -86,6 +93,8 @@ export interface UpdateEventRequest {
   actor?: string
   target?: string
   timestamp?: string
+  /** Replaces the event's metadata; send the whole object, not a patch. */
+  metadata?: Record<string, unknown>
 }
 
 export interface CreateArcRequest {
@@ -135,12 +144,31 @@ export interface ArcFilters {
   search?: string
 }
 
+/**
+ * One causal chain, as `GET /causal/chain/:eventId` returns it.
+ *
+ * Mirrors `CausalPath` in `timeline/src/models/relationships.ts`. `events` is
+ * a list of event *ids*, in chain order; `relationships[i]` is the link from
+ * `events[i]` to `events[i + 1]`. It used to be declared here as full `Event`
+ * and `CausalRelationship` objects, which the route never sends: every
+ * consumer dereferenced fields that were not there and the exploration threw
+ * on its first real response.
+ */
 export interface CausalPath {
-  events: Event[]
-  relationships: CausalRelationship[]
-  totalWeight: number
-  confidence: number
+  events: string[]
+  relationships: Array<{
+    weight: number
+    evidence: string
+    confidence: number
+    relationship_type: string
+  }>
+  total_strength: number
+  relationship_weights: number[]
+  depth: number
 }
+
+/** One link of a {@link CausalPath}: entry `i` connects `events[i]` to `events[i + 1]`. */
+export type CausalPathRelationship = CausalPath['relationships'][number]
 
 export interface CausalSuggestion {
   id: string

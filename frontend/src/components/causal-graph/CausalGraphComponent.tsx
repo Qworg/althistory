@@ -1170,6 +1170,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         {enablePathExploration && showNavigationControls && navigationState.isNavigating && (
           <div className="absolute top-4 left-4 w-80 max-h-96 overflow-y-auto">
             <CausalChainNavigationControls
+              events={events}
               availablePaths={availablePaths}
               currentPathIndex={navigationState.currentPathIndex}
               currentStepIndex={navigationState.currentStepIndex}

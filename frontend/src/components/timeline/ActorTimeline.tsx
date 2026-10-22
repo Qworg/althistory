@@ -291,19 +291,33 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     const svg = d3.select(svgRef.current)
     const g = svg.select('g')
     
-    // Remove existing events
-    g.selectAll('.actor-event').remove()
+    // Remove the groups and everything in them. Removing only `.actor-event`
+    // left an empty wrapper per group behind on every re-render -- and this
+    // effect re-runs whenever the hovered or selected event changes.
+    g.selectAll('.actor-event-group').remove()
 
     const groups = groupedEvents()
     const yScaleFunc = yScale()
 
-    // Render events for each group
+    // Render events for each group.
+    //
+    // The group key is an actor or a partner name -- user data -- so it is
+    // never put in a selector: `U.S.` or `Britain & France` is not a valid
+    // CSS class, and `selectAll` would throw. The group is bound by datum and
+    // the names are kept in attributes, which take any string.
     Object.entries(groups).forEach(([groupKey, groupEvents]) => {
-      const eventSelection = g.selectAll(`.actor-event-${groupKey}`)
+      // One container per group, appended rather than data-joined: a join
+      // against the containers already appended for the earlier groups would
+      // bind them instead of entering, and every group after the first would
+      // render nothing.
+      const eventSelection = g.append('g')
+        .attr('class', 'actor-event-group')
+        .attr('data-group', groupKey)
+        .selectAll('.actor-event')
         .data(groupEvents)
         .enter()
         .append('g')
-        .attr('class', `actor-event actor-event-${groupKey}`)
+        .attr('class', 'actor-event')
         .attr('data-event-id', d => d.id)
         .attr('transform', d => {
           const x = timeScale()(new Date(d.timestamp))

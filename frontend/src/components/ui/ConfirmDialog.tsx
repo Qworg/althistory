@@ -24,7 +24,7 @@ export function ConfirmDialog({
   isLoading = false,
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
-  const confirmButtonRef = useRef<HTMLButtonElement>(null)
+  const cancelButtonRef = useRef<HTMLButtonElement>(null)
 
   // Handle escape key and focus trap
   useEffect(() => {
@@ -38,8 +38,9 @@ export function ConfirmDialog({
 
     document.addEventListener('keydown', handleEscape)
 
-    // Focus the cancel button on open (safer default)
-    confirmButtonRef.current?.focus()
+    // Focus the *cancel* button on open: this dialog exists to stop a
+    // destructive action, so Enter must not be the destructive choice.
+    cancelButtonRef.current?.focus()
 
     // Prevent body scroll when dialog is open
     document.body.style.overflow = 'hidden'
@@ -120,7 +121,6 @@ export function ConfirmDialog({
           </div>
           <div className="bg-gray-50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6">
             <button
-              ref={confirmButtonRef}
               type="button"
               disabled={isLoading}
               onClick={onConfirm}
@@ -139,6 +139,7 @@ export function ConfirmDialog({
               )}
             </button>
             <button
+              ref={cancelButtonRef}
               type="button"
               disabled={isLoading}
               onClick={onCancel}

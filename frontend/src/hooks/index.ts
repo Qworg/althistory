@@ -21,4 +21,3 @@ export { default as useCausalSuggestions } from './useCausalSuggestions'
 
 // Export streaming and keyboard navigation hooks
 export * from './useStreamingWrite'
-export * from './useGlobalKeyboardShortcuts'

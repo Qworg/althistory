@@ -44,10 +44,16 @@ const createPath = (
   events: Event[],
   relationships: CausalRelationship[]
 ): CausalPath => ({
-  events,
-  relationships,
-  totalWeight: relationships.reduce((acc, r) => acc * r.weight, 1),
-  confidence: relationships.reduce((acc, r) => acc * r.confidence, 1)
+  events: events.map((event) => event.id),
+  relationships: relationships.map((r) => ({
+    weight: r.weight,
+    evidence: r.evidence,
+    confidence: r.confidence,
+    relationship_type: r.relationship_type
+  })),
+  total_strength: relationships.reduce((acc, r) => acc * r.weight, 1),
+  relationship_weights: relationships.map((r) => r.weight),
+  depth: relationships.length
 })
 
 describe('Causal Path Calculations', () => {
@@ -238,7 +244,7 @@ describe('Causal Path Calculations', () => {
       const steps = transformPathToSteps(path)
 
       expect(steps).toHaveLength(1)
-      expect(steps[0]!.event.id).toBe('1')
+      expect(steps[0]!.eventId).toBe('1')
       expect(steps[0]!.cumulativeWeight).toBe(1)
       expect(steps[0]!.stepIndex).toBe(0)
       expect(steps[0]!.relationship).toBeUndefined()
@@ -251,8 +257,8 @@ describe('Causal Path Calculations', () => {
 
       const steps = transformPathToSteps(path)
 
-      expect(steps[0]!.event).toBe(event1)
-      expect(steps[1]!.event).toBe(event2)
+      expect(steps[0]!.eventId).toBe(event1.id)
+      expect(steps[1]!.eventId).toBe(event2.id)
     })
   })
 

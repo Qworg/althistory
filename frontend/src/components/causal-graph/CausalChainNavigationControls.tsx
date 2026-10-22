@@ -1,8 +1,15 @@
-import React, { useState, useCallback } from 'react'
-import { CausalPath } from '@/types'
+import React, { useState, useCallback, useMemo } from 'react'
+import { CausalPath, Event } from '@/types'
 
 export interface CausalChainNavigationControlsProps {
   className?: string
+  /**
+   * The graph's events, so the chain can show what each step *is*.
+   *
+   * A `CausalPath` names its events by id; without the events the controls
+   * could only print ids.
+   */
+  events?: Event[]
   availablePaths: CausalPath[]
   currentPathIndex: number
   currentStepIndex: number
@@ -22,6 +29,7 @@ export interface CausalChainNavigationControlsProps {
 
 export const CausalChainNavigationControls: React.FC<CausalChainNavigationControlsProps> = ({
   className = '',
+  events = [],
   availablePaths,
   currentPathIndex,
   currentStepIndex,
@@ -43,6 +51,21 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
 
   const currentPath = availablePaths[currentPathIndex]
   const hasMultiplePaths = availablePaths.length > 1
+
+  const eventsById = useMemo(() => {
+    const index = new Map<string, Event>()
+    for (const event of events) index.set(event.id, event)
+    return index
+  }, [events])
+
+  /** The event a path step names, if the graph still holds it. */
+  const eventAt = useCallback(
+    (path: CausalPath | undefined, index: number): Event | undefined => {
+      const id = path?.events[index]
+      return id ? eventsById.get(id) : undefined
+    },
+    [eventsById]
+  )
   const hasMultipleSteps = currentPath && currentPath.events.length > 1
 
   // Handle interval input change
@@ -150,7 +173,7 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
                   {currentPath.events.length} events, {currentPath.relationships.length} links
                 </span>
                 <span>
-                  Strength: {((currentPath.totalWeight || 0) * 100).toFixed(1)}%
+                  Strength: {((currentPath.total_strength || 0) * 100).toFixed(1)}%
                 </span>
               </div>
             </div>
@@ -202,9 +225,9 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
 
           {/* Step timeline */}
           <div className="flex space-x-1 overflow-x-auto pb-2">
-            {currentPath.events.map((event, index) => (
+            {currentPath.events.map((eventId, index) => (
               <button
-                key={event.id}
+                key={eventId}
                 onClick={() => onStepNavigate(index)}
                 className={`flex-shrink-0 w-8 h-8 rounded-full text-xs font-medium transition-all ${
                   index === currentStepIndex
@@ -213,7 +236,11 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
                     ? 'bg-green-200 text-green-800 hover:bg-green-300'
                     : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                 }`}
-                title={`${event.actor} → ${event.target}`}
+                title={
+                  eventAt(currentPath, index)
+                    ? `${eventAt(currentPath, index)!.actor} → ${eventAt(currentPath, index)!.target}`
+                    : eventId
+                }
               >
                 {index + 1}
               </button>
@@ -317,17 +344,18 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
               <span className="font-medium text-gray-800">
-                {currentPath.events[currentStepIndex]?.actor} → {currentPath.events[currentStepIndex]?.target}
+                {eventAt(currentPath, currentStepIndex)?.actor ?? 'Unknown'} →{' '}
+                {eventAt(currentPath, currentStepIndex)?.target ?? 'Unknown'}
               </span>
               <span className="text-xs text-gray-500">
-                {currentPath.events[currentStepIndex]?.timestamp ? 
-                  new Date(currentPath.events[currentStepIndex]!.timestamp).toLocaleDateString() : 
-                  'Unknown date'
+                {eventAt(currentPath, currentStepIndex)?.timestamp
+                  ? new Date(eventAt(currentPath, currentStepIndex)!.timestamp).toLocaleDateString()
+                  : 'Unknown date'
                 }
               </span>
             </div>
             <p className="text-sm text-gray-600 mb-2">
-              {currentPath.events[currentStepIndex]?.description}
+              {eventAt(currentPath, currentStepIndex)?.description ?? currentPath.events[currentStepIndex]}
             </p>
             
             {/* Relationship info for current step */}

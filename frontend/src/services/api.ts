@@ -425,15 +425,36 @@ class APIClient {
         },
 
         findChain: async (startEventId: string, maxDepth: number = 3, signal?: AbortSignal): Promise<CausalPath[]> => {
+            // The route reads `maxDepth` (capped at 10); it used to be sent
+            // as `max_depth`, which was silently ignored, so every
+            // exploration ran at the default depth whatever was asked for.
+            let response: AxiosResponse<{
+                success: boolean
+                data: { startEvent: Event; causalPaths: CausalPath[]; maxDepth: number }
+            }>
+
             try {
-                const response: AxiosResponse<{ success: boolean; data: CausalPath[] }> = await this.client.get(`/causal/chain/${startEventId}`, {
-                    params: { max_depth: maxDepth },
+                response = await this.client.get(`/causal/chain/${startEventId}`, {
+                    params: { maxDepth },
                     signal
                 })
-                return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
+
+            // The route answers `{ startEvent, causalPaths, maxDepth }` inside
+            // `data`, not a bare array. Returning the envelope made the
+            // caller's `.filter` throw, so no exploration could ever finish.
+            const paths = response.data?.data?.causalPaths
+            if (!Array.isArray(paths)) {
+                throw new APIError(
+                    'The causal chain route answered without a "causalPaths" array',
+                    response.status,
+                    'INVALID_RESPONSE'
+                )
+            }
+
+            return paths
         },
 
         getSuggestions: async (eventId: string, signal?: AbortSignal): Promise<CausalSuggestion[]> => {

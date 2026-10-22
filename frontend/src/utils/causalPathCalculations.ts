@@ -1,10 +1,10 @@
-import { CausalPath, CausalRelationship, Event } from '@/types'
+import { CausalPath, CausalPathRelationship } from '@/types'
 
 /**
  * Calculate cumulative strength for a causal path
  * Uses product of weights and confidences
  */
-export function calculateCumulativeStrength(relationships: CausalRelationship[]): number {
+export function calculateCumulativeStrength(relationships: CausalPathRelationship[]): number {
   if (relationships.length === 0) return 0
 
   return relationships.reduce((cumulative, relationship) => {
@@ -16,7 +16,7 @@ export function calculateCumulativeStrength(relationships: CausalRelationship[])
 /**
  * Calculate step-by-step cumulative weights for a path
  */
-export function calculateStepWeights(relationships: CausalRelationship[]): number[] {
+export function calculateStepWeights(relationships: CausalPathRelationship[]): number[] {
   const weights: number[] = [1] // First step is always 1 (100%)
   let cumulative = 1
 
@@ -48,11 +48,14 @@ export function getStrongestPath(paths: CausalPath[]): CausalPath | null {
 }
 
 /**
- * Navigation step in a causal chain
+ * Navigation step in a causal chain.
+ *
+ * `event` is the event *id*: a path names its events by id, and the caller
+ * that has the event objects resolves them.
  */
 export interface CausalChainStep {
-  event: Event
-  relationship?: CausalRelationship
+  eventId: string
+  relationship?: CausalPathRelationship
   cumulativeWeight: number
   stepIndex: number
 }
@@ -65,9 +68,10 @@ export function transformPathToSteps(path: CausalPath): CausalChainStep[] {
   let cumulativeWeight = 1
 
   // First event (starting point)
-  if (path.events.length > 0) {
+  const firstEventId = path.events[0]
+  if (firstEventId) {
     steps.push({
-      event: path.events[0]!,
+      eventId: firstEventId,
       cumulativeWeight: 1,
       stepIndex: 0
     })
@@ -81,7 +85,7 @@ export function transformPathToSteps(path: CausalPath): CausalChainStep[] {
     }
 
     steps.push({
-      event: path.events[i]!,
+      eventId: path.events[i]!,
       relationship,
       cumulativeWeight,
       stepIndex: i
@@ -101,7 +105,7 @@ export function formatWeightAsPercentage(weight: number): string {
 /**
  * Calculate the total path confidence (product of all relationship confidences)
  */
-export function calculatePathConfidence(relationships: CausalRelationship[]): number {
+export function calculatePathConfidence(relationships: CausalPathRelationship[]): number {
   if (relationships.length === 0) return 0
   return relationships.reduce((confidence, rel) => confidence * rel.confidence, 1)
 }
@@ -109,7 +113,7 @@ export function calculatePathConfidence(relationships: CausalRelationship[]): nu
 /**
  * Calculate the total path weight (product of all relationship weights)
  */
-export function calculatePathWeight(relationships: CausalRelationship[]): number {
+export function calculatePathWeight(relationships: CausalPathRelationship[]): number {
   if (relationships.length === 0) return 0
   return relationships.reduce((weight, rel) => weight * rel.weight, 1)
 }

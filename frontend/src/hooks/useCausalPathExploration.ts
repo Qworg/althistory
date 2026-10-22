@@ -135,8 +135,13 @@ export const useCausalPathExploration = (initialOptions?: Partial<PathExploratio
 
   // Highlight a specific path
   const highlightPath = useCallback((path: CausalPath) => {
-    const highlightedEventIds = new Set(path.events.map(event => event.id))
-    const highlightedRelationshipIds = new Set(path.relationships.map(rel => rel.id))
+    // A path names its events by id, and its links by position: link `i`
+    // connects `events[i]` to `events[i + 1]`. There is no relationship id in
+    // the payload, so the key is derived from the pair the link connects.
+    const highlightedEventIds = new Set(path.events)
+    const highlightedRelationshipIds = new Set(
+      path.events.slice(0, -1).map((eventId, index) => `${eventId}->${path.events[index + 1]}`)
+    )
 
     const highlight: CausalPathHighlight = {
       path,
@@ -265,14 +270,15 @@ export const useCausalPathExploration = (initialOptions?: Partial<PathExploratio
     const currentPath = availablePaths[navigationState.currentPathIndex]
     if (!currentPath) return null
 
-    const currentEvent = currentPath.events[navigationState.currentStepIndex]
+    // The path names its events by id; it does not carry the event objects.
+    const currentEventId = currentPath.events[navigationState.currentStepIndex]
     const currentRelationship = navigationState.currentStepIndex > 0 
       ? currentPath.relationships[navigationState.currentStepIndex - 1] 
       : null
 
     return {
       path: currentPath,
-      event: currentEvent,
+      eventId: currentEventId,
       relationship: currentRelationship,
       stepIndex: navigationState.currentStepIndex,
       pathIndex: navigationState.currentPathIndex,

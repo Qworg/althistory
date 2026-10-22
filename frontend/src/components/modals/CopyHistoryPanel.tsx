@@ -1,13 +1,19 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { useGraphCopy } from '@/hooks/useGraphCopy'
 import { CopyOperation } from '@/types'
+import { ConfirmDialog } from '@/components/ui'
 
 interface CopyHistoryPanelProps {
   isOpen: boolean
   onClose: () => void
   /** Called with the copy's graph id: a copy's id is the graph it created. */
   onSwitchToGraph?: (graphId: string) => void
-  onCompareGraphs?: (originalName: string, copiedName: string) => void
+  /**
+   * Called with the copy's own graph id and the name of the graph it was
+   * copied from. The id is what makes the comparison the one that was asked
+   * for: names are labels, and several copies can share one.
+   */
+  onCompareGraphs?: (originalName: string, copiedName: string, copiedGraphId: string) => void
   onDeleteCopy?: (copyId: string) => void
 }
 
@@ -27,6 +33,32 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'failed'>('all')
   const [searchQuery, setSearchQuery] = useState('')
+  /**
+   * The copy the user asked to delete, held until they confirm.
+   *
+   * Deleting a copy deletes a graph -- a copy's id *is* the graph it created
+   * -- so it is not something to do on a single click, which is how every
+   * other destructive action in the app behaves.
+   */
+  const [pendingDelete, setPendingDelete] = useState<CopyOperation | null>(null)
+
+  /**
+   * Delete the copy the user confirmed, then close the dialog.
+   *
+   * The confirmation is cleared first: if the delete fails, the panel shows
+   * the failure rather than a dialog that cannot be dismissed.
+   */
+  const handleCancelDelete = useCallback(() => {
+    setPendingDelete(null)
+  }, [])
+
+  const handleConfirmDelete = useCallback(() => {
+    const copy = pendingDelete
+    setPendingDelete(null)
+    if (copy && onDeleteCopy) {
+      onDeleteCopy(copy.id)
+    }
+  }, [pendingDelete, onDeleteCopy])
 
   // Reset filter state when panel opens
   useEffect(() => {
@@ -35,6 +67,10 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
       setSortDirection('desc')
       setFilterStatus('all')
       setSearchQuery('')
+    } else {
+      // A confirmation that was open when the panel closed must not survive
+      // into the next time it opens.
+      setPendingDelete(null)
     }
   }, [isOpen])
 
@@ -320,7 +356,7 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
                           
                           {operation.status === 'completed' && onCompareGraphs && (
                             <button
-                              onClick={() => onCompareGraphs('Original', operation.name)}
+                              onClick={() => onCompareGraphs('Original', operation.name, operation.id)}
                               className="text-green-600 hover:text-green-800 text-sm underline"
                               title="Compare with original"
                             >
@@ -330,7 +366,7 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
                           
                           {onDeleteCopy && (
                             <button
-                              onClick={() => onDeleteCopy(operation.id)}
+                              onClick={() => setPendingDelete(operation)}
                               className="text-red-600 hover:text-red-800 text-sm underline"
                               title="Delete this copy"
                             >
@@ -400,6 +436,23 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Deleting a copy deletes the graph the copy created, so it asks
+          first. The dialog says that plainly: "delete this copy" reads like
+          removing a history entry, and it is not. */}
+      <ConfirmDialog
+        isOpen={pendingDelete !== null}
+        title="Delete this copy?"
+        message={
+          pendingDelete
+            ? `"${pendingDelete.name}" is a graph of its own. Deleting it removes the graph and everything in it. This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete copy"
+        variant="danger"
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+      />
     </div>
   )
 }

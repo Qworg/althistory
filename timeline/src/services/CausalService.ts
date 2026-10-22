@@ -633,6 +633,12 @@ export class CausalService {
         const eventIds = record.get('eventIds') as string[];
         const weights = record.get('weights') as number[];
         const depth = record.get('depth') as number;
+        const relationshipData = record.get('relationships') as Array<{
+          weight: number;
+          evidence: string;
+          confidence: number;
+          relationship_type: string;
+        }>;
         
         const totalStrength = this.calculatePathStrength(weights);
 
@@ -640,6 +646,14 @@ export class CausalService {
           events: eventIds,
           total_strength: totalStrength,
           relationship_weights: weights,
+          // The query reads these already; they are what lets a client filter
+          // a path by confidence or relationship type.
+          relationships: (relationshipData || []).map((rel) => ({
+            weight: rel.weight,
+            evidence: rel.evidence ?? '',
+            confidence: rel.confidence,
+            relationship_type: rel.relationship_type
+          })),
           depth: depth
         };
       });

@@ -454,6 +454,10 @@ describe('CausalService', () => {
         events: ['a', 'b', 'c'],
         total_strength: 0,
         relationship_weights: [0.8, 0.6],
+        relationships: [
+          { weight: 0.8, evidence: '', confidence: 0.9, relationship_type: 'direct' },
+          { weight: 0.6, evidence: '', confidence: 0.9, relationship_type: 'direct' },
+        ],
         depth: 2
       };
 
@@ -468,6 +472,7 @@ describe('CausalService', () => {
         events: ['a'],
         total_strength: 0,
         relationship_weights: [],
+        relationships: [],
         depth: 0
       };
 
@@ -481,6 +486,7 @@ describe('CausalService', () => {
         events: ['a', 'b'],
         total_strength: 0,
         relationship_weights: [0.9],
+        relationships: [{ weight: 0.9, evidence: '', confidence: 0.9, relationship_type: 'direct' }],
         depth: 1
       };
 
@@ -494,6 +500,11 @@ describe('CausalService', () => {
         events: ['a', 'b', 'c', 'd'],
         total_strength: 0,
         relationship_weights: [1.0, 0.8, 0.6],
+        relationships: [
+          { weight: 1.0, evidence: '', confidence: 0.9, relationship_type: 'direct' },
+          { weight: 0.8, evidence: '', confidence: 0.9, relationship_type: 'direct' },
+          { weight: 0.6, evidence: '', confidence: 0.9, relationship_type: 'direct' },
+        ],
         depth: 3
       };
 

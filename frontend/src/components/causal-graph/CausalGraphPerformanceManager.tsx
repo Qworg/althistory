@@ -303,24 +303,22 @@ export function CausalGraphPerformanceManager({
     }
   }, [cytoscapeInstance, enableOptimizations, events.length, levelOfDetailThreshold])
 
-  // Memory cleanup
+  /**
+   * Release what this manager allocated, and nothing else.
+   *
+   * This used to remove every isolated node from the graph. That is the live
+   * graph, not a layout: the manager is an overlay on someone else's
+   * Cytoscape instance, and an event that happens to have no causal link yet
+   * is exactly a node with no edges. Removing it deleted the user's data on
+   * unmount -- and on the Cleanup button, which is not a data action.
+   */
   const cleanupMemory = useCallback(() => {
-    if (!cytoscapeInstance) return
-
-    // Force garbage collection of unused elements
-    cytoscapeInstance.elements().forEach(element => {
-      // Remove elements that are disconnected
-      if (element.isNode() && element.degree() === 0) {
-        element.remove()
-      }
-    })
-
-    // Clear performance marks
+    // Clear the performance marks this manager records.
     if ('performance' in window && performance.clearMarks) {
       performance.clearMarks()
       performance.clearMeasures()
     }
-  }, [cytoscapeInstance])
+  }, [])
 
   // Keep refs in sync with latest callbacks
   useEffect(() => {
