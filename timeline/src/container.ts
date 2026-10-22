@@ -618,13 +618,16 @@ export class Container implements ServiceContainer {
       //
       // GraphService, ExportService and JobService build their own
       // GraphRepository/VersionRepository/JobRepository from
-      // `localExecution.dataDirectory`. There is no Redis- or Neo4j-backed
-      // implementation of those repositories, so graph, export and job state is
-      // file-backed in cloud mode exactly as in local mode; the Neo4j/Redis
-      // connections initialised above serve only the legacy global repositories
-      // and graph copy. Initialising these services in cloud mode is what makes
-      // the graph/export/job routes work there instead of failing against an
-      // uninitialised store (e.g. a missing jobs directory).
+      // `localExecution.dataDirectory`, and there is no Redis- or Neo4j-backed
+      // implementation of them: graph metadata, jobs, versions and API keys are
+      // files in cloud mode exactly as in local mode. In cloud mode the Neo4j
+      // and Redis connections serve the *entities* (the graph-scoped
+      // repositories above) and Redis holds the rate-limit snapshot.
+      // Initialising these services in cloud mode is what makes the
+      // graph/export/job routes work there instead of failing against an
+      // uninitialised store (e.g. a missing jobs directory). Because that state
+      // is per process, cloud mode is a single replica -- enforced by
+      // `validateConfig`.
       await this.graphService.initialize();
 
       // Legacy live-store adoption is a local-execution migration of the
@@ -643,21 +646,22 @@ export class Container implements ServiceContainer {
       await this.rateLimitService.initialize();
 
       const mode = this.config.localExecution.enabled ? 'Local Mode' : 'Cloud Mode';
-      console.log(`📦 Service container initialized successfully (${mode})`);
       // One statement, because there is one truth. `validateConfig` refuses to
       // start cloud mode without CLOUD_SINGLE_REPLICA_STATE, but that variable
       // is an assertion by the operator, not a detection: this line says what
       // the state actually is, not what the deployment was meant to be.
       if (this.config.localExecution.enabled) {
+        console.log(`📦 Service container initialized (${mode}).`);
         console.log(
           `📁 Phase 1/3 I/O storage is file-backed JSON under ${this.config.localExecution.dataDirectory}: ` +
             'graph, export/job, version, API-key and rate-limit state.'
         );
       } else {
+        console.log(`📦 Service container initialized (${mode}).`);
         console.log(
-          '☁️  Cloud mode: entities are in Neo4j. Per process, not shared between replicas: ' +
+          '☁️  Entities are in Neo4j. Per process, not shared between replicas: ' +
             `graph metadata, export/job records, versions and API keys (files under ${this.config.localExecution.dataDirectory}) ` +
-            'and the rate-limit counters (in memory, snapshotted to Redis every 30 s). ' +
+            'and the rate-limit counters (in memory, snapshotted to Redis every 30 s when they change). ' +
             'The deployment must be a single replica with a persistent volume; CLOUD_SINGLE_REPLICA_STATE asserts that, it does not verify it.'
         );
       }

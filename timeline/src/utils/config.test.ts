@@ -85,7 +85,19 @@ describe('Configuration System', () => {
       process.env.NEO4J_PASSWORD = 'password';
       process.env.CLOUD_SINGLE_REPLICA_STATE = 'yes-please';
 
-      expect(() => loadConfig()).toThrow(ConfigurationError);
+      // `loadConfig` wraps what it catches in a ConfigurationError, so the
+      // class alone would not tell a bad boolean apart from the refusal. The
+      // cause names the variable that could not be parsed.
+      let caught: unknown;
+      try {
+        loadConfig();
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(ConfigurationError);
+      const cause = (caught as ConfigurationError).cause as ConfigurationError;
+      expect(cause.message).toMatch(/Invalid boolean value for CLOUD_SINGLE_REPLICA_STATE/);
     });
   });
 

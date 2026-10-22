@@ -100,11 +100,12 @@ export interface AppConfig {
  *
  * - graph metadata, export/import job records and graph versions are files
  *   under `localExecution.dataDirectory`;
- * - the rate-limit counters are an in-memory map that is *persisted* to Redis
- *   (a whole-map snapshot every 30 seconds) and re-read at startup, so a
- *   second replica does not share the count -- it keeps its own and overwrites
- *   the snapshot. Two replicas therefore allow roughly twice the configured
- *   rate.
+ * - the rate-limit counters are an in-memory map that is *snapshotted* to
+ *   Redis (the whole map, at most every 30 seconds while it is changing) and
+ *   re-read once at startup, so a second replica does not share the count --
+ *   it keeps its own and overwrites the snapshot. Two replicas therefore allow
+ *   roughly twice the configured rate.
+ * - export artifacts (`export-*` files) are written under the same directory.
  *
  * API keys are files too (`keys/keys.json`), so a key created on one replica
  * does not authenticate on another.
@@ -292,11 +293,13 @@ function validateConfig(config: AppConfig): void {
   // rather than serving state that is per-process and silently incomplete.
   if (!config.localExecution.enabled && !isTestEnvironment && !config.cloudState.singleReplicaAcknowledged) {
     throw new ConfigurationError(
-      'Cloud mode keeps graph metadata, export/import jobs and graph versions in files under ' +
-        'LOCAL_DATA_DIR, so it requires a single replica with a persistent volume. ' +
-        'Set CLOUD_SINGLE_REPLICA_STATE=true to confirm the deployment is one, and make sure the ' +
-        'data directory is on a volume that outlives the container. Running more than one replica ' +
-        'or an ephemeral disk loses jobs and versions written by another process.',
+      'Cloud mode keeps graph metadata, export/import jobs, graph versions and API keys in files ' +
+        'under LOCAL_DATA_DIR and counts rate limits per process, so it requires a single replica ' +
+        'with a persistent volume. Set CLOUD_SINGLE_REPLICA_STATE=true to confirm the deployment is ' +
+        'one, and make sure the data directory is on a volume that outlives the container. Running ' +
+        'more than one replica or an ephemeral disk loses jobs and versions written by another ' +
+        'process -- and this applies to the CLI as well as the server, since both load this ' +
+        'configuration.',
       'CLOUD_SINGLE_REPLICA_STATE'
     );
   }

@@ -39,7 +39,7 @@ needed for the bundled UI.
 | `web` | `caddy:2-alpine` | Serves `frontend/dist`, proxies `/api/*` and `/health` to `api` |
 | `api` | `node:20-bookworm-slim` | Compiled Express backend, WebSocket stream, and the `althistory` CLI |
 | `neo4j` | `neo4j:5-community` | Graph database with APOC enabled |
-| `redis` | `redis:7-alpine` | Rate limiting, pub/sub and query cache |
+| `redis` | `redis:7-alpine` | Rate-limit snapshot and query cache (the counters themselves are per process) |
 | `cloud-tests` | build stage | Opt-in gate that runs the Neo4j/Redis-only suites (see §6) |
 
 Only `web` is published (`WEB_PORT`, default 8080). The API is reachable only
@@ -79,9 +79,10 @@ Because that state is per process, cloud mode is **one replica with a volume
 that outlives the container**. Two replicas would each keep their own graph
 metadata, job records and graph versions: a job created on one would be
 invisible to the other, and a version written on one would be missing from the
-other. Rate limiting is per process too — Redis holds a snapshot that each
-replica overwrites every 30 seconds, not the count each request increments — so
-two replicas allow roughly twice the configured rate.
+other. Rate limiting is per process too: Redis holds a snapshot that each
+replica overwrites (the whole map, at most every 30 seconds while it is
+changing), not the count each request increments, so two replicas allow roughly
+twice the configured rate.
 
 Only the entities are genuinely shared, through Neo4j.
 
