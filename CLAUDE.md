@@ -201,4 +201,6 @@ live routers by a test, so it cannot drift. The shape of it:
 | Ingest, import, export | `/api/ingest`, `/api/import`, `/api/export` |
 | Keys and usage | `/api/keys` |
 
-Every graph-scoped route reads the graph from the `X-Graph-Id` header.
+Most graph-scoped routes read the graph from the `X-Graph-Id` header;
+`POST /api/import` takes `targetGraphId` in the body instead. The entity
+routes are currently mounted without authentication.

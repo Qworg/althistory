@@ -25,7 +25,7 @@ and worth an issue.
 
 | Field | Type | Always present | Meaning |
 | --- | --- | --- | --- |
-| `version` | `"1.0"` | yes | The **format** version. Import accepts `"1.0"` and nothing else; any other value is rejected with `UNSUPPORTED_VERSION`. |
+| `version` | `"1.0"` | yes | The **format** version. Import accepts `"1.0"` and nothing else; any other value is rejected with the error code `VERSION_MISMATCH`. |
 | `metadata` | object | yes | Provenance and integrity information about the export itself. |
 | `data` | object | yes | The graph's entities. This is the section the checksum covers. |
 | `provenance` | object | only with `includeProvenance` | How the graph was built. |

@@ -239,9 +239,10 @@ describe('EventRepository', () => {
 5. **Integration tests excluded**: Require Neo4j/Redis - excluded by default in vitest config
 6. **Test timeouts**: Database tests have 30s timeout configured
 7. **No skipped tests**: neither package contains `it.skip`/`describe.skip`. If a change needs to disable one, record the reason and the removing issue in `DEFERREDFIXES.md` instead of leaving it silent.
-8. **Graph scoping is a header**: a graph-scoped request is scoped by `X-Graph-Id` and nothing else. A `graphId` in a body or query is not the scope; when one is present it must agree with the header.
-9. **One causal-order rule**: `timeline/src/utils/causalOrder.ts`. A cause may happen at the *same moment* as its effect; only a cause strictly after it is an error. Both packages have a drift test that fails if any file compares a cause with its effect on its own.
-10. **Dependencies are injected**: reach services through `getContainer()`; a service that constructs its own collaborator cannot be swapped in a test.
+8. **Graph scoping is a header, with one exception**: most graph-scoped routes read the graph from `X-Graph-Id` and nothing else — a `graphId` in a body or query is not the scope, and must agree with the header when present. `POST /api/import` is different: it takes `targetGraphId` from the body and does not read the header.
+9. **Entity routes are anonymous today**: `/api/events`, `/api/arcs`, `/api/causal`, `/api/temporal` and `/api/inference` are mounted without authentication (the OpenAPI document marks them `auth: optional`). Do not copy them as the pattern for a new route; `#64` tracks closing the gap.
+10. **One causal-order rule**: `timeline/src/utils/causalOrder.ts`. A cause may happen at the *same moment* as its effect; only a cause strictly after it is an error. Both packages have a drift test that fails if any file compares a cause with its effect on its own.
+11. **Dependencies are injected**: reach services through `getContainer()`; a service that constructs its own collaborator cannot be swapped in a test.
 
 ## Environment Variables
 

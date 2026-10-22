@@ -10,7 +10,16 @@ OpenAPI document the server serves at `GET /api/openapi.json`.
 
 ## Authenticating
 
-Every route except the health check requires an API key. Send it either way:
+**Which routes require a key.** Not all of them. The entity routes are
+currently mounted without authentication — `/api/events`, `/api/arcs`,
+`/api/causal`, `/api/temporal` and `/api/inference` answer anonymous callers,
+and the server's own OpenAPI document marks those operations `auth: optional`.
+Do not put one on a network you do not trust until that changes; the gap is
+tracked in [#64](https://github.com/Qworg/althistory/issues/64).
+
+A key **is** required by `/api/export`, `/api/import`, `/api/ingest`,
+`/api/keys`, `/api/batch`, `/api/validate`, `/api/suggest` and `/api/stream`.
+Where a key is required, send it either way:
 
 ```http
 X-API-Key: ak_live_...
@@ -49,18 +58,22 @@ may also pass an explicit list.
 
 ## Scoping to a graph
 
-A key may be restricted to particular graphs (`allowedGraphs`). The **request**
-is scoped by the `X-Graph-Id` header:
+A key may be restricted to particular graphs (`allowedGraphs`). For most
+routes the **request** is scoped by the `X-Graph-Id` header:
 
 ```http
 X-Graph-Id: 7f3c...
 ```
 
-The header is the only thing that scopes a request. A graph id in a body or a
-query string is not read as the scope; when a body carries one it must match
-the header or the request is rejected. With no header the request uses the
-*active* graph; if there is no active graph the request fails rather than
-silently operating on the wrong one.
+For those routes the header is the only thing that scopes a request. A graph
+id in a body or a query string is not read as the scope; when a body carries
+one it must match the header or the request is rejected. With no header the
+request uses the *active* graph; if there is no active graph the request fails
+rather than silently operating on the wrong one.
+
+**Import is the exception.** `POST /api/import` does not read `X-Graph-Id`: it
+takes its target from the body's `targetGraphId`, and creates a new graph when
+that is omitted.
 
 ## Responses
 
@@ -167,15 +180,17 @@ terminal state, the server POSTs the result there, in the background:
 
 - up to **4 attempts**, backing off 1 s, then 2 s, then 4 s;
 - **30 s** per attempt;
-- a `4xx` is treated as permanent and not retried; `5xx` and network failures
-  are retried.
+- a `4xx` is permanent and not retried — **except** `408` and `429`, which
+  are retried along with `5xx` and network failures.
 
 Delivery is recorded separately from the job's own status (`delivered`,
 `failed`, `abandoned`): a webhook that never arrives does not make the job
 failed, and a failed job still attempts delivery.
 
-The target must be a public endpoint — private and loopback addresses are
-refused, so the webhook cannot be used to probe the server's network.
+The target is checked before it is POSTed to: a loopback, link-local or
+private **address**, and a `localhost`/`.local`/`.internal` name, are refused.
+A host *name* that resolves to a private address is not caught — the same
+limitation the outbound web fetcher documents, and for the same reason.
 
 **Webhooks are per job, not a subscription.** There is no long-lived
 registration, no list of endpoints, and no event stream. To learn about a
@@ -189,10 +204,13 @@ started.
 curl -s "http://localhost:3000/api/export?scope=full" \
   -H "X-Graph-Id: $GRAPH" -H "X-API-Key: $KEY" > graph.json
 
-# in
-curl -X POST http://localhost:3000/api/import \
-  -H "X-Graph-Id: $OTHER_GRAPH" -H "X-API-Key: $KEY" \
-  -H 'Content-Type: application/json' -d @graph.json
+# in -- the document goes in the body's `data`, and the target graph is
+# `targetGraphId` (the header is not read here).
+jq -n --slurpfile g graph.json \
+  --arg target "$OTHER_GRAPH" \
+  '{data: $g[0], targetGraphId: $target, mode: "merge", conflictResolution: "skip"}' \
+  | curl -X POST http://localhost:3000/api/import \
+      -H "X-API-Key: $KEY" -H 'Content-Type: application/json' -d @-
 ```
 
 Import does not merge: combine two graphs with the merge endpoint, which
@@ -208,21 +226,21 @@ GRAPH=7f3c...
 # What graphs can I see?
 curl -s http://localhost:3000/api/graphs -H "X-API-Key: $KEY"
 
-# Read the events, newest page first
+# Read the events. The list is oldest first.
 curl -s "http://localhost:3000/api/events?limit=50&offset=0" \
-  -H "X-API-Key: $KEY" -H "X-Graph-Id: $GRAPH"
+  -H "X-Graph-Id: $GRAPH"
 
 # Add one
 curl -s -X POST http://localhost:3000/api/events \
-  -H "X-API-Key: $KEY" -H "X-Graph-Id: $GRAPH" \
+  -H "X-Graph-Id: $GRAPH" \
   -H 'Content-Type: application/json' \
   -d '{"description":"The Congress adopts the Declaration","actor":"Continental Congress","target":"Kingdom of Great Britain","timestamp":"1776-07-04T00:00:00.000Z"}'
 
-# Link two events. The cause may not follow the effect; the same moment is fine.
+# Link two events. The cause may not follow the effect; the same moment is
+# fine. The link carries `type` and `strength` (not `weight`).
 curl -s -X POST http://localhost:3000/api/causal/link \
-  -H "X-API-Key: $KEY" -H "X-Graph-Id: $GRAPH" \
-  -H 'Content-Type: application/json' \
-  -d '{"causeEventId":"evt-1","effectEventId":"evt-2","relationship":{"weight":0.9,"confidence":0.8,"evidence":"Contemporary account","relationship_type":"direct"}}'
+  -H "X-Graph-Id: $GRAPH" -H 'Content-Type: application/json' \
+  -d '{"causeEventId":"evt-1","effectEventId":"evt-2","relationship":{"type":"direct","strength":0.9,"confidence":0.8,"evidence":"Contemporary account"}}'
 ```
 
 ## What this API does not offer

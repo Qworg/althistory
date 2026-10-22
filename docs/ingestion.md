@@ -51,9 +51,12 @@ provider; the defaults are the provider's own.
 
 ### Cost
 
-`llm` and `hybrid` make one model call per source document (not per event),
-plus one per followed link when link-following is on. `pattern` costs nothing.
-`--dry-run` still calls the model — it skips *writing*, not reading.
+`llm` and `hybrid` make **two** model calls per source document, whatever the
+event count: one to extract the events, one to suggest the causal links
+between them. Link-following does not add model calls — the Wikipedia
+extractor runs without a model client. `pattern` costs nothing.
+
+`--dry-run` still calls the model: it skips *writing*, not reading.
 
 ## The CLI
 
@@ -135,11 +138,13 @@ and why (no date, no actor, below the confidence threshold).
 | --- | --- | --- |
 | `text` | A sentence stream. | Dated sentences become events. |
 | `wikipedia` | Article prose. | Link-following and depth are bounded (depth ≤ 3). |
-| `web` | Any public HTTPS page. | Refuses internal addresses; 5 MB cap. |
 | `wikidata` | An item's claims. | Dates and participants come from the item. |
+| `text` | Pasted text — or the text of a fetched page. | `ingest url` on a non-Wikipedia page reads it as a text document, so its events are `text`-sourced. |
 
-Each source has a `sourceRef` recorded on the events it produces, so an event
-can be traced back to where it came from. That value survives export.
+Events ingested **through the API** carry a `sourceRef` naming where they came
+from, and that value survives export. Events ingested **through the CLI** do
+not: the CLI writes description, actor, target and timestamp only. If you need
+the provenance, use the API door.
 
 ## What ingestion does not do
 
