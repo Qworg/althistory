@@ -504,7 +504,7 @@
   - Test graph branching and merging
   - _Requirements: All_
 
-- [ ] 5.10 Documentation _(only the OpenAPI description exists — `timeline/src/api/openapi/document.ts:752` served at `timeline/src/api/routes.ts:102` (`GET /api/openapi.json`); there is no export-format specification document, no ingestion guide, no external-integration guide, and `CLAUDE.md`/`AGENTS.md` have not been updated with the new features) — tracked in [#51](https://github.com/Qworg/althistory/issues/51)_
+- [x] 5.10 Documentation `docs/export-format.md` (the document field by field, the three versions, the SHA-256-over-`data` checksum and how to verify it), `docs/ingestion.md` (CLI and API, the review step, the extraction modes and their cost), `docs/api-integration.md` (keys, permissions, `X-Graph-Id` scoping, error envelope, rate limits, async jobs and per-job webhooks, the export/import round trip), plus `CLAUDE.md` and `AGENTS.md` brought up to date (configuration precedence, the CLI, the documentation map, the causal-order rule, no skipped tests). The route inventory remains the OpenAPI description (`timeline/src/api/openapi/document.ts`, served at `GET /api/openapi.json` and drift-tested against the live routers). Written from the implementation: the checksum and field meanings come from `timeline/src/services/ExportService.ts`, the scoping and limits from `timeline/src/api/middleware.ts` and `timeline/src/services/RateLimitService.ts`, the job/webhook behaviour from `timeline/src/services/JobService.ts`.
   - Write API documentation (OpenAPI/Swagger)
   - Create export format specification document
   - Write ingestion guide with examples

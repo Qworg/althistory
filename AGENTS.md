@@ -8,6 +8,17 @@ Monorepo with two packages:
 - `timeline/` - Express backend (TypeScript, Neo4j/Redis or local JSON storage)
 - `frontend/` - React frontend (Vite, TypeScript, D3.js, Cytoscape.js)
 
+`timeline/src/cli/` is a second front end onto the same services
+(`bin/althistory`); it is part of the backend package, not a third one.
+
+Start with [`docs/`](docs/) for what the system does:
+[`export-format.md`](docs/export-format.md),
+[`ingestion.md`](docs/ingestion.md),
+[`api-integration.md`](docs/api-integration.md),
+[`branch-merge-resolver.md`](docs/branch-merge-resolver.md),
+[`production-deployment.md`](docs/production-deployment.md).
+`GET /api/openapi.json` is the authoritative route list.
+
 ## Build/Lint/Test Commands
 
 ### Backend (`timeline/`)
@@ -227,9 +238,18 @@ describe('EventRepository', () => {
 4. **Zustand selector cascades**: Use granular selectors to prevent re-renders
 5. **Integration tests excluded**: Require Neo4j/Redis - excluded by default in vitest config
 6. **Test timeouts**: Database tests have 30s timeout configured
-7. **7 skipped tests**: `CausalRelationshipInteractions.test.tsx` tests skipped due to Cytoscape mock closure issues
+7. **No skipped tests**: neither package contains `it.skip`/`describe.skip`. If a change needs to disable one, record the reason and the removing issue in `DEFERREDFIXES.md` instead of leaving it silent.
+8. **Graph scoping is a header, with one exception**: most graph-scoped routes read the graph from `X-Graph-Id` and nothing else — a `graphId` in a body or query is not the scope, and must agree with the header when present. `POST /api/import` is different: it takes `targetGraphId` from the body and does not read the header.
+9. **Entity routes are anonymous today**: `/api/events`, `/api/arcs`, `/api/causal`, `/api/temporal` and `/api/inference` are mounted without authentication (the OpenAPI document marks them `auth: optional`). Do not copy them as the pattern for a new route; `#64` tracks closing the gap.
+10. **One causal-order rule**: `timeline/src/utils/causalOrder.ts`. A cause may happen at the *same moment* as its effect; only a cause strictly after it is an error. Both packages have a drift test that fails if any file compares a cause with its effect on its own.
+11. **Dependencies are injected**: reach services through `getContainer()`; a service that constructs its own collaborator cannot be swapped in a test.
 
 ## Environment Variables
+
+Precedence, strongest first: the **process environment**, then `.env.local`,
+then `.env`. `.env.local` is a developer override and beats `.env`, but it does
+not beat the real environment — that is what made a committed `.env.local`
+force local mode inside a container that asked for cloud mode.
 
 Local mode (default for development):
 ```env

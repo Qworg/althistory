@@ -63,7 +63,11 @@ npm install
 npm run dev
 ```
 
-**Note:** The backend loads both `.env` and `.env.local` files, with `.env.local` taking precedence for local overrides.
+**Configuration precedence**, strongest first: the process environment, then
+`.env.local`, then `.env`. `.env.local` is a developer override and beats
+`.env` — but it does **not** beat the real environment, so a committed
+`.env.local` cannot silently force local mode inside a container that asked
+for cloud mode.
 
 ## Architecture
 
@@ -102,22 +106,39 @@ npm run dev
 
 **Layout:** Main layout wrapper in `src/components/layout/MainLayout.tsx`
 
+### The CLI
+
+`timeline/src/cli/` is a second front end onto the same services
+(`bin/althistory`). It has a direct engine (in-process) and a remote engine
+(over HTTP); every remote call sends `X-Graph-Id`, because that header is the
+only thing that scopes a request. Its command surface is documented in
+`timeline/src/cli/README.md`, and `althistory schema` emits the JSON Schema of
+every command.
+
+### Documentation map
+
+| Document | Covers |
+| --- | --- |
+| `GET /api/openapi.json` | The HTTP API (routes, auth, shapes). |
+| [`docs/export-format.md`](docs/export-format.md) | The export document, field by field, and its checksum. |
+| [`docs/ingestion.md`](docs/ingestion.md) | Getting history in: CLI, API, review step, LLM modes and cost. |
+| [`docs/api-integration.md`](docs/api-integration.md) | Using the API from outside: keys, permissions, graph scoping, rate limits, jobs, webhooks. |
+| [`docs/branch-merge-resolver.md`](docs/branch-merge-resolver.md) | Combining two graphs, and the anomalies the merge checks. |
+| [`docs/production-deployment.md`](docs/production-deployment.md) | Running it. |
+| [`docs/mcp-agent-guide.md`](docs/mcp-agent-guide.md) | The MCP surface. |
+
 ### Path Aliases
 
 Both projects use `@/` prefix for imports:
 - `@/models/*`, `@/services/*`, `@/components/*`, `@/utils/*`, etc.
 
-## Known Issues (from DEFERREDFIXES.md)
+## Known Issues
 
-**89 deferred tests** across 11 test suites due to:
-
-1. **Timeline Component Infinite Loops (59 tests)** - D3 directly manipulates DOM while React expects declarative updates. Missing `useCallback`/`useMemo` causes re-render cascades.
-
-2. **Cytoscape Mocking Incomplete (15 tests)** - Mock doesn't implement full API (~200+ methods with chaining).
-
-3. **Modal Integration Complexity (15 tests)** - Multi-step user workflows with complex state management.
-
-**Priority:** Timeline component fixes are highest priority since they affect core functionality.
+`DEFERREDFIXES.md` has the current state, including the measured counts. The
+D3-infinite-loop and Cytoscape-mock suites it used to describe were fixed — by
+hoisting the D3 work into memoised calculations and by completing the mock —
+and neither package contains a skipped or disabled test. Re-measure with
+`npm test` in each package rather than trusting a count written in a file.
 
 ## Key Development Patterns
 
@@ -167,8 +188,19 @@ REDIS_PORT=6379
 
 ## API Endpoints
 
-- Health: `GET /health`
-- Events: `GET/POST/PUT/DELETE /api/events`
-- Arcs: `GET/POST/PUT/DELETE /api/arcs`
-- Causal: `GET/POST /api/causal/relationships`, `GET /api/causal/chains/:event_id`
-- Temporal: `GET /api/temporal/*`
+`GET /api/openapi.json` is the authoritative list — it is checked against the
+live routers by a test, so it cannot drift. The shape of it:
+
+| Area | Prefix |
+| --- | --- |
+| Health | `GET /health` |
+| Events, arcs, relationships | `/api/events`, `/api/arcs`, `/api/causal` |
+| Graphs, branching, merging | `/api/graphs` |
+| Temporal queries, validation | `/api/temporal`, `/api/validate` |
+| Inference, pressures, simulation | `/api/inference` |
+| Ingest, import, export | `/api/ingest`, `/api/import`, `/api/export` |
+| Keys and usage | `/api/keys` |
+
+Most graph-scoped routes read the graph from the `X-Graph-Id` header;
+`POST /api/import` takes `targetGraphId` in the body instead. The entity
+routes are currently mounted without authentication.
