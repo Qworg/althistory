@@ -91,5 +91,10 @@ builder refuses to describe a route that has no entry there.
 - [`impl/gap-remediation/README.md`](impl/gap-remediation/README.md) — verified gap analysis and remediation plan.
 - [`impl/gap-remediation/phase6-results.md`](impl/gap-remediation/phase6-results.md) — coverage baseline and its caveats.
 - [`DEFERREDFIXES.md`](DEFERREDFIXES.md) — current test status.
+- [`docs/api-integration.md`](docs/api-integration.md) — using the API from outside: keys, permissions, graph scoping, rate limits, jobs and webhooks.
+- [`docs/export-format.md`](docs/export-format.md) — the export document field by field, and how to verify its checksum.
+- [`docs/ingestion.md`](docs/ingestion.md) — getting history in: CLI, API, the review step, and what the LLM modes cost.
+- [`docs/branch-merge-resolver.md`](docs/branch-merge-resolver.md) — combining two graphs and the anomalies the merge checks.
 - [`docs/production-deployment.md`](docs/production-deployment.md) — container and cloud stack.
+- `GET /api/openapi.json` — the authoritative HTTP route list.
 - [`e2e/README.md`](e2e/README.md) — end-to-end and visual-regression workflow.
