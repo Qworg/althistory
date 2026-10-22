@@ -291,8 +291,10 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     const svg = d3.select(svgRef.current)
     const g = svg.select('g')
     
-    // Remove existing events
-    g.selectAll('.actor-event').remove()
+    // Remove the groups and everything in them. Removing only `.actor-event`
+    // left an empty wrapper per group behind on every re-render -- and this
+    // effect re-runs whenever the hovered or selected event changes.
+    g.selectAll('.actor-event-group').remove()
 
     const groups = groupedEvents()
     const yScaleFunc = yScale()

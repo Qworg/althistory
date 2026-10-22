@@ -6,7 +6,7 @@ import { useEvents } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
-import { Event, Arc, TimeRange } from '@/types'
+import { Event, Arc } from '@/types'
 
 export interface ActorPerspectiveViewProps {
   className?: string
@@ -140,34 +140,33 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
   }, [selectedActor, actorEvents])
 
   const handleActorSelect = useCallback((actor: string) => {
-    setSelectedActor((previousActor) => {
-      // Remember what was selected under the actor being left.
-      if (previousActor && previousActor !== actor && selectedEvent) {
-        setSelectionByActor((remembered) => ({
-          ...remembered,
-          [previousActor]: selectedEvent.id,
-        }))
-      }
+    // Choosing the actor that is already selected is not a switch: the
+    // selection must survive it. The selector does call back on a re-pick, and
+    // restoring from the remembered map there would replace the current
+    // selection with a stale one.
+    if (actor === selectedActor) return
 
-      // Restore what was selected under the actor being entered, if it is
-      // still in that actor's events.
-      const rememberedId = selectionByActor[actor]
-      const restored = rememberedId
-        ? allEvents.find((event) => event.id === rememberedId) ?? null
-        : null
-      setSelectedEvent(restored)
+    // Remember what was selected under the actor being left.
+    if (selectedActor && selectedEvent) {
+      setSelectionByActor((remembered) => ({
+        ...remembered,
+        [selectedActor]: selectedEvent.id,
+      }))
+    }
 
-      return actor
-    })
-  }, [selectedEvent, selectionByActor, allEvents])
+    // Restore what was selected under the actor being entered, if it is still
+    // an event of that actor.
+    const rememberedId = selectionByActor[actor]
+    const restored = rememberedId
+      ? allEvents.find((event) => event.id === rememberedId) ?? null
+      : null
+    setSelectedEvent(restored)
+
+    setSelectedActor(actor)
+  }, [selectedActor, selectedEvent, selectionByActor, allEvents])
 
   const handleEventSelect = useCallback((event: Event) => {
     setSelectedEvent(event)
-  }, [])
-
-  const handleTimeRangeChange = useCallback((range: TimeRange) => {
-    console.log('Actor perspective time range changed:', range)
-    // Could be used to filter events within the time range
   }, [])
 
   const handleLayoutModeChange = useCallback((mode: 'chronological' | 'thematic') => {
@@ -271,7 +270,6 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
               width={800}
               height={400}
               onEventSelect={handleEventSelect}
-              onTimeRangeChange={handleTimeRangeChange}
               className="w-full"
             />
           </div>

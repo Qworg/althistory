@@ -326,7 +326,12 @@ export function TimelineView() {
     const target = assignmentTarget
     if (!target) return
 
-    const metadata: Record<string, unknown> = { ...(target.metadata ?? {}) }
+    // The event as it is *now*, not as it was when the menu opened. A PUT
+    // replaces the whole metadata object, so merging a snapshot would drop
+    // anything another writer added while the modal was open.
+    const latest = fetchedEvents.find((event) => event.id === eventId) ?? target
+
+    const metadata: Record<string, unknown> = { ...(latest.metadata ?? {}) }
     if (arcId) {
       metadata.arcId = arcId
     } else {
@@ -335,7 +340,7 @@ export function TimelineView() {
 
     await updateEventMutation.mutateAsync({ id: eventId, data: { metadata } })
     setAssignmentTarget(null)
-  }, [assignmentTarget, updateEventMutation])
+  }, [assignmentTarget, fetchedEvents, updateEventMutation])
 
   // Edit action from context menu
   const handleEdit = useCallback(() => {
@@ -485,11 +490,15 @@ export function TimelineView() {
     }
 
     const arcId = editModal.item.id
+    // `fetchedEvents`, not the filtered list: the drag handler refuses a
+    // resize that would leave a contained event outside the arc, and it
+    // checks every event. Using the filtered list here would report a
+    // smaller set and let the panel accept what the drag then refuses.
     return {
-      containedEvents: events.filter((event) => event.metadata?.arcId === arcId),
+      containedEvents: fetchedEvents.filter((event) => event.metadata?.arcId === arcId),
       childArcs: fetchedArcs.filter((arc) => arc.parent_arc_id === arcId),
     }
-  }, [editModal, events, fetchedArcs])
+  }, [editModal, fetchedEvents, fetchedArcs])
 
   if (eventsLoading || arcsLoading) {
     return (

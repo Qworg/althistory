@@ -48,6 +48,10 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
    * The confirmation is cleared first: if the delete fails, the panel shows
    * the failure rather than a dialog that cannot be dismissed.
    */
+  const handleCancelDelete = useCallback(() => {
+    setPendingDelete(null)
+  }, [])
+
   const handleConfirmDelete = useCallback(() => {
     const copy = pendingDelete
     setPendingDelete(null)
@@ -447,7 +451,7 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
         confirmLabel="Delete copy"
         variant="danger"
         onConfirm={handleConfirmDelete}
-        onCancel={() => setPendingDelete(null)}
+        onCancel={handleCancelDelete}
       />
     </div>
   )
