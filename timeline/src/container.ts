@@ -644,17 +644,21 @@ export class Container implements ServiceContainer {
 
       const mode = this.config.localExecution.enabled ? 'Local Mode' : 'Cloud Mode';
       console.log(`📦 Service container initialized successfully (${mode})`);
-      console.log(
-        `📁 Phase 1/3 I/O storage is file-backed JSON under ${this.config.localExecution.dataDirectory}; ` +
-          'no Redis/Neo4j backend is implemented for graph, export, job, rate-limit or API-key state.'
-      );
-      if (!this.config.localExecution.enabled) {
-        // Enforced at startup by `validateConfig`: cloud mode refuses to run
-        // without CLOUD_SINGLE_REPLICA_STATE, so reaching here means the
-        // operator confirmed the single-replica, persistent-volume deployment.
-        console.info(
-          `Cloud mode: graph metadata, jobs and versions are files under ${this.config.localExecution.dataDirectory} ` +
-            '(single replica, persistent volume); entities are in Neo4j and rate-limit counters in Redis.'
+      // One statement, because there is one truth. `validateConfig` refuses to
+      // start cloud mode without CLOUD_SINGLE_REPLICA_STATE, but that variable
+      // is an assertion by the operator, not a detection: this line says what
+      // the state actually is, not what the deployment was meant to be.
+      if (this.config.localExecution.enabled) {
+        console.log(
+          `📁 Phase 1/3 I/O storage is file-backed JSON under ${this.config.localExecution.dataDirectory}: ` +
+            'graph, export/job, version, API-key and rate-limit state.'
+        );
+      } else {
+        console.log(
+          '☁️  Cloud mode: entities are in Neo4j. Per process, not shared between replicas: ' +
+            `graph metadata, export/job records, versions and API keys (files under ${this.config.localExecution.dataDirectory}) ` +
+            'and the rate-limit counters (in memory, snapshotted to Redis every 30 s). ' +
+            'The deployment must be a single replica with a persistent volume; CLOUD_SINGLE_REPLICA_STATE asserts that, it does not verify it.'
         );
       }
     } catch (error) {

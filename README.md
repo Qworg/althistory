@@ -29,9 +29,12 @@ cd frontend && npm run dev                                                      
 ```
 
 Local mode stores graphs, versions and jobs as JSON under `LOCAL_DATA_DIR`
-(default `./data`). Cloud mode (`LOCAL_EXECUTION_ENABLED=false`) expects Neo4j
-and Redis; the Phase 1/3 input/output state is still file-backed in both modes
-(see `timeline/src/container.ts`).
+(default `./data`). Cloud mode (`LOCAL_EXECUTION_ENABLED=false`) puts the
+entities in Neo4j and uses Redis, but graph metadata, jobs, versions and API
+keys are still files, and the rate-limit counters are per process — so cloud
+mode is **one replica with a persistent volume** and refuses to start without
+`CLOUD_SINGLE_REPLICA_STATE=true`. See
+[`docs/production-deployment.md`](docs/production-deployment.md#4-state-and-persistence).
 
 ## Tests
 

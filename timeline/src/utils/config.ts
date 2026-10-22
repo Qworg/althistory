@@ -96,17 +96,28 @@ export interface AppConfig {
 /**
  * What cloud mode keeps where.
  *
- * Cloud mode shares the *entities* through Neo4j and the rate-limit counters
- * through Redis, but three pieces of state are still files under
- * `localExecution.dataDirectory`: the graph metadata, the job records and the
- * graph versions. Files are node-local, so two replicas would each have their
- * own -- a job created on one would be invisible to the other, and a version
- * written on one would be missing from the other.
+ * The *entities* are shared through Neo4j. Everything else is per process:
  *
- * The deployment therefore has to be a single replica with a volume that
- * outlives the container, and `singleReplicaAcknowledged` is the operator
- * saying that it is. It is required in cloud mode; the server refuses to start
- * without it rather than serving state that is silently per-process.
+ * - graph metadata, export/import job records and graph versions are files
+ *   under `localExecution.dataDirectory`;
+ * - the rate-limit counters are an in-memory map that is *persisted* to Redis
+ *   (a whole-map snapshot every 30 seconds) and re-read at startup, so a
+ *   second replica does not share the count -- it keeps its own and overwrites
+ *   the snapshot. Two replicas therefore allow roughly twice the configured
+ *   rate.
+ *
+ * API keys are files too (`keys/keys.json`), so a key created on one replica
+ * does not authenticate on another.
+ *
+ * Everything but the entities is per process, so the deployment has to be a
+ * single replica with a volume that outlives the container, and
+ * `singleReplicaAcknowledged` is the operator saying that it is. It is required
+ * in cloud mode; the server refuses to start without it rather than serving
+ * state that is silently per-process.
+ *
+ * The flag is a statement of intent, not a detection: it cannot tell how many
+ * replicas exist. Setting it on a two-replica deployment silences the refusal
+ * and changes nothing about the divergence.
  */
 export interface CloudStateConfig {
   singleReplicaAcknowledged: boolean;

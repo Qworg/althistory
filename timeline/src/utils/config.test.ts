@@ -59,7 +59,33 @@ describe('Configuration System', () => {
       process.env.LOCAL_EXECUTION_ENABLED = 'true';
       delete process.env.CLOUD_SINGLE_REPLICA_STATE;
 
+      // Local mode keeps everything in one directory by design, so there is
+      // nothing to acknowledge.
+      expect(() => loadConfig()).not.toThrow();
       expect(loadConfig().cloudState.singleReplicaAcknowledged).toBe(false);
+    });
+
+    it('should skip the check under NODE_ENV=test, which is the documented escape hatch', () => {
+      // The cloud integration suites run cloud mode under NODE_ENV=test, so the
+      // check has to stand down there. This test pins that, because the same
+      // variable also skips the Neo4j credential checks -- copying a test
+      // environment into a deployment would disable both.
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      delete process.env.CLOUD_SINGLE_REPLICA_STATE;
+
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('should refuse a value that is not a boolean rather than guess', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      process.env.NEO4J_URI = 'bolt://localhost:7687';
+      process.env.NEO4J_USERNAME = 'neo4j';
+      process.env.NEO4J_PASSWORD = 'password';
+      process.env.CLOUD_SINGLE_REPLICA_STATE = 'yes-please';
+
+      expect(() => loadConfig()).toThrow(ConfigurationError);
     });
   });
 
