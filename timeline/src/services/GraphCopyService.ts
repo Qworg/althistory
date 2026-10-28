@@ -543,6 +543,9 @@ export class GraphCopyService {
     batchSize: number,
     offset: number
   ): Promise<{ copiedCount: number; errors: string[] }> {
+    // The edge is stamped with the target graph, not the source's: copying the
+    // source properties verbatim would carry the source graph id onto an edge in
+    // the target graph, where a scoped read would then never find it (#59).
     const query = `
       MATCH (source)-[r]->(target)
       WHERE (source.graphId = $sourceGraphId OR $sourceGraphId = 'default')
@@ -559,7 +562,12 @@ export class GraphCopyService {
           (newSource.id = source.id AND newTarget.id = target.id)
         )
       
-      CALL apoc.create.relationship(newSource, type(r), properties(r), newTarget)
+      CALL apoc.create.relationship(
+        newSource,
+        type(r),
+        apoc.map.setKey(properties(r), 'graphId', $targetGraphId),
+        newTarget
+      )
       YIELD rel
       RETURN count(rel) as totalCreated
     `;
@@ -937,7 +945,12 @@ export class GraphCopyService {
           (newSource.id = source.id AND newTarget.id = target.id)
         )
       
-      CALL apoc.create.relationship(newSource, type(r), properties(r), newTarget)
+      CALL apoc.create.relationship(
+        newSource,
+        type(r),
+        apoc.map.setKey(properties(r), 'graphId', $targetGraphId),
+        newTarget
+      )
       YIELD rel
       RETURN count(rel) as totalCreated
     `;

@@ -3,8 +3,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { createServer } from 'http';
 import type { Server } from 'http';
-import { loadConfig, initializeDatabaseManager } from '@/utils';
+import { loadConfig, initializeDatabaseManager, getDatabaseManager } from '@/utils';
 import { initializeSchema } from '@/utils/schema';
+import { adoptUnattributedCloudData } from '@/utils/graphAttribution';
 import { initializeContainer, cleanupContainer, getContainer } from '@/container';
 import { apiRouter } from '@/api/routes';
 import { StreamHandler, StreamSessionManager, getStreamTokenStore, STREAM_PATH } from '@/websocket';
@@ -157,6 +158,7 @@ class Application {
       // create its schema should not accept writes.
       if (!this.config.localExecution.enabled) {
         await initializeSchema();
+        await this.adoptLegacyCloudData(container);
       }
 
       // Setup middleware
@@ -172,6 +174,29 @@ class Application {
     } catch (error) {
       console.error('❌ Failed to initialize application:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Attribute cloud rows written before #59 to a graph, or say they cannot be.
+   *
+   * Before #59 nothing recorded which graph a stored row belonged to, so those
+   * rows are invisible to the (now graph-scoped) reads. When the deployment knows
+   * exactly one graph the attribution is unambiguous and happens here; otherwise
+   * the counts and the command that fixes them are reported, so the rows are not
+   * silently missing. Needs the graph metadata index, which is why it runs after
+   * `container.initialize()`.
+   */
+  private async adoptLegacyCloudData(container: ReturnType<typeof initializeContainer>): Promise<void> {
+    const session = getDatabaseManager().getNeo4jSession();
+    try {
+      const graphs = await container.graphService.listGraphs({ limit: 1000 });
+      await adoptUnattributedCloudData({
+        session,
+        knownGraphIds: graphs.graphs.map((graph) => graph.id),
+      });
+    } finally {
+      await session.close();
     }
   }
 

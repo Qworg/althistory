@@ -35,7 +35,9 @@ describe('DatabaseOptimizationService', () => {
       await service.createOptimizedIndexes();
 
       // Verify that multiple index creation queries were executed
-      expect(mockSession.run).toHaveBeenCalledTimes(14); // Updated count based on actual implementation
+      // 14 temporal/causal/inference indexes plus the 5 graph-scoped ones #59
+      // added, so a graph-filtered query has an index that starts with `graphId`.
+      expect(mockSession.run).toHaveBeenCalledTimes(19);
       expect(mockSession.close).toHaveBeenCalled();
 
       // Check some specific index creations
@@ -54,6 +56,18 @@ describe('DatabaseOptimizationService', () => {
       expect(indexQueries.some(query => 
         query.includes('causal_weight_confidence')
       )).toBe(true);
+
+      // Graph-scoped indexes (#59): every cloud read names a graph, so the graph
+      // property has to be indexed or the filter is a label scan plus a discard.
+      for (const name of [
+        'event_graph_timestamp',
+        'event_graph_actor',
+        'arc_graph_level',
+        'arc_graph_start_time',
+        'causal_graph'
+      ]) {
+        expect(indexQueries.some(query => query.includes(name))).toBe(true);
+      }
     });
 
     it('should handle index creation errors gracefully', async () => {

@@ -39,13 +39,15 @@ import { AppConfig } from '@/utils/config';
 type Initializable = { initialize(): Promise<void> };
 
 /**
- * Repositories and services bound to exactly one graph's live store.
+ * Repositories and services bound to exactly one graph.
  *
- * Returned by {@link Container.graphScopedRepositories}; because the store is
- * captured at construction there is no unscoped read reachable through these
- * objects. The two services are bound to the same store as the repositories, so
- * `causalService` and `temporalService` read this graph's data, not the
- * process-wide legacy store the container-level getters resolve.
+ * Returned by {@link Container.graphScopedRepositories}. The scope is carried
+ * differently in the two modes: in local mode the graph is the live store, which
+ * these objects capture at construction, and in cloud mode it is the graph id,
+ * which every query they issue filters on. Either way there is no unscoped read
+ * reachable through them. The two services are bound to the same graph as the
+ * repositories, so `causalService` and `temporalService` read this graph's data,
+ * not the process-wide legacy store the container-level getters resolve.
  */
 export interface GraphScopedRepositories {
   eventRepository: EventRepository;
@@ -323,7 +325,14 @@ export class Container implements ServiceContainer {
   }
 
   /**
-   * Get repositories bound to one graph's live store.
+   * Get repositories bound to one graph.
+   *
+   * Cloud mode has one database for every graph, so the graph is carried on the
+   * rows and named on every query: the repositories and the causal service are
+   * constructed with the graph id and filter by it (see
+   * `@/repositories/graphScope`). Local mode needs none of that -- the graph is
+   * the store -- so the local branch below passes no graph id and its queries
+   * are unchanged.
    *
    * The store is resolved through `GraphContextStore` (which caches and bounds
    * the stores themselves) and wrapped in a dedicated `LocalDatabaseManager`, so
@@ -349,13 +358,15 @@ export class Container implements ServiceContainer {
       const eventRepository = new EventRepository(
         this.databaseManager,
         this.validationService,
-        this.cacheInvalidationService
+        this.cacheInvalidationService,
+        { graphId }
       );
       const arcRepository = new ArcRepository(
         this.databaseManager,
         this.validationService,
         undefined,
-        this.cacheInvalidationService
+        this.cacheInvalidationService,
+        { graphId }
       );
       const repositories: GraphScopedRepositories = {
         eventRepository,

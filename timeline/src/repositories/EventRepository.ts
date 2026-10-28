@@ -1,8 +1,19 @@
 import { Session, Integer } from 'neo4j-driver';
 import { Event, CreateEventRequest, UpdateEventRequest, TimeRange } from '../models/Event';
 import { DatabaseManager, LocalDatabaseManager, LocalSession } from '../utils/database';
+import {
+  graphPatternMap,
+  graphPatternProperty,
+  GraphScopedRepositoryOptions
+} from './graphScope';
 
 type AnySession = Session | LocalSession;
+
+/**
+ * A value read from a driver record, before the caller narrows it to the
+ * shape that column is known to hold.
+ */
+type StoredValue = unknown;
 
 /**
  * The read surface both record classes share.
@@ -14,7 +25,7 @@ type AnySession = Session | LocalSession;
  * is validated once, here, rather than at each use site.
  */
 interface QueryRecord {
-  get(key: string): unknown;
+  get(key: string): StoredValue;
   has(key: string): boolean;
 }
 
@@ -47,12 +58,12 @@ function isGraphNode(value: unknown): value is GraphNode {
 }
 
 /** Reads a named column from a record. */
-function readField(record: QueryRecord, key: string): unknown {
+function readField(record: QueryRecord, key: string): StoredValue {
   return record.has(key) ? record.get(key) : undefined;
 }
 
 /** Reads a named column from the first record of a result set. */
-function readFirstField(result: QueryResultLike, key: string): unknown {
+function readFirstField(result: QueryResultLike, key: string): StoredValue {
   const record = result.records[0];
   return record === undefined ? undefined : readField(record, key);
 }
@@ -143,14 +154,27 @@ function readDate(value: unknown, field: string): Date {
 export class EventRepository {
   protected databaseManager: DatabaseManager | LocalDatabaseManager;
 
+  /**
+   * Graph every query of this repository is confined to in cloud mode.
+   *
+   * `undefined` means the process-wide, unscoped repository (the container
+   * level singleton used by export, import and the CLI), which keeps the
+   * whole-database behaviour it had before #59. The value is never applied on a
+   * local store: there a graph *is* the store, so a `graphId` filter would look
+   * for a property local nodes do not have and match nothing.
+   */
+  protected readonly graphId?: string;
+
   constructor(
     databaseManager: DatabaseManager | LocalDatabaseManager,
     // Kept for the DI container in src/container.ts, which still passes these.
     // The repository never reads them, so they are typed as `unknown`.
     _validationService?: unknown,
-    _cacheService?: unknown
+    _cacheService?: unknown,
+    options: GraphScopedRepositoryOptions = {}
   ) {
     this.databaseManager = databaseManager;
+    this.graphId = databaseManager instanceof LocalDatabaseManager ? undefined : options.graphId;
   }
 
   /**
@@ -166,19 +190,7 @@ export class EventRepository {
   async create(eventData: CreateEventRequest): Promise<Event> {
     const event = new Event(eventData);
 
-    const query = `
-      CREATE (e:Event {
-        id: $id,
-        description: $description,
-        actor: $actor,
-        target: $target,
-        timestamp: datetime($timestamp),
-        metadata: $metadata
-      })
-      RETURN e
-    `;
-
-    const parameters = {
+    const parameters: Record<string, unknown> = {
       id: event.id,
       description: event.description,
       actor: event.actor,
@@ -186,6 +198,21 @@ export class EventRepository {
       timestamp: event.timestamp.toISOString(),
       metadata: JSON.stringify(event.metadata || {})
     };
+    // A scoped repository stamps its graph on the row it writes: an unstamped
+    // row would be invisible to the graph that created it.
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
+    const query = `
+      CREATE (e:Event {
+        id: $id,
+        description: $description,
+        actor: $actor,
+        target: $target,
+        timestamp: datetime($timestamp),
+        metadata: $metadata${graphProperty}
+      })
+      RETURN e
+    `;
 
     const session = this.getSession();
     try {
@@ -207,14 +234,17 @@ export class EventRepository {
    * Find event by ID
    */
   async findById(id: string): Promise<Event | null> {
+    const parameters: Record<string, unknown> = { id };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
     const query = `
-      MATCH (e:Event {id: $id})
+      MATCH (e:Event {id: $id${graphProperty}})
       RETURN e
     `;
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, { id });
+      const result = await session.run(query, parameters);
 
       if (result.records.length === 0) {
         return null;
@@ -232,13 +262,14 @@ export class EventRepository {
    * Find all events
    */
   async findAll(limit?: number, offset?: number): Promise<Event[]> {
+    const parameters: Record<string, unknown> = {};
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
     let query = `
-      MATCH (e:Event)
+      MATCH (e:Event${graphMap})
       RETURN e
       ORDER BY e.timestamp ASC
     `;
-
-    const parameters: Record<string, unknown> = {};
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -261,17 +292,18 @@ export class EventRepository {
    * Find events by temporal range
    */
   async findByTimeRange(timeRange: TimeRange, limit?: number, offset?: number): Promise<Event[]> {
-    let query = `
-      MATCH (e:Event)
-      WHERE e.timestamp >= datetime($startTime) AND e.timestamp <= datetime($endTime)
-      RETURN e
-      ORDER BY e.timestamp ASC
-    `;
-
     const parameters: Record<string, unknown> = {
       startTime: timeRange.start.toISOString(),
       endTime: timeRange.end.toISOString()
     };
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
+    let query = `
+      MATCH (e:Event${graphMap})
+      WHERE e.timestamp >= datetime($startTime) AND e.timestamp <= datetime($endTime)
+      RETURN e
+      ORDER BY e.timestamp ASC
+    `;
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -294,13 +326,14 @@ export class EventRepository {
    * Find events by actor
    */
   async findByActor(actor: string, limit?: number, offset?: number): Promise<Event[]> {
+    const parameters: Record<string, unknown> = { actor };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
     let query = `
-      MATCH (e:Event {actor: $actor})
+      MATCH (e:Event {actor: $actor${graphProperty}})
       RETURN e
       ORDER BY e.timestamp ASC
     `;
-
-    const parameters: Record<string, unknown> = { actor };
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -323,13 +356,14 @@ export class EventRepository {
    * Find events by target
    */
   async findByTarget(target: string, limit?: number, offset?: number): Promise<Event[]> {
+    const parameters: Record<string, unknown> = { target };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
     let query = `
-      MATCH (e:Event {target: $target})
+      MATCH (e:Event {target: $target${graphProperty}})
       RETURN e
       ORDER BY e.timestamp ASC
     `;
-
-    const parameters: Record<string, unknown> = { target };
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -352,20 +386,21 @@ export class EventRepository {
    * Find events by actor and time range (optimized query)
    */
   async findByActorAndTimeRange(actor: string, timeRange: TimeRange, limit?: number, offset?: number): Promise<Event[]> {
+    const parameters: Record<string, unknown> = {
+      actor,
+      startTime: timeRange.start.toISOString(),
+      endTime: timeRange.end.toISOString()
+    };
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
     let query = `
-      MATCH (e:Event)
+      MATCH (e:Event${graphMap})
       WHERE e.actor = $actor
         AND e.timestamp >= datetime($startTime)
         AND e.timestamp <= datetime($endTime)
       RETURN e
       ORDER BY e.timestamp ASC
     `;
-
-    const parameters: Record<string, unknown> = {
-      actor,
-      startTime: timeRange.start.toISOString(),
-      endTime: timeRange.end.toISOString()
-    };
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -397,17 +432,7 @@ export class EventRepository {
     // Create updated event to validate
     const updatedEvent = existingEvent.update(updates);
 
-    const query = `
-      MATCH (e:Event {id: $id})
-      SET e.description = $description,
-          e.actor = $actor,
-          e.target = $target,
-          e.timestamp = datetime($timestamp),
-          e.metadata = $metadata
-      RETURN e
-    `;
-
-    const parameters = {
+    const parameters: Record<string, unknown> = {
       id,
       description: updatedEvent.description,
       actor: updatedEvent.actor,
@@ -415,6 +440,19 @@ export class EventRepository {
       timestamp: updatedEvent.timestamp.toISOString(),
       metadata: JSON.stringify(updatedEvent.metadata || {})
     };
+    // The graph filter is what stops this update from reaching an id that only
+    // exists in another graph.
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
+    const query = `
+      MATCH (e:Event {id: $id${graphProperty}})
+      SET e.description = $description,
+          e.actor = $actor,
+          e.target = $target,
+          e.timestamp = datetime($timestamp),
+          e.metadata = $metadata
+      RETURN e
+    `;
 
     const session = this.getSession();
     try {
@@ -436,15 +474,18 @@ export class EventRepository {
    * Delete an event by ID
    */
   async delete(id: string): Promise<boolean> {
+    const parameters: Record<string, unknown> = { id };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
     const query = `
-      MATCH (e:Event {id: $id})
+      MATCH (e:Event {id: $id${graphProperty}})
       DELETE e
       RETURN count(e) as deletedCount
     `;
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, { id });
+      const result = await session.run(query, parameters);
       return readCount(result, 'deletedCount') > 0;
     } catch (error) {
       throw new Error(`Failed to delete event: ${error}`);
@@ -457,14 +498,17 @@ export class EventRepository {
    * Count total events
    */
   async count(): Promise<number> {
+    const parameters: Record<string, unknown> = {};
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
     const query = `
-      MATCH (e:Event)
+      MATCH (e:Event${graphMap})
       RETURN count(e) as total
     `;
 
     const session = this.getSession();
     try {
-      const result = await session.run(query);
+      const result = await session.run(query, parameters);
       return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count events: ${error}`);
@@ -477,14 +521,17 @@ export class EventRepository {
    * Count events by actor
    */
   async countByActor(actor: string): Promise<number> {
+    const parameters: Record<string, unknown> = { actor };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
     const query = `
-      MATCH (e:Event {actor: $actor})
+      MATCH (e:Event {actor: $actor${graphProperty}})
       RETURN count(e) as total
     `;
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, { actor });
+      const result = await session.run(query, parameters);
       return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count events by actor: ${error}`);
@@ -497,16 +544,17 @@ export class EventRepository {
    * Count events in time range
    */
   async countByTimeRange(timeRange: TimeRange): Promise<number> {
-    const query = `
-      MATCH (e:Event)
-      WHERE e.timestamp >= datetime($startTime) AND e.timestamp <= datetime($endTime)
-      RETURN count(e) as total
-    `;
-
-    const parameters = {
+    const parameters: Record<string, unknown> = {
       startTime: timeRange.start.toISOString(),
       endTime: timeRange.end.toISOString()
     };
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
+    const query = `
+      MATCH (e:Event${graphMap})
+      WHERE e.timestamp >= datetime($startTime) AND e.timestamp <= datetime($endTime)
+      RETURN count(e) as total
+    `;
 
     const session = this.getSession();
     try {
@@ -523,14 +571,17 @@ export class EventRepository {
    * Check if an event exists
    */
   async exists(id: string): Promise<boolean> {
+    const parameters: Record<string, unknown> = { id };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
     const query = `
-      MATCH (e:Event {id: $id})
+      MATCH (e:Event {id: $id${graphProperty}})
       RETURN count(e) > 0 as exists
     `;
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, { id });
+      const result = await session.run(query, parameters);
       return Boolean(readFirstField(result, 'exists'));
     } catch (error) {
       throw new Error(`Failed to check if event exists: ${error}`);
@@ -621,8 +672,9 @@ export class AdvancedEventRepository extends EventRepository {
       parameters.description = filters.description;
     }
 
-    // Build query
-    let query = 'MATCH (e:Event)';
+    // Build query. The graph filter goes inside the pattern, so a search scoped
+    // to one graph cannot return another graph's events.
+    let query = `MATCH (e:Event${graphPatternMap(parameters, this.graphId)})`;
 
     if (conditions.length > 0) {
       query += ` WHERE ${conditions.join(' AND ')}`;

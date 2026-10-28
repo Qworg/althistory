@@ -24,6 +24,9 @@ export default defineConfig({
       'src/repositories/EventRepository.test.ts',
       'src/repositories/ArcRepository.test.ts',
       'src/services/GraphCopyService.test.ts',
+      // #59: cross-graph isolation. Creates two graphs through the scoped
+      // repositories and asserts neither can read, count or mutate the other.
+      'src/tests/integration/graph-scoped-storage.test.ts',
     ],
     // These suites share one Neo4j instance and each deletes every node with
     // its label in its own hooks, so running the files concurrently makes them
