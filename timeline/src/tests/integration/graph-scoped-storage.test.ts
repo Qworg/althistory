@@ -19,6 +19,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { CausalService } from '@/services/CausalService';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -283,6 +284,49 @@ describe('graph-scoped cloud storage (#59)', () => {
       expect(relationshipsA.map((rel) => rel.effect_event_id)).toEqual([a2.id]);
       expect(relationshipsB.map((rel) => rel.cause_event_id)).toEqual([b1.id]);
       expect(relationshipsB.map((rel) => rel.effect_event_id)).toEqual([b2.id]);
+    });
+
+    it('is scoped when built the way the HTTP routes build it (with a store)', async () => {
+      // `graphScopedCausalService` in `api/routes/causal.ts` and `batch.ts`
+      // always passes the container's graph-context store. In cloud mode that
+      // store is an empty placeholder, and reading "has a store" as "local
+      // mode" emitted unfiltered Cypher on every causal route -- the exact bug
+      // this suite exists to catch. This builds the service the same way.
+      const graphA = nextGraphId('causal-route-a');
+      const graphB = nextGraphId('causal-route-b');
+
+      const storeA = await container.graphContextStore.getStore(graphA);
+      const storeB = await container.graphContextStore.getStore(graphB);
+      const routeStyleA = new CausalService({ graphStore: storeA, graphId: graphA });
+      const routeStyleB = new CausalService({ graphStore: storeB, graphId: graphB });
+
+      const scopedA = await scoped(graphA);
+      const scopedB = await scoped(graphB);
+      const a1 = await scopedA.eventRepository.create(eventData('route-a1'));
+      const a2 = await scopedA.eventRepository.create(eventData('route-a2'));
+      const b1 = await scopedB.eventRepository.create(eventData('route-b1'));
+      const b2 = await scopedB.eventRepository.create(eventData('route-b2'));
+
+      await routeStyleA.createCausalLink(
+        (await scopedA.eventRepository.findById(a1.id))!,
+        (await scopedA.eventRepository.findById(a2.id))!,
+        relationship
+      );
+      await routeStyleB.createCausalLink(
+        (await scopedB.eventRepository.findById(b1.id))!,
+        (await scopedB.eventRepository.findById(b2.id))!,
+        relationship
+      );
+
+      // Each route-style service sees exactly its own link, and the link it
+      // wrote is visible to a properly scoped service in the same graph.
+      const seenByA = await routeStyleA.getAllRelationships();
+      const seenByB = await routeStyleB.getAllRelationships();
+      expect(seenByA.map((rel) => rel.cause_event_id)).toEqual([a1.id]);
+      expect(seenByB.map((rel) => rel.cause_event_id)).toEqual([b1.id]);
+
+      const storedForA = await scopedA.causalService.getAllRelationships();
+      expect(storedForA.map((rel) => rel.cause_event_id)).toEqual([a1.id]);
     });
 
     it('stamps the graph on the relationship it creates', async () => {

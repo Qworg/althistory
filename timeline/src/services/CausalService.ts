@@ -112,14 +112,14 @@ interface CausalSession {
 }
 
 /**
- * A value read from a driver record, before the caller narrows it to the shape
- * that column is known to hold.
+ * Structural record surface shared by the Neo4j and local drivers.
+ *
+ * `get` returns `unknown` deliberately: a driver record is untyped at this
+ * boundary, and each caller narrows the column it asked for. Naming that
+ * `unknown` would not add information, so it is spelled out.
  */
-type CausalRecordValue = unknown;
-
-/** Structural record surface shared by the Neo4j and local drivers. */
 interface CausalQueryRecord {
-  get(key: string): CausalRecordValue;
+  get(key: string): unknown;
 }
 
 /** Result set whose records expose {@link CausalQueryRecord}. */
@@ -173,6 +173,9 @@ export class CausalService {
     this.graphStore = options.graphStore;
     this.graphId = options.graphId;
   }
+
+  /** The execution mode, resolved on first use. See `isLocalExecution`. */
+  private localExecution: boolean | undefined;
 
   /**
    * `getDatabaseManager()` is declared to return `DatabaseManager`, but when local
@@ -233,13 +236,34 @@ export class CausalService {
   /**
    * The graph a cloud query has to name to stay inside this service's graph.
    *
-   * Empty for a service bound to a live store: in local mode the store *is* one
-   * graph, so its nodes carry no graph property and a graph filter would match
-   * nothing. Empty too for the process-wide unscoped service, which keeps the
+   * Empty for a service in local execution: the store *is* one graph there, so
+   * its nodes carry no graph property and a graph filter would match nothing.
+   * Empty too for the process-wide unscoped service, which keeps the
    * whole-database view it had before #59.
+   *
+   * The cloud/local question is decided by configuration, **not** by whether a
+   * store was handed in. The HTTP routes always build their service with the
+   * container's graph-context store -- in cloud mode that store is an empty
+   * placeholder -- so keying off `graphStore` made every causal route emit
+   * unfiltered Cypher in cloud mode and write edges with no graph id.
    */
   private cloudGraphId(): string | undefined {
-    return this.graphStore ? undefined : this.graphId;
+    if (this.isLocalExecution()) return undefined;
+    return this.graphId;
+  }
+
+  /**
+   * Whether this process stores graphs in the local JSON store.
+   *
+   * Read once, at construction: it is fixed for the life of the process, and
+   * consulting `loadConfig()` on every query would be both slower and a second
+   * source of truth.
+   */
+  private isLocalExecution(): boolean {
+    if (this.localExecution === undefined) {
+      this.localExecution = loadConfig().localExecution.enabled;
+    }
+    return this.localExecution;
   }
   /**
    * Create a causal link between two events

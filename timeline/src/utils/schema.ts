@@ -200,9 +200,15 @@ export class SchemaManager {
       const indexesResult = await this.session.run('SHOW INDEXES WHERE type <> "LOOKUP"');
       const existingIndexes = indexesResult.records.map(record => record.get('name'));
       
+      // Must list every index `createSchema` creates, or a missing one goes
+      // unnoticed: this check is what `database.test.ts` and the health report
+      // rely on to say the schema is whole.
       const expectedIndexes = [
         'event_timestamp', 'event_actor', 'event_target', 'event_temporal_actor',
+        'event_graph_timestamp', 'event_graph_actor',
         'arc_timerange', 'arc_level', 'arc_temporal_compound', 'arc_start_time', 'arc_end_time',
+        'arc_graph_level', 'arc_graph_start_time',
+        'causal_graph',
         'pressure_confidence', 'pressure_type'
       ];
       

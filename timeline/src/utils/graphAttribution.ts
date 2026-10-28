@@ -246,11 +246,27 @@ export async function adoptUnattributedCloudData(
     warn(describeUnattributedData(counts, options.knownGraphIds));
     return { attributed: NO_ROWS, remaining: counts };
   }
+  // Adoption is automatic because the alternative -- leaving the rows
+  // invisible until an operator runs a command -- turns an upgrade into a graph
+  // that looks empty. It is only unambiguous when exactly one graph is
+  // registered, which the branch above requires. It is still a change nobody
+  // explicitly asked for, so it is reported loudly, with both counts and the
+  // way to undo the assumption.
+  warn(
+    `Attributing pre-graph-identity cloud data to graph "${graphId}" (the only registered graph): ` +
+      `before, ${counts.events} event(s), ${counts.arcs} arc(s), ` +
+      `${counts.causalRelationships} causal relationship(s) carried no graph id. ` +
+      'If this data belongs to another graph, stop the process and use ' +
+      '`npm run migrate:attribute-graph` with the right --graph before serving requests.'
+  );
+
   const outcome = await attributeUnattributedData(options.session, graphId);
   log(
     `Attributed pre-graph-identity cloud data to graph "${graphId}": ` +
       `${outcome.attributed.events} event(s), ${outcome.attributed.arcs} arc(s), ` +
-      `${outcome.attributed.causalRelationships} causal relationship(s).`
+      `${outcome.attributed.causalRelationships} causal relationship(s). ` +
+      `Still unattributed afterwards: ${outcome.remaining.events} event(s), ` +
+      `${outcome.remaining.arcs} arc(s), ${outcome.remaining.causalRelationships} relationship(s).`
   );
 
   if (hasUnattributedData(outcome.remaining)) {

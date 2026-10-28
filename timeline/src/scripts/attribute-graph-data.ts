@@ -16,6 +16,7 @@
 import { Command } from 'commander';
 import { initializeDatabaseManager, getDatabaseManager } from '../utils/database';
 import { loadConfig } from '../utils/config';
+import { GraphRepository } from '../repositories/GraphRepository';
 import {
   attributeUnattributedData,
   countUnattributedData,
@@ -36,6 +37,26 @@ async function attribute(graphId: string, dryRun: boolean): Promise<void> {
   if (config.localExecution.enabled) {
     console.error(
       'Graph attribution applies to cloud storage only. Local mode is already scoped: each graph is a file.'
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  // The graph has to exist. Graph metadata lives in the data directory even in
+  // cloud mode, so a typo in --graph (`graph-1` for `graph1`) would otherwise
+  // attribute every legacy row to an id no graph owns: the data disappears from
+  // every view, and the command reports success. Checked before anything is
+  // written.
+  const graphRepository = new GraphRepository({ dataDir: config.localExecution.dataDirectory });
+  await graphRepository.initialize();
+  const knownGraphs = await graphRepository.findAll({ limit: 1000 });
+  const knownIds = knownGraphs.graphs.map((graph) => graph.id);
+  if (!knownIds.includes(graphId)) {
+    console.error(
+      `No graph with id "${graphId}". Nothing was written.` +
+        (knownIds.length > 0
+          ? ` Known graphs: ${knownIds.join(', ')}`
+          : ' No graphs are registered in this data directory.')
     );
     process.exitCode = 1;
     return;

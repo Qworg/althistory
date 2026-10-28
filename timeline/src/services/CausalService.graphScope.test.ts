@@ -35,13 +35,20 @@ vi.mock('@/utils/database', async (importOriginal) => {
 });
 
 /**
- * Cloud mode for the service under test. The local-mode test below bypasses
- * `loadConfig` by handing the service a store, which is what decides the branch.
+ * The execution mode, which is what decides whether a graph filter is emitted.
+ *
+ * It is a mock with a mutable flag because the branch is configuration, not the
+ * presence of a store: the HTTP routes always hand the service a store, and in
+ * cloud mode that store is an empty placeholder. Keying off the store made
+ * every causal route emit unfiltered Cypher -- which is what the last test here
+ * now pins in the other direction.
  */
+const configState = { localExecution: false };
+
 vi.mock('@/utils/config', () => ({
   loadConfig: vi.fn(() => ({
     localExecution: {
-      enabled: false,
+      enabled: configState.localExecution,
       dataDirectory: './data',
     },
   })),
@@ -201,14 +208,15 @@ describe('graph-scoped causal queries (#59)', () => {
     expect(queries()).not.toContain('graphId');
   });
 
-  it('emits no graph filter when the service is bound to a local store', async () => {
+  it('emits no graph filter in local execution, even with a store and a graph id', async () => {
     const store = new LocalGraphStore({
       dataFile: path.join(os.tmpdir(), `causal-graph-scope-${process.pid}-${Date.now()}.json`),
     });
+    configState.localExecution = true;
     try {
-      // A graph-bound local service carries a graph id (for cache namespacing)
-      // as well as the store, so the store is what must suppress the filter:
-      // local nodes have no graph property and a filter would match nothing.
+      // Local nodes carry no graph property, so a filter would match nothing.
+      // A graph-bound local service still carries a graph id for cache
+      // namespacing; the *mode* is what must suppress the filter.
       const service = new CausalService({ graphStore: store, graphId: GRAPH_ID });
 
       await service.getAllRelationships();
@@ -216,6 +224,39 @@ describe('graph-scoped causal queries (#59)', () => {
       await service.findCausalChain(event('event-1', '2020-01-01T00:00:00.000Z'), 2);
 
       expect(queries()).not.toContain('graphId');
+    } finally {
+      configState.localExecution = false;
+      await store.shutdown();
+    }
+  });
+
+  it('filters in cloud mode even when a store was handed in', async () => {
+    // `graphScopedCausalService` (causal.ts and batch.ts) always passes the
+    // container's graph-context store. In cloud mode that store is an empty
+    // placeholder, so "has a store" must not be read as "local": doing that
+    // emitted unfiltered Cypher on every causal route and wrote :CAUSES edges
+    // with no graph id, which the scoped read then could not find again.
+    const store = new LocalGraphStore({
+      dataFile: path.join(os.tmpdir(), `causal-graph-scope-cloud-${process.pid}-${Date.now()}.json`),
+    });
+    configState.localExecution = false;
+    try {
+      const service = new CausalService({ graphStore: store, graphId: GRAPH_ID });
+
+      await service.getAllRelationships();
+      await service.detectCausalCycles();
+      await service.findCausalChain(event('event-1', '2020-01-01T00:00:00.000Z'), 2);
+
+      // Only the causal queries are the subject here; the store handed in also
+      // writes through its own session, and those statements have no graph
+      // property to name.
+      const causal = recorded
+        .map((entry) => entry.query)
+        .filter((query) => query.includes('CAUSES'));
+      expect(causal.length).toBeGreaterThan(0);
+      for (const query of causal) {
+        expect(query).toContain('graphId');
+      }
     } finally {
       await store.shutdown();
     }
