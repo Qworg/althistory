@@ -84,6 +84,15 @@ services:
       # replica with a persistent volume, and the flag asserts that; it does
       # not verify it. The server refuses to start in cloud mode without it.
       CLOUD_SINGLE_REPLICA_STATE: "true"
+      # `/api/events`, `/api/arcs`, `/api/causal`, `/api/temporal` and
+      # `/api/inference` require an API key with the matching `read:*`/`write:*`
+      # permission. `true` is the default; it is written down here so the
+      # deployment does not depend on it. See docs/api-integration.md.
+      API_AUTH_REQUIRED: "true"
+      # Trusted as an admin key on first start. Blank means the API generates
+      # one and writes /data/keys/admin-key.txt; read it with
+      # `docker compose exec api cat /data/keys/admin-key.txt`.
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       LOCAL_DATA_DIR: /data
       # Same-origin through Caddy, so this only matters to non-browser clients.
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
@@ -104,6 +113,12 @@ services:
     build:
       context: .
       target: web
+      args:
+        # Baked into the SPA at build time, so it is public to anyone who can
+        # load the page: give it the narrowest permissions that work. Empty
+        # means the UI sends no key and gets 401 from the entity routes.
+        # Rebuild the web image to change it.
+        VITE_API_KEY: ${VITE_API_KEY:-}
     environment:
       CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-:80}
     ports:
@@ -124,6 +139,9 @@ services:
     environment:
       NODE_ENV: test
       LOCAL_EXECUTION_ENABLED: "false"
+      # These suites drive the Neo4j/Redis repositories directly, not the HTTP
+      # API, so they pin the entity guard off rather than manufacture a key.
+      API_AUTH_REQUIRED: "false"
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}

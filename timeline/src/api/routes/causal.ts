@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { ValidationError, NotFoundError } from '@/utils/errors';
 import { CausalRelationship, CausalRelationshipType } from '@/models/relationships';
 import { requireGraphId, resolveGraphContext } from '@/api/middleware';
+import { entityPermission, mountEntityAccessGuard } from '@/api/entityAuth';
 import { EventRepository } from '@/repositories/EventRepository';
 import { CausalService } from '@/services/CausalService';
 import { createLogger } from '@/utils/logger';
@@ -10,6 +11,12 @@ import { isTemporalInversion } from '@/utils/causalOrder';
 const logger = createLogger('CausalRoutes');
 
 export const causalRoutes = Router();
+
+// Authentication first (it mounts nothing in local execution; see
+// `api/entityAuth.ts`), then the graph scope. Keeping the guard ahead of the
+// lookup means a keyless caller is refused with 401 rather than learning from a
+// 404 whether a graph exists.
+mountEntityAccessGuard(causalRoutes);
 
 // Resolve exactly one graph for every causal request before any handler runs.
 // Mounted on this router rather than globally so routes owned by other
@@ -65,7 +72,7 @@ function toEvidence(value: unknown): string {
 /**
  * POST /causal/link - Create a causal link between two events
  */
-causalRoutes.post('/link', async (req: Request, res: Response, next: NextFunction) => {
+causalRoutes.post('/link', ...entityPermission('write:relationships'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { causeEventId, effectEventId, relationship } = req.body;
     
@@ -153,7 +160,7 @@ causalRoutes.post('/link', async (req: Request, res: Response, next: NextFunctio
 /**
  * GET /causal/chain/:eventId - Find causal chain starting from an event
  */
-causalRoutes.get('/chain/:eventId', async (req: Request, res: Response, next: NextFunction) => {
+causalRoutes.get('/chain/:eventId', ...entityPermission('read:relationships'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventId } = req.params;
     const { maxDepth = '5' } = req.query;
@@ -196,7 +203,7 @@ causalRoutes.get('/chain/:eventId', async (req: Request, res: Response, next: Ne
 /**
  * GET /causal/cycles - Detect causal cycles in the graph
  */
-causalRoutes.get('/cycles', async (req: Request, res: Response, next: NextFunction) => {
+causalRoutes.get('/cycles', ...entityPermission('read:relationships'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { limit = '10', offset = '0' } = req.query;
     
@@ -236,7 +243,7 @@ causalRoutes.get('/cycles', async (req: Request, res: Response, next: NextFuncti
 /**
  * GET /causal/suggestions - Get causal relationship suggestions
  */
-causalRoutes.get('/suggestions', async (req: Request, res: Response, next: NextFunction) => {
+causalRoutes.get('/suggestions', ...entityPermission('read:relationships'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { 
       minConfidence = '0.5',
@@ -294,7 +301,9 @@ causalRoutes.get('/suggestions', async (req: Request, res: Response, next: NextF
 /**
  * POST /causal/validate - Validate a proposed causal relationship
  */
-causalRoutes.post('/validate', async (req: Request, res: Response, next: NextFunction) => {
+// Validation only: it dereferences both event ids and writes nothing, so it
+// needs the two read permissions rather than a write one.
+causalRoutes.post('/validate', ...entityPermission('read:events', 'read:relationships'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { causeEventId, effectEventId, relationship } = req.body;
     
@@ -352,7 +361,7 @@ causalRoutes.post('/validate', async (req: Request, res: Response, next: NextFun
 /**
  * GET /causal/relationships - Get all causal relationships
  */
-causalRoutes.get('/relationships', async (req: Request, res: Response, next: NextFunction) => {
+causalRoutes.get('/relationships', ...entityPermission('read:relationships'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const causalService = await graphScopedCausalService(req);
     const relationships = await causalService.getAllRelationships();
@@ -370,7 +379,7 @@ causalRoutes.get('/relationships', async (req: Request, res: Response, next: Nex
 /**
  * GET /causal/relationships/:eventId - Get all causal relationships for an event
  */
-causalRoutes.get('/relationships/:eventId', async (req: Request, res: Response, next: NextFunction) => {
+causalRoutes.get('/relationships/:eventId', ...entityPermission('read:relationships'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventId } = req.params;
     const { direction = 'both' } = req.query; // 'cause', 'effect', or 'both'
@@ -415,7 +424,7 @@ causalRoutes.get('/relationships/:eventId', async (req: Request, res: Response, 
 /**
  * PUT /causal/link - Update a causal link between two events
  */
-causalRoutes.put('/link', async (req: Request, res: Response, next: NextFunction) => {
+causalRoutes.put('/link', ...entityPermission('write:relationships'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { causeEventId, effectEventId, relationship } = req.body;
 
@@ -478,7 +487,7 @@ causalRoutes.put('/link', async (req: Request, res: Response, next: NextFunction
 /**
  * DELETE /causal/link - Remove a causal link between two events
  */
-causalRoutes.delete('/link', async (req: Request, res: Response, next: NextFunction) => {
+causalRoutes.delete('/link', ...entityPermission('write:relationships'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { causeEventId, effectEventId } = req.body;
 

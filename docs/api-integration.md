@@ -10,15 +10,33 @@ OpenAPI document the server serves at `GET /api/openapi.json`.
 
 ## Authenticating
 
-**Which routes require a key.** Not all of them. The entity routes are
-currently mounted without authentication — `/api/events`, `/api/arcs`,
-`/api/causal`, `/api/temporal` and `/api/inference` answer anonymous callers,
-and the server's own OpenAPI document marks those operations `auth: optional`.
-Do not put one on a network you do not trust until that changes; the gap is
-tracked in [#64](https://github.com/Qworg/althistory/issues/64).
+**Which routes require a key.** `/api/export`, `/api/import`, `/api/ingest`,
+`/api/keys`, `/api/batch`, `/api/validate`, `/api/suggest`, `/api/stream`, the
+`/api/graphs` endpoints, **and** the five entity groups — `/api/events`,
+`/api/arcs`, `/api/causal`, `/api/temporal` and `/api/inference`. The entity
+groups used to be the exception: they mounted only graph resolution, so anyone
+who could reach the port could read a timeline, rewrite it and run inference.
+They now mount `authenticate` + `requireAuth` + `rateLimit()` and, on each
+route, `authorize(...)` with the permission listed under [Permissions](#permissions).
+The OpenAPI document marks those operations `auth: 'required'` when that guard
+is mounted, and `timeline/src/api/entity-auth.test.ts` fails if the marker and
+what the router actually answers ever disagree.
 
-A key **is** required by `/api/export`, `/api/import`, `/api/ingest`,
-`/api/keys`, `/api/batch`, `/api/validate`, `/api/suggest` and `/api/stream`.
+**The one exception is local execution.** `API_AUTH_REQUIRED` decides, and it
+defaults to `true`. The only alternative default is local execution
+(`LOCAL_EXECUTION_ENABLED=true`), where it defaults to `false` so `npm run dev`
+and the bundled UI work on a developer's machine without a key. Set
+`API_AUTH_REQUIRED=true` to enforce keys there too, or `false` in any
+deployment that deliberately wants anonymous entity access (a test rig, a
+single-user box behind a firewall). A value that is not a boolean is a startup
+error rather than a guess.
+
+Always open: `GET /api`, `GET /api/health`, `GET /api/info` and
+`GET /api/openapi.json`. The document reports the mode the process is actually
+in — the entity operations carry `security` when a key is required and an empty
+`security` when it is not — so `GET /api/openapi.json` is how you check a
+deployment rather than assuming.
+
 Where a key is required, send it either way:
 
 ```http
@@ -42,16 +60,53 @@ stored; there is no way to read it again.
 `GET /api/keys/me` returns what the current key is and may do.
 `GET /api/keys/:id/usage` returns how much of its rate limits it has spent.
 
+### Getting a key into the bundled UI
+
+The SPA sends a key when it has one. It reads `localStorage` (`api_key` or
+`auth_token`) and otherwise `VITE_API_KEY`, which Vite bakes into the bundle at
+build time (`frontend/src/services/api.ts`). There is no key-entry screen, so a
+deployment that requires a key has to supply it one of those two ways:
+
+- **Bake it in at build time.** Set `VITE_API_KEY` for the web build; the
+  compose stack passes it as a build argument (`VITE_API_KEY=... docker compose
+  build web`). The value ends up in the JavaScript every visitor downloads, so
+  treat it as public: give it the narrowest permissions the UI needs
+  (`read:events`, `read:arcs`, `read:relationships`, `read:graphs`, the
+  matching `write:*` if the UI should edit, `export`), and rotate it by
+  rebuilding. Use an `admin` key there only if the UI is genuinely trusted with
+  key management.
+- **Set `localStorage` yourself.** A page, an extension or the browser console
+  can run `localStorage.setItem('api_key', 'ak_...')`; the client picks it up
+  on the next request. `./start-local.sh` uses the other half of the same
+  mechanism: it writes `VITE_API_KEY` into `frontend/.env.local`, which Vite
+  bakes into the dev bundle.
+
+With neither, the UI talks to the API without a key: every entity request
+answers `401`, the client's response interceptor drops any stored key and logs
+the failure, and the views show their usual error/empty state. Nothing prompts
+for a key, because there is no login flow.
+
 ## Permissions
 
 | Permission | Grants |
 | --- | --- |
-| `read:events`, `read:arcs`, `read:relationships`, `read:graphs` | Read that entity type. |
-| `write:events`, `write:arcs`, `write:relationships`, `write:graphs` | Create, update and delete it. |
+| `read:events` | Read events: `GET /api/events*`, `GET /api/arcs/:id/events`, `GET /api/causal/chain/:eventId`, the temporal views, and the inference analyses. |
+| `write:events` | Create, update and delete events (`POST`/`PUT`/`DELETE /api/events`), and run `POST /api/inference/simulate`, which persists the events it infers. |
+| `read:arcs` | Read arcs: `GET /api/arcs*`, and the temporal views. |
+| `write:arcs` | Create, update and delete arcs. |
+| `read:relationships` | Read causal links and suggestions. |
+| `write:relationships` | Create, update and delete causal links; `POST /api/inference/simulate` also writes them. |
+| `read:graphs`, `write:graphs` | Read, and create/update/delete, graphs. |
 | `export` | Export a graph. |
 | `import` | Import a document into a graph. |
 | `ingest` | Run web/text/Wikidata ingestion. |
 | `admin` | Manage API keys, including other keys' permissions. |
+
+A route that reads two kinds of entity asks for both permissions: the temporal
+timeline, overlap, gap, density and constraint views need `read:events` **and**
+`read:arcs`, and `POST /api/causal/validate` needs `read:events` **and**
+`read:relationships`. `authorize` requires all of the permissions a route
+lists, so one read permission never stands in for another.
 
 Four groups are predefined: `readOnly`, `readWrite`, `full` and `admin`. You
 may also pass an explicit list.

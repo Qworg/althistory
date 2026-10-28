@@ -25,8 +25,19 @@ origin. Neo4j (with APOC) and Redis run alongside as managed services.
 ```bash
 cp .env.production.example .env   # then set NEO4J_PASSWORD
 docker compose up -d --build
+docker compose exec api cat /data/keys/admin-key.txt   # the seeded admin key
+# Give the browser a key and rebuild only the SPA:
+echo "VITE_API_KEY=$(docker compose exec -T api cat /data/keys/admin-key.txt)" >> .env
+docker compose build web && docker compose up -d web
 open http://localhost:8080
 ```
+
+The entity routes require a key, and the SPA has no key-entry screen, so the
+`VITE_API_KEY` step is what makes the bundled UI work: the value is baked into
+the JavaScript at build time. (If `ADMIN_API_KEY` is set in `.env`, that is the
+admin key instead of the generated file.) Use the admin key once to create
+narrower keys for the UI and for agents — see
+[api-integration.md](api-integration.md#getting-a-key-into-the-bundled-ui).
 
 The browser talks only to Caddy. Because the SPA is built with
 `VITE_API_BASE_URL=/api`, its requests are same-origin and no CORS setup is
@@ -59,6 +70,19 @@ full list. The values that matter most:
   `althistory.example.ts.net`) to expose the stack over a tailnet with TLS.
 - `CORS_ORIGIN` — only consulted by non-browser clients; the bundled UI is
   same-origin.
+- `API_AUTH_REQUIRED` — whether `/api/events`, `/api/arcs`, `/api/causal`,
+  `/api/temporal` and `/api/inference` require an API key. Defaults to `true`;
+  the compose file sets it explicitly. Do not turn it off on a reachable host.
+- `ADMIN_API_KEY` — a key the API trusts as `admin` on first start. Leave it
+  blank and the API generates one, printing it in the log and writing it to
+  `/data/keys/admin-key.txt` (mode 0600) inside the `api` container:
+  `docker compose exec api cat /data/keys/admin-key.txt`. Either way, use that
+  key to create the narrower keys the app and agents should use.
+- `VITE_API_KEY` — the key the bundled SPA sends. It is a **build argument**:
+  it is baked into the JavaScript, so it is public to anyone who can load the
+  page. There is no key-entry screen (see
+  [api-integration.md](api-integration.md#getting-a-key-into-the-bundled-ui)).
+  Leave it blank and the UI gets `401` from every entity route.
 
 ## 4. State and persistence
 

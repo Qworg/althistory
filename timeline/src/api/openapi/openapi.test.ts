@@ -248,8 +248,8 @@ describe('the description matches the routes it describes', () => {
 
       // A route that does not require a key may still refuse a request for
       // other reasons (a missing body, an unknown id). What it may not do is
-      // answer 401, because the global `authenticate` lets a keyless request
-      // through.
+      // answer 401, because a route that requires no key mounts no
+      // `requireAuth`.
       if (!claimsAKey && response.status === 401) {
         mismatches.push(`${key}: the document says no key is needed, but the route answers 401`)
       }

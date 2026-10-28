@@ -3,6 +3,7 @@ import { ValidationError, NotFoundError } from '@/utils/errors';
 import { TimeRange } from '@/models/Event';
 import { PressureType } from '@/models/InferredPressure';
 import { requireGraphId, resolveGraphContext } from '@/api/middleware';
+import { entityPermission, mountEntityAccessGuard } from '@/api/entityAuth';
 import type { Event } from '@/models/Event';
 import type { InferredPressure } from '@/models/InferredPressure';
 import {
@@ -14,6 +15,12 @@ import {
 import type { StoredCausalRelationship } from '@/services/CausalService';
 
 export const inferenceRoutes = Router();
+
+// Authentication first (it mounts nothing in local execution; see
+// `api/entityAuth.ts`), then the graph scope. Keeping the guard ahead of the
+// lookup means a keyless caller is refused with 401 rather than learning from a
+// 404 whether a graph exists.
+mountEntityAccessGuard(inferenceRoutes);
 
 // Scope every route in this group to exactly one graph. `resolveGraphContext`
 // resolves X-Graph-Id (falling back to the active graph) and attaches the graph
@@ -33,7 +40,7 @@ function isPressureType(value: string): value is PressureType {
 /**
  * POST /inference/analyze-clusters - Analyze event clusters to identify patterns
  */
-inferenceRoutes.post('/analyze-clusters', async (req: Request, res: Response, next: NextFunction) => {
+inferenceRoutes.post('/analyze-clusters', ...entityPermission('read:events'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventIds, timeRange } = req.body;
     
@@ -98,7 +105,7 @@ inferenceRoutes.post('/analyze-clusters', async (req: Request, res: Response, ne
 /**
  * POST /inference/detect-patterns - Detect patterns in event data
  */
-inferenceRoutes.post('/detect-patterns', async (req: Request, res: Response, next: NextFunction) => {
+inferenceRoutes.post('/detect-patterns', ...entityPermission('read:events'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { 
       timeRange, 
@@ -179,7 +186,7 @@ inferenceRoutes.post('/detect-patterns', async (req: Request, res: Response, nex
 /**
  * GET /inference/pressures - Get inferred pressures
  */
-inferenceRoutes.get('/pressures', async (req: Request, res: Response, next: NextFunction) => {
+inferenceRoutes.get('/pressures', ...entityPermission('read:events'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       type, // 'social', 'economic', 'political', 'environmental'
@@ -267,7 +274,7 @@ inferenceRoutes.get('/pressures', async (req: Request, res: Response, next: Next
 /**
  * GET /inference/actor-relationships - Analyze relationships between actors
  */
-inferenceRoutes.get('/actor-relationships', async (req: Request, res: Response, next: NextFunction) => {
+inferenceRoutes.get('/actor-relationships', ...entityPermission('read:events'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       actors, // array of actor names
@@ -349,7 +356,7 @@ inferenceRoutes.get('/actor-relationships', async (req: Request, res: Response, 
 /**
  * POST /inference/similarity - Find events similar to a given event
  */
-inferenceRoutes.post('/similarity', async (req: Request, res: Response, next: NextFunction) => {
+inferenceRoutes.post('/similarity', ...entityPermission('read:events'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventId, threshold = 0.5, limit = 10 } = req.body;
     
@@ -411,7 +418,7 @@ inferenceRoutes.post('/similarity', async (req: Request, res: Response, next: Ne
 /**
  * GET /inference/anomalies - Detect anomalous events or patterns
  */
-inferenceRoutes.get('/anomalies', async (req: Request, res: Response, next: NextFunction) => {
+inferenceRoutes.get('/anomalies', ...entityPermission('read:events'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       timeRange,
@@ -492,7 +499,7 @@ inferenceRoutes.get('/anomalies', async (req: Request, res: Response, next: Next
 /**
  * POST /inference/predict - Make predictions based on current patterns
  */
-inferenceRoutes.post('/predict', async (req: Request, res: Response, next: NextFunction) => {
+inferenceRoutes.post('/predict', ...entityPermission('read:events'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { 
       baseTimeRange,
@@ -560,7 +567,7 @@ inferenceRoutes.post('/predict', async (req: Request, res: Response, next: NextF
  * `dryRun: true` to get the same plan without writes, or `stream: true` (or an
  * `Accept: text/event-stream` header) to receive each milestone as it lands.
  */
-inferenceRoutes.post('/simulate', async (req: Request, res: Response, next: NextFunction) => {
+inferenceRoutes.post('/simulate', ...entityPermission('write:events', 'write:relationships'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const graphId = requireGraphId(req);
     const body = isUnknownRecord(req.body) ? req.body : {};

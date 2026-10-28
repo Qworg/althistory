@@ -240,7 +240,14 @@ describe('EventRepository', () => {
 6. **Test timeouts**: Database tests have 30s timeout configured
 7. **No skipped tests**: neither package contains `it.skip`/`describe.skip`. If a change needs to disable one, record the reason and the removing issue in `DEFERREDFIXES.md` instead of leaving it silent.
 8. **Graph scoping is a header, with one exception**: most graph-scoped routes read the graph from `X-Graph-Id` and nothing else — a `graphId` in a body or query is not the scope, and must agree with the header when present. `POST /api/import` is different: it takes `targetGraphId` from the body and does not read the header.
-9. **Entity routes are anonymous today**: `/api/events`, `/api/arcs`, `/api/causal`, `/api/temporal` and `/api/inference` are mounted without authentication (the OpenAPI document marks them `auth: optional`). Do not copy them as the pattern for a new route; `#64` tracks closing the gap.
+9. **Entity routes are guarded, not anonymous**: `/api/events`, `/api/arcs`, `/api/causal`,
+   `/api/temporal` and `/api/inference` mount `authenticate` + `requireAuth` + `rateLimit()` and a
+   per-route `authorize(...)` through `timeline/src/api/entityAuth.ts`. `API_AUTH_REQUIRED` turns it
+   on: default `true`, and the one exception is local execution, where it defaults to `false` so
+   `npm run dev` needs no key. The OpenAPI `auth` marker for those operations comes from the same
+   switch, and `src/api/entity-auth.test.ts` fails if the marker and the mounted router disagree —
+   so a new route in those groups must go through `mountEntityAccessGuard` / `entityPermission`, and
+   its operation entry must not hand-write `auth`.
 10. **One causal-order rule**: `timeline/src/utils/causalOrder.ts`. A cause may happen at the *same moment* as its effect; only a cause strictly after it is an error. Both packages have a drift test that fails if any file compares a cause with its effect on its own.
 11. **Dependencies are injected**: reach services through `getContainer()`; a service that constructs its own collaborator cannot be swapped in a test.
 

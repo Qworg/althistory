@@ -2,11 +2,18 @@ import { Router, Response, NextFunction } from 'express';
 import { CreateArcRequest, UpdateArcRequest } from '@/models/Arc';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
+import { entityPermission, mountEntityAccessGuard } from '@/api/entityAuth';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ArcRoutes');
 
 export const arcRoutes = Router();
+
+// Authentication first (it mounts nothing in local execution; see
+// `api/entityAuth.ts`), then the graph scope. Keeping the guard ahead of the
+// lookup means a keyless caller is refused with 401 rather than learning from a
+// 404 whether a graph exists.
+mountEntityAccessGuard(arcRoutes);
 
 // Scope every route in this group to exactly one graph. `resolveGraphContext`
 // resolves X-Graph-Id (falling back to the active graph) and attaches the graph
@@ -18,7 +25,7 @@ arcRoutes.use(resolveGraphContext());
 /**
  * POST /arcs - Create a new arc
  */
-arcRoutes.post('/', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+arcRoutes.post('/', ...entityPermission('write:arcs'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const arcData: CreateArcRequest = req.body;
     
@@ -80,7 +87,7 @@ arcRoutes.post('/', async (req: RequestWithContainer, res: Response, next: NextF
 /**
  * GET /arcs - Get arcs with optional filtering
  */
-arcRoutes.get('/', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+arcRoutes.get('/', ...entityPermission('read:arcs'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
     
@@ -164,7 +171,7 @@ arcRoutes.get('/', async (req: RequestWithContainer, res: Response, next: NextFu
 /**
  * GET /arcs/:id - Get a specific arc by ID
  */
-arcRoutes.get('/:id', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+arcRoutes.get('/:id', ...entityPermission('read:arcs'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     
@@ -192,7 +199,7 @@ arcRoutes.get('/:id', async (req: RequestWithContainer, res: Response, next: Nex
 /**
  * GET /arcs/:id/events - Get events within an arc
  */
-arcRoutes.get('/:id/events', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+arcRoutes.get('/:id/events', ...entityPermission('read:arcs'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const { limit = '50', offset = '0' } = req.query;
@@ -252,7 +259,7 @@ arcRoutes.get('/:id/events', async (req: RequestWithContainer, res: Response, ne
 /**
  * GET /arcs/:id/children - Get child arcs (nested arcs)
  */
-arcRoutes.get('/:id/children', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+arcRoutes.get('/:id/children', ...entityPermission('read:arcs'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     
@@ -287,7 +294,7 @@ arcRoutes.get('/:id/children', async (req: RequestWithContainer, res: Response, 
 /**
  * PUT /arcs/:id - Update an existing arc
  */
-arcRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+arcRoutes.put('/:id', ...entityPermission('write:arcs'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const updates: UpdateArcRequest = req.body;
@@ -350,7 +357,7 @@ arcRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: Nex
 /**
  * DELETE /arcs/:id - Delete an arc
  */
-arcRoutes.delete('/:id', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+arcRoutes.delete('/:id', ...entityPermission('write:arcs'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     
@@ -388,7 +395,8 @@ arcRoutes.delete('/:id', async (req: RequestWithContainer, res: Response, next: 
 /**
  * POST /arcs/:id/validate-hierarchy - Validate arc hierarchy
  */
-arcRoutes.post('/:id/validate-hierarchy', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+// Validation of an existing arc: it reads, it does not write.
+arcRoutes.post('/:id/validate-hierarchy', ...entityPermission('read:arcs'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     

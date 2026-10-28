@@ -3,8 +3,15 @@ import { ValidationError, NotFoundError } from '@/utils/errors';
 import { TimeRange, IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
 import { requireGraphId, resolveGraphContext } from '@/api/middleware';
+import { entityPermission, mountEntityAccessGuard } from '@/api/entityAuth';
 
 export const temporalRoutes = Router();
+
+// Authentication first (it mounts nothing in local execution; see
+// `api/entityAuth.ts`), then the graph scope. Keeping the guard ahead of the
+// lookup means a keyless caller is refused with 401 rather than learning from a
+// 404 whether a graph exists.
+mountEntityAccessGuard(temporalRoutes);
 
 // Scope every route in this group to exactly one graph. `resolveGraphContext`
 // resolves X-Graph-Id (falling back to the active graph) and attaches the graph
@@ -34,7 +41,7 @@ interface DensityView {
 /**
  * GET /temporal/timeline - Get timeline view of events and arcs
  */
-temporalRoutes.get('/timeline', async (req: Request, res: Response, next: NextFunction) => {
+temporalRoutes.get('/timeline', ...entityPermission('read:events', 'read:arcs'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       startTime,
@@ -120,7 +127,7 @@ temporalRoutes.get('/timeline', async (req: Request, res: Response, next: NextFu
 /**
  * POST /temporal/validate-event - Validate if an event can exist within specified arcs
  */
-temporalRoutes.post('/validate-event', async (req: Request, res: Response, next: NextFunction) => {
+temporalRoutes.post('/validate-event', ...entityPermission('read:events'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventId, arcIds } = req.body;
     
@@ -183,7 +190,7 @@ temporalRoutes.post('/validate-event', async (req: Request, res: Response, next:
 /**
  * POST /temporal/validate-arc-nesting - Validate arc hierarchy nesting
  */
-temporalRoutes.post('/validate-arc-nesting', async (req: Request, res: Response, next: NextFunction) => {
+temporalRoutes.post('/validate-arc-nesting', ...entityPermission('read:arcs'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { parentArcId, childArcId } = req.body;
     
@@ -237,7 +244,7 @@ temporalRoutes.post('/validate-arc-nesting', async (req: Request, res: Response,
 /**
  * GET /temporal/overlaps - Find overlapping arcs within a time range
  */
-temporalRoutes.get('/overlaps', async (req: Request, res: Response, next: NextFunction) => {
+temporalRoutes.get('/overlaps', ...entityPermission('read:events', 'read:arcs'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       startTime,
@@ -310,7 +317,7 @@ temporalRoutes.get('/overlaps', async (req: Request, res: Response, next: NextFu
 /**
  * GET /temporal/gaps - Find temporal gaps between events or arcs
  */
-temporalRoutes.get('/gaps', async (req: Request, res: Response, next: NextFunction) => {
+temporalRoutes.get('/gaps', ...entityPermission('read:events', 'read:arcs'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       startTime,
@@ -384,7 +391,7 @@ temporalRoutes.get('/gaps', async (req: Request, res: Response, next: NextFuncti
 /**
  * GET /temporal/density - Get temporal density analysis
  */
-temporalRoutes.get('/density', async (req: Request, res: Response, next: NextFunction) => {
+temporalRoutes.get('/density', ...entityPermission('read:events', 'read:arcs'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       startTime,
@@ -455,7 +462,7 @@ temporalRoutes.get('/density', async (req: Request, res: Response, next: NextFun
 /**
  * GET /temporal/constraints - Check temporal constraints for the entire graph
  */
-temporalRoutes.get('/constraints', async (req: Request, res: Response, next: NextFunction) => {
+temporalRoutes.get('/constraints', ...entityPermission('read:events', 'read:arcs'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { includeDetails = 'false' } = req.query;
 

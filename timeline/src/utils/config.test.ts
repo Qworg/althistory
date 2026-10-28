@@ -15,6 +15,60 @@ describe('Configuration System', () => {
     process.env = originalEnv;
   });
 
+  describe('API_AUTH_REQUIRED (the entity routes)', () => {
+    // `/api/events`, `/api/arcs`, `/api/causal`, `/api/temporal` and
+    // `/api/inference` used to be mounted without authentication. They now
+    // require a key unless this switch says otherwise; the default is the
+    // whole policy, so it is pinned here rather than only in a router test.
+    it('defaults to required outside local execution', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      delete process.env.API_AUTH_REQUIRED;
+
+      expect(loadConfig().apiAuth.required).toBe(true);
+    });
+
+    it('defaults to anonymous under local execution, so npm run dev needs no key', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      delete process.env.API_AUTH_REQUIRED;
+
+      expect(loadConfig().apiAuth.required).toBe(false);
+    });
+
+    it('lets an explicit value win in both modes', () => {
+      process.env.NODE_ENV = 'test';
+
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      process.env.API_AUTH_REQUIRED = 'true';
+      expect(loadConfig().apiAuth.required).toBe(true);
+
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      process.env.API_AUTH_REQUIRED = 'false';
+      expect(loadConfig().apiAuth.required).toBe(false);
+    });
+
+    it('refuses a value that is not a boolean rather than guess', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+
+      for (const value of ['yes-please', 'ture', ' ']) {
+        process.env.API_AUTH_REQUIRED = value;
+
+        let caught: unknown;
+        try {
+          loadConfig();
+        } catch (error) {
+          caught = error;
+        }
+
+        expect(caught, value).toBeInstanceOf(ConfigurationError);
+        const cause = (caught as ConfigurationError).cause as ConfigurationError;
+        expect(cause.message).toContain('API_AUTH_REQUIRED');
+      }
+    });
+  });
+
   describe('cloud state constraint', () => {
     it('should refuse cloud mode without the single-replica acknowledgement', () => {
       // Cloud mode keeps graph metadata, jobs and versions in files, so two

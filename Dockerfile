@@ -27,6 +27,13 @@ COPY . .
 # The SPA is served from the same origin as the reverse proxy, so the client
 # must call the relative /api path rather than the dev server's localhost URL.
 ENV VITE_API_BASE_URL=/api
+# The key the SPA sends with every request. Vite inlines it into the bundle, so
+# it is PUBLIC to anyone who can load the page; pass a key with the narrowest
+# permissions that work it out too. An empty value is valid: the UI then sends
+# no key and gets 401 from the routes that require one (see
+# docs/api-integration.md). Compose forwards `.env`'s VITE_API_KEY here.
+ARG VITE_API_KEY=
+ENV VITE_API_KEY=$VITE_API_KEY
 RUN npm run build
 
 # --- Production-only dependencies -----------------------------------------
