@@ -463,6 +463,17 @@ export function extractApiKeyFromRequest(req: Request): string | undefined {
 export function authenticate(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
   const requestId = req.requestId || 'unknown';
 
+  // The application mounts this globally (`index.ts`) and a router-level guard
+  // may mount it again (`api/entityAuth.ts`). Verifying twice would hash the
+  // presented key twice for no benefit, so a request that is already
+  // authenticated is left alone: at this point in the chain, the only reason
+  // `authenticate` runs again is a nested mount, and re-checking cannot
+  // produce a different answer.
+  if (req.isAuthenticated && req.apiKey) {
+    next();
+    return;
+  }
+
   // Initialize authentication state
   req.isAuthenticated = false;
   req.apiKey = undefined;

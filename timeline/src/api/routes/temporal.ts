@@ -3,7 +3,7 @@ import { ValidationError, NotFoundError } from '@/utils/errors';
 import { TimeRange, IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
 import { requireGraphId, resolveGraphContext } from '@/api/middleware';
-import { entityPermission, mountEntityAccessGuard } from '@/api/entityAuth';
+import { entityPermission, mountEntityAccessGuard, mountEntityGraphAccess } from '@/api/entityAuth';
 
 export const temporalRoutes = Router();
 
@@ -19,6 +19,9 @@ mountEntityAccessGuard(temporalRoutes);
 // so a routing change that drops the mount fails loudly instead of reading an
 // unscoped value.
 temporalRoutes.use(resolveGraphContext());
+// The per-key graph restriction, which these groups did not apply: a key
+// issued for one graph could name any graph in `X-Graph-Id`.
+mountEntityGraphAccess(temporalRoutes);
 
 /** Aggregated timeline payload returned by GET /temporal/timeline. */
 interface TimelineView {
@@ -127,7 +130,7 @@ temporalRoutes.get('/timeline', ...entityPermission('read:events', 'read:arcs'),
 /**
  * POST /temporal/validate-event - Validate if an event can exist within specified arcs
  */
-temporalRoutes.post('/validate-event', ...entityPermission('read:events'), async (req: Request, res: Response, next: NextFunction) => {
+temporalRoutes.post('/validate-event', ...entityPermission('read:events', 'read:arcs'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventId, arcIds } = req.body;
     

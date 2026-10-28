@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { CreateArcRequest, UpdateArcRequest } from '@/models/Arc';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
-import { entityPermission, mountEntityAccessGuard } from '@/api/entityAuth';
+import { entityPermission, mountEntityAccessGuard, mountEntityGraphAccess } from '@/api/entityAuth';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ArcRoutes');
@@ -21,6 +21,9 @@ mountEntityAccessGuard(arcRoutes);
 // so a routing change that drops the mount fails loudly instead of reading an
 // unscoped value.
 arcRoutes.use(resolveGraphContext());
+// The per-key graph restriction, which these groups did not apply: a key
+// issued for one graph could name any graph in `X-Graph-Id`.
+mountEntityGraphAccess(arcRoutes);
 
 /**
  * POST /arcs - Create a new arc
@@ -199,7 +202,7 @@ arcRoutes.get('/:id', ...entityPermission('read:arcs'), async (req: RequestWithC
 /**
  * GET /arcs/:id/events - Get events within an arc
  */
-arcRoutes.get('/:id/events', ...entityPermission('read:arcs'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+arcRoutes.get('/:id/events', ...entityPermission('read:arcs', 'read:events'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const { limit = '50', offset = '0' } = req.query;

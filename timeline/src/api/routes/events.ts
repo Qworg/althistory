@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { CreateEventRequest, UpdateEventRequest, TimeRange } from '@/models/Event';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
-import { entityPermission, mountEntityAccessGuard } from '@/api/entityAuth';
+import { entityPermission, mountEntityAccessGuard, mountEntityGraphAccess } from '@/api/entityAuth';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('EventRoutes');
@@ -21,6 +21,9 @@ mountEntityAccessGuard(eventRoutes);
 // so a routing change that drops the mount fails loudly instead of reading an
 // unscoped value.
 eventRoutes.use(resolveGraphContext());
+// The per-key graph restriction, which these groups did not apply: a key
+// issued for one graph could name any graph in `X-Graph-Id`.
+mountEntityGraphAccess(eventRoutes);
 
 /**
  * POST /events - Create a new event

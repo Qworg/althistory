@@ -28,7 +28,15 @@
  */
 
 import type { RequestHandler, Router } from 'express';
-import { asRequestHandler, authenticate, authorize, rateLimit, requireAuth } from '@/api/middleware';
+import {
+  asRequestHandler,
+  authenticate,
+  authorize,
+  authorizeGraphAccess,
+  rateLimit,
+  requireAuth,
+  requireGraphId,
+} from '@/api/middleware';
 import type { Permission } from '@/models/ApiKey';
 import { loadConfig } from '@/utils/config';
 
@@ -102,9 +110,42 @@ export function mountEntityAccessGuard(router: Router): void {
  * the other.
  */
 export function entityPermission(...permissions: Permission[]): RequestHandler[] {
+  if (permissions.length === 0) {
+    // `authorize()` with no permissions filters nothing, so it admits any
+    // authenticated key. A route that reaches here has forgotten to say what
+    // it needs; refuse the mount at startup, where a developer sees it,
+    // rather than quietly letting a read-only key write.
+    throw new Error(
+      'entityPermission() needs at least one permission: a route with none would accept any valid key'
+    );
+  }
+
   if (!entityRoutesRequireApiKey()) {
     return [];
   }
 
   return [asRequestHandler(authorize(...permissions))];
+}
+
+/**
+ * The per-key graph restriction, for the entity groups.
+ *
+ * `ApiKey.allowedGraphs` is what stops a key issued for one timeline from
+ * reading another. The already-authenticated groups mount
+ * `authorizeGraphAccess` (export, batch); these five did not, so any key could
+ * name any graph in `X-Graph-Id` -- a key scoped to graph A could read and
+ * write graph B.
+ *
+ * Mounted *after* `resolveGraphContext`, because it reads the graph that
+ * middleware resolved. In local execution nothing is mounted, matching the
+ * rest of the guard.
+ */
+export function mountEntityGraphAccess(router: Router): void {
+  if (!entityRoutesRequireApiKey()) {
+    return;
+  }
+
+  // `router.use()` with nothing to mount throws, so this is a mount helper
+  // rather than a spread: in local execution there is nothing to add.
+  router.use(asRequestHandler(authorizeGraphAccess((req) => requireGraphId(req))));
 }

@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { ValidationError, NotFoundError } from '@/utils/errors';
 import { CausalRelationship, CausalRelationshipType } from '@/models/relationships';
 import { requireGraphId, resolveGraphContext } from '@/api/middleware';
-import { entityPermission, mountEntityAccessGuard } from '@/api/entityAuth';
+import { entityPermission, mountEntityAccessGuard, mountEntityGraphAccess } from '@/api/entityAuth';
 import { EventRepository } from '@/repositories/EventRepository';
 import { CausalService } from '@/services/CausalService';
 import { createLogger } from '@/utils/logger';
@@ -22,6 +22,9 @@ mountEntityAccessGuard(causalRoutes);
 // Mounted on this router rather than globally so routes owned by other
 // migrations keep their current behaviour until they are converted in turn.
 causalRoutes.use(resolveGraphContext());
+// The per-key graph restriction, which these groups did not apply: a key
+// issued for one graph could name any graph in `X-Graph-Id`.
+mountEntityGraphAccess(causalRoutes);
 
 /**
  * Repository bound to the graph this request resolved to.
@@ -160,7 +163,7 @@ causalRoutes.post('/link', ...entityPermission('write:relationships'), async (re
 /**
  * GET /causal/chain/:eventId - Find causal chain starting from an event
  */
-causalRoutes.get('/chain/:eventId', ...entityPermission('read:relationships'), async (req: Request, res: Response, next: NextFunction) => {
+causalRoutes.get('/chain/:eventId', ...entityPermission('read:relationships', 'read:events'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventId } = req.params;
     const { maxDepth = '5' } = req.query;

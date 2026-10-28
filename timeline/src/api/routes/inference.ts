@@ -3,7 +3,7 @@ import { ValidationError, NotFoundError } from '@/utils/errors';
 import { TimeRange } from '@/models/Event';
 import { PressureType } from '@/models/InferredPressure';
 import { requireGraphId, resolveGraphContext } from '@/api/middleware';
-import { entityPermission, mountEntityAccessGuard } from '@/api/entityAuth';
+import { entityPermission, mountEntityAccessGuard, mountEntityGraphAccess } from '@/api/entityAuth';
 import type { Event } from '@/models/Event';
 import type { InferredPressure } from '@/models/InferredPressure';
 import {
@@ -28,6 +28,9 @@ mountEntityAccessGuard(inferenceRoutes);
 // so a routing change that drops the mount fails loudly instead of reading an
 // unscoped value.
 inferenceRoutes.use(resolveGraphContext());
+// The per-key graph restriction, which these groups did not apply: a key
+// issued for one graph could name any graph in `X-Graph-Id`.
+mountEntityGraphAccess(inferenceRoutes);
 
 /** Pressure types accepted by the inference API. Mirrors `PressureType`. */
 const VALID_PRESSURE_TYPES: readonly PressureType[] = ['social', 'economic', 'political', 'environmental'];

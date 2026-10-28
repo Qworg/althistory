@@ -28,6 +28,7 @@ import { initializeContainer, cleanupContainer } from '@/container';
 import type { Container } from '@/container';
 import { errorHandler, injectContainer } from '@/api/middleware';
 import type { RouteEntry } from '@/api/openapi/routeInventory';
+import type { Response as SupertestResponse } from 'supertest';
 import type { OperationSpec } from '@/api/openapi/operations';
 
 /** The raw admin key, so a request can authenticate from the first test. */
@@ -50,6 +51,19 @@ let testDataDir: string;
 
 function routeKey(route: RouteEntry): string {
   return `${route.method} ${route.path}`;
+}
+
+/**
+ * The error message a refusal carries.
+ *
+ * The middleware differ in what they say -- `requireAuth` answers "API key is
+ * required", `authorize` answers "Authentication required" -- which is how a
+ * test can tell the guard from the permission check.
+ */
+function refusalMessage(response: SupertestResponse): string {
+  const body = response.body as { error?: { message?: unknown } } | undefined;
+  const message = body?.error?.message;
+  return typeof message === 'string' ? message : '';
 }
 
 /** Whether a mounted path belongs to one of the five entity groups. */
@@ -149,6 +163,24 @@ describe('the entity routes with API_AUTH_REQUIRED=true', () => {
         mismatches.push(
           `${routeKey(route)}: documented as needing no key, but answered ${response.status}`
         );
+      }
+
+      // A refusal alone does not prove the guard is mounted: `authorize` also
+      // answers 401 when nothing has authenticated the request. The *reason*
+      // does, and the two differ -- `requireAuth` says the key is required,
+      // `authorize` says authentication is required. Checking it is what makes
+      // removing `mountEntityAccessGuard` fail here instead of passing.
+      //
+      // Only for the entity groups: other authenticated groups (import, export)
+      // refuse keyless callers from middleware whose body this test has no
+      // business pinning.
+      if (spec.auth === 'required' && isEntityPath(route.path)) {
+        const message = refusalMessage(response);
+        if (!/API key is required/i.test(message)) {
+          mismatches.push(
+            `${routeKey(route)}: refused without the key guard's message (got "${message}")`
+          );
+        }
       }
     }
 
@@ -271,5 +303,53 @@ describe('the entity routes with API_AUTH_REQUIRED=true', () => {
 
     expect(response.headers['x-ratelimit-limit']).toBeDefined();
     expect(response.headers['x-ratelimit-remaining']).toBeDefined();
+  });
+
+  it('refuses a key that is not allowed to read the graph it names', async () => {
+    // `ApiKey.allowedGraphs` is the per-key graph restriction. These five
+    // groups did not mount `authorizeGraphAccess`, so a key issued for one
+    // graph could name another in `X-Graph-Id` and read it.
+    const allowed = await request(app)
+      .post('/api/graphs')
+      .set('X-API-Key', ADMIN_KEY)
+      .send({ name: 'Entity auth: allowed graph' })
+      .expect(201);
+
+    const forbidden = await request(app)
+      .post('/api/graphs')
+      .set('X-API-Key', ADMIN_KEY)
+      .send({ name: 'Entity auth: forbidden graph' })
+      .expect(201);
+
+    const scoped = await container.authService.createApiKey({
+      name: 'entity-auth-graph-scoped',
+      permissions: ['read:events'],
+      allowedGraphs: [allowed.body.data.id],
+    });
+
+    // The graph it was issued for: allowed.
+    await request(app)
+      .get('/api/events')
+      .set('X-API-Key', scoped.key)
+      .set('X-Graph-Id', allowed.body.data.id)
+      .expect(200);
+
+    // Any other graph: refused.
+    const refused = await request(app)
+      .get('/api/events')
+      .set('X-API-Key', scoped.key)
+      .set('X-Graph-Id', forbidden.body.data.id)
+      .expect(403);
+
+    expect(refused.body.error.message).toMatch(/graph/i);
+  });
+
+  it('refuses to mount a permission guard that names no permission', async () => {
+    // `authorize()` with no permissions filters nothing and admits any valid
+    // key, so a forgotten argument would be silent. It throws at mount time
+    // instead, where a developer sees it.
+    const { entityPermission } = await import('@/api/entityAuth');
+
+    expect(() => entityPermission()).toThrow(/at least one permission/);
   });
 });

@@ -31,6 +31,12 @@ deployment that deliberately wants anonymous entity access (a test rig, a
 single-user box behind a firewall). A value that is not a boolean is a startup
 error rather than a guess.
 
+The exception covers **only the five entity groups**. Every other authenticated
+group -- `/api/graphs`, `/api/keys`, `/api/export`, `/api/import`, `/api/batch`,
+`/api/ingest`, `/api/stream` -- requires a key in every mode. So a local
+deployment with no key can read events but not list the graphs it might name in
+`X-Graph-Id`; give the UI a key if it needs the graph list.
+
 Always open: `GET /api`, `GET /api/health`, `GET /api/info` and
 `GET /api/openapi.json`. The document reports the mode the process is actually
 in — the entity operations carry `security` when a key is required and an empty
@@ -103,10 +109,17 @@ for a key, because there is no login flow.
 | `admin` | Manage API keys, including other keys' permissions. |
 
 A route that reads two kinds of entity asks for both permissions: the temporal
-timeline, overlap, gap, density and constraint views need `read:events` **and**
-`read:arcs`, and `POST /api/causal/validate` needs `read:events` **and**
-`read:relationships`. `authorize` requires all of the permissions a route
-lists, so one read permission never stands in for another.
+timeline, overlap, gap, density, constraint and `validate-event` routes need
+`read:events` **and** `read:arcs`; `GET /api/causal/chain/:eventId` needs
+`read:relationships` **and** `read:events` (it answers the starting event as
+well as the links); `POST /api/causal/validate` needs `read:events` **and**
+`read:relationships`; `GET /api/arcs/:id/events` needs `read:arcs` **and**
+`read:events`, because it answers events. `authorize` requires all of the
+permissions a route lists, so one read permission never stands in for another.
+
+A key may also be restricted to particular graphs (`allowedGraphs`); that is
+checked on the entity routes too, so a key issued for one graph answers `403`
+for any other, whatever its permissions.
 
 Four groups are predefined: `readOnly`, `readWrite`, `full` and `admin`. You
 may also pass an explicit list.
