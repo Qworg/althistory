@@ -108,6 +108,34 @@ describe('Authentication Middleware', () => {
       expect(req.apiKey).toBe(mockKey);
     });
 
+    it('does not verify the key again when the request is already authenticated', async () => {
+      // The application mounts `authenticate` globally and the entity guard
+      // mounts it a second time. A second hash of the same key buys nothing,
+      // so an authenticated request passes straight through.
+      const mockKey = new ApiKey({
+        name: 'Already authenticated',
+        keyHash: 'hash',
+        keyPrefix: 'ak_already',
+        permissions: ['read:events'] as Permission[],
+      });
+
+      const req = {
+        get: vi.fn(() => 'ak_valid-key'),
+        container: { authService: mockAuthService },
+        path: '/api/events',
+        method: 'GET',
+        isAuthenticated: true,
+        apiKey: mockKey,
+      } as unknown as AuthenticatedRequest;
+
+      const next = vi.fn();
+      authenticate(req, {} as Response, next);
+
+      expect(next).toHaveBeenCalled();
+      expect(mockAuthService.authenticate).not.toHaveBeenCalled();
+      expect(req.apiKey).toBe(mockKey);
+    });
+
     it('leaves request unauthenticated when no headers are provided', () => {
       const req = {
         get: vi.fn(() => undefined),

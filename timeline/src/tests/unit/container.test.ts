@@ -88,6 +88,8 @@ describe('Container Unit Tests', () => {
       cloudState: {
         singleReplicaAcknowledged: true,
       },
+      // Required by `AppConfig`; the entity guard reads the environment (`api/entityAuth.ts`).
+      apiAuth: { required: false },
       localExecution: {
         enabled: false,
         dataDirectory: './data',

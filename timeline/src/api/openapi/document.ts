@@ -58,8 +58,7 @@ const GRAPH_HEADER_PARAMETER = {
  * The error responses a route can answer with.
  *
  * The 401 and the 403 belong to the routes that require a key: a route that
- * does not cannot answer 401, because the global `authenticate` middleware
- * lets a keyless request through.
+ * does not mount `requireAuth` cannot answer 401, whatever it is sent.
  */
 const ERROR_RESPONSES: Record<string, string> = {
   400: 'The request was malformed or failed validation.',
@@ -870,9 +869,9 @@ export function buildOpenApiDocument(routes: RouteEntry[]): Record<string, unkno
           ])
         ),
       },
-      // A route that does not require a key says so: the global `authenticate`
-      // middleware lets a keyless request through, and only the routes that ask
-      // for a permission refuse it.
+      // A route that does not require a key says so: it mounts no `requireAuth`,
+      // so a keyless request reaches its handler and only the routes that ask
+      // for a permission refuse one.
       security:
         spec.auth === 'required' ? [{ apiKey: [] }, { bearer: [] }] : [],
     }

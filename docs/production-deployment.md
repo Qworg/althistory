@@ -25,8 +25,39 @@ origin. Neo4j (with APOC) and Redis run alongside as managed services.
 ```bash
 cp .env.production.example .env   # then set NEO4J_PASSWORD
 docker compose up -d --build
+
+# 1. Take the seeded admin key (server-side only -- never ship it to a browser).
+docker compose exec -T api cat /data/keys/admin-key.txt
+
+# 2. With it, create a narrow key for the UI: read the entity API, nothing more.
+curl -s -X POST http://localhost:3000/api/keys \
+  -H "X-API-Key: <the admin key>" -H 'Content-Type: application/json' \
+  -d '{"name":"browser","permissions":["read:events","read:arcs","read:relationships","read:graphs"]}'
+
+# 3. Bake *that* key into the SPA and rebuild only the web image.
+#    Set VITE_API_KEY in .env (replace the placeholder line, do not append).
+docker compose build web && docker compose up -d web
 open http://localhost:8080
 ```
+
+The entity routes require a key, and the SPA has no key-entry screen, so the
+`VITE_API_KEY` step is what makes the bundled UI work: the value is baked into
+the JavaScript at build time and is **visible to every visitor of the UI**. It
+is public by construction.
+
+That is why step 2 exists: bake a **read-only** key, not the admin key. The
+admin key manages other keys, so shipping it in the bundle would give every
+visitor key-management rights over the deployment. The UI only needs to read;
+anything that writes should use a key held by the client, not the bundle.
+
+If no key is configured the UI still loads, but every entity request answers
+`401`, the interceptor discards the stored key, and each view shows its own
+error or empty state — there is no prompt asking for one.
+
+(Putting a key in the bundle is a stopgap, not authentication of the user: it
+tells the server "this is the UI", not who is looking at it. A deployment that
+needs per-user access should put an authenticating proxy in front and keep
+`VITE_API_KEY` unset.)
 
 The browser talks only to Caddy. Because the SPA is built with
 `VITE_API_BASE_URL=/api`, its requests are same-origin and no CORS setup is
@@ -59,6 +90,19 @@ full list. The values that matter most:
   `althistory.example.ts.net`) to expose the stack over a tailnet with TLS.
 - `CORS_ORIGIN` — only consulted by non-browser clients; the bundled UI is
   same-origin.
+- `API_AUTH_REQUIRED` — whether `/api/events`, `/api/arcs`, `/api/causal`,
+  `/api/temporal` and `/api/inference` require an API key. Defaults to `true`;
+  the compose file sets it explicitly. Do not turn it off on a reachable host.
+- `ADMIN_API_KEY` — a key the API trusts as `admin` on first start. Leave it
+  blank and the API generates one, printing it in the log and writing it to
+  `/data/keys/admin-key.txt` (mode 0600) inside the `api` container:
+  `docker compose exec api cat /data/keys/admin-key.txt`. Either way, use that
+  key to create the narrower keys the app and agents should use.
+- `VITE_API_KEY` — the key the bundled SPA sends. It is a **build argument**:
+  it is baked into the JavaScript, so it is public to anyone who can load the
+  page. There is no key-entry screen (see
+  [api-integration.md](api-integration.md#getting-a-key-into-the-bundled-ui)).
+  Leave it blank and the UI gets `401` from every entity route.
 
 ## 4. State and persistence
 

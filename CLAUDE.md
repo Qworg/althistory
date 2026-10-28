@@ -207,5 +207,10 @@ live routers by a test, so it cannot drift. The shape of it:
 | Keys and usage | `/api/keys` |
 
 Most graph-scoped routes read the graph from the `X-Graph-Id` header;
-`POST /api/import` takes `targetGraphId` in the body instead. The entity
-routes are currently mounted without authentication.
+`POST /api/import` takes `targetGraphId` in the body instead. The entity routes
+(`/api/events`, `/api/arcs`, `/api/causal`, `/api/temporal`, `/api/inference`)
+require an API key with the matching `read:*`/`write:*` permission, governed by
+`API_AUTH_REQUIRED` (default `true`; local execution defaults it to `false`).
+The OpenAPI `auth` marker comes from that same switch, and
+`timeline/src/api/entity-auth.test.ts` fails if it disagrees with the mounted
+router.

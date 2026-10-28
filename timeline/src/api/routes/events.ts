@@ -2,11 +2,18 @@ import { Router, Response, NextFunction } from 'express';
 import { CreateEventRequest, UpdateEventRequest, TimeRange } from '@/models/Event';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
+import { entityPermission, mountEntityAccessGuard, mountEntityGraphAccess } from '@/api/entityAuth';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('EventRoutes');
 
 export const eventRoutes = Router();
+
+// Authentication first (it mounts nothing in local execution; see
+// `api/entityAuth.ts`), then the graph scope. Keeping the guard ahead of the
+// lookup means a keyless caller is refused with 401 rather than learning from a
+// 404 whether a graph exists.
+mountEntityAccessGuard(eventRoutes);
 
 // Scope every route in this group to exactly one graph. `resolveGraphContext`
 // resolves X-Graph-Id (falling back to the active graph) and attaches the graph
@@ -14,11 +21,14 @@ export const eventRoutes = Router();
 // so a routing change that drops the mount fails loudly instead of reading an
 // unscoped value.
 eventRoutes.use(resolveGraphContext());
+// The per-key graph restriction, which these groups did not apply: a key
+// issued for one graph could name any graph in `X-Graph-Id`.
+mountEntityGraphAccess(eventRoutes);
 
 /**
  * POST /events - Create a new event
  */
-eventRoutes.post('/', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+eventRoutes.post('/', ...entityPermission('write:events'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const eventData: CreateEventRequest = req.body;
     
@@ -75,7 +85,7 @@ eventRoutes.post('/', async (req: RequestWithContainer, res: Response, next: Nex
 /**
  * GET /events - Get events with optional filtering
  */
-eventRoutes.get('/', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+eventRoutes.get('/', ...entityPermission('read:events'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     // Repositories bound to this request's graph; never the global store.
     const { eventRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
@@ -169,7 +179,7 @@ eventRoutes.get('/', async (req: RequestWithContainer, res: Response, next: Next
 /**
  * GET /events/stats/count - Get total count of events with optional filters
  */
-eventRoutes.get('/stats/count', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+eventRoutes.get('/stats/count', ...entityPermission('read:events'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const { eventRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
     const { actor, startTime, endTime } = req.query;
@@ -210,7 +220,7 @@ eventRoutes.get('/stats/count', async (req: RequestWithContainer, res: Response,
 /**
  * GET /events/:id - Get a specific event by ID
  */
-eventRoutes.get('/:id', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+eventRoutes.get('/:id', ...entityPermission('read:events'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     
@@ -238,7 +248,7 @@ eventRoutes.get('/:id', async (req: RequestWithContainer, res: Response, next: N
 /**
  * PUT /events/:id - Update an existing event
  */
-eventRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const updates: UpdateEventRequest = req.body;
@@ -298,7 +308,7 @@ eventRoutes.put('/:id', async (req: RequestWithContainer, res: Response, next: N
 /**
  * DELETE /events/:id - Delete an event
  */
-eventRoutes.delete('/:id', async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+eventRoutes.delete('/:id', ...entityPermission('write:events'), async (req: RequestWithContainer, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     

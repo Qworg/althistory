@@ -91,6 +91,29 @@ export interface AppConfig {
   };
   localExecution: LocalExecutionConfig;
   cloudState: CloudStateConfig;
+  apiAuth: ApiAuthConfig;
+}
+
+/**
+ * What the entity routes require of a caller.
+ *
+ * `/api/events`, `/api/arcs`, `/api/causal`, `/api/temporal` and
+ * `/api/inference` read and write graph data. They used to be mounted with no
+ * authentication at all, so anyone who could reach the port could read a
+ * timeline, rewrite it and run inference, while the OpenAPI document called
+ * those operations `auth: optional` and `docs/api-integration.md` said the
+ * routes were open. `required` is the single switch those five groups and the
+ * document both read (`src/api/entityAuth.ts`), so they cannot disagree.
+ *
+ * It defaults to true, and the one exception is explicit: local execution
+ * (`LOCAL_EXECUTION_ENABLED=true`) defaults it to false, because `npm run dev`
+ * and the bundled UI have no way to present a key on a developer's own
+ * machine. Every other mode -- cloud, and any deployment that does not set
+ * the flag -- requires one. Set `API_AUTH_REQUIRED=true` in local mode to get
+ * the same enforcement there.
+ */
+export interface ApiAuthConfig {
+  required: boolean;
 }
 
 /**
@@ -169,6 +192,14 @@ export function loadConfig(): AppConfig {
           false
         ),
       },
+      apiAuth: {
+        // Explicit wins. Unset falls back to "required, unless this process is
+        // local execution", never to "required only if someone remembered".
+        required: parseRequiredBooleanEnvVar(
+          'API_AUTH_REQUIRED',
+          !localExecutionEnabled
+        ),
+      },
       localExecution: {
         enabled: localExecutionEnabled,
         dataDirectory: getEnvVarWithDefault('LOCAL_DATA_DIR', './data'),
@@ -234,6 +265,30 @@ function parseBooleanEnvVar(key: string, defaultValue: boolean): boolean {
   } else {
     throw new ConfigurationError(`Invalid boolean value for ${key}: ${value}. Use true/false, 1/0, or yes/no`);
   }
+}
+
+/**
+ * Read a boolean setting that has no "unset by leaving it empty" case.
+ *
+ * `parseBooleanEnvVar` treats an empty string as absent. For a security switch
+ * that would make `API_AUTH_REQUIRED=` silently take the default instead of
+ * being refused, so "set but empty" is rejected here as well: a value that is
+ * not a boolean is a configuration error, not something to guess at.
+ */
+function parseRequiredBooleanEnvVar(key: string, defaultValue: boolean): boolean {
+  const value = process.env[key];
+  if (value === undefined) {
+    return defaultValue;
+  }
+
+  if (value.trim() === '') {
+    throw new ConfigurationError(
+      `Invalid boolean value for ${key}: ${JSON.stringify(value)}. Use true/false, 1/0, or yes/no`,
+      key
+    );
+  }
+
+  return parseBooleanEnvVar(key, defaultValue);
 }
 
 /**

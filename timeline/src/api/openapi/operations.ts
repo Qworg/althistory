@@ -13,15 +13,22 @@
  * from the path prefix and got most of it wrong.
  */
 
+import { entityOperationAuth } from '@/api/entityAuth'
+
 export interface OperationSpec {
   /** One line: what the operation does. */
   summary: string
   /**
    * Whether the operation needs an API key.
    *
-   * `optional` means the route does not require one: the global
-   * `authenticate` middleware lets a keyless request through, and only the
-   * routes that ask for a permission refuse it.
+   * `required` means a keyless request is refused with 401 (and a key without
+   * the permission with 403). `optional` means the route does not require one.
+   *
+   * For the entity groups this value is NOT hand-written: `ENTITY_AUTH` below
+   * is the same decision the routers mount (`api/entityAuth.ts`), so the
+   * document cannot promise a key the router does not ask for, or the other way
+   * round. `entity-auth.test.ts` checks the value against what the mounted
+   * router actually answers.
    */
   auth: 'required' | 'optional'
   /** The schema of the request body, when the operation takes one. */
@@ -50,6 +57,16 @@ export interface OperationSpec {
   /** Whether the operation answers with a file rather than JSON. */
   producesFile?: boolean
 }
+
+/**
+ * The `auth` marker for `/api/events`, `/api/arcs`, `/api/causal`,
+ * `/api/temporal` and `/api/inference`.
+ *
+ * Those five groups share one switch (`API_AUTH_REQUIRED`, defaulting to
+ * required outside local execution), so they share one value here rather than
+ * repeating a literal that could be edited out of step with the router.
+ */
+const ENTITY_AUTH: OperationSpec['auth'] = entityOperationAuth()
 
 /** The pagination parameters the list routes take. */
 const PAGE = [
@@ -207,7 +224,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     summary: 'List the events of a graph, with filters and pagination.',
     response: 'Event',
     responseIsList: true,
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: [
       { name: 'actor', type: 'string', description: 'Only the events of this actor.' },
@@ -223,32 +240,32 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     requestRequired: true,
     response: 'Event',
     status: 201,
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'GET /api/events/:id': {
     summary: 'Read one event.',
     response: 'Event',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'PUT /api/events/:id': {
     summary: 'Change an event. Only the fields that are given are changed.',
     request: 'EventUpdate',
     response: 'Event',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'DELETE /api/events/:id': {
     summary: 'Delete an event, and the relationships that refer to it.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'GET /api/events/stats/count': {
     summary: 'How many events a graph has, with the filters applied.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
 
@@ -257,7 +274,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     summary: 'List the arcs of a graph, with filters and pagination.',
     response: 'Arc',
     responseIsList: true,
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: [
       { name: 'level', type: 'integer', description: 'Only the arcs at this level.' },
@@ -272,45 +289,45 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     requestRequired: true,
     response: 'Arc',
     status: 201,
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'GET /api/arcs/:id': {
     summary: 'Read one arc.',
     response: 'Arc',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'PUT /api/arcs/:id': {
     summary: 'Change an arc. Only the fields that are given are changed.',
     request: 'ArcUpdate',
     response: 'Arc',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'DELETE /api/arcs/:id': {
     summary: 'Delete an arc and its children.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'GET /api/arcs/:id/events': {
     summary: 'The events an arc contains, with the arc itself.',
     response: 'ArcEvents',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: [...LIMIT_OFFSET],
   },
   'GET /api/arcs/:id/children': {
     summary: 'The arcs nested inside an arc, with the parent itself.',
     response: 'ArcChildren',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'POST /api/arcs/:id/validate-hierarchy': {
     summary: 'Check that the arcs of a graph nest correctly. Not implemented yet: the route answers a note saying so.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
 
@@ -321,7 +338,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     requestRequired: true,
     response: 'CausalRelationship',
     status: 201,
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'PUT /api/causal/link': {
@@ -329,7 +346,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     request: 'CausalLinkUpdate',
     requestRequired: true,
     response: 'CausalRelationship',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'DELETE /api/causal/link': {
@@ -340,27 +357,27 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     request: 'CausalLinkDelete',
     requestRequired: true,
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'GET /api/causal/chain/:eventId': {
     summary: 'The chain of effects that follow an event.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: [{ name: 'maxDepth', type: 'integer', description: 'How far down the chain to follow.' }],
   },
   'GET /api/causal/cycles': {
     summary: 'The causal cycles in the graph.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: [...LIMIT_OFFSET],
   },
   'GET /api/causal/suggestions': {
     summary: 'Relationships the graph suggests but does not have.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: [
       { name: 'minConfidence', type: 'number', description: 'Only the suggestions this sure.' },
@@ -371,7 +388,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     summary: 'Every causal relationship of the graph.',
     response: 'CausalRelationship',
     responseIsList: true,
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'GET /api/causal/relationships/:eventId': {
@@ -379,7 +396,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
       'The causal relationships of one event, split by the role it plays. ' +
       'Not implemented yet: the route answers empty lists with a note saying so.',
     response: 'EventRelationships',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: [
       {
@@ -393,7 +410,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     summary: 'Check one proposed causal link for a temporal paradox and for problems with its own fields.',
     request: 'GenericObject',
     response: 'ValidationReport',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
 
@@ -401,7 +418,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   'GET /api/temporal/timeline': {
     summary: 'The timeline of the graph: its events and arcs over time.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: [
       ...TIME_RANGE,
@@ -414,7 +431,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   'GET /api/temporal/overlaps': {
     summary: 'The arcs that overlap in time.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: [
       ...TIME_RANGE,
@@ -424,35 +441,35 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   'GET /api/temporal/gaps': {
     summary: 'The periods with no events. Not implemented yet: the route answers a note saying so.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: TIME_RANGE,
   },
   'GET /api/temporal/density': {
     summary: 'How densely the events are spread over time.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: TIME_RANGE,
   },
   'GET /api/temporal/constraints': {
     summary: 'The temporal constraints the graph holds. Not implemented yet: the route answers a note saying so.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'POST /api/temporal/validate-event': {
     summary: 'Check one event against the temporal constraints.',
     request: 'GenericObject',
     response: 'ValidationReport',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'POST /api/temporal/validate-arc-nesting': {
     summary: 'Check that the arcs nest correctly.',
     request: 'GenericObject',
     response: 'ValidationReport',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
 
@@ -461,21 +478,21 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     summary: 'Cluster the events of the graph.',
     request: 'GenericObject',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'POST /api/inference/detect-patterns': {
     summary: 'Find the patterns the graph contains.',
     request: 'GenericObject',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'GET /api/inference/pressures': {
     summary: 'The pressures inferred over the graph.',
     response: 'InferredPressure',
     responseIsList: true,
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: [
       { name: 'type', type: 'string', description: 'Only the pressures of this type.' },
@@ -487,7 +504,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   'GET /api/inference/actor-relationships': {
     summary: 'How the actors of the graph relate to each other. Not implemented yet: the route answers a note saying so.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: [
       {
@@ -502,13 +519,13 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     summary: 'How similar two events are.',
     request: 'GenericObject',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'GET /api/inference/anomalies': {
     summary: 'The anomalies in the graph. Not implemented yet: the route answers a note saying so.',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
     query: [
       {
@@ -523,14 +540,14 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     summary: 'What the graph suggests comes next. Not implemented yet: the route answers a note saying so.',
     request: 'GenericObject',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'POST /api/inference/simulate': {
     summary: 'Simulate a historical scenario. The answer may be streamed as server-sent events.',
     request: 'GenericObject',
     response: 'GenericObject',
-    auth: 'optional',
+    auth: ENTITY_AUTH,
     graphScoped: true,
   },
 
