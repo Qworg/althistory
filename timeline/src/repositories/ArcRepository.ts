@@ -2,8 +2,19 @@ import { Session, Integer } from 'neo4j-driver';
 import { Arc, CreateArcRequest, UpdateArcRequest } from '../models/Arc';
 import { TimeRange } from '../models/Event';
 import { DatabaseManager, LocalDatabaseManager, LocalSession } from '../utils/database';
+import {
+  graphPatternMap,
+  graphPatternProperty,
+  GraphScopedRepositoryOptions
+} from './graphScope';
 
 type AnySession = Session | LocalSession;
+
+/**
+ * A value read from a driver record, before the caller narrows it to the
+ * shape that column is known to hold.
+ */
+type StoredValue = unknown;
 
 /**
  * The read surface both record classes share.
@@ -15,7 +26,7 @@ type AnySession = Session | LocalSession;
  * is validated once, here, rather than at each use site.
  */
 interface QueryRecord {
-  get(key: string): unknown;
+  get(key: string): StoredValue;
   has(key: string): boolean;
 }
 
@@ -48,12 +59,12 @@ function isGraphNode(value: unknown): value is GraphNode {
 }
 
 /** Reads a named column from a record. */
-function readField(record: QueryRecord, key: string): unknown {
+function readField(record: QueryRecord, key: string): StoredValue {
   return record.has(key) ? record.get(key) : undefined;
 }
 
 /** Reads a named column from the first record of a result set. */
-function readFirstField(result: QueryResultLike, key: string): unknown {
+function readFirstField(result: QueryResultLike, key: string): StoredValue {
   const record = result.records[0];
   return record === undefined ? undefined : readField(record, key);
 }
@@ -144,15 +155,28 @@ function readDate(value: unknown, field: string): Date {
 export class ArcRepository {
   protected databaseManager: DatabaseManager | LocalDatabaseManager;
 
+  /**
+   * Graph every query of this repository is confined to in cloud mode.
+   *
+   * `undefined` means the process-wide, unscoped repository (the container
+   * level singleton used by export, import and the CLI), which keeps the
+   * whole-database behaviour it had before #59. The value is never applied on a
+   * local store: there a graph *is* the store, so a `graphId` filter would look
+   * for a property local nodes do not have and match nothing.
+   */
+  protected readonly graphId?: string;
+
   constructor(
     databaseManager: DatabaseManager | LocalDatabaseManager,
     // Kept for the DI container in src/container.ts, which still passes these.
     // The repository never reads them, so they are typed as `unknown`.
     _validationService?: unknown,
     _temporalService?: unknown,
-    _cacheService?: unknown
+    _cacheService?: unknown,
+    options: GraphScopedRepositoryOptions = {}
   ) {
     this.databaseManager = databaseManager;
+    this.graphId = databaseManager instanceof LocalDatabaseManager ? undefined : options.graphId;
   }
 
   /**
@@ -171,20 +195,7 @@ export class ArcRepository {
     // Validate temporal boundaries at database level
     await this.validateTemporalBoundaries(arc);
 
-    const query = `
-      CREATE (a:Arc {
-        id: $id,
-        name: $name,
-        description: $description,
-        start_time: datetime($start_time),
-        end_time: datetime($end_time),
-        level: $level,
-        metadata: $metadata
-      })
-      RETURN a
-    `;
-
-    const parameters = {
+    const parameters: Record<string, unknown> = {
       id: arc.id,
       name: arc.name,
       description: arc.description || null,
@@ -193,6 +204,22 @@ export class ArcRepository {
       level: arc.level,
       metadata: JSON.stringify(arc.metadata || {})
     };
+    // A scoped repository stamps its graph on the row it writes: an unstamped
+    // row would be invisible to the graph that created it.
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
+    const query = `
+      CREATE (a:Arc {
+        id: $id,
+        name: $name,
+        description: $description,
+        start_time: datetime($start_time),
+        end_time: datetime($end_time),
+        level: $level,
+        metadata: $metadata${graphProperty}
+      })
+      RETURN a
+    `;
 
     const session = this.getSession();
     try {
@@ -214,14 +241,17 @@ export class ArcRepository {
    * Find arc by ID
    */
   async findById(id: string): Promise<Arc | null> {
+    const parameters: Record<string, unknown> = { id };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
     const query = `
-      MATCH (a:Arc {id: $id})
+      MATCH (a:Arc {id: $id${graphProperty}})
       RETURN a
     `;
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, { id });
+      const result = await session.run(query, parameters);
 
       if (result.records.length === 0) {
         return null;
@@ -239,13 +269,14 @@ export class ArcRepository {
    * Find all arcs
    */
   async findAll(limit?: number, offset?: number): Promise<Arc[]> {
+    const parameters: Record<string, unknown> = {};
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
     let query = `
-      MATCH (a:Arc)
+      MATCH (a:Arc${graphMap})
       RETURN a
       ORDER BY a.level ASC, a.start_time ASC
     `;
-
-    const parameters: Record<string, unknown> = {};
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -268,13 +299,14 @@ export class ArcRepository {
    * Find arcs by level
    */
   async findByLevel(level: number, limit?: number, offset?: number): Promise<Arc[]> {
+    const parameters: Record<string, unknown> = { level };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
     let query = `
-      MATCH (a:Arc {level: $level})
+      MATCH (a:Arc {level: $level${graphProperty}})
       RETURN a
       ORDER BY a.start_time ASC
     `;
-
-    const parameters: Record<string, unknown> = { level };
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -297,17 +329,18 @@ export class ArcRepository {
    * Find overlapping arcs within a time range
    */
   async findOverlappingArcs(timeRange: TimeRange, limit?: number, offset?: number): Promise<Arc[]> {
-    let query = `
-      MATCH (a:Arc)
-      WHERE a.start_time < datetime($endTime) AND a.end_time > datetime($startTime)
-      RETURN a
-      ORDER BY a.start_time ASC
-    `;
-
     const parameters: Record<string, unknown> = {
       startTime: timeRange.start.toISOString(),
       endTime: timeRange.end.toISOString()
     };
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
+    let query = `
+      MATCH (a:Arc${graphMap})
+      WHERE a.start_time < datetime($endTime) AND a.end_time > datetime($startTime)
+      RETURN a
+      ORDER BY a.start_time ASC
+    `;
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -330,17 +363,18 @@ export class ArcRepository {
    * Find arcs that completely contain the given time range
    */
   async findContainingArcs(timeRange: TimeRange, limit?: number, offset?: number): Promise<Arc[]> {
-    let query = `
-      MATCH (a:Arc)
-      WHERE a.start_time <= datetime($startTime) AND a.end_time >= datetime($endTime)
-      RETURN a
-      ORDER BY a.level ASC, a.start_time ASC
-    `;
-
     const parameters: Record<string, unknown> = {
       startTime: timeRange.start.toISOString(),
       endTime: timeRange.end.toISOString()
     };
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
+    let query = `
+      MATCH (a:Arc${graphMap})
+      WHERE a.start_time <= datetime($startTime) AND a.end_time >= datetime($endTime)
+      RETURN a
+      ORDER BY a.level ASC, a.start_time ASC
+    `;
 
     if (limit !== undefined) {
       query += ` SKIP $offset LIMIT $limit`;
@@ -363,9 +397,15 @@ export class ArcRepository {
    * Find nested arcs (child arcs within a parent arc)
    */
   async findNestedArcs(parentArcId: string, limit?: number, offset?: number): Promise<Arc[]> {
+    const parameters: Record<string, unknown> = { parentId: parentArcId };
+    // Both ends are pinned: a parent in this graph must not pull in a child from
+    // another one.
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
     const query = `
-      MATCH (parent:Arc {id: $parentId})
-      MATCH (child:Arc)
+      MATCH (parent:Arc {id: $parentId${graphProperty}})
+      MATCH (child:Arc${graphMap})
       WHERE child.start_time >= parent.start_time
         AND child.end_time <= parent.end_time
         AND child.id <> parent.id
@@ -374,8 +414,6 @@ export class ArcRepository {
       ORDER BY child.level ASC, child.start_time ASC
       ${limit !== undefined ? 'SKIP $offset LIMIT $limit' : ''}
     `;
-
-    const parameters: Record<string, unknown> = { parentId: parentArcId };
 
     if (limit !== undefined) {
       parameters.limit = Integer.fromNumber(limit);
@@ -397,9 +435,13 @@ export class ArcRepository {
    * Find direct child arcs (immediate children only)
    */
   async findDirectChildren(parentArcId: string): Promise<Arc[]> {
+    const parameters: Record<string, unknown> = { parentId: parentArcId };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
     const query = `
-      MATCH (parent:Arc {id: $parentId})
-      MATCH (child:Arc)
+      MATCH (parent:Arc {id: $parentId${graphProperty}})
+      MATCH (child:Arc${graphMap})
       WHERE child.start_time >= parent.start_time
         AND child.end_time <= parent.end_time
         AND child.id <> parent.id
@@ -410,7 +452,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, { parentId: parentArcId });
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find direct children: ${error}`);
@@ -423,9 +465,13 @@ export class ArcRepository {
    * Find parent arcs that contain the given arc
    */
   async findParentArcs(childArcId: string): Promise<Arc[]> {
+    const parameters: Record<string, unknown> = { childId: childArcId };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
     const query = `
-      MATCH (child:Arc {id: $childId})
-      MATCH (parent:Arc)
+      MATCH (child:Arc {id: $childId${graphProperty}})
+      MATCH (parent:Arc${graphMap})
       WHERE parent.start_time <= child.start_time
         AND parent.end_time >= child.end_time
         AND parent.id <> child.id
@@ -436,7 +482,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, { childId: childArcId });
+      const result = await session.run(query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find parent arcs: ${error}`);
@@ -461,18 +507,7 @@ export class ArcRepository {
     // Validate temporal boundaries
     await this.validateTemporalBoundaries(updatedArc, id);
 
-    const query = `
-      MATCH (a:Arc {id: $id})
-      SET a.name = $name,
-          a.description = $description,
-          a.start_time = datetime($start_time),
-          a.end_time = datetime($end_time),
-          a.level = $level,
-          a.metadata = $metadata
-      RETURN a
-    `;
-
-    const parameters = {
+    const parameters: Record<string, unknown> = {
       id,
       name: updatedArc.name,
       description: updatedArc.description || null,
@@ -481,6 +516,20 @@ export class ArcRepository {
       level: updatedArc.level,
       metadata: JSON.stringify(updatedArc.metadata || {})
     };
+    // The graph filter is what stops this update from reaching an id that only
+    // exists in another graph.
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
+    const query = `
+      MATCH (a:Arc {id: $id${graphProperty}})
+      SET a.name = $name,
+          a.description = $description,
+          a.start_time = datetime($start_time),
+          a.end_time = datetime($end_time),
+          a.level = $level,
+          a.metadata = $metadata
+      RETURN a
+    `;
 
     const session = this.getSession();
     try {
@@ -502,15 +551,18 @@ export class ArcRepository {
    * Delete an arc by ID
    */
   async delete(id: string): Promise<boolean> {
+    const parameters: Record<string, unknown> = { id };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
     const query = `
-      MATCH (a:Arc {id: $id})
+      MATCH (a:Arc {id: $id${graphProperty}})
       DELETE a
       RETURN count(a) as deletedCount
     `;
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, { id });
+      const result = await session.run(query, parameters);
       return readCount(result, 'deletedCount') > 0;
     } catch (error) {
       throw new Error(`Failed to delete arc: ${error}`);
@@ -523,14 +575,17 @@ export class ArcRepository {
    * Count total arcs
    */
   async count(): Promise<number> {
+    const parameters: Record<string, unknown> = {};
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
     const query = `
-      MATCH (a:Arc)
+      MATCH (a:Arc${graphMap})
       RETURN count(a) as total
     `;
 
     const session = this.getSession();
     try {
-      const result = await session.run(query);
+      const result = await session.run(query, parameters);
       return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count arcs: ${error}`);
@@ -543,14 +598,17 @@ export class ArcRepository {
    * Count arcs by level
    */
   async countByLevel(level: number): Promise<number> {
+    const parameters: Record<string, unknown> = { level };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
     const query = `
-      MATCH (a:Arc {level: $level})
+      MATCH (a:Arc {level: $level${graphProperty}})
       RETURN count(a) as total
     `;
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, { level });
+      const result = await session.run(query, parameters);
       return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count arcs by level: ${error}`);
@@ -563,14 +621,17 @@ export class ArcRepository {
    * Check if an arc exists
    */
   async exists(id: string): Promise<boolean> {
+    const parameters: Record<string, unknown> = { id };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+
     const query = `
-      MATCH (a:Arc {id: $id})
+      MATCH (a:Arc {id: $id${graphProperty}})
       RETURN count(a) > 0 as exists
     `;
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, { id });
+      const result = await session.run(query, parameters);
       return Boolean(readFirstField(result, 'exists'));
     } catch (error) {
       throw new Error(`Failed to check if arc exists: ${error}`);
@@ -583,9 +644,21 @@ export class ArcRepository {
    * Validate temporal boundaries and hierarchy constraints
    */
   private async validateTemporalBoundaries(arc: Arc, excludeId?: string): Promise<void> {
+    const parameters: Record<string, unknown> = {
+      excludeId: excludeId || '',
+      level: arc.level,
+      start_time: arc.start_time.toISOString(),
+      end_time: arc.end_time.toISOString()
+    };
+    // Only this graph's arcs can conflict with this graph's arc: a boundary
+    // violation in another graph is that graph's problem, and reporting it here
+    // would block a legitimate write. Without the filter the check also reads
+    // every arc in the database.
+    const graphMap = graphPatternMap(parameters, this.graphId);
+
     // Check for hierarchy violations
     const query = `
-      MATCH (existing:Arc)
+      MATCH (existing:Arc${graphMap})
       WHERE existing.id <> $excludeId
         AND (
           // Check for invalid nesting - child arc extends beyond parent
@@ -603,13 +676,6 @@ export class ArcRepository {
       RETURN existing.id as conflictId, existing.name as conflictName, existing.level as conflictLevel
       LIMIT 1
     `;
-
-    const parameters = {
-      excludeId: excludeId || '',
-      level: arc.level,
-      start_time: arc.start_time.toISOString(),
-      end_time: arc.end_time.toISOString()
-    };
 
     const session = this.getSession();
     try {
@@ -736,8 +802,9 @@ export class AdvancedArcRepository extends ArcRepository {
       parameters.description = filters.description;
     }
 
-    // Build query
-    let query = 'MATCH (a:Arc)';
+    // Build query. The graph filter goes inside the pattern, so a search scoped
+    // to one graph cannot return another graph's arcs.
+    let query = `MATCH (a:Arc${graphPatternMap(parameters, this.graphId)})`;
 
     if (conditions.length > 0) {
       query += ` WHERE ${conditions.join(' AND ')}`;

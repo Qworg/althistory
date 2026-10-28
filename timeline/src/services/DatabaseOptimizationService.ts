@@ -54,6 +54,18 @@ export class DatabaseOptimizationService {
         // Causal relationship indexes
         'CREATE INDEX causal_weight_confidence IF NOT EXISTS FOR ()-[r:CAUSES]-() ON (r.weight, r.confidence)',
         'CREATE INDEX causal_relationship_type IF NOT EXISTS FOR ()-[r:CAUSES]-() ON (r.relationship_type, r.weight)',
+
+        // Graph-scoped indexes (#59). Cloud mode keeps every graph's rows under
+        // the same labels and relationship type, so each graph-scoped query
+        // filters on `graphId` first; these keep that filter a range scan. The
+        // schema initialiser declares the same set -- this list is the
+        // optimisation entry point, `SchemaManager` is the one `Application`
+        // runs at startup.
+        'CREATE INDEX event_graph_timestamp IF NOT EXISTS FOR (e:Event) ON (e.graphId, e.timestamp)',
+        'CREATE INDEX event_graph_actor IF NOT EXISTS FOR (e:Event) ON (e.graphId, e.actor)',
+        'CREATE INDEX arc_graph_level IF NOT EXISTS FOR (a:Arc) ON (a.graphId, a.level)',
+        'CREATE INDEX arc_graph_start_time IF NOT EXISTS FOR (a:Arc) ON (a.graphId, a.start_time)',
+        'CREATE INDEX causal_graph IF NOT EXISTS FOR ()-[r:CAUSES]-() ON (r.graphId)',
         
         // Inference and pressure indexes
         'CREATE INDEX pressure_confidence_type IF NOT EXISTS FOR (p:InferredPressure) ON (p.confidence_score, p.pressure_type)',

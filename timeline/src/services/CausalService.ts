@@ -7,6 +7,12 @@ import { getCacheManager, CacheKeyGenerator } from '@/utils/cache';
 import { CacheInvalidationService } from './CacheInvalidationService';
 import { loadConfig } from '@/utils/config';
 import { isTemporalInversion, isSimultaneous } from '@/utils/causalOrder';
+import {
+  addGraphCondition,
+  causalRelationshipPattern,
+  graphPropertyEntry,
+  whereClause
+} from '@/repositories/graphScope';
 
 /**
  * Property bag accepted by `LocalGraphStore.updateRelationship` for a CAUSES edge.
@@ -105,7 +111,13 @@ interface CausalSession {
   close(): Promise<void>;
 }
 
-/** Structural record surface shared by the Neo4j and local drivers. */
+/**
+ * Structural record surface shared by the Neo4j and local drivers.
+ *
+ * `get` returns `unknown` deliberately: a driver record is untyped at this
+ * boundary, and each caller narrows the column it asked for. Naming that
+ * `unknown` would not add information, so it is spelled out.
+ */
 interface CausalQueryRecord {
   get(key: string): unknown;
 }
@@ -162,6 +174,9 @@ export class CausalService {
     this.graphId = options.graphId;
   }
 
+  /** The execution mode, resolved on first use. See `isLocalExecution`. */
+  private localExecution: boolean | undefined;
+
   /**
    * `getDatabaseManager()` is declared to return `DatabaseManager`, but when local
    * execution is enabled the singleton it holds is a `LocalDatabaseManager`
@@ -217,6 +232,39 @@ export class CausalService {
   private scopedCacheKey(key: string): string {
     return this.graphId ? `${key}:graph:${this.graphId}` : key;
   }
+
+  /**
+   * The graph a cloud query has to name to stay inside this service's graph.
+   *
+   * Empty for a service in local execution: the store *is* one graph there, so
+   * its nodes carry no graph property and a graph filter would match nothing.
+   * Empty too for the process-wide unscoped service, which keeps the
+   * whole-database view it had before #59.
+   *
+   * The cloud/local question is decided by configuration, **not** by whether a
+   * store was handed in. The HTTP routes always build their service with the
+   * container's graph-context store -- in cloud mode that store is an empty
+   * placeholder -- so keying off `graphStore` made every causal route emit
+   * unfiltered Cypher in cloud mode and write edges with no graph id.
+   */
+  private cloudGraphId(): string | undefined {
+    if (this.isLocalExecution()) return undefined;
+    return this.graphId;
+  }
+
+  /**
+   * Whether this process stores graphs in the local JSON store.
+   *
+   * Read once, at construction: it is fixed for the life of the process, and
+   * consulting `loadConfig()` on every query would be both slower and a second
+   * source of truth.
+   */
+  private isLocalExecution(): boolean {
+    if (this.localExecution === undefined) {
+      this.localExecution = loadConfig().localExecution.enabled;
+    }
+    return this.localExecution;
+  }
   /**
    * Create a causal link between two events
    * Validates the relationship and prevents temporal paradoxes
@@ -249,10 +297,10 @@ export class CausalService {
     // validator and the merge are the backstop -- they report the cycles
     // they find.
     //
-    // The walk reads every relationship the service can see, and in cloud
-    // mode that is every graph's relationships: the cloud data model has no
-    // graph filter on the relationships yet, so a scoped service still sees
-    // the whole database. That is the gap #59 tracks.
+    // The walk reads this graph's relationships and nothing else: in cloud mode
+    // the query names the graph (before #59 it read every relationship in the
+    // database on each same-moment link), and in local mode the store is already
+    // one graph.
     if (isSimultaneous(cause.timestamp, effect.timestamp)) {
       const cycle = await this.findPathBetween(effect.id, cause.id);
       if (cycle) {
@@ -355,15 +403,27 @@ export class CausalService {
     } else {
       // Cloud mode: use Neo4j
       const session = getDatabaseManager().getNeo4jSession();
+      const graphId = this.cloudGraphId();
+      const parameters: Record<string, unknown> = { causeEventId, effectEventId };
+      const conditions: string[] = [
+        'cause.id = $causeEventId',
+        'effect.id = $effectEventId'
+      ];
+      // Both endpoints and the edge have to belong to this graph, or a
+      // scoped service could delete another graph's link.
+      addGraphCondition(conditions, 'cause', graphId, parameters);
+      addGraphCondition(conditions, 'effect', graphId, parameters);
+      addGraphCondition(conditions, 'r', graphId, parameters);
 
       try {
         const query = `
-          MATCH (cause:Event {id: $causeEventId})-[r:CAUSES]->(effect:Event {id: $effectEventId})
+          MATCH (cause:Event)-[r:CAUSES]->(effect:Event)
+          ${whereClause(conditions)}
           DELETE r
           RETURN count(r) as deletedCount
         `;
 
-        const result = await session.run(query, { causeEventId, effectEventId });
+        const result = await session.run(query, parameters);
         const deletedCount = result.records[0]?.get('deletedCount')?.toNumber?.() || result.records[0]?.get('deletedCount') || 0;
 
         if (deletedCount === 0) {
@@ -457,11 +517,21 @@ export class CausalService {
     } else {
       // Cloud mode: use Neo4j
       const session = getDatabaseManager().getNeo4jSession();
+      const graphId = this.cloudGraphId();
 
       try {
         // Build SET clauses dynamically
         const setClauses: string[] = [];
         const params: RelationshipQueryParams = { causeEventId, effectEventId };
+        const conditions: string[] = [
+          'cause.id = $causeEventId',
+          'effect.id = $effectEventId'
+        ];
+        // Updating another graph's edge is a write across the boundary; the
+        // endpoints and the edge are all pinned to this graph.
+        addGraphCondition(conditions, 'cause', graphId, params);
+        addGraphCondition(conditions, 'effect', graphId, params);
+        addGraphCondition(conditions, 'r', graphId, params);
 
         if (updates.weight !== undefined) {
           setClauses.push('r.weight = $weight');
@@ -482,7 +552,8 @@ export class CausalService {
         setClauses.push('r.updated_at = datetime()');
 
         const query = `
-          MATCH (cause:Event {id: $causeEventId})-[r:CAUSES]->(effect:Event {id: $effectEventId})
+          MATCH (cause:Event)-[r:CAUSES]->(effect:Event)
+          ${whereClause(conditions)}
           SET ${setClauses.join(', ')}
           RETURN r
         `;
@@ -558,16 +629,24 @@ export class CausalService {
     } else {
       // Cloud mode: use Neo4j
       const session = getDatabaseManager().getNeo4jSession();
+      const graphId = this.cloudGraphId();
+      const parameters: Record<string, unknown> = {};
+      const conditions: string[] = [];
+      // The relationships of one graph, and only those: before #59 this read
+      // every CAUSES edge in the database, which is what made the cycle check
+      // read -- and report -- another graph's data.
+      addGraphCondition(conditions, 'r', graphId, parameters);
 
       try {
         const query = `
           MATCH (cause:Event)-[r:CAUSES]->(effect:Event)
+          ${whereClause(conditions)}
           RETURN r.id as id, cause.id as cause_event_id, effect.id as effect_event_id,
                  r.weight as weight, r.confidence as confidence,
                  r.evidence as evidence, r.relationship_type as relationship_type
         `;
 
-        const result = await session.run(query);
+        const result = await session.run(query, parameters);
 
         return result.records.map(record => ({
           id: record.get('id'),
@@ -607,10 +686,24 @@ export class CausalService {
     }
 
     const session = this.getSession();
-    
+    const graphId = this.cloudGraphId();
+
     try {
+      const parameters: GraphParameters = { startEventId: startEvent.id };
+      if (graphId !== undefined) {
+        parameters.graphId = graphId;
+      }
+      // Every hop, and the node at each end of the chain, is pinned to this
+      // graph, so a chain cannot run through another graph's events.
+      const startPattern = graphId === undefined
+        ? '(start:Event {id: $startEventId})'
+        : '(start:Event {id: $startEventId, graphId: $graphId})';
+      const endPattern = graphId === undefined
+        ? '(end:Event)'
+        : '(end:Event {graphId: $graphId})';
+
       const query = `
-        MATCH path = (start:Event {id: $startEventId})-[:CAUSES*1..${maxDepth}]->(end:Event)
+        MATCH path = ${startPattern}-${causalRelationshipPattern(graphId, `1..${maxDepth}`)}->${endPattern}
         WITH path, relationships(path) as rels, nodes(path) as events
         RETURN 
           [event in events | event.id] as eventIds,
@@ -625,9 +718,7 @@ export class CausalService {
         ORDER BY length(path), reduce(s = 0, rel in rels | s + rel.weight) DESC
       `;
 
-      const result = await session.run(query, {
-        startEventId: startEvent.id
-      });
+      const result = await session.run(query, parameters);
 
       const paths: CausalPath[] = result.records.map(record => {
         const eventIds = record.get('eventIds') as string[];
@@ -697,8 +788,18 @@ export class CausalService {
     }
 
     const session = this.getSession();
-    
+    const graphId = this.cloudGraphId();
+
     try {
+      const parameters: GraphParameters = {};
+      if (graphId !== undefined) {
+        parameters.graphId = graphId;
+      }
+      // A cycle in another graph is not this graph's cycle, and (before #59)
+      // reading it was an entire-database scan on every request. Both the start
+      // node and every hop are pinned here.
+      const cycleStart = graphId === undefined ? '(start:Event)' : '(start:Event {graphId: $graphId})';
+
       // A cycle needs a hop that does not move forward in time. A hop
       // between two events at the same moment is such a hop, so the cycle is
       // found with ">=" -- but only a hop that really is inverted counts
@@ -708,7 +809,7 @@ export class CausalService {
       // The comments are outside the query on purpose: Cypher has no `--`
       // comment syntax, and one would make Neo4j reject the whole query.
       const query = `
-        MATCH path = (start:Event)-[:CAUSES*2..]->(start)
+        MATCH path = ${cycleStart}-${causalRelationshipPattern(graphId, '2..')}->(start)
         WITH path, relationships(path) as rels, nodes(path) as events
         WITH events, rels,
              [event in events | event.timestamp] as timestamps,
@@ -730,7 +831,7 @@ export class CausalService {
         ORDER BY paradoxSeverity DESC
       `;
 
-      const result = await session.run(query);
+      const result = await session.run(query, parameters);
 
       const cycles: CausalCycle[] = result.records.map(record => {
         const eventIds = record.get('eventIds') as string[];
@@ -882,29 +983,41 @@ export class CausalService {
     } else {
       // Cloud mode: use Neo4j
       const session = getDatabaseManager().getNeo4jSession();
+      const graphId = this.cloudGraphId();
+      const parameters: Record<string, unknown> = {
+        causeId: cause.id,
+        effectId: effect.id,
+        weight: relationship.weight,
+        evidence: relationship.evidence,
+        confidence: relationship.confidence,
+        relationshipType: relationship.relationship_type
+      };
+      const conditions: string[] = ['cause.id = $causeId', 'effect.id = $effectId'];
+      // Both endpoints must already belong to this graph: a link from one
+      // graph's event to another graph's event would be invisible to both and
+      // is a write across the boundary.
+      addGraphCondition(conditions, 'cause', graphId, parameters);
+      addGraphCondition(conditions, 'effect', graphId, parameters);
+      // The edge carries the graph too, which is what the cycle and chain
+      // queries filter on.
+      const graphEntry = graphPropertyEntry(parameters, graphId);
 
       try {
         const query = `
-          MATCH (cause:Event {id: $causeId})
-          MATCH (effect:Event {id: $effectId})
+          MATCH (cause:Event)
+          MATCH (effect:Event)
+          ${whereClause(conditions)}
           CREATE (cause)-[r:CAUSES {
             weight: $weight,
             evidence: $evidence,
             confidence: $confidence,
             relationship_type: $relationshipType,
-            created_at: datetime()
+            created_at: datetime()${graphEntry}
           }]->(effect)
           RETURN r
         `;
 
-        const result = await session.run(query, {
-          causeId: cause.id,
-          effectId: effect.id,
-          weight: relationship.weight,
-          evidence: relationship.evidence,
-          confidence: relationship.confidence,
-          relationshipType: relationship.relationship_type
-        });
+        const result = await session.run(query, parameters);
 
         if (result.records.length === 0) {
           throw new DatabaseError(

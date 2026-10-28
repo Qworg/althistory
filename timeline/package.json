@@ -18,7 +18,8 @@
     "lint:fix": "eslint . --ext ts,tsx --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "migrate:attribute-graph": "npx ts-node -r tsconfig-paths/register src/scripts/attribute-graph-data.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

@@ -70,7 +70,9 @@ export default defineConfig({
       'src/utils/database.test.ts', // Requires Neo4j
       'src/repositories/EventRepository.test.ts', // Requires Neo4j; see EventRepository.unit.test.ts
       'src/repositories/ArcRepository.test.ts', // Requires Neo4j; see ArcRepository.unit.test.ts
-      'src/services/GraphCopyService.test.ts' // Requires Neo4j; see GraphCopyService.unit.test.ts
+      'src/services/GraphCopyService.test.ts', // Requires Neo4j; see GraphCopyService.unit.test.ts
+      // Requires Neo4j (two graphs, one instance); run via `npm run test:cloud`.
+      'src/tests/integration/graph-scoped-storage.test.ts'
     ]
   },
   resolve: {

@@ -118,6 +118,39 @@ Graph, export and job repositories are file-backed **even in cloud mode** —
 there is no Neo4j-backed implementation of them — so the `api` service mounts
 `/data` as a named volume. Deleting that volume loses timelines.
 
+### Upgrading a database written before graph scoping
+
+In cloud mode every stored `:Event`, `:Arc` and `:CAUSES` relationship carries
+the graph it belongs to, and every query is filtered by it. Rows written before
+that was true have no graph id, so they are invisible to a scoped read.
+
+On startup, if **exactly one** graph is registered, the process adopts those
+rows into it and says so loudly, with the counts and the way to change the
+decision:
+
+```
+Attributing pre-graph-identity cloud data to graph "…" (the only registered graph):
+before, 1 204 event(s), 86 arc(s), 2 100 causal relationship(s) carried no graph id.
+```
+
+With zero or several graphs registered it does not guess: it prints the counts
+and leaves the rows unattributed, and the graphs look smaller than they are
+until you resolve it. To attribute them explicitly — always to a graph you name:
+
+```bash
+npm run migrate:attribute-graph -- --graph <graphId> --dry-run   # report only
+npm run migrate:attribute-graph -- --graph <graphId>             # write
+```
+
+The command refuses a graph id that is not registered (a typo would move the
+data somewhere no graph owns, which is indistinguishable from deleting it) and
+exits non-zero. A causal relationship whose two endpoints disagree about their
+graph is left untouched and reported, rather than moved: that row needs a
+person to look at it.
+
+Reverting is not supported — once rows are attributed, they stay. Take a Neo4j
+backup before the first start on an upgraded database.
+
 ### Single replica, persistent volume — enforced
 
 Because that state is per process, cloud mode is **one replica with a volume

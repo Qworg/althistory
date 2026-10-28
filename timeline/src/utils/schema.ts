@@ -50,6 +50,14 @@ export class SchemaManager {
       'CREATE CONSTRAINT pressure_id IF NOT EXISTS FOR (p:InferredPressure) REQUIRE p.id IS UNIQUE',
     ];
 
+    // The id constraints stay global, not `(id, graphId)`. Ids are generated
+    // UUIDs, so a global uniqueness is not what keeps graphs apart, and a
+    // composite constraint would stop applying to unattributed legacy rows
+    // (a uniqueness constraint ignores null properties) for the window in which
+    // `attributeUnattributedCloudData` has not run yet. What keeps graphs apart
+    // is the `graphId` filter on every query, and what keeps those queries usable
+    // is the `*_graph_*` indexes below.
+
     for (const constraint of constraints) {
       try {
         await this.session.run(constraint);
@@ -75,14 +83,29 @@ export class SchemaManager {
       'CREATE INDEX event_actor IF NOT EXISTS FOR (e:Event) ON (e.actor)',
       'CREATE INDEX event_target IF NOT EXISTS FOR (e:Event) ON (e.target)',
       'CREATE INDEX event_temporal_actor IF NOT EXISTS FOR (e:Event) ON (e.timestamp, e.actor)',
-      
+
+      // Graph-scoped event indexes (#59). Every cloud read of an Event names a
+      // graph, so the graph property leads the index: `(graphId, timestamp)`
+      // answers "this graph's events in order" in one range scan instead of
+      // reading every graph's events and dropping the other graphs afterwards.
+      'CREATE INDEX event_graph_timestamp IF NOT EXISTS FOR (e:Event) ON (e.graphId, e.timestamp)',
+      'CREATE INDEX event_graph_actor IF NOT EXISTS FOR (e:Event) ON (e.graphId, e.actor)',
+
       // Arc indexes for temporal and hierarchy queries
       'CREATE INDEX arc_timerange IF NOT EXISTS FOR (a:Arc) ON (a.start_time, a.end_time)',
       'CREATE INDEX arc_level IF NOT EXISTS FOR (a:Arc) ON (a.level)',
       'CREATE INDEX arc_temporal_compound IF NOT EXISTS FOR (a:Arc) ON (a.start_time, a.end_time, a.level)',
       'CREATE INDEX arc_start_time IF NOT EXISTS FOR (a:Arc) ON (a.start_time)',
       'CREATE INDEX arc_end_time IF NOT EXISTS FOR (a:Arc) ON (a.end_time)',
-      
+
+      // Graph-scoped arc indexes (#59), same reasoning as the event ones.
+      'CREATE INDEX arc_graph_level IF NOT EXISTS FOR (a:Arc) ON (a.graphId, a.level)',
+      'CREATE INDEX arc_graph_start_time IF NOT EXISTS FOR (a:Arc) ON (a.graphId, a.start_time)',
+
+      // The causal relationship carries its graph too, and the cycle and chain
+      // queries filter the relationship, not only its endpoints.
+      'CREATE INDEX causal_graph IF NOT EXISTS FOR ()-[r:CAUSES]-() ON (r.graphId)',
+
       // InferredPressure indexes
       'CREATE INDEX pressure_confidence IF NOT EXISTS FOR (p:InferredPressure) ON (p.confidence_score)',
       'CREATE INDEX pressure_type IF NOT EXISTS FOR (p:InferredPressure) ON (p.pressure_type)'
@@ -177,9 +200,15 @@ export class SchemaManager {
       const indexesResult = await this.session.run('SHOW INDEXES WHERE type <> "LOOKUP"');
       const existingIndexes = indexesResult.records.map(record => record.get('name'));
       
+      // Must list every index `createSchema` creates, or a missing one goes
+      // unnoticed: this check is what `database.test.ts` and the health report
+      // rely on to say the schema is whole.
       const expectedIndexes = [
         'event_timestamp', 'event_actor', 'event_target', 'event_temporal_actor',
+        'event_graph_timestamp', 'event_graph_actor',
         'arc_timerange', 'arc_level', 'arc_temporal_compound', 'arc_start_time', 'arc_end_time',
+        'arc_graph_level', 'arc_graph_start_time',
+        'causal_graph',
         'pressure_confidence', 'pressure_type'
       ];
       
