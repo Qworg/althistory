@@ -118,6 +118,22 @@ Graph, export and job repositories are file-backed **even in cloud mode** —
 there is no Neo4j-backed implementation of them — so the `api` service mounts
 `/data` as a named volume. Deleting that volume loses timelines.
 
+### Container hardening
+
+The `api` container runs as the unprivileged `node` user, with a read-only
+root filesystem (only `/data` and a `/tmp` tmpfs are writable), every Linux
+capability dropped and `no-new-privileges`. `web` (Caddy) keeps only
+`NET_BIND_SERVICE`, to bind ports 80 and 443, and sends `nosniff`,
+`X-Frame-Options: DENY`, a referrer policy and HSTS (which browsers apply once
+the site is served over TLS); it refuses request bodies over 16 MB.
+
+A `/data` volume created by an earlier image, which ran as root, is owned by
+root, and the server can no longer write to it. Fix the ownership once:
+
+```bash
+docker compose run --rm --no-deps --user root api chown -R node:node /data
+```
+
 ### Upgrading a database written before graph scoping
 
 In cloud mode every stored `:Event`, `:Arc` and `:CAUSES` relationship carries

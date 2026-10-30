@@ -105,6 +105,13 @@ services:
       # it must outlive the container. One replica only: see
       # docs/production-deployment.md §4.
       - timeline-data:/data
+    # The server runs as `node` (see the Dockerfile) and writes only /data.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       neo4j:
         condition: service_healthy
@@ -126,6 +133,11 @@ services:
       CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-:80}
     ports:
       - "${WEB_PORT:-8080}:80"
+    # Caddy binds :80/:443, which is the one capability it keeps.
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       api:
         condition: service_healthy
