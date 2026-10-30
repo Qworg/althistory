@@ -67,6 +67,26 @@ const writeGraphAuth = [
 ];
 
 /**
+ * Answer 403 for a request that resolved to the active graph when the key may
+ * not access it. Same shape as `authorizeGraphAccess`, but without the id: the
+ * caller never named this graph, so the refusal should not introduce it.
+ */
+function refuseActiveGraph(req: RequestWithContainer, res: Response): void {
+  res.status(403).json({
+    error: {
+      message: 'The active graph is not one this API key may access',
+      timestamp: new Date().toISOString(),
+      path: req.path,
+      requestId: req.requestId || 'unknown',
+    },
+  });
+}
+
+function mayAccessGraph(req: RequestWithContainer, graphId: string): boolean {
+  return (req as AuthenticatedRequest).apiKey?.canAccessGraph(graphId) ?? false;
+}
+
+/**
  * Request body accepted by POST /graphs/copy. `sourceGraphId` is optional: the
  * copy modal copies the graph the user is currently looking at and does not
  * send a source id, so the active graph is used when it is omitted.
@@ -123,8 +143,11 @@ graphRoutes.get('/', ...readGraphsAuth, async (req: RequestWithContainer, res: R
       throw new ValidationError('Offset must be a non-negative number', 'offset', offset);
     }
 
+    // A key restricted to some graphs lists only those, and the total and
+    // paging count only those too.
     const result = await service.listGraphs({
       status: status as 'active' | 'archived' | 'deleted' | undefined,
+      include: (graphId) => mayAccessGraph(req, graphId),
       limit: parsedLimit,
       offset: parsedOffset,
     });
@@ -206,6 +229,10 @@ graphRoutes.post(
         const activeGraph = await graphService.getActiveGraph();
         if (!activeGraph) {
           throw new ValidationError('No active graph available to copy', 'sourceGraphId');
+        }
+        if (!mayAccessGraph(req, activeGraph.id)) {
+          refuseActiveGraph(req, res);
+          return;
         }
         sourceGraphId = activeGraph.id;
       }
@@ -297,6 +324,11 @@ graphRoutes.get('/active', ...readGraphsAuth, async (req: RequestWithContainer, 
         message: 'No active graph',
         requestId: req.requestId,
       });
+      return;
+    }
+
+    if (!mayAccessGraph(req, graph.id)) {
+      refuseActiveGraph(req, res);
       return;
     }
 
@@ -498,7 +530,11 @@ graphRoutes.get('/:id/branches', ...readGraphAuth, async (req: RequestWithContai
 
     // GraphRepository has no parent filter, so list the graphs (the API caps
     // listings at 1000) and select the ones branched from this graph.
-    const result = await service.listGraphs({ limit: 1000, offset: 0 });
+    const result = await service.listGraphs({
+      include: (graphId) => mayAccessGraph(req, graphId),
+      limit: 1000,
+      offset: 0,
+    });
     const branches = result.graphs.filter((graph) => graph.parentGraphId === req.params.id);
 
     res.json({

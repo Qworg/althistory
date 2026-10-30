@@ -148,6 +148,12 @@ an import job is visible to, and cancellable by, only the key that started it.
 **Merge reads two graphs.** `POST /api/graphs/:id/merge` checks the key against
 both the target `:id` and the body's `sourceGraphId`.
 
+**Listings are scoped too.** A key restricted to some graphs sees only those in
+`GET /api/graphs` (and the `total` counts only those) and in
+`GET /api/graphs/:id/branches`. `GET /api/graphs/active`, and
+`POST /api/graphs/copy` without a `sourceGraphId`, answer `403` when the
+active graph is outside the key's list.
+
 ## Responses
 
 Most routes answer in an envelope:

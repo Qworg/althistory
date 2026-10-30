@@ -8,7 +8,7 @@
  * request paths that the frontend `apiClient` calls.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import express, { Express } from 'express';
 import * as fs from 'fs/promises';
@@ -103,6 +103,71 @@ describe('Graph routes (request-level)', () => {
         .set('X-API-Key', readKey)
         .expect(200);
       expect(Array.isArray(response.body.data)).toBe(true);
+    });
+  });
+
+  describe('graph scoping for a restricted key', () => {
+    let allowed: IGraph;
+    let hidden: IGraph;
+    let hiddenBranch: IGraph;
+    let scopedKey: string;
+
+    beforeAll(async () => {
+      allowed = await container.graphService.createGraph({ name: 'Scoped Allowed' });
+      hidden = await container.graphService.createGraph({ name: 'Scoped Hidden' });
+      // A branch of the allowed graph is a new graph, outside the key's list.
+      hiddenBranch = await container.graphService.branchGraph(allowed.id, { name: 'Scoped Hidden Branch' });
+      scopedKey = (
+        await container.authService.createApiKey({
+          name: 'Graph Routes Scoped Key',
+          permissions: ['read:graphs', 'write:graphs'],
+          allowedGraphs: [allowed.id],
+        })
+      ).key;
+    });
+
+    afterEach(async () => {
+      // The other suites expect the source graph to be the active one.
+      await container.graphService.setActiveGraph(sourceGraph.id);
+    });
+
+    it('lists and counts only the graphs the key may access', async () => {
+      const response = await request(app).get('/api/graphs').set('X-API-Key', scopedKey).expect(200);
+
+      const ids = response.body.data.map((graph: IGraph) => graph.id);
+      expect(ids).toEqual([allowed.id]);
+      expect(response.body.pagination.total).toBe(1);
+    });
+
+    it('lists only the branches the key may access', async () => {
+      const response = await request(app)
+        .get(`/api/graphs/${allowed.id}/branches`)
+        .set('X-API-Key', scopedKey)
+        .expect(200);
+
+      expect(response.body.data.map((graph: IGraph) => graph.id)).not.toContain(hiddenBranch.id);
+    });
+
+    it('refuses the active graph when the key may not access it, without naming it', async () => {
+      await container.graphService.setActiveGraph(hidden.id);
+
+      const response = await request(app).get('/api/graphs/active').set('X-API-Key', scopedKey).expect(403);
+
+      expect(JSON.stringify(response.body)).not.toContain(hidden.id);
+    });
+
+    it('refuses to copy the active graph when the key may not access it', async () => {
+      await container.graphService.setActiveGraph(hidden.id);
+      const copySpy = vi.spyOn(container.graphCopyService, 'copyFullGraph');
+
+      const response = await request(app)
+        .post('/api/graphs/copy')
+        .set('X-API-Key', scopedKey)
+        .send({ targetName: 'Copy Of Something Hidden' })
+        .expect(403);
+
+      expect(JSON.stringify(response.body)).not.toContain(hidden.id);
+      expect(copySpy).not.toHaveBeenCalled();
     });
   });
 
