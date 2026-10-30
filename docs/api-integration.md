@@ -266,10 +266,15 @@ Delivery is recorded separately from the job's own status (`delivered`,
 `failed`, `abandoned`): a webhook that never arrives does not make the job
 failed, and a failed job still attempts delivery.
 
-The target is checked before it is POSTed to: a loopback, link-local or
-private **address**, and a `localhost`/`.local`/`.internal` name, are refused.
-A host *name* that resolves to a private address is not caught — the same
-limitation the outbound web fetcher documents, and for the same reason.
+The target is checked before it is POSTed to. A loopback, link-local or
+private address, or a `localhost` name, is refused when the job is created. At
+delivery the host name is resolved too, and the webhook is refused (and not
+retried) when any address it resolves to is private, so a name such as
+`metadata.google.internal` or `127.0.0.1.nip.io` cannot reach an internal
+service. A name that fails to resolve is retried like a network failure. What
+this does not close is DNS rebinding — a name that answers publicly for the
+check and privately when the connection is made — which, like the outbound
+web fetcher, needs an egress policy at the network level.
 
 **Webhooks are per job, not a subscription.** There is no long-lived
 registration, no list of endpoints, and no event stream. To learn about a

@@ -15,8 +15,8 @@ import { JobRepository, JobFilter, JobStats } from '../repositories/JobRepositor
 import { ExportService, ExportOptions } from './ExportService';
 import { GraphRepository } from '../repositories/GraphRepository';
 import type { ApiKey } from '../models/ApiKey';
-import { assertWebhookTarget } from '../utils/webhookTarget';
-import { NotFoundError } from '../utils/errors';
+import { assertWebhookTarget, assertWebhookTargetResolved, WebhookResolver } from '../utils/webhookTarget';
+import { NotFoundError, ValidationError } from '../utils/errors';
 import { createLogger, ILogger } from '../utils/logger';
 
 export interface JobServiceConfig {
@@ -33,6 +33,8 @@ export interface JobServiceConfig {
   webhookMaxBackoffMs?: number;
   /** Per-attempt AbortController timeout. Defaults to 30000ms. */
   webhookTimeoutMs?: number;
+  /** Resolves a webhook hostname before sending. Defaults to the system resolver. */
+  webhookResolver?: WebhookResolver;
   /**
    * Ceiling for `ExportService.exportGraph`, which returns the document as an
    * object. The job path streams instead, so this only has to match the
@@ -107,6 +109,7 @@ export class JobService extends EventEmitter {
   private readonly webhookInitialBackoffMs: number;
   private readonly webhookMaxBackoffMs: number;
   private readonly webhookTimeoutMs: number;
+  private readonly webhookResolver?: WebhookResolver;
   // In-flight webhook requests and their per-attempt timeouts, plus backoff
   // waits, so stop() can cancel all of them rather than leak timers.
   private readonly webhookControllers: Set<AbortController> = new Set();
@@ -124,6 +127,7 @@ export class JobService extends EventEmitter {
     this.webhookInitialBackoffMs = config.webhookInitialBackoffMs ?? DEFAULT_WEBHOOK_INITIAL_BACKOFF_MS;
     this.webhookMaxBackoffMs = config.webhookMaxBackoffMs ?? DEFAULT_WEBHOOK_MAX_BACKOFF_MS;
     this.webhookTimeoutMs = config.webhookTimeoutMs ?? DEFAULT_WEBHOOK_TIMEOUT_MS;
+    this.webhookResolver = config.webhookResolver;
 
     this.jobRepository = new JobRepository({ dataDir: config.dataDir });
     this.exportService = new ExportService({
@@ -782,16 +786,18 @@ export class JobService extends EventEmitter {
     webhookUrl: string,
     payload: string
   ): Promise<WebhookAttemptResult> {
-    // Validate (and normalize) the caller-supplied destination before any
-    // request is made. An invalid destination is terminal: retrying cannot make
-    // it valid. The fetch below uses this checked value, never the raw field.
+    // Validate (and normalize) the caller-supplied destination, including the
+    // addresses its hostname resolves to, before any request is made. An
+    // invalid destination is terminal: retrying cannot make it valid. A name
+    // that does not resolve may resolve later. The fetch below uses this
+    // checked value, never the raw field.
     let endpoint: string;
     try {
-      endpoint = assertWebhookTarget(webhookUrl);
+      endpoint = await assertWebhookTargetResolved(webhookUrl, this.webhookResolver);
     } catch (error) {
       return {
         delivered: false,
-        retryable: false,
+        retryable: !(error instanceof ValidationError),
         reason: error instanceof Error ? error.message : String(error),
       };
     }

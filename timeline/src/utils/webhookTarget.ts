@@ -27,15 +27,21 @@
  * destination reachable on a default-configured host, and an exhaustive list
  * would still not replace a network-level egress policy.
  *
- * Only literal addresses are checked. A hostname that resolves to a private
- * address is not caught here (that needs a resolver, and DNS can change between
- * check and connect); deployments that need that guarantee should route egress
- * through a network policy. Redirects are handled by the caller: `JobService`
- * posts with `redirect: 'manual'` so a 3xx cannot re-send the body to an
- * unvalidated destination.
+ * `assertWebhookTarget` checks the URL as written, which is what the request
+ * that creates a job can do. `assertWebhookTargetResolved`, used when the
+ * webhook is sent, also resolves a hostname and refuses it when any address
+ * it names is private, so `127.0.0.1.nip.io` or an attacker's own `A` record
+ * cannot reach the loopback or the metadata endpoint. What neither closes is
+ * DNS rebinding: `fetch` resolves the name again when it connects, so a name
+ * that answers publicly for the check and privately for the connection gets
+ * through. Deployments that need that guarantee should route egress through a
+ * network policy. Redirects are handled by the caller: `JobService` posts with
+ * `redirect: 'manual'` so a 3xx cannot re-send the body to an unvalidated
+ * destination.
  */
 
 import { BlockList, isIP } from 'net';
+import { lookup } from 'dns/promises';
 import { ValidationError } from './errors';
 
 export interface WebhookTargetPolicy {
@@ -146,4 +152,70 @@ export function assertWebhookTarget(
   }
 
   return parsed.toString();
+}
+
+/** Turns a hostname into the addresses it names. Injected by tests. */
+export type WebhookResolver = (host: string) => Promise<string[]>;
+
+const defaultResolver: WebhookResolver = async (host) =>
+  (await lookup(host, { all: true, verbatim: true })).map((record) => record.address);
+
+/** How long a webhook hostname may take to resolve. */
+const RESOLVE_TIMEOUT_MS = 5000;
+
+/**
+ * {@link assertWebhookTarget}, plus the addresses a hostname resolves to.
+ *
+ * A private destination throws a `ValidationError`, which no retry can fix. A
+ * name that cannot be resolved throws a plain `Error`, since DNS failures are
+ * often transient.
+ */
+export async function assertWebhookTargetResolved(
+  rawUrl: string,
+  resolver: WebhookResolver = defaultResolver,
+  policy: WebhookTargetPolicy = {}
+): Promise<string> {
+  const endpoint = assertWebhookTarget(rawUrl, policy);
+  const host = normalizeHostname(new URL(endpoint).hostname);
+  if (policy.allowPrivateHosts || isIP(host) !== 0) {
+    // A literal address was checked above.
+    return endpoint;
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let addresses: string[];
+  try {
+    addresses = await Promise.race([
+      resolver(host),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`The DNS lookup did not answer within ${RESOLVE_TIMEOUT_MS} ms`)),
+          RESOLVE_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } catch (error) {
+    throw new Error(
+      `Could not resolve webhook host ${host}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  if (addresses.length === 0) {
+    throw new Error(`Could not resolve webhook host ${host}: it names no address`);
+  }
+
+  for (const address of addresses) {
+    // A resolver answers with addresses; anything else is refused as well.
+    if (isIP(normalizeHostname(address)) === 0 || isPrivateHostname(address)) {
+      throw new ValidationError(
+        `Refusing webhook to ${host}: it resolves to the private or loopback address ${address}`,
+        'webhook',
+        rawUrl
+      );
+    }
+  }
+
+  return endpoint;
 }
