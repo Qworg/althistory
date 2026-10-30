@@ -69,6 +69,41 @@ describe('Configuration System', () => {
     });
   });
 
+  describe('LOCAL_DEV_AUTH_BYPASS', () => {
+    const failure = (): ConfigurationError | undefined => {
+      try {
+        loadConfig();
+        return undefined;
+      } catch (error) {
+        return (error as ConfigurationError).cause as ConfigurationError;
+      }
+    };
+
+    it('is refused outside local execution', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      process.env.LOCAL_DEV_AUTH_BYPASS = 'true';
+
+      expect(failure()?.message).toContain('LOCAL_DEV_AUTH_BYPASS');
+    });
+
+    it('is refused in production, even under local execution', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      process.env.LOCAL_DEV_AUTH_BYPASS = 'true';
+
+      expect(failure()?.message).toContain('LOCAL_DEV_AUTH_BYPASS');
+    });
+
+    it('is allowed under local development', () => {
+      process.env.NODE_ENV = 'development';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      process.env.LOCAL_DEV_AUTH_BYPASS = 'true';
+
+      expect(failure()).toBeUndefined();
+    });
+  });
+
   describe('HOST (the listen interface)', () => {
     // Local execution defaults to no API key, so it must not default to
     // listening on every interface as well.

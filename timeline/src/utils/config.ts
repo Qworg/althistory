@@ -376,6 +376,22 @@ function validateConfig(config: AppConfig): void {
     );
   }
 
+  // LOCAL_DEV_AUTH_BYPASS turns every request without a key into the
+  // ADMIN_API_KEY holder (`api/middleware.ts`). That is a convenience for a
+  // developer's own machine, so anywhere else the server refuses to start
+  // rather than run with an unauthenticated admin.
+  if (
+    process.env.LOCAL_DEV_AUTH_BYPASS === 'true' &&
+    (!config.localExecution.enabled || config.nodeEnv === 'production')
+  ) {
+    throw new ConfigurationError(
+      'LOCAL_DEV_AUTH_BYPASS=true makes every request without an API key act as the admin key. ' +
+        'It is only allowed under local execution (LOCAL_EXECUTION_ENABLED=true) with NODE_ENV ' +
+        'other than production. Remove it.',
+      'LOCAL_DEV_AUTH_BYPASS'
+    );
+  }
+
   // Validate performance settings
   if (config.performance.queryTimeoutMs < 100) {
     throw new ConfigurationError('Query timeout must be at least 100ms', 'QUERY_TIMEOUT_MS');
