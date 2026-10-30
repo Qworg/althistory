@@ -12,7 +12,14 @@
  * - Authentication middleware
  */
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
+import {
+  AuthenticatedRequest,
+  authenticate,
+  requireAuth,
+  authorize,
+  authorizeGraphAccess,
+} from '../middleware';
 import {
   ImportService,
   ImportMode,
@@ -34,7 +41,12 @@ export interface ImportRouterConfig {
   rateLimitMaxRequests?: number;
   /** Disable authentication (for testing) */
   disableAuth?: boolean;
-  /** API key validator function */
+  /**
+   * Test seam: a stand-in API key validator. When it is absent (production),
+   * the routes use the application's real key check: `authenticate`,
+   * `requireAuth` and `authorize('import')`, plus a graph-access check on the
+   * graph a request names.
+   */
   validateApiKey?: (apiKey: string) => Promise<{ valid: boolean; userId?: string }>;
   /** FIX #6: CSRF token validator function (optional) */
   validateCsrfToken?: (token: string, sessionId: string) => Promise<boolean>;
@@ -484,14 +496,30 @@ function addCorrelationId(req: Request, res: Response, next: NextFunction): void
 /**
  * FIX #5: Authentication middleware factory
  */
-function createAuthMiddleware(config: ImportRouterConfig) {
+function createAuthMiddleware(config: ImportRouterConfig): RequestHandler[] {
   if (config.disableAuth) {
-    return (_req: Request, _res: Response, next: NextFunction): void => {
+    return [(_req: Request, _res: Response, next: NextFunction): void => {
       next();
-    };
+    }];
   }
 
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  if (!config.validateApiKey) {
+    // The same chain the ingest, batch and keys routers use. Checking only that
+    // a key header is present would let any string through.
+    return [
+      authenticate as RequestHandler,
+      requireAuth as RequestHandler,
+      authorize('import') as RequestHandler,
+      (req: Request, _res: Response, next: NextFunction): void => {
+        // Provenance, and the owner of any job this request starts.
+        (req as Request & { userId?: string }).userId = (req as AuthenticatedRequest).apiKey?.id;
+        next();
+      },
+    ];
+  }
+
+  const validateApiKey = config.validateApiKey;
+  return [async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const apiKey = req.headers['x-api-key'] as string || req.headers['authorization']?.replace('Bearer ', '');
     
     if (!apiKey) {
@@ -502,29 +530,52 @@ function createAuthMiddleware(config: ImportRouterConfig) {
       return;
     }
 
-    if (config.validateApiKey) {
-      try {
-        const result = await config.validateApiKey(apiKey);
-        if (!result.valid) {
-          res.status(401).json({
-            error: 'Unauthorized',
-            message: 'Invalid API key',
-          });
-          return;
-        }
-        // Store userId in request for provenance tracking
-        (req as Request & { userId?: string }).userId = result.userId;
-      } catch (error) {
-        logger.error('API key validation error', { error });
-        res.status(500).json({
-          error: 'Internal Server Error',
-          message: 'Failed to validate API key',
+    try {
+      const result = await validateApiKey(apiKey);
+      if (!result.valid) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Invalid API key',
         });
         return;
       }
+      // Store userId in request for provenance tracking
+      (req as Request & { userId?: string }).userId = result.userId;
+    } catch (error) {
+      logger.error('API key validation error', { error });
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to validate API key',
+      });
+      return;
     }
 
     next();
+  }];
+}
+
+/**
+ * Scope a request to the graph named by `field` in its body, with the same
+ * check the graph routes apply to `:id`. Only the real key check carries an
+ * API key with graph restrictions, so with auth disabled or a test validator
+ * this does nothing.
+ */
+function createGraphAccessMiddleware(config: ImportRouterConfig, field: 'targetGraphId' | 'graphId'): RequestHandler {
+  if (config.disableAuth || config.validateApiKey) {
+    return (_req: Request, _res: Response, next: NextFunction): void => {
+      next();
+    };
+  }
+
+  const check = authorizeGraphAccess((req) => req.body?.[field]) as RequestHandler;
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const graphId: unknown = req.body?.[field];
+    if (graphId !== undefined && typeof graphId !== 'string') {
+      // A non-string id would skip the access check and reach the service.
+      next(new ValidationError(`${field} must be a string`, field));
+      return;
+    }
+    check(req, res, next);
   };
 }
 
@@ -642,6 +693,9 @@ export function createImportRouter(config: ImportRouterConfig): Router {
   const authMiddleware = createAuthMiddleware(config);
   router.use(authMiddleware);
 
+  const targetGraphAccess = createGraphAccessMiddleware(config, 'targetGraphId');
+  const graphAccess = createGraphAccessMiddleware(config, 'graphId');
+
   // FIX #6: Apply CSRF protection to state-changing routes
   const csrfMiddleware = createCsrfMiddleware(config);
 
@@ -687,7 +741,7 @@ export function createImportRouter(config: ImportRouterConfig): Router {
    * 
    * Response: ImportPreview
    */
-  router.post('/preview', async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/preview', targetGraphAccess, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { data, targetGraphId, mode = 'create-new' } = req.body;
 
@@ -740,7 +794,7 @@ export function createImportRouter(config: ImportRouterConfig): Router {
    */
   // FIX #6: CSRF protection on state-changing endpoint
   // FIX B#53: Idempotency key support for safe retries
-  router.post('/', csrfMiddleware, idempotencyMiddleware, checkConcurrentImport, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/', targetGraphAccess, csrfMiddleware, idempotencyMiddleware, checkConcurrentImport, async (req: Request, res: Response, next: NextFunction) => {
     const extReq = req as Request & { importLockGraphId?: string; userId?: string };
     try {
       const {
@@ -904,7 +958,7 @@ export function createImportRouter(config: ImportRouterConfig): Router {
         throw new ValidationError('jobId is required');
       }
 
-      const job = await importService.getImportJob(jobId);
+      const job = await importService.getImportJob(jobId, (req as Request & { userId?: string }).userId);
 
       if (!job) {
         res.status(404).json({
@@ -933,7 +987,7 @@ export function createImportRouter(config: ImportRouterConfig): Router {
         throw new ValidationError('jobId is required');
       }
 
-      const cancelled = importService.cancelImport(jobId);
+      const cancelled = importService.cancelImport(jobId, (req as Request & { userId?: string }).userId);
 
       if (cancelled) {
         res.json({
@@ -969,7 +1023,7 @@ export function createImportRouter(config: ImportRouterConfig): Router {
    * 
    * Response: { valid: boolean, conflicts: ImportConflict[], wouldCreate: EntityCounts }
    */
-  router.post('/validate-incremental', async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/validate-incremental', graphAccess, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { graphId, additions } = req.body;
 

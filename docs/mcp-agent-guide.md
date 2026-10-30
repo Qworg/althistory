@@ -187,9 +187,10 @@ When running the Althistory daemon across a Tailnet:
    # or
    npm run dev:tailscale
    ```
-2. The server binds to `0.0.0.0` and prints the Tailscale access coordinates (e.g. `http://100.102.29.81:3000`).
+2. The server binds to `0.0.0.0` and prints the Tailscale access coordinates (e.g. `http://100.x.y.z:3000`, where `100.x.y.z` is the machine's Tailscale IP).
+   Local mode does not require an API key by default (`API_AUTH_REQUIRED` is `false`), so every device on the tailnet can read and change the events, arcs and relationships in your graphs. Set `API_AUTH_REQUIRED=true` in `timeline/.env.local` if that is not what you want.
 3. Remote agents connect via CLI:
    ```bash
-   althistory --url http://100.102.29.81:3000 --api-key <your-key> graph list
+   althistory --url http://100.x.y.z:3000 --api-key <your-key> graph list
    ```
-4. Remote web browsers on your Tailnet access the interactive D3/Cytoscape visualizer at `http://100.102.29.81:5173`.
+4. Remote web browsers on your Tailnet access the interactive D3/Cytoscape visualizer at `http://100.x.y.z:5173`.

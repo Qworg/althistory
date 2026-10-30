@@ -513,71 +513,80 @@ graphRoutes.get('/:id/branches', ...readGraphAuth, async (req: RequestWithContai
 
 /**
  * POST /graphs/:id/merge - Merge a source graph into this graph
+ *
+ * A merge reads the source graph (its entities land in the target, and a
+ * conflict report quotes them), so the key must be allowed the source as well
+ * as the target.
  */
-graphRoutes.post('/:id/merge', ...writeGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
-  try {
-    const service = req.container.graphService;
+graphRoutes.post(
+  '/:id/merge',
+  ...writeGraphAuth,
+  authorizeGraphAccess((req) => (req as AuthenticatedRequest).body?.sourceGraphId) as RequestHandler,
+  async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+    try {
+      const service = req.container.graphService;
 
-    const request: MergeGraphRequest = req.body;
+      const request: MergeGraphRequest = req.body;
 
-    if (!request.sourceGraphId) {
-      throw new ValidationError('Source graph ID is required', 'sourceGraphId');
-    }
+      if (!request.sourceGraphId) {
+        throw new ValidationError('Source graph ID is required', 'sourceGraphId');
+      }
 
-    if (!request.conflictResolution || !['keep-target', 'keep-source', 'manual'].includes(request.conflictResolution)) {
-      throw new ValidationError(
-        'Conflict resolution must be one of: keep-target, keep-source, manual',
-        'conflictResolution'
-      );
-    }
+      if (!request.conflictResolution || !['keep-target', 'keep-source', 'manual'].includes(request.conflictResolution)) {
+        throw new ValidationError(
+          'Conflict resolution must be one of: keep-target, keep-source, manual',
+          'conflictResolution'
+        );
+      }
 
-    if (request.dryRun !== undefined && typeof request.dryRun !== 'boolean') {
-      throw new ValidationError('dryRun must be a boolean', 'dryRun', request.dryRun);
-    }
+      if (request.dryRun !== undefined && typeof request.dryRun !== 'boolean') {
+        throw new ValidationError('dryRun must be a boolean', 'dryRun', request.dryRun);
+      }
 
-    // The route validates the values as well as the service, because a service
-    // that is only safe when its one caller validates is not safe. An invalid
-    // value must be rejected here rather than reach the merge's keep-target
-    // fallback.
-    const invalidManualResolutions = findInvalidManualResolutions(request.manualResolutions);
-    if (invalidManualResolutions.length > 0) {
-      throw new ValidationError(
-        'manualResolutions values must be "keep-source", "keep-target", or { strategy: "merged", value: { ... } }',
-        'manualResolutions',
-        request.manualResolutions,
-        invalidManualResolutions.map(key => `manualResolutions[${key}] is not a valid resolution`)
-      );
-    }
+      // The route validates the values as well as the service, because a service
+      // that is only safe when its one caller validates is not safe. An invalid
+      // value must be rejected here rather than reach the merge's keep-target
+      // fallback.
+      const invalidManualResolutions = findInvalidManualResolutions(request.manualResolutions);
+      if (invalidManualResolutions.length > 0) {
+        throw new ValidationError(
+          'manualResolutions values must be "keep-source", "keep-target", or { strategy: "merged", value: { ... } }',
+          'manualResolutions',
+          request.manualResolutions,
+          invalidManualResolutions.map(key => `manualResolutions[${key}] is not a valid resolution`)
+        );
+      }
 
-    const result = await service.mergeGraph(req.params.id, request);
+      const result = await service.mergeGraph(req.params.id, request);
 
-    if (!result.success) {
-      res.status(409).json({
-        success: false,
+      if (!result.success) {
+        res.status(409).json({
+          success: false,
+          conflicts: result.conflicts,
+          anomalies: result.anomalies,
+          message: 'Merge has conflicts or validation anomalies that need resolution',
+          requestId: req.requestId,
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: result.mergedGraph,
+        newVersion: result.newVersion,
         conflicts: result.conflicts,
         anomalies: result.anomalies,
-        message: 'Merge has conflicts or validation anomalies that need resolution',
+        // Present (and true) only for a preview, so a client that asked for a dry
+        // run can tell it apart from a commit even when there were no conflicts.
+        dryRun: result.dryRun === true,
+        message: result.dryRun === true ? 'Merge preview generated' : 'Merge completed successfully',
         requestId: req.requestId,
       });
-      return;
+    } catch (error) {
+      next(error);
     }
-
-    res.json({
-      success: true,
-      data: result.mergedGraph,
-      newVersion: result.newVersion,
-      conflicts: result.conflicts,
-      anomalies: result.anomalies,
-      // Present (and true) only for a preview, so a client that asked for a dry
-      // run can tell it apart from a commit even when there were no conflicts.
-      dryRun: result.dryRun === true,
-      message: result.dryRun === true ? 'Merge preview generated' : 'Merge completed successfully',
-      requestId: req.requestId,
-    });
-  } catch (error) {
-    next(error);
   }
-});
+);
 
 /**
  * GET /graphs/:id/data - Get the full data for a graph

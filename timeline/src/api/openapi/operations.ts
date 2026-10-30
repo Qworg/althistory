@@ -689,9 +689,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
 
   // --- import --------------------------------------------------------------
   'POST /api/import/validate': {
-    summary:
-      'Check that an export document can be imported. The key is only checked ' +
-      'for being present: the import routes do not verify it yet.',
+    summary: 'Check that an export document can be imported. Needs the `import` permission.',
     request: 'ExportDocument',
     requestRequired: true,
     response: 'ValidationReport',

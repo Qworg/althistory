@@ -141,7 +141,12 @@ rather than silently operating on the wrong one.
 
 **Import is the exception.** `POST /api/import` does not read `X-Graph-Id`: it
 takes its target from the body's `targetGraphId`, and creates a new graph when
-that is omitted.
+that is omitted. A key restricted to some graphs gets `403` for a
+`targetGraphId` (or, on `validate-incremental`, a `graphId`) outside them, and
+an import job is visible to, and cancellable by, only the key that started it.
+
+**Merge reads two graphs.** `POST /api/graphs/:id/merge` checks the key against
+both the target `:id` and the body's `sourceGraphId`.
 
 ## Responses
 

@@ -155,6 +155,15 @@ export interface ImportOptions {
   userId?: string;
 }
 
+/**
+ * Whether `requestedBy` may see a job recorded for `owner`. A caller that names
+ * no requester (in-process callers, tests with auth disabled) sees every job; a
+ * named requester sees only its own jobs and jobs that recorded no owner.
+ */
+function isRequester(owner: string | undefined, requestedBy: string | undefined): boolean {
+  return requestedBy === undefined || owner === undefined || owner === requestedBy;
+}
+
 export interface ImportResult {
   success: boolean;
   graphId: string;
@@ -210,7 +219,7 @@ export class ImportService {
   private readonly graphRepository: GraphRepository;
   private readonly jobRepository: JobRepository;
   private readonly logger: ILogger;
-  private activeImports: Map<string, { cancel: boolean; graphId?: string }> = new Map();
+  private activeImports: Map<string, { cancel: boolean; graphId?: string; requestedBy?: string }> = new Map();
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
   private isDestroyed = false;
   /** FIX A#9: Configurable threshold for async import */
@@ -2007,11 +2016,16 @@ export class ImportService {
       metadata: {
         mode: options.mode,
         graphId: options.graphId,
+        requestedBy: options.userId,
       },
     });
 
     // Store cancel flag and graphId for cleanup
-    this.activeImports.set(job.id, { cancel: false, graphId: options.graphId });
+    this.activeImports.set(job.id, {
+      cancel: false,
+      graphId: options.graphId,
+      requestedBy: options.userId,
+    });
 
     // Execute in background
     setImmediate(async () => {
@@ -2089,9 +2103,9 @@ export class ImportService {
   /**
    * Cancel an in-progress import
    */
-  cancelImport(jobId: string): boolean {
+  cancelImport(jobId: string, requestedBy?: string): boolean {
     const importState = this.activeImports.get(jobId);
-    if (importState) {
+    if (importState && isRequester(importState.requestedBy, requestedBy)) {
       importState.cancel = true;
       return true;
     }
@@ -2100,10 +2114,16 @@ export class ImportService {
 
   /**
    * Get import job status
+   *
+   * A job started by one caller is not visible to another: with `requestedBy`
+   * set, a job recorded for a different requester answers as not found.
    */
-  async getImportJob(jobId: string): Promise<ImportJob | null> {
+  async getImportJob(jobId: string, requestedBy?: string): Promise<ImportJob | null> {
     const job = await this.jobRepository.findById(jobId);
     if (!job) return null;
+    const metadata = (job.parameters as unknown as { metadata?: { requestedBy?: unknown } }).metadata;
+    const owner = typeof metadata?.requestedBy === 'string' ? metadata.requestedBy : undefined;
+    if (!isRequester(owner, requestedBy)) return null;
     return {
       id: job.id,
       status: job.status,

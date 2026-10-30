@@ -385,6 +385,25 @@ describe('Graph routes (request-level)', () => {
       }
     );
 
+    it('refuses a merge whose source graph the key may not access', async () => {
+      const otherGraph = await container.graphService.createGraph({ name: 'Merge Source Elsewhere' });
+      const scoped = await container.authService.createApiKey({
+        name: 'Graph Routes Scoped Write Key',
+        permissions: ['read:graphs', 'write:graphs'],
+        allowedGraphs: [sourceGraph.id],
+      });
+      const mergeSpy = vi.spyOn(container.graphService, 'mergeGraph');
+
+      const response = await request(app)
+        .post(`/api/graphs/${sourceGraph.id}/merge`)
+        .set('X-API-Key', scoped.key)
+        .send({ sourceGraphId: otherGraph.id, conflictResolution: 'keep-source', dryRun: true })
+        .expect(403);
+
+      expect(response.body.error.message).toContain(otherGraph.id);
+      expect(mergeSpy).not.toHaveBeenCalled();
+    });
+
     it('accepts a harmonized compromise payload and passes it to the service', async () => {
       const mergeSpy = vi
         .spyOn(container.graphService, 'mergeGraph')
