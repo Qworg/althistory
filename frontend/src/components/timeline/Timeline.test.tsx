@@ -444,6 +444,10 @@ describe('Timeline Component', () => {
         expect(() => fireEvent.keyDown(svg, { key: 'ArrowLeft' })).not.toThrow()
         expect(() => fireEvent.keyDown(svg, { key: 'ArrowRight' })).not.toThrow()
 
+        // PageUp / PageDown panning
+        expect(() => fireEvent.keyDown(svg, { key: 'PageUp' })).not.toThrow()
+        expect(() => fireEvent.keyDown(svg, { key: 'PageDown' })).not.toThrow()
+
         // Zoom keys
         expect(() => fireEvent.keyDown(svg, { key: '+' })).not.toThrow()
         expect(() => fireEvent.keyDown(svg, { key: '-' })).not.toThrow()

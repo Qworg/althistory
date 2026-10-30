@@ -371,7 +371,7 @@ describe('WebSocket streaming (requirement 16)', () => {
 
     const writer = await container.authService.createApiKey({
       name: 'Stream Writer',
-      permissions: ['write:events', 'write:arcs', 'read:events'],
+      permissions: ['write:events', 'write:arcs', 'write:relationships', 'read:events'],
       rateLimit: { concurrentStreams: 3 },
     });
     writerKeyId = writer.id;
@@ -1015,6 +1015,52 @@ describe('WebSocket streaming (requirement 16)', () => {
         const persisted = await scoped.arcRepository.findById(ack.entityId as string);
         expect(persisted).not.toBeNull();
         expect(persisted?.name).toBe('Renaissance');
+      } finally {
+        await harness.close();
+      }
+    });
+
+    it('acks a successful relationship and emits a warning when confidence is low', async () => {
+      const scoped = await container.graphScopedRepositories(graphId);
+      const cause = await scoped.eventRepository.create({
+        description: 'Cause event for stream relationship',
+        actor: 'Cause Actor',
+        target: 'Target',
+        timestamp: new Date('1450-01-01T00:00:00.000Z'),
+      });
+      const effect = await scoped.eventRepository.create({
+        description: 'Effect event for stream relationship',
+        actor: 'Effect Actor',
+        target: 'Target',
+        timestamp: new Date('1455-01-01T00:00:00.000Z'),
+      });
+
+      const token = await requestToken(writerKey);
+      const harness = await connectAccepted(token);
+      try {
+        sendJson(harness, {
+          type: 'relationship',
+          requestId: 'rel-1',
+          data: {
+            causeEventId: cause.id,
+            effectEventId: effect.id,
+            weight: 0.7,
+            confidence: 0.3,
+            reasoning: 'Low-confidence hypothesis',
+          },
+        });
+
+        const firstFrame = await harness.next();
+        expect(firstFrame.type).toBe('warning');
+        expect(firstFrame.requestId).toBe('rel-1');
+        expect(String(firstFrame.message)).toContain('below 0.5');
+
+        const ack = await harness.next();
+        expect(ack.type).toBe('ack');
+        expect(ack.success).toBe(true);
+        expect(ack.requestId).toBe('rel-1');
+        expect(ack.entityType).toBe('relationship');
+        expect(typeof ack.entityId).toBe('string');
       } finally {
         await harness.close();
       }

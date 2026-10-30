@@ -63,8 +63,6 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
   })
   
   const [isLoading, setIsLoading] = useState(false)
-  // TODO: Use highlightedPath for visual indication or remove if not needed
-  // const [highlightedPath, setHighlightedPath] = useState<CausalPath | null>(null)
 
   // Ref for cancelling pending API requests
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -129,8 +127,6 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
       if (pathsWithStrength.length > 0) {
         const strongestPath = pathsWithStrength[0]
         if (strongestPath) {
-          // TODO: Implement visual highlighting
-          // setHighlightedPath(strongestPath)
           onPathHighlight?.(strongestPath)
           onPathSelect?.(strongestPath)
         }
@@ -173,8 +169,6 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
       currentStepIndex: 0,
       explorationDepth: maxDepth
     })
-    // TODO: Implement visual highlighting
-    // setHighlightedPath(null)
     onPathHighlight?.(null)
   }, [maxDepth, onPathHighlight])
 
@@ -187,8 +181,6 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
         currentPath: selectedPath,
         currentStepIndex: 0
       }))
-      // TODO: Implement visual highlighting
-      // setHighlightedPath(selectedPath)
       onPathHighlight?.(selectedPath)
       onPathSelect?.(selectedPath)
     }

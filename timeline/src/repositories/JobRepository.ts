@@ -189,7 +189,7 @@ export class JobRepository {
   }
 
   /**
-   * Cleanup expired jobs
+   * Cleanup expired jobs and their associated output files
    */
   async cleanupExpiredJobs(): Promise<number> {
     const now = new Date().toISOString();
@@ -198,6 +198,16 @@ export class JobRepository {
     const jobs = Array.from(this.jobs.values());
     for (const job of jobs) {
       if (job.expiresAt < now && (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled')) {
+        const outputPath = job.result?.outputPath;
+        if (typeof outputPath === 'string' && outputPath.length > 0) {
+          try {
+            await fs.promises.unlink(outputPath);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+              console.warn(`Failed to delete expired job output file ${outputPath}:`, error);
+            }
+          }
+        }
         await this.delete(job.id);
         count++;
       }

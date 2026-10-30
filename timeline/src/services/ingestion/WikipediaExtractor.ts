@@ -580,7 +580,46 @@ export class WikipediaExtractor implements Extractor<WikipediaExtractionInput> {
     context?: ExtractionContext
   ): ExtractedEvent[] {
     const events = this.extractFromInfoboxes(page, articleUrl);
+    events.push(...this.extractFromHistorySections(page, articleUrl, context));
     events.push(...this.extractFromProse(page, articleUrl, context));
+    return events;
+  }
+
+  private extractFromHistorySections(
+    page: WikipediaPage,
+    articleUrl: string,
+    context?: ExtractionContext
+  ): ExtractedEvent[] {
+    const extractedAt = this.now().toISOString();
+    const sections = extractHistorySections(page.wikitext);
+    const events: ExtractedEvent[] = [];
+
+    for (const section of sections) {
+      const cleaned = cleanWikiText(section.body);
+      for (const sentence of splitSentences(cleaned)) {
+        const dates = extractDates(sentence);
+        if (dates.length === 0) continue;
+
+        const entities = extractCapitalizedEntities(sentence);
+        const actor = context?.defaultActors?.[0] ?? page.title;
+        const target = entities.find((entity) => entity !== page.title) ?? page.title;
+        const date = dates[0];
+        const baseConfidence = patternConfidence(date.precision, actor.length > 0, target.length > 0);
+
+        events.push({
+          tempId: newTempId('wiki'),
+          description: sentence,
+          actor,
+          target,
+          timestamp: date.iso,
+          confidence: Math.min(0.95, Number((baseConfidence + 0.05).toFixed(2))),
+          source: { type: 'wikipedia', url: articleUrl, articleTitle: page.title, extractedAt },
+          selected: true,
+          edited: false,
+        });
+      }
+    }
+
     return events;
   }
 
@@ -655,6 +694,34 @@ export class WikipediaExtractor implements Extractor<WikipediaExtractionInput> {
 
     return events;
   }
+}
+
+const HISTORY_HEADING_PATTERN = /\b(?:history|timeline|chronology|background|events|overview)\b/i;
+
+export function extractHistorySections(wikitext: string): Array<{ heading: string; body: string }> {
+  const headingRegex = /^(={2,3})\s*(.+?)\s*\1\s*$/gm;
+  const matches: Array<{ heading: string; index: number; endOfHeading: number }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = headingRegex.exec(wikitext)) !== null) {
+    matches.push({
+      heading: match[2].trim(),
+      index: match.index,
+      endOfHeading: match.index + match[0].length,
+    });
+  }
+
+  const sections: Array<{ heading: string; body: string }> = [];
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i];
+    if (!HISTORY_HEADING_PATTERN.test(current.heading)) continue;
+    const nextStart = i + 1 < matches.length ? matches[i + 1].index : wikitext.length;
+    const body = wikitext.slice(current.endOfHeading, nextStart).trim();
+    if (body.length > 0) {
+      sections.push({ heading: current.heading, body });
+    }
+  }
+  return sections;
 }
 
 function stripSectionHeadings(wikitext: string): string {

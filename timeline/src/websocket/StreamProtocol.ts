@@ -38,12 +38,23 @@ export interface ClientArcMessage {
   data: Record<string, unknown>;
 }
 
+/** Client -> server: write one causal relationship. */
+export interface ClientRelationshipMessage {
+  type: 'relationship';
+  requestId?: string;
+  data: Record<string, unknown>;
+}
+
 /** Client -> server: end the session cleanly. */
 export interface ClientCloseMessage {
   type: 'close';
 }
 
-export type ClientMessage = ClientEventMessage | ClientArcMessage | ClientCloseMessage;
+export type ClientMessage =
+  | ClientEventMessage
+  | ClientArcMessage
+  | ClientRelationshipMessage
+  | ClientCloseMessage;
 
 /**
  * Server -> client: result of the connection-time token validation.
@@ -69,7 +80,7 @@ export interface ServerAuthResultMessage {
 export interface ServerAckMessage {
   type: 'ack';
   requestId?: string;
-  entityType: 'event' | 'arc';
+  entityType: 'event' | 'arc' | 'relationship';
   entityId: string | null;
   success: boolean;
   error?: string;
@@ -83,6 +94,7 @@ export interface ServerAckMessage {
 /** Server -> client: non-blocking validation warning (requirement 16.4). */
 export interface ServerWarningMessage {
   type: 'warning';
+  requestId?: string;
   message: string;
   entityId?: string;
 }

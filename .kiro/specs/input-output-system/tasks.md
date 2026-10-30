@@ -73,7 +73,7 @@
   - Write unit tests
   - _Requirements: 5.1, 5.2, 5.3, 5.6, 4.4_
 
-- [x] 1.7 Implement JobRepository and JobService  _(PARTIAL: `cleanupExpiredJobs` (`timeline/src/repositories/JobRepository.ts:194-207`) removes the job JSON but not the export file at `job.result.outputPath`, which Req 22.5 asks for)_ `timeline/src/models/AsyncJob.ts:145` (`AsyncJob`), `:5` (`JobType`), `:6` (`JobStatus`); `timeline/src/repositories/JobRepository.ts:28` (class), `:38` (`<dataDir>/jobs`), `:75` (`create`), `:194` (`cleanupExpiredJobs`); `timeline/src/services/JobService.ts:86` (class), `:279` (`createExportJob`), `:658` (`reportProgress`), `:374` (`cancelJob`), `:395` (`deleteJob`); tests `timeline/src/repositories/JobRepository.test.ts`, `timeline/src/services/JobService.test.ts`
+- [x] 1.7 Implement JobRepository and JobService  `timeline/src/models/AsyncJob.ts:145` (`AsyncJob`), `:5` (`JobType`), `:6` (`JobStatus`); `timeline/src/repositories/JobRepository.ts:28` (class), `:38` (`<dataDir>/jobs`), `:75` (`create`), `:194-217` (`cleanupExpiredJobs`, including unlinking `job.result.outputPath`); `timeline/src/services/JobService.ts:86` (class), `:279` (`createExportJob`), `:658` (`reportProgress`), `:374` (`cancelJob`), `:395` (`deleteJob`); tests `timeline/src/repositories/JobRepository.test.ts`, `timeline/src/services/JobService.test.ts`
   - Create `timeline/src/models/AsyncJob.ts` with job types
   - Create `timeline/src/repositories/JobRepository.ts`
   - Implement job persistence in `data/jobs/` for local mode
@@ -94,7 +94,7 @@
   - Write API tests
   - _Requirements: 5.4, 5.5_
 
-- [x] 1.9 Frontend: Graph selector component  `frontend/src/components/graphs/GraphSelector.tsx:220` (event/arc counts; there is no date range here — `GraphCard`, which has one at `frontend/src/components/graphs/GraphCard.tsx:138-140`, is rendered nowhere), `frontend/src/hooks/useGraphs.ts:56` (`useGraphs`), `:211` (`useSwitchGraph`, which clears the store and invalidates `events`/`arcs`/`causal`/`pressures`); tests `frontend/src/components/graphs/GraphSelector.test.tsx`
+- [x] 1.9 Frontend: Graph selector component  `frontend/src/components/graphs/GraphSelector.tsx:218-228` (event count, arc count, and `timeRange` year span), `frontend/src/hooks/useGraphs.ts:56` (`useGraphs`), `:211` (`useSwitchGraph`, which clears the store and invalidates `events`/`arcs`/`causal`/`pressures`); tests `frontend/src/components/graphs/GraphSelector.test.tsx`
   - Create `frontend/src/components/graphs/GraphSelector.tsx`
   - Implement dropdown showing current graph name
   - Add graph metadata display (event count, date range)
@@ -103,7 +103,7 @@
   - Write component tests
   - _Requirements: 17.1_
 
-- [x] 1.10 Frontend: Graph management modal  _(PARTIAL: `GraphCard`, `CreateGraphModal` and `BranchGraphModal` are only re-exported by `frontend/src/components/graphs/index.ts:11-13` and never rendered, and `GraphManagerModal` has no create action)_ `frontend/src/components/graphs/GraphManagerModal.tsx:25`, `GraphCard.tsx:34`, `CreateGraphModal.tsx:27`, `BranchGraphModal.tsx:29`; tests `frontend/src/components/graphs/GraphManagerModal.test.tsx` (`'should show graph metadata'`, `'should call switchGraph and close modal when Switch is clicked'`)
+- [x] 1.10 Frontend: Graph management modal  `frontend/src/components/graphs/GraphManagerModal.tsx:25`, `:271-278` (mounts `CreateGraphModal`), `:307-312` ("New Graph" button), `GraphCard.tsx:34`, `CreateGraphModal.tsx:27`, `BranchGraphModal.tsx:29`; tests `frontend/src/components/graphs/GraphManagerModal.test.tsx` (`'should show graph metadata'`, `'should call switchGraph and close modal when Switch is clicked'`, `'should open CreateGraphModal when New Graph button is clicked'`)
   - Create `frontend/src/components/graphs/GraphManagerModal.tsx`
   - Create `frontend/src/components/graphs/GraphCard.tsx` for list items
   - Create `frontend/src/components/graphs/CreateGraphModal.tsx`
@@ -113,7 +113,7 @@
   - Write component tests
   - _Requirements: 17.2, 17.3, 17.4_
 
-- [x] 1.11 Frontend: Version history panel  `frontend/src/components/graphs/VersionHistoryPanel.tsx:17` (panel), `:28` (`useRollbackGraph`), `:205`-`:228` (rollback confirm/cancel), `:114` (expand for details); tests `frontend/src/components/graphs/VersionHistoryPanel.test.tsx` _(PARTIAL: the operation type is never shown — the frontend `GraphVersion` type has no operation field, `frontend/src/types/index.ts:282`; and the panel is mounted with no props (`frontend/src/components/views/ViewToolbar.tsx:668`), so its optional `onVersionSelect` does nothing)_
+- [x] 1.11 Frontend: Version history panel  `frontend/src/components/graphs/VersionHistoryPanel.tsx:17` (panel), `:28` (`useRollbackGraph`), `:177-181` (operation badge), `:205`-`:228` (rollback confirm/cancel), `:114` (expand for details), `frontend/src/types/index.ts:341` (`GraphVersion.operation`), `frontend/src/components/graphs/GraphManagerModal.tsx:580-584` (operation badge in `VersionsTab`); tests `frontend/src/components/graphs/VersionHistoryPanel.test.tsx`
   - Create `frontend/src/components/graphs/VersionHistoryPanel.tsx`
   - Display version timeline with operation types
   - Add rollback buttons with confirmation dialog
@@ -121,7 +121,7 @@
   - Write component tests
   - _Requirements: 17.5_
 
-- [x] 1.12 Frontend: Export panel  _(PARTIAL: `ExportHistoryList` is only re-exported (`frontend/src/components/export/index.ts:10`); the panel draws its own list at `frontend/src/components/graphs/ExportPanel.tsx:330-351`)_ `frontend/src/components/graphs/ExportPanel.tsx:20` (scope), `:22` (filters), `:57` (includeProvenance), `:323` (job progress), `:343` (download), `frontend/src/components/graphs/ExportHistoryList.tsx:91`, `frontend/src/hooks/useExport.ts:146`; tests `frontend/src/components/graphs/ExportPanel.test.tsx` _(the files live under `components/graphs/`, not `components/export/`; `frontend/src/components/export/index.ts` re-exports them)_
+- [x] 1.12 Frontend: Export panel  `frontend/src/components/graphs/ExportPanel.tsx:20` (scope), `:22` (filters), `:57` (includeProvenance), `:323` (job progress), `:331-342` (mounts `ExportHistoryList`), `frontend/src/components/graphs/ExportHistoryList.tsx:91`, `frontend/src/hooks/useExport.ts:146`; tests `frontend/src/components/graphs/ExportPanel.test.tsx` _(the files live under `components/graphs/` and are re-exported by `frontend/src/components/export/index.ts`)_
   - Create `frontend/src/components/export/ExportPanel.tsx`
   - Create `frontend/src/components/export/ExportHistoryList.tsx`
   - Implement export options form (scope, filters, provenance)
@@ -142,23 +142,23 @@
   - Write unit tests for each validation type
   - _Requirements: 6.1, 6.2_
 
-- [x] 2.2 Implement conflict detection  `timeline/src/services/ImportService.ts:1628` (`detectConflicts`), `:129` (`ConflictResolution = 'skip' | 'overwrite' | 'rename'`), `:1716` (causal paradoxes vs. existing data), `:2320`-`:2334` (unique ID generation for the `rename` resolution); tests `timeline/src/services/ImportService.test.ts` (`'should generate new IDs when using rename resolution'`, `'should reject import when manual resolutions do not cover all error conflicts'` _(that test asserts `expect(true).toBe(true)`, `timeline/src/services/ImportService.test.ts:974`, so it proves nothing)_)
+- [x] 2.2 Implement conflict detection  `timeline/src/services/ImportService.ts:1630` (`detectConflicts`), `:129` (`ConflictResolution = 'skip' | 'overwrite' | 'rename'`), `:1718` (causal paradoxes vs. existing data), `:1755-1856` (`temporal-violation` vs. existing arcs), `:2320`-`:2334` (unique ID generation for the `rename` resolution); tests `timeline/src/services/ImportService.test.ts` (`'should generate new IDs when using rename resolution'`, `'should reject import when manual resolutions do not cover all error conflicts'`, `'should detect temporal-violation conflicts against existing arcs in merge mode'`)
   - Add conflict detection for duplicate IDs
-  - Detect temporal constraint violations with existing data _(NOT DONE: the `temporal-violation` code is declared at `timeline/src/services/ImportService.ts:124` and never emitted, and `validateTemporalConstraints` (`ImportService.ts:1421`) checks only the incoming data)_
+  - Detect temporal constraint violations with existing data (`timeline/src/services/ImportService.ts:1755-1856`)
   - Detect causal paradoxes
   - Implement conflict resolution strategies (skip, overwrite, rename)
   - Generate unique IDs for 'rename' resolution
   - Write unit tests
   - _Requirements: 6.4_
 
-- [x] 2.3 Implement import preview  `timeline/src/services/ImportService.ts:1770` (`preview`), `:138` (`ImportPreview` with `toCreate`/`toUpdate`/`toDelete`), `:1628` (`detectConflicts`); tests `timeline/src/services/ImportService.test.ts` (`'should calculate entity counts for create-new mode'`, `'should include validation warnings in preview'`)
+- [x] 2.3 Implement import preview  `timeline/src/services/ImportService.ts:1872` (`preview`), `:138` (`ImportPreview` with `toCreate`/`toUpdate`/`toDelete`), `:1630` (`detectConflicts`); tests `timeline/src/services/ImportService.test.ts` (`'should calculate entity counts for create-new mode'`, `'should include validation warnings in preview'`)
   - Create diff calculation (entities to create, update, delete)
   - Compare incoming data with existing graph state
   - Format preview response with counts and conflict details
   - Write unit tests
   - _Requirements: 6.3_
 
-- [x] 2.4 Implement import execution  _(PARTIAL: a failed import leaves the graph it created behind — in create-new mode the graph is created at `timeline/src/services/ImportService.ts:2183` and the catch at `:2238-2251` does not remove it)_ `timeline/src/services/ImportService.ts:2017` (`executeImport`), `:2059` (`executeImportInternal`), `:2260` (`applyImportWithRollback`), `:157`-`:166` (`ImportResult.graphVersion`); tests `timeline/src/services/ImportService.test.ts` (`'should not create partial data on validation failure mid-import'`, `'should preserve existing data when import fails'`, `'should record complete provenance data'`)
+- [x] 2.4 Implement import execution  `timeline/src/services/ImportService.ts:2119` (`executeImport`), `:2161` (`executeImportInternal`), `:2283-2377` (`cleanupNewGraph` removes newly created graph on failure/cancellation in `create-new` mode), `:2382` (`applyImportWithRollback`), `:157`-`:166` (`ImportResult.graphVersion`); tests `timeline/src/services/ImportService.test.ts` (`'should not create partial data on validation failure mid-import'`, `'should preserve existing data when import fails'`, `'should record complete provenance data'`)
   - Create atomic import with version transaction
   - Implement rollback on any failure
   - Apply conflict resolutions
@@ -248,7 +248,7 @@
   - Write API tests
   - _Requirements: 11_
 
-- [x] 3.7 Implement batch endpoints  _(PARTIAL: `onError` only distinguishes `abort` (`timeline/src/api/routes/batch.ts:207`), so `skip` and `collect` behave the same, `lenient` still creates the invalid entity (`:184-201`), and `strict` with `abort` keeps the rows already created (`:211`))_ `timeline/src/api/routes/batch.ts:147` (POST `/events`), `:231` (POST `/arcs`), `:314` (POST `/relationships`), `:444` (POST `/transaction`), `:41`-`:42` (`ValidationMode`/`ErrorHandlingMode`), `:149`-`:155` (auth middleware on every route); tests `timeline/src/api/routes/batch.test.ts`
+- [x] 3.7 Implement batch endpoints  `timeline/src/api/routes/batch.ts:148` (POST `/events`), `:256` (POST `/arcs`), `:361` (POST `/relationships`), `:489` (POST `/transaction`), `:41`-`:42` (`ValidationMode`/`ErrorHandlingMode`), `:181-448` (`lenient` skips invalid items with warnings, `onError: 'abort'` rolls back created items, `onError: 'skip'` vs `'collect'` error reporting), `:150`-`:156` (auth middleware on every route); tests `timeline/src/api/routes/batch.test.ts`
   - Create `timeline/src/api/routes/batch.ts`
   - Implement POST /api/batch/events
   - Implement POST /api/batch/arcs
@@ -269,9 +269,9 @@
   - Write API tests
   - _Requirements: 14_
 
-- [x] 3.9 Enhance InferenceService for suggestions API
+- [x] 3.9 Enhance InferenceService for suggestions API  `timeline/src/services/InferenceService.ts` (`suggestRelationships`, `clusterEventsIntoArcs`, `analyzeCompleteness`), `timeline/src/api/routes/suggest.ts:107-110`; tests `timeline/src/services/InferenceService.arcSuggestion.test.ts`
   - Update `timeline/src/services/InferenceService.ts`
-  - ~~Expose relationship suggestions as API-friendly format~~ — still in the route; tracked separately (#43)
+  - Expose relationship suggestions as API-friendly format — `InferenceService.suggestRelationships`
   - Add arc suggestion generation (cluster events) — `InferenceService.clusterEventsIntoArcs`
   - Add completeness analysis (gaps, missing links) — `InferenceService.analyzeCompleteness`
   - Write unit tests — `src/services/InferenceService.arcSuggestion.test.ts`
@@ -300,7 +300,7 @@
 
 ## Phase 4: Web Ingestion
 
-- [x] 4.1 Implement WikipediaExtractor  _(PARTIAL: the section headings are stripped (`timeline/src/services/ingestion/WikipediaExtractor.ts:660-662`), and there is no history-section parsing)_ `timeline/src/services/ingestion/WikipediaExtractor.ts:485` (class), `:495` (`extract`), `:410` (infobox/prose render modes), `:695` (`assertSafeLinkFilter` for the link regex), `:64`-`:87` (date templates); tests `timeline/src/services/ingestion/WikipediaExtractor.test.ts`
+- [x] 4.1 Implement WikipediaExtractor  `timeline/src/services/ingestion/WikipediaExtractor.ts:485` (class), `:495` (`extract`), `:410` (infobox/prose render modes), `:588-624` (`extractFromHistorySections`), `:699-726` (`extractHistorySections` for History/Timeline/Chronology/Background/Events/Overview headings), `:735` (`assertSafeLinkFilter` for the link regex), `:64`-`:87` (date templates); tests `timeline/src/services/ingestion/WikipediaExtractor.test.ts`
   - Create `timeline/src/services/ingestion/WikipediaExtractor.ts`
   - Implement article fetching via MediaWiki API
   - Parse infoboxes for structured data
@@ -350,7 +350,7 @@
   - Write integration tests
   - _Requirements: 9.2, 10.3, 10.4_
 
-- [x] 4.6 Implement IngestionOrchestrator  _(PARTIAL: there is no progress state — `timeline/src/services/ingestion/IngestionOrchestrator.ts:66`)_ `timeline/src/services/ingestion/IngestionOrchestrator.ts:167` (class), `:191` (`ingest`), `:215` (`runExtractor` dispatch), `:260` (`approve`), `:315` (`selectForImport` — partial import of the selected subset), `:88` (`InMemoryIngestionJobStore`); tests `timeline/src/services/ingestion/IngestionOrchestrator.test.ts` (`'imports the selected entities through the import executor'`, `'restricts to the approved event ids and drops dangling relationships'`)
+- [x] 4.6 Implement IngestionOrchestrator  `timeline/src/services/ingestion/IngestionOrchestrator.ts:63-78` (`IngestionJob` with `'extracting' | 'review' | 'imported' | 'failed'` status and `progress`), `:168` (class), `:192-249` (`ingest` with progress transitions and failure recording), `:255` (`runExtractor` dispatch), `:280` (`approve`), `:335` (`selectForImport` — partial import of the selected subset), `:89` (`InMemoryIngestionJobStore`); tests `timeline/src/services/ingestion/IngestionOrchestrator.test.ts`
   - Create `timeline/src/services/ingestion/IngestionOrchestrator.ts`
   - Coordinate different extractors based on source type
   - Manage ingestion jobs (create, update progress, complete)
@@ -373,7 +373,7 @@
   - Write API tests
   - _Requirements: 7, 8, 9_
 
-- [x] 4.8 Frontend: Ingestion wizard - Wikipedia tab  `frontend/src/components/ingestion/WikipediaIngestTab.tsx:18` (URL), `:48` (the URL is a `type="url"` field, not validated beyond the browser's own check), `:19`/`:61` (follow-links toggle), `:71` (depth), `:85` (link-filter regex), `:22`/`:105` (max pages) _(the file is `WikipediaIngestTab.tsx`, not `WikipediaTab.tsx`, it has no dedicated component test — it is covered by `frontend/src/components/ingestion/IngestionWizard.test.tsx:149` — and the form only checks `type="url"` (`:48`); the backend then rejects anything that is not a Wikipedia article, `timeline/src/services/ingestion/WikipediaExtractor.ts:183-185`)_
+- [x] 4.8 Frontend: Ingestion wizard - Wikipedia tab  `frontend/src/components/ingestion/WikipediaIngestTab.tsx:17-66` (URL input + `isValidWikipediaUrl` validation and `role="alert"` error), `:71-118` (follow-links toggle, depth selector, link-filter regex, max pages); tests `frontend/src/components/ingestion/IngestionWizard.test.tsx:149,340`
   - Create `frontend/src/components/ingestion/WikipediaTab.tsx`
   - Add URL input with Wikipedia URL validation
   - Add link following toggle and depth selector
@@ -382,7 +382,7 @@
   - Write component tests
   - _Requirements: 19.2_
 
-- [x] 4.9 Frontend: Ingestion wizard - Wikidata tab  `frontend/src/components/ingestion/WikidataIngestTab.tsx:18` (query-type dropdown incl. `custom`), `:33`-`:40` (person parameter), `:81`-`:95` (custom SPARQL), `:21`/`:97` (result limit) _(the file is `WikidataIngestTab.tsx`; there is no time-range parameter input and no dedicated component test — covered by `IngestionWizard.test.tsx:183`)_
+- [x] 4.9 Frontend: Ingestion wizard - Wikidata tab  `frontend/src/components/ingestion/WikidataIngestTab.tsx:17-120` (query-type dropdown incl. `custom`, person parameter, subject Wikidata ID and start/end time range parameters, custom SPARQL, result limit); tests `frontend/src/components/ingestion/IngestionWizard.test.tsx:183`
   - Create `frontend/src/components/ingestion/WikidataTab.tsx`
   - Add predefined query selector dropdown
   - Add query parameter inputs (subject, time range)
@@ -391,7 +391,7 @@
   - Write component tests
   - _Requirements: 19.1_
 
-- [x] 4.10 Frontend: Ingestion wizard - Text tab  `frontend/src/components/ingestion/TextIngestTab.tsx:25` (text submit), `:19`/`:48` (LLM toggle), `:34` (large text area) _(the file is `TextIngestTab.tsx`; the context options — default actors, time range, locale — are not implemented, and there is no dedicated component test)_
+- [x] 4.10 Frontend: Ingestion wizard - Text tab  `frontend/src/components/ingestion/TextIngestTab.tsx:9-115` (large text area, optional context options for `defaultActors`, `defaultTimeRange`, and `locale`, LLM toggle); tests `frontend/src/components/ingestion/IngestionWizard.test.tsx`
   - Create `frontend/src/components/ingestion/TextTab.tsx`
   - Add large text input area
   - Add context options (default actors, time range, locale)
@@ -399,7 +399,7 @@
   - Write component tests
   - _Requirements: 19.1_
 
-- [x] 4.11 Frontend: Entity review table  `frontend/src/components/ingestion/EntityReviewTable.tsx:173` (table), `:182` (select-all/deselect-all checkbox), `:27`-`:109` (inline-editable columns incl. description/actor/target/timestamp) _(the table is not sortable, the confidence score has no colour coding, there is no separate `EntityRow.tsx`, and the table has no dedicated component test — it is covered by `frontend/src/components/ingestion/IngestionWizard.test.tsx:203` and `:221`)_
+- [x] 4.11 Frontend: Entity review table  `frontend/src/components/ingestion/EntityReviewTable.tsx:158-295` (sortable table with `aria-sort` and ascending/descending column headers, select-all/deselect-all checkbox, inline-editable columns, color-coded confidence score badges); tests `frontend/src/components/ingestion/IngestionWizard.test.tsx:203,221,351`
   - Create `frontend/src/components/ingestion/EntityReviewTable.tsx`
   - Display entities in sortable table
   - Add checkbox column for selection
@@ -423,7 +423,7 @@
 
 ## Phase 5: Advanced Features
 
-- [x] 5.1 Implement WebSocket stream handler  _(PARTIAL: the only warning frame sent is a versioning failure (`timeline/src/websocket/StreamHandler.ts:1108`); no validation warnings are sent)_ `timeline/src/websocket/StreamHandler.ts:259` (class), `:342` (`handleUpgrade` — token validation), `:772`/`:775` (event and arc messages), `:821`/`:859` (acks), `:1109` (non-blocking validation warning), `:814` (backpressure close); tests `timeline/src/websocket/stream.integration.test.ts` (`'acks a successful event and actually persists it'`, `'acks a successful arc'`) _(the protocol has no `relationship` message type — `timeline/src/websocket/StreamProtocol.ts:28`-`:46` defines `event`, `arc` and `close` only)_
+- [x] 5.1 Implement WebSocket stream handler  `timeline/src/websocket/StreamHandler.ts:261` (class), `:344` (`handleUpgrade` — token validation), `:773-778` (event, arc, and relationship messages), `:1056-1122` (`writeRelationship` with low-confidence `ServerWarningMessage`), `:1171-1205` (`ackPersistedEntity` with non-blocking versioning warning), `:814` (backpressure close); tests `timeline/src/websocket/stream.integration.test.ts` (`'acks a successful event and actually persists it'`, `'acks a successful arc'`, `'acks a successful relationship and emits a warning when confidence is low'`)
   - Create `timeline/src/websocket/StreamHandler.ts`
   - Implement WebSocket connection handling
   - Validate stream tokens on connection
@@ -443,7 +443,7 @@
   - Write API tests
   - _Requirements: 16.1_
 
-- [x] 5.3 Implement stream session management  `timeline/src/websocket/StreamSession.ts:83` (`StreamSessionManager`), `:105`/`:220` (per-key session tracking), `:39` (session policy), `timeline/src/websocket/StreamProtocol.ts:28`-`:103` (message types); tests `timeline/src/websocket/StreamSession.test.ts` (`'refuses the N+1th session for the same API key and reports the limit'`, `'sweep removes an expired session and frees the slot it was holding'`) and `timeline/src/websocket/stream.integration.test.ts:1115` _(per-session statistics are counted — `entitiesCreated` at `StreamSession.ts:151` — but they are only logged on some paths: a client `close` message closes the session first (`timeline/src/websocket/StreamHandler.ts:769`), so the later release finds nothing to log at `:667`, and the expiry path (`:717-721`) logs no `entitiesCreated`)_
+- [x] 5.3 Implement stream session management  `timeline/src/websocket/StreamSession.ts:83` (`StreamSessionManager`), `:105`/`:220` (per-key session tracking), `:39` (session policy), `timeline/src/websocket/StreamHandler.ts:664-734` (`releaseSession` and `refuseSession` logging `messagesReceived` and `entitiesCreated` across socket, client-close, and expiry paths), `timeline/src/websocket/StreamProtocol.ts:28`-`:120` (message types); tests `timeline/src/websocket/StreamSession.test.ts` and `timeline/src/websocket/stream.integration.test.ts`
   - Create `timeline/src/websocket/StreamSession.ts`
   - Track active sessions per API key
   - Enforce concurrent stream limits
@@ -470,7 +470,7 @@
   - Write integration tests
   - _Requirements: 21_
 
-- [x] 5.6 Frontend: Streaming write hook  _(PARTIAL: there is no queue — `sendWithAck` rejects when the socket is closed (`frontend/src/hooks/useStreamingWrite.ts:196`))_ `frontend/src/hooks/useStreamingWrite.ts:62` (hook), `:101`-`:116` (connect + token fetch), `:193` (`sendWithAck` with per-message ack tracking), `:181` (close handling), `:44` (`getWebSocketStreamUrl`); tests `frontend/src/hooks/useStreamingWrite.test.ts` (`'sends events and receives correlated acks'`, `'handles validation warnings without failing the connection'`) _(there is no automatic reconnect: `connect` re-acquires a fresh token when called again, but nothing retries it)_
+- [x] 5.6 Frontend: Streaming write hook  `frontend/src/hooks/useStreamingWrite.ts:68` (hook), `:115-165` (connect + token fetch + outbound message queue flushed on `auth_result` + optional `autoReconnect`), `:223-295` (`sendWithAck` with per-message ack tracking + `writeEvent` / `writeArc` / `writeRelationship`), `:45` (`getWebSocketStreamUrl`); tests `frontend/src/hooks/useStreamingWrite.test.ts`
   - Create `frontend/src/hooks/useStreamingWrite.ts`
   - Implement WebSocket connection management
   - Add message queue with acknowledgment tracking
@@ -479,7 +479,7 @@
   - Write hook tests
   - _Requirements: 16_
 
-- [x] 5.7 Frontend: Real-time indicators  _(PARTIAL: a failure appears only in a `title` tooltip (`frontend/src/components/streaming/StreamingStatusBadge.tsx:62`))_ `frontend/src/components/streaming/StreamingStatusBadge.tsx:17` (badge), `:24`-`:45` (status states), `:62` (sent/acked/failed stats), `:73`/`:83` (connect/disconnect); wired into `frontend/src/components/views/ViewToolbar.tsx:580`; tests `frontend/src/components/streaming/StreamingStatusBadge.test.tsx`
+- [x] 5.7 Frontend: Real-time indicators  `frontend/src/components/streaming/StreamingStatusBadge.tsx:17` (badge), `:24`-`:45` (status states), `:62-84` (sent/acked/failed stats and visible inline `role="alert"` error/failure badges), `:86-103` (connect/disconnect); wired into `frontend/src/components/views/ViewToolbar.tsx:580`; tests `frontend/src/components/streaming/StreamingStatusBadge.test.tsx`
   - Add streaming status indicator component
   - Show write progress during streaming
   - Display error notifications for failed writes
@@ -487,7 +487,7 @@
   - Write component tests
   - _Requirements: 16_
 
-- [x] 5.8 Cross-graph reference UI  _(PARTIAL: a broken local reference is labelled "Cross-graph" (`frontend/src/components/causal-graph/CausalGraphComponent.tsx:706`))_ `frontend/src/components/modals/CausalRelationshipModal.tsx:16`/`:39`/`:57` (graph picker for the effect graph), `frontend/src/components/causal-graph/CausalGraphComponent.tsx:746`-`:762` (`isCrossGraph` / `crossGraphLabel`), `:804` (`cross-graph` edge class), `:1298` (hover detail), `frontend/src/types/index.ts:40`-`:41`; test `frontend/src/components/causal-graph/CausalGraphComponent.test.tsx:658` _(there is no UI for reference-change notifications, and no backend queue for them either: the registry that fed `getReferenceNotifications` was removed in [#32](https://github.com/Qworg/althistory/issues/32) because nothing wrote it. A cross-graph reference lives on the entity's `metadata.crossGraphRefs` and nothing consumes that for notifications)_
+- [x] 5.8 Cross-graph reference UI  `frontend/src/components/modals/CausalRelationshipModal.tsx:16`/`:39`/`:57` (graph picker for the effect graph), `frontend/src/components/causal-graph/CausalGraphComponent.tsx:700-762` (distinguishes `isCrossGraph` `[Foreign]` placeholder nodes from broken local `[Broken Reference]` / `⚠ Missing` nodes), `:804` (`cross-graph` edge class), `:1298` (hover detail), `frontend/src/types/index.ts:40`-`:41`; test `frontend/src/components/causal-graph/CausalGraphComponent.test.tsx:658` _(note: cross-graph reference-change notifications are tracked in [#32](https://github.com/Qworg/althistory/issues/32))_
   - Update relationship creation to allow cross-graph selection
   - Add visual indicators for cross-graph references
   - Show notifications for referenced entity changes _(NOT DONE -- there is no backend queue; see the note on 5.8 above and [#32](https://github.com/Qworg/althistory/issues/32))_

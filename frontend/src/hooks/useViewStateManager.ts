@@ -63,8 +63,8 @@ export function useViewStateManager() {
   }, [])
 
   // Get current zoom level from session data
-  const getCurrentZoomLevel = useCallback((): number => {
-    switch (viewMode) {
+  const getCurrentZoomLevel = useCallback((mode: ViewMode = viewMode): number => {
+    switch (mode) {
       case 'timeline':
         return sessionData.viewportState.timeline.zoomLevel
       case 'causal':
@@ -78,8 +78,8 @@ export function useViewStateManager() {
   }, [viewMode, sessionData])
 
   // Get current center point from session data
-  const getCurrentCenterPoint = useCallback((): { x: number; y: number } | null => {
-    switch (viewMode) {
+  const getCurrentCenterPoint = useCallback((mode: ViewMode = viewMode): { x: number; y: number } | null => {
+    switch (mode) {
       case 'timeline': {
         const centerTime = sessionData.viewportState.timeline.centerTime
         return centerTime ? { x: new Date(centerTime).getTime(), y: 0 } : null
@@ -96,31 +96,33 @@ export function useViewStateManager() {
 
   // Save current view state
   const saveCurrentViewState = useCallback(() => {
-    if (!previousViewMode.current) return
+    const targetMode = previousViewMode.current ?? viewMode
+    if (!targetMode) return
 
     const currentState: ViewState = {
       selectedEvents: [...selectedEvents],
       selectedArcs: [...selectedArcs],
       filters: { ...activeFilters },
       scrollPosition: getCurrentScrollPosition(),
-      zoomLevel: getCurrentZoomLevel(),
-      centerPoint: getCurrentCenterPoint(),
+      zoomLevel: getCurrentZoomLevel(targetMode),
+      centerPoint: getCurrentCenterPoint(targetMode),
       timestamp: Date.now()
     }
 
     // Save to memory
-    stateMap.current[previousViewMode.current] = currentState
+    stateMap.current[targetMode] = currentState
 
     // Save to session storage for persistence across page reloads
-    const stateKey = `viewState_${previousViewMode.current}`
+    const stateKey = `viewState_${targetMode}`
     try {
       sessionStorage.setItem(stateKey, JSON.stringify(currentState))
     } catch (error) {
       console.warn('Failed to save view state to session storage:', error)
     }
 
-    console.log(`Saved state for ${previousViewMode.current}:`, currentState)
+    console.log(`Saved state for ${targetMode}:`, currentState)
   }, [
+    viewMode,
     selectedEvents,
     selectedArcs,
     activeFilters,
@@ -130,7 +132,10 @@ export function useViewStateManager() {
   ])
 
   // Restore view state
-  const restoreViewState = useCallback((targetViewMode: ViewMode) => {
+  const restoreViewState = useCallback((
+    targetViewMode: ViewMode,
+    options?: { preserveCurrentFilters?: boolean }
+  ) => {
     // Try to get from memory first
     let savedState = stateMap.current[targetViewMode]
 
@@ -155,8 +160,10 @@ export function useViewStateManager() {
       setSelectedEvents(savedState.selectedEvents)
       setSelectedArcs(savedState.selectedArcs)
 
-      // Restore filters
-      setFilters(savedState.filters)
+      // Restore filters unless switching between views that share activeFilters
+      if (!options?.preserveCurrentFilters) {
+        setFilters(savedState.filters)
+      }
 
       // Restore scroll position (with a small delay to ensure DOM is ready)
       setTimeout(() => {
@@ -251,7 +258,7 @@ export function useViewStateManager() {
     if (viewMode && viewMode !== previousViewMode.current) {
       // Small delay to ensure the new view is mounted
       setTimeout(() => {
-        restoreViewState(viewMode)
+        restoreViewState(viewMode, { preserveCurrentFilters: true })
       }, 150)
     }
 

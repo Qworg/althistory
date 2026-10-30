@@ -141,6 +141,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   const events = propEvents ?? storeEvents
   const causalRelationships = propCausalRelationships ?? propRelationships ?? storeCausalRelationships
   const selectedEvents = useGlobalStore(state => state.selectedEvents)
+  const setSelectedEvents = useGlobalStore(state => state.setSelectedEvents)
   const updateSessionData = useGlobalStore(state => state.updateSessionData)
   const addCausalRelationship = useGlobalStore(state => state.addCausalRelationship)
   const addError = useGlobalStore(state => state.addError)
@@ -699,12 +700,18 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
 
     // Synthesize placeholder nodes for foreign / missing event references
     causalRelationships.forEach(relationship => {
+      const isCrossCause = Boolean(relationship.isCrossGraph || relationship.causeGraphId)
+      const isCrossEffect = Boolean(relationship.isCrossGraph || relationship.effectGraphId)
       if (!eventMap.has(relationship.cause_event_id)) {
         const placeholderEvent: Event = {
           id: relationship.cause_event_id,
-          actor: relationship.causeGraphId ? `[Graph: ${relationship.causeGraphId.slice(0, 8)}]` : '[Foreign]',
+          actor: relationship.causeGraphId
+            ? `[Graph: ${relationship.causeGraphId.slice(0, 8)}]`
+            : (isCrossCause ? '[Foreign]' : '[Broken Reference]'),
           target: 'Event',
-          description: 'Cross-graph referenced cause event',
+          description: isCrossCause
+            ? 'Cross-graph referenced cause event'
+            : 'Broken local reference (missing cause event)',
           timestamp: new Date().toISOString(),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -713,7 +720,11 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         nodes.push({
           id: relationship.cause_event_id,
           event: placeholderEvent,
-          label: `${relationship.causeGraphId ? `⇥ ${relationship.causeGraphId.slice(0, 8)}` : '⇥ Foreign'}: ${relationship.cause_event_id.slice(0, 6)}`,
+          label: relationship.causeGraphId
+            ? `⇥ ${relationship.causeGraphId.slice(0, 8)}: ${relationship.cause_event_id.slice(0, 6)}`
+            : (isCrossCause
+              ? `⇥ Foreign: ${relationship.cause_event_id.slice(0, 6)}`
+              : `⚠ Missing: ${relationship.cause_event_id.slice(0, 6)}`),
           weight: 0.5,
           isSelected: selectedEvents.includes(relationship.cause_event_id),
           isHighlighted: false,
@@ -723,9 +734,13 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       if (!eventMap.has(relationship.effect_event_id)) {
         const placeholderEvent: Event = {
           id: relationship.effect_event_id,
-          actor: relationship.effectGraphId ? `[Graph: ${relationship.effectGraphId.slice(0, 8)}]` : '[Foreign]',
+          actor: relationship.effectGraphId
+            ? `[Graph: ${relationship.effectGraphId.slice(0, 8)}]`
+            : (isCrossEffect ? '[Foreign]' : '[Broken Reference]'),
           target: 'Event',
-          description: 'Cross-graph referenced effect event',
+          description: isCrossEffect
+            ? 'Cross-graph referenced effect event'
+            : 'Broken local reference (missing effect event)',
           timestamp: new Date().toISOString(),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -734,7 +749,11 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         nodes.push({
           id: relationship.effect_event_id,
           event: placeholderEvent,
-          label: `${relationship.effectGraphId ? `⇤ ${relationship.effectGraphId.slice(0, 8)}` : '⇤ Foreign'}: ${relationship.effect_event_id.slice(0, 6)}`,
+          label: relationship.effectGraphId
+            ? `⇤ ${relationship.effectGraphId.slice(0, 8)}: ${relationship.effect_event_id.slice(0, 6)}`
+            : (isCrossEffect
+              ? `⇤ Foreign: ${relationship.effect_event_id.slice(0, 6)}`
+              : `⚠ Missing: ${relationship.effect_event_id.slice(0, 6)}`),
           weight: 0.5,
           isSelected: selectedEvents.includes(relationship.effect_event_id),
           isHighlighted: false,
@@ -1081,6 +1100,39 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   // State for mobile sidebar visibility
   const [showMobileSidebar, setShowMobileSidebar] = useState(false)
 
+  // Keyboard navigation and selection for causal graph nodes
+  const handleGraphKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (events.length === 0) return
+
+    const currentIndex = selectedEvents.length > 0
+      ? events.findIndex(e => e.id === selectedEvents[0])
+      : -1
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      event.preventDefault()
+      const nextIndex = (currentIndex + 1) % events.length
+      const nextEvent = events[nextIndex]
+      if (nextEvent) {
+        setSelectedEvents?.([nextEvent.id])
+        onNodeClick?.(nextEvent)
+      }
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const prevIndex = currentIndex <= 0 ? events.length - 1 : currentIndex - 1
+      const prevEvent = events[prevIndex]
+      if (prevEvent) {
+        setSelectedEvents?.([prevEvent.id])
+        onNodeClick?.(prevEvent)
+      }
+    } else if (event.key === 'Enter' && currentIndex >= 0) {
+      event.preventDefault()
+      const activeEvent = events[currentIndex]
+      if (activeEvent) {
+        onNodeClick?.(activeEvent)
+      }
+    }
+  }, [events, selectedEvents, setSelectedEvents, onNodeClick])
+
   return (
     <div className={`causal-graph-container relative flex flex-col lg:flex-row ${className}`}>
       {/* Mobile toggle button */}
@@ -1141,7 +1193,11 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       <div className="flex-1 relative">
         <div 
           ref={containerRef}
-          className="w-full h-full min-h-[400px] bg-gray-50 rounded-lg border border-gray-200"
+          tabIndex={0}
+          role="application"
+          aria-label={`Causal graph with ${events.length} events and ${causalRelationships.length} causal relationships`}
+          onKeyDown={handleGraphKeyDown}
+          className="w-full h-full min-h-[400px] bg-gray-50 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
           style={{ minHeight: '400px' }}
         />
 

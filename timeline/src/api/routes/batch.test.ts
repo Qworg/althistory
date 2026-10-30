@@ -190,7 +190,7 @@ describe('Batch Routes', () => {
       expect(mockEventRepository.create).toHaveBeenCalledTimes(2);
     });
 
-    it('should abort on validation error with strict mode', async () => {
+    it('should abort on validation error with strict mode and rollback created events', async () => {
       const response = await request(app)
         .post('/api/batch/events')
         .set('X-API-Key', 'valid-write-key')
@@ -198,6 +198,7 @@ describe('Batch Routes', () => {
         .send({
           graphId: 'test-graph',
           validation: 'strict',
+          onError: 'abort',
           events: [
             { description: 'Valid', actor: 'Actor', target: 'Target', timestamp: '1914-06-28T00:00:00.000Z' },
             { description: '', actor: 'Actor', target: 'Target', timestamp: '1914-07-28T00:00:00.000Z' }, // Invalid
@@ -206,6 +207,72 @@ describe('Batch Routes', () => {
         .expect(400);
 
       expect(response.body.error.message).toContain('Batch aborted');
+      expect(mockEventRepository.create).toHaveBeenCalledTimes(1);
+      expect(mockEventRepository.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it('should skip invalid entities with warnings in lenient validation mode', async () => {
+      const response = await request(app)
+        .post('/api/batch/events')
+        .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
+        .send({
+          graphId: 'test-graph',
+          validation: 'lenient',
+          events: [
+            { description: 'Valid 1', actor: 'Actor', target: 'Target', timestamp: '1914-06-28T00:00:00.000Z' },
+            { description: '', actor: 'Actor', target: 'Target', timestamp: '1914-07-28T00:00:00.000Z' }, // Invalid
+            { description: 'Valid 2', actor: 'Actor', target: 'Target', timestamp: '1914-08-28T00:00:00.000Z' },
+          ],
+        })
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.created).toHaveLength(2);
+      expect(response.body.validationWarnings).toEqual([
+        { index: 1, warning: 'description is required' },
+      ]);
+      expect(mockEventRepository.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('should distinguish onError skip vs collect when errors occur', async () => {
+      const eventsPayload = [
+        { description: 'Valid 1', actor: 'Actor', target: 'Target', timestamp: '1914-06-28T00:00:00.000Z' },
+        { description: '', actor: 'Actor', target: 'Target', timestamp: '1914-07-28T00:00:00.000Z' }, // Invalid
+      ];
+
+      const skipRes = await request(app)
+        .post('/api/batch/events')
+        .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
+        .send({
+          graphId: 'test-graph',
+          validation: 'strict',
+          onError: 'skip',
+          events: eventsPayload,
+        })
+        .expect(201);
+
+      expect(skipRes.body.success).toBe(true);
+      expect(skipRes.body.created).toHaveLength(1);
+      expect(skipRes.body.failed).toHaveLength(0);
+
+      const collectRes = await request(app)
+        .post('/api/batch/events')
+        .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
+        .send({
+          graphId: 'test-graph',
+          validation: 'strict',
+          onError: 'collect',
+          events: eventsPayload,
+        })
+        .expect(207);
+
+      expect(collectRes.body.success).toBe(false);
+      expect(collectRes.body.created).toHaveLength(1);
+      expect(collectRes.body.failed).toHaveLength(1);
+      expect(collectRes.body.failed[0].index).toBe(1);
     });
   });
 

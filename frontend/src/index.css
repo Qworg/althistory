@@ -62,6 +62,15 @@ body {
 }
 
 /* High contrast mode support */
+.high-contrast .text-gray-500,
+.high-contrast .text-gray-600 {
+  color: #000000;
+}
+
+.high-contrast .border-gray-300 {
+  border-color: #000000;
+}
+
 @media (prefers-contrast: high) {
   .text-gray-500 {
     color: #000000;

@@ -163,7 +163,7 @@ export const ExportHistoryList = memo(function ExportHistoryList({
                     Export {job.id.slice(-8)}
                   </div>
                   <div className="text-xs text-gray-400">
-                    {formatDate(job.createdAt)}
+                    {job.completedAt ? new Date(job.completedAt).toLocaleString() : formatDate(job.createdAt)}
                   </div>
                 </div>
               </div>

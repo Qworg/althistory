@@ -10,9 +10,10 @@ import {
   useGraphVersions,
   useGraphBranches 
 } from '@/hooks/useGraphs'
-import { Graph, GraphStatus, GraphVersion } from '@/types'
+import { Graph, GraphStatus, GraphVersion, CreateGraphRequest } from '@/types'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { BranchComparisonModal } from '@/components/branch/BranchComparisonModal'
+import { CreateGraphModal } from './CreateGraphModal'
 
 interface GraphManagerModalProps {
   isOpen: boolean
@@ -30,6 +31,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const [selectedGraph, setSelectedGraph] = useState<Graph | null>(null)
   const [editingGraph, setEditingGraph] = useState<Graph | null>(null)
+  const [showCreateModal, setShowCreateModal] = useState(false)
   const [showBranchDialog, setShowBranchDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [branchName, setBranchName] = useState('')
@@ -39,11 +41,13 @@ export const GraphManagerModal = memo(function GraphManagerModal({
     activeGraphId,
     activeGraph,
     graphs,
+    createGraph,
     updateGraph,
     deleteGraph,
     branchGraph,
     switchGraph,
     rollbackGraph,
+    isCreating,
     isDeleting,
     isBranching,
     isRollingBack,
@@ -67,6 +71,11 @@ export const GraphManagerModal = memo(function GraphManagerModal({
     setEditingGraph(graph)
     setSelectedGraph(null)
   }, [])
+
+  const handleCreateGraph = useCallback(async (request: CreateGraphRequest) => {
+    await createGraph(request)
+    setShowCreateModal(false)
+  }, [createGraph])
 
   const handleSaveEdit = useCallback(() => {
     if (!editingGraph) return
@@ -168,6 +177,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
                 onSwitch={handleSwitchAndClose}
                 onDelete={() => setShowDeleteDialog(true)}
                 onBranch={() => setShowBranchDialog(true)}
+                onCreate={() => setShowCreateModal(true)}
               />
             )}
 
@@ -263,6 +273,16 @@ export const GraphManagerModal = memo(function GraphManagerModal({
           initialCounterfactualGraphId={comparingBranchId}
         />
       )}
+
+      {/* Create Graph Modal */}
+      {showCreateModal && (
+        <CreateGraphModal
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onCreate={handleCreateGraph}
+          isCreating={isCreating}
+        />
+      )}
     </ModalBase>
   )
 })
@@ -282,6 +302,7 @@ interface GraphsTabProps {
   onSwitch: (graphId: string) => void
   onDelete: () => void
   onBranch: () => void
+  onCreate: () => void
 }
 
 const GraphsTab = memo(function GraphsTab({
@@ -297,18 +318,27 @@ const GraphsTab = memo(function GraphsTab({
   onSwitch,
   onDelete,
   onBranch,
+  onCreate,
 }: GraphsTabProps) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-semibold">All Graphs</h3>
-        <button
-          onClick={onBranch}
-          disabled={!activeGraphId}
-          className="px-3 py-1.5 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50"
-        >
-          Branch Current
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onCreate}
+            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            New Graph
+          </button>
+          <button
+            onClick={onBranch}
+            disabled={!activeGraphId}
+            className="px-3 py-1.5 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50"
+          >
+            Branch Current
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-3">
@@ -553,6 +583,11 @@ const VersionsTab = memo(function VersionsTab({
                     {version.version === currentVersion && (
                       <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
                         Current
+                      </span>
+                    )}
+                    {version.operation && (
+                      <span className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded capitalize">
+                        {version.operation}
                       </span>
                     )}
                   </div>

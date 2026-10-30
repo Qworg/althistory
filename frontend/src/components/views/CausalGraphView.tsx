@@ -258,6 +258,7 @@ export function CausalGraphView() {
             className="h-full"
             events={filteredEvents}
             causalRelationships={filteredRelationships}
+            focusEventId={selectedEvent?.id}
             onNodeClick={handleNodeClick}
             onNodeHover={handleNodeHover}
             onEdgeClick={handleEdgeClick}

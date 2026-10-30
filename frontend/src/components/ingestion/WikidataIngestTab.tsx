@@ -17,6 +17,9 @@ export interface WikidataIngestTabProps {
 export function WikidataIngestTab({ onSubmit, isSubmitting }: WikidataIngestTabProps) {
   const [queryType, setQueryType] = useState<WikidataQueryType>('historical-events')
   const [personId, setPersonId] = useState('')
+  const [subjectId, setSubjectId] = useState('')
+  const [startTime, setStartTime] = useState('')
+  const [endTime, setEndTime] = useState('')
   const [customQuery, setCustomQuery] = useState('')
   const [limit, setLimit] = useState(25)
 
@@ -34,6 +37,16 @@ export function WikidataIngestTab({ onSubmit, isSubmitting }: WikidataIngestTabP
       const trimmed = personId.trim()
       if (!trimmed) return
       onSubmit({ queryType, parameters: { person: trimmed }, limit })
+      return
+    }
+
+    const parameters: Record<string, string> = {}
+    if (subjectId.trim()) parameters.subject = subjectId.trim()
+    if (startTime.trim()) parameters.startTime = startTime.trim()
+    if (endTime.trim()) parameters.endTime = endTime.trim()
+
+    if (Object.keys(parameters).length > 0) {
+      onSubmit({ queryType, parameters, limit })
       return
     }
 
@@ -60,6 +73,50 @@ export function WikidataIngestTab({ onSubmit, isSubmitting }: WikidataIngestTabP
           <option value="custom">Custom SPARQL</option>
         </select>
       </div>
+
+      {queryType === 'historical-events' && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label htmlFor="ingest-wikidata-subject" className="block text-sm font-medium text-gray-700">
+              Subject Wikidata ID
+            </label>
+            <input
+              id="ingest-wikidata-subject"
+              type="text"
+              value={subjectId}
+              onChange={(event) => setSubjectId(event.target.value)}
+              placeholder="Q83224 (optional)"
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label htmlFor="ingest-wikidata-start" className="block text-sm font-medium text-gray-700">
+              Start time
+            </label>
+            <input
+              id="ingest-wikidata-start"
+              type="text"
+              value={startTime}
+              onChange={(event) => setStartTime(event.target.value)}
+              placeholder="1066-01-01"
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label htmlFor="ingest-wikidata-end" className="block text-sm font-medium text-gray-700">
+              End time
+            </label>
+            <input
+              id="ingest-wikidata-end"
+              type="text"
+              value={endTime}
+              onChange={(event) => setEndTime(event.target.value)}
+              placeholder="1066-12-31"
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+      )}
 
       {queryType === 'person-timeline' && (
         <div>

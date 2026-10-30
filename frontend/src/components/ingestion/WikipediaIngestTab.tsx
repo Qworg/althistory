@@ -14,6 +14,12 @@ export interface WikipediaIngestTabProps {
   isSubmitting: boolean
 }
 
+const WIKIPEDIA_URL_PATTERN = /^https?:\/\/([a-z0-9-]+\.)?wikipedia\.org\/wiki\/.+/i
+
+function isValidWikipediaUrl(value: string): boolean {
+  return WIKIPEDIA_URL_PATTERN.test(value.trim())
+}
+
 export function WikipediaIngestTab({ onSubmit, isSubmitting }: WikipediaIngestTabProps) {
   const [url, setUrl] = useState('')
   const [followLinks, setFollowLinks] = useState(false)
@@ -21,10 +27,12 @@ export function WikipediaIngestTab({ onSubmit, isSubmitting }: WikipediaIngestTa
   const [linkFilter, setLinkFilter] = useState('')
   const [maxPages, setMaxPages] = useState(10)
 
+  const trimmedUrl = url.trim()
+  const urlInvalid = trimmedUrl.length > 0 && !isValidWikipediaUrl(trimmedUrl)
+
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
-    const trimmedUrl = url.trim()
-    if (!trimmedUrl) return
+    if (!trimmedUrl || urlInvalid) return
 
     const options: WikipediaIngestOptions = { followLinks }
     if (followLinks) {
@@ -50,8 +58,14 @@ export function WikipediaIngestTab({ onSubmit, isSubmitting }: WikipediaIngestTa
           value={url}
           onChange={(event) => setUrl(event.target.value)}
           placeholder="https://en.wikipedia.org/wiki/Battle_of_Hastings"
+          aria-invalid={urlInvalid}
           className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
+        {urlInvalid && (
+          <p className="mt-1 text-xs text-red-600" role="alert">
+            Please enter a valid Wikipedia article URL (e.g. https://en.wikipedia.org/wiki/...)
+          </p>
+        )}
       </div>
 
       <div className="rounded-md border border-gray-200 p-3">
@@ -114,7 +128,7 @@ export function WikipediaIngestTab({ onSubmit, isSubmitting }: WikipediaIngestTa
       <div className="flex justify-end">
         <button
           type="submit"
-          disabled={isSubmitting || url.trim().length === 0}
+          disabled={isSubmitting || trimmedUrl.length === 0 || urlInvalid}
           className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
         >
           {isSubmitting ? 'Extracting...' : 'Extract Entities'}

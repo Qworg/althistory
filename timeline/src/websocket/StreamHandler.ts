@@ -95,6 +95,8 @@ import { StreamSessionManager } from './StreamSession';
 import type { StreamSession, StreamSessionRefusalReason } from './StreamSession';
 import type { CreateEventRequest } from '@/models/Event';
 import type { CreateArcRequest } from '@/models/Arc';
+import type { CausalRelationshipType } from '@/models/relationships';
+import type { StoredCausalRelationship } from '@/services/CausalService';
 import {
   isRecord,
   readNonEmptyString,
@@ -172,6 +174,7 @@ export interface StreamWriteDeps {
   graphWriteVersioningService: {
     recordEvent(graphId: string, event: Awaited<ReturnType<GraphScopedRepositories['eventRepository']['create']>>, operation: 'create'): Promise<void>;
     recordArc(graphId: string, arc: Awaited<ReturnType<GraphScopedRepositories['arcRepository']['create']>>, operation: 'create'): Promise<void>;
+    recordRelationship?(graphId: string, relationship: StoredCausalRelationship, operation: 'create'): Promise<void>;
   };
   /**
    * When present, every write message is charged against the key's request rate
@@ -718,6 +721,7 @@ export class StreamHandler {
       sessionId: session.id,
       reason,
       messagesReceived: session.messagesReceived,
+      entitiesCreated: session.entitiesCreated,
     });
     this.sendThenClose(ws, { type: 'error', code: 'SESSION_EXPIRED', message }, 'session_expired');
   }
@@ -766,7 +770,7 @@ export class StreamHandler {
     switch (parsed.type) {
       case 'close':
         this.send(ws, { type: 'closed', reason: 'client_requested' });
-        this.sessionManager.close(context.session.id);
+        this.releaseSession(context.session.id, 'client_requested');
         ws.close(1000, 'client_requested');
         return;
       case 'event':
@@ -774,6 +778,9 @@ export class StreamHandler {
         return;
       case 'arc':
         await this.handleWrite(ws, context, 'arc', parsed.data, requestId);
+        return;
+      case 'relationship':
+        await this.handleWrite(ws, context, 'relationship', parsed.data, requestId);
         return;
       default:
         this.send(ws, {
@@ -794,7 +801,7 @@ export class StreamHandler {
   private async handleWrite(
     ws: WebSocket,
     context: ConnectionContext,
-    entityType: 'event' | 'arc',
+    entityType: 'event' | 'arc' | 'relationship',
     data: unknown,
     requestId: string | undefined
   ): Promise<void> {
@@ -850,7 +857,7 @@ export class StreamHandler {
   private async handleEntity(
     ws: WebSocket,
     context: ConnectionContext,
-    entityType: 'event' | 'arc',
+    entityType: 'event' | 'arc' | 'relationship',
     data: unknown,
     requestId: string | undefined
   ): Promise<void> {
@@ -913,7 +920,12 @@ export class StreamHandler {
       return;
     }
 
-    const requiredPermission: Permission = entityType === 'event' ? 'write:events' : 'write:arcs';
+    const requiredPermission: Permission =
+      entityType === 'event'
+        ? 'write:events'
+        : entityType === 'arc'
+          ? 'write:arcs'
+          : 'write:relationships';
     if (!apiKey.hasPermission(requiredPermission)) {
       this.send(ws, {
         type: 'ack',
@@ -955,7 +967,11 @@ export class StreamHandler {
       await this.writeEvent(ws, context, data, requestId);
       return;
     }
-    await this.writeArc(ws, context, data, requestId);
+    if (entityType === 'arc') {
+      await this.writeArc(ws, context, data, requestId);
+      return;
+    }
+    await this.writeRelationship(ws, context, data, requestId);
   }
 
   private async writeEvent(
@@ -1038,6 +1054,74 @@ export class StreamHandler {
     }
   }
 
+  private async writeRelationship(
+    ws: WebSocket,
+    context: ConnectionContext,
+    data: Record<string, unknown>,
+    requestId: string | undefined
+  ): Promise<void> {
+    const converted = toCreateCausalRelationshipInput(data);
+    if (!converted.ok) {
+      this.send(ws, {
+        type: 'ack',
+        requestId,
+        entityType: 'relationship',
+        entityId: null,
+        success: false,
+        code: 'INVALID_MESSAGE',
+        error: converted.error,
+      });
+      return;
+    }
+
+    try {
+      const { eventRepository, causalService } = await this.deps.graphScopedRepositories(context.graphId);
+      const causeEvent = await eventRepository.findById(converted.value.causeEventId);
+      if (!causeEvent) {
+        throw new Error(`Cause event not found: ${converted.value.causeEventId}`);
+      }
+      const effectEvent = await eventRepository.findById(converted.value.effectEventId);
+      if (!effectEvent) {
+        throw new Error(`Effect event not found: ${converted.value.effectEventId}`);
+      }
+      if (!this.mayPersist(ws, context, 'relationship', requestId)) {
+        return;
+      }
+      const relationship = await causalService.createCausalLink(causeEvent, effectEvent, {
+        relationship_type: converted.value.relationshipType,
+        weight: converted.value.weight,
+        confidence: converted.value.confidence,
+        evidence: converted.value.evidence,
+      });
+      if (converted.value.confidence < 0.5) {
+        this.send(ws, {
+          type: 'warning',
+          requestId,
+          message: `Relationship ${relationship.id} has low confidence (${converted.value.confidence} is below 0.5)`,
+          entityId: relationship.id,
+        });
+      }
+      await this.ackPersistedEntity(
+        ws,
+        context,
+        'relationship',
+        relationship.id,
+        async () => {
+          if (this.deps.graphWriteVersioningService.recordRelationship) {
+            await this.deps.graphWriteVersioningService.recordRelationship(
+              context.graphId,
+              relationship,
+              'create'
+            );
+          }
+        },
+        requestId
+      );
+    } catch (error) {
+      this.sendWriteFailure(ws, context, 'relationship', error, requestId);
+    }
+  }
+
   /**
    * The last gate before an entity is persisted: the session must still be one
    * the manager holds and must still be inside its lifetime.
@@ -1056,7 +1140,7 @@ export class StreamHandler {
   private mayPersist(
     ws: WebSocket,
     context: ConnectionContext,
-    entityType: 'event' | 'arc',
+    entityType: 'event' | 'arc' | 'relationship',
     requestId: string | undefined
   ): boolean {
     const refusal = this.sessionManager.refusalReason(context.session.id);
@@ -1088,7 +1172,7 @@ export class StreamHandler {
   private async ackPersistedEntity(
     ws: WebSocket,
     context: ConnectionContext,
-    entityType: 'event' | 'arc',
+    entityType: 'event' | 'arc' | 'relationship',
     entityId: string,
     recordVersion: () => Promise<void>,
     requestId: string | undefined
@@ -1124,7 +1208,7 @@ export class StreamHandler {
   private sendWriteFailure(
     ws: WebSocket,
     context: ConnectionContext,
-    entityType: 'event' | 'arc',
+    entityType: 'event' | 'arc' | 'relationship',
     error: unknown,
     requestId: string | undefined
   ): void {
@@ -1456,6 +1540,53 @@ function toCreateArcRequest(data: Record<string, unknown>): Converted<CreateArcR
     value.metadata = data.metadata;
   }
   return { ok: true, value };
+}
+
+interface StreamCausalRelationshipInput {
+  causeEventId: string;
+  effectEventId: string;
+  weight: number;
+  confidence: number;
+  evidence: string;
+  relationshipType: CausalRelationshipType;
+}
+
+function toCreateCausalRelationshipInput(
+  data: Record<string, unknown>
+): Converted<StreamCausalRelationshipInput> {
+  const causeEventId = readNonEmptyString(data, 'cause_event_id') ?? readNonEmptyString(data, 'causeEventId');
+  const effectEventId = readNonEmptyString(data, 'effect_event_id') ?? readNonEmptyString(data, 'effectEventId');
+  const weight = typeof data.weight === 'number' && !Number.isNaN(data.weight) ? data.weight : 0.5;
+  const confidence = typeof data.confidence === 'number' && !Number.isNaN(data.confidence) ? data.confidence : 0.8;
+  const evidence =
+    readNonEmptyString(data, 'evidence') ??
+    readNonEmptyString(data, 'reasoning') ??
+    'Streamed relationship';
+  const rawType = typeof data.relationship_type === 'string' ? data.relationship_type : 'direct';
+  const relationshipType =
+    rawType === 'direct' || rawType === 'indirect' || rawType === 'contributory'
+      ? rawType
+      : 'direct';
+
+  if (!causeEventId || !effectEventId) {
+    const missing = [
+      ...(!causeEventId ? ['cause_event_id'] : []),
+      ...(!effectEventId ? ['effect_event_id'] : []),
+    ];
+    return { ok: false, error: `Missing required fields: ${missing.join(', ')}` };
+  }
+
+  return {
+    ok: true,
+    value: {
+      causeEventId,
+      effectEventId,
+      weight,
+      confidence,
+      evidence,
+      relationshipType,
+    },
+  };
 }
 
 /** Parse a Date, an ISO string or an epoch-milliseconds number; else null. */

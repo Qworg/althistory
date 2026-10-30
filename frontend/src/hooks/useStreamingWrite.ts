@@ -27,6 +27,7 @@ export interface StreamingStats {
 export interface UseStreamingWriteOptions {
   graphId?: string
   autoConnect?: boolean
+  autoReconnect?: boolean
   onAck?: (ack: ServerAckMessage) => void
   onWarning?: (warning: ServerWarningMessage) => void
   onError?: (error: ServerErrorMessage) => void
@@ -36,6 +37,11 @@ interface PendingAck {
   resolve: (ack: ServerAckMessage) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
+}
+
+interface QueuedMessage {
+  payload: string
+  reqId: string
 }
 
 /**
@@ -60,7 +66,7 @@ export function getWebSocketStreamUrl(token: string): string {
 }
 
 export function useStreamingWrite(options: UseStreamingWriteOptions = {}) {
-  const { graphId, autoConnect = false, onAck, onWarning, onError } = options
+  const { graphId, autoConnect = false, autoReconnect = false, onAck, onWarning, onError } = options
 
   const [status, setStatus] = useState<StreamingConnectionStatus>('disconnected')
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -70,9 +76,12 @@ export function useStreamingWrite(options: UseStreamingWriteOptions = {}) {
 
   const wsRef = useRef<WebSocket | null>(null)
   const pendingAcksRef = useRef<Map<string, PendingAck>>(new Map())
+  const outboundQueueRef = useRef<QueuedMessage[]>([])
+  const manualDisconnectRef = useRef<boolean>(false)
   const reqIdCounterRef = useRef<number>(0)
 
   const clearPendingAcks = useCallback(() => {
+    outboundQueueRef.current = []
     pendingAcksRef.current.forEach(({ reject, timer }) => {
       clearTimeout(timer)
       reject(new Error('Streaming connection closed before ACK was received'))
@@ -81,6 +90,7 @@ export function useStreamingWrite(options: UseStreamingWriteOptions = {}) {
   }, [])
 
   const disconnect = useCallback(() => {
+    manualDisconnectRef.current = true
     if (wsRef.current) {
       if (wsRef.current.readyState === WebSocket.OPEN) {
         try {
@@ -103,6 +113,7 @@ export function useStreamingWrite(options: UseStreamingWriteOptions = {}) {
       return
     }
 
+    manualDisconnectRef.current = false
     setStatus('connecting')
     setError(null)
 
@@ -125,6 +136,20 @@ export function useStreamingWrite(options: UseStreamingWriteOptions = {}) {
               if (msg.success) {
                 setStatus('connected')
                 setSessionId(msg.sessionId || null)
+                while (outboundQueueRef.current.length > 0 && socket.readyState === WebSocket.OPEN) {
+                  const queued = outboundQueueRef.current.shift()!
+                  try {
+                    socket.send(queued.payload)
+                    setStats((prev) => ({ ...prev, sent: prev.sent + 1 }))
+                  } catch (sendErr) {
+                    const pending = pendingAcksRef.current.get(queued.reqId)
+                    if (pending) {
+                      clearTimeout(pending.timer)
+                      pendingAcksRef.current.delete(queued.reqId)
+                      pending.reject(sendErr instanceof Error ? sendErr : new Error(String(sendErr)))
+                    }
+                  }
+                }
               } else {
                 setStatus('error')
                 setError(msg.error || 'Streaming authorization failed')
@@ -179,26 +204,31 @@ export function useStreamingWrite(options: UseStreamingWriteOptions = {}) {
       }
 
       socket.onclose = () => {
+        wsRef.current = null
         setStatus((prev) => (prev === 'error' ? 'error' : 'disconnected'))
         setSessionId(null)
         clearPendingAcks()
+        if (autoReconnect && !manualDisconnectRef.current) {
+          void connect(activeGraphId)
+        }
       }
     } catch (err) {
       setStatus('error')
       const msg = err instanceof Error ? err.message : String(err)
       setError(msg)
     }
-  }, [graphId, onAck, onWarning, onError, clearPendingAcks])
+  }, [graphId, autoReconnect, onAck, onWarning, onError, clearPendingAcks])
 
   const sendWithAck = useCallback(
     (message: ClientStreamMessage, customRequestId?: string, timeoutMs: number = 10000): Promise<ServerAckMessage> => {
       const socket = wsRef.current
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
+      if (!socket || (socket.readyState !== WebSocket.OPEN && socket.readyState !== WebSocket.CONNECTING)) {
         return Promise.reject(new Error('Streaming socket is not connected'))
       }
 
       const reqId = customRequestId || `stream_req_${++reqIdCounterRef.current}_${Date.now()}`
       const enrichedMessage = { ...message, requestId: reqId }
+      const payload = JSON.stringify(enrichedMessage)
 
       return new Promise<ServerAckMessage>((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -208,8 +238,13 @@ export function useStreamingWrite(options: UseStreamingWriteOptions = {}) {
 
         pendingAcksRef.current.set(reqId, { resolve, reject, timer })
 
+        if (socket.readyState === WebSocket.CONNECTING) {
+          outboundQueueRef.current.push({ payload, reqId })
+          return
+        }
+
         try {
-          socket.send(JSON.stringify(enrichedMessage))
+          socket.send(payload)
           setStats((prev) => ({ ...prev, sent: prev.sent + 1 }))
         } catch (err) {
           clearTimeout(timer)
@@ -235,6 +270,13 @@ export function useStreamingWrite(options: UseStreamingWriteOptions = {}) {
     [sendWithAck]
   )
 
+  const writeRelationship = useCallback(
+    (data: Record<string, unknown>, requestId?: string, timeoutMs?: number) => {
+      return sendWithAck({ type: 'relationship', data }, requestId, timeoutMs)
+    },
+    [sendWithAck]
+  )
+
   useEffect(() => {
     if (autoConnect) {
       void connect()
@@ -253,7 +295,9 @@ export function useStreamingWrite(options: UseStreamingWriteOptions = {}) {
     stats,
     connect,
     disconnect,
+    sendWithAck,
     writeEvent,
     writeArc,
+    writeRelationship,
   }
 }

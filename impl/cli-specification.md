@@ -5,9 +5,9 @@
 **Target Package:** `cli/` (or `timeline/src/cli/`)  
 **Executable Command:** `althistory`  
 **Full Specification Documents:**
-- [Requirements](.kiro/specs/cli-agent-interface/requirements.md)
-- [Design Document](.kiro/specs/cli-agent-interface/design.md)
-- [Implementation Tasks](.kiro/specs/cli-agent-interface/tasks.md)
+- [Requirements](../.kiro/specs/cli-agent-interface/requirements.md)
+- [Design Document](../.kiro/specs/cli-agent-interface/design.md)
+- [Implementation Tasks](../.kiro/specs/cli-agent-interface/tasks.md)
 
 ---
 

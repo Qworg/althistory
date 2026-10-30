@@ -85,6 +85,18 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
     setErrors({})
   }, [arc, isOpen])
 
+  // Close panel when Escape key is pressed
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
   const handleInputChange = (field: keyof UpdateArcRequest, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
     // Clear error when user starts typing

@@ -25,7 +25,8 @@ This is a hierarchical temporal graph system for capturing and analyzing histori
 
 ### Domain Models
 - **Event**: Historical occurrences with temporal information (actor, target, timestamp, description)
-- **Arc**: Causal relationships between events with strength and confidence metrics
+- **Arc**: Historical phases or periods that can contain events and nested child arcs (`start_time`, `end_time`, `level`, `parent_arc_id`)
+- **CausalRelationship**: Weighted cause-and-effect connections between events (`weight`, `confidence`, `evidence`, `relationship_type`)
 - **InferredPressure**: System-calculated pressures between temporal entities
 
 ### Service Layer

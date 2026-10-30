@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CausalGraphView } from './CausalGraphView'
 import { useEvents, useCausalRelationships } from '@/hooks/useAPI'
@@ -17,10 +17,16 @@ vi.mock('@/hooks/useAPI', () => ({
 }))
 
 vi.mock('@/components/causal-graph', () => ({
-  CausalGraphComponent: ({ events, causalRelationships }: CausalGraphComponentProps) => (
+  CausalGraphComponent: ({ events, causalRelationships, focusEventId, onNodeClick }: CausalGraphComponentProps) => (
     <div data-testid="causal-graph-component">
       <span data-testid="rendered-events-count">{events?.length ?? 0}</span>
       <span data-testid="rendered-rel-count">{causalRelationships?.length ?? 0}</span>
+      <span data-testid="focus-event-id">{focusEventId ?? ''}</span>
+      {events?.[0] && (
+        <button data-testid="select-first-event" onClick={() => onNodeClick?.(events[0]!)}>
+          Select First
+        </button>
+      )}
     </div>
   )
 }))
@@ -133,5 +139,22 @@ describe('CausalGraphView', () => {
     expect(screen.getByTestId('rendered-rel-count')).toHaveTextContent('1')
     expect(screen.getByText('2 events')).toBeInTheDocument()
     expect(screen.getByText('1 relationships')).toBeInTheDocument()
+  })
+
+  it('forwards selected event id as focusEventId to CausalGraphComponent', () => {
+    mockUseEvents.mockReturnValue({
+      data: sampleEvents,
+      isLoading: false
+    } as unknown as ReturnType<typeof useEvents>)
+    mockUseCausalRelationships.mockReturnValue({
+      data: sampleRelationships,
+      isLoading: false
+    } as unknown as ReturnType<typeof useCausalRelationships>)
+
+    renderWithClient(<CausalGraphView />)
+
+    expect(screen.getByTestId('focus-event-id')).toHaveTextContent('')
+    fireEvent.click(screen.getByTestId('select-first-event'))
+    expect(screen.getByTestId('focus-event-id')).toHaveTextContent('e1')
   })
 })

@@ -498,8 +498,8 @@ class APIClient {
 
         analyzeClusters: async (events: Event[]): Promise<EventCluster[]> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: EventCluster[] }> = await this.client.post('/inference/clusters', {
-                    event_ids: events.map(e => e.id)
+                const response: AxiosResponse<{ success: boolean; data: EventCluster[] }> = await this.client.post('/inference/analyze-clusters', {
+                    eventIds: events.map(e => e.id)
                 })
                 return response.data.data
             } catch (error) {
@@ -509,10 +509,10 @@ class APIClient {
 
         getPatterns: async (timeRange: TimeRange): Promise<Pattern[]> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: Pattern[] }> = await this.client.get('/inference/patterns', {
-                    params: {
-                        start_time: timeRange.start.toISOString(),
-                        end_time: timeRange.end.toISOString()
+                const response: AxiosResponse<{ success: boolean; data: Pattern[] }> = await this.client.post('/inference/detect-patterns', {
+                    timeRange: {
+                        startTime: timeRange.start.toISOString(),
+                        endTime: timeRange.end.toISOString()
                     }
                 })
                 return response.data.data

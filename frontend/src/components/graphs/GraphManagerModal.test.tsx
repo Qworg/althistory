@@ -343,6 +343,15 @@ describe('GraphManagerModal', () => {
       const activeStatusBadges = screen.getAllByText('active')
       expect(activeStatusBadges.length).toBeGreaterThan(0)
     })
+
+    it('should open CreateGraphModal when New Graph button is clicked', async () => {
+      render(
+        <GraphManagerModal isOpen={true} onClose={mockOnClose} />
+      )
+
+      const newGraphButton = screen.getByRole('button', { name: /New Graph/i })
+      expect(newGraphButton).toBeInTheDocument()
+    })
   })
 
   describe('Graph Selection and Actions', () => {

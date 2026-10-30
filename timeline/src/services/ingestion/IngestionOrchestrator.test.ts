@@ -153,9 +153,23 @@ describe('IngestionOrchestrator.ingest', () => {
     expect(preview.extraction.events).toHaveLength(2);
     expect(preview.validationIssues).toEqual([]);
     expect(orchestrator.getJob('job-1')?.status).toBe('review');
+    expect(orchestrator.getJob('job-1')?.progress).toBe(100);
     expect(orchestrator.getPreview('job-1').jobId).toBe('job-1');
     expect(orchestrator.deleteJob('job-1')).toBe(true);
     expect(orchestrator.getJob('job-1')).toBeUndefined();
+  });
+
+  it('records a failed job when the extractor throws', async () => {
+    const failingExtractor: Extractor<TextExtractionInput> = {
+      sourceType: 'text',
+      extract: vi.fn().mockRejectedValue(new Error('Extractor failure')),
+    };
+    const { orchestrator } = makeOrchestrator(makeExtraction(), failingExtractor);
+
+    await expect(orchestrator.ingest({ source: 'text', text: { text: 'anything' } })).rejects.toThrow(
+      'Extractor failure'
+    );
+    expect(orchestrator.getJob('job-1')?.status).toBe('failed');
   });
 
   it('dispatches to the extractor matching the request source', async () => {

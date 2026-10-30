@@ -1750,6 +1750,111 @@ export class ImportService {
           });
         }
       });
+
+      // Check for temporal boundary violations against existing arcs
+      interface ExistingArcBounds {
+        readonly raw: Record<string, unknown> & { id: string };
+        readonly startTime: Date;
+        readonly endTime: Date;
+        readonly level: number;
+      }
+      const existingArcsMap = new Map<string, ExistingArcBounds>();
+      graphData.arcs.forEach((arc) => {
+        const startRaw = arc.start_time;
+        const endRaw = arc.end_time;
+        if (
+          (typeof startRaw === 'string' || typeof startRaw === 'number') &&
+          (typeof endRaw === 'string' || typeof endRaw === 'number')
+        ) {
+          const startTime = new Date(startRaw);
+          const endTime = new Date(endRaw);
+          if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
+            existingArcsMap.set(arc.id, {
+              raw: arc,
+              startTime,
+              endTime,
+              level: typeof arc.level === 'number' ? arc.level : 0,
+            });
+          }
+        }
+      });
+
+      // Incoming events assigned to an existing arc must fall within its boundaries
+      (exportData.events || []).forEach((event) => {
+        const eventTime = new Date(event.timestamp);
+        if (isNaN(eventTime.getTime())) return;
+
+        const metadata = event.metadata as Record<string, unknown> | undefined;
+        const arcIds: string[] = [];
+        if (typeof metadata?.arcId === 'string') {
+          arcIds.push(metadata.arcId);
+        }
+        if (Array.isArray(metadata?.arc_ids)) {
+          metadata.arc_ids.forEach((id) => {
+            if (typeof id === 'string') arcIds.push(id);
+          });
+        }
+
+        for (const arcId of arcIds) {
+          const existingArc = existingArcsMap.get(arcId);
+          if (
+            existingArc &&
+            (eventTime < existingArc.startTime || eventTime > existingArc.endTime)
+          ) {
+            addConflict({
+              id: `conflict-temporal-event-${event.id}`,
+              type: 'temporal-violation',
+              severity: 'error',
+              entityType: 'event',
+              entityId: event.id,
+              existingEntity: existingArc.raw,
+              incomingEntity: event as unknown as Record<string, unknown>,
+              suggestedResolution: 'skip',
+              message: `Temporal violation: event "${event.id}" timestamp falls outside assigned arc "${arcId}" boundaries`,
+            });
+            break;
+          }
+        }
+      });
+
+      // Incoming arcs that overlap existing arcs must respect hierarchy containment
+      (exportData.arcs || []).forEach((arc) => {
+        const incomingStart = new Date(arc.start_time);
+        const incomingEnd = new Date(arc.end_time);
+        if (isNaN(incomingStart.getTime()) || isNaN(incomingEnd.getTime())) return;
+
+        for (const [existingId, existingArc] of existingArcsMap.entries()) {
+          if (existingId === arc.id) continue;
+
+          const overlaps =
+            incomingStart < existingArc.endTime && incomingEnd > existingArc.startTime;
+          if (!overlaps) continue;
+
+          const incomingContainedInExisting =
+            incomingStart >= existingArc.startTime && incomingEnd <= existingArc.endTime;
+          const existingContainedInIncoming =
+            existingArc.startTime >= incomingStart && existingArc.endTime <= incomingEnd;
+
+          if (
+            (arc.level > existingArc.level && !incomingContainedInExisting) ||
+            (arc.level < existingArc.level && !existingContainedInIncoming) ||
+            (arc.parent_arc_id === existingId && !incomingContainedInExisting)
+          ) {
+            addConflict({
+              id: `conflict-temporal-arc-${arc.id}`,
+              type: 'temporal-violation',
+              severity: 'error',
+              entityType: 'arc',
+              entityId: arc.id,
+              existingEntity: existingArc.raw,
+              incomingEntity: arc as unknown as Record<string, unknown>,
+              suggestedResolution: 'skip',
+              message: `Temporal violation: arc "${arc.id}" violates hierarchy boundaries with existing arc "${existingId}"`,
+            });
+            break;
+          }
+        }
+      });
     } catch (error) {
       // Graph doesn't exist or error loading - no conflicts
       this.logger.warn('Could not load graph for conflict detection', {
@@ -2175,6 +2280,26 @@ export class ImportService {
       return { ...emptyResult(), errors: [{ path: '$', message: 'Import cancelled', code: 'INVALID_FORMAT' }] };
     }
 
+    let createdNewGraphId: string | undefined;
+    const cleanupNewGraph = async (): Promise<void> => {
+      if (!createdNewGraphId) return;
+      try {
+        if (typeof this.graphRepository.hardDelete === 'function') {
+          await this.graphRepository.hardDelete(createdNewGraphId);
+        } else {
+          await this.graphRepository.delete(createdNewGraphId);
+        }
+        this.logger.info('Cleaned up newly created graph after failed/cancelled import', {
+          graphId: createdNewGraphId,
+        });
+      } catch (cleanupError) {
+        this.logger.warn('Failed to clean up newly created graph after import error', {
+          graphId: createdNewGraphId,
+          error: cleanupError,
+        });
+      }
+    };
+
     try {
       let targetGraphId = options.graphId;
 
@@ -2186,6 +2311,7 @@ export class ImportService {
           description: importData.metadata.description,
         });
         targetGraphId = newGraph.id;
+        createdNewGraphId = newGraph.id;
         this.logger.info('Created new graph for import', { graphId: targetGraphId });
       }
 
@@ -2201,6 +2327,7 @@ export class ImportService {
 
       // FIX B#6: Check cancellation before heavy operation
       if (this.shouldCancel(jobId)) {
+        await cleanupNewGraph();
         return { ...emptyResult(), errors: [{ path: '$', message: 'Import cancelled', code: 'INVALID_FORMAT' }] };
       }
 
@@ -2237,6 +2364,7 @@ export class ImportService {
         jobId,
       };
     } catch (error) {
+      await cleanupNewGraph();
       this.logger.error('Import failed', error);
       return {
         ...emptyResult(),

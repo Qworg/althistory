@@ -656,21 +656,23 @@ export class ArcRepository {
     // every arc in the database.
     const graphMap = graphPatternMap(parameters, this.graphId);
 
-    // Check for hierarchy violations
+    // Check for hierarchy violations:
+    // 1. Invalid nesting - child arc ($level) overlaps a parent arc (existing.level < $level)
+    //    but is not fully contained within that parent's [start_time, end_time].
+    // 2. Invalid parent - parent arc ($level) overlaps a child arc (existing.level > $level)
+    //    but does not fully contain that child's [start_time, end_time].
     const query = `
       MATCH (existing:Arc${graphMap})
       WHERE existing.id <> $excludeId
         AND (
-          // Check for invalid nesting - child arc extends beyond parent
           (existing.level < $level
-           AND existing.start_time <= datetime($start_time)
-           AND existing.end_time >= datetime($end_time)
+           AND existing.start_time < datetime($end_time)
+           AND existing.end_time > datetime($start_time)
            AND NOT (datetime($start_time) >= existing.start_time AND datetime($end_time) <= existing.end_time))
           OR
-          // Check for invalid parent - parent doesn't fully contain child
           (existing.level > $level
-           AND datetime($start_time) <= existing.start_time
-           AND datetime($end_time) >= existing.end_time
+           AND existing.start_time < datetime($end_time)
+           AND existing.end_time > datetime($start_time)
            AND NOT (existing.start_time >= datetime($start_time) AND existing.end_time <= datetime($end_time)))
         )
       RETURN existing.id as conflictId, existing.name as conflictName, existing.level as conflictLevel

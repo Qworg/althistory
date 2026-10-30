@@ -23,6 +23,12 @@ export function MainLayout({ children }: MainLayoutProps) {
   // Register global keyboard shortcuts for view switching (Alt+1/2/3)
   useViewShortcuts()
 
+  // Sync high contrast accessibility preference to the root document element
+  useEffect(() => {
+    const highContrast = Boolean(userPreferences.accessibility?.highContrast)
+    document.documentElement.classList.toggle('high-contrast', highContrast)
+  }, [userPreferences.accessibility?.highContrast])
+
   // Handle responsive behavior
   useEffect(() => {
     const checkMobile = () => {

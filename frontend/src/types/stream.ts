@@ -30,11 +30,21 @@ export interface ClientArcMessage {
   data: Record<string, unknown>
 }
 
+export interface ClientRelationshipMessage {
+  type: 'relationship'
+  requestId?: string
+  data: Record<string, unknown>
+}
+
 export interface ClientCloseMessage {
   type: 'close'
 }
 
-export type ClientStreamMessage = ClientEventMessage | ClientArcMessage | ClientCloseMessage
+export type ClientStreamMessage =
+  | ClientEventMessage
+  | ClientArcMessage
+  | ClientRelationshipMessage
+  | ClientCloseMessage
 
 export interface ServerAuthResultMessage {
   type: 'auth_result'
@@ -50,7 +60,7 @@ export interface ServerAuthResultMessage {
 export interface ServerAckMessage {
   type: 'ack'
   requestId?: string
-  entityType: 'event' | 'arc'
+  entityType: 'event' | 'arc' | 'relationship'
   entityId: string | null
   success: boolean
   error?: string

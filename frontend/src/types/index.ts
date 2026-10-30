@@ -338,6 +338,7 @@ export interface GraphVersion {
   commitHash: string
   timestamp: string
   message: string
+  operation?: string
   author?: string
   changes: {
     eventsAdded: number
@@ -881,9 +882,16 @@ export interface WikidataIngestRequest {
   limit?: number
 }
 
+export interface TextIngestContext {
+  defaultActors?: string[]
+  defaultTimeRange?: { start: string; end: string }
+  locale?: string
+}
+
 export interface TextIngestRequest {
   text: string
   useLLM?: boolean
+  context?: TextIngestContext
 }
 
 export interface ApproveIngestionRequest {

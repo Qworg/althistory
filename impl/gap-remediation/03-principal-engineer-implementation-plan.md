@@ -4,10 +4,10 @@
 **Baseline:** `phase5-round2` @ `8117f31` (Frontend: 1585 passed / 1 skipped; Backend: 1549 passed / 1 skipped; E2E: 6 passed)  
 **Author:** Principal Engineer Review  
 **Related Documents:**
-- [Gap Remediation Plan](impl/gap-remediation/README.md)
-- [Graph Scoped Isolation Design](impl/gap-remediation/02-graph-scoped-isolation-design.md)
-- [Phase 6 Results](impl/gap-remediation/phase6-results.md)
-- [Independent Review Practice](impl/gap-remediation/REVIEW.md)
+- [Gap Remediation Plan](../../impl/gap-remediation/README.md)
+- [Graph Scoped Isolation Design](../../impl/gap-remediation/02-graph-scoped-isolation-design.md)
+- [Phase 6 Results](../../impl/gap-remediation/phase6-results.md)
+- [Independent Review Practice](../../impl/gap-remediation/REVIEW.md)
 
 ---
 
@@ -54,15 +54,15 @@ flowchart TD
 ### 7.1.1: Frontend-to-Backend Authentication Alignment & Local Dev Session
 - **Priority:** P0 (Blocker)
 - **Target Files:**
-  - [`timeline/src/api/middleware.ts`](timeline/src/api/middleware.ts#L430-L488)
-  - [`timeline/src/api/routes/events.ts`](timeline/src/api/routes/events.ts)
-  - [`timeline/src/api/routes/arcs.ts`](timeline/src/api/routes/arcs.ts)
-  - [`timeline/src/api/routes/causal.ts`](timeline/src/api/routes/causal.ts)
-  - [`frontend/src/services/api.ts`](frontend/src/services/api.ts#L141-L151)
+  - [`timeline/src/api/middleware.ts`](../../timeline/src/api/middleware.ts#L430-L488)
+  - [`timeline/src/api/routes/events.ts`](../../timeline/src/api/routes/events.ts)
+  - [`timeline/src/api/routes/arcs.ts`](../../timeline/src/api/routes/arcs.ts)
+  - [`timeline/src/api/routes/causal.ts`](../../timeline/src/api/routes/causal.ts)
+  - [`frontend/src/services/api.ts`](../../frontend/src/services/api.ts#L141-L151)
 - **Problem Statement:**
   1. Backend protected routes (`/api/graphs`, `/api/export`, `/api/ingest`, `/api/stream/token`, `/api/keys`) enforce `authenticate` and `requireAuth`, which look strictly for `req.get('X-API-Key')`.
-  2. The frontend [`api.ts`](frontend/src/services/api.ts#L146) only sets `Authorization: Bearer <auth_token>`, never sends `X-API-Key`, and has no default key bootstrap.
-  3. When running via [`start-local.sh`](start-local.sh), the frontend immediately calls `GET /api/graphs`, receives `401 Unauthorized`, and tries to redirect to a non-existent `/login` route.
+  2. The frontend [`api.ts`](../../frontend/src/services/api.ts#L146) only sets `Authorization: Bearer <auth_token>`, never sends `X-API-Key`, and has no default key bootstrap.
+  3. When running via [`start-local.sh`](../../start-local.sh), the frontend immediately calls `GET /api/graphs`, receives `401 Unauthorized`, and tries to redirect to a non-existent `/login` route.
   4. Core entity routes (`events.ts`, `arcs.ts`, `causal.ts`) have zero authentication middleware, allowing unauthenticated mutation across graphs.
 - **Implementation Tasks:**
   - [x] **Dual-Header Support in Backend Middleware**: Update `authenticate` in `middleware.ts` to inspect both `X-API-Key` and `Authorization: Bearer <key>`.
@@ -79,8 +79,8 @@ flowchart TD
 ### 7.1.2: Atomic JSON Persistence in `LocalGraphStore`
 - **Priority:** P0 (Data Loss Risk)
 - **Target Files:**
-  - [`timeline/src/utils/LocalGraphStore.ts`](timeline/src/utils/LocalGraphStore.ts#L1344-L1367)
-  - [`timeline/src/utils/GraphContextStore.ts`](timeline/src/utils/GraphContextStore.ts#L390-L432)
+  - [`timeline/src/utils/LocalGraphStore.ts`](../../timeline/src/utils/LocalGraphStore.ts#L1344-L1367)
+  - [`timeline/src/utils/GraphContextStore.ts`](../../timeline/src/utils/GraphContextStore.ts#L390-L432)
 - **Problem Statement:**
   In `LocalGraphStore.save()`, the graph state is saved via direct `fs.writeFile`:
   ```typescript
@@ -107,9 +107,9 @@ flowchart TD
 ### 7.2.1: Decouple Causal Graph View from Global Zustand Sync (Ghost State Elimination)
 - **Priority:** P1 (UI Correctness)
 - **Target Files:**
-  - [`frontend/src/components/views/CausalGraphView.tsx`](frontend/src/components/views/CausalGraphView.tsx#L40-L72)
-  - [`frontend/src/components/causal-graph/CausalGraphComponent.tsx`](frontend/src/components/causal-graph/CausalGraphComponent.tsx#L125-L132)
-  - [`frontend/src/hooks/useGraphs.ts`](frontend/src/hooks/useGraphs.ts#L209-L222)
+  - [`frontend/src/components/views/CausalGraphView.tsx`](../../frontend/src/components/views/CausalGraphView.tsx#L40-L72)
+  - [`frontend/src/components/causal-graph/CausalGraphComponent.tsx`](../../frontend/src/components/causal-graph/CausalGraphComponent.tsx#L125-L132)
+  - [`frontend/src/hooks/useGraphs.ts`](../../frontend/src/hooks/useGraphs.ts#L209-L222)
 - **Problem Statement:**
   `CausalGraphView` fetches data with React Query, but copies it to Zustand `globalStore.events` via `useEffect`. If the active graph has 0 events, `fetchedEvents.length > 0` is false, so `setEvents` is never called, leaving the previous graph's events rendered. Additionally, switching graphs leaves stale selections in `globalStore.selectedEvents`.
 - **Implementation Tasks:**
@@ -126,8 +126,8 @@ flowchart TD
 ### 7.2.2: Optimize Arc-Event Hierarchy Calculation ($O(A \times E) \to O(A \log E)$)
 - **Priority:** P1 (Performance)
 - **Target Files:**
-  - [`frontend/src/components/timeline/arcHierarchyUtils.ts`](frontend/src/components/timeline/arcHierarchyUtils.ts#L120-L165)
-  - [`frontend/src/components/timeline/Timeline.tsx`](frontend/src/components/timeline/Timeline.tsx#L231-L245)
+  - [`frontend/src/components/timeline/arcHierarchyUtils.ts`](../../frontend/src/components/timeline/arcHierarchyUtils.ts#L120-L165)
+  - [`frontend/src/components/timeline/Timeline.tsx`](../../frontend/src/components/timeline/Timeline.tsx#L231-L245)
 - **Problem Statement:**
   `processArcsWithUIState` scans every event for every arc and instantiates `new Date(...)` twice per pair on every arc click, selection, or expand/collapse. For 300 arcs and 10,000 events, this executes 3,000,000 `new Date()` allocations, blocking the main thread for ~1.0s.
 - **Implementation Tasks:**
@@ -152,7 +152,7 @@ flowchart TD
 ### 7.2.3: Ingestion SSRF Hardening (Unchecked Redirect Elimination)
 - **Priority:** P1 (Security)
 - **Target Files:**
-  - [`timeline/src/services/ingestion/http.ts`](timeline/src/services/ingestion/http.ts#L98-L142)
+  - [`timeline/src/services/ingestion/http.ts`](../../timeline/src/services/ingestion/http.ts#L98-L142)
 - **Problem Statement:**
   `FetchHttpClient.assertAllowedUrl()` verifies that request URLs point to `*.wikipedia.org` or `query.wikidata.org`. However, `fetch` runs with default `redirect: 'follow'`. An open redirect on an allowlisted host could redirect the request to internal infrastructure or cloud instance metadata (`http://169.254.169.254/latest/meta-data/`).
 - **Implementation Tasks:**
@@ -174,8 +174,8 @@ flowchart TD
 - **Target Files:**
   - `frontend/src/hooks/useStreamingWrite.ts` (new)
   - `frontend/src/components/streaming/StreamingStatusBadge.tsx` (new)
-  - [`frontend/src/components/views/ViewToolbar.tsx`](frontend/src/components/views/ViewToolbar.tsx)
-  - [`frontend/src/services/api.ts`](frontend/src/services/api.ts)
+  - [`frontend/src/components/views/ViewToolbar.tsx`](../../frontend/src/components/views/ViewToolbar.tsx)
+  - [`frontend/src/services/api.ts`](../../frontend/src/services/api.ts)
 - **Implementation Tasks:**
   - [x] **Add Stream Token API Client**: Add `apiClient.stream.getToken(graphId)` calling `POST /api/stream/token`.
   - [x] **Build `useStreamingWrite` Hook**:
@@ -195,8 +195,8 @@ flowchart TD
 ### 7.3.2: Multi-Tab Web Locks Mutex for Offline Mutation Replay
 - **Priority:** P2 (Concurrency & Data Integrity)
 - **Target Files:**
-  - [`frontend/src/offline/mutationReplay.ts`](frontend/src/offline/mutationReplay.ts#L100-L150)
-  - [`frontend/src/offline/offlineSync.ts`](frontend/src/offline/offlineSync.ts)
+  - [`frontend/src/offline/mutationReplay.ts`](../../frontend/src/offline/mutationReplay.ts#L100-L150)
+  - [`frontend/src/offline/offlineSync.ts`](../../frontend/src/offline/offlineSync.ts)
 - **Problem Statement:**
   `mutationQueue.ts` stores pending mutations in `localStorage` without a cross-tab mutex. If a user opens multiple tabs and reconnects, both tabs trigger replay simultaneously, duplicating entity creation on the server.
 - **Implementation Tasks:**
@@ -224,9 +224,9 @@ flowchart TD
 ### 7.3.3: Two-Store Dual-Write Failure Reconciliation
 - **Priority:** P2 (Data Integrity)
 - **Target Files:**
-  - [`timeline/src/services/GraphWriteVersioningService.ts`](timeline/src/services/GraphWriteVersioningService.ts)
-  - [`timeline/src/api/routes/events.ts`](timeline/src/api/routes/events.ts#L38-L45)
-  - [`timeline/src/websocket/StreamHandler.ts`](timeline/src/websocket/StreamHandler.ts#L1080-L1100)
+  - [`timeline/src/services/GraphWriteVersioningService.ts`](../../timeline/src/services/GraphWriteVersioningService.ts)
+  - [`timeline/src/api/routes/events.ts`](../../timeline/src/api/routes/events.ts#L38-L45)
+  - [`timeline/src/websocket/StreamHandler.ts`](../../timeline/src/websocket/StreamHandler.ts#L1080-L1100)
 - **Problem Statement:**
   Writes sequentially mutate `eventRepository` (live store) and `GraphWriteVersioningService` (content-addressed tree). If version commit fails:
   - HTTP routes throw 500, leaving an un-versioned ghost entity in the live store.
@@ -255,8 +255,8 @@ flowchart TD
 ### 7.4.2: Global Keyboard Navigation & Gestures (Phase 5.5 / Task 14.1)
 - **Target Files:**
   - `frontend/src/hooks/useGlobalKeyboardShortcuts.ts` (new)
-  - [`frontend/src/components/views/ViewToolbar.tsx`](frontend/src/components/views/ViewToolbar.tsx)
-  - [`frontend/src/components/timeline/Timeline.tsx`](frontend/src/components/timeline/Timeline.tsx)
+  - [`frontend/src/components/views/ViewToolbar.tsx`](../../frontend/src/components/views/ViewToolbar.tsx)
+  - [`frontend/src/components/timeline/Timeline.tsx`](../../frontend/src/components/timeline/Timeline.tsx)
 - **Tasks:**
   - [x] Implement global hotkeys: `Ctrl+N` (New Event), `F` (Toggle Filter Panel), `Ctrl+Shift+C` (New Arc).
   - [x] Add arrow key panning (`Left`/`Right`) and zoom keys (`+`/`-`) for Timeline.
@@ -264,7 +264,7 @@ flowchart TD
 
 ### 7.4.3: Cloud Mode Dual-Store Realization
 - **Target Files:**
-  - [`timeline/src/container.ts`](timeline/src/container.ts#L340-L370)
+  - [`timeline/src/container.ts`](../../timeline/src/container.ts#L340-L370)
   - `timeline/src/services/RateLimitService.ts`
 - **Tasks:**
   - [x] When `LOCAL_EXECUTION_ENABLED=false`, bind `graphScopedRepositories` to Neo4j sessions rather than `LocalGraphStore`.

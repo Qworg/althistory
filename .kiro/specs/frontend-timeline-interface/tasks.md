@@ -41,7 +41,7 @@
   - [x] 2.2 Implement API client with React Query integration  `frontend/src/services/api.ts:157-203,333-524`, `frontend/src/hooks/useEvents.ts:6-20`, `frontend/src/hooks/useArcs.ts:6-20`, `frontend/src/test/services/api.test.ts` (21 tests), `frontend/src/services/api.error.test.ts` (3 tests), `frontend/src/test/hooks/useAPI.test.tsx`
 
 
-    - Create typed API client with methods for events, arcs, causal relationships, and inference using Axios ^1.11.0 — three inference paths do not match the backend: the client calls `/inferred-pressures` (`frontend/src/services/api.ts:455`), `/inference/clusters` (`:466`) and `/inference/patterns` (`:477`) while the backend serves `/inference/pressures` (`timeline/src/api/routes/inference.ts:182`), `/inference/analyze-clusters` (`:36`) and `/inference/detect-patterns` (`:101`); the client also asks for the patterns with a GET where the backend only accepts a POST
+    - Create typed API client with methods for events, arcs, causal relationships, and inference using Axios ^1.11.0 (`frontend/src/services/api.ts:487-524` calls `/inference/pressures`, `POST /inference/analyze-clusters`, and `POST /inference/detect-patterns`)
     - Add request/response interceptors for error handling and authentication
     - Implement React Query ^5.84.1 hooks for data fetching, caching, and synchronization
     - Write integration tests for API client methods and error scenarios
@@ -58,7 +58,7 @@
     - Write component tests for layout rendering and responsive behavior
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 13.1, 13.2_
 
-  - [x] 3.2 Create filter panel and search interface components  _(PARTIAL: the event-type filter never appears — `frontend/src/components/filters/FilterPanelContainer.tsx:122` passes `availableEventTypes={[]}`, and `frontend/src/components/filters/FilterPanel.tsx:315` only renders the section when that list is non-empty)_ `frontend/src/components/filters/FilterPanel.tsx:48-121,165-212`, `frontend/src/components/filters/SearchInterface.tsx:36-52`, `frontend/src/components/filters/ActiveFilters.tsx`, `frontend/src/components/filters/filterUtils.ts`, `frontend/src/components/filters/FilterPanel.test.tsx`, `frontend/src/components/filters/SearchInterface.test.tsx`, `frontend/src/components/filters/ActiveFilters.test.tsx`
+  - [x] 3.2 Create filter panel and search interface components  `frontend/src/components/filters/FilterPanel.tsx:48-121,165-212`, `frontend/src/components/filters/SearchInterface.tsx:36-52`, `frontend/src/components/filters/ActiveFilters.tsx`, `frontend/src/components/filters/filterUtils.ts`, `frontend/src/components/filters/FilterPanel.test.tsx`, `frontend/src/components/filters/SearchInterface.test.tsx`, `frontend/src/components/filters/ActiveFilters.test.tsx` _(note: `Event` has no `type` field on the domain model, so `FilterPanelContainer.tsx` intentionally omits the event-type filter section; see `FilterPanel.test.tsx:48-50,115-120`)_
 
 
     - Implement collapsible filter panel with date range, actor, target, and event type filters
@@ -68,7 +68,7 @@
     - Write interaction tests for filter application and search functionality
     - _Requirements: 6.1, 6.2, 6.3, 6.4_
 
-  - [x] 3.3 Create event and arc detail modal components  `frontend/src/components/modals/EventDetailModal.tsx:130-200`, `frontend/src/components/modals/ArcDetailPanel.tsx`, `frontend/src/components/modals/ModalBase.tsx:120-145,167-193`, `frontend/src/components/modals/eventDetailModalUtils.ts:31-60`, `frontend/src/components/modals/arcDetailPanelUtils.ts:28-79`, `frontend/src/components/modals/EventDetailModal.test.tsx`, `frontend/src/components/modals/ArcDetailPanel.test.tsx` _(PARTIAL: neither modal uses `ModalBase`, so its keyboard handling does not apply to them, and `ArcDetailPanel` has no Escape or focus handling of its own; its contained events and child arcs default to empty and no mount passes them, `frontend/src/components/modals/ArcDetailPanel.tsx:54-55`)_
+  - [x] 3.3 Create event and arc detail modal components  `frontend/src/components/modals/EventDetailModal.tsx:130-200`, `frontend/src/components/modals/ArcDetailPanel.tsx:88-98` (Escape key handling), `frontend/src/components/views/TimelineView.tsx:487-501,657-658` (`containedEvents` and `childArcs`), `frontend/src/components/modals/ModalBase.tsx:120-145,167-193`, `frontend/src/components/modals/eventDetailModalUtils.ts:31-60`, `frontend/src/components/modals/arcDetailPanelUtils.ts:28-79`, `frontend/src/components/modals/EventDetailModal.test.tsx`, `frontend/src/components/modals/ArcDetailPanel.test.tsx`
 
 
     - Implement event detail modal with full information display and editing capabilities
@@ -116,7 +116,7 @@
 
 
 
-  - [x] 5.2 Add arc creation and editing capabilities  `frontend/src/components/timeline/Timeline.tsx:782` (event-to-arc assignment), `frontend/src/components/timeline/EventArcAssignment.tsx:25`, `frontend/src/components/modals/ArcDetailPanel.tsx`, `frontend/src/components/timeline/ArcCreationEditing.test.tsx`, `frontend/src/components/timeline/TimelineInteractionA.test.tsx:339-400`, `frontend/src/components/views/TimelineView.interactions.test.tsx:212-300` _(PARTIAL: the event-to-arc assignment popup cannot be reached in the running app — `frontend/src/components/views/TimelineView.tsx:423` passes `onEventContextMenu`, and the timeline only opens the popup when that prop is absent (`frontend/src/components/timeline/Timeline.tsx:303-311`))_
+  - [x] 5.2 Add arc creation and editing capabilities  `frontend/src/components/timeline/Timeline.tsx:782` (event-to-arc assignment), `frontend/src/components/views/TimelineView.tsx:594-596,620-636` ("Assign to Arcs" in event context menu), `frontend/src/components/timeline/EventArcAssignment.tsx:25`, `frontend/src/components/modals/ArcDetailPanel.tsx`, `frontend/src/components/timeline/ArcCreationEditing.test.tsx`, `frontend/src/components/timeline/TimelineInteractionA.test.tsx:339-400`, `frontend/src/components/views/TimelineView.interactions.test.tsx:212-300`
 
 
     - Implement time range selection for creating new arcs with visual feedback and backend validation — PARTIAL: `frontend/src/components/timeline/ArcCreationModal.tsx` implements it and is tested, but it is not mounted in any view; arcs are created from the toolbar via `frontend/src/components/views/ViewToolbar.tsx:148-158,688-691` (ArcDetailPanel create mode)
@@ -155,18 +155,17 @@
   - [x] 7.1 Create causal path highlighting and navigation  `frontend/src/hooks/useCausalPathExploration.ts:28-96`, `frontend/src/components/causal-graph/CausalPathHighlighter.tsx`, `frontend/src/components/causal-graph/CausalChainNavigationControls.tsx:23`, `frontend/src/utils/causalPathCalculations.ts:7-129`, `frontend/src/components/causal-graph/CausalGraphComponent.tsx:163,1144-1153`, `frontend/src/utils/causalPathCalculations.test.ts` (33 tests), `frontend/src/components/causal-graph/CausalPathExplorer.test.tsx`
 
 
-    - Implement causal chain traversal with configurable depth limits _(PARTIAL: the client sends `max_depth` (`frontend/src/services/api.ts:429`) and the backend reads `maxDepth` (`timeline/src/api/routes/causal.ts:158`), so the depth is always the default; and the backend answers `{startEvent, causalPaths, maxDepth}` (`timeline/src/api/routes/causal.ts:181-187`), which `frontend/src/hooks/useCausalPathExploration.ts:99` treats as an array and calls `.filter` on, so every exploration ends in the catch at `:124`)_
+    - Implement causal chain traversal with configurable depth limits (`frontend/src/services/api.ts:428-445` passes `maxDepth` and unwraps `causalPaths`)
     - Add path highlighting with cumulative strength visualization
     - Create navigation controls for stepping through causal chains chronologically
     - Write tests for causal path calculation and visualization accuracy
     - _Requirements: 10.1, 10.2, 10.3, 10.4_
 
-  - [x] 7.2 Add causal suggestion system integration  `frontend/src/components/causal-graph/CausalSuggestionOverlay.tsx:55-56` (dotted edges), `frontend/src/hooks/useCausalSuggestions.ts:167-330` (accept/reject/feedback), `frontend/src/components/causal-graph/CausalSuggestionManager.tsx`, `frontend/src/utils/suggestionManagerUtils.ts`, `frontend/src/utils/suggestionManagerUtils.test.ts` (39 tests), `frontend/src/components/causal-graph/CausalSuggestionManager.test.tsx`
+  - [x] 7.2 Add causal suggestion system integration  `frontend/src/components/causal-graph/CausalSuggestionOverlay.tsx:55-56` (dashed edges), `frontend/src/hooks/useCausalSuggestions.ts:167-330` (accept/reject/feedback), `frontend/src/components/causal-graph/CausalSuggestionManager.tsx`, `frontend/src/components/views/CausalGraphView.tsx:261` (`focusEventId={selectedEvent?.id}`), `frontend/src/utils/suggestionManagerUtils.ts`, `frontend/src/utils/suggestionManagerUtils.test.ts` (39 tests), `frontend/src/components/causal-graph/CausalSuggestionManager.test.tsx`, `frontend/src/components/views/CausalGraphView.test.tsx`
 
 
-    - Implement display of AI-generated causal suggestions as dotted connections _(PARTIAL: the edges are dashed rather than dotted, and `CausalSuggestionManager` returns nothing without a `focusEventId` (`frontend/src/components/causal-graph/CausalSuggestionManager.tsx:262`), which `frontend/src/components/views/CausalGraphView.tsx:257-267` never passes)_
-    - Add suggestion acceptance/rejection workflow with confidence scoring _(NOT DONE: the only UI for it is `CausalSuggestionManager`, which never renders — see above)_
-    - Add suggestion acceptance/rejection workflow with confidence scoring
+    - Implement display of AI-generated causal suggestions as dashed connections (`frontend/src/components/views/CausalGraphView.tsx:261` passes `focusEventId={selectedEvent?.id}` to `CausalGraphComponent`)
+    - Add suggestion acceptance/rejection workflow with confidence scoring (`frontend/src/components/causal-graph/CausalSuggestionManager.tsx`, rendered when `focusEventId` is selected)
     - Create suggestion feedback system to improve future recommendations _(PARTIAL: the feedback goes into an in-memory ref, `frontend/src/hooks/useCausalSuggestions.ts:285-293`; there is no endpoint behind it)_
     - Write integration tests for suggestion display and user interaction workflows
     - _Requirements: 12.1, 12.2, 12.3, 12.4_
@@ -183,7 +182,7 @@
     - Write component tests for actor perspective rendering and filtering
     - _Requirements: 13.5, 6.1, 6.2_
 
-  - [x] 8.2 Add actor selection and navigation interface  _(PARTIAL: the state is not preserved — `frontend/src/components/views/ActorPerspectiveView.tsx:133-137` holds only a comment, `// Could save current state`)_ `frontend/src/components/actor/ActorSelector.tsx:20-60`, `frontend/src/components/actor/ActorStats.tsx:140-200`, `frontend/src/components/actor/ActorSelector.test.tsx`, `frontend/src/components/actor/ActorStats.test.tsx`
+  - [x] 8.2 Add actor selection and navigation interface  `frontend/src/components/views/ActorPerspectiveView.tsx:142-166` (per-actor `selectionByActor` state preservation across actor switches), `frontend/src/components/actor/ActorSelector.tsx:20-60`, `frontend/src/components/actor/ActorStats.tsx:140-200`, `frontend/src/components/actor/ActorSelector.test.tsx`, `frontend/src/components/actor/ActorStats.test.tsx`
 
 
     - Create actor selection dropdown with search and autocomplete functionality
@@ -192,28 +191,27 @@
     - Write interaction tests for actor selection and view switching workflows
     - _Requirements: 13.5, 6.1, 6.4_
 
-- [ ] 9. Implement inferred pressure visualization — NOT DONE: the pressure components exist and are unit-tested, but no view mounts them (`frontend/src/components/views/TimelineView.tsx:411-425` passes no `pressures` prop) and the client calls `GET /inferred-pressures` (`frontend/src/services/api.ts:455`) while the backend only serves `GET /api/inference/pressures` (`timeline/src/api/routes/inference.ts:182`) — tracked in [#50](https://github.com/Qworg/althistory/issues/50)
+- [x] 9. Implement inferred pressure visualization  `frontend/src/hooks/usePressures.ts`, `frontend/src/services/api.ts:490` (`GET /inference/pressures`), `frontend/src/components/views/TimelineView.tsx:108-135,532-559`, `frontend/src/hooks/usePressures.shared.test.ts`, `frontend/src/services/api.pressures.test.ts`
 
 
-  - [ ] 9.1 Create pressure indicator display system — NOT DONE: `frontend/src/components/timeline/PressureIndicators.tsx` and `frontend/src/utils/pressureVisualization.ts` implement the indicators and are covered by `frontend/src/components/timeline/PressureIndicators.test.tsx` and `frontend/src/utils/pressureVisualization.test.ts`, but no pressure data ever reaches the timeline (see task 9)
+  - [x] 9.1 Create pressure indicator display system  `frontend/src/components/timeline/PressureIndicators.tsx`, `frontend/src/utils/pressureVisualization.ts`, `frontend/src/components/views/TimelineView.tsx:532-542`, `frontend/src/components/timeline/PressureIndicators.test.tsx`, `frontend/src/utils/pressureVisualization.test.ts`
     - Implement pressure visualization as colored indicators on arcs with confidence-based opacity
     - Add pressure type categorization with distinct visual styling (economic, social, etc.)
     - Create pressure detail tooltips showing evidence events and influence strength
     - Write tests for pressure indicator rendering and confidence score visualization
     - _Requirements: 9.1, 9.2, 9.3_
 
-  - [ ] 9.2 Add pressure exploration and evidence tracking — NOT DONE: `frontend/src/components/modals/PressureDetailModal.tsx`, `frontend/src/components/timeline/PressureExploration.tsx` and `frontend/src/components/timeline/PressureConfidenceTracker.tsx` are tested but never rendered by any view, and the pressure query hits a non-existent endpoint (see task 9)
+  - [x] 9.2 Add pressure exploration and evidence tracking  `frontend/src/components/modals/PressureDetailModal.tsx`, `frontend/src/components/timeline/PressureExploration.tsx`, `frontend/src/components/timeline/PressureConfidenceTracker.tsx`, `frontend/src/components/views/TimelineView.tsx:544-559,662-674`, `frontend/src/components/modals/PressureDetailModal.test.tsx`, `frontend/src/components/timeline/PressureExploration.test.tsx`
     - Implement pressure detail modal showing contributing evidence events
     - Add evidence event highlighting when exploring pressure relationships
     - Create pressure confidence tracking with visual updates for score changes
     - Write integration tests for pressure exploration and evidence display workflows
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
--
 
 - [x] 10. Implement view switching and layout management  `frontend/src/components/views/ViewSwitcher.tsx`, `frontend/src/hooks/useViewStateManager.ts`
 
 
-  - [x] 10.1 Create view mode switching system  `frontend/src/components/views/ViewSwitcher.tsx`, `frontend/src/hooks/useViewStateManager.ts:98-180`, `frontend/src/components/views/ViewToolbar.tsx`, `frontend/src/components/views/ViewSwitcher.test.tsx`, `frontend/src/hooks/useViewStateManager.test.ts` (12 tests), `frontend/src/components/views/ViewToolbar.test.tsx` _(PARTIAL: the zoom is not preserved — the timeline never reads `viewportState.timeline.zoomLevel`, and the save runs after the view mode has already changed (`frontend/src/hooks/useViewStateManager.ts:244-248`))_
+  - [x] 10.1 Create view mode switching system  `frontend/src/components/views/ViewSwitcher.tsx`, `frontend/src/hooks/useViewStateManager.ts:65-180` (saves leaving view's zoom/center via `previousViewMode.current`), `frontend/src/components/views/ViewToolbar.tsx`, `frontend/src/components/views/ViewSwitcher.test.tsx`, `frontend/src/hooks/useViewStateManager.test.ts` (12 tests), `frontend/src/components/views/ViewToolbar.test.tsx`
 
 
     - Implement seamless switching between timeline, causal graph, and actor perspective views
@@ -246,7 +244,7 @@
     - Write integration tests for copy operation initiation and progress tracking
     - _Requirements: 11.1, 11.2, 11.3_
 
-  - [x] 11.2 Add copy result management and navigation  `frontend/src/components/notifications/CopyCompletionNotifier.tsx`, `frontend/src/components/notifications/CopyCompletionNotification.tsx:44-45,172` (switch to new graph), `frontend/src/components/modals/CopyHistoryPanel.tsx:321-327` (compare; it passes only labels, so `frontend/src/components/branch/BranchComparisonModal.tsx:89-95` compares the first non-active graph rather than the copy that was clicked), `frontend/src/components/branch/BranchComparisonModal.tsx:13-33`, `frontend/src/components/modals/CopyHistoryPanel.test.tsx`, `frontend/src/components/notifications/CopyCompletionNotifier.test.tsx`
+  - [x] 11.2 Add copy result management and navigation  `frontend/src/components/notifications/CopyCompletionNotifier.tsx`, `frontend/src/components/notifications/CopyCompletionNotification.tsx:44-45,172` (switch to new graph), `frontend/src/components/modals/CopyHistoryPanel.tsx:321-335` (`initialBaselineGraphId` and `initialCounterfactualGraphId`), `frontend/src/components/branch/BranchComparisonModal.tsx:13-33,89-99`, `frontend/src/components/modals/CopyHistoryPanel.test.tsx`, `frontend/src/components/notifications/CopyCompletionNotifier.test.tsx`
 
 
     - Implement copy completion notification with options to switch to new graph
@@ -296,9 +294,9 @@
 - [x] 14. Implement accessibility features  `frontend/src/test/helpers/a11yTestHelpers.ts`, axe assertions in 8 frontend test files
 
 
-  - [x] 14.1 Add keyboard navigation support  `frontend/src/hooks/useGlobalKeyboardShortcuts.ts:29-84`, `frontend/src/hooks/useViewShortcuts.ts`, `frontend/src/components/timeline/Timeline.tsx:575-610`, `frontend/src/components/causal-graph/CausalGraphLayoutManager.tsx` (layout shortcuts), `frontend/src/hooks/useGlobalKeyboardShortcuts.test.ts` (7 tests), `frontend/src/components/timeline/Timeline.test.tsx:435` _(PARTIAL: `useGlobalKeyboardShortcuts` is imported only by `frontend/src/hooks/index.ts` and its own test, so it is dead code; the shortcuts that work are the ones in `frontend/src/components/views/ViewToolbar.tsx:475-509`)_
-    - Implement keyboard navigation for timeline (arrow keys, page up/down) — PARTIAL: arrow keys pan and +/-/0 zoom and reset (`frontend/src/components/timeline/Timeline.tsx:582-606`); Page Up/Down are not handled
-    - Add keyboard support for causal graph navigation and selection — PARTIAL: layout, fit and reset shortcuts exist (`frontend/src/components/causal-graph/CausalGraphLayoutManager.tsx`); causal-graph nodes are not keyboard-selectable
+  - [x] 14.1 Add keyboard navigation support  `frontend/src/hooks/useGlobalKeyboardShortcuts.ts:29-84`, `frontend/src/hooks/useViewShortcuts.ts`, `frontend/src/components/views/ViewToolbar.tsx:475-509`, `frontend/src/components/timeline/Timeline.tsx:582-624` (ArrowLeft/Right/Up/Down, PageUp/PageDown, +/-/0), `frontend/src/components/causal-graph/CausalGraphComponent.tsx:1102-1197` (ArrowLeft/Right/Up/Down and Enter node selection on graph container), `frontend/src/components/causal-graph/CausalGraphLayoutManager.tsx` (layout shortcuts), `frontend/src/hooks/useGlobalKeyboardShortcuts.test.ts` (7 tests), `frontend/src/components/timeline/Timeline.test.tsx:435-451`
+    - Implement keyboard navigation for timeline (arrow keys, page up/down)
+    - Add keyboard support for causal graph navigation and selection
     - Create keyboard shortcuts for common operations and view switching
     - Write accessibility tests for keyboard navigation completeness
     - _Requirements: 8.1, 8.2, 13.1_
@@ -306,11 +304,11 @@
   - [x] 14.2 Add screen reader and visual accessibility support  `frontend/src/components/modals/ModalBase.tsx:167-193`, `frontend/src/components/timeline/Timeline.tsx:611-619` (role=img + aria-label), `frontend/src/test/helpers/a11yTestHelpers.ts`, axe assertions in `frontend/src/components/modals/EventDetailModal.test.tsx`, `frontend/src/components/filters/FilterPanel.test.tsx`, `frontend/src/components/views/ViewToolbar.test.tsx`
     - Implement ARIA labels and roles for all interactive elements
     - Add alternative text descriptions for visualizations and complex graphics
-    - Create high contrast mode and color-blind friendly color schemes — NOT DONE: only a `prefers-contrast: high` CSS block exists (`frontend/src/index.css:64-74`); the store's `accessibility.highContrast` flag (`frontend/src/stores/globalStore.ts:139`) is never applied and no colour-blind-safe palette exists
+    - Create high contrast mode and color-blind friendly color schemes (`frontend/src/components/layout/MainLayout.tsx:26-30` syncs `userPreferences.accessibility.highContrast` to `html.high-contrast` and `frontend/src/index.css:64-73` styles both `prefers-contrast: high` and `html.high-contrast`)
     - Write accessibility compliance tests using automated testing tools
     - _Requirements: 8.1, 8.2, 8.3_
 
-- [x] 15. Create comprehensive testing suite  `frontend/src` (108 test files, 1710 tests, all passing), `e2e/`, `.github/workflows/ci.yml`
+- [x] 15. Create comprehensive testing suite  `frontend/src` (116 test files, 1746 tests, all passing), `e2e/`, `.github/workflows/ci.yml`
   - [x] 15.1 Implement unit and integration tests  `frontend/src/test/stores/globalStore.test.ts`, `frontend/src/test/services/api.test.ts`, `frontend/src/test/integration/causalGraph.integration.test.tsx`, `frontend/src/test/integration/graphSwitching.integration.test.tsx`, `e2e/tests/visual.spec.ts`, `.github/workflows/ci.yml`
     - Write unit tests for all components with 80%+ code coverage using Vitest ^3.2.4 — NOT MET: measured coverage is 74.3% statements / 83.7% branches / 70.3% functions (`npm run test:coverage`)
     - Create integration tests for complete user workflows and data flows using React Testing Library ^16.3.0
@@ -328,7 +326,7 @@
 - [x] 16. Integrate all components and finalize application  `frontend/src/App.tsx`, `frontend/src/components/routing/AppRoutes.tsx`
   - [x] 16.1 Connect all features and create unified user experience  `frontend/src/App.tsx:11-22`, `frontend/src/components/routing/AppRoutes.tsx`, `frontend/src/components/views/TimelineView.tsx:48-60`, `frontend/src/components/views/CausalGraphView.tsx:41-50`, `frontend/src/components/views/ActorPerspectiveView.tsx:34-45` (all views read the shared store filters), `e2e/tests/smoke.spec.ts`, `frontend/src/test/integration/graphSwitching.integration.test.tsx`
     - Integrate all visualization components with shared state management
-    - Connect filter system to all views with consistent behavior _(PARTIAL: `restoreViewState` calls `setFilters(saved)` (`frontend/src/hooks/useViewStateManager.ts:159`), which overwrites filters set in another view)_
+    - Connect filter system to all views with consistent behavior (`frontend/src/hooks/useViewStateManager.ts:134-169,255-261` preserves active filters across view switches via `preserveCurrentFilters: true`)
     - Implement unified error handling and user feedback across all features
     - Write end-to-end integration tests for complete application workflows
     - _Requirements: 1.1, 2.1, 5.1, 6.1, 13.1_

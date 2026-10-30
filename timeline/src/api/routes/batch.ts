@@ -114,6 +114,7 @@ interface BatchErrorResponse {
     details?: {
       failedIndex?: number;
       created?: string[];
+      rolledBack?: string[];
       path?: string;
       timestamp?: string;
     };
@@ -187,6 +188,9 @@ batchRoutes.post(
             if (validation === 'strict') {
               throw new Error(`Validation failed: ${warnings.join(', ')}`);
             }
+            if (validation === 'lenient') {
+              continue;
+            }
           }
         }
 
@@ -205,11 +209,23 @@ batchRoutes.post(
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
         if (onError === 'abort') {
+          const rolledBack = [...result.created];
+          for (const createdId of [...result.created].reverse()) {
+            try {
+              await eventRepository.delete(createdId);
+            } catch (rollbackError) {
+              logger.error('Batch event rollback failed', rollbackError, { id: createdId });
+            }
+          }
           return res.status(400).json(createBatchError(
             'BATCH_ABORTED',
             `Batch aborted at index ${i}: ${errorMessage}`,
-            { failedIndex: i, created: result.created }
+            { failedIndex: i, created: [], rolledBack }
           ));
+        }
+
+        if (onError === 'skip') {
+          continue;
         }
 
         result.failed.push({ index: i, error: errorMessage });
@@ -271,6 +287,9 @@ batchRoutes.post(
             if (validation === 'strict') {
               throw new Error(`Validation failed: ${warnings.join(', ')}`);
             }
+            if (validation === 'lenient') {
+              continue;
+            }
           }
         }
 
@@ -289,11 +308,23 @@ batchRoutes.post(
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
         if (onError === 'abort') {
+          const rolledBack = [...result.created];
+          for (const createdId of [...result.created].reverse()) {
+            try {
+              await arcRepository.delete(createdId);
+            } catch (rollbackError) {
+              logger.error('Batch arc rollback failed', rollbackError, { id: createdId });
+            }
+          }
           return res.status(400).json(createBatchError(
             'BATCH_ABORTED',
             `Batch aborted at index ${i}: ${errorMessage}`,
-            { failedIndex: i, created: result.created }
+            { failedIndex: i, created: [], rolledBack }
           ));
+        }
+
+        if (onError === 'skip') {
+          continue;
         }
 
         result.failed.push({ index: i, error: errorMessage });
@@ -355,6 +386,9 @@ batchRoutes.post(
             if (validation === 'strict') {
               throw new Error(`Validation failed: ${warnings.join(', ')}`);
             }
+            if (validation === 'lenient') {
+              continue;
+            }
           }
         }
 
@@ -388,11 +422,26 @@ batchRoutes.post(
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
         if (onError === 'abort') {
+          const rolledBack = [...result.created];
+          for (const createdId of [...result.created].reverse()) {
+            try {
+              const [causeId, effectId] = createdId.split('_');
+              if (causeId && effectId) {
+                await causalService.deleteCausalLink(causeId, effectId);
+              }
+            } catch (rollbackError) {
+              logger.error('Batch relationship rollback failed', rollbackError, { id: createdId });
+            }
+          }
           return res.status(400).json(createBatchError(
             'BATCH_ABORTED',
             `Batch aborted at index ${i}: ${errorMessage}`,
-            { failedIndex: i, created: result.created }
+            { failedIndex: i, created: [], rolledBack }
           ));
+        }
+
+        if (onError === 'skip') {
+          continue;
         }
 
         result.failed.push({ index: i, error: errorMessage });

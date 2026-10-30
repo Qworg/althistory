@@ -220,6 +220,11 @@ export const GraphSelector = memo(function GraphSelector({
                       <span>{graph.metadata.eventCount} events</span>
                       <span>{graph.metadata.arcCount} arcs</span>
                       <span>v{graph.version}</span>
+                      {graph.metadata.timeRange && (
+                        <span>
+                          {new Date(graph.metadata.timeRange.start).getFullYear()}–{new Date(graph.metadata.timeRange.end).getFullYear()}
+                        </span>
+                      )}
                     </div>
                   </div>
 

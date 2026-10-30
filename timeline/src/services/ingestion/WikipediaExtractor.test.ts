@@ -30,6 +30,7 @@ import {
   parseTemplateFields,
   cleanWikiText,
   extractTemplates,
+  extractHistorySections,
   renderWikiTemplates,
 } from './WikipediaExtractor';
 import wikipediaFixture from './fixtures/wikipedia-battle-of-hastings.json';
@@ -401,5 +402,33 @@ describe('WikipediaExtractor', () => {
         options: { followLinks: true, linkFilter: '(' },
       })
     ).rejects.toThrow(/Invalid link filter/);
+  });
+
+  it('extracts History and Timeline sections with boosted confidence', async () => {
+    const sections = extractHistorySections(
+      'Lead text.\n== History ==\nThe treaty was ratified in Paris on 10 February 1763.\n== See also ==\nOther things on 1 January 1800.'
+    );
+    expect(sections).toEqual([
+      {
+        heading: 'History',
+        body: 'The treaty was ratified in Paris on 10 February 1763.',
+      },
+    ]);
+
+    const historyArticle = {
+      parse: {
+        title: 'Treaty of Paris',
+        wikitext:
+          'Lead intro.\n== Chronology ==\nTreaty of Paris was signed by Great Britain on 10 February 1763.\n== References ==\nNone.',
+        links: [],
+      },
+    };
+    const extractor = new WikipediaExtractor({
+      httpClient: new RouteHttpClient({ 'Treaty of Paris': historyArticle }),
+    });
+    const result = await extractor.extract({ url: 'https://en.wikipedia.org/wiki/Treaty_of_Paris' });
+    expect(result.events.length).toBeGreaterThanOrEqual(1);
+    expect(result.events[0].timestamp).toBe('1763-02-10T00:00:00Z');
+    expect(result.events[0].confidence).toBeGreaterThan(0.75);
   });
 });

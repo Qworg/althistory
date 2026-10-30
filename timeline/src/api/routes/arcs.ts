@@ -415,10 +415,56 @@ arcRoutes.post('/:id/validate-hierarchy', ...entityPermission('read:arcs'), asyn
       throw new NotFoundError(`Arc with ID ${id} not found`, 'Arc', id);
     }
 
-    // Basic hierarchy validation using existing methods
+    // Validate hierarchy boundaries against overlapping arcs at lower/higher levels
+    const [overlappingArcs, parentArcs, childArcs] = await Promise.all([
+      repository.findOverlappingArcs({ start: arc.start_time, end: arc.end_time }),
+      repository.findParentArcs(id),
+      repository.findDirectChildren(id)
+    ]);
+
+    const violations: Array<{
+      arcId: string;
+      arcName: string;
+      level: number;
+      type: 'exceeds_parent_bounds' | 'fails_to_contain_child';
+      message: string;
+    }> = [];
+
+    for (const existing of overlappingArcs) {
+      if (existing.id === arc.id) continue;
+
+      if (
+        existing.level < arc.level &&
+        !(arc.start_time >= existing.start_time && arc.end_time <= existing.end_time)
+      ) {
+        violations.push({
+          arcId: existing.id,
+          arcName: existing.name,
+          level: existing.level,
+          type: 'exceeds_parent_bounds',
+          message: `Arc "${arc.name}" (level ${arc.level}) extends beyond overlapping parent arc "${existing.name}" (level ${existing.level})`
+        });
+      } else if (
+        existing.level > arc.level &&
+        !(existing.start_time >= arc.start_time && existing.end_time <= arc.end_time)
+      ) {
+        violations.push({
+          arcId: existing.id,
+          arcName: existing.name,
+          level: existing.level,
+          type: 'fails_to_contain_child',
+          message: `Arc "${arc.name}" (level ${arc.level}) does not fully contain overlapping child arc "${existing.name}" (level ${existing.level})`
+        });
+      }
+    }
+
     const validation = {
-      isValid: true,
-      note: 'Comprehensive hierarchy validation not yet implemented'
+      isValid: violations.length === 0,
+      arcId: arc.id,
+      level: arc.level,
+      parentArcs: parentArcs.map(p => p.toJSON()),
+      childArcs: childArcs.map(c => c.toJSON()),
+      violations
     };
 
     res.json({

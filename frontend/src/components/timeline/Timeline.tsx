@@ -579,12 +579,13 @@ const Timeline = memo(function Timeline({
     return Math.abs(origRange - visRange) > 1000 // More than 1 second difference
   }, [visibleTimeRange, originalExtent])
 
-  // Keyboard navigation for timeline canvas (arrow keys pan, +/- zoom, 0 reset)
+  // Keyboard navigation for timeline canvas (arrow keys / page up-down pan, +/- zoom, 0 reset)
   const handleKeyDown = useCallback((event: React.KeyboardEvent<SVGSVGElement>) => {
     if (!svgRef.current || !zoomRef.current) return
 
     const svg = d3.select(svgRef.current)
     const panStep = 60
+    const pageStep = 240
 
     switch (event.key) {
       case 'ArrowLeft':
@@ -594,6 +595,14 @@ const Timeline = memo(function Timeline({
       case 'ArrowRight':
         event.preventDefault()
         svg.call(zoomRef.current.translateBy, -panStep, 0)
+        break
+      case 'PageUp':
+        event.preventDefault()
+        svg.call(zoomRef.current.translateBy, pageStep, 0)
+        break
+      case 'PageDown':
+        event.preventDefault()
+        svg.call(zoomRef.current.translateBy, -pageStep, 0)
         break
       case '+':
       case '=':

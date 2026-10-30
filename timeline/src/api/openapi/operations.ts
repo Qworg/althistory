@@ -325,7 +325,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     graphScoped: true,
   },
   'POST /api/arcs/:id/validate-hierarchy': {
-    summary: 'Check that the arcs of a graph nest correctly. Not implemented yet: the route answers a note saying so.',
+    summary: 'Check that an arc nests within its parent arcs and contains its child arcs.',
     response: 'GenericObject',
     auth: ENTITY_AUTH,
     graphScoped: true,

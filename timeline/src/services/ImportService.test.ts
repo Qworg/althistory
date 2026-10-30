@@ -951,35 +951,39 @@ describe('ImportService', () => {
 
   describe('manual resolution validation', () => {
     it('should reject import when manual resolutions do not cover all error conflicts', async () => {
-      // First create a graph with existing data by using a different approach
-      // Create a graph file directly in the test directory
-      const graphId = `test-graph-${Date.now()}`;
-      const graphsDir = path.join(testDataDir, 'graphs', graphId);
-      await fs.mkdir(graphsDir, { recursive: true });
-      
-      // Write initial graph state
-      const graphState = {
-        events: [
-          {
-            id: 'event-1',
-            description: 'Existing event',
-            actor: 'Actor A',
-            target: 'Target B',
-            timestamp: '2023-01-01T00:00:00Z',
-          },
-        ],
-        arcs: [],
-        relationships: [],
-        pressures: [],
-      };
-      await fs.writeFile(
-        path.join(graphsDir, 'state.json'),
-        JSON.stringify(graphState)
-      );
-      await fs.writeFile(
-        path.join(graphsDir, 'meta.json'),
-        JSON.stringify({ id: graphId, name: 'Test Graph', version: 1, createdAt: new Date().toISOString() })
-      );
+      // Seed a graph via executeImport in create-new mode so version history is committed
+      const seedExport = createValidExport({
+        data: {
+          events: [
+            {
+              id: 'event-1',
+              description: 'Existing event',
+              actor: 'Actor A',
+              target: 'Target B',
+              timestamp: '2023-01-01T00:00:00Z',
+            },
+          ],
+          arcs: [
+            {
+              id: 'arc-parent',
+              name: 'Parent Arc',
+              description: '',
+              start_time: '2023-01-01T00:00:00Z',
+              end_time: '2023-06-30T23:59:59Z',
+              level: 0,
+              parent_arc_id: null,
+            },
+          ],
+          causalRelationships: [],
+          inferredPressures: [],
+        },
+      });
+      const seedResult = await importService.executeImport(seedExport, {
+        mode: 'create-new',
+        conflictResolution: 'skip',
+      });
+      expect(seedResult.success).toBe(true);
+      const graphId = seedResult.graphId;
 
       // Now try to import with duplicate ID and manual resolution mode
       const exportWithDuplicate = createValidExport({
@@ -999,24 +1003,81 @@ describe('ImportService', () => {
         },
       });
 
-      // First detect what conflicts exist
+      // Verify conflicts are detected
       const conflicts = await importService.detectConflicts(exportWithDuplicate, graphId, 'merge');
-      
-      // If there are conflicts, verify manual resolution validation
-      if (conflicts.length > 0 && conflicts.some(c => c.severity === 'error')) {
-        const result = await importService.executeImport(exportWithDuplicate, {
-          graphId,
-          mode: 'merge',
-          conflictResolution: 'manual',
-          manualResolutions: {}, // Empty - doesn't cover the conflicts
-        });
+      expect(conflicts.length).toBeGreaterThan(0);
+      expect(conflicts.some(c => c.severity === 'error')).toBe(true);
 
-        expect(result.success).toBe(false);
-        expect(result.errors.length).toBeGreaterThan(0);
-      } else {
-        // No conflicts detected due to graph structure - skip this test
-        expect(true).toBe(true);
-      }
+      const result = await importService.executeImport(exportWithDuplicate, {
+        graphId,
+        mode: 'merge',
+        conflictResolution: 'manual',
+        manualResolutions: {}, // Empty - doesn't cover the conflicts
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(result.errors[0].message).toContain('Unresolved conflict');
+    });
+
+    it('should detect temporal-violation conflicts when incoming entities violate existing arc boundaries', async () => {
+      const seedExport = createValidExport({
+        data: {
+          events: [],
+          arcs: [
+            {
+              id: 'arc-1',
+              name: 'Bounded Era',
+              description: '',
+              start_time: '2023-01-01T00:00:00Z',
+              end_time: '2023-06-30T23:59:59Z',
+              level: 0,
+              parent_arc_id: null,
+            },
+          ],
+          causalRelationships: [],
+          inferredPressures: [],
+        },
+      });
+      const seedResult = await importService.executeImport(seedExport, {
+        mode: 'create-new',
+        conflictResolution: 'skip',
+      });
+      expect(seedResult.success).toBe(true);
+      const graphId = seedResult.graphId;
+
+      const violatingExport = createValidExport({
+        data: {
+          events: [
+            {
+              id: 'event-outside',
+              description: 'Event outside assigned arc',
+              actor: 'Actor A',
+              target: 'Target B',
+              timestamp: '2023-09-01T00:00:00Z',
+              metadata: { arcId: 'arc-1' },
+            },
+          ],
+          arcs: [
+            {
+              id: 'arc-child-overflow',
+              name: 'Overflowing Child',
+              description: '',
+              start_time: '2023-05-01T00:00:00Z',
+              end_time: '2023-08-01T00:00:00Z',
+              level: 1,
+              parent_arc_id: null,
+            },
+          ],
+          causalRelationships: [],
+          inferredPressures: [],
+        },
+      });
+
+      const conflicts = await importService.detectConflicts(violatingExport, graphId, 'merge');
+      const temporalConflicts = conflicts.filter(c => c.type === 'temporal-violation');
+      expect(temporalConflicts).toHaveLength(2);
+      expect(temporalConflicts.map(c => c.entityId).sort()).toEqual(['arc-child-overflow', 'event-outside']);
     });
   });
 

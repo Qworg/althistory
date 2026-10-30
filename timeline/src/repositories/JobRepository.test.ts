@@ -725,6 +725,25 @@ describe('JobRepository Unit Tests', () => {
       // Job should be cleaned up
       expect(await repository.findById(job.id)).toBeNull();
     });
+
+    it('should unlink associated output file when cleaning up an expired job', async () => {
+      const pastExpiry = new Date(Date.now() - 1000).toISOString();
+      const job = await repository.create({
+        type: 'export',
+        parameters: { type: 'export', graphId: 'g1', scope: 'full', includeProvenance: false },
+        expiresAt: pastExpiry,
+      });
+
+      job.start();
+      job.complete({ outputPath: '/test/data/exports/export-123.json' });
+      await repository.update(job);
+
+      const count = await repository.cleanupExpiredJobs();
+
+      expect(count).toBe(1);
+      expect(fs.promises.unlink).toHaveBeenCalledWith('/test/data/exports/export-123.json');
+      expect(fs.promises.unlink).toHaveBeenCalledWith(path.join(testDataDir, 'jobs', `${job.id}.json`));
+    });
   });
 
   describe('findStalledJobs()', () => {

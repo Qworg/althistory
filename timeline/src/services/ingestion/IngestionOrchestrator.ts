@@ -63,7 +63,8 @@ export type ExtractedEdit = Partial<ExtractedEvent> & Partial<ExtractedArc>;
 export interface IngestionJob {
   id: string;
   source: ExtractionResultSource;
-  status: 'review' | 'imported' | 'failed';
+  status: 'extracting' | 'review' | 'imported' | 'failed';
+  progress?: number;
   createdAt: string;
   updatedAt: string;
   extraction: ExtractionResult;
@@ -193,16 +194,51 @@ export class IngestionOrchestrator {
     context?: ExtractionContext,
     ownerKeyId?: string
   ): Promise<IngestionPreview> {
-    const extraction = await this.runExtractor(request, context);
+    const jobId = this.idFactory();
+    const createdAt = this.now().toISOString();
+    const emptyExtraction: ExtractionResult = {
+      events: [],
+      arcs: [],
+      relationships: [],
+      sources: [],
+      overallConfidence: 0,
+    };
+
+    const initialJob: IngestionJob = {
+      id: jobId,
+      source: request.source,
+      status: 'extracting',
+      progress: 0,
+      createdAt,
+      updatedAt: createdAt,
+      extraction: emptyExtraction,
+      validationIssues: [],
+      ownerKeyId,
+    };
+    this.jobStore.set(initialJob);
+
+    let extraction: ExtractionResult;
+    try {
+      extraction = await this.runExtractor(request, context);
+    } catch (error) {
+      this.jobStore.set({
+        ...initialJob,
+        status: 'failed',
+        updatedAt: this.now().toISOString(),
+      });
+      throw error;
+    }
+
     const validationIssues = validateExtraction(extraction);
-    const timestamp = this.now().toISOString();
+    const updatedAt = this.now().toISOString();
 
     const job: IngestionJob = {
-      id: this.idFactory(),
+      id: jobId,
       source: extraction.events[0]?.source.type ?? request.source,
       status: 'review',
-      createdAt: timestamp,
-      updatedAt: timestamp,
+      progress: 100,
+      createdAt,
+      updatedAt,
       extraction,
       validationIssues,
       ownerKeyId,

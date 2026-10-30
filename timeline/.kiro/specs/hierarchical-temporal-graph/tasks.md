@@ -167,7 +167,7 @@
     - _Requirements: 4.1, 4.2, 4.3_
 
 
-- [ ] 8. Create REST API layer
+- [x] 8. Create REST API layer
 
   - [x] 8.1 Implement Event API endpoints
 

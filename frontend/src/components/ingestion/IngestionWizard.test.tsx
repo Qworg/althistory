@@ -337,4 +337,30 @@ describe('IngestionWizard', () => {
 
     expect(await axe(container)).toHaveNoViolations()
   })
+
+  it('validates Wikipedia URLs and blocks non-Wikipedia domains', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+
+    await user.type(
+      screen.getByLabelText(/Wikipedia URL/),
+      'https://example.com/not-wikipedia'
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(/valid Wikipedia article URL/i)
+    expect(screen.getByRole('button', { name: /Extract Entities/ })).toBeDisabled()
+  })
+
+  it('sorts rows in EntityReviewTable when column headers are clicked', async () => {
+    const user = userEvent.setup()
+    mockedText.mockResolvedValue(makePreview())
+
+    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+    await extractFromText(user)
+
+    const descHeaders = screen.getAllByRole('button', { name: /Description/i })
+    await user.click(descHeaders[0]!)
+    await user.click(descHeaders[0]!)
+
+    expect(screen.getByLabelText('Description for event evt-1')).toBeInTheDocument()
+  })
 })

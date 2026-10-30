@@ -41,5 +41,6 @@ describe('StreamingStatusBadge', () => {
   it('renders error state correctly', () => {
     render(<StreamingStatusBadge status="error" error="Network refused" />)
     expect(screen.getByText('Streaming Error')).toBeInTheDocument()
+    expect(screen.getByText('Network refused')).toBeInTheDocument()
   })
 })

@@ -70,6 +70,18 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
         </span>
       )}
 
+      {stats && stats.failed > 0 && (
+        <span className="text-[10px] text-rose-600 font-semibold border-l border-rose-200 pl-1.5 ml-0.5" role="alert">
+          {stats.failed} failed
+        </span>
+      )}
+
+      {error && (
+        <span className="text-[10px] text-rose-700 border-l border-rose-200 pl-1.5 ml-0.5 truncate max-w-40" role="alert">
+          {error}
+        </span>
+      )}
+
       {status === 'disconnected' && onConnect && (
         <button
           type="button"

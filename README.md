@@ -1,24 +1,42 @@
 # althistory
 
 Generating historical-ish timelines and events for real and fictional places:
-a versioned, multi-graph timeline backend with a React interface for exploring
-events, arcs, causal chains and counterfactual branches.
+a versioned, multi-graph timeline backend with a React interface and an
+agent-first CLI / MCP server for exploring events, arcs, causal chains, and
+counterfactual branches.
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `timeline/` | Express + TypeScript API. Versioned graph storage (Git-like trees), export/import, inference, ingestion, WebSocket streaming. |
+| `timeline/` | Express + TypeScript API and CLI (`bin/althistory`). Versioned graph storage (Git-like trees), export/import, inference, ingestion, WebSocket streaming, MCP server. |
 | `frontend/` | React + Vite UI. Timeline, causal graph, actor and pressure views, graph/version/import/export panels. |
 | `e2e/` | Playwright end-to-end and visual-regression tests against a production build with the API stubbed. |
+| `docs/` | Architecture, API integration, export format, ingestion, branch/merge, production deployment, and operational runbooks. |
 | `impl/` | Design records: `gap-remediation/` (verified gap analysis and fixes) and `deferredplans/` (how the test suite was repaired). |
-| `.kiro/specs/` | Feature specifications and requirements. Checkbox state in `tasks.md` files is **not** reliable — see the status note at the top of each. |
+| `.kiro/specs/` | Feature specifications, design records, and audited implementation checklists (`tasks.md`). |
 | `docker/`, `docker-compose.yml`, `Dockerfile` | Container images and the production stack. |
+
+## Prerequisites & Installation
+
+- **Node.js** >= 20 (Node 22/24 recommended) and `npm`
+
+Install workspace dependencies from the repository root:
+
+```bash
+npm install
+```
 
 ## Quick start (no Neo4j or Redis)
 
 ```bash
 ./start-local.sh
+```
+
+Or run `--tailscale` to bind to `0.0.0.0` and print your Tailscale URLs:
+
+```bash
+./start-local.sh --tailscale
 ```
 
 Or run the two packages by hand:
@@ -36,6 +54,43 @@ mode is **one replica with a persistent volume** and refuses to start without
 `CLOUD_SINGLE_REPLICA_STATE=true`. See
 [`docs/production-deployment.md`](docs/production-deployment.md#4-state-and-persistence).
 
+## Agent CLI & MCP Server
+
+`./bin/althistory` provides a scriptable CLI and a stdio Model Context Protocol
+(MCP) server (`./bin/althistory mcp`). It automatically connects to a running
+local server on `http://localhost:3000` (so changes appear live in the Web UI)
+or falls back to direct in-process storage (`--direct`) when no server is
+running.
+
+```bash
+# Inspect JSON Schema for all CLI commands or MCP tools
+./bin/althistory schema
+./bin/althistory schema --mcp
+
+# Manage graphs, events, arcs, ingestion, simulation, and validation
+./bin/althistory graph list
+./bin/althistory graph create "Roman Steam Engine" -d "Aeolipile industrialized in 100 CE"
+./bin/althistory ingest wikipedia "https://en.wikipedia.org/wiki/Battle_of_Hastings" -g <graphId>
+./bin/althistory generate --premise "Byzantium wins at Manzikert" --divergence "1071-08-26"
+./bin/althistory simulate <graphId> --steps 3 --months 12
+./bin/althistory validate <graphId> --auto-repair
+./bin/althistory export <graphId> --format markdown
+```
+
+To register the MCP server in Claude Desktop, Cursor, or Antigravity (see
+[`.mcp/`](.mcp/)):
+
+```json
+{
+  "mcpServers": {
+    "althistory": {
+      "command": "/absolute/path/to/althistory/bin/althistory",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
 ## Tests
 
 ```bash
@@ -43,8 +98,8 @@ mode is **one replica with a persistent volume** and refuses to start without
 ```
 
 ```bash
-cd timeline && npm test   # 88 files
-cd frontend && npm test   # 100 files
+cd timeline && npm test   # 103 files (2,055 tests)
+cd frontend && npm test   # 116 files (1,746 tests)
 ```
 
 End-to-end, against a real browser and a production build (API stubbed):
@@ -92,13 +147,20 @@ builder refuses to describe a route that has no entry there.
 ## Documentation
 
 - [`AGENTS.md`](AGENTS.md) — code style, architecture rules and build commands.
-- [`impl/gap-remediation/README.md`](impl/gap-remediation/README.md) — verified gap analysis and remediation plan.
-- [`impl/gap-remediation/phase6-results.md`](impl/gap-remediation/phase6-results.md) — coverage baseline and its caveats.
-- [`DEFERREDFIXES.md`](DEFERREDFIXES.md) — current test status.
+- [`CLAUDE.md`](CLAUDE.md) — developer and agent quick reference.
 - [`docs/api-integration.md`](docs/api-integration.md) — using the API from outside: keys, permissions, graph scoping, rate limits, jobs and webhooks.
 - [`docs/export-format.md`](docs/export-format.md) — the export document field by field, and how to verify its checksum.
 - [`docs/ingestion.md`](docs/ingestion.md) — getting history in: CLI, API, the review step, and what the LLM modes cost.
 - [`docs/branch-merge-resolver.md`](docs/branch-merge-resolver.md) — combining two graphs and the anomalies the merge checks.
-- [`docs/production-deployment.md`](docs/production-deployment.md) — container and cloud stack.
+- [`docs/mcp-agent-guide.md`](docs/mcp-agent-guide.md) — MCP server tools and agent workflow guide.
+- [`docs/autonomous-simulation-engine.md`](docs/autonomous-simulation-engine.md) — autonomous multi-step timeline simulation engine.
+- [`docs/production-deployment.md`](docs/production-deployment.md) — container, cloud stack, and operational procedures.
+- [`impl/gap-remediation/README.md`](impl/gap-remediation/README.md) — verified gap analysis and remediation plan.
+- [`impl/gap-remediation/phase6-results.md`](impl/gap-remediation/phase6-results.md) — coverage baseline and its caveats.
+- [`DEFERREDFIXES.md`](DEFERREDFIXES.md) — current test status.
 - `GET /api/openapi.json` — the authoritative HTTP route list.
 - [`e2e/README.md`](e2e/README.md) — end-to-end and visual-regression workflow.
+
+## License
+
+Released under the [MIT License](LICENSE).

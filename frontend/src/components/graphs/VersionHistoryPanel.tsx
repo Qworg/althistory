@@ -174,6 +174,11 @@ const VersionItem = memo(function VersionItem({
                 Latest
               </span>
             )}
+            {version.operation && (
+              <span className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded capitalize">
+                {version.operation}
+              </span>
+            )}
           </div>
 
           {/* Commit Message */}

@@ -10,6 +10,7 @@
  * relationship weight cannot be changed by an import and is shown read-only.
  */
 
+import { useState, useMemo } from 'react'
 import type {
   ExtractedArc,
   ExtractedEvent,
@@ -154,6 +155,16 @@ export interface EntityReviewTableProps {
   issues?: IngestionValidationIssue[]
 }
 
+function confidenceBadgeClass(confidence: number): string {
+  if (confidence >= 0.8) {
+    return 'bg-emerald-100 text-emerald-800 border-emerald-200'
+  }
+  if (confidence >= 0.5) {
+    return 'bg-amber-100 text-amber-800 border-amber-200'
+  }
+  return 'bg-rose-100 text-rose-800 border-rose-200'
+}
+
 export function EntityReviewTable({
   entityType,
   entities,
@@ -164,6 +175,33 @@ export function EntityReviewTable({
   issues = [],
 }: EntityReviewTableProps) {
   const columns = COLUMNS[entityType]
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  const sortedEntities = useMemo(() => {
+    if (!sortKey) return entities
+    const col = columns.find((c) => c.key === sortKey)
+    if (!col) return entities
+    return [...entities].sort((a, b) => {
+      const valA = col.value(a)
+      const valB = col.value(b)
+      const cmp =
+        typeof valA === 'number' && typeof valB === 'number'
+          ? valA - valB
+          : String(valA).localeCompare(String(valB))
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [entities, columns, sortKey, sortDir])
+
   const allSelected = entities.length > 0 && entities.every((entity) => entity.selected)
   const selectedCount = entities.filter((entity) => entity.selected).length
   const label = `${entityType}s`
@@ -189,15 +227,31 @@ export function EntityReviewTable({
               <th
                 key={column.key}
                 scope="col"
+                aria-sort={
+                  sortKey === column.key
+                    ? sortDir === 'asc'
+                      ? 'ascending'
+                      : 'descending'
+                    : 'none'
+                }
                 className="px-3 py-2 text-left font-medium text-gray-600"
               >
-                {column.label}
+                <button
+                  type="button"
+                  onClick={() => handleSort(column.key)}
+                  className="inline-flex items-center gap-1 hover:text-gray-900 focus:outline-none"
+                >
+                  <span>{column.label}</span>
+                  {sortKey === column.key && (
+                    <span aria-hidden="true">{sortDir === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </button>
               </th>
             ))}
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100 bg-white">
-          {entities.map((entity) => {
+          {sortedEntities.map((entity) => {
             const error = issues.find(
               (issue) => issue.entityTempId === entity.tempId && issue.severity === 'error'
             )
@@ -214,18 +268,25 @@ export function EntityReviewTable({
                 </td>
                 {columns.map((column) => {
                   const edit = column.editable ? column.edit : undefined
+                  const rawValue = column.value(entity)
                   return (
                     <td key={column.key} className="px-3 py-2 align-top">
                       {edit ? (
                         <input
                           type={column.inputType ?? 'text'}
                           aria-label={`${column.label} for ${entityType} ${entity.tempId}`}
-                          value={String(column.value(entity))}
+                          value={String(rawValue)}
                           onChange={(event) => onEdit(entity.tempId, edit(event.target.value))}
                           className="w-full min-w-32 rounded border border-gray-300 px-2 py-1 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                         />
+                      ) : column.key === 'confidence' && typeof rawValue === 'number' ? (
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${confidenceBadgeClass(rawValue)}`}
+                        >
+                          {String(rawValue)}
+                        </span>
                       ) : (
-                        <span className="text-gray-700">{String(column.value(entity))}</span>
+                        <span className="text-gray-700">{String(rawValue)}</span>
                       )}
                       {column.key === 'description' && error && (
                         <p className="mt-1 text-xs text-red-600">{error.message}</p>

@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useCallback, memo, useRef } from 'react'
+import { ExportHistoryList } from './ExportHistoryList'
 import { useExportManagement } from '@/hooks/useExport'
 import { useActiveGraphId, useActiveGraph } from '@/hooks/useGraphs'
 import { ExportFilters, AlthistoryExport } from '@/types'
@@ -331,23 +332,12 @@ export const ExportPanel = memo(function ExportPanel({
           {completedJobs.length > 0 && (
             <div className="space-y-2">
               <div className="text-sm font-medium text-gray-700">Recent Exports</div>
-              {completedJobs.slice(0, 3).map(job => (
-                <div key={job.id} className="flex items-center justify-between p-2 border rounded text-sm">
-                  <div>
-                    <div className="text-gray-700">Export {job.id.slice(-8)}</div>
-                    <div className="text-xs text-gray-400">
-                      {new Date(job.completedAt!).toLocaleString()}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleDownload(job.id)}
-                    disabled={isDownloading}
-                    className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
-                  >
-                    Download
-                  </button>
-                </div>
-              ))}
+              <ExportHistoryList
+                jobs={completedJobs}
+                maxItems={3}
+                onDownload={handleDownload}
+                isDownloading={isDownloading}
+              />
             </div>
           )}
 
