@@ -69,6 +69,45 @@ describe('Configuration System', () => {
     });
   });
 
+  describe('placeholder secrets', () => {
+    const failure = (): ConfigurationError | undefined => {
+      try {
+        loadConfig();
+        return undefined;
+      } catch (error) {
+        return (error as ConfigurationError).cause as ConfigurationError;
+      }
+    };
+
+    it.each(['NEO4J_PASSWORD', 'REDIS_PASSWORD', 'ADMIN_API_KEY'])(
+      'refuses to start with %s still set to the CHANGE_ME placeholder',
+      (name) => {
+        process.env.NODE_ENV = 'production';
+        process.env.LOCAL_EXECUTION_ENABLED = 'false';
+        process.env.CLOUD_SINGLE_REPLICA_STATE = 'true';
+        process.env.NEO4J_URI = 'bolt://neo4j:7687';
+        process.env.NEO4J_USERNAME = 'neo4j';
+        process.env.NEO4J_PASSWORD = 'a-real-password';
+        process.env[name] = 'CHANGE_ME_strong_secret';
+
+        expect(failure()?.message).toContain(name);
+      }
+    );
+
+    it('starts with real secrets', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      process.env.CLOUD_SINGLE_REPLICA_STATE = 'true';
+      process.env.NEO4J_URI = 'bolt://neo4j:7687';
+      process.env.NEO4J_USERNAME = 'neo4j';
+      process.env.NEO4J_PASSWORD = 'a-real-password';
+      delete process.env.REDIS_PASSWORD;
+      delete process.env.ADMIN_API_KEY;
+
+      expect(failure()).toBeUndefined();
+    });
+  });
+
   describe('LOCAL_DEV_AUTH_BYPASS', () => {
     const failure = (): ConfigurationError | undefined => {
       try {

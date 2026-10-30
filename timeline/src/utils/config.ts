@@ -376,6 +376,25 @@ function validateConfig(config: AppConfig): void {
     );
   }
 
+  // `.env.production.example` ships its secrets as `CHANGE_ME...` so a copy
+  // that was never edited is recognisable. Starting on one would put a
+  // database or an admin key behind a password printed in this repository.
+  if (!isTestEnvironment) {
+    const secrets: Array<[string, string | undefined]> = [
+      ['NEO4J_PASSWORD', config.database.neo4j.password],
+      ['REDIS_PASSWORD', config.database.redis.password],
+      ['ADMIN_API_KEY', process.env.ADMIN_API_KEY],
+    ];
+    for (const [name, value] of secrets) {
+      if (value && /^change_?me/i.test(value.trim())) {
+        throw new ConfigurationError(
+          `${name} is still the placeholder from .env.production.example. Set a real secret.`,
+          name
+        );
+      }
+    }
+  }
+
   // LOCAL_DEV_AUTH_BYPASS turns every request without a key into the
   // ADMIN_API_KEY holder (`api/middleware.ts`). That is a convenience for a
   // developer's own machine, so anywhere else the server refuses to start
