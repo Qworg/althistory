@@ -143,6 +143,24 @@ describe('Configuration System', () => {
     });
   });
 
+  describe('TRUST_PROXY', () => {
+    it.each([
+      [undefined, false],
+      ['', false],
+      ['false', false],
+      ['true', true],
+      ['1', 1],
+      ['loopback, 10.0.0.0/8', 'loopback, 10.0.0.0/8'],
+    ])('reads %j as %j', (raw, expected) => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      if (raw === undefined) delete process.env.TRUST_PROXY;
+      else process.env.TRUST_PROXY = raw;
+
+      expect(loadConfig().trustProxy).toEqual(expected);
+    });
+  });
+
   describe('HOST (the listen interface)', () => {
     // Local execution defaults to no API key, so it must not default to
     // listening on every interface as well.

@@ -204,6 +204,10 @@ class Application {
    * Setup Express middleware
    */
   private setupMiddleware(): void {
+    // Behind a reverse proxy, req.ip is the proxy's address unless Express is
+    // told to read X-Forwarded-For; the per-IP limits then share one bucket.
+    this.app.set('trust proxy', this.config.trustProxy ?? false);
+
     // Security middleware
     this.app.use(helmet({
       contentSecurityPolicy: {

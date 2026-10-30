@@ -90,6 +90,13 @@ export interface AppConfig {
    * container whose port the runtime publishes.
    */
   host: string;
+  /**
+   * Express `trust proxy`, from `TRUST_PROXY`: `false` (the default), a hop
+   * count such as `1`, or a list of trusted addresses/subnets. Only set it when
+   * every request arrives through that proxy; otherwise a client can choose its
+   * own `req.ip` with `X-Forwarded-For`.
+   */
+  trustProxy?: boolean | number | string;
   nodeEnv: string;
   database: DatabaseConfig;
   performance: {
@@ -168,6 +175,7 @@ export function loadConfig(): AppConfig {
     const appConfig: AppConfig = {
       port: parseInt(process.env.PORT || '3000', 10),
       host: resolveListenHost(localExecutionEnabled),
+      trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
       nodeEnv: process.env.NODE_ENV || 'development',
       database: {
         neo4j: {
@@ -252,6 +260,15 @@ function getRequiredEnvVar(key: string, defaultValue?: string): string {
 /**
  * Get environment variable with default, but preserve empty strings for validation
  */
+/** See {@link AppConfig.trustProxy}. */
+function parseTrustProxy(raw: string | undefined): boolean | number | string {
+  const value = raw?.trim();
+  if (!value || value.toLowerCase() === 'false') return false;
+  if (value.toLowerCase() === 'true') return true;
+  if (/^\d+$/.test(value)) return Number(value);
+  return value;
+}
+
 /** The listen interface; see {@link AppConfig.host}. */
 function resolveListenHost(localExecutionEnabled: boolean): string {
   const explicit = process.env.HOST?.trim();
