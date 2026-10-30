@@ -82,6 +82,14 @@ export interface LocalExecutionConfig {
  */
 export interface AppConfig {
   port: number;
+  /**
+   * Interface the HTTP server listens on. `HOST` wins; otherwise local
+   * execution, which runs without API keys by default, listens on loopback
+   * only, unless `TAILSCALE=true` (set by `start-local.sh --tailscale`) asks
+   * for the network. Cloud mode listens everywhere, since it runs in a
+   * container whose port the runtime publishes.
+   */
+  host: string;
   nodeEnv: string;
   database: DatabaseConfig;
   performance: {
@@ -159,6 +167,7 @@ export function loadConfig(): AppConfig {
     
     const appConfig: AppConfig = {
       port: parseInt(process.env.PORT || '3000', 10),
+      host: resolveListenHost(localExecutionEnabled),
       nodeEnv: process.env.NODE_ENV || 'development',
       database: {
         neo4j: {
@@ -243,6 +252,14 @@ function getRequiredEnvVar(key: string, defaultValue?: string): string {
 /**
  * Get environment variable with default, but preserve empty strings for validation
  */
+/** The listen interface; see {@link AppConfig.host}. */
+function resolveListenHost(localExecutionEnabled: boolean): string {
+  const explicit = process.env.HOST?.trim();
+  if (explicit) return explicit;
+  if (parseBooleanEnvVar('TAILSCALE', false)) return '0.0.0.0';
+  return localExecutionEnabled ? '127.0.0.1' : '0.0.0.0';
+}
+
 function getEnvVarWithDefault(key: string, defaultValue: string): string {
   const value = process.env[key];
   return value !== undefined ? value : defaultValue;

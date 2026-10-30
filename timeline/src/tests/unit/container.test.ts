@@ -68,6 +68,7 @@ describe('Container Unit Tests', () => {
     mockDbManager = new MockDatabaseManager();
     mockConfig = {
       port: 3000,
+      host: '127.0.0.1',
       nodeEnv: 'test',
       database: {
         neo4j: {

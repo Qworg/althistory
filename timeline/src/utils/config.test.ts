@@ -69,6 +69,46 @@ describe('Configuration System', () => {
     });
   });
 
+  describe('HOST (the listen interface)', () => {
+    // Local execution defaults to no API key, so it must not default to
+    // listening on every interface as well.
+    it('listens on loopback only under local execution', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      delete process.env.HOST;
+      delete process.env.TAILSCALE;
+
+      expect(loadConfig().host).toBe('127.0.0.1');
+    });
+
+    it('listens on every interface when start-local.sh asks for Tailscale', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      delete process.env.HOST;
+      process.env.TAILSCALE = 'true';
+
+      expect(loadConfig().host).toBe('0.0.0.0');
+    });
+
+    it('listens on every interface outside local execution (containers)', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      delete process.env.HOST;
+      delete process.env.TAILSCALE;
+
+      expect(loadConfig().host).toBe('0.0.0.0');
+    });
+
+    it('lets an explicit HOST win', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      process.env.TAILSCALE = 'true';
+      process.env.HOST = '192.0.2.10';
+
+      expect(loadConfig().host).toBe('192.0.2.10');
+    });
+  });
+
   describe('cloud state constraint', () => {
     it('should refuse cloud mode without the single-replica acknowledgement', () => {
       // Cloud mode keeps graph metadata, jobs and versions in files, so two

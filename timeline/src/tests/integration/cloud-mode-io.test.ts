@@ -63,6 +63,7 @@ class AlwaysHealthyDatabaseManager extends DatabaseManager {
 function cloudConfig(dataDirectory: string): AppConfig {
   return {
     port: 3000,
+    host: '127.0.0.1',
     nodeEnv: 'test',
     database: {
       neo4j: { uri: 'bolt://localhost:7687', username: 'neo4j', password: 'password' },

@@ -19,6 +19,7 @@ import { CreateEventRequest } from '@/models/Event';
 function createConfig(dataDirectory: string): AppConfig {
   return {
     port: 0,
+    host: '127.0.0.1',
     nodeEnv: 'test',
     database: {
       neo4j: {

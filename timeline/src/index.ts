@@ -335,8 +335,8 @@ class Application {
         streamHandler.attach(server);
         this.streamHandler = streamHandler;
 
-        server.listen(this.config.port, () => {
-          console.log(`Server running on port ${this.config.port}`);
+        server.listen(this.config.port, this.config.host, () => {
+          console.log(`Server running on ${this.config.host}:${this.config.port}`);
           console.log(`Environment: ${this.config.nodeEnv}`);
           console.log(`API available at: http://localhost:${this.config.port}/api`);
           console.log(`WebSocket stream available at: ws://localhost:${this.config.port}${STREAM_PATH}`);
