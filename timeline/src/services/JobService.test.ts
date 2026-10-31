@@ -11,6 +11,12 @@ import { ValidationError } from '../utils/errors';
 vi.mock('../repositories/JobRepository');
 vi.mock('../repositories/GraphRepository');
 vi.mock('./ExportService');
+// Webhook delivery resolves the hostname first. Answer with a public address so
+// these tests never depend on the network's DNS.
+vi.mock('dns/promises', () => {
+  const lookup = vi.fn(async () => [{ address: '93.184.215.14', family: 4 }]);
+  return { lookup, default: { lookup } };
+});
 
 describe('JobService', () => {
   let jobService: JobService;
@@ -1506,6 +1512,44 @@ describe('JobService', () => {
       expect(job.webhookDeliveryStatus).toBe('failed');
       expect(job.webhookDeliveryError).toContain('Webhook delivery failed after 1 attempt');
       expect(job.error).toBeUndefined();
+    });
+
+    it('does not send, or retry, a webhook whose host resolves to a private address', async () => {
+      const job = createMockJob({
+        status: 'pending',
+        webhookUrl: 'https://rebound.example/webhook',
+      });
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      global.fetch = fetchMock;
+
+      await startServiceWithWebhook(job, { webhookResolver: async () => ['169.254.169.254'] });
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(job.webhookSent).toBe(false);
+      expect(job.webhookDeliveryStatus).toBe('failed');
+      expect(job.webhookDeliveryError).toContain('169.254.169.254');
+      expect(job.webhookDeliveryError).toContain('after 1 attempt');
+    });
+
+    it('retries a webhook whose host does not resolve yet', async () => {
+      const job = createMockJob({
+        status: 'pending',
+        webhookUrl: 'https://flaky-dns.example/webhook',
+      });
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      global.fetch = fetchMock;
+      const resolver = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('ENOTFOUND'))
+        .mockResolvedValue(['93.184.215.14']);
+
+      await startServiceWithWebhook(job, { webhookResolver: resolver });
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(resolver).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(job.webhookSent).toBe(true);
     });
 
     it('grows the delay between attempts exponentially', async () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { MockInstance } from 'vitest';
-import { Logger, SilentLogger, silentLogger, LogEntry, ILogger } from './logger';
+import { Logger, SilentLogger, silentLogger, LogEntry, ILogger, MAX_LOG_STRING_LENGTH } from './logger';
 
 /**
  * Signature of the spied `console` methods, so the mock instances keep the
@@ -153,6 +153,45 @@ describe('Logger', () => {
       logger.info('test', { requestId: '123' });
       
       expect(entries[0].context).toEqual({ service: 'test-service', requestId: '123' });
+    });
+  });
+
+  describe('long values', () => {
+    // One multi-megabyte line froze the GitHub Actions runner outright.
+    it('cuts a long string in the context, the message and the error', () => {
+      const entries: LogEntry[] = [];
+      const logger = new Logger({ output: (entry) => entries.push(entry) });
+      const huge = 'x'.repeat(8 * 1024 * 1024);
+
+      logger.error(`failed: ${huge}`, new Error(huge), { detail: { nested: huge }, list: [huge] });
+
+      const serialized = JSON.stringify(entries[0]);
+      expect(serialized.length).toBeLessThan(64 * 1024);
+      expect(entries[0].message.startsWith('failed: xxx')).toBe(true);
+      expect(entries[0].message).toContain(`[${8 * 1024 * 1024 + 'failed: '.length - MAX_LOG_STRING_LENGTH} more characters]`);
+      expect((entries[0].context?.detail as { nested: string }).nested.length).toBeLessThan(MAX_LOG_STRING_LENGTH + 64);
+    });
+
+    it('leaves ordinary values alone', () => {
+      const entries: LogEntry[] = [];
+      const logger = new Logger({ output: (entry) => entries.push(entry) });
+      const shared = { id: 'a' };
+
+      logger.info('short', { requestId: '123', count: 3, ok: true, a: shared, b: shared });
+
+      expect(entries[0].message).toBe('short');
+      expect(entries[0].context).toEqual({ requestId: '123', count: 3, ok: true, a: { id: 'a' }, b: { id: 'a' } });
+    });
+
+    it('cuts a cycle instead of following it', () => {
+      const entries: LogEntry[] = [];
+      const logger = new Logger({ output: (entry) => entries.push(entry) });
+      const cyclic: Record<string, unknown> = { name: 'loop' };
+      cyclic.self = cyclic;
+
+      logger.info('cyclic', { cyclic });
+
+      expect(entries[0].context?.cyclic).toEqual({ name: 'loop', self: '[omitted]' });
     });
   });
 

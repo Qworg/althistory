@@ -426,6 +426,12 @@ export async function installApiStub(
       return json(route, 200, { success: true, data: found })
     }
 
+    // Inferred pressures (fetched by the timeline views). The flows covered
+    // here do not exercise inference, so the graph has none.
+    if (path === '/inference/pressures' && method === 'GET') {
+      return json(route, 200, { success: true, data: [] })
+    }
+
     // Web ingestion (Req 19)
     if (path === '/ingest/url' && method === 'POST') {
       state.ingestedVia.push(path)

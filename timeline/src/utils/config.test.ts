@@ -69,6 +69,138 @@ describe('Configuration System', () => {
     });
   });
 
+  describe('placeholder secrets', () => {
+    const failure = (): ConfigurationError | undefined => {
+      try {
+        loadConfig();
+        return undefined;
+      } catch (error) {
+        return (error as ConfigurationError).cause as ConfigurationError;
+      }
+    };
+
+    it.each(['NEO4J_PASSWORD', 'REDIS_PASSWORD', 'ADMIN_API_KEY'])(
+      'refuses to start with %s still set to the CHANGE_ME placeholder',
+      (name) => {
+        process.env.NODE_ENV = 'production';
+        process.env.LOCAL_EXECUTION_ENABLED = 'false';
+        process.env.CLOUD_SINGLE_REPLICA_STATE = 'true';
+        process.env.NEO4J_URI = 'bolt://neo4j:7687';
+        process.env.NEO4J_USERNAME = 'neo4j';
+        process.env.NEO4J_PASSWORD = 'a-real-password';
+        process.env[name] = 'CHANGE_ME_strong_secret';
+
+        expect(failure()?.message).toContain(name);
+      }
+    );
+
+    it('starts with real secrets', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      process.env.CLOUD_SINGLE_REPLICA_STATE = 'true';
+      process.env.NEO4J_URI = 'bolt://neo4j:7687';
+      process.env.NEO4J_USERNAME = 'neo4j';
+      process.env.NEO4J_PASSWORD = 'a-real-password';
+      delete process.env.REDIS_PASSWORD;
+      delete process.env.ADMIN_API_KEY;
+
+      expect(failure()).toBeUndefined();
+    });
+  });
+
+  describe('LOCAL_DEV_AUTH_BYPASS', () => {
+    const failure = (): ConfigurationError | undefined => {
+      try {
+        loadConfig();
+        return undefined;
+      } catch (error) {
+        return (error as ConfigurationError).cause as ConfigurationError;
+      }
+    };
+
+    it('is refused outside local execution', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      process.env.LOCAL_DEV_AUTH_BYPASS = 'true';
+
+      expect(failure()?.message).toContain('LOCAL_DEV_AUTH_BYPASS');
+    });
+
+    it('is refused in production, even under local execution', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      process.env.LOCAL_DEV_AUTH_BYPASS = 'true';
+
+      expect(failure()?.message).toContain('LOCAL_DEV_AUTH_BYPASS');
+    });
+
+    it('is allowed under local development', () => {
+      process.env.NODE_ENV = 'development';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      process.env.LOCAL_DEV_AUTH_BYPASS = 'true';
+
+      expect(failure()).toBeUndefined();
+    });
+  });
+
+  describe('TRUST_PROXY', () => {
+    it.each([
+      [undefined, false],
+      ['', false],
+      ['false', false],
+      ['true', true],
+      ['1', 1],
+      ['loopback, 10.0.0.0/8', 'loopback, 10.0.0.0/8'],
+    ])('reads %j as %j', (raw, expected) => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      if (raw === undefined) delete process.env.TRUST_PROXY;
+      else process.env.TRUST_PROXY = raw;
+
+      expect(loadConfig().trustProxy).toEqual(expected);
+    });
+  });
+
+  describe('HOST (the listen interface)', () => {
+    // Local execution defaults to no API key, so it must not default to
+    // listening on every interface as well.
+    it('listens on loopback only under local execution', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      delete process.env.HOST;
+      delete process.env.TAILSCALE;
+
+      expect(loadConfig().host).toBe('127.0.0.1');
+    });
+
+    it('listens on every interface when start-local.sh asks for Tailscale', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      delete process.env.HOST;
+      process.env.TAILSCALE = 'true';
+
+      expect(loadConfig().host).toBe('0.0.0.0');
+    });
+
+    it('listens on every interface outside local execution (containers)', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'false';
+      delete process.env.HOST;
+      delete process.env.TAILSCALE;
+
+      expect(loadConfig().host).toBe('0.0.0.0');
+    });
+
+    it('lets an explicit HOST win', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.LOCAL_EXECUTION_ENABLED = 'true';
+      process.env.TAILSCALE = 'true';
+      process.env.HOST = '192.0.2.10';
+
+      expect(loadConfig().host).toBe('192.0.2.10');
+    });
+  });
+
   describe('cloud state constraint', () => {
     it('should refuse cloud mode without the single-replica acknowledgement', () => {
       // Cloud mode keeps graph metadata, jobs and versions in files, so two

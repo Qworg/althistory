@@ -101,18 +101,48 @@ fi
 echo -e "${BLUE}======================================${NC}"
 echo ""
 
+# The admin key the backend creates and the frontend sends. Reuse whichever
+# .env.local already has one so the two always match; otherwise generate a
+# fresh one, so no two installs share a key.
+# Prints nothing, and still succeeds, when the file or the key is missing:
+# this script runs under `set -e`.
+env_value() {
+    if [ -f "$1" ]; then
+        grep -m 1 "^$2=" "$1" | cut -d= -f2-
+    fi
+}
+LOCAL_ADMIN_KEY=$(env_value "$SCRIPT_DIR/timeline/.env.local" ADMIN_API_KEY)
+if [ -z "$LOCAL_ADMIN_KEY" ]; then
+    LOCAL_ADMIN_KEY=$(env_value "$SCRIPT_DIR/frontend/.env.local" VITE_API_KEY)
+fi
+if [ -z "$LOCAL_ADMIN_KEY" ]; then
+    LOCAL_ADMIN_KEY=$(node -e "process.stdout.write('ak_' + require('crypto').randomBytes(32).toString('hex'))")
+fi
+
+# Earlier versions of this script wrote the same key into every install, and
+# that key is in this repository, so anyone who reads it holds admin.
+if [ "$LOCAL_ADMIN_KEY" = "ak_althistory_local_dev_admin_key" ]; then
+    echo -e "${RED}Warning: this install uses the shared default admin key, which is public.${NC}"
+    echo -e "${RED}  Anyone who can reach the backend can use it. To replace it, stop the${NC}"
+    echo -e "${RED}  servers, delete timeline/.env.local, frontend/.env.local and${NC}"
+    echo -e "${RED}  timeline/data/keys/keys.json (this also deletes any other API keys), and rerun.${NC}"
+    echo ""
+fi
+
 # Ensure .env.local exists for backend with local execution enabled
 if [ ! -f "$SCRIPT_DIR/timeline/.env.local" ]; then
     echo -e "${YELLOW}Creating timeline/.env.local for local development...${NC}"
     echo "LOCAL_EXECUTION_ENABLED=true" > "$SCRIPT_DIR/timeline/.env.local"
     echo "LOCAL_DATA_DIR=./data" >> "$SCRIPT_DIR/timeline/.env.local"
-    echo "ADMIN_API_KEY=ak_althistory_local_dev_admin_key" >> "$SCRIPT_DIR/timeline/.env.local"
+    echo "ADMIN_API_KEY=$LOCAL_ADMIN_KEY" >> "$SCRIPT_DIR/timeline/.env.local"
+    chmod 600 "$SCRIPT_DIR/timeline/.env.local"
 fi
 
 # Ensure .env.local exists for frontend with matching local dev key and relative API base URL
 if [ ! -f "$SCRIPT_DIR/frontend/.env.local" ]; then
     echo -e "${YELLOW}Creating frontend/.env.local for local development...${NC}"
-    echo "VITE_API_KEY=ak_althistory_local_dev_admin_key" > "$SCRIPT_DIR/frontend/.env.local"
+    echo "VITE_API_KEY=$LOCAL_ADMIN_KEY" > "$SCRIPT_DIR/frontend/.env.local"
+    chmod 600 "$SCRIPT_DIR/frontend/.env.local"
     echo "VITE_API_BASE_URL=/api" >> "$SCRIPT_DIR/frontend/.env.local"
 else
     # Ensure VITE_API_BASE_URL is present so remote Tailscale clients proxy through Vite

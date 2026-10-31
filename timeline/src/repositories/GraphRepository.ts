@@ -23,6 +23,8 @@ export interface GraphRepositoryConfig {
 
 export interface GraphListOptions {
   status?: GraphStatus;
+  /** Keep only the graphs this accepts, before counting and paging. */
+  include?: (graphId: string) => boolean;
   limit?: number;
   offset?: number;
 }
@@ -117,11 +119,14 @@ export class GraphRepository {
    * List all graphs
    */
   async findAll(options: GraphListOptions = {}): Promise<GraphListResult> {
-    const { status, limit = 50, offset = 0 } = options;
+    const { status, include, limit = 50, offset = 0 } = options;
     const index = await this.loadIndex();
 
     const graphs: IGraph[] = [];
     for (const graphId of index.graphs) {
+      if (include && !include(graphId)) {
+        continue;
+      }
       try {
         const metadata = await this.loadGraphMetadata(graphId);
         

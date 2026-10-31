@@ -204,6 +204,10 @@ class Application {
    * Setup Express middleware
    */
   private setupMiddleware(): void {
+    // Behind a reverse proxy, req.ip is the proxy's address unless Express is
+    // told to read X-Forwarded-For; the per-IP limits then share one bucket.
+    this.app.set('trust proxy', this.config.trustProxy ?? false);
+
     // Security middleware
     this.app.use(helmet({
       contentSecurityPolicy: {
@@ -335,8 +339,8 @@ class Application {
         streamHandler.attach(server);
         this.streamHandler = streamHandler;
 
-        server.listen(this.config.port, () => {
-          console.log(`Server running on port ${this.config.port}`);
+        server.listen(this.config.port, this.config.host, () => {
+          console.log(`Server running on ${this.config.host}:${this.config.port}`);
           console.log(`Environment: ${this.config.nodeEnv}`);
           console.log(`API available at: http://localhost:${this.config.port}/api`);
           console.log(`WebSocket stream available at: ws://localhost:${this.config.port}${STREAM_PATH}`);

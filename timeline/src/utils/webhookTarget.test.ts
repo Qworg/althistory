@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { assertWebhookTarget } from './webhookTarget';
+import { describe, it, expect, vi } from 'vitest';
+import { assertWebhookTarget, assertWebhookTargetResolved } from './webhookTarget';
+import { ValidationError } from './errors';
 
 describe('assertWebhookTarget', () => {
   it('accepts and normalizes a public https URL', () => {
@@ -82,5 +83,58 @@ describe('assertWebhookTarget', () => {
     expect(assertWebhookTarget('https://172.32.0.1/hook')).toBe('https://172.32.0.1/hook');
     expect(assertWebhookTarget('https://100.128.0.1/hook')).toBe('https://100.128.0.1/hook');
     expect(assertWebhookTarget('https://10.example.com/hook')).toBe('https://10.example.com/hook');
+  });
+});
+
+describe('assertWebhookTargetResolved', () => {
+  const resolvesTo = (...addresses: string[]) => vi.fn(async () => addresses);
+
+  it('accepts a name that resolves only to public addresses', async () => {
+    await expect(
+      assertWebhookTargetResolved('https://hooks.example.com/x', resolvesTo('93.184.215.14', '2606:2800:21f:cb07:6820:80da:af6b:8b2c'))
+    ).resolves.toBe('https://hooks.example.com/x');
+  });
+
+  it.each([
+    ['the loopback', '127.0.0.1'],
+    ['the cloud metadata address', '169.254.169.254'],
+    ['a private network', '10.1.2.3'],
+    ['the IPv6 loopback', '::1'],
+    ['an IPv4-mapped address', '::ffff:127.0.0.1'],
+  ])('refuses a name that resolves to %s', async (_label, address) => {
+    const error = await assertWebhookTargetResolved(
+      'https://127.0.0.1.nip.io/x',
+      resolvesTo('93.184.215.14', address)
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ValidationError);
+    expect((error as Error).message).toContain(address);
+  });
+
+  it('reports a name that does not resolve as a plain error, so it can be retried', async () => {
+    const error = await assertWebhookTargetResolved(
+      'https://missing.example/x',
+      vi.fn(async () => {
+        throw new Error('ENOTFOUND');
+      })
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ValidationError);
+  });
+
+  it('does not resolve a literal address, which the URL check already covers', async () => {
+    const resolver = resolvesTo('127.0.0.1');
+
+    await expect(assertWebhookTargetResolved('https://93.184.215.14/x', resolver)).resolves.toBe(
+      'https://93.184.215.14/x'
+    );
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it('still refuses a private literal before resolving anything', async () => {
+    await expect(assertWebhookTargetResolved('http://127.0.0.1:9000/x', resolvesTo())).rejects.toBeInstanceOf(
+      ValidationError
+    );
   });
 });

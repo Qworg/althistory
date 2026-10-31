@@ -82,6 +82,21 @@ export interface LocalExecutionConfig {
  */
 export interface AppConfig {
   port: number;
+  /**
+   * Interface the HTTP server listens on. `HOST` wins; otherwise local
+   * execution, which runs without API keys by default, listens on loopback
+   * only, unless `TAILSCALE=true` (set by `start-local.sh --tailscale`) asks
+   * for the network. Cloud mode listens everywhere, since it runs in a
+   * container whose port the runtime publishes.
+   */
+  host: string;
+  /**
+   * Express `trust proxy`, from `TRUST_PROXY`: `false` (the default), a hop
+   * count such as `1`, or a list of trusted addresses/subnets. Only set it when
+   * every request arrives through that proxy; otherwise a client can choose its
+   * own `req.ip` with `X-Forwarded-For`.
+   */
+  trustProxy?: boolean | number | string;
   nodeEnv: string;
   database: DatabaseConfig;
   performance: {
@@ -159,6 +174,8 @@ export function loadConfig(): AppConfig {
     
     const appConfig: AppConfig = {
       port: parseInt(process.env.PORT || '3000', 10),
+      host: resolveListenHost(localExecutionEnabled),
+      trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
       nodeEnv: process.env.NODE_ENV || 'development',
       database: {
         neo4j: {
@@ -243,6 +260,23 @@ function getRequiredEnvVar(key: string, defaultValue?: string): string {
 /**
  * Get environment variable with default, but preserve empty strings for validation
  */
+/** See {@link AppConfig.trustProxy}. */
+function parseTrustProxy(raw: string | undefined): boolean | number | string {
+  const value = raw?.trim();
+  if (!value || value.toLowerCase() === 'false') return false;
+  if (value.toLowerCase() === 'true') return true;
+  if (/^\d+$/.test(value)) return Number(value);
+  return value;
+}
+
+/** The listen interface; see {@link AppConfig.host}. */
+function resolveListenHost(localExecutionEnabled: boolean): string {
+  const explicit = process.env.HOST?.trim();
+  if (explicit) return explicit;
+  if (parseBooleanEnvVar('TAILSCALE', false)) return '0.0.0.0';
+  return localExecutionEnabled ? '127.0.0.1' : '0.0.0.0';
+}
+
 function getEnvVarWithDefault(key: string, defaultValue: string): string {
   const value = process.env[key];
   return value !== undefined ? value : defaultValue;
@@ -356,6 +390,41 @@ function validateConfig(config: AppConfig): void {
         'process. Any script that loads this configuration (the server, `migrate-data`) is ' +
         'subject to it; the `althistory` CLI pins itself to local execution before loading it.',
       'CLOUD_SINGLE_REPLICA_STATE'
+    );
+  }
+
+  // `.env.production.example` ships its secrets as `CHANGE_ME...` so a copy
+  // that was never edited is recognisable. Starting on one would put a
+  // database or an admin key behind a password printed in this repository.
+  if (!isTestEnvironment) {
+    const secrets: Array<[string, string | undefined]> = [
+      ['NEO4J_PASSWORD', config.database.neo4j.password],
+      ['REDIS_PASSWORD', config.database.redis.password],
+      ['ADMIN_API_KEY', process.env.ADMIN_API_KEY],
+    ];
+    for (const [name, value] of secrets) {
+      if (value && /^change_?me/i.test(value.trim())) {
+        throw new ConfigurationError(
+          `${name} is still the placeholder from .env.production.example. Set a real secret.`,
+          name
+        );
+      }
+    }
+  }
+
+  // LOCAL_DEV_AUTH_BYPASS turns every request without a key into the
+  // ADMIN_API_KEY holder (`api/middleware.ts`). That is a convenience for a
+  // developer's own machine, so anywhere else the server refuses to start
+  // rather than run with an unauthenticated admin.
+  if (
+    process.env.LOCAL_DEV_AUTH_BYPASS === 'true' &&
+    (!config.localExecution.enabled || config.nodeEnv === 'production')
+  ) {
+    throw new ConfigurationError(
+      'LOCAL_DEV_AUTH_BYPASS=true makes every request without an API key act as the admin key. ' +
+        'It is only allowed under local execution (LOCAL_EXECUTION_ENABLED=true) with NODE_ENV ' +
+        'other than production. Remove it.',
+      'LOCAL_DEV_AUTH_BYPASS'
     );
   }
 

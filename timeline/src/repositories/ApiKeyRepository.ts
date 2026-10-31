@@ -46,6 +46,8 @@ export class ApiKeyRepository {
   private keys: Map<string, ApiKey> = new Map();
   private prefixIndex: Map<string, string> = new Map(); // prefix -> id
   private initialized = false;
+  /** The last queued write of the keys file; see {@link persistKeys}. */
+  private persistQueue: Promise<void> = Promise.resolve();
 
   constructor(config: ApiKeyRepositoryConfig) {
     this.dataDir = config.dataDir;
@@ -402,9 +404,35 @@ export class ApiKeyRepository {
     }
   }
 
-  private async persistKeys(): Promise<void> {
-    const keysArray = Array.from(this.keys.values()).map((k) => k.toStorage());
-    await fs.promises.writeFile(this.keysFilePath, JSON.stringify(keysArray, null, 2), 'utf8');
+  /**
+   * Write the keys file.
+   *
+   * Every authenticated request records `lastUsedAt`, so this runs on every
+   * request, often concurrently. Writes are queued so two never overlap, and
+   * each one goes to a temporary file that is renamed over the keys file, so a
+   * crash mid-write leaves the previous file rather than a truncated one that
+   * would stop the server from starting. Each write serialises the keys as
+   * they are when it runs, so a queued write never puts back older state.
+   */
+  private persistKeys(): Promise<void> {
+    const write = this.persistQueue
+      .catch(() => undefined)
+      .then(async () => {
+        const keysArray = Array.from(this.keys.values()).map((k) => k.toStorage());
+        const tempPath = `${this.keysFilePath}.${process.pid}.${Date.now()}.tmp`;
+        try {
+          await fs.promises.writeFile(tempPath, JSON.stringify(keysArray, null, 2), {
+            encoding: 'utf8',
+            mode: 0o600,
+          });
+          await fs.promises.rename(tempPath, this.keysFilePath);
+        } catch (error) {
+          await fs.promises.rm(tempPath, { force: true }).catch(() => undefined);
+          throw error;
+        }
+      });
+    this.persistQueue = write;
+    return write;
   }
 }
 

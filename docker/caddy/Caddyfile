@@ -17,6 +17,23 @@
 {$CADDY_SITE_ADDRESS::80} {
 	encode zstd gzip
 
+	# The API refuses bodies over 10 MB itself; this stops larger ones at the edge.
+	request_body {
+		max_size 16MB
+	}
+
+	# Browsers ignore HSTS over plain HTTP, so it only takes effect once the
+	# site is served over TLS. No Content-Security-Policy yet: the timeline and
+	# causal-graph views set inline styles, so a policy needs testing first.
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
 	handle /api/* {
 		reverse_proxy api:3000
 	}

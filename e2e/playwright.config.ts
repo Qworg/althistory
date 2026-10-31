@@ -56,7 +56,10 @@ export default defineConfig({
   ],
   webServer: {
     // Build with a same-origin API base so the stub needs no CORS preflight.
-    command: `npm run build && npm run preview -- --port ${previewPort} --strictPort`,
+    // Bind the address `baseURL` names: without `--host`, Vite listens on
+    // whatever `localhost` resolves to first, which is `::1` on hosts that map
+    // it to both (GitHub's Ubuntu runners), and the wait on 127.0.0.1 times out.
+    command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${previewPort} --strictPort`,
     cwd: frontendDir,
     url: baseURL,
     reuseExistingServer: false,

@@ -240,6 +240,55 @@ describe('ApiKeyRepository', () => {
     });
   });
 
+  describe('persistence', () => {
+    const keysFile = (): string => path.join(testDir, 'keys', 'keys.json');
+
+    beforeEach(async () => {
+      await repository.initialize();
+    });
+
+    it('keeps the keys file whole under concurrent authenticated requests', async () => {
+      const created = await Promise.all(
+        [1, 2, 3].map((n) => repository.create({ name: `Concurrent ${n}`, permissions: ['read:events'] }))
+      );
+
+      // Every validation rewrites the file (lastUsedAt); fire them together.
+      const results = await Promise.all(
+        Array.from({ length: 30 }, (_, i) => repository.validateKey(created[i % 3].key))
+      );
+      expect(results.every((key) => key !== null)).toBe(true);
+
+      const stored = JSON.parse(await fs.promises.readFile(keysFile(), 'utf8')) as Array<{ name: string }>;
+      expect(stored.map((key) => key.name)).toEqual(
+        expect.arrayContaining(['Concurrent 1', 'Concurrent 2', 'Concurrent 3'])
+      );
+      const leftovers = (await fs.promises.readdir(path.dirname(keysFile()))).filter((f) => f.endsWith('.tmp'));
+      expect(leftovers).toEqual([]);
+    });
+
+    it.skipIf(process.platform === 'win32')('writes the keys file readable by its owner only', async () => {
+      await repository.create({ name: 'Mode', permissions: ['read:events'] });
+
+      const mode = (await fs.promises.stat(keysFile())).mode & 0o777;
+      expect(mode).toBe(0o600);
+    });
+
+    it('leaves the previous file in place when a write fails, and keeps writing afterwards', async () => {
+      await repository.create({ name: 'Before', permissions: ['read:events'] });
+      const before = await fs.promises.readFile(keysFile(), 'utf8');
+
+      const rename = vi.spyOn(fs.promises, 'rename').mockRejectedValueOnce(new Error('disk full'));
+      await expect(repository.create({ name: 'Lost', permissions: ['read:events'] })).rejects.toThrow('disk full');
+      rename.mockRestore();
+
+      expect(await fs.promises.readFile(keysFile(), 'utf8')).toBe(before);
+
+      await repository.create({ name: 'After', permissions: ['read:events'] });
+      const stored = JSON.parse(await fs.promises.readFile(keysFile(), 'utf8')) as Array<{ name: string }>;
+      expect(stored.map((key) => key.name)).toEqual(expect.arrayContaining(['Before', 'After']));
+    });
+  });
+
   describe('validateKey', () => {
     beforeEach(async () => {
       await repository.initialize();

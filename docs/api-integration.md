@@ -148,6 +148,12 @@ an import job is visible to, and cancellable by, only the key that started it.
 **Merge reads two graphs.** `POST /api/graphs/:id/merge` checks the key against
 both the target `:id` and the body's `sourceGraphId`.
 
+**Listings are scoped too.** A key restricted to some graphs sees only those in
+`GET /api/graphs` (and the `total` counts only those) and in
+`GET /api/graphs/:id/branches`. `GET /api/graphs/active`, and
+`POST /api/graphs/copy` without a `sourceGraphId`, answer `403` when the
+active graph is outside the key's list.
+
 ## Responses
 
 Most routes answer in an envelope:
@@ -260,10 +266,15 @@ Delivery is recorded separately from the job's own status (`delivered`,
 `failed`, `abandoned`): a webhook that never arrives does not make the job
 failed, and a failed job still attempts delivery.
 
-The target is checked before it is POSTed to: a loopback, link-local or
-private **address**, and a `localhost`/`.local`/`.internal` name, are refused.
-A host *name* that resolves to a private address is not caught — the same
-limitation the outbound web fetcher documents, and for the same reason.
+The target is checked before it is POSTed to. A loopback, link-local or
+private address, or a `localhost` name, is refused when the job is created. At
+delivery the host name is resolved too, and the webhook is refused (and not
+retried) when any address it resolves to is private, so a name such as
+`metadata.google.internal` or `127.0.0.1.nip.io` cannot reach an internal
+service. A name that fails to resolve is retried like a network failure. What
+this does not close is DNS rebinding — a name that answers publicly for the
+check and privately when the connection is made — which, like the outbound
+web fetcher, needs an egress policy at the network level.
 
 **Webhooks are per job, not a subscription.** There is no long-lived
 registration, no list of endpoints, and no event stream. To learn about a

@@ -70,9 +70,13 @@ COPY docker/althistory-cli.sh /usr/local/bin/althistory
 RUN chmod +x /usr/local/bin/althistory
 
 # File-backed graph/export/job state (there is no Neo4j-backed implementation
-# of those repositories); mount a volume here in production.
-RUN mkdir -p /data
+# of those repositories); mount a volume here in production. It belongs to the
+# unprivileged `node` user the server runs as, and an empty named volume takes
+# that ownership on first mount.
+RUN mkdir -p /data && chown node:node /data
 VOLUME /data
+
+USER node
 
 EXPOSE 3000
 
