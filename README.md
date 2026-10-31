@@ -5,6 +5,23 @@ a versioned, multi-graph timeline backend with a React interface and an
 agent-first CLI / MCP server for exploring events, arcs, causal chains, and
 counterfactual branches.
 
+![The timeline view: arcs as nested periods above the events, with a tooltip on one event](docs/images/timeline.png)
+
+[![Watch the one-minute walkthrough](docs/images/walkthrough-poster.png)](docs/media/walkthrough.mp4)
+
+**New here?** Watch the [one-minute walkthrough](docs/media/walkthrough.mp4)
+or read the [illustrated tour](docs/walkthrough.md). Every picture on this page
+is generated from the running app; see [Screenshots and video](#screenshots-and-video).
+
+## A look around
+
+| | |
+| --- | --- |
+| ![Causal graph view](docs/images/causal-graph.png) | ![Ingestion review step](docs/images/ingestion-review.png) |
+| **Causal graph**: every cause-and-effect link, weighted and typed, in a choice of layouts. | **Ingestion**: extract events from Wikipedia, Wikidata or text, and review them before anything is written. |
+| ![Actor perspective view](docs/images/actor-perspective.png) | ![Pressure analysis panel](docs/images/pressure-analysis.png) |
+| **Actor perspective**: one actor's events, as actor and as target. | **Inferred pressures**: economic, social and political pressures read from clusters of events. |
+
 ## Layout
 
 | Path | What it is |
@@ -12,6 +29,7 @@ counterfactual branches.
 | `timeline/` | Express + TypeScript API and CLI (`bin/althistory`). Versioned graph storage (Git-like trees), export/import, inference, ingestion, WebSocket streaming, MCP server. |
 | `frontend/` | React + Vite UI. Timeline, causal graph, actor and pressure views, graph/version/import/export panels. |
 | `e2e/` | Playwright end-to-end and visual-regression tests against a production build with the API stubbed. |
+| `media/` | The generator for the README screenshots and the walkthrough video (Playwright + [Revideo](https://github.com/midrender/revideo)). |
 | `docs/` | API integration, export format, ingestion, branch/merge, MCP, production deployment, the D3/React architecture decision, and the feature requirements (`docs/specs/`). |
 | `docker/`, `docker-compose.yml`, `Dockerfile` | Container images and the production stack. |
 
@@ -77,9 +95,9 @@ running.
 # Manage graphs, events, arcs, ingestion, simulation, and validation
 ./bin/althistory graph list
 ./bin/althistory graph create "Roman Steam Engine" -d "Aeolipile industrialized in 100 CE"
-./bin/althistory ingest wikipedia "https://en.wikipedia.org/wiki/Battle_of_Hastings" -g <graphId>
-./bin/althistory generate --premise "Byzantium wins at Manzikert" --divergence "1071-08-26"
-./bin/althistory simulate <graphId> --steps 3 --months 12
+./bin/althistory ingest url "https://en.wikipedia.org/wiki/Battle_of_Hastings" -g <graphId>
+./bin/althistory generate timeline --premise "Byzantium wins at Manzikert" --divergence-point "1071-08-26" --direct
+./bin/althistory generate simulate -g <graphId> --steps 3 --months 12
 ./bin/althistory validate <graphId> --auto-repair
 ./bin/althistory export <graphId> --format markdown
 ```
@@ -122,6 +140,27 @@ CI (`.github/workflows/ci.yml`) gates both packages on typecheck, ESLint, the
 test suites with coverage, the frontend production build, and the non-visual
 Playwright specs.
 
+## Screenshots and video
+
+The images in this README, [`docs/walkthrough.md`](docs/walkthrough.md) and
+the walkthrough video are generated, not hand-made. Rerun the generator
+whenever the interface changes and commit what it writes:
+
+```bash
+cd media
+npm ci
+npx playwright install chromium   # once
+npm run generate                  # ~2 min: build, seed, capture, render
+```
+
+It builds the backend and frontend, starts them privately on free ports with
+a throwaway data directory, seeds a curated demo graph through the API, drives
+the real app with Playwright, and renders the video with
+[Revideo](https://github.com/midrender/revideo). It writes
+`docs/images/*.png` and `docs/media/walkthrough.mp4`, and touches nothing
+else: not your data, your ports, or `frontend/dist`. See
+[`media/README.md`](media/README.md) to change the tour or the narration.
+
 ## Configuration
 
 Frequently used variables; the full set with defaults and validation lives in
@@ -157,6 +196,7 @@ builder refuses to describe a route that has no entry there.
 
 ## Documentation
 
+- [`docs/walkthrough.md`](docs/walkthrough.md) — an illustrated tour of the interface for new users.
 - [`AGENTS.md`](AGENTS.md) — code style, architecture rules and build commands.
 - [`CLAUDE.md`](CLAUDE.md) — developer and agent quick reference.
 - [`docs/api-integration.md`](docs/api-integration.md) — using the API from outside: keys, permissions, graph scoping, rate limits, jobs and webhooks.
@@ -170,6 +210,7 @@ builder refuses to describe a route that has no entry there.
 - [`docs/specs/`](docs/specs/) — feature requirements; the `Req N` numbers in code comments refer to these.
 - `GET /api/openapi.json` — the authoritative HTTP route list.
 - [`e2e/README.md`](e2e/README.md) — end-to-end and visual-regression workflow.
+- [`media/README.md`](media/README.md) — the screenshot and walkthrough-video generator.
 
 ## License
 

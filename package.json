@@ -26,7 +26,8 @@
     "lint:fix": "npm run lint:fix --workspace=timeline",
     "format": "npm run format --workspace=timeline",
     "format:check": "npm run format:check --workspace=timeline",
-    "cli": "./bin/althistory"
+    "cli": "./bin/althistory",
+    "media": "npm run generate --prefix media"
   },
   "keywords": [
     "temporal-graph",
