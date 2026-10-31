@@ -71,9 +71,21 @@ permissions:
 
 jobs:
   backend:
-    name: Backend (typecheck, lint, test)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # TEMPORARY diagnostic matrix: the full suite freezes the ubuntu-latest
+    # runner. Shards show which files are involved; the ubuntu-24.04 run tests
+    # whether the Ubuntu 26 image is. Revert to one job once it is fixed.
+    name: Backend (typecheck, lint, test) ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, shard: '--shard=1/4', label: 'latest 1/4' }
+          - { os: ubuntu-latest, shard: '--shard=2/4', label: 'latest 2/4' }
+          - { os: ubuntu-latest, shard: '--shard=3/4', label: 'latest 3/4' }
+          - { os: ubuntu-latest, shard: '--shard=4/4', label: 'latest 4/4' }
+          - { os: ubuntu-24.04, shard: '', label: '24.04 full' }
     defaults:
       run:
         working-directory: timeline
@@ -112,7 +124,8 @@ jobs:
         # SIGKILLs the suite's whole process group after 6 minutes instead.
         run: |
           set -m
-          npx vitest --run --coverage --reporter=verbose --reporter=hanging-process &
+          cat /etc/os-release | head -2; nproc; free -m
+          npx vitest --run --coverage ${{ matrix.shard }} --reporter=verbose --reporter=hanging-process &
           suite=$!
           ( sleep 360
             echo "::error::The backend suite did not finish in 6 minutes; killing it."
