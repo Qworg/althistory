@@ -71,21 +71,9 @@ permissions:
 
 jobs:
   backend:
-    # TEMPORARY diagnostic matrix: the full suite freezes the runner (on
-    # ubuntu-latest and ubuntu-24.04 alike). Shard 1/4 alone reproduces it;
-    # group 2 of its files reproduces it; one job per file. Revert to one job once it is fixed.
-    name: Backend (typecheck, lint, test) ${{ matrix.label }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 12
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest, shard: 'src/api/routes/import.test.ts', label: 'import.test.ts' }
-          - { os: ubuntu-latest, shard: 'src/services/BackupRecoveryService.test.ts', label: 'BackupRecoveryService.test.ts' }
-          - { os: ubuntu-latest, shard: 'src/services/ImportService.test.ts', label: 'ImportService.test.ts' }
-          - { os: ubuntu-latest, shard: 'src/tests/unit/container.test.ts', label: 'container.test.ts' }
-          - { os: ubuntu-latest, shard: 'src/websocket/stream.integration.test.ts', label: 'stream.integration.test.ts' }
+    name: Backend (typecheck, lint, test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: timeline
@@ -115,26 +103,7 @@ jobs:
         run: npm run lint
 
       - name: Test (coverage report-only; no threshold is configured)
-        # The suite takes well under a minute. A step timeout, unlike the job
-        # timeout, lets the job finish and keep its log, and the verbose and
-        # hanging-process reporters name the file that stalls and any handle
-        # that keeps vitest from exiting.
-        timeout-minutes: 8
-        # The runner's own timeout did not stop a stuck run, so a watchdog
-        # SIGKILLs the suite's whole process group after 6 minutes instead.
-        run: |
-          set -m
-          cat /etc/os-release | head -2; nproc; free -m
-          npx vitest --run --coverage ${{ matrix.shard }} --reporter=verbose --reporter=hanging-process &
-          suite=$!
-          ( sleep 360
-            echo "::error::The backend suite did not finish in 6 minutes; killing it."
-            kill -KILL -- -"$suite" ) &
-          watchdog=$!
-          status=0
-          wait "$suite" || status=$?
-          kill -- -"$watchdog" 2>/dev/null || true
-          exit "$status"
+        run: npx vitest --run --coverage
 
   frontend:
     name: Frontend (typecheck, lint, test, build)
