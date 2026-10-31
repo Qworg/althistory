@@ -1,0 +1,29 @@
+{
+  "name": "althistory-media",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Regenerates the README screenshots and the new-user walkthrough video from the real app.",
+  "scripts": {
+    "generate": "tsx src/generate.ts",
+    "capture": "tsx src/generate.ts --skip-video",
+    "video": "tsx src/generate.ts --video-only",
+    "typecheck": "tsc --noEmit",
+    "install-browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@revideo/2d": "0.11.0",
+    "@revideo/core": "0.11.0",
+    "@revideo/ffmpeg": "0.11.0",
+    "@revideo/renderer": "0.11.0",
+    "@revideo/ui": "^0.11.0",
+    "@revideo/vite-plugin": "^0.11.0",
+    "@types/node": "^24.0.0",
+    "playwright": "1.63.0",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.0"
+  }
+}

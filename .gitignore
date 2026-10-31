@@ -207,3 +207,8 @@ cython_debug/
 
 # Local planning notes (not shipped)
 /impl/
+
+# media/ generator: private frontend build and full-resolution captures
+# (the committed outputs are docs/images/ and docs/media/)
+media/.build/
+media/out/
