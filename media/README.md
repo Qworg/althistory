@@ -76,7 +76,7 @@ screen. Fix the step, don't add a sleep.
   events within 30 days. Remove them and the pressure panel reads zero.
 - **Telemetry.** Revideo's renderer reports anonymous usage unless
   `DISABLE_TELEMETRY` is set; `src/video/render.ts` sets it.
-- **Embedding the video.** GitHub does not play a repository `.mp4` inline in
-  a README, so the README links the poster image to the file. For an inline
-  player, drag the mp4 into a GitHub issue or PR comment and use the
-  `user-attachments` URL it gives you.
+- **Embedding the video.** The README embeds `docs/media/walkthrough.mp4`
+  with a `<video>` tag, so regenerating the file updates the player with no
+  README edit. The poster image is still generated for places that cannot
+  play video.

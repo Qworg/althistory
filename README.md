@@ -7,10 +7,12 @@ counterfactual branches.
 
 ![The timeline view: arcs as nested periods above the events, with a tooltip on one event](docs/images/timeline.png)
 
-[![Watch the one-minute walkthrough](docs/images/walkthrough-poster.png)](docs/media/walkthrough.mp4)
+<p align="center">
+  <video src="docs/media/walkthrough.mp4" width="100%" controls></video>
+</p>
 
-**New here?** Watch the [one-minute walkthrough](docs/media/walkthrough.mp4)
-or read the [illustrated tour](docs/walkthrough.md). Every picture on this page
+**New here?** Watch the one-minute walkthrough above
+([download it](docs/media/walkthrough.mp4)) or read the [illustrated tour](docs/walkthrough.md). Every picture on this page
 is generated from the running app; see [Screenshots and video](#screenshots-and-video).
 
 ## A look around
