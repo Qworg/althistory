@@ -171,7 +171,6 @@ const layoutConfigs: LayoutConfig[] = [
       fit: true,
       padding: 50,
       avoidOverlap: true,
-      nodeDimensionsIncludeLabels: false,
       spacingFactor: 1.75,
       radius: undefined,
       startAngle: -Math.PI / 2,
@@ -200,7 +199,6 @@ const layoutConfigs: LayoutConfig[] = [
       padding: 50,
       avoidOverlap: true,
       avoidOverlapPadding: 10,
-      nodeDimensionsIncludeLabels: false,
       spacingFactor: 1.75,
       condense: false,
       rows: undefined, // Auto-calculate

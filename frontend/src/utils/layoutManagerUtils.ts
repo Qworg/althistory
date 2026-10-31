@@ -22,7 +22,12 @@ export type LayoutOptions = Record<string, unknown>
  * stated in exactly one place.
  */
 export function toCytoscapeLayoutOptions(options: LayoutOptions): CytoscapeLayoutOptions {
-  return options as unknown as CytoscapeLayoutOptions
+  // Every node draws its "actor → target" label below it, up to 140px wide.
+  // Cytoscape sizes nodes without their labels unless told otherwise, so the
+  // layouts packed nodes by the 30-60px circle alone and neighbouring labels
+  // overlapped. Counting the label makes every layout leave room for it; a
+  // caller can still opt out by passing the option explicitly.
+  return { nodeDimensionsIncludeLabels: true, ...options } as unknown as CytoscapeLayoutOptions
 }
 
 export interface LayoutConfig {
@@ -209,7 +214,6 @@ export const DEFAULT_LAYOUT_OPTIONS: Record<string, LayoutOptions> = {
     fit: true,
     padding: 50,
     avoidOverlap: true,
-    nodeDimensionsIncludeLabels: false,
     spacingFactor: 1.75,
     radius: undefined,
     startAngle: -Math.PI / 2,
@@ -225,7 +229,6 @@ export const DEFAULT_LAYOUT_OPTIONS: Record<string, LayoutOptions> = {
     padding: 50,
     avoidOverlap: true,
     avoidOverlapPadding: 10,
-    nodeDimensionsIncludeLabels: false,
     spacingFactor: 1.75,
     condense: false,
     rows: undefined,
