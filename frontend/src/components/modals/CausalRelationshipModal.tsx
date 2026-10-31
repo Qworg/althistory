@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { CausalRelationship, Event, CausalRelationshipData } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
+import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 
 export interface CausalRelationshipModalProps {
   relationship: CausalRelationship | null
@@ -266,7 +267,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
                     {causeEvent ? `${causeEvent.actor} → ${causeEvent.target}` : 'Unknown Event'}
                   </div>
                   <div className="text-xs text-gray-500">
-                    {causeEvent ? new Date(causeEvent.timestamp).toLocaleString() : 'N/A'}
+                    {causeEvent ? formatHistoricalTimestamp(causeEvent.timestamp) : 'N/A'}
                   </div>
                 </div>
                 <div className="text-gray-400">
@@ -279,7 +280,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
                     {effectEvent ? `${effectEvent.actor} → ${effectEvent.target}` : 'Unknown Event'}
                   </div>
                   <div className="text-xs text-gray-500">
-                    {effectEvent ? new Date(effectEvent.timestamp).toLocaleString() : 'N/A'}
+                    {effectEvent ? formatHistoricalTimestamp(effectEvent.timestamp) : 'N/A'}
                   </div>
                 </div>
               </div>

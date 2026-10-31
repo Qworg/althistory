@@ -276,18 +276,38 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       effectEventId: { type: 'string' },
       relationship: {
         type: 'object',
+        description:
+          'Give the type as `type` or `relationship_type`, and the strength as `strength` or `weight`; one of each pair is required.',
         properties: {
-          weight: { type: 'number' },
-          evidence: { type: 'string' },
-          confidence: { type: 'number' },
+          type: {
+            type: 'string',
+            enum: ['direct', 'indirect', 'contributory'],
+            description: 'The kind of link. Alias: `relationship_type`.',
+          },
           relationship_type: {
             type: 'string',
             enum: ['direct', 'indirect', 'contributory'],
+            description: 'Alias of `type`; the name the link is stored under.',
           },
+          strength: {
+            type: 'number',
+            minimum: 0,
+            maximum: 1,
+            description: 'How strongly the cause drives the effect, 0 to 1. Alias: `weight`.',
+          },
+          weight: {
+            type: 'number',
+            minimum: 0,
+            maximum: 1,
+            description: 'Alias of `strength`; the name the link is stored under.',
+          },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+          evidence: { type: 'string', minLength: 1, description: 'Why the link holds. Must not be empty.' },
         },
+        required: ['confidence', 'evidence'],
       },
     },
-    required: ['causeEventId', 'effectEventId'],
+    required: ['causeEventId', 'effectEventId', 'relationship'],
   },
   CausalLinkUpdate: {
     type: 'object',

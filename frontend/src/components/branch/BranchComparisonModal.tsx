@@ -7,6 +7,7 @@ import { CounterfactualTimelineCanvas } from './CounterfactualTimelineCanvas'
 import { SimulationLauncherPanel } from './SimulationLauncherPanel'
 import { BranchMergeModal } from './BranchMergeModal'
 import { CausalGraphComponent } from '@/components/causal-graph/CausalGraphComponent'
+import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
 
 export interface BranchComparisonModalProps {
   readonly isOpen: boolean
@@ -331,7 +332,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
             </div>
             <div className="text-sm font-bold text-gray-900 mt-1 truncate">
               {metrics.pointOfDivergence
-                ? new Date(metrics.pointOfDivergence.timestamp).toLocaleDateString()
+                ? formatHistoricalDate(metrics.pointOfDivergence.timestamp)
                 : 'Identical Continuity'}
             </div>
             <div className="text-[11px] text-gray-500 truncate mt-0.5">
@@ -644,7 +645,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                     </div>
                     {metrics.pointOfDivergence ? (
                       <p>
-                        The timeline splits on <strong>{new Date(metrics.pointOfDivergence.timestamp).toLocaleString()}</strong>.
+                        The timeline splits on <strong>{formatHistoricalTimestamp(metrics.pointOfDivergence.timestamp)}</strong>.
                         Prior to this anchor, both universes share {metrics.sharedEventsCount} continuous events ({Math.round((metrics.sharedEventsCount / (metrics.totalBaselineEvents || 1)) * 100)}% of baseline history).
                         Following the split, {metrics.divergentEventsCount} counterfactual events emerge.
                       </p>

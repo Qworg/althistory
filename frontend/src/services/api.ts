@@ -1,5 +1,6 @@
 import axios from 'axios'
 import type { AxiosInstance, AxiosResponse, AxiosError } from 'axios'
+import { toGraphVersion, type ServerVersionRef } from './graphVersions'
 import { 
   Event, 
   Arc, 
@@ -751,9 +752,9 @@ class APIClient {
         // Version history
         getVersions: async (id: string, limit?: number): Promise<GraphVersion[]> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: GraphVersion[] }> = 
+                const response: AxiosResponse<{ success: boolean; data: ServerVersionRef[] }> =
                     await this.client.get(`/graphs/${id}/versions`, { params: { limit } })
-                return response.data.data
+                return response.data.data.map(toGraphVersion)
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }

@@ -27,6 +27,7 @@ import {
   ImportOptions,
   MAX_IMPORT_SIZE_BYTES,
 } from '../../services/ImportService';
+import type { HeadReplacedHook } from '../../services/LiveStoreSyncService';
 import { AlthistoryExport } from '../../services/ExportService';
 import { ValidationError } from '../../utils/errors';
 import { createLogger } from '../../utils/logger';
@@ -35,6 +36,8 @@ const logger = createLogger('ImportRoutes');
 
 export interface ImportRouterConfig {
   dataDir: string;
+  /** Brings a graph's live store up to its version head after an import. */
+  onHeadReplaced?: HeadReplacedHook;
   /** Disable rate limiting (for testing) */
   disableRateLimit?: boolean;
   /** Rate limit max requests per minute */
@@ -667,7 +670,7 @@ export type ImportRouter = Router & { cleanup?: () => Promise<void> };
 
 export function createImportRouter(config: ImportRouterConfig): Router {
   const router = Router();
-  const importService = new ImportService({ dataDir: config.dataDir });
+  const importService = new ImportService({ dataDir: config.dataDir, onHeadReplaced: config.onHeadReplaced });
 
   // Initialize service
   importService.initialize().catch((err) => {

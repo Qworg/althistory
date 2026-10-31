@@ -11,6 +11,7 @@ import {
   formatDuration,
   getTimeAxisFormat,
   formatTimeAxisTick,
+  formatTimeAxisTicks,
   getTimeAxisInterval
 } from './d3Calculations'
 import { Event, Arc } from '@/types'
@@ -521,5 +522,30 @@ describe('d3Calculations', () => {
       // Decade intervals are created with d3.timeYear.every(10)
       expect(interval).toBeDefined()
     })
+  })
+})
+
+describe('formatTimeAxisTicks', () => {
+  const YEAR_MS = 365.25 * 24 * 60 * 60 * 1000
+
+  it('falls back to years when count-based ticks step every 5 years over a multi-decade span', () => {
+    const scale = d3.scaleTime().domain([new Date(1832, 0, 1), new Date(1871, 0, 1)])
+    const ticks = scale.ticks(8)
+    const labels = formatTimeAxisTicks(ticks, 39 * YEAR_MS)
+    expect(new Set(labels).size).toBe(labels.length)
+    expect(labels).toContain('1845')
+    expect(labels.some((label) => label.endsWith('s'))).toBe(false)
+  })
+
+  it('keeps decade labels when the ticks fall on decades', () => {
+    const ticks = [1830, 1840, 1850, 1860].map((year) => new Date(year, 0, 1))
+    expect(formatTimeAxisTicks(ticks, 39 * YEAR_MS)).toEqual(['1830s', '1840s', '1850s', '1860s'])
+  })
+
+  it('never returns the same label twice', () => {
+    const scale = d3.scaleTime().domain([new Date(2020, 0, 1), new Date(2020, 0, 1, 6)])
+    const ticks = scale.ticks(10)
+    const labels = formatTimeAxisTicks(ticks, 6 * 60 * 60 * 1000)
+    expect(new Set(labels).size).toBe(labels.length)
   })
 })

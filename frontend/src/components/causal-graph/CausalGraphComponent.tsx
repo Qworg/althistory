@@ -290,13 +290,23 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
             'background-color': '#3B82F6',
             'border-color': '#1E40AF',
             'border-width': 2,
-            'color': '#FFFFFF',
-            'font-size': '12px',
-            'font-weight': 'bold',
-            'text-valign': 'center',
+            // Every node carries a `label` ("actor → target"), but the style
+            // never mapped it, so the graph drew anonymous circles. The label
+            // sits under the node in dark text: centred white text overflowed
+            // a 45px node onto the light canvas and could not be read.
+            'label': 'data(label)',
+            'color': '#1F2937',
+            'font-size': '11px',
+            'font-weight': 600,
+            'text-valign': 'bottom',
             'text-halign': 'center',
+            'text-margin-y': 6,
             'text-wrap': 'wrap',
-            'text-max-width': '80px',
+            'text-max-width': '140px',
+            'text-background-color': '#FFFFFF',
+            'text-background-opacity': 0.85,
+            'text-background-padding': '2px',
+            'text-background-shape': 'roundrectangle',
             'width': 'mapData(weight, 0, 1, 30, 60)',
             'height': 'mapData(weight, 0, 1, 30, 60)',
             'overlay-padding': '6px',

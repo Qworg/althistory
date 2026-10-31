@@ -14,6 +14,7 @@ import { suggestRoutes } from './routes/suggest';
 import { createIngestRouter } from './routes/ingest';
 import { streamRoutes } from './routes/stream';
 import { loadConfig } from '../utils/config';
+import { getContainer } from '../container';
 import { buildOpenApiDocument } from './openapi/document';
 import { uniqueRoutes } from './openapi/routeInventory';
 import { mountApi } from './openapi/mounts';
@@ -27,11 +28,19 @@ export const apiRouter = Router();
 const config = loadConfig();
 const dataDir = config.localExecution.dataDirectory;
 
+// An import (and an approved ingestion, which is an import) writes only the
+// version tree; bring the graph's live store up to the new head so the entity
+// routes and the UI see it. Resolved at call time: the container is built after
+// this module loads.
+const onHeadReplaced = async (graphId: string): Promise<void> => {
+  await getContainer().liveStoreSyncService.materialize(graphId);
+};
+
 // Create import router with config
-const importRoutes = createImportRouter({ dataDir });
+const importRoutes = createImportRouter({ dataDir, onHeadReplaced });
 
 // Create ingestion router with config. Ingestion reuses the import pipeline.
-const ingestRoutes = createIngestRouter({ dataDir });
+const ingestRoutes = createIngestRouter({ dataDir, onHeadReplaced });
 
 // Root API endpoint
 apiRouter.get('/', (_req, res) => {

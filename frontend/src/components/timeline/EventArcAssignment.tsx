@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { Event, Arc } from '@/types'
+import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
 
 export interface EventArcAssignmentProps {
   event: Event
@@ -53,8 +54,8 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
   }
 
   const formatTimeRange = (arc: Arc): string => {
-    const start = new Date(arc.start_time).toLocaleDateString()
-    const end = new Date(arc.end_time).toLocaleDateString()
+    const start = formatHistoricalDate(arc.start_time)
+    const end = formatHistoricalDate(arc.end_time)
     return `${start} - ${end}`
   }
 
@@ -176,7 +177,7 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
                       {getArcHierarchyPath(arc)}
                     </p>
                     <p className="text-xs text-red-500">
-                      {formatTimeRange(arc)} (Event: {new Date(event.timestamp).toLocaleDateString()})
+                      {formatTimeRange(arc)} (Event: {formatHistoricalDate(event.timestamp)})
                     </p>
                   </div>
                 </div>
@@ -197,7 +198,7 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
       {selectedArcId && (
         <div className="mb-4 bg-blue-50 border border-blue-200 rounded-md p-3">
           <p className="text-sm text-blue-700">
-            <strong>Validation:</strong> Event timestamp ({new Date(event.timestamp).toLocaleString()}) 
+            <strong>Validation:</strong> Event timestamp ({formatHistoricalTimestamp(event.timestamp)}) 
             is within the selected arc's time range.
           </p>
         </div>

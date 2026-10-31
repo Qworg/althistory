@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { TimeRange, CreateArcRequest, Event, Arc } from '@/types'
 import { useCreateArc } from '@/hooks/useAPI'
+import { formatHistoricalDate } from '@/utils/historicalTime'
 
 // Helper to convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
 const isoToDatetimeLocal = (isoString: string): string => {
@@ -373,7 +374,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                   <option value="">No parent (top-level arc)</option>
                   {parentArcs.map(arc => (
                     <option key={arc.id} value={arc.id}>
-                      {arc.name} ({new Date(arc.start_time).toLocaleDateString()} - {new Date(arc.end_time).toLocaleDateString()})
+                      {arc.name} ({formatHistoricalDate(arc.start_time)} - {formatHistoricalDate(arc.end_time)})
                     </option>
                   ))}
                 </select>

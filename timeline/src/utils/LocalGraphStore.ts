@@ -1326,14 +1326,15 @@ export class LocalGraphStore {
     startNodeId: string,
     endNodeId: string,
     type: string,
-    properties: GraphProperties = {}
+    properties: GraphProperties = {},
+    /** Keep this id (restoring a stored relationship); otherwise one is generated. */
+    id: string = this.generateId()
   ): Promise<GraphRelationship | null> {
     // Verify both nodes exist
     if (!this.graphData.nodes.has(startNodeId) || !this.graphData.nodes.has(endNodeId)) {
       return null;
     }
-    
-    const id = this.generateId();
+
     const relationship: GraphRelationship = {
       id,
       type,

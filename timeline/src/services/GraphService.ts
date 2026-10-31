@@ -31,6 +31,7 @@ import {
 } from './mergedEntityValidation';
 import { createLogger, ILogger } from '../utils/logger';
 import { isTemporalInversion } from '@/utils/causalOrder';
+import type { HeadReplacedHook } from './LiveStoreSyncService';
 
 /**
  * How many times a merge is recomputed when a concurrent commit advances the
@@ -51,6 +52,13 @@ function hasOwn(record: Record<string, unknown>, key: string): boolean {
 
 export interface GraphServiceConfig {
   dataDir: string;
+  /**
+   * Called after an operation that writes only the version tree (branch,
+   * rollback, merge, commitChanges) so the graph's live store can be brought
+   * up to the new head. Without it the entity routes and the UI keep showing
+   * the old state. See `LiveStoreSyncService`.
+   */
+  onHeadReplaced?: HeadReplacedHook;
 }
 
 /**
@@ -116,11 +124,13 @@ class OperationRateLimiter {
  */
 export class GraphService {
   private readonly graphRepository: GraphRepository;
+  private readonly onHeadReplaced?: HeadReplacedHook;
   private readonly rateLimiter: OperationRateLimiter;
   private readonly logger: ILogger;
 
   constructor(config: GraphServiceConfig) {
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
+    this.onHeadReplaced = config.onHeadReplaced;
     // Allow 10 expensive operations per minute
     this.rateLimiter = new OperationRateLimiter(10, 60000);
     this.logger = createLogger('GraphService');
@@ -248,7 +258,9 @@ export class GraphService {
       throw new NotFoundError('Version not found', 'Version', version.toString());
     }
 
-    return this.graphRepository.rollback(graphId, version, userId);
+    const versionRef = await this.graphRepository.rollback(graphId, version, userId);
+    await this.onHeadReplaced?.(graphId);
+    return versionRef;
   }
 
   /**
@@ -273,6 +285,7 @@ export class GraphService {
       request.name.trim(),
       request.description?.trim()
     );
+    await this.onHeadReplaced?.(branchGraph.id);
 
     return branchGraph.toJSON();
   }
@@ -457,6 +470,7 @@ export class GraphService {
           targetHead?.version ?? null
         );
 
+        await this.onHeadReplaced?.(targetGraphId);
         const updatedGraph = await this.graphRepository.findById(targetGraphId);
 
         return {
@@ -509,13 +523,15 @@ export class GraphService {
       throw new NotFoundError('Graph not found', 'Graph', graphId);
     }
 
-    return this.graphRepository.commitChanges(
+    const versionRef = await this.graphRepository.commitChanges(
       graphId,
       changes,
       operation,
       description,
       userId
     );
+    await this.onHeadReplaced?.(graphId);
+    return versionRef;
   }
 
   /**

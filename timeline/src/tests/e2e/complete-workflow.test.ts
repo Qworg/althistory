@@ -406,23 +406,19 @@ describe('Complete End-to-End Workflow Tests', () => {
     });
 
     it('should handle invalid JSON', async () => {
-      // KNOWN DEFECT (not fixed here, see the run report): malformed JSON is a
-      // client error but comes back as 500. express.json()'s `verify` callback
-      // in src/index.ts throws, body-parser rewraps it as
-      // http-errors {status: 403, type: 'entity.verify.failed'}, and
-      // errorHandler only understands AppError, so it flattens everything else
-      // to 500 "Internal server error". The fix belongs in errorHandler
-      // (honour an http-errors `status` for 4xx); it is not applied here
-      // because src/api/routes/events.test.ts pins the current 500 behaviour
-      // for the same input and is outside this file's remit.
+      // Malformed JSON is a client error. It used to come back as 500: a
+      // `verify` callback on express.json() threw, body-parser reported it as
+      // `entity.verify.failed`, and the error handler flattened that to 500.
+      // The callback is gone (see createJsonBodyParser in src/index.ts), so
+      // body-parser's own `entity.parse.failed` reaches the handler, which
+      // answers 400.
       const response = await request(expressApp(app))
         .post('/api/events')
         .set('Content-Type', 'application/json')
         .send('{"invalid": json}')
-        .expect(500);
+        .expect(400);
 
       expect(response.body.error).toMatchObject({
-        message: 'Internal server error',
         requestId: expect.any(String)
       });
     });

@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react'
 import { CausalPath, Event } from '@/types'
+import { formatHistoricalDate } from '@/utils/historicalTime'
 
 export interface CausalChainNavigationControlsProps {
   className?: string
@@ -349,7 +350,7 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
               </span>
               <span className="text-xs text-gray-500">
                 {eventAt(currentPath, currentStepIndex)?.timestamp
-                  ? new Date(eventAt(currentPath, currentStepIndex)!.timestamp).toLocaleDateString()
+                  ? formatHistoricalDate(eventAt(currentPath, currentStepIndex)!.timestamp)
                   : 'Unknown date'
                 }
               </span>
