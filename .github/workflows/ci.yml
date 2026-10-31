@@ -73,7 +73,7 @@ jobs:
   backend:
     # TEMPORARY diagnostic matrix: the full suite freezes the runner (on
     # ubuntu-latest and ubuntu-24.04 alike). Shard 1/4 alone reproduces it;
-    # these groups split its 26 files. Revert to one job once it is fixed.
+    # group 2 of its files reproduces it; one job per file. Revert to one job once it is fixed.
     name: Backend (typecheck, lint, test) ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 12
@@ -81,12 +81,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, shard: 'src/api/routes/graphs.test.ts src/repositories/JobRepository.test.ts src/services/GraphService.test.ts src/services/ingestion/ingest.route.test.ts src/utils/legacyGraphAdoption.test.ts', label: 'group 1/6' }
-          - { os: ubuntu-latest, shard: 'src/api/routes/import.test.ts src/services/BackupRecoveryService.test.ts src/services/ImportService.test.ts src/tests/unit/container.test.ts src/websocket/stream.integration.test.ts', label: 'group 2/6' }
-          - { os: ubuntu-latest, shard: 'src/api/routes/inference.test.ts src/services/CacheInvalidationService.test.ts src/services/SimulationService.test.ts src/tests/unit/shutdown.test.ts', label: 'group 3/6' }
-          - { os: ubuntu-latest, shard: 'src/cli/generator.test.ts src/services/CausalService.test.ts src/services/ValidationService.test.ts src/utils/causalOrder.test.ts', label: 'group 4/6' }
-          - { os: ubuntu-latest, shard: 'src/cli/validator-repair.test.ts src/services/ExportService.test.ts src/services/ingestion/TextExtractor.test.ts src/utils/config.test.ts', label: 'group 5/6' }
-          - { os: ubuntu-latest, shard: 'src/models/InferredPressure.test.ts src/services/GraphCopyService.unit.test.ts src/services/ingestion/WebDocumentExtractor.test.ts src/utils/errors.test.ts', label: 'group 6/6' }
+          - { os: ubuntu-latest, shard: 'src/api/routes/import.test.ts', label: 'import.test.ts' }
+          - { os: ubuntu-latest, shard: 'src/services/BackupRecoveryService.test.ts', label: 'BackupRecoveryService.test.ts' }
+          - { os: ubuntu-latest, shard: 'src/services/ImportService.test.ts', label: 'ImportService.test.ts' }
+          - { os: ubuntu-latest, shard: 'src/tests/unit/container.test.ts', label: 'container.test.ts' }
+          - { os: ubuntu-latest, shard: 'src/websocket/stream.integration.test.ts', label: 'stream.integration.test.ts' }
     defaults:
       run:
         working-directory: timeline
