@@ -19,7 +19,8 @@ import {
   PREVIEW_TIMEOUT_MS,
   FIT_PADDING,
   DEFAULT_ZOOM,
-  LayoutConfig
+  LayoutConfig,
+  toCytoscapeLayoutOptions
 } from './layoutManagerUtils'
 
 describe('Layout Manager Utils', () => {
@@ -314,6 +315,24 @@ describe('Layout Manager Utils', () => {
     it('has correct display constants', () => {
       expect(FIT_PADDING).toBe(50)
       expect(DEFAULT_ZOOM).toBe(1)
+    })
+  })
+
+  describe('toCytoscapeLayoutOptions', () => {
+    // Node labels are wider than the nodes; a layout that ignores them packs
+    // the nodes so closely that neighbouring labels overlap.
+    it('makes every layout leave room for node labels', () => {
+      for (const name of getAvailableLayoutNames()) {
+        const options = toCytoscapeLayoutOptions(getDefaultLayoutOptions(name)) as unknown as Record<string, unknown>
+        expect(options.nodeDimensionsIncludeLabels, name).toBe(true)
+      }
+      const bare = toCytoscapeLayoutOptions({ name: 'dagre', fit: true }) as unknown as Record<string, unknown>
+      expect(bare.nodeDimensionsIncludeLabels).toBe(true)
+    })
+
+    it('lets a caller opt out explicitly', () => {
+      const options = toCytoscapeLayoutOptions({ name: 'grid', nodeDimensionsIncludeLabels: false }) as unknown as Record<string, unknown>
+      expect(options.nodeDimensionsIncludeLabels).toBe(false)
     })
   })
 })
