@@ -33,11 +33,20 @@ npm install
 ./start-local.sh
 ```
 
-Or run `--tailscale` to bind to `0.0.0.0` and print your Tailscale URLs:
+Then open http://localhost:5173. On first run the script writes
+`timeline/.env.local` and `frontend/.env.local` (mode 600) with an admin API
+key generated for this install; the frontend sends it with every request.
+
+Local mode needs no API key for the entity routes by default, so the backend
+listens on `127.0.0.1` only. Run `--tailscale` to listen on `0.0.0.0` and print
+your Tailscale URLs:
 
 ```bash
 ./start-local.sh --tailscale
 ```
+
+Every device on the tailnet can then read and change your timelines. Add
+`API_AUTH_REQUIRED=true` to `timeline/.env.local` if that is not what you want.
 
 Or run the two packages by hand:
 
@@ -123,6 +132,10 @@ Frequently used variables; the full set with defaults and validation lives in
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `LOCAL_EXECUTION_ENABLED` | `false` | Use the local JSON store instead of Neo4j/Redis |
+| `HOST` | `127.0.0.1` in local mode, else `0.0.0.0` | Interface the API listens on. `TAILSCALE=true` (set by `--tailscale`) also selects `0.0.0.0` |
+| `API_AUTH_REQUIRED` | `true`; `false` in local mode | Whether the entity routes (`/api/events`, `/api/arcs`, …) need an API key |
+| `ADMIN_API_KEY` | generated | Admin key created on first start. The API refuses to start on a `CHANGE_ME…` placeholder, as it does for `NEO4J_PASSWORD` and `REDIS_PASSWORD` |
+| `TRUST_PROXY` | `false` | Express `trust proxy` (`1` = one reverse-proxy hop). Set only when every request comes through that proxy; the compose stack sets `1` |
 | `LOCAL_DATA_DIR` | `./data` | Where local graphs, versions, jobs and exports live |
 | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD` | — | Cloud-mode graph store |
 | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | `localhost:6379` | Cloud-mode cache and rate-limit snapshot |

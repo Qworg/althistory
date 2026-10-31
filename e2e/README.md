@@ -104,6 +104,8 @@ dependencies, installs chromium, and runs
 `npx playwright test --grep-invert @visual`. It is a separate job and does not
 gate the backend or frontend jobs.
 
-**The CI job has not been verified.** GitHub Actions on this account is
-billing-blocked and the jobs never start, so the workflow file is checked in on
-the strength of the exact same commands passing locally.
+The job runs on GitHub Actions on every push to `main` and every pull request.
+Its preview server is started with `--host 127.0.0.1`, the address `baseURL`
+names: GitHub's Ubuntu runners resolve `localhost` to `::1` first, so a server
+left on the default host listens on IPv6 while Playwright waits on IPv4, and
+the job times out in `config.webServer` before any test runs.
