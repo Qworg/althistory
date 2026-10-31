@@ -107,7 +107,7 @@ To register the MCP server in Claude Desktop, Cursor, or Antigravity (see
 ```
 
 ```bash
-cd timeline && npm test   # 104 files (2,101 tests)
+cd timeline && npm test   # 104 files (2,104 tests)
 cd frontend && npm test   # 116 files (1,746 tests)
 ```
 

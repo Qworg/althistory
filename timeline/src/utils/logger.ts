@@ -138,7 +138,7 @@ export class Logger implements ILogger {
       entry.error = error;
     }
 
-    this.output(entry);
+    this.output(boundEntry(entry));
   }
 
   private extractErrorInfo(error: Error | unknown): LogEntry['error'] | undefined {
@@ -225,6 +225,46 @@ export class Logger implements ILogger {
         console.log(output);
     }
   }
+}
+
+/**
+ * The longest string a log entry keeps, in characters.
+ *
+ * An error message can carry anything (a whole document, a response body), and
+ * one multi-megabyte line is enough to overwhelm whatever reads the log -- it
+ * froze the GitHub Actions runner outright. Each string field is cut here, not
+ * the finished line, so JSON output stays valid.
+ */
+export const MAX_LOG_STRING_LENGTH = 8 * 1024;
+
+function boundString(value: string): string {
+  if (value.length <= MAX_LOG_STRING_LENGTH) return value;
+  const omitted = value.length - MAX_LOG_STRING_LENGTH;
+  return `${value.slice(0, MAX_LOG_STRING_LENGTH)}… [${omitted} more characters]`;
+}
+
+/** `ancestors` holds the objects above this one, so only a real cycle is cut. */
+function boundValue(value: unknown, depth: number, ancestors: Set<object>): unknown {
+  if (typeof value === 'string') return boundString(value);
+  if (typeof value !== 'object' || value === null || value instanceof Date) return value;
+  // Past this depth, or round a cycle, the value is not worth logging in full.
+  if (depth > 8 || ancestors.has(value)) return '[omitted]';
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) return value.map((item) => boundValue(item, depth + 1, ancestors));
+    const bounded: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      bounded[key] = boundValue(item, depth + 1, ancestors);
+    }
+    return bounded;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+/** The entry with every string in it cut to {@link MAX_LOG_STRING_LENGTH}. */
+function boundEntry(entry: LogEntry): LogEntry {
+  return boundValue(entry, 0, new Set()) as LogEntry;
 }
 
 /**
