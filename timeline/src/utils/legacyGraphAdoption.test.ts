@@ -8,7 +8,7 @@ import { LocalGraphStore } from './LocalGraphStore';
 import { adoptLegacyGraphStore, LegacyAdoptionResult } from './legacyGraphAdoption';
 
 /**
- * Behavioural tests for legacy live-store adoption (design §5.4 / Q3). They use
+ * Behavioural tests for legacy live-store adoption. They use
  * a real temp data directory, a real `GraphRepository`, a real
  * `GraphContextStore` and the real file-backed `LocalGraphStore`, then assert on
  * the bytes on disk and on data read back through the store — never on mock

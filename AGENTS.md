@@ -238,7 +238,7 @@ describe('EventRepository', () => {
 4. **Zustand selector cascades**: Use granular selectors to prevent re-renders
 5. **Integration tests excluded**: Require Neo4j/Redis - excluded by default in vitest config
 6. **Test timeouts**: Database tests have 30s timeout configured
-7. **No skipped tests**: neither package contains `it.skip`/`describe.skip`. If a change needs to disable one, record the reason and the removing issue in `DEFERREDFIXES.md` instead of leaving it silent.
+7. **No skipped tests**: neither package contains `it.skip`/`describe.skip`. If a change needs to disable one, record the reason and the issue that will remove it next to the skip instead of leaving it silent.
 8. **Graph scoping is a header, with one exception**: most graph-scoped routes read the graph from `X-Graph-Id` and nothing else — a `graphId` in a body or query is not the scope, and must agree with the header when present. `POST /api/import` is different: it takes `targetGraphId` from the body and does not read the header.
 9. **Entity routes are guarded, not anonymous**: `/api/events`, `/api/arcs`, `/api/causal`,
    `/api/temporal` and `/api/inference` mount `authenticate` + `requireAuth` + `rateLimit()` and a

@@ -36,14 +36,14 @@
 # callbacks and values back into those dependency arrays re-runs the D3 effects
 # that write into an SVG subtree React does not own, which is how this
 # repository's infinite update loops were produced
-# (impl/deferredplans/ADR-001-d3-react-integration.md documents the callback-ref
-# pattern that replaced them), and silencing them with eslint-disable is
-# forbidden by impl/gap-remediation/README.md. So frontend *errors* fail the
+# (docs/adr-001-d3-react-integration.md documents the callback-ref
+# pattern that replaced them), and silencing them with eslint-disable would
+# hide them rather than fix them. So frontend *errors* fail the
 # gate and frontend warnings are printed but do not; the header used to claim
 # "--max-warnings 0" here, which was never true.
 #
 # Coverage runs in the same step as the tests, report-only. Neither package sets
-# a coverage threshold (impl/gap-remediation/phase6-results.md records why), so
+# a coverage threshold, so
 # @vitest/coverage-v8 has no number to fail on: the step reddens only if the
 # suite itself fails. Folding it into the test step keeps one run per package
 # while exercising both vitest.config.ts coverage blocks, and the documented

@@ -35,8 +35,7 @@ export interface TimelineArcProps {
  * Expand/resize/hover affordances are React-rendered and use React props
  * (ADR-001 Tier 1); the parent supplies stable callbacks so memoisation holds.
  *
- * @see impl/deferredplans/01-timeline-architecture-refactor.md (Phase 3.2)
- * @see impl/deferredplans/ADR-001-d3-react-integration.md
+ * @see docs/adr-001-d3-react-integration.md
  */
 export const TimelineArc = memo(function TimelineArc({
   arc,

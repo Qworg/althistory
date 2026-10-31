@@ -39,8 +39,7 @@ export interface TimelineEventProps {
  * Interaction is handled with plain React props (ADR-001 Tier 1): the mark stays
  * React-rendered, and the parent supplies stable callbacks so memoisation holds.
  *
- * @see impl/deferredplans/01-timeline-architecture-refactor.md (Phase 3.2)
- * @see impl/deferredplans/ADR-001-d3-react-integration.md
+ * @see docs/adr-001-d3-react-integration.md
  */
 export const TimelineEvent = memo(function TimelineEvent({
   event,

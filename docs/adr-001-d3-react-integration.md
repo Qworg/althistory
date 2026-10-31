@@ -170,8 +170,6 @@ Corrected across revisions 2–3:
 
 ## References
 
-- [01-timeline-architecture-refactor.md](./01-timeline-architecture-refactor.md)
-- [`impl/gap-remediation/README.md`](../../gap-remediation/README.md) — Phase 2.3
 - React docs: `useEffect` dependencies, `StrictMode` double-invocation, `createPortal`
 - D3 + React integration patterns
 

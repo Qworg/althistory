@@ -27,7 +27,6 @@ coverage
 **/.env
 **/.env.local
 **/.env.*.local
-.kiro
 .idea
 .vscode
 .DS_Store

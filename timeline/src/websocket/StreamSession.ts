@@ -61,7 +61,7 @@ export interface ExpiredStreamSession {
   reason: StreamSessionExpiryReason;
 }
 
-/** One live streaming session (design §WebSocket Streaming Models). */
+/** One live streaming session. */
 export interface StreamSession {
   id: string;
   apiKeyId: string;

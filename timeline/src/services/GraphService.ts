@@ -113,7 +113,6 @@ class OperationRateLimiter {
  * was always empty, and the scans and notifications it drove could never fire.
  * It was removed rather than wired up: the entity metadata is what import and
  * export actually use, and a notification system is a feature, not a cleanup.
- * See `impl/gap-remediation/04-export-contract-conformance.md`.
  */
 export class GraphService {
   private readonly graphRepository: GraphRepository;

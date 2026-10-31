@@ -79,8 +79,8 @@ describe('Complete End-to-End Workflow Tests', () => {
     await app.initialize();
 
     // Every migrated route resolves its graph context and refuses the request
-    // (404) rather than reading global data when none can be resolved (design
-    // §5.1). This suite drives the API without an X-Graph-Id header, so it
+    // (404) rather than reading global data when none can be resolved.
+    // This suite drives the API without an X-Graph-Id header, so it
     // establishes the active graph that context resolution falls back to.
     // Creating the first graph makes it active; setActiveGraph pins that
     // explicitly so the fallback cannot depend on creation order.

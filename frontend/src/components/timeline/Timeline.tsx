@@ -97,7 +97,6 @@ function highlightDraggedMark(mark: Element | null): () => void {
  * This component is wrapped in React.memo to prevent unnecessary re-renders
  * from parent component updates that don't affect Timeline's props.
  *
- * @see impl/deferredplans/01-timeline-architecture-refactor.md (Phase 3.3)
  */
 const Timeline = memo(function Timeline({
   events,
@@ -141,7 +140,7 @@ const Timeline = memo(function Timeline({
   const [hovered, setHovered] = useState<HoveredElement | null>(null)
   const dragCleanupRef = useRef<(() => void) | null>(null)
 
-  // Use custom hook for memoized scale calculations (Phase 2.2)
+  // Use custom hook for memoized scale calculations
   // This gives us the original domain from events/arcs
   const { innerWidth, innerHeight, xDomain } = useTimelineScales(
     events,
@@ -206,8 +205,8 @@ const Timeline = memo(function Timeline({
   // overscan, a little earlier off-centre). See timelineVirtualization.ts.
   const timeWindow = useMemo(() => computeTimeWindow(currentRange), [currentRange])
 
-  // Stable ref for time range callback to avoid infinite loops (Phase 2.3)
-  // See: impl/deferredplans/ADR-001-d3-react-integration.md
+  // Stable ref for time range callback to avoid infinite loops
+  // See: docs/adr-001-d3-react-integration.md
   const onTimeRangeChangeRef = useRef(onTimeRangeChange)
   onTimeRangeChangeRef.current = onTimeRangeChange
 
@@ -289,7 +288,7 @@ const Timeline = memo(function Timeline({
   const timeScaleWrapper = useCallback((d: Date) => xScale(d), [xScale])
   const yScaleWrapper = useCallback((level: number) => yScale(level), [yScale])
 
-  // Use custom hook for stable event handlers (Phase 2.2)
+  // Use custom hook for stable event handlers
   const { handleEventClick, handleArcClick, handleSvgDoubleClick } = useTimelineEventHandlers({
     onEventSelect,
     onArcSelect,

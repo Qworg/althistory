@@ -27,7 +27,7 @@ vi.mock('@/container', async (importOriginal) => {
 });
 
 /**
- * Request-level acceptance for graph-scoped causal isolation (design §5.1/§6).
+ * Request-level acceptance for graph-scoped causal isolation.
  *
  * The suite boots the real causal router over a real `Container` bound to a
  * temp data directory, so it exercises the whole path: header resolution ->
