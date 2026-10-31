@@ -108,7 +108,20 @@ jobs:
         # hanging-process reporters name the file that stalls and any handle
         # that keeps vitest from exiting.
         timeout-minutes: 8
-        run: npx vitest --run --coverage --reporter=verbose --reporter=hanging-process
+        # The runner's own timeout did not stop a stuck run, so a watchdog
+        # SIGKILLs the suite's whole process group after 6 minutes instead.
+        run: |
+          set -m
+          npx vitest --run --coverage --reporter=verbose --reporter=hanging-process &
+          suite=$!
+          ( sleep 360
+            echo "::error::The backend suite did not finish in 6 minutes; killing it."
+            kill -KILL -- -"$suite" ) &
+          watchdog=$!
+          status=0
+          wait "$suite" || status=$?
+          kill -- -"$watchdog" 2>/dev/null || true
+          exit "$status"
 
   frontend:
     name: Frontend (typecheck, lint, test, build)
