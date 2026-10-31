@@ -126,6 +126,8 @@ every command.
 | [`docs/branch-merge-resolver.md`](docs/branch-merge-resolver.md) | Combining two graphs, and the anomalies the merge checks. |
 | [`docs/production-deployment.md`](docs/production-deployment.md) | Running it. |
 | [`docs/mcp-agent-guide.md`](docs/mcp-agent-guide.md) | The MCP surface. |
+| [`docs/specs/`](docs/specs/) | Feature requirements; the `Req N` numbers in code comments point here. |
+| [`docs/adr-001-d3-react-integration.md`](docs/adr-001-d3-react-integration.md) | Which timeline components React renders and which D3 owns. |
 
 ### Path Aliases
 
@@ -134,11 +136,12 @@ Both projects use `@/` prefix for imports:
 
 ## Known Issues
 
-`DEFERREDFIXES.md` has the current state, including the measured counts. The
-D3-infinite-loop and Cytoscape-mock suites it used to describe were fixed — by
-hoisting the D3 work into memoised calculations and by completing the mock —
-and neither package contains a skipped or disabled test. Re-measure with
-`npm test` in each package rather than trusting a count written in a file.
+The D3-infinite-loop and Cytoscape-mock suites that used to be skipped were
+fixed — by hoisting the D3 work into memoised calculations and by completing
+the mock — and neither package contains a skipped or disabled test. Re-measure
+with `npm test` in each package rather than trusting a count written in a file.
+How the timeline splits DOM ownership between React and D3 is recorded in
+[`docs/adr-001-d3-react-integration.md`](docs/adr-001-d3-react-integration.md).
 
 ## Key Development Patterns
 

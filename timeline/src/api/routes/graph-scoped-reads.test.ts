@@ -15,7 +15,7 @@ import { CreateEventRequest } from '@/models/Event';
 
 /**
  * Route-level isolation for the READ-ONLY groups migrated onto graph-scoped
- * repositories (design §5.6, §6.1). Unlike the write routes these have no auth
+ * repositories. Unlike the write routes these have no auth
  * chain, so the middleware is stubbed down to its one essential job: establish
  * `req.graphId` from the header, or refuse the request. The middleware's own
  * resolution behaviour is covered by `src/api/graph-context.test.ts`.

@@ -25,8 +25,7 @@ export default defineConfig({
       // denominator as 100%.
       // The branch and function percentages are therefore flattered upward by
       // every never-loaded file; statements and lines are not. This is inherent
-      // to v8's all:true mode, not a config error. The measured figures and this
-      // caveat are recorded in impl/gap-remediation/phase6-results.md.
+      // to v8's all:true mode, not a config error.
       all: true,
       reporter: ['text', 'text-summary', 'json-summary', 'html'],
       // The flat ESLint config only ignores `dist`, so a generated `coverage/`

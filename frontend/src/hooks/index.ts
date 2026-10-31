@@ -6,7 +6,7 @@ export { useFilters } from './useFilters'
 export { useStoreInitialization } from './useStoreInitialization'
 export { useDebounce } from './useDebounce'
 
-// Export timeline hooks (Phase 2.2 refactor)
+// Export timeline hooks
 export { useTimelineScales } from './useTimelineScales'
 export { useTimelineEventHandlers } from './useTimelineEventHandlers'
 

@@ -74,7 +74,7 @@ exportRoutes.post(
 });
 
 /**
- * GET /export - Export a graph (design §Export API)
+ * GET /export - Export a graph
  *
  * Query: `graphId`, `version`, `scope=full|filtered`, `includeProvenance`,
  * `filters[...]`.

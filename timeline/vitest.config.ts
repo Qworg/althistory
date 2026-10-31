@@ -18,9 +18,7 @@ export default defineConfig({
       // branches and 0/0 functions, and v8 scores an empty or near-empty
       // denominator as 100%. The branch and function percentages are therefore
       // flattered upward by every never-loaded file; statements and lines are
-      // not. This is inherent to v8's all:true mode, not a config error. The
-      // measured figures and this caveat are recorded in
-      // impl/gap-remediation/phase6-results.md.
+      // not. This is inherent to v8's all:true mode, not a config error.
       all: true,
       // Must match the frontend's effective value or the two packages count
       // different things. Vitest 1 defaults this to false, which turned every

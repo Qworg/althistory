@@ -113,7 +113,7 @@ export function injectContainer(req: RequestWithContainer, res: Response, next: 
  *
  * Declared structurally rather than as the concrete class so the resolver can
  * be exercised in isolation with a small fake, and so a future backing store
- * only has to satisfy these two lookups (design §9, storage-backend note).
+ * only has to satisfy these two lookups.
  *
  * `status` is optional and load-bearing. `GraphRepository.findById` returns
  * soft-deleted graphs (only its `getActiveGraph` filters non-active ones), so a
@@ -138,7 +138,7 @@ export const GRAPH_ID_HEADER = 'X-Graph-Id';
 /**
  * Resolve exactly one graph for every request and attach it as `req.graphId`.
  *
- * Resolution order (design §5.1, Q1):
+ * Resolution order:
  *   1. A valid `X-Graph-Id` header, verified to name an existing graph.
  *   2. Otherwise the repository's active graph.
  *   3. Otherwise fail with 404 — never fall back to unscoped/global data.

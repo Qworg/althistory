@@ -1,6 +1,5 @@
 // Timeline-specific state interfaces for the refactored architecture
-// See: impl/deferredplans/01-timeline-architecture-refactor.md
-// See: impl/deferredplans/ADR-001-d3-react-integration.md
+// See: docs/adr-001-d3-react-integration.md
 
 import React from 'react'
 import { Event, Arc } from './index'

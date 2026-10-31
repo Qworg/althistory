@@ -1,5 +1,5 @@
 // frontend/src/hooks/useTimelineScales.ts
-// See: impl/deferredplans/01-timeline-architecture-refactor.md (Phase 2.2)
+// See: docs/adr-001-d3-react-integration.md
 
 import { useMemo } from 'react'
 import * as d3 from 'd3'

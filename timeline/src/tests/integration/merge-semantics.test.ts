@@ -1,5 +1,5 @@
 /**
- * Acceptance tests for merge semantics (gap-remediation Phase 2.4).
+ * Acceptance tests for merge semantics.
  *
  * SCOPE OF THE MERGE ITSELF: it is a TWO-WAY diff of the source tree against
  * the target tree, not a three-way merge. `branchGraph` records the fork point

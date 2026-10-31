@@ -12,9 +12,7 @@ counterfactual branches.
 | `timeline/` | Express + TypeScript API and CLI (`bin/althistory`). Versioned graph storage (Git-like trees), export/import, inference, ingestion, WebSocket streaming, MCP server. |
 | `frontend/` | React + Vite UI. Timeline, causal graph, actor and pressure views, graph/version/import/export panels. |
 | `e2e/` | Playwright end-to-end and visual-regression tests against a production build with the API stubbed. |
-| `docs/` | Architecture, API integration, export format, ingestion, branch/merge, production deployment, and operational runbooks. |
-| `impl/` | Design records: `gap-remediation/` (verified gap analysis and fixes) and `deferredplans/` (how the test suite was repaired). |
-| `.kiro/specs/` | Feature specifications, design records, and audited implementation checklists (`tasks.md`). |
+| `docs/` | API integration, export format, ingestion, branch/merge, MCP, production deployment, the D3/React architecture decision, and the feature requirements (`docs/specs/`). |
 | `docker/`, `docker-compose.yml`, `Dockerfile` | Container images and the production stack. |
 
 ## Prerequisites & Installation
@@ -107,7 +105,7 @@ To register the MCP server in Claude Desktop, Cursor, or Antigravity (see
 ```
 
 ```bash
-cd timeline && npm test   # 104 files (2,104 tests)
+cd timeline && npm test   # 100 files (2,051 tests)
 cd frontend && npm test   # 116 files (1,746 tests)
 ```
 
@@ -168,9 +166,8 @@ builder refuses to describe a route that has no entry there.
 - [`docs/mcp-agent-guide.md`](docs/mcp-agent-guide.md) — MCP server tools and agent workflow guide.
 - [`docs/autonomous-simulation-engine.md`](docs/autonomous-simulation-engine.md) — autonomous multi-step timeline simulation engine.
 - [`docs/production-deployment.md`](docs/production-deployment.md) — container, cloud stack, and operational procedures.
-- [`impl/gap-remediation/README.md`](impl/gap-remediation/README.md) — verified gap analysis and remediation plan.
-- [`impl/gap-remediation/phase6-results.md`](impl/gap-remediation/phase6-results.md) — coverage baseline and its caveats.
-- [`DEFERREDFIXES.md`](DEFERREDFIXES.md) — current test status.
+- [`docs/adr-001-d3-react-integration.md`](docs/adr-001-d3-react-integration.md) — which timeline components React renders and which D3 owns.
+- [`docs/specs/`](docs/specs/) — feature requirements; the `Req N` numbers in code comments refer to these.
 - `GET /api/openapi.json` — the authoritative HTTP route list.
 - [`e2e/README.md`](e2e/README.md) — end-to-end and visual-regression workflow.
 

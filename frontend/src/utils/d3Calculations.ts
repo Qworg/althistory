@@ -23,8 +23,7 @@
  * 2. Testing D3 calculations in isolation
  * 3. Future features that need these calculations
  *
- * @see impl/deferredplans/01-timeline-architecture-refactor.md (Phase 3.1)
- * @see impl/deferredplans/ADR-001-d3-react-integration.md
+ * @see docs/adr-001-d3-react-integration.md
  */
 
 import * as d3 from 'd3'

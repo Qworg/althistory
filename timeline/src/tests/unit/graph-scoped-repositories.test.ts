@@ -10,7 +10,7 @@ import { GRAPHS_LIVE_DIRECTORY } from '@/utils/GraphContextStore';
 import { CreateEventRequest } from '@/models/Event';
 
 /**
- * Container-level acceptance for graph-scoped isolation (design §5.2).
+ * Container-level acceptance for graph-scoped isolation.
  *
  * The container builds a fresh container per test rather than using the global
  * one, so this suite owns every store and timer it creates and cannot leak into

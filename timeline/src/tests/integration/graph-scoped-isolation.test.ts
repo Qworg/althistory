@@ -1,6 +1,5 @@
 /**
- * Cross-cutting acceptance tests for graph-scoped isolation (design §3, §6,
- * tasks 3-8). Every case drives the REAL local container and the REAL API router
+ * Cross-cutting acceptance tests for graph-scoped isolation. Every case drives the REAL local container and the REAL API router
  * through supertest, so graph-context resolution, the graph-scoped repositories
  * and the version-store bridge are all exercised end to end rather than stubbed.
  *

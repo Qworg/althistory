@@ -1,10 +1,10 @@
 /**
- * Shared models and the extractor contract for web ingestion (spec Req 7-10).
+ * Shared models and the extractor contract for web ingestion
+ * (Requirements 7-10 of `docs/specs/input-output-system.md`).
  *
- * These types mirror the "Ingestion Models" section of
- * `.kiro/specs/input-output-system/design.md`. They are deliberately kept
- * independent of Express and of the import pipeline so every source can be
- * exercised against recorded fixtures without a network call.
+ * They are deliberately kept independent of Express and of the import
+ * pipeline so every source can be exercised against recorded fixtures without
+ * a network call.
  */
 
 import { DataSource } from '../ExportService';

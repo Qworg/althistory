@@ -21,7 +21,7 @@ import * as fs from 'fs/promises';
 describe('Local API Integration Tests', () => {
   let app: express.Application;
   let container: Container;
-  /** The graph every request in this suite resolves to (design §5.1). */
+  /** The graph every request in this suite resolves to. */
   let graphId: string;
   const testDataDir = './test-api-data';
 
@@ -49,8 +49,8 @@ describe('Local API Integration Tests', () => {
     await container.initialize();
 
     // Migrated routes resolve exactly one graph per request and return 404
-    // rather than falling back to global data when none can be resolved
-    // (design §5.1). This suite sends no X-Graph-Id, so it creates and
+    // rather than falling back to global data when none can be resolved.
+    // This suite sends no X-Graph-Id, so it creates and
     // activates the graph that resolution falls back to; the per-test reset
     // below clears that graph's live store.
     const graph = await container.graphRepository.create({
