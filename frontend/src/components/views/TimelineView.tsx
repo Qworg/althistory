@@ -26,6 +26,7 @@ import {
   findEscapedParentArc,
 } from './timelineInteractionUtils'
 import type { UpdateArcRequest } from '@/types'
+import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 
 function describeError(error: unknown): string {
   if (error instanceof Error && error.message) return error.message
@@ -567,7 +568,7 @@ export function TimelineView() {
                 <p><strong>Description:</strong> {selectedEvent.description}</p>
                 <p><strong>Actor:</strong> {selectedEvent.actor}</p>
                 <p><strong>Target:</strong> {selectedEvent.target}</p>
-                <p><strong>Timestamp:</strong> {new Date(selectedEvent.timestamp).toLocaleString()}</p>
+                <p><strong>Timestamp:</strong> {formatHistoricalTimestamp(selectedEvent.timestamp)}</p>
               </div>
             )}
             {selectedArc && (

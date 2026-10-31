@@ -6,6 +6,7 @@
 
 // React import not needed with new JSX transform
 import { ImportValidationResult, ImportError, ImportWarning } from '@/types'
+import { formatHistoricalDate } from '@/utils/historicalTime'
 
 export interface ImportValidationStepProps {
   validation: ImportValidationResult
@@ -136,8 +137,8 @@ export function ImportValidationStep({
           <div className="mt-4 pt-4 border-t border-gray-200">
             <dt className="text-sm text-gray-500">Time Range</dt>
             <dd className="text-sm text-gray-900">
-              {new Date(summary.temporalRange.start).toLocaleDateString()} -{' '}
-              {new Date(summary.temporalRange.end).toLocaleDateString()}
+              {formatHistoricalDate(summary.temporalRange.start)} -{' '}
+              {formatHistoricalDate(summary.temporalRange.end)}
             </dd>
           </div>
         )}

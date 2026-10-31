@@ -102,6 +102,20 @@ export async function shutdownApplication(options: ShutdownOptions): Promise<voi
 }
 
 /**
+ * The JSON body parser the application mounts.
+ *
+ * Deliberately no `verify` hook: express.json already rejects a malformed body
+ * as `entity.parse.failed`, which the error handler answers with 400. A hook
+ * that re-parsed the body threw a plain Error instead, which body-parser
+ * reports as `entity.verify.failed` and the handler turned into a 500 -- and
+ * it ran on empty bodies too, so a bodiless JSON POST (`/graphs/:id/activate`)
+ * also got a 500.
+ */
+export function createJsonBodyParser(): express.RequestHandler {
+  return express.json({ limit: '10mb' });
+}
+
+/**
  * Main application class
  */
 export interface ApplicationOptions {
@@ -229,16 +243,7 @@ class Application {
     }));
 
     // Request processing middleware
-    this.app.use(express.json({ 
-      limit: '10mb',
-      verify: (req, res, buf) => {
-        try {
-          JSON.parse(buf.toString());
-        } catch (e) {
-          throw new Error('Invalid JSON');
-        }
-      }
-    }));
+    this.app.use(createJsonBodyParser());
     this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
     // Custom middleware (order matters!)

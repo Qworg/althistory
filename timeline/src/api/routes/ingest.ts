@@ -36,6 +36,7 @@ import {
 } from '../middleware';
 import { ValidationError, NotFoundError } from '../../utils/errors';
 import { ImportService } from '../../services/ImportService';
+import type { HeadReplacedHook } from '../../services/LiveStoreSyncService';
 import { FetchHttpClient, HttpClient } from '../../services/ingestion/http';
 import { TextExtractor } from '../../services/ingestion/TextExtractor';
 import { WikipediaExtractor } from '../../services/ingestion/WikipediaExtractor';
@@ -58,6 +59,8 @@ import { createLLMClient, LLMClient, LLMClientFactoryConfig } from '../../servic
 
 export interface IngestRouterConfig {
   dataDir: string;
+  /** Brings a graph's live store up to its version head after an approved import. */
+  onHeadReplaced?: HeadReplacedHook;
   /** Injectable HTTP boundary; defaults to a `fetch`-backed client. */
   httpClient?: HttpClient;
   /**
@@ -190,7 +193,7 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
       config.llmClient !== undefined
         ? config.llmClient
         : createLLMClient(config.llm);
-    const importService = new ImportService({ dataDir: config.dataDir });
+    const importService = new ImportService({ dataDir: config.dataDir, onHeadReplaced: config.onHeadReplaced });
     // The extractor registry. See the disclosure at the top of
     // `services/ingestion/index.ts` before assuming a source does more than it
     // does: `wikipedia` and the pattern half of `text` are complete; the

@@ -57,3 +57,13 @@ export function getErrorMessage(error: unknown): string {
   if (typeof error === 'string') return error
   return 'An unknown error occurred'
 }
+
+/**
+ * Shorten a label to fit `maxWidth` pixels at `fontSize`, with an ellipsis.
+ * An estimate (0.6em per character), which is enough to keep a y-axis label
+ * inside its margin.
+ */
+export function truncateToWidth(text: string, maxWidth: number, fontSize: number): string {
+  const maxChars = Math.max(4, Math.floor(maxWidth / (fontSize * 0.6)))
+  return text.length <= maxChars ? text : `${text.slice(0, maxChars - 1)}…`
+}

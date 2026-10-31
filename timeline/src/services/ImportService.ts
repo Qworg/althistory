@@ -31,6 +31,8 @@ import {
 import { createLogger, ILogger } from '../utils/logger';
 import * as crypto from 'crypto';
 import { isTemporalInversion } from '@/utils/causalOrder';
+import type { VersionRef } from '../models/Graph';
+import type { HeadReplacedHook } from './LiveStoreSyncService';
 
 // ============================================================================
 // Constants
@@ -190,6 +192,11 @@ export interface ImportJob {
 
 export interface ImportServiceConfig {
   dataDir: string;
+  /**
+   * Called after an import commits to a graph's version tree, so its live
+   * store can be brought up to the new head (see `LiveStoreSyncService`).
+   */
+  onHeadReplaced?: HeadReplacedHook;
   /** FIX A#9: Configurable threshold for async import (default: 100 entities) */
   asyncImportThreshold?: number;
   /** FIX B#4: Configurable stale job threshold in ms (default: 30 minutes) */
@@ -224,11 +231,14 @@ export class ImportService {
   private isDestroyed = false;
   /** FIX A#9: Configurable threshold for async import */
   private readonly asyncImportThreshold: number;
+  /** Brings a graph's live store up to its version head after an import. */
+  private readonly onHeadReplaced?: HeadReplacedHook;
   /** FIX B#4: Configurable stale job threshold */
   private readonly staleJobThresholdMs: number;
 
   constructor(config: ImportServiceConfig) {
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
+    this.onHeadReplaced = config.onHeadReplaced;
     this.jobRepository = new JobRepository({ dataDir: config.dataDir });
     this.logger = createLogger('ImportService');
     // FIX A#9: Use configured threshold or default
@@ -2823,8 +2833,9 @@ export class ImportService {
 
     // Commit version with all changes - this is atomic
     // If it fails, no partial changes are applied
+    let versionRef: VersionRef;
     try {
-      const versionRef = await this.graphRepository.commitChanges(
+      versionRef = await this.graphRepository.commitChanges(
         graphId,
         changes,
         'import',
@@ -2833,17 +2844,22 @@ export class ImportService {
             ? ` (deleted ${deleted.events + deleted.arcs + deleted.relationships + deleted.pressures} entities)`
             : '')
       );
-
-      return {
-        graphVersion: versionRef.version,
-        imported,
-        skipped,
-        deleted,
-      };
     } catch (error) {
       // Rollback is automatic - commit failed so no changes were applied
       this.logger.error('Import commit failed - changes rolled back', error);
       throw error;
     }
+
+    // The import wrote the version tree only; bring the live store (what the
+    // entity routes and the UI read) up to the new head. Outside the try above:
+    // the commit has landed, so a failure here is not a rolled-back import.
+    await this.onHeadReplaced?.(graphId);
+
+    return {
+      graphVersion: versionRef.version,
+      imported,
+      skipped,
+      deleted,
+    };
   }
 }

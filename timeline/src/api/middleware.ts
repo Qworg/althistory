@@ -400,7 +400,13 @@ export function validateJsonRequest(req: RequestWithContainer, res: Response, ne
   const requestId = req.requestId || 'unknown';
 
   if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
-    if (!req.is('application/json')) {
+    // Only a request that carries a body has a content type to check. A
+    // bodiless POST (`/graphs/:id/activate`, `/graphs/:id/rollback/:v`) is sent
+    // with no Content-Type by HTTP clients -- axios drops it when there is no
+    // data -- and refusing it made graph switching and rollback fail in the UI.
+    const contentLength = Number(req.headers['content-length'] ?? 0);
+    const hasBody = req.headers['transfer-encoding'] !== undefined || contentLength > 0;
+    if (hasBody && !req.is('application/json')) {
       const validationLog = {
         requestId,
         timestamp: new Date().toISOString(),

@@ -261,6 +261,21 @@ describe('CausalGraphComponent', () => {
     })
   })
 
+  describe('Node labels', () => {
+    it('maps each node label into the base node style', async () => {
+      render(<CausalGraphComponent />)
+
+      await waitFor(() => expect(mockedCytoscape).toHaveBeenCalled())
+      const options = mockedCytoscape.mock.calls[0]?.[0]
+      const styles = (options?.style ?? []) as Array<{ selector: string; style: Record<string, unknown> }>
+      const nodeStyle = styles.find((entry) => entry.selector === 'node')?.style
+      // Without this mapping Cytoscape draws every event as an anonymous circle.
+      expect(nodeStyle?.label).toBe('data(label)')
+      // The label sits outside the node, so it must not be white on the canvas.
+      expect(nodeStyle?.color).not.toBe('#FFFFFF')
+    })
+  })
+
   describe('Event Handling', () => {
     it('sets up node click handlers', async () => {
       render(<CausalGraphComponent />)

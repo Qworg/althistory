@@ -293,6 +293,35 @@ export function formatTimeAxisTick(tick: Date, timeSpanMs: number): string {
   return d3.timeFormat(format)(tick)
 }
 
+/** Axis label formats, coarsest first. */
+const TIME_AXIS_FORMAT_LADDER = ['decade', '%Y', '%b %Y', '%b %d', '%a %d', '%H:%M:%S'] as const
+
+/**
+ * Labels for a whole set of axis ticks.
+ *
+ * The span decides the preferred format, but the ticks decide whether it can
+ * be used: a count-based `scale.ticks(n)` over ~35 years steps every 5 years,
+ * and labelling those by decade printed "1840s" under both 1840 and 1845. The
+ * preferred format is used when it gives every tick a distinct label;
+ * otherwise the next finer format that does.
+ *
+ * @param ticks - The tick values, in order
+ * @param timeSpanMs - The visible time span in milliseconds
+ * @returns One label per tick
+ */
+export function formatTimeAxisTicks(ticks: Date[], timeSpanMs: number): string[] {
+  const preferred = getTimeAxisFormat(timeSpanMs)
+  const start = Math.max(0, TIME_AXIS_FORMAT_LADDER.indexOf(preferred as (typeof TIME_AXIS_FORMAT_LADDER)[number]))
+  const format = (name: string, tick: Date) =>
+    name === 'decade' ? `${Math.floor(tick.getFullYear() / 10) * 10}s` : d3.timeFormat(name)(tick)
+
+  for (const name of TIME_AXIS_FORMAT_LADDER.slice(start)) {
+    const labels = ticks.map((tick) => format(name, tick))
+    if (new Set(labels).size === labels.length) return labels
+  }
+  return ticks.map((tick) => format('%H:%M:%S', tick))
+}
+
 /**
  * Returns appropriate D3 time interval for tick generation based on time span.
  *

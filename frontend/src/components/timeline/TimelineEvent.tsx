@@ -1,5 +1,6 @@
 import React, { memo, useCallback } from 'react'
 import { Event } from '@/types'
+import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 
 export interface TimelineEventProps {
   event: Event
@@ -83,7 +84,7 @@ export const TimelineEvent = memo(function TimelineEvent({
       transform={`translate(${x}, ${y})`}
       tabIndex={0}
       role="button"
-      aria-label={`Event: ${event.description} by ${event.actor} targeting ${event.target} at ${new Date(event.timestamp).toLocaleString()}`}
+      aria-label={`Event: ${event.description} by ${event.actor} targeting ${event.target} at ${formatHistoricalTimestamp(event.timestamp)}`}
       onMouseDown={handleMouseDown}
       onMouseEnter={handleHoverEnter}
       onMouseLeave={handleHoverLeave}

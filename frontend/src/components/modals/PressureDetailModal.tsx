@@ -6,6 +6,7 @@ import {
   getPressureTypeIcon, 
   getConfidenceLevel 
 } from '@/utils/pressureVisualization'
+import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
 
 export interface PressureDetailModalProps {
   pressure: PressureWithContext | null
@@ -162,7 +163,7 @@ export const PressureDetailModal: React.FC<PressureDetailModalProps> = ({
                     <div className="text-sm text-gray-500">{arc.description}</div>
                   </div>
                   <div className="text-sm text-gray-500">
-                    {new Date(arc.start_time).toLocaleDateString()} - {new Date(arc.end_time).toLocaleDateString()}
+                    {formatHistoricalDate(arc.start_time)} - {formatHistoricalDate(arc.end_time)}
                   </div>
                 </div>
               ))}
@@ -236,9 +237,9 @@ export const PressureDetailModal: React.FC<PressureDetailModalProps> = ({
                 <span className="font-medium text-gray-500">Period:</span>
                 <span className="ml-2 text-gray-900">
                   {pressure.time_range
-                    ? `${new Date(pressure.time_range.start).toLocaleString()} – ${new Date(
+                    ? `${formatHistoricalTimestamp(pressure.time_range.start)} – ${formatHistoricalTimestamp(
                         pressure.time_range.end
-                      ).toLocaleString()}`
+                      )}`
                     : 'not reported'}
                 </span>
               </div>

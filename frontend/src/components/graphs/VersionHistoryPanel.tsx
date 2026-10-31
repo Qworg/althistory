@@ -250,9 +250,11 @@ interface ChangesBadgeProps {
 }
 
 const ChangesBadge = memo(function ChangesBadge({ type, changes }: ChangesBadgeProps) {
-  const added = changes[`${type}Added` as keyof typeof changes] as number
-  const modified = changes[`${type}Modified` as keyof typeof changes] as number
-  const deleted = changes[`${type}Deleted` as keyof typeof changes] as number
+  // A missing count is no change. Checking `=== 0` let `undefined` through and
+  // drew an empty "E:" badge.
+  const added = Number(changes[`${type}Added` as keyof typeof changes]) || 0
+  const modified = Number(changes[`${type}Modified` as keyof typeof changes]) || 0
+  const deleted = Number(changes[`${type}Deleted` as keyof typeof changes]) || 0
 
   if (added === 0 && modified === 0 && deleted === 0) {
     return null

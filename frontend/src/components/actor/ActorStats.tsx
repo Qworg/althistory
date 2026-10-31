@@ -1,4 +1,5 @@
 import { CalendarIcon, ChartBarIcon, UserIcon, UsersIcon } from '@heroicons/react/24/outline'
+import { formatHistoricalDate } from '@/utils/historicalTime'
 
 export interface ActorStatsData {
   eventCount: number
@@ -44,16 +45,10 @@ export function ActorStats({ actor, stats, className = '' }: ActorStatsProps) {
   }
 
   const formatDateRange = (start: Date, end: Date): string => {
-    const startStr = start.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric' 
-    })
-    const endStr = end.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric' 
-    })
+    // Historical dates: formatted in UTC so the viewer's time zone cannot
+    // move them to a neighbouring day.
+    const startStr = formatHistoricalDate(start, 'en-US')
+    const endStr = formatHistoricalDate(end, 'en-US')
     
     if (startStr === endStr) {
       return startStr

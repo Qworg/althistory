@@ -315,7 +315,7 @@ export class CausalService {
     }
 
     // Create the relationship in the database
-    const storedRelationship = await this.storeCausalRelationship(cause, effect, relationship);
+    const storedRelationship = await this.storeCausalRelationship(cause.id, effect.id, relationship);
 
     // Invalidate related cache entries
     await this.cacheInvalidationService.invalidateCausalCache();
@@ -930,7 +930,39 @@ export class CausalService {
   /**
    * Stores the causal relationship in the database (supports local and cloud modes)
    */
-  private async storeCausalRelationship(cause: Event, effect: Event, relationship: CausalRelationship): Promise<StoredCausalRelationship> {
+  /**
+   * Write a link that already exists in the graph's version tree back into the
+   * live store, keeping its id.
+   *
+   * Used when the live store is rebuilt from a version head (a new branch, a
+   * rollback, a merge, an import). It skips the checks `createCausalLink`
+   * applies -- the link was accepted when it was first made, and a tree that
+   * came in through the importer is reported by the validator, not refused
+   * here -- but the two events must exist in this graph.
+   */
+  async restoreCausalLink(relationship: StoredCausalRelationship): Promise<StoredCausalRelationship> {
+    const stored = await this.storeCausalRelationship(
+      relationship.cause_event_id,
+      relationship.effect_event_id,
+      {
+        relationship_type: relationship.relationship_type,
+        weight: relationship.weight,
+        confidence: relationship.confidence,
+        evidence: relationship.evidence,
+      },
+      relationship.id
+    );
+    await this.cacheInvalidationService.invalidateCausalCache();
+    return stored;
+  }
+
+  private async storeCausalRelationship(
+    causeId: string,
+    effectId: string,
+    relationship: CausalRelationship,
+    /** Keep this id (local mode); a new link gets a generated one. */
+    id?: string
+  ): Promise<StoredCausalRelationship> {
     const config = loadConfig();
 
     if (config.localExecution.enabled) {
@@ -938,8 +970,8 @@ export class CausalService {
       const graphStore = this.getLocalGraphStore();
 
       // Verify both events exist
-      const causeNode = await graphStore.getNode(cause.id);
-      const effectNode = await graphStore.getNode(effect.id);
+      const causeNode = await graphStore.getNode(causeId);
+      const effectNode = await graphStore.getNode(effectId);
 
       if (!causeNode || !effectNode) {
         throw new DatabaseError(
@@ -950,8 +982,8 @@ export class CausalService {
 
       // Create the relationship
       const result = await graphStore.createRelationship(
-        cause.id,
-        effect.id,
+        causeId,
+        effectId,
         'CAUSES',
         {
           weight: relationship.weight,
@@ -959,7 +991,8 @@ export class CausalService {
           confidence: relationship.confidence,
           relationship_type: relationship.relationship_type,
           created_at: new Date().toISOString()
-        }
+        },
+        id
       );
 
       if (!result) {
@@ -973,8 +1006,8 @@ export class CausalService {
 
       return {
         id: result.id,
-        cause_event_id: cause.id,
-        effect_event_id: effect.id,
+        cause_event_id: causeId,
+        effect_event_id: effectId,
         weight: relationship.weight,
         evidence: relationship.evidence,
         confidence: relationship.confidence,
@@ -985,8 +1018,8 @@ export class CausalService {
       const session = getDatabaseManager().getNeo4jSession();
       const graphId = this.cloudGraphId();
       const parameters: Record<string, unknown> = {
-        causeId: cause.id,
-        effectId: effect.id,
+        causeId,
+        effectId,
         weight: relationship.weight,
         evidence: relationship.evidence,
         confidence: relationship.confidence,
@@ -1029,9 +1062,9 @@ export class CausalService {
         // Cloud mode has no persistent edge id; callers that bridge to the
         // version store only do so in local mode.
         return {
-          id: `${cause.id}->${effect.id}`,
-          cause_event_id: cause.id,
-          effect_event_id: effect.id,
+          id: `${causeId}->${effectId}`,
+          cause_event_id: causeId,
+          effect_event_id: effectId,
           weight: relationship.weight,
           evidence: relationship.evidence,
           confidence: relationship.confidence,
@@ -1051,4 +1084,4 @@ export class CausalService {
       }
     }
   }
-}
+}

@@ -89,10 +89,15 @@ causalRoutes.post('/link', ...entityPermission('write:relationships'), async (re
       );
     }
 
-    // Validate relationship structure
-    if (!relationship.type || typeof relationship.strength !== 'number' || typeof relationship.confidence !== 'number') {
+    // Validate relationship structure. Both spellings are accepted: `type` and
+    // `strength` (what the UI and CLI send) and `relationship_type` and
+    // `weight` (the stored field names, which the OpenAPI document described
+    // and this check used to reject).
+    const relationshipTypeInput = relationship.type ?? relationship.relationship_type;
+    const strengthInput = relationship.strength ?? relationship.weight;
+    if (!relationshipTypeInput || typeof strengthInput !== 'number' || typeof relationship.confidence !== 'number') {
       throw new ValidationError(
-        'Relationship must have type, strength (number), and confidence (number)',
+        'Relationship must have type (or relationship_type), strength (or weight) as a number, and confidence as a number',
         'relationship',
         relationship
       );

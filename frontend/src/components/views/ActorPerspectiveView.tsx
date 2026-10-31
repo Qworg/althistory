@@ -7,6 +7,7 @@ import { useArcs } from '@/hooks/useArcs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
 import { Event, Arc } from '@/types'
+import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 
 export interface ActorPerspectiveViewProps {
   className?: string
@@ -281,7 +282,7 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <p><strong>Description:</strong> {selectedEvent.description}</p>
-                  <p><strong>Timestamp:</strong> {new Date(selectedEvent.timestamp).toLocaleString()}</p>
+                  <p><strong>Timestamp:</strong> {formatHistoricalTimestamp(selectedEvent.timestamp)}</p>
                 </div>
                 <div>
                   <p><strong>Actor:</strong> {selectedEvent.actor}</p>

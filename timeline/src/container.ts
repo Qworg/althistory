@@ -28,6 +28,7 @@ import {
   ApiKeyRepository
 } from '@/repositories';
 import { AppConfig } from '@/utils/config';
+import { LiveStoreSyncService } from '@/services/LiveStoreSyncService';
 
 /**
  * Minimal shape for a component that may expose an async `initialize()`.
@@ -104,6 +105,7 @@ export interface ServiceContainer {
   exportService: ExportService;
   jobService: JobService;
   graphWriteVersioningService: GraphWriteVersioningService;
+  liveStoreSyncService: LiveStoreSyncService;
   
   // Repositories
   eventRepository: EventRepository;
@@ -153,6 +155,7 @@ export class Container implements ServiceContainer {
   private _exportService?: ExportService;
   private _jobService?: JobService;
   private _graphWriteVersioningService?: GraphWriteVersioningService;
+  private _liveStoreSyncService?: LiveStoreSyncService;
   
   // Phase 1 I/O repositories
   private _graphRepository?: GraphRepository;
@@ -496,10 +499,55 @@ export class Container implements ServiceContainer {
   /**
    * Get graph service instance (singleton)
    */
+  /**
+   * Rebuilds a graph's live store from its version head after an operation
+   * that wrote only the version tree (singleton).
+   */
+  get liveStoreSyncService(): LiveStoreSyncService {
+    if (!this._liveStoreSyncService) {
+      this._liveStoreSyncService = new LiveStoreSyncService({
+        checkout: (graphId) => this.graphRepository.checkout(graphId),
+        scopedRepositories: (graphId) => this.graphScopedRepositories(graphId),
+        clearLiveStore: (graphId) => this.clearLiveStore(graphId),
+        invalidateCaches: async () => {
+          await this.cacheInvalidationService.invalidateCausalCache();
+          await this.cacheInvalidationService.invalidateTemporalCache();
+        },
+      });
+    }
+    return this._liveStoreSyncService;
+  }
+
+  /** Remove every live entity of one graph, and nothing of any other graph. */
+  private async clearLiveStore(graphId: string): Promise<void> {
+    if (this.databaseManager instanceof LocalDatabaseManager) {
+      // Local mode: the graph is the store.
+      const leased = await this.graphContextStore.lease(graphId);
+      try {
+        await leased.store.clear();
+      } finally {
+        await leased.release();
+      }
+      return;
+    }
+    // Cloud mode: one database, with the graph stamped on every row.
+    const session = this.databaseManager.getNeo4jSession();
+    try {
+      await session.run('MATCH (n) WHERE n.graphId = $graphId DETACH DELETE n', { graphId });
+    } finally {
+      await session.close();
+    }
+  }
+
   get graphService(): GraphService {
     if (!this._graphService) {
       this._graphService = new GraphService({
         dataDir: this.config.localExecution.dataDirectory,
+        // Branch, rollback and merge write only the version tree; bring the
+        // graph's live store up to the new head so the UI shows it.
+        onHeadReplaced: async (graphId) => {
+          await this.liveStoreSyncService.materialize(graphId);
+        },
       });
     }
     return this._graphService;

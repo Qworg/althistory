@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
 import { formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
+import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { truncateToWidth } from '@/utils'
 
 export interface ActorEventData extends Event {
   role: 'actor' | 'target'
@@ -28,6 +30,30 @@ export interface ActorTimelineState {
   hoveredEventId: string | null
 }
 
+const DEFAULT_MARGIN = { top: 20, right: 20, bottom: 60, left: 80 }
+
+/**
+ * The chart's plot group (translated by the margin) and its three layers,
+ * bottom to top: axes and grid, arc bands, event marks. Each effect draws into
+ * and clears only its own layer.
+ */
+function plotLayer(
+  svgElement: SVGSVGElement,
+  name: 'axes' | 'arcs' | 'events',
+  margin: { top: number; left: number }
+): d3.Selection<SVGGElement, unknown, null, undefined> {
+  const svg = d3.select(svgElement)
+  let plot = svg.select<SVGGElement>('g.actor-timeline-plot')
+  if (plot.empty()) {
+    plot = svg.append('g').attr('class', 'actor-timeline-plot')
+    for (const layer of ['axes', 'arcs', 'events']) {
+      plot.append('g').attr('class', `${layer}-layer`)
+    }
+  }
+  plot.attr('transform', `translate(${margin.left},${margin.top})`)
+  return plot.select<SVGGElement>(`g.${name}-layer`)
+}
+
 export const ActorTimeline: React.FC<ActorTimelineProps> = ({
   events = [],
   arcs = [],
@@ -35,7 +61,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
   layoutMode = 'chronological',
   width = 800,
   height = 400,
-  margin = { top: 20, right: 20, bottom: 60, left: 80 },
+  margin: marginProp = DEFAULT_MARGIN,
   onEventSelect,
   onTimeRangeChange,
   className = ''
@@ -52,25 +78,32 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
         end: new Date()
       }
     }
+    const times = events.map(e => new Date(e.timestamp).getTime())
+    const first = Math.min(...times)
+    const last = Math.max(...times)
+    // Pad by a share of the span, not a fixed day: on a span of years one day
+    // put the first and last events on the chart's edges.
+    const padding = Math.max(86400000, (last - first) * 0.03)
     return {
-      start: new Date(Math.min(...events.map(e => new Date(e.timestamp).getTime())) - 86400000),
-      end: new Date(Math.max(...events.map(e => new Date(e.timestamp).getTime())) + 86400000)
+      start: new Date(first - padding),
+      end: new Date(last + padding)
     }
   }, [events])
 
   const [state, setState] = useState<ActorTimelineState>({
     zoomLevel: 1,
-    visibleTimeRange: {
-      start: events.length > 0
-        ? new Date(Math.min(...events.map(e => new Date(e.timestamp).getTime())) - 86400000) // 1 day before first event
-        : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
-      end: events.length > 0
-        ? new Date(Math.max(...events.map(e => new Date(e.timestamp).getTime())) + 86400000) // 1 day after last event
-        : new Date()
-    },
+    visibleTimeRange: originalTimeExtent,
     selectedEventId: null,
     hoveredEventId: null
   })
+
+  // Memoised by value: a caller (or the default) passing a fresh object each
+  // render made every effect that depends on the margin re-run every render.
+  const { top: marginTop, right: marginRight, bottom: marginBottom, left: marginLeft } = marginProp
+  const margin = useMemo(
+    () => ({ top: marginTop, right: marginRight, bottom: marginBottom, left: marginLeft }),
+    [marginTop, marginRight, marginBottom, marginLeft]
+  )
 
   // Calculate dimensions
   const innerWidth = width - margin.left - margin.right
@@ -148,12 +181,12 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
   useEffect(() => {
     if (!svgRef.current || events.length === 0) return
 
-    const svg = d3.select(svgRef.current)
-    svg.selectAll('*').remove() // Clear previous render
-
-    // Create main group with margins
-    const g = svg.append('g')
-      .attr('transform', `translate(${margin.left},${margin.top})`)
+    // Clear only the axes layer. This effect used to remove everything in the
+    // SVG, including the event marks, which a separate effect draws and which
+    // were not redrawn unless that effect's own dependencies changed -- so the
+    // chart was often left with axes and no events.
+    const g = plotLayer(svgRef.current, 'axes', margin)
+    g.selectAll('*').remove()
 
     // Create time axis with dynamic formatting based on visible time span
     const timeSpanMs = state.visibleTimeRange.end.getTime() - state.visibleTimeRange.start.getTime()
@@ -181,7 +214,10 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     // Create y-axis based on layout mode
     if (layoutMode === 'chronological') {
       const yAxis = d3.axisLeft(yScale() as d3.ScaleOrdinal<string, number>)
-        .tickFormat(d => d === 'actor' ? `${actor} as Actor` : `${actor} as Target`)
+        // The heading above the chart already names the actor; repeating the
+        // name here overflowed the left margin for any name longer than a
+        // few characters and the labels were cut off.
+        .tickFormat(d => d === 'actor' ? 'As actor' : 'As target')
 
       g.append('g')
         .attr('class', 'y-axis')
@@ -220,6 +256,8 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
             .style('text-anchor', 'end')
             .style('font-size', '11px')
             .style('fill', '#374151')
+            .text(truncateToWidth(d, margin.left - 12, 11))
+            .append('title')
             .text(d)
         })
     }
@@ -239,13 +277,13 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
 
   // Render arcs as background context
   useEffect(() => {
-    if (!svgRef.current || arcs.length === 0) return
+    if (!svgRef.current) return
 
-    const svg = d3.select(svgRef.current)
-    const g = svg.select('g')
-    
-    // Remove existing arcs
+    const g = plotLayer(svgRef.current, 'arcs', margin)
+
+    // Remove existing arcs (also when there are none left to draw)
     g.selectAll('.actor-arc').remove()
+    if (arcs.length === 0) return
 
     // Add arcs as background rectangles
     const arcSelection = g.selectAll('.actor-arc')
@@ -254,12 +292,15 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
       .append('g')
       .attr('class', 'actor-arc')
 
+    // An arc usually starts before or ends after the visible range; clamp it
+    // to the plot area so the band does not spill over the axes and margins.
+    const clampX = (x: number) => Math.min(innerWidth, Math.max(0, x))
     arcSelection.append('rect')
-      .attr('x', d => timeScale()(new Date(d.start_time)))
+      .attr('x', d => clampX(timeScale()(new Date(d.start_time))))
       .attr('y', 0)
       .attr('width', d => {
-        const startX = timeScale()(new Date(d.start_time))
-        const endX = timeScale()(new Date(d.end_time))
+        const startX = clampX(timeScale()(new Date(d.start_time)))
+        const endX = clampX(timeScale()(new Date(d.end_time)))
         return Math.max(0, endX - startX)
       })
       .attr('height', innerHeight)
@@ -271,26 +312,27 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     // Add arc labels
     arcSelection.append('text')
       .attr('x', d => {
-        const startX = timeScale()(new Date(d.start_time))
-        const endX = timeScale()(new Date(d.end_time))
+        const startX = clampX(timeScale()(new Date(d.start_time)))
+        const endX = clampX(timeScale()(new Date(d.end_time)))
         return startX + (endX - startX) / 2
       })
-      .attr('y', 15)
+      // One row per nesting level: a sub-arc's band shares its parent's span
+      // once both are clamped to the plot, and their labels overprinted.
+      .attr('y', d => 15 + Math.max(0, (d.level ?? 1) - 1) * 14)
       .attr('text-anchor', 'middle')
       .style('font-size', '10px')
       .style('fill', '#6b7280')
       .style('font-weight', '500')
       .text(d => d.name.length > 20 ? d.name.substring(0, 17) + '...' : d.name)
 
-  }, [arcs, timeScale, innerHeight])
+  }, [arcs, timeScale, innerHeight, innerWidth, margin])
 
   // Render events with role-based styling
   useEffect(() => {
     if (!svgRef.current || events.length === 0) return
 
-    const svg = d3.select(svgRef.current)
-    const g = svg.select('g')
-    
+    const g = plotLayer(svgRef.current, 'events', margin)
+
     // Remove the groups and everything in them. Removing only `.actor-event`
     // left an empty wrapper per group behind on every re-render -- and this
     // effect re-runs whenever the hovered or selected event changes.
@@ -388,7 +430,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
               <div style="font-size: 11px; color: #d1d5db;">
                 <div><strong>Actor:</strong> ${d.actor}</div>
                 <div><strong>Target:</strong> ${d.target}</div>
-                <div><strong>Time:</strong> ${new Date(d.timestamp).toLocaleString()}</div>
+                <div><strong>Time:</strong> ${formatHistoricalTimestamp(d.timestamp)}</div>
               </div>
             `)
             .style('left', (event.pageX + 10) + 'px')
@@ -448,7 +490,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     return () => {
       d3.selectAll('.actor-timeline-tooltip').remove()
     }
-  }, [events, timeScale, yScale, layoutMode, state.selectedEventId, state.hoveredEventId, groupedEvents, onEventSelect, actor])
+  }, [events, timeScale, yScale, layoutMode, state.selectedEventId, state.hoveredEventId, groupedEvents, onEventSelect, actor, margin])
 
   // Add zoom and pan functionality
   useEffect(() => {
@@ -533,18 +575,12 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
-      <svg
-        ref={svgRef}
-        width={width}
-        height={height}
-        className="border border-gray-200 rounded-lg bg-white"
-        style={{ overflow: 'visible' }}
-      >
-        {/* SVG content is rendered by D3 */}
-      </svg>
-      
-      {/* Legend */}
-      <div className="absolute bottom-2 left-2 bg-white bg-opacity-90 rounded-lg p-2 text-xs border border-gray-200">
+      {/* Layout and legend sit above the chart: drawn over it they covered the
+          arc labels and the x-axis labels. */}
+      <div className="mb-2 flex items-center gap-4 pr-28 text-xs">
+        <div className="rounded-lg border border-gray-200 bg-white px-2 py-1">
+          {layoutMode === 'chronological' ? 'Chronological Layout' : 'Thematic Layout'}
+        </div>
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-1">
             <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
@@ -562,11 +598,15 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
           )}
         </div>
       </div>
-      
-      {/* Layout mode indicator */}
-      <div className="absolute top-2 left-2 bg-white bg-opacity-90 rounded-lg px-2 py-1 text-xs border border-gray-200">
-        {layoutMode === 'chronological' ? 'Chronological Layout' : 'Thematic Layout'}
-      </div>
+
+      <svg
+        ref={svgRef}
+        width={width}
+        height={height}
+        className="border border-gray-200 rounded-lg bg-white"
+      >
+        {/* SVG content is rendered by D3 */}
+      </svg>
     </div>
   )
 }

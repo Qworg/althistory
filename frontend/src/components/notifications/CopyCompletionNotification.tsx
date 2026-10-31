@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { CopyOperation } from '@/types'
+import { formatHistoricalDate } from '@/utils/historicalTime'
 
 interface CopyCompletionNotificationProps {
   operation: CopyOperation
@@ -162,7 +163,7 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
               )}
               {operation.parameters.timeRange && (
                 <div>
-                  Range: {new Date(operation.parameters.timeRange.start).toLocaleDateString()} - {new Date(operation.parameters.timeRange.end).toLocaleDateString()}
+                  Range: {formatHistoricalDate(operation.parameters.timeRange.start)} - {formatHistoricalDate(operation.parameters.timeRange.end)}
                 </div>
               )}
             </div>

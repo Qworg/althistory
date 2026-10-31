@@ -230,4 +230,37 @@ describe('causal route graph scoping', () => {
     const whileAActive = await request(app).get('/api/causal/relationships').expect(200);
     expect(whileAActive.body.data).toHaveLength(1);
   });
+
+  it('accepts the stored field names the OpenAPI document describes (relationship_type, weight)', async () => {
+    const graph = await container.graphRepository.create({ name: 'Graph' });
+    const cause = await seedEvent(graph.id, 'Cause', 'actor', new Date('2020-01-01T00:00:00Z'));
+    const effect = await seedEvent(graph.id, 'Effect', 'actor', new Date('2020-01-02T00:00:00Z'));
+
+    await request(app)
+      .post('/api/causal/link')
+      .set('X-Graph-Id', graph.id)
+      .send({
+        causeEventId: cause.id,
+        effectEventId: effect.id,
+        relationship: { relationship_type: 'contributory', weight: 0.4, confidence: 0.7, evidence: 'A letter' },
+      })
+      .expect(201);
+
+    const listed = await request(app).get('/api/causal/relationships').set('X-Graph-Id', graph.id).expect(200);
+    expect(listed.body.data).toHaveLength(1);
+    expect(listed.body.data[0]).toMatchObject({ relationship_type: 'contributory', weight: 0.4 });
+  });
+
+  it('still refuses a relationship with neither spelling of the type', async () => {
+    const graph = await container.graphRepository.create({ name: 'Graph' });
+    const cause = await seedEvent(graph.id, 'Cause', 'actor', new Date('2020-01-01T00:00:00Z'));
+    const effect = await seedEvent(graph.id, 'Effect', 'actor', new Date('2020-01-02T00:00:00Z'));
+
+    const response = await request(app)
+      .post('/api/causal/link')
+      .set('X-Graph-Id', graph.id)
+      .send({ causeEventId: cause.id, effectEventId: effect.id, relationship: { weight: 0.4, confidence: 0.7, evidence: 'x' } })
+      .expect(400);
+    expect(response.body.error.message).toMatch(/type \(or relationship_type\)/);
+  });
 });

@@ -3,7 +3,7 @@ import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { type ArcWithUIState, calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
-import { formatDuration, formatTimeAxisTick } from '@/utils/d3Calculations'
+import { formatDuration, formatTimeAxisTicks } from '@/utils/d3Calculations'
 import EventArcAssignment from './EventArcAssignment'
 import PressureIndicators from './PressureIndicators'
 import { TimelineEvent } from './TimelineEvent'
@@ -16,6 +16,7 @@ import {
   filterEventsInWindow,
   filterPressuresInWindow
 } from './timelineVirtualization'
+import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 
 export interface TimelineProps {
   events: Event[]
@@ -732,6 +733,8 @@ const Timeline = memo(function Timeline({
               const maxTicks = Math.min(10, Math.floor(innerWidth / 80))
               // Use count-based ticks for reliability, format based on time span
               const ticks = xScale.ticks(maxTicks > 0 ? maxTicks : 5)
+              // Labelled as a set, so two ticks never share a label.
+              const labels = formatTimeAxisTicks(ticks, timeSpanMs)
               return ticks.map((tick, i) => (
                 <g key={i} transform={`translate(${xScale(tick)},0)`}>
                   <line y1={0} y2={6} stroke="#9ca3af" strokeWidth={1} />
@@ -741,7 +744,7 @@ const Timeline = memo(function Timeline({
                     fontSize={10}
                     fill="#6b7280"
                   >
-                    {formatTimeAxisTick(tick, timeSpanMs)}
+                    {labels[i]}
                   </text>
                 </g>
               ))
@@ -761,7 +764,7 @@ const Timeline = memo(function Timeline({
             <>
               <div className="font-semibold">{hovered.event.description}</div>
               <div>{hovered.event.actor} → {hovered.event.target}</div>
-              <div>{new Date(hovered.event.timestamp).toLocaleString()}</div>
+              <div>{formatHistoricalTimestamp(hovered.event.timestamp)}</div>
             </>
           ) : (
             <>
