@@ -103,7 +103,12 @@ jobs:
         run: npm run lint
 
       - name: Test (coverage report-only; no threshold is configured)
-        run: npx vitest --run --coverage
+        # The suite takes well under a minute. A step timeout, unlike the job
+        # timeout, lets the job finish and keep its log, and the verbose and
+        # hanging-process reporters name the file that stalls and any handle
+        # that keeps vitest from exiting.
+        timeout-minutes: 8
+        run: npx vitest --run --coverage --reporter=verbose --reporter=hanging-process
 
   frontend:
     name: Frontend (typecheck, lint, test, build)
