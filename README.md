@@ -7,9 +7,8 @@ counterfactual branches.
 
 ![The timeline view: arcs as nested periods above the events, with a tooltip on one event](docs/images/timeline.png)
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/fe8ca3ff-50ae-42f6-81d7-9115d2ccd0f6" width="100%" controls></video>
-</p>
+
+https://github.com/user-attachments/assets/8d89b424-ad7d-4459-be8e-1ea0e4300acf
 
 **New here?** Watch the one-minute walkthrough above
 ([download it](docs/media/walkthrough.mp4)) or read the [illustrated tour](docs/walkthrough.md). Every picture on this page
