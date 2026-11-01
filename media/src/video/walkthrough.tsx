@@ -211,15 +211,17 @@ function* playMove(stage: Node, shot: Shot, move: Move, arrow: Path): ThreadGene
 function* titleCard(view: Node): ThreadGenerator {
   const group = createRef<Node>()
   view.add(
-    <Node ref={group} opacity={0}>
+    // Fully visible from frame 0, with no fade-in: a browser shows the first
+    // frame until someone presses play, and a fade from black made the README
+    // player look empty, as if the video had not loaded.
+    <Node ref={group}>
       <Txt text={intro.title} y={-90} fontFamily={SANS} fontWeight={800} fontSize={150} fill={COLOR.white} letterSpacing={-3} />
       <Rect y={10} width={120} height={6} radius={3} fill={COLOR.amber} />
       <Txt text={intro.subtitle} y={80} fontFamily={SANS} fontWeight={500} fontSize={52} fill={COLOR.white} />
       <Txt text={intro.premise} y={170} fontFamily={SANS} fontSize={30} fill={COLOR.muted} />
     </Node>
   )
-  yield* group().opacity(1, 0.7)
-  yield* waitFor(2.6)
+  yield* waitFor(3.3)
   yield* group().opacity(0, 0.5)
   group().remove()
 }
