@@ -563,7 +563,7 @@ describe('VersionRepository Unit Tests', () => {
       const result = await repository.rollback('graph-1', 1, 'user-123');
 
       expect(result.operation).toBe('rollback');
-      expect(result.description).toBe('Rollback to version 1');
+      expect(result.description).toBe('Restored version 1');
       expect(result.userId).toBe('user-123');
     });
 

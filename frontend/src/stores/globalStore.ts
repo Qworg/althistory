@@ -155,7 +155,8 @@ const initialSessionData: SessionData = {
       fitToViewTrigger: 0,
     },
     causalGraph: {
-      layout: 'cose',
+      // Time order: the same picture on every load (see timeOrderLayout.ts)
+      layout: 'time',
       nodePositions: {},
     },
   },
@@ -163,7 +164,10 @@ const initialSessionData: SessionData = {
 
 const initialUIState: UIState = {
   sidebarCollapsed: false,
-  filterPanelOpen: true,
+  // The filter rail starts closed so the view gets the full width; the
+  // ActiveFiltersBar above every view still shows what is filtering it, and
+  // Shift+F or the toolbar's Show Filters opens the rail.
+  filterPanelOpen: false,
   activeModal: null,
   dragState: {
     isDragging: false,
@@ -297,9 +301,16 @@ export const useGlobalStore = create<GlobalState>()(
         uiState: { ...state.uiState, ...updates }
       })),
       
-      setSidebarCollapsed: (collapsed) => set((state) => ({
-        uiState: { ...state.uiState, sidebarCollapsed: collapsed }
-      })),
+      // The collapsed sidebar is a preference the user expects to keep, so it
+      // is persisted with the user preferences; `uiState.sidebarCollapsed` is
+      // the live value the layout reads.
+      setSidebarCollapsed: (collapsed) => {
+        set((state) => ({
+          uiState: { ...state.uiState, sidebarCollapsed: collapsed },
+          userPreferences: { ...state.userPreferences, sidebarCollapsed: collapsed }
+        }))
+        get().savePreferences()
+      },
       
       setFilterPanelOpen: (open) => set((state) => ({
         uiState: { ...state.uiState, filterPanelOpen: open }
@@ -383,7 +394,13 @@ export const useGlobalStore = create<GlobalState>()(
       loadPreferences: () => {
         const savedPreferences = userPreferencesPersistence.load<UserPreferences>()
         if (savedPreferences) {
-          set({ userPreferences: { ...initialUserPreferences, ...savedPreferences } })
+          set((state) => ({
+            userPreferences: { ...initialUserPreferences, ...savedPreferences },
+            uiState: {
+              ...state.uiState,
+              sidebarCollapsed: Boolean(savedPreferences.sidebarCollapsed)
+            }
+          }))
         }
       },
       
@@ -408,10 +425,11 @@ export const useGlobalStore = create<GlobalState>()(
       clearPersistedData: () => {
         userPreferencesPersistence.clear()
         sessionDataPersistence.clear()
-        set({
+        set((state) => ({
           userPreferences: initialUserPreferences,
-          sessionData: initialSessionData
-        })
+          sessionData: initialSessionData,
+          uiState: { ...state.uiState, sidebarCollapsed: false }
+        }))
       },
     }),
     {

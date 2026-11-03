@@ -2,14 +2,17 @@
 
 ## Status
 
-**Accepted — revision 3.** Revision 2 corrected revision 1's premise (the hybrid was real) but
+**Accepted — revision 4.** Revision 4 records that the two Tier 3 components (`ActorTimeline`,
+`PressureIndicators`) were converted — React now renders their marks, axes and tooltips, and D3 keeps
+only scales and the zoom gesture — so no Tier 3 code remains and nothing appends to `body`. The
+counts below are re-measured with the same command. Revision 2 corrected revision 1's premise (the hybrid was real) but
 replaced revision 1's unchecked assertion with its own uncited D3 DOM-operation counts. Revision 3
 keeps the decision and replaces those counts with a command a reader can re-run; the numbers were
 wrong (three of five) and the lesson is applied rather than restated.
 
 ## Date
 
-2026-10 (revision 3) · 2026-10 (revision 2) · 2024-12-19 (revision 1)
+2026-11 (revision 4) · 2026-10 (revision 3) · 2026-10 (revision 2) · 2024-12-19 (revision 1)
 
 ## Context
 
@@ -27,9 +30,9 @@ That statement was already untrue when it was written. What the codebase actuall
 
 | Tier | Pattern | Where |
 |---|---|---|
-| 1 | React owns everything; D3 for pure calculation | `useTimelineScales`, `d3Calculations.ts`, `TimelineEvent.tsx`, `TimelineArc.tsx` (both 0 matched lines) |
-| 2 | React owns structure; D3 owns *behaviour* on a React-rendered element | `Timeline.tsx` — React renders `<svg ref={svgRef}>` and all marks; D3 attaches zoom/pan via `svg.call(zoom)` and drives fit-to-view `transition()` (12 matched lines) |
-| 3 | D3 owns an isolated subtree that React never renders into | `ActorTimeline.tsx` (172 matched lines: axes, ticks, events, arcs, an appended `button`), `PressureIndicators.tsx` (92 matched lines, plus `defs.append('linearGradient')`) |
+| 1 | React owns everything; D3 for pure calculation | `useTimelineScales`, `d3Calculations.ts`, `TimelineEvent.tsx`, `TimelineArc.tsx`, `PressureIndicators.tsx` (all 0 matched lines) |
+| 2 | React owns structure; D3 owns *behaviour* on a React-rendered element | `Timeline.tsx` — React renders `<svg ref={svgRef}>` and all marks; D3 attaches zoom/pan via `svg.call(zoom)` and drives fit-to-view `transition()` (21 matched lines); `ActorTimeline.tsx` — same split, zoom only (10 matched lines) |
+| 3 | D3 owns an isolated subtree that React never renders into | None since revision 4. Until then: `ActorTimeline.tsx` (172 matched lines: axes, ticks, events, arcs, an appended `button`), `PressureIndicators.tsx` (92 matched lines, plus `defs.append('linearGradient')`) |
 
 ### How those counts were obtained
 
@@ -46,15 +49,19 @@ grep -cE '\.(append|select|selectAll|attr|style|call|transition|data|enter|exit|
   frontend/src/components/timeline/TimelineArc.tsx
 ```
 
-Its real output is:
+Its real output at revision 4 is:
 
 ```
-frontend/src/components/timeline/Timeline.tsx:12
-frontend/src/components/timeline/ActorTimeline.tsx:172
-frontend/src/components/timeline/PressureIndicators.tsx:92
+frontend/src/components/timeline/Timeline.tsx:21
+frontend/src/components/timeline/ActorTimeline.tsx:10
+frontend/src/components/timeline/PressureIndicators.tsx:0
 frontend/src/components/timeline/TimelineEvent.tsx:0
 frontend/src/components/timeline/TimelineArc.tsx:0
 ```
+
+(At revision 3 it was 12 / 172 / 92 / 0 / 0. `Timeline.tsx` had already grown to 20 before the
+revision 4 conversion, so revision 3's 12 was stale by then — re-run the command rather than trusting
+a figure written here.)
 
 This is deliberately a **line count, not an operation count**, and the pattern is a definition of
 what was counted rather than a measure of DOM cost; a line may issue more than one call. The figures
@@ -62,8 +69,10 @@ place the tiers on a rough scale and are reproducible. (Revision 2's 8 / 95 / 63
 no cited command and do not reproduce; Timeline, ActorTimeline and PressureIndicators are wrong, two
 by roughly 1.8x.)
 
-Tier 3 also reaches *outside* any container: `ActorTimeline.tsx:356` does
-`d3.select('body').append('div')` for tooltips, creating DOM React has no knowledge of.
+Tier 3 also reached *outside* any container: until revision 4, `ActorTimeline.tsx` did
+`d3.select('body').append('div')` for tooltips (and `PressureIndicators.tsx` appended
+`.pressure-tooltip` divs to `body`), creating DOM React had no knowledge of. Both tooltips are now
+React-rendered.
 
 So the choice is not between two clean options. It is: document the hybrid honestly and set rules
 for where each tier is acceptable, or spend significant effort converting working, tested Tier 3
@@ -111,15 +120,17 @@ Permitted **only** when all of the following hold:
 3. Every listener, timer, and appended node is cleaned up on unmount.
 4. The component documents in a comment why Tier 3 was chosen over Tier 1.
 
-**Prefer Tier 1 when a subtree is small or mostly static.** Tier 3 is justified by scale and by
-duration-based animation — the actor-perspective chart and pressure gradients are both cases where
-the declarative equivalent would be substantially larger and slower.
+**Prefer Tier 1 when a subtree is small or mostly static.** Tier 3 is justified only by scale and by
+duration-based animation. The actor-perspective chart and pressure gradients were once argued to be
+such cases; revision 4 converted both to Tier 1 without a size or speed problem showing up in tests, which is a reason to be
+sceptical of the next such argument. Tier 1 is also what makes marks keyboard-operable
+(`tabIndex`, `role="button"`, Enter/Space) without a second, parallel event system.
 
 ### Rule: do not escape the React tree
 
-`d3.select('body').append(...)` (as at `ActorTimeline.tsx:356`) is **not permitted for new code**.
+`d3.select('body').append(...)` (as `ActorTimeline.tsx` did before revision 4) is **not permitted**.
 Appending to `body` creates DOM outside React's tree with no lifecycle, no cleanup, and no test
-visibility. Existing instances are tolerated but should migrate to either:
+visibility. Tooltips use either:
 
 - a React-rendered tooltip positioned via state, or
 - a portal (`createPortal`) into a known node, so React still owns the lifecycle.

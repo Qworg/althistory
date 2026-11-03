@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router'
 import { useGlobalStore } from '@/stores/globalStore'
 import { ViewMode, FilterState } from '@/types'
+import { viewModeForPath } from '@/hooks/useViewShortcuts'
 
 interface ViewState {
   selectedEvents: string[]
@@ -21,10 +22,34 @@ interface ViewStateMap {
 
 const STATE_EXPIRY_TIME = 30 * 60 * 1000 // 30 minutes
 
+/**
+ * Keeps the store's `viewMode` equal to the view the route shows.
+ *
+ * The route is the source of truth: the sidebar's links, the top-bar view
+ * switcher, the mobile bar and the Alt+1/2/3 shortcuts all just navigate. This
+ * runs from `useViewStateManager`, which `MainLayout` calls in every layout
+ * mode, so the toolbar shows the actions of the view on screen whichever
+ * navigation was used. (It used to run only inside the top-bar view switcher,
+ * so in sidebar mode the toolbar stayed on the timeline's actions.)
+ */
+export function useRouteViewModeSync() {
+  const { pathname } = useLocation()
+  const { viewMode, setViewMode } = useGlobalStore()
+  const routeViewMode = viewModeForPath(pathname)
+
+  useEffect(() => {
+    if (routeViewMode !== viewMode) {
+      setViewMode(routeViewMode)
+    }
+  }, [routeViewMode, viewMode, setViewMode])
+
+  return routeViewMode
+}
+
 export function useViewStateManager() {
-  // Subscribe to the router location so the hook re-renders on navigation; the value
-  // itself is not read here.
-  useLocation()
+  // Derive the view mode from the route first, so the save/restore effect
+  // below sees the view that is actually on screen.
+  useRouteViewModeSync()
   const {
     viewMode,
     selectedEvents,
@@ -38,6 +63,10 @@ export function useViewStateManager() {
   } = useGlobalStore()
 
   const previousViewMode = useRef<ViewMode | null>(null)
+  const scrollRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (scrollRestoreTimerRef.current !== null) clearTimeout(scrollRestoreTimerRef.current)
+  }, [])
   const stateMap = useRef<ViewStateMap>({
     timeline: null,
     causal: null,
@@ -55,6 +84,9 @@ export function useViewStateManager() {
 
   // Set scroll position
   const setScrollPosition = useCallback((position: { x: number; y: number }) => {
+    // Runs from a deferred timer, which can outlive the DOM (a torn-down test
+    // environment, a server render): there is nothing to scroll then.
+    if (typeof document === 'undefined') return
     const mainElement = document.querySelector('main')
     if (mainElement) {
       mainElement.scrollLeft = position.x
@@ -165,8 +197,11 @@ export function useViewStateManager() {
         setFilters(savedState.filters)
       }
 
-      // Restore scroll position (with a small delay to ensure DOM is ready)
-      setTimeout(() => {
+      // Restore scroll position (with a small delay to ensure DOM is ready).
+      // Tracked so it is cancelled on unmount instead of firing afterwards.
+      if (scrollRestoreTimerRef.current !== null) clearTimeout(scrollRestoreTimerRef.current)
+      scrollRestoreTimerRef.current = setTimeout(() => {
+        scrollRestoreTimerRef.current = null
         setScrollPosition(savedState.scrollPosition)
       }, 100)
 

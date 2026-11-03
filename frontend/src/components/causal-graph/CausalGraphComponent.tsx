@@ -1,12 +1,21 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react'
+import React, { useRef, useEffect, useState, useCallback, useId } from 'react'
+import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
 import cytoscape, { Core, NodeSingular, EdgeSingular, EventObject } from 'cytoscape'
 import '@/utils/cytoscapeSetup' // Register layout extensions (dagre, cose-bilkent)
 import { Event, CausalRelationship, CausalRelationshipData, CausalPath, CausalSuggestion } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
-import { toCytoscapeLayoutOptions } from '@/utils/layoutManagerUtils'
+import {
+  toCytoscapeLayoutOptions,
+  mergeLayoutOptions,
+  canvasStretch,
+  CANVAS_STRETCH_LAYOUTS,
+  DEFAULT_CAUSAL_LAYOUT,
+  FIT_PADDING
+} from '@/utils/layoutManagerUtils'
 import { isCausalOrderValid, isTemporalInversion } from '@/utils/causalOrder'
 import CausalPathHighlighter from './CausalPathHighlighter'
+import { computeRipple } from '@/components/timeline/timelineLinks'
 import CausalChainNavigationControls from './CausalChainNavigationControls'
 import CausalSuggestionManager from './CausalSuggestionManager'
 import CausalSuggestionOverlay from './CausalSuggestionOverlay'
@@ -15,9 +24,29 @@ import { CausalGraphOverview } from './CausalGraphOverview'
 import { CausalGraphPerformanceManager } from './CausalGraphPerformanceManager'
 import useCausalPathExploration from '@/hooks/useCausalPathExploration'
 import useCausalSuggestions from '@/hooks/useCausalSuggestions'
+import { CausalRelationshipModal } from '@/components/modals/CausalRelationshipModal'
+import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import {
+  eventNodeLabel,
+  formatActorTarget,
+  describeEvent,
+  readGraphCanvasTheme,
+  nodeLabelSizing,
+  pickVisibleLabels,
+  RELATIONSHIP_LINE_STYLES,
+  type GraphCanvasTheme,
+  type LabelBox
+} from './causalGraphPresentation'
+import { buildCausalGraphStylesheet, GRAPH_STYLESHEET_REPLACED_EVENT } from './causalGraphStylesheet'
 
 export interface CausalGraphComponentProps {
   className?: string
+  /**
+   * Sizing for the graph canvas itself. Defaults to filling its parent
+   * (`h-full`); a page that is not height-constrained passes a viewport-based
+   * height so the canvas neither collapses nor runs off the screen.
+   */
+  canvasClassName?: string
   focusEventId?: string
   maxDepth?: number
   events?: Event[]
@@ -44,6 +73,12 @@ export interface CausalGraphComponentProps {
   enablePerformanceOptimizations?: boolean
   onLayoutChange?: (layoutName: string) => void
   divergenceEventIds?: string[]
+  /**
+   * View-only graph (e.g. the Compare dialog): hides Draw Link, Explore
+   * Paths and Suggest Links, ignores the D shortcut, and opens no edit
+   * affordance (no right-click edit, no relationship form).
+   */
+  readOnly?: boolean
 }
 
 export interface CausalNodeData {
@@ -62,6 +97,8 @@ export interface CausalEdgeData {
   source: string
   target: string
   relationship: CausalRelationship
+  /** The relationship type, which the stylesheet draws as colour and line style. */
+  relationshipType: CausalRelationship['relationship_type']
   weight: number
   label: string
   isSelected: boolean
@@ -72,6 +109,7 @@ export interface CausalEdgeData {
 
 export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   className = '',
+  canvasClassName = 'h-full',
   focusEventId,
   maxDepth = 3,
   events: propEvents,
@@ -97,20 +135,9 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   showPerformanceManager = true,
   enablePerformanceOptimizations = true,
   onLayoutChange,
-  divergenceEventIds
+  divergenceEventIds,
+  readOnly = false
 }) => {
-  // DEBUG: Render counter to detect infinite loops
-  const renderCountRef = useRef(0)
-  useEffect(() => {
-    renderCountRef.current++
-    if (import.meta.env.DEV) {
-      console.log(`[CausalGraph] Render #${renderCountRef.current}`)
-      if (renderCountRef.current > 50) {
-        console.error('[CausalGraph] Excessive render count detected')
-      }
-    }
-  })
-
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
@@ -120,6 +147,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   // Refs to hold current state values for event handlers (fixes closure stale state bug)
   const isCreatingLinkRef = useRef(isCreatingLink)
   const linkCreationSourceRef = useRef(linkCreationSource)
+  const readOnlyRef = useRef(readOnly)
   const handleKeyDownRef = useRef<(event: KeyboardEvent) => void>(() => {})
 
   // Suppresses background-tap cancellation for taps that arrive in the same task
@@ -134,6 +162,16 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null)
   const [hoveredNode, setHoveredNode] = useState<Event | null>(null)
   const [nodeTooltipPosition, setNodeTooltipPosition] = useState<{ x: number; y: number } | null>(null)
+
+  // The event the Explore Paths / Suggest Links tools act on: the node tapped
+  // (or keyboard-selected) last, else the focused event.
+  const [toolTargetId, setToolTargetId] = useState<string | null>(null)
+  // Which analysis overlay is open. Only one is open at a time.
+  const [activeTool, setActiveTool] = useState<'paths' | 'suggestions' | null>(null)
+  // A cause/effect pair drawn on the canvas, awaiting the relationship form.
+  const [pendingLink, setPendingLink] = useState<{ cause: Event; effect: Event } | null>(null)
+  // The resolved theme the canvas is drawn with (the legend draws its swatches from it)
+  const [graphTheme, setGraphTheme] = useState<GraphCanvasTheme>(() => readGraphCanvasTheme())
   
   // Use props if provided, otherwise fallback to store
   const storeEvents = useGlobalStore(state => state.events)
@@ -179,14 +217,16 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
 
   // Keep refs in sync with state (fixes closure stale state bug)
   useEffect(() => {
-    console.log('[CausalGraph] Syncing isCreatingLinkRef:', isCreatingLink)
     isCreatingLinkRef.current = isCreatingLink
   }, [isCreatingLink])
 
   useEffect(() => {
-    console.log('[CausalGraph] Syncing linkCreationSourceRef:', linkCreationSource?.id || null)
     linkCreationSourceRef.current = linkCreationSource
   }, [linkCreationSource])
+
+  useEffect(() => {
+    readOnlyRef.current = readOnly
+  }, [readOnly])
 
   // Arm the same-task background-tap guard. Anything delivered before the task
   // queue drains belongs to the programmatic transition / re-render that is
@@ -218,34 +258,45 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     return isCausalOrderValid(causeTime, effectTime)
   }, [])
 
+  // Whether cause -> effect may be linked: the cause must not follow the
+  // effect, and the pair must not already be linked. Reports why not.
+  const checkLinkCandidate = useCallback((causeEvent: Event, effectEvent: Event): boolean => {
+    if (!validateTemporalOrdering(causeEvent, effectEvent)) {
+      addError({
+        message: 'Cause event must occur before or at the same time as effect event',
+        type: 'validation'
+      })
+      return false
+    }
+
+    const existingRelationship = causalRelationships.find(rel =>
+      rel.cause_event_id === causeEvent.id && rel.effect_event_id === effectEvent.id
+    )
+    if (existingRelationship) {
+      addError({
+        message: 'Causal relationship already exists between these events',
+        type: 'validation'
+      })
+      return false
+    }
+    return true
+  }, [validateTemporalOrdering, causalRelationships, addError])
+
+  // The Cytoscape handlers are bound once, on mount; they reach the current
+  // validation (and its current relationship list) through this ref.
+  const checkLinkCandidateRef = useRef(checkLinkCandidate)
+  useEffect(() => {
+    checkLinkCandidateRef.current = checkLinkCandidate
+  }, [checkLinkCandidate])
+
   // Create causal relationship with validation
   const createCausalRelationship = useCallback(async (
-    causeEvent: Event, 
-    effectEvent: Event, 
+    causeEvent: Event,
+    effectEvent: Event,
     relationshipData: CausalRelationshipData
   ) => {
     try {
-      // Validate temporal ordering
-      if (!validateTemporalOrdering(causeEvent, effectEvent)) {
-        addError({
-          message: 'Cause event must occur before or at the same time as effect event',
-          type: 'validation'
-        })
-        return
-      }
-
-      // Check if relationship already exists
-      const existingRelationship = causalRelationships.find(rel => 
-        rel.cause_event_id === causeEvent.id && rel.effect_event_id === effectEvent.id
-      )
-      
-      if (existingRelationship) {
-        addError({
-          message: 'Causal relationship already exists between these events',
-          type: 'validation'
-        })
-        return
-      }
+      if (!checkLinkCandidate(causeEvent, effectEvent)) return
 
       // Create relationship via API
       const newRelationship = await apiClient.causal.createLink(
@@ -267,246 +318,29 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         type: 'network'
       })
     }
-  }, [validateTemporalOrdering, causalRelationships, addCausalRelationship, addError, onCausalLinkCreate])
+  }, [checkLinkCandidate, addCausalRelationship, addError, onCausalLinkCreate])
 
   const initializeCytoscape = useCallback(() => {
     if (!containerRef.current || cyRef.current) return
 
     // Read session data from store (not from closure) to get current layout preference
     const currentSessionData = useGlobalStore.getState().sessionData
-    const savedLayout = currentSessionData.viewportState.causalGraph.layout || 'cose'
+    const savedLayout = currentSessionData.viewportState.causalGraph.layout || DEFAULT_CAUSAL_LAYOUT
 
     // Set initialized to true immediately for testing
     setIsInitialized(true)
 
+    // Cytoscape draws on a canvas and cannot read CSS variables: resolve the
+    // theme tokens now (and again whenever the theme changes, below).
+    const theme = readGraphCanvasTheme()
+
     const cy = cytoscape({
       container: containerRef.current,
 
-      style: [
-        // Node styles
-        {
-          selector: 'node',
-          style: {
-            'background-color': '#3B82F6',
-            'border-color': '#1E40AF',
-            'border-width': 2,
-            // Every node carries a `label` ("actor → target"), but the style
-            // never mapped it, so the graph drew anonymous circles. The label
-            // sits under the node in dark text: centred white text overflowed
-            // a 45px node onto the light canvas and could not be read.
-            'label': 'data(label)',
-            'color': '#1F2937',
-            'font-size': '11px',
-            'font-weight': 600,
-            'text-valign': 'bottom',
-            'text-halign': 'center',
-            'text-margin-y': 6,
-            'text-wrap': 'wrap',
-            'text-max-width': '140px',
-            'text-background-color': '#FFFFFF',
-            'text-background-opacity': 0.85,
-            'text-background-padding': '2px',
-            'text-background-shape': 'roundrectangle',
-            'width': 'mapData(weight, 0, 1, 30, 60)',
-            'height': 'mapData(weight, 0, 1, 30, 60)',
-            'overlay-padding': '6px',
-            'z-index': 10
-          }
-        },
-        
-        // Selected node style
-        {
-          selector: 'node:selected',
-          style: {
-            'background-color': '#EF4444',
-            'border-color': '#DC2626',
-            'border-width': 3
-          }
-        },
-        
-        // Highlighted node style
-        {
-          selector: 'node.highlighted',
-          style: {
-            'background-color': '#F59E0B',
-            'border-color': '#D97706',
-            'border-width': 3,
-            'z-index': 20
-          }
-        },
+      style: buildCausalGraphStylesheet(theme),
 
-        // Link source node style (when creating causal links)
-        {
-          selector: 'node.link-source',
-          style: {
-            'background-color': '#8B5CF6',
-            'border-color': '#7C3AED',
-            'border-width': 4,
-            'z-index': 25
-          }
-        },
-
-        // Invalid target node style (events that occurred before/same time as source - can't be effects)
-        {
-          selector: 'node.invalid-target',
-          style: {
-            'background-color': '#9CA3AF',
-            'border-color': '#6B7280',
-            'border-width': 2,
-            'opacity': 0.5,
-            'z-index': 5
-          }
-        },
-
-        // Foreign placeholder node style (for cross-graph target/source events)
-        {
-          selector: 'node.foreign-node',
-          style: {
-            'background-color': '#7C3AED',
-            'border-color': '#5B21B6',
-            'border-style': 'dashed',
-            'border-width': 3,
-            'opacity': 0.85,
-            'shape': 'round-rectangle',
-            'z-index': 12
-          }
-        },
-
-        // Divergence point node style (Point of Divergence / Counterfactual branch fork)
-        {
-          selector: 'node.divergence-point',
-          style: {
-            'background-color': '#D97706',
-            'border-color': '#F59E0B',
-            'border-width': 4,
-            'shape': 'diamond',
-            'color': '#FFFFFF',
-            'font-weight': 'bold',
-            'overlay-color': '#FBBF24',
-            'overlay-padding': '5px',
-            'overlay-opacity': 0.35,
-            'z-index': 24
-          }
-        },
-
-        // Edge styles
-        {
-          selector: 'edge',
-          style: {
-            'width': 'mapData(weight, 0, 1, 2, 8)',
-            'line-color': '#6B7280',
-            'target-arrow-color': '#6B7280',
-            'target-arrow-shape': 'triangle',
-            'curve-style': 'bezier',
-            'arrow-scale': 1.2,
-            'opacity': 0.8,
-            'z-index': 5
-          }
-        },
-
-        // Cross-graph edge styles (distinct styling: dashed purple edge with foreign indicator pill)
-        {
-          selector: 'edge.cross-graph',
-          style: {
-            'line-style': 'dashed',
-            'line-dash-pattern': [6, 3],
-            'line-color': '#8B5CF6',
-            'target-arrow-color': '#8B5CF6',
-            'opacity': 0.9,
-            'label': 'data(crossGraphLabel)',
-            'font-size': '10px',
-            'color': '#5B21B6',
-            'text-background-color': '#EDE9FE',
-            'text-background-opacity': 0.9,
-            'text-background-padding': '3px',
-            'text-border-color': '#C4B5FD',
-            'text-border-width': 1,
-            'text-border-opacity': 0.8,
-            'z-index': 10
-          }
-        },
-        
-        // Edge weight-based colors
-        {
-          selector: 'edge[weight >= 0.7]',
-          style: {
-            'line-color': '#DC2626',
-            'target-arrow-color': '#DC2626'
-          }
-        },
-        {
-          selector: 'edge[weight >= 0.4][weight < 0.7]',
-          style: {
-            'line-color': '#F59E0B',
-            'target-arrow-color': '#F59E0B'
-          }
-        },
-        {
-          selector: 'edge[weight < 0.4]',
-          style: {
-            'line-color': '#10B981',
-            'target-arrow-color': '#10B981'
-          }
-        },
-        
-        // Selected edge style
-        {
-          selector: 'edge:selected',
-          style: {
-            'line-color': '#EF4444',
-            'target-arrow-color': '#EF4444',
-            'width': 6,
-            'opacity': 1,
-            'z-index': 15
-          }
-        },
-        
-        // Highlighted edge style
-        {
-          selector: 'edge.highlighted',
-          style: {
-            'line-color': '#F59E0B',
-            'target-arrow-color': '#F59E0B',
-            'width': 6,
-            'opacity': 1,
-            'z-index': 15
-          }
-        },
-        
-        // Edge labels
-        {
-          selector: 'edge.show-label',
-          style: {
-            'label': 'data(label)',
-            'font-size': '10px',
-            'color': '#374151',
-            'text-background-color': '#FFFFFF',
-            'text-background-opacity': 0.8,
-            'text-background-padding': '2px',
-            'text-border-color': '#D1D5DB',
-            'text-border-width': 1,
-            'text-border-opacity': 0.5
-          }
-        }
-      ],
-      
-      layout: toCytoscapeLayoutOptions({
-        name: savedLayout,
-        animationDuration: 500,
-        fit: true,
-        padding: 50,
-        // Cose layout specific options
-        nodeRepulsion: 400000,
-        nodeOverlap: 10,
-        idealEdgeLength: 100,
-        edgeElasticity: 100,
-        nestingFactor: 5,
-        gravity: 80,
-        numIter: 1000,
-        initialTemp: 200,
-        coolingFactor: 0.95,
-        minTemp: 1.0
-      }),
+      // The same tuned options the layout panel uses (layoutManagerUtils)
+      layout: toCytoscapeLayoutOptions(mergeLayoutOptions(savedLayout, { animationDuration: 500 })),
       
       // Interaction options
       minZoom: 0.1,
@@ -525,57 +359,40 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       const currentIsCreatingLink = isCreatingLinkRef.current
       const currentLinkCreationSource = linkCreationSourceRef.current
 
-      console.log('[CausalGraph] Node tap:', {
-        nodeId: nodeData.id,
-        isCreatingLink: currentIsCreatingLink,
-        linkCreationSource: currentLinkCreationSource?.id || null
-      })
-
       if (currentIsCreatingLink) {
         if (currentLinkCreationSource) {
-          // Check if target is a valid effect (must not occur before the cause)
+          // Check if target is a valid effect (must not occur before the cause).
+          // Invalid targets are greyed out, so a click on one is ignored.
           if (node.hasClass('invalid-target')) {
-            console.log('[CausalGraph] Cannot create link - target event occurs before the source')
-            // Just ignore the click on invalid targets - they're greyed out to indicate they can't be selected
             return
           }
 
-          console.log('[CausalGraph] Creating link from', currentLinkCreationSource.id, 'to', nodeData.event.id)
-          // Complete link creation
-          if (currentLinkCreationSource.id !== nodeData.event.id) {
-            // Create default relationship data
-            const defaultRelationshipData: CausalRelationshipData = {
-              weight: 0.5,
-              evidence: 'User-created relationship',
-              confidence: 0.7,
-              relationship_type: 'direct'
-            }
-
-            createCausalRelationship(currentLinkCreationSource, nodeData.event, defaultRelationshipData)
+          // Picking the effect does not save anything: it opens the
+          // relationship form, prefilled with the cause and effect, so the
+          // weight, type and evidence are the user's choice rather than
+          // hardcoded defaults.
+          if (
+            currentLinkCreationSource.id !== nodeData.event.id &&
+            checkLinkCandidateRef.current(currentLinkCreationSource, nodeData.event)
+          ) {
+            setPendingLink({ cause: currentLinkCreationSource, effect: nodeData.event })
           }
 
           // Reset link creation state
           setIsCreatingLink(false)
           setLinkCreationSource(null)
         } else {
-          console.log('[CausalGraph] Setting link source to', nodeData.event.id)
           // Selecting the source re-renders the graph; guard against a tap the
           // re-render emits in this same task cancelling the interaction.
           armBackgroundTapGuard()
           setLinkCreationSource(nodeData.event)
         }
       } else {
+        // A tap selects and inspects the node. Path exploration and link
+        // suggestions are opt-in tools (the Explore Paths / Suggest Links
+        // buttons), which act on the node tapped last.
+        setToolTargetId(nodeData.event.id)
         onNodeClick?.(nodeData.event)
-
-        // Start path exploration if enabled and not already exploring
-        if (enablePathExploration && !navigationState.isNavigating) {
-          startExploration(nodeData.event.id)
-        }
-
-        // Load suggestions if enabled
-        if (enableSuggestions) {
-          loadSuggestions(nodeData.event.id)
-        }
       }
     })
 
@@ -632,7 +449,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         const x = originalEvent.clientX
         const y = originalEvent.clientY
         onRelationshipContextMenu(edgeData.relationship, { x, y })
-      } else {
+      } else if (!readOnlyRef.current) {
         onRelationshipEdit?.(edgeData.relationship)
       }
     })
@@ -656,16 +473,71 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     // Cancel Link button remain the other cancellation paths.
     cy.on('tap', (event: EventObject) => {
       if (event.target !== cy || !isCreatingLinkRef.current) return
-      if (backgroundTapGuardRef.current) {
-        console.log('[CausalGraph] Ignoring background tap from the same task as a link-mode transition or graph rebuild')
-        return
-      }
+      if (backgroundTapGuardRef.current) return
       setIsCreatingLink(false)
       setLinkCreationSource(null)
     })
 
-    // Save layout positions when they change
-    cy.on('layoutstop', () => {
+    // Keep node labels readable at the zoom the graph is actually viewed at
+    // (see nodeLabelSizing). Coalesced to one restyle per frame.
+    let labelPending = false
+    const scheduleLabelSizing = () => {
+      if (labelPending) return
+      labelPending = true
+      const run = () => {
+        labelPending = false
+        if (cy.destroyed?.()) return
+        const zoom = cy.zoom()
+        const sizing = nodeLabelSizing(zoom)
+        cy.batch(() => {
+          cy.nodes().style(sizing)
+        })
+        // Then hide labels that would overprint a more important one (see
+        // pickVisibleLabels). Boxes are read after the sizing above applies.
+        const boxes: LabelBox[] = []
+        const measured: NodeSingular[] = []
+        cy.nodes().forEach(node => {
+          if (typeof node.boundingBox !== 'function') return
+          measured.push(node)
+          const bb = node.boundingBox({ includeNodes: false, includeEdges: false, includeLabels: true })
+          boxes.push({
+            id: node.id(),
+            priority: (node.selected() ? 10_000 : 0) + node.degree(false),
+            box: { x1: bb.x1, y1: bb.y1, x2: bb.x2, y2: bb.y2 }
+          })
+        })
+        const visible = pickVisibleLabels(boxes, 3 / (zoom > 0 ? zoom : 1))
+        cy.batch(() => {
+          measured.forEach(node => {
+            if (visible.has(node.id())) node.removeClass('label-culled')
+            else node.addClass('label-culled')
+          })
+        })
+      }
+      if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(run)
+      } else {
+        run()
+      }
+    }
+    cy.on('zoom', scheduleLabelSizing)
+    cy.on('add', 'node', scheduleLabelSizing)
+    // Moving a node or changing the selection changes which labels collide
+    cy.on('dragfree select unselect', 'node', scheduleLabelSizing)
+    scheduleLabelSizing()
+
+    // Save layout positions when they change, then frame the result. An
+    // animated layout can end with nodes outside the viewport it fitted at
+    // its start (the container may have been resized meanwhile), so the graph
+    // is refitted once it has settled.
+    cy.on('layoutstop', (event?: EventObject) => {
+      // A force layout settles into a round cloud; spread it to the canvas's
+      // aspect first, so the fit below fills the canvas rather than its middle.
+      const layoutName = (event?.layout as { options?: { name?: string } } | undefined)?.options?.name
+        ?? useGlobalStore.getState().sessionData.viewportState.causalGraph.layout
+        ?? 'cose'
+      if (CANVAS_STRETCH_LAYOUTS.includes(layoutName)) stretchToCanvas(cy)
+      scheduleLabelSizing()
       const positions: Record<string, { x: number; y: number }> = {}
       cy.nodes().forEach(node => {
         const pos = node.position()
@@ -682,14 +554,14 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           }
         }
       })
+      if (cy.nodes().length === 0) return
+      cy.fit(undefined, FIT_PADDING)
     })
 
     cyRef.current = cy
   }, [
     onNodeClick, onNodeHover, onEdgeClick, onEdgeHover, updateSessionData,
-    createCausalRelationship, enablePathExploration, enableSuggestions, loadSuggestions,
-    navigationState.isNavigating, onNodeContextMenu, onRelationshipContextMenu,
-    onRelationshipEdit, startExploration, armBackgroundTapGuard
+    onNodeContextMenu, onRelationshipContextMenu, onRelationshipEdit, armBackgroundTapGuard
   ])
 
 
@@ -701,7 +573,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     const nodes: CausalNodeData[] = events.map(event => ({
       id: event.id,
       event,
-      label: `${event.actor} → ${event.target}`,
+      label: eventNodeLabel(event),
       weight: 0.5, // Default weight, could be calculated based on relationships
       isSelected: selectedEvents.includes(event.id),
       isHighlighted: false, // Highlighting handled separately via useEffect
@@ -784,6 +656,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         source: relationship.cause_event_id,
         target: relationship.effect_event_id,
         relationship,
+        relationshipType: relationship.relationship_type,
         weight: relationship.weight,
         label: `W: ${relationship.weight.toFixed(2)} | C: ${relationship.confidence.toFixed(2)}`,
         isSelected: false,
@@ -842,14 +715,11 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     )
 
     if (!hasPositions) {
-      cyRef.current.layout(toCytoscapeLayoutOptions({
-        name: causalGraphState.layout || 'cose',
-        animationDuration: 500,
-        fit: true,
-        padding: 50
-      })).run()
+      cyRef.current.layout(toCytoscapeLayoutOptions(
+        mergeLayoutOptions(causalGraphState.layout || DEFAULT_CAUSAL_LAYOUT, { animationDuration: 500 })
+      )).run()
     } else {
-      cyRef.current.fit(undefined, 50)
+      cyRef.current.fit(undefined, FIT_PADDING)
     }
 
     // Update selection state
@@ -865,54 +735,78 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   const focusOnEvent = useCallback((eventId: string) => {
     if (!cyRef.current || !isInitialized) return
 
-    const node = cyRef.current.getElementById(eventId)
+    const cy = cyRef.current
+    const node = cy.getElementById(eventId)
     if (node.length > 0) {
-      cyRef.current.animate({
-        center: { eles: node },
-        zoom: 1.5
-      }, {
-        duration: 500
-      })
+      // The zoom is the user's: selecting an event keeps it, and pans only
+      // when the event is out of view. (Jumping to a fixed zoom on every
+      // click threw away the overview the user had framed.)
+      const extent = cy.extent()
+      const p = node.position()
+      const margin = 40 / cy.zoom()
+      const inView =
+        p.x > extent.x1 + margin && p.x < extent.x2 - margin && p.y > extent.y1 + margin && p.y < extent.y2 - margin
+      if (!inView) cy.animate({ center: { eles: node } }, { duration: 300 })
       node.select()
     }
   }, [isInitialized])
 
-  // Change layout
-  const changeLayout = useCallback((layoutName: string) => {
-    if (!cyRef.current || !isInitialized) return
-
-    const layout = cyRef.current.layout(toCytoscapeLayoutOptions({
-      name: layoutName,
-      animationDuration: 1000,
-      fit: true,
-      padding: 50
-    }))
-
-    layout.run()
-
-    // Read current session data from store to avoid stale closure
-    const currentSessionData = useGlobalStore.getState().sessionData
-    updateSessionData({
-      viewportState: {
-        ...currentSessionData.viewportState,
-        causalGraph: {
-          ...currentSessionData.viewportState.causalGraph,
-          layout: layoutName
-        }
-      }
+  // The ripple of the focused event, as on the timeline: its direct causes
+  // and what it sets in motion up to RIPPLE_DEPTH steps on stay at full
+  // strength; everything else fades back.
+  const applyRipple = useCallback((eventId: string | null) => {
+    const cy = cyRef.current
+    if (!cy || !isInitialized) return
+    cy.batch(() => {
+      cy.elements().removeClass('ripple ripple-faded')
+      if (!eventId) return
+      const links = cy.edges().map(edge => ({
+        id: edge.id(),
+        causeId: String(edge.data('source')),
+        effectId: String(edge.data('target')),
+        type: 'direct' as const,
+        weight: 0,
+      }))
+      const ripple = computeRipple(eventId, links)
+      if (ripple.links.size === 0) return
+      const keep = new Set<string>([eventId, ...ripple.causes, ...ripple.effects.keys(), ...ripple.links.keys()])
+      cy.elements().forEach(element => {
+        element.addClass(keep.has(element.id()) ? 'ripple' : 'ripple-faded')
+      })
     })
+  }, [isInitialized])
 
-    onLayoutChange?.(layoutName)
-  }, [isInitialized, updateSessionData, onLayoutChange])
 
-  // Toggle link creation mode
+  // The pair Draw Link links straight away when exactly two events of this
+  // graph are selected: the earlier is the cause (on a tie, the one selected
+  // first).
+  const selectedPair = React.useMemo<{ cause: Event; effect: Event } | null>(() => {
+    if (selectedEvents.length !== 2) return null
+    const first = events.find(e => e.id === selectedEvents[0])
+    const second = events.find(e => e.id === selectedEvents[1])
+    if (!first || !second || first.id === second.id) return null
+    return isTemporalInversion(new Date(first.timestamp).getTime(), new Date(second.timestamp).getTime())
+      ? { cause: second, effect: first }
+      : { cause: first, effect: second }
+  }, [selectedEvents, events])
+
+  // Draw Link: the single way to make a link. With two events selected it
+  // opens the relationship form for that pair; otherwise it toggles the
+  // click-the-cause-then-the-effect mode.
   const toggleLinkCreationMode = useCallback(() => {
+    if (readOnly) return
     // Entering (or leaving) link mode re-renders; ignore a background tap emitted
     // in this same task so it cannot immediately cancel the mode just entered.
     armBackgroundTapGuard()
+    if (!isCreatingLink && selectedPair) {
+      if (checkLinkCandidate(selectedPair.cause, selectedPair.effect)) {
+        setPendingLink(selectedPair)
+      }
+      return
+    }
     setIsCreatingLink(prev => !prev)
     setLinkCreationSource(null)
-  }, [armBackgroundTapGuard])
+  }, [readOnly, armBackgroundTapGuard, isCreatingLink, selectedPair, checkLinkCandidate])
 
   // Cancel link creation
   const cancelLinkCreation = useCallback(() => {
@@ -920,13 +814,74 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     setLinkCreationSource(null)
   }, [])
 
+  // A graph made read-only mid-drawing leaves the drawing mode
+  useEffect(() => {
+    if (!readOnly) return
+    setIsCreatingLink(false)
+    setLinkCreationSource(null)
+    setActiveTool(null)
+  }, [readOnly])
+
+  // The analysis tools act on a real event of this graph (not a foreign or
+  // broken-reference placeholder).
+  const toolTargetEvent = React.useMemo<Event | null>(() => {
+    const id = toolTargetId ?? focusEventId ?? selectedEvents[0] ?? null
+    if (!id) return null
+    return events.find(e => e.id === id) ?? null
+  }, [toolTargetId, focusEventId, selectedEvents, events])
+  const toolTargetEventId = toolTargetEvent?.id ?? null
+
+  const closeTool = useCallback(() => {
+    if (activeTool === 'paths' || navigationState.isNavigating) {
+      stopExploration()
+    }
+    setActiveTool(null)
+  }, [activeTool, navigationState.isNavigating, stopExploration])
+
+  const toggleTool = useCallback((tool: 'paths' | 'suggestions') => {
+    if (activeTool === tool) {
+      closeTool()
+      return
+    }
+    if (!toolTargetEventId) return
+    // Opening one tool closes the other.
+    if (activeTool === 'paths') stopExploration()
+    setActiveTool(tool)
+  }, [activeTool, closeTool, toolTargetEventId, stopExploration])
+
+  // Run the open tool against its target, and re-run it when the target
+  // changes (tapping another node while a tool is open retargets it). The
+  // hook functions are read through a ref so their identity does not re-run it.
+  const toolRunnersRef = useRef({ startExploration, loadSuggestions })
+  useEffect(() => {
+    toolRunnersRef.current = { startExploration, loadSuggestions }
+  }, [startExploration, loadSuggestions])
+  useEffect(() => {
+    if (!activeTool) return
+    if (!toolTargetEventId) {
+      setActiveTool(null)
+      return
+    }
+    if (activeTool === 'paths') {
+      void toolRunnersRef.current.startExploration(toolTargetEventId)
+    } else {
+      void toolRunnersRef.current.loadSuggestions(toolTargetEventId)
+    }
+  }, [activeTool, toolTargetEventId])
+
   // Handle keyboard shortcuts
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     if (!isInitialized) return
+    // Not while typing, composing, or with a modal dialog open (including the
+    // relationship form Draw Link opens)
+    if (shouldIgnoreAppShortcut(event)) return
 
     switch (event.key) {
-      case 'c':
-        if (event.ctrlKey || event.metaKey) {
+      // D is Draw Link (a bare key; Ctrl+C is left to copy). Not on a
+      // read-only graph.
+      case 'd':
+      case 'D':
+        if (!readOnly && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
           event.preventDefault()
           toggleLinkCreationMode()
         }
@@ -935,9 +890,9 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         if (isCreatingLink) {
           event.preventDefault()
           cancelLinkCreation()
-        } else if (navigationState.isNavigating) {
+        } else if (activeTool || navigationState.isNavigating) {
           event.preventDefault()
-          stopExploration()
+          closeTool()
         }
         break
       case 'ArrowRight':
@@ -971,7 +926,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         }
         break
     }
-  }, [isInitialized, isCreatingLink, navigationState.isNavigating, toggleLinkCreationMode, cancelLinkCreation, stopExploration, nextStep, previousStep, nextPath, previousPath, toggleAutoAdvance])
+  }, [isInitialized, readOnly, isCreatingLink, activeTool, navigationState.isNavigating, toggleLinkCreationMode, cancelLinkCreation, closeTool, nextStep, previousStep, nextPath, previousPath, toggleAutoAdvance])
 
   // Keep keyboard handler ref in sync (fixes stale closure in event listener)
   useEffect(() => {
@@ -991,6 +946,64 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Only run on mount - initializeCytoscape is stable enough
+
+  // Keep the canvas sized to its container, and the graph framed in it.
+  // Cytoscape measures its container once; when the container changes size
+  // (first paint, a window resize, the controls column appearing) it went on
+  // drawing for the old size, so the fitted graph spilled off one edge and left
+  // the other empty. jsdom has no real ResizeObserver, hence the guard.
+  useEffect(() => {
+    const container = containerRef.current
+    if (!isInitialized || !container || typeof ResizeObserver === 'undefined') return
+
+    let frame: number | null = null
+    let lastSize: { width: number; height: number } | null = null
+
+    const observer = new ResizeObserver(entries => {
+      const rect = entries[0]?.contentRect
+      if (!rect || rect.width === 0 || rect.height === 0) return // hidden
+      if (lastSize && lastSize.width === rect.width && lastSize.height === rect.height) return
+      lastSize = { width: rect.width, height: rect.height }
+
+      if (frame !== null) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        frame = null
+        const cy = cyRef.current
+        if (!cy) return
+        cy.resize()
+        if (cy.nodes().length > 0) cy.fit(undefined, FIT_PADDING)
+      })
+    })
+    observer.observe(container)
+
+    return () => {
+      observer.disconnect()
+      if (frame !== null) cancelAnimationFrame(frame)
+    }
+  }, [isInitialized])
+
+  // Follow the theme. Every canvas colour is concrete, so a change of the
+  // classes on <html> -- .dark, .high-contrast, or both -- re-reads the theme
+  // and, when it changed, replaces the whole stylesheet: nodes, edges, states
+  // and labels all follow, not only the label text.
+  useEffect(() => {
+    if (!isInitialized || typeof MutationObserver === 'undefined') return
+
+    let applied = JSON.stringify(readGraphCanvasTheme())
+    const observer = new MutationObserver(() => {
+      const cy = cyRef.current
+      if (!cy) return
+      const theme = readGraphCanvasTheme()
+      const key = JSON.stringify(theme)
+      if (key === applied) return
+      applied = key
+      cy.style(buildCausalGraphStylesheet(theme))
+      if (typeof cy.emit === 'function') cy.emit(GRAPH_STYLESHEET_REPLACED_EVENT)
+      setGraphTheme(theme)
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [isInitialized])
 
   // Keyboard event listener (separate from initialization to avoid re-init loops)
   useEffect(() => {
@@ -1012,19 +1025,18 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   // Focus on event when focusEventId changes
   useEffect(() => {
     if (focusEventId && isInitialized) {
+      // Focusing centres and selects the event; it does not open the path or
+      // suggestion tools, which the user opens explicitly.
       focusOnEvent(focusEventId)
-      
-      // Start path exploration if enabled
-      if (enablePathExploration && !navigationState.isNavigating) {
-        startExploration(focusEventId)
-      }
-
-      // Load suggestions if enabled
-      if (enableSuggestions) {
-        loadSuggestions(focusEventId)
-      }
+      setToolTargetId(focusEventId)
     }
-  }, [focusEventId, focusOnEvent, isInitialized, enablePathExploration, navigationState.isNavigating, startExploration, enableSuggestions, loadSuggestions])
+  }, [focusEventId, focusOnEvent, isInitialized])
+
+  // Re-applied when the graph's elements are rebuilt, so the trace survives
+  // a data refresh.
+  useEffect(() => {
+    applyRipple(focusEventId ?? null)
+  }, [focusEventId, applyRipple, events, causalRelationships])
 
   // Handle path selection callback
   useEffect(() => {
@@ -1110,6 +1122,15 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   // State for mobile sidebar visibility
   const [showMobileSidebar, setShowMobileSidebar] = useState(false)
 
+  const nodeTooltipId = useId()
+
+  // The event keyboard navigation last moved to, announced in full.
+  const [keyboardEventId, setKeyboardEventId] = useState<string | null>(null)
+  const keyboardEvent = React.useMemo(
+    () => (keyboardEventId ? events.find(e => e.id === keyboardEventId) ?? null : null),
+    [keyboardEventId, events]
+  )
+
   // Keyboard navigation and selection for causal graph nodes
   const handleGraphKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (events.length === 0) return
@@ -1123,6 +1144,8 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       const nextIndex = (currentIndex + 1) % events.length
       const nextEvent = events[nextIndex]
       if (nextEvent) {
+        setToolTargetId(nextEvent.id)
+        setKeyboardEventId(nextEvent.id)
         setSelectedEvents?.([nextEvent.id])
         onNodeClick?.(nextEvent)
       }
@@ -1131,6 +1154,8 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       const prevIndex = currentIndex <= 0 ? events.length - 1 : currentIndex - 1
       const prevEvent = events[prevIndex]
       if (prevEvent) {
+        setToolTargetId(prevEvent.id)
+        setKeyboardEventId(prevEvent.id)
         setSelectedEvents?.([prevEvent.id])
         onNodeClick?.(prevEvent)
       }
@@ -1148,7 +1173,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       {/* Mobile toggle button */}
       <button
         onClick={() => setShowMobileSidebar(!showMobileSidebar)}
-        className="lg:hidden flex items-center justify-center gap-2 mb-2 px-3 py-2 bg-white rounded-lg shadow-sm border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        className="lg:hidden flex items-center justify-center gap-2 mb-2 px-3 py-2 bg-card rounded-lg shadow-sm border border-line text-sm font-medium text-ink-secondary hover:bg-subtle"
         aria-expanded={showMobileSidebar}
         aria-controls="graph-sidebar"
       >
@@ -1158,18 +1183,23 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         {showMobileSidebar ? 'Hide Controls' : 'Show Controls'}
       </button>
 
-      {/* Left sidebar with controls - hidden on mobile unless toggled */}
+      {/* Left column of controls - hidden on mobile unless toggled. Its
+          sections sit directly on the surface the graph is on, divided by
+          rules, rather than each in a card of its own. */}
       <div
         id="graph-sidebar"
-        className={`flex flex-col space-y-4 lg:w-64 lg:mr-4 lg:flex-shrink-0 ${
-          showMobileSidebar ? 'block mb-4' : 'hidden lg:flex'
+        className={`flex-col divide-y divide-line [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0 lg:w-64 lg:pr-4 lg:mr-4 lg:border-r lg:border-line lg:flex-shrink-0 ${
+          showMobileSidebar ? 'flex mb-4' : 'hidden lg:flex'
         }`}
       >
         {/* Layout Manager */}
         {showLayoutManager && (
           <CausalGraphLayoutManager
             cytoscapeInstance={cyRef.current}
-            onLayoutChange={changeLayout}
+            // The panel runs the layout and records it itself; the canvas
+            // only passes the news on (running it again here ran every
+            // chosen layout twice)
+            onLayoutChange={onLayoutChange}
             showLayoutPreview={true}
           />
         )}
@@ -1201,15 +1231,22 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
 
       {/* Main graph area */}
       <div className="flex-1 relative">
-        <div 
+        <div
           ref={containerRef}
           tabIndex={0}
           role="application"
           aria-label={`Causal graph with ${events.length} events and ${causalRelationships.length} causal relationships`}
+          aria-describedby={hoveredNode ? nodeTooltipId : undefined}
           onKeyDown={handleGraphKeyDown}
-          className="w-full h-full min-h-[400px] bg-gray-50 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className={`w-full ${canvasClassName} min-h-[400px] bg-canvas rounded-lg border border-line focus:outline-none focus:ring-2 focus:ring-selected`}
           style={{ minHeight: '400px' }}
         />
+
+        {/* The canvas draws nodes, not DOM: announce the event the keyboard
+            moves to, in full, the way the hover tooltip shows it. */}
+        <p className="sr-only" aria-live="polite" aria-atomic="true">
+          {keyboardEvent ? describeEvent(keyboardEvent) : ''}
+        </p>
 
         {/* Path Highlighter */}
         {enablePathExploration && (
@@ -1222,133 +1259,162 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           />
         )}
 
-        {/* Suggestion Overlay */}
+        {/* Suggestion Overlay: suggested edges are drawn only while Suggest Links is open */}
         {enableSuggestions && (
           <CausalSuggestionOverlay
             cytoscapeInstance={cyRef.current}
-            suggestions={suggestions}
+            suggestions={activeTool === 'suggestions' ? suggestions : NO_SUGGESTIONS}
             showConfidenceLabels={true}
             animateSuggestions={true}
           />
         )}
 
-        {/* Navigation Controls */}
-        {enablePathExploration && showNavigationControls && navigationState.isNavigating && (
-          <div className="absolute top-4 left-4 w-80 max-h-96 overflow-y-auto">
-            <CausalChainNavigationControls
-              events={events}
-              availablePaths={availablePaths}
-              currentPathIndex={navigationState.currentPathIndex}
-              currentStepIndex={navigationState.currentStepIndex}
-              isNavigating={navigationState.isNavigating}
-              autoAdvance={navigationState.autoAdvance}
-              autoAdvanceInterval={navigationState.autoAdvanceInterval}
-              onPathSelect={navigateToPath}
-              onStepNavigate={navigateToStep}
-              onNextStep={nextStep}
-              onPreviousStep={previousStep}
-              onNextPath={nextPath}
-              onPreviousPath={previousPath}
-              onToggleAutoAdvance={toggleAutoAdvance}
-              onSetAutoAdvanceInterval={setAutoAdvanceInterval}
-              onStopNavigation={stopExploration}
-            />
+        {/* Path Navigation panel (Explore Paths) */}
+        {enablePathExploration && showNavigationControls && activeTool === 'paths' && !pathExplorationLoading && (
+          <div className="absolute top-14 right-4 z-20 w-80 max-w-[calc(100%-2rem)] max-h-96 overflow-y-auto">
+            {navigationState.isNavigating ? (
+              <CausalChainNavigationControls
+                events={events}
+                availablePaths={availablePaths}
+                currentPathIndex={navigationState.currentPathIndex}
+                currentStepIndex={navigationState.currentStepIndex}
+                isNavigating={navigationState.isNavigating}
+                autoAdvance={navigationState.autoAdvance}
+                autoAdvanceInterval={navigationState.autoAdvanceInterval}
+                onPathSelect={navigateToPath}
+                onStepNavigate={navigateToStep}
+                onNextStep={nextStep}
+                onPreviousStep={previousStep}
+                onNextPath={nextPath}
+                onPreviousPath={previousPath}
+                onToggleAutoAdvance={toggleAutoAdvance}
+                onSetAutoAdvanceInterval={setAutoAdvanceInterval}
+                onStopNavigation={closeTool}
+              />
+            ) : (
+              <ToolEmptyState onClose={closeTool}>
+                No causal paths lead on from this event.
+              </ToolEmptyState>
+            )}
           </div>
         )}
 
-        {/* Suggestion Manager */}
-        {enableSuggestions && showSuggestionManager && suggestions.length > 0 && (
-          <div className="absolute top-4 right-4 w-96 max-h-96 overflow-y-auto">
-            <CausalSuggestionManager
-              focusEventId={focusEventId}
-              onSuggestionAccept={(suggestion) => {
-                // Convert CausalSuggestion back to SuggestionWithState for hook
-                const suggestionWithState = {
-                  ...suggestion,
-                  isVisible: true,
-                  isProcessing: false
-                }
-                acceptSuggestion(suggestionWithState)
-                onSuggestionAccept?.(suggestion)
-              }}
-              onSuggestionReject={(suggestion) => {
-                // Convert CausalSuggestion back to SuggestionWithState for hook
-                const suggestionWithState = {
-                  ...suggestion,
-                  isVisible: true,
-                  isProcessing: false
-                }
-                rejectSuggestion(suggestionWithState)
-                onSuggestionReject?.(suggestion)
-              }}
-              onSuggestionFeedback={(suggestion, feedback) => {
-                // Convert CausalSuggestion back to SuggestionWithState for hook
-                const suggestionWithState = {
-                  ...suggestion,
-                  isVisible: true,
-                  isProcessing: false
-                }
-                addFeedback(suggestionWithState, feedback)
-              }}
-              maxSuggestions={5}
-            />
+        {/* Suggestion Manager panel (Suggest Links) */}
+        {enableSuggestions && showSuggestionManager && activeTool === 'suggestions' && toolTargetEventId && !suggestionsLoading && (
+          <div className="absolute top-14 right-4 z-20 w-96 max-w-[calc(100%-2rem)] max-h-96 overflow-y-auto">
+            {suggestions.length > 0 ? (
+              <CausalSuggestionManager
+                focusEventId={toolTargetEventId}
+                onSuggestionAccept={(suggestion) => {
+                  // Convert CausalSuggestion back to SuggestionWithState for hook
+                  acceptSuggestion({ ...suggestion, isVisible: true, isProcessing: false })
+                  onSuggestionAccept?.(suggestion)
+                }}
+                onSuggestionReject={(suggestion) => {
+                  rejectSuggestion({ ...suggestion, isVisible: true, isProcessing: false })
+                  onSuggestionReject?.(suggestion)
+                }}
+                onSuggestionFeedback={(suggestion, feedback) => {
+                  addFeedback({ ...suggestion, isVisible: true, isProcessing: false }, feedback)
+                }}
+                maxSuggestions={5}
+              />
+            ) : (
+              <ToolEmptyState onClose={closeTool}>
+                No suggested links for this event.
+              </ToolEmptyState>
+            )}
           </div>
         )}
-        
-        {/* Link creation mode indicator */}
+
+        {/* Draw Link instructions, on the canvas for as long as the mode is on */}
         {isCreatingLink && (
-          <div className="absolute bottom-4 left-4 bg-blue-100 border border-blue-300 rounded-lg px-3 py-2 text-sm">
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-              <span className="text-blue-800 font-medium">
-                {linkCreationSource 
-                  ? `Select target event for causal link from "${linkCreationSource.actor} → ${linkCreationSource.target}"` 
-                  : 'Click on a source event to start creating causal link'
-                }
+          <div
+            className="absolute top-4 left-4 z-20 max-w-[calc(50%-1.5rem)] bg-card border border-selected rounded-md px-3 py-2 text-sm shadow-sm"
+            role="status"
+          >
+            <p className="flex items-start gap-2 text-ink">
+              <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-selected" aria-hidden="true" />
+              <span>
+                <span className="font-semibold">
+                  {linkCreationSource
+                    ? `Cause: “${eventNodeLabel(linkCreationSource)}”. Now click the effect`
+                    : 'Click the cause, then the effect'}
+                </span>
+                <span className="text-ink-secondary"> · Esc to cancel</span>
               </span>
-            </div>
-            <div className="text-xs text-blue-600 mt-1">
-              Press Escape to cancel | Ctrl+C to toggle mode
-            </div>
+            </p>
           </div>
         )}
 
-        {/* Node details tooltip */}
+        {/* Legend: the link type is drawn as a line style as well as a colour.
+            A row under the canvas, not an overlay on it: overlaid, it covered
+            the nodes the fit placed near the bottom edge. */}
+        <div
+          role="note"
+          aria-label="Legend"
+          className="mt-2 px-1 text-xs text-ink-secondary"
+        >
+          <ul className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {(Object.keys(RELATIONSHIP_LINE_STYLES) as (keyof typeof RELATIONSHIP_LINE_STYLES)[]).map(type => {
+              const line = RELATIONSHIP_LINE_STYLES[type]
+              return (
+                <li key={type} className="flex items-center gap-1.5">
+                  <svg width="26" height="8" viewBox="0 0 26 8" aria-hidden="true" className="flex-shrink-0">
+                    <line
+                      x1="2" y1="4" x2="24" y2="4"
+                      stroke={graphTheme.colors[line.paletteKey]}
+                      strokeWidth="2.5"
+                      strokeLinecap={line.cap}
+                      strokeDasharray={line.dash ? line.dash.map(n => n * 0.6).join(' ') : undefined}
+                    />
+                  </svg>
+                  <span>{line.label} ({line.pattern})</span>
+                </li>
+              )
+            })}
+            <li>Thicker = more weight</li>
+            {divergenceEventIds && divergenceEventIds.length > 0 && (
+              <li className="flex items-center gap-1.5">
+                <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className="flex-shrink-0">
+                  <path d="M5 0.5 9.5 5 5 9.5 0.5 5Z" fill={graphTheme.colors.divergenceFill} />
+                </svg>
+                <span>Point of divergence</span>
+              </li>
+            )}
+          </ul>
+        </div>
+
+        {/* Node details tooltip: the full description the label shortens,
+            who acted on whom, and when. */}
         {hoveredNode && nodeTooltipPosition && (
           <div
-            className="absolute z-50 bg-white border border-gray-300 rounded-lg shadow-lg p-3 text-sm max-w-xs pointer-events-none"
+            id={nodeTooltipId}
+            role="tooltip"
+            className="absolute z-50 bg-card border border-line rounded-lg shadow-lg p-3 text-sm text-ink max-w-xs pointer-events-none"
             style={{
               left: nodeTooltipPosition.x + 10,
               top: nodeTooltipPosition.y - 10,
               transform: 'translate(0, -100%)'
             }}
           >
-            <div className="font-semibold text-gray-800 mb-2">Event Details</div>
-            <div className="space-y-1">
-              <div>
-                <span className="text-gray-600">Actor:</span>
-                <span className="font-medium ml-2">{hoveredNode.actor}</span>
-              </div>
-              <div>
-                <span className="text-gray-600">Target:</span>
-                <span className="font-medium ml-2">{hoveredNode.target}</span>
-              </div>
-              <div className="mt-2 pt-2 border-t border-gray-200">
-                <div className="text-gray-600 text-xs mb-1">Description:</div>
-                <div className="text-gray-800 text-xs">{hoveredNode.description}</div>
-              </div>
-              <div className="text-xs text-gray-500 mt-1">
-                {new Date(hoveredNode.timestamp).toLocaleString()}
-              </div>
-            </div>
+            <p className="font-semibold text-ink leading-snug">
+              {hoveredNode.description || formatActorTarget(hoveredNode)}
+            </p>
+            {formatActorTarget(hoveredNode) && (
+              <p className="mt-1 text-ink-secondary">{formatActorTarget(hoveredNode)}</p>
+            )}
+            <p className="mt-1 text-xs text-ink-secondary font-mono-code">
+              {formatHistoricalTimestamp(hoveredNode.timestamp)}
+            </p>
             {isCreatingLink && (
-              <div className={`text-xs mt-2 pt-2 border-t border-gray-200 font-medium ${
+              <div className={`text-xs mt-2 pt-2 border-t border-line font-medium ${
                 linkCreationSource && isTemporalInversion(
                   new Date(linkCreationSource.timestamp).getTime(),
                   new Date(hoveredNode.timestamp).getTime()
                 )
-                  ? 'text-gray-500'
-                  : 'text-blue-600'
+                  ? 'text-ink-muted'
+                  : 'text-selected'
               }`}>
                 {linkCreationSource
                   ? (isTemporalInversion(
@@ -1356,8 +1422,9 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
                       new Date(hoveredNode.timestamp).getTime()
                     )
                     ? 'Cannot link - this event occurs before the source'
-                    : 'Click to create link to this event')
-                  : 'Click to select as link source'}
+                    : 'Click to make this the effect'
+                  )
+                  : 'Click to make this the cause'}
               </div>
             )}
           </div>
@@ -1366,14 +1433,14 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         {/* Relationship details tooltip */}
         {hoveredRelationship && tooltipPosition && (
           <div
-            className="absolute z-50 bg-white border border-gray-300 rounded-lg shadow-lg p-3 text-sm max-w-xs pointer-events-none"
+            className="absolute z-50 bg-card border border-line rounded-lg shadow-lg p-3 text-sm text-ink max-w-xs pointer-events-none"
             style={{
               left: tooltipPosition.x + 10,
               top: tooltipPosition.y - 10,
               transform: 'translate(0, -100%)'
             }}
           >
-            <div className="font-semibold text-gray-800 mb-2">Causal Relationship</div>
+            <div className="font-semibold text-ink mb-2">Causal Relationship</div>
             {Boolean(hoveredRelationship.isCrossGraph || hoveredRelationship.effectGraphId || hoveredRelationship.causeGraphId) && (
               <div className="mb-2 px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800 font-medium inline-block">
                 ⚡ Cross-Graph Reference {hoveredRelationship.effectGraphId ? `(${hoveredRelationship.effectGraphId.slice(0, 8)})` : ''}
@@ -1381,54 +1448,85 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
             )}
             <div className="space-y-1">
               <div className="flex justify-between">
-                <span className="text-gray-600">Weight:</span>
-                <span className="font-medium">{hoveredRelationship.weight.toFixed(2)}</span>
+                <span className="text-ink-muted">Weight:</span>
+                <span className="font-medium font-mono-code">{hoveredRelationship.weight.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600">Confidence:</span>
-                <span className="font-medium">{hoveredRelationship.confidence.toFixed(2)}</span>
+                <span className="text-ink-muted">Confidence:</span>
+                <span className="font-medium font-mono-code">{hoveredRelationship.confidence.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600">Type:</span>
+                <span className="text-ink-muted">Type:</span>
                 <span className="font-medium capitalize">{hoveredRelationship.relationship_type}</span>
               </div>
               {hoveredRelationship.evidence && (
-                <div className="mt-2 pt-2 border-t border-gray-200">
-                  <div className="text-gray-600 text-xs mb-1">Evidence:</div>
-                  <div className="text-gray-800 text-xs">{hoveredRelationship.evidence}</div>
+                <div className="mt-2 pt-2 border-t border-line">
+                  <div className="text-ink-muted text-xs mb-1">Evidence:</div>
+                  <div className="text-ink-secondary text-xs">{hoveredRelationship.evidence}</div>
                 </div>
               )}
             </div>
-            <div className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-200">
-              Right-click to edit
-            </div>
+            {!readOnly && (
+              <div className="text-xs text-ink-muted mt-2 pt-2 border-t border-line">
+                Right-click to edit
+              </div>
+            )}
           </div>
         )}
 
-        {/* Controls */}
-        <div className="absolute top-4 right-4 flex space-x-2" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleLinkCreationMode();
-            }}
-            className={`px-3 py-1 text-xs rounded-md border transition-colors ${
-              isCreatingLink
-                ? 'bg-blue-500 text-white border-blue-600'
-                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-            }`}
-            title="Toggle causal link creation mode (Ctrl+C)"
-          >
-            {isCreatingLink ? 'Cancel Link' : 'Create Link'}
-          </button>
+        {/* Canvas controls */}
+        <div
+          className="absolute top-4 right-4 z-20 flex flex-wrap justify-end gap-1.5"
+          role="group"
+          aria-label="Graph tools"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {!readOnly && enablePathExploration && (
+            <CanvasToolButton
+              label="Explore Paths"
+              pressed={activeTool === 'paths'}
+              unavailableReason={toolTargetEvent ? null : 'Select an event on the graph to explore the causal paths leading from it'}
+              title={toolTargetEvent
+                ? `Explore the causal paths leading from “${eventNodeLabel(toolTargetEvent)}”`
+                : ''}
+              onClick={() => toggleTool('paths')}
+            />
+          )}
+          {!readOnly && enableSuggestions && (
+            <CanvasToolButton
+              label="Suggest Links"
+              pressed={activeTool === 'suggestions'}
+              unavailableReason={toolTargetEvent ? null : 'Select an event on the graph to see suggested causal links for it'}
+              title={toolTargetEvent
+                ? `Suggest causal links for “${eventNodeLabel(toolTargetEvent)}”`
+                : ''}
+              onClick={() => toggleTool('suggestions')}
+            />
+          )}
+          {!readOnly && (
+            <CanvasToolButton
+              label={isCreatingLink ? 'Cancel Link' : 'Draw Link'}
+              pressed={isCreatingLink}
+              // The label already says which state it is in.
+              exposePressed={false}
+              unavailableReason={null}
+              title={isCreatingLink
+                ? 'Stop drawing a link (Esc)'
+                : selectedPair
+                  ? `Link the two selected events: “${eventNodeLabel(selectedPair.cause)}” → “${eventNodeLabel(selectedPair.effect)}”, then set its weight, type and evidence (D)`
+                  : 'Draw a causal link: click the cause, then the effect, then set its weight, type and evidence (D)'}
+              onClick={toggleLinkCreationMode}
+            />
+          )}
         </div>
-        
+
         {(!isInitialized || pathExplorationLoading || suggestionsLoading) && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-75 rounded-lg">
+          <div className="absolute inset-0 flex items-center justify-center bg-canvas/75 rounded-lg" role="status">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-              <p className="text-sm text-gray-600">
-                {!isInitialized ? 'Initializing causal graph...' : 
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-baseline mx-auto mb-2" aria-hidden="true"></div>
+              <p className="text-sm text-ink-secondary">
+                {!isInitialized ? 'Initializing causal graph...' :
                  pathExplorationLoading ? 'Exploring causal paths...' :
                  'Loading AI suggestions...'}
               </p>
@@ -1436,6 +1534,115 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           </div>
         )}
       </div>
+
+      {/* Relationship form for a link drawn on the canvas */}
+      {!readOnly && <CausalRelationshipModal
+        relationship={null}
+        isOpen={pendingLink !== null}
+        onClose={() => setPendingLink(null)}
+        causeEventId={pendingLink?.cause.id}
+        effectEventId={pendingLink?.effect.id}
+        eventPool={events}
+        onCreate={async (_causeId, _effectId, data) => {
+          if (pendingLink) {
+            await createCausalRelationship(pendingLink.cause, pendingLink.effect, data)
+          }
+        }}
+      />}
+    </div>
+  )
+}
+
+/**
+ * Spread a force layout's node positions to the canvas's aspect (see
+ * canvasStretch), about their centre, before the graph is fitted.
+ */
+function stretchToCanvas(cy: Core) {
+  if (typeof cy.width !== 'function' || typeof cy.height !== 'function') return
+  const nodes = cy.nodes()
+  if (!(nodes.length >= 2)) return
+  let x1 = Infinity
+  let y1 = Infinity
+  let x2 = -Infinity
+  let y2 = -Infinity
+  nodes.forEach(node => {
+    const { x, y } = node.position()
+    x1 = Math.min(x1, x)
+    y1 = Math.min(y1, y)
+    x2 = Math.max(x2, x)
+    y2 = Math.max(y2, y)
+  })
+  const { sx, sy } = canvasStretch(
+    { w: x2 - x1, h: y2 - y1 },
+    { width: cy.width() - 2 * FIT_PADDING, height: cy.height() - 2 * FIT_PADDING }
+  )
+  if (sx === 1 && sy === 1) return
+  const cx = (x1 + x2) / 2
+  const cyMid = (y1 + y2) / 2
+  cy.batch(() => {
+    nodes.forEach(node => {
+      const { x, y } = node.position()
+      node.position({ x: cx + (x - cx) * sx, y: cyMid + (y - cyMid) * sy })
+    })
+  })
+}
+
+/** Stable empty list, so the overlay is not re-run by a fresh `[]` each render. */
+const NO_SUGGESTIONS: CausalSuggestion[] = []
+
+interface CanvasToolButtonProps {
+  label: string
+  pressed: boolean
+  /** Report `pressed` as aria-pressed (false when the label itself changes). */
+  exposePressed?: boolean
+  /** Why the tool cannot be used now, or null when it can. */
+  unavailableReason: string | null
+  title: string
+  onClick: () => void
+}
+
+/**
+ * A toggle on the graph canvas. An unavailable tool stays focusable and keeps
+ * its explanatory title (a `disabled` button shows no tooltip in most
+ * browsers), and is marked `aria-disabled`.
+ */
+function CanvasToolButton({ label, pressed, exposePressed = true, unavailableReason, title, onClick }: CanvasToolButtonProps) {
+  const unavailable = unavailableReason !== null
+  return (
+    <button
+      type="button"
+      aria-pressed={exposePressed ? pressed : undefined}
+      aria-disabled={unavailable || undefined}
+      title={unavailableReason ?? title}
+      onClick={(e) => {
+        e.stopPropagation()
+        if (!unavailable) onClick()
+      }}
+      className={`px-3 py-1 text-xs font-medium rounded-md border shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-selected ${
+        unavailable
+          ? 'bg-card text-ink-muted border-line opacity-60 cursor-not-allowed'
+          : pressed
+            ? 'bg-selected text-white border-selected'
+            : 'bg-card text-ink-secondary border-line hover:bg-subtle hover:text-ink'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
+/** The panel shown when an open tool has nothing to show. */
+function ToolEmptyState({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="bg-card border border-line rounded-lg shadow-lg p-3 text-sm text-ink-secondary flex items-start justify-between gap-3">
+      <p>{children}</p>
+      <button
+        type="button"
+        onClick={onClose}
+        className="text-xs font-medium text-ink-muted hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected rounded"
+      >
+        Close
+      </button>
     </div>
   )
 }

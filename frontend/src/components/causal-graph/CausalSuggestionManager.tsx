@@ -272,7 +272,7 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center space-x-3">
             <div className="w-3 h-3 bg-purple-500 rounded-full animate-pulse"></div>
-            <h3 className="text-lg font-semibold text-gray-800">AI Suggestions</h3>
+            <h3 className="font-display text-xl font-semibold text-ink">AI Suggestions</h3>
             {isLoading && (
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
             )}
@@ -323,7 +323,7 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
                   <div className="flex items-center space-x-1">
                     <button
                       onClick={() => hideSuggestion(suggestion)}
-                      className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                      className="p-1 text-ink-muted hover:text-ink transition-colors"
                       title="Hide suggestion"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -456,10 +456,10 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
 
       {/* Feedback Modal */}
       {showFeedbackModal && selectedSuggestion && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div role="dialog" aria-modal="true" aria-label="Provide Feedback" className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
             <div className="p-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">
+              <h3 className="font-display text-xl font-semibold text-ink mb-4">
                 Provide Feedback
               </h3>
               

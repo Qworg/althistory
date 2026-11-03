@@ -7,7 +7,8 @@ import type { ModalBaseProps } from '@/components/modals/ModalBase'
 import { 
   useGraphManagement, 
   useGraphVersions, 
-  useGraphBranches 
+  useGraphBranches,
+  useGraphHeadVersion,
 } from '@/hooks/useGraphs'
 import { Graph, GraphVersion } from '@/types'
 
@@ -239,6 +240,8 @@ describe('GraphManagerModal', () => {
   beforeEach(() => {
     mockGraphManagement = createMockGraphManagement()
     vi.mocked(useGraphManagement).mockReturnValue(mockGraphManagement)
+    // In these fixtures the history head equals the graph's change counter
+    vi.mocked(useGraphHeadVersion).mockImplementation((_id, counter) => counter ?? null)
     vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({ data: mockVersions }))
     vi.mocked(useGraphBranches).mockReturnValue(createMockQueryResult({ data: [graphAt(1)] }))
   })
@@ -283,7 +286,7 @@ describe('GraphManagerModal', () => {
       expect(screen.getByText('Active Graph')).toBeInTheDocument()
       // Main Timeline appears in both sidebar and graph list
       expect(screen.getAllByText('Main Timeline').length).toBeGreaterThanOrEqual(2)
-      expect(screen.getByText(/v3 - 150 events/)).toBeInTheDocument()
+      expect(screen.getByText(/v3 · 150 events/)).toBeInTheDocument()
     })
 
     it('should start on specified initial tab', () => {
@@ -292,7 +295,7 @@ describe('GraphManagerModal', () => {
       )
       
       const versionsTab = screen.getByRole('button', { name: /versions/i })
-      expect(versionsTab).toHaveClass('bg-blue-100')
+      expect(versionsTab).toHaveClass('bg-selected/10')
     })
   })
 
@@ -324,7 +327,7 @@ describe('GraphManagerModal', () => {
       const graphCards = screen.getAllByText('Main Timeline')
       // Find the one in the graph list (inside the grid)
       const graphCard = graphCards.find(el => el.closest('.grid'))?.closest('.p-4')
-      expect(graphCard).toHaveClass('border-blue-500')
+      expect(graphCard).toHaveClass('border-selected')
     })
 
     it('should show branch name badge for branched graphs', () => {
@@ -335,13 +338,15 @@ describe('GraphManagerModal', () => {
       expect(screen.getByText('alt-history')).toBeInTheDocument()
     })
 
-    it('should show status badge', () => {
+    it('marks the open graph, not the default "active" status', () => {
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
-      
-      const activeStatusBadges = screen.getAllByText('active')
-      expect(activeStatusBadges.length).toBeGreaterThan(0)
+
+      // Every graph is "active" unless archived, so the badge only says so
+      // for the one that is open.
+      expect(screen.getAllByText('Open')).toHaveLength(1)
+      expect(screen.queryByText('active')).not.toBeInTheDocument()
     })
 
     it('should open CreateGraphModal when New Graph button is clicked', async () => {
@@ -521,7 +526,7 @@ describe('GraphManagerModal', () => {
       await user.click(graphCard!)
       await user.click(screen.getByRole('button', { name: /Delete/i }))
       
-      expect(screen.getByText('Delete Graph')).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: 'Delete graph' })).toBeInTheDocument()
       expect(screen.getByText(/Are you sure you want to delete "Alternative Branch"\?/)).toBeInTheDocument()
     })
 
@@ -611,8 +616,9 @@ describe('GraphManagerModal', () => {
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="branches" />
       )
-      
-      expect(screen.getByText('alt-history')).toBeInTheDocument()
+
+      // The branch by its graph name, as the header and Compare name it
+      expect(screen.getAllByText('Alternative Branch').length).toBeGreaterThan(0)
     })
 
     it('should show Create Branch button', async () => {
@@ -620,7 +626,7 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="branches" />
       )
       
-      expect(screen.getByRole('button', { name: /Create Branch/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Create branch/i })).toBeInTheDocument()
     })
   })
 
@@ -630,11 +636,11 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      await user.click(screen.getByRole('button', { name: /Branch Current/i }))
+      await user.click(screen.getByRole('button', { name: /Branch this graph/i }))
       
-      // "Create Branch" appears as both the button in branches tab and the dialog title
-      expect(screen.getAllByText('Create Branch').length).toBeGreaterThanOrEqual(1)
-      expect(screen.getByPlaceholderText('Branch name...')).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: 'Create branch' })).toBeInTheDocument()
+      expect(screen.getByLabelText('Branch name')).toBeInTheDocument()
+      expect(screen.getByText(/stays as it is/)).toBeInTheDocument()
     })
 
     it('should call branchGraph when branch is created', async () => {
@@ -642,12 +648,12 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      await user.click(screen.getByRole('button', { name: /Branch Current/i }))
+      await user.click(screen.getByRole('button', { name: /Branch this graph/i }))
       
-      const input = screen.getByPlaceholderText('Branch name...')
+      const input = screen.getByLabelText('Branch name')
       await user.type(input, 'new-branch-name')
       
-      await user.click(screen.getByRole('button', { name: /Create Branch$/i }))
+      await user.click(screen.getByRole('button', { name: /Create branch$/i }))
       
       await waitFor(() => {
         expect(mockGraphManagement.branchGraph).toHaveBeenCalledWith('graph1', 'new-branch-name')
@@ -659,9 +665,9 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      await user.click(screen.getByRole('button', { name: /Branch Current/i }))
+      await user.click(screen.getByRole('button', { name: /Branch this graph/i }))
       
-      const createBranchButton = screen.getByRole('button', { name: /Create Branch$/i })
+      const createBranchButton = screen.getByRole('button', { name: /Create branch$/i })
       expect(createBranchButton).toBeDisabled()
     })
 
@@ -674,9 +680,9 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      await user.click(screen.getByRole('button', { name: /Branch Current/i }))
+      await user.click(screen.getByRole('button', { name: /Branch this graph/i }))
       
-      expect(screen.getByText('Creating...')).toBeInTheDocument()
+      expect(screen.getByText('Creating branch…')).toBeInTheDocument()
     })
 
     it('should close branch dialog when Cancel is clicked', async () => {
@@ -684,12 +690,12 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      await user.click(screen.getByRole('button', { name: /Branch Current/i }))
+      await user.click(screen.getByRole('button', { name: /Branch this graph/i }))
       
       // Find the Cancel button in the branch dialog
       await user.click(lastOf(screen.getAllByRole('button', { name: /Cancel/i }), 'a cancel button'))
       
-      expect(screen.queryByPlaceholderText('Branch name...')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Branch name')).not.toBeInTheDocument()
     })
   })
 
@@ -701,7 +707,7 @@ describe('GraphManagerModal', () => {
       
       await user.click(screen.getByRole('button', { name: /versions/i }))
       
-      expect(screen.getByText('Version History')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Version history' })).toBeInTheDocument()
     })
 
     it('should show loading state while loading versions', async () => {
@@ -844,7 +850,7 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      const branchButton = screen.getByRole('button', { name: /Branch Current/i })
+      const branchButton = screen.getByRole('button', { name: /Branch this graph/i })
       expect(branchButton).toBeDisabled()
     })
   })

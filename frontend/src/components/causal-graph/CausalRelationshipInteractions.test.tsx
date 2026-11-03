@@ -253,31 +253,32 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
 
   it('should render causal graph component', () => {
     render(<CausalGraphComponent />)
-    expect(screen.getByText('Create Link')).toBeInTheDocument()
+    expect(screen.getByText('Draw Link')).toBeInTheDocument()
   })
 
-  it('should show create link button', () => {
+  it('should show draw link button', () => {
     render(<CausalGraphComponent />)
-    expect(screen.getByText('Create Link')).toBeInTheDocument()
+    expect(screen.getByText('Draw Link')).toBeInTheDocument()
   })
 
-  it('should toggle link creation mode when create link button is clicked', async () => {
+  it('should toggle link creation mode when draw link button is clicked', async () => {
     render(<CausalGraphComponent />)
 
-    const createLinkButton = screen.getByText('Create Link')
-    await user.click(createLinkButton)
+    const drawLinkButton = screen.getByText('Draw Link')
+    await user.click(drawLinkButton)
 
     await waitFor(() => {
       expect(screen.getByText('Cancel Link')).toBeInTheDocument()
     })
-    expect(screen.getByText(/Click on a source event to start creating causal link/)).toBeInTheDocument()
+    // The instructions are on the canvas for as long as the mode is on
+    expect(screen.getByRole('status')).toHaveTextContent('Click the cause, then the effect · Esc to cancel')
   })
 
   it('should handle keyboard shortcut for toggling link creation mode', async () => {
     render(<CausalGraphComponent />)
 
-    // Press Ctrl+C to toggle link creation mode
-    await user.keyboard('{Control>}c{/Control}')
+    // D is Draw Link; Ctrl+C is left to copy.
+    await user.keyboard('d')
 
     await waitFor(() => {
       expect(screen.getByText('Cancel Link')).toBeInTheDocument()
@@ -288,8 +289,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     render(<CausalGraphComponent />)
 
     // Start link creation mode
-    const createLinkButton = screen.getByText('Create Link')
-    await user.click(createLinkButton)
+    const drawLinkButton = screen.getByText('Draw Link')
+    await user.click(drawLinkButton)
 
     await waitFor(() => {
       expect(screen.getByText('Cancel Link')).toBeInTheDocument()
@@ -299,7 +300,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     await user.keyboard('{Escape}')
 
     await waitFor(() => {
-      expect(screen.getByText('Create Link')).toBeInTheDocument()
+      expect(screen.getByText('Draw Link')).toBeInTheDocument()
     })
   })
 
@@ -313,8 +314,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     })
 
     // Start link creation mode FIRST
-    const createLinkButton = screen.getByText('Create Link')
-    await user.click(createLinkButton)
+    const drawLinkButton = screen.getByText('Draw Link')
+    await user.click(drawLinkButton)
 
     await waitFor(() => {
       expect(screen.getByText('Cancel Link')).toBeInTheDocument()
@@ -339,7 +340,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
 
     // Check for instruction update after selecting source
     await waitFor(() => {
-      expect(screen.getByText(/Select target event/)).toBeInTheDocument()
+      expect(screen.getByText(/Now click the effect/)).toBeInTheDocument()
     })
 
     // Simulate clicking on a later target node (event1 @ 10:00)
@@ -352,13 +353,21 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
       })
     })
 
+    // Picking the effect opens the relationship form instead of saving
+    // hardcoded values; nothing is created until the form is submitted.
+    expect(await screen.findByRole('heading', { name: 'Create Causal Relationship' })).toBeInTheDocument()
+    expect(apiClient.causal.createLink).not.toHaveBeenCalled()
+
+    await user.type(screen.getByPlaceholderText(/evidence/i), 'Treaty clause 4')
+    await user.click(screen.getByRole('button', { name: 'Create Relationship' }))
+
     await waitFor(() => {
       expect(apiClient.causal.createLink).toHaveBeenCalledWith(
         'event3',
         'event1',
         expect.objectContaining({
           weight: 0.5,
-          evidence: 'User-created relationship',
+          evidence: 'Treaty clause 4',
           confidence: 0.7,
           relationship_type: 'direct'
         })
@@ -373,8 +382,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     render(<CausalGraphComponent />)
 
     // Start link creation mode FIRST
-    const createLinkButton = screen.getByText('Create Link')
-    await user.click(createLinkButton)
+    const drawLinkButton = screen.getByText('Draw Link')
+    await user.click(drawLinkButton)
 
     await waitFor(() => {
       expect(screen.getByText('Cancel Link')).toBeInTheDocument()
@@ -411,14 +420,15 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     })
 
     expect(apiClient.causal.createLink).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: 'Create Causal Relationship' })).not.toBeInTheDocument()
   })
 
   it('should prevent duplicate causal relationships', async () => {
     render(<CausalGraphComponent />)
 
     // Start link creation mode FIRST
-    const createLinkButton = screen.getByText('Create Link')
-    await user.click(createLinkButton)
+    const drawLinkButton = screen.getByText('Draw Link')
+    await user.click(drawLinkButton)
 
     await waitFor(() => {
       expect(screen.getByText('Cancel Link')).toBeInTheDocument()
@@ -518,8 +528,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     render(<CausalGraphComponent />)
 
     // Start link creation mode FIRST
-    const createLinkButton = screen.getByText('Create Link')
-    await user.click(createLinkButton)
+    const drawLinkButton = screen.getByText('Draw Link')
+    await user.click(drawLinkButton)
 
     await waitFor(() => {
       expect(screen.getByText('Cancel Link')).toBeInTheDocument()
@@ -548,6 +558,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
       })
     })
 
+    await user.click(await screen.findByRole('button', { name: 'Create Relationship' }))
+
     await waitFor(() => {
       expect(mockGlobalStore.addError).toHaveBeenCalledWith({
         message: 'Failed to create causal relationship',
@@ -560,8 +572,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     render(<CausalGraphComponent />)
 
     // Start link creation mode FIRST
-    const createLinkButton = screen.getByText('Create Link')
-    await user.click(createLinkButton)
+    const drawLinkButton = screen.getByText('Draw Link')
+    await user.click(drawLinkButton)
 
     await waitFor(() => {
       expect(screen.getByText('Cancel Link')).toBeInTheDocument()
@@ -582,7 +594,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
 
     // Check that instruction text updates
     await waitFor(() => {
-      expect(screen.getByText(/Select target event for causal link from "Actor A → Target A"/)).toBeInTheDocument()
+      // The prompt names the cause by what happened, not by its actor pair.
+      expect(screen.getByRole('status')).toHaveTextContent('Cause: “First event”. Now click the effect · Esc to cancel')
     })
   })
 
@@ -590,8 +603,8 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     render(<CausalGraphComponent />)
 
     // Start link creation mode FIRST
-    const createLinkButton = screen.getByText('Create Link')
-    await user.click(createLinkButton)
+    const drawLinkButton = screen.getByText('Draw Link')
+    await user.click(drawLinkButton)
 
     await waitFor(() => {
       expect(screen.getByText('Cancel Link')).toBeInTheDocument()
@@ -613,7 +626,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('Create Link')).toBeInTheDocument()
+      expect(screen.getByText('Draw Link')).toBeInTheDocument()
     })
     expect(screen.queryByText('Cancel Link')).not.toBeInTheDocument()
   })
@@ -628,7 +641,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
     // Enter link mode, then deliver a background tap synchronously in the same
     // task, without yielding to the task queue. This models the gesture /
     // re-render fallout that must not cancel the interaction the user just began.
-    fireEvent.click(screen.getByText('Create Link'))
+    fireEvent.click(screen.getByText('Draw Link'))
     act(() => {
       handler({ target: mockCy })
     })
@@ -637,5 +650,80 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
       expect(screen.getByText('Cancel Link')).toBeInTheDocument()
     })
     expect(screen.queryByText('Create Link')).not.toBeInTheDocument()
+  })
+  describe('Draw Link with two events selected', () => {
+    it('opens the relationship form for the pair, the earlier event as the cause', async () => {
+      // Selected later-first: event1 (10:00) then event3 (09:00)
+      mockGlobalStore.selectedEvents = ['event1', 'event3']
+      render(<CausalGraphComponent />)
+
+      const drawLink = screen.getByRole('button', { name: 'Draw Link' })
+      expect(drawLink).toHaveAttribute('title', expect.stringContaining('“Third event” → “First event”'))
+      await user.click(drawLink)
+
+      // Straight to the form: no click-the-cause mode
+      expect(await screen.findByRole('heading', { name: 'Create Causal Relationship' })).toBeInTheDocument()
+      expect(screen.queryByText('Cancel Link')).not.toBeInTheDocument()
+
+      await user.type(screen.getByPlaceholderText(/evidence/i), 'Selected pair')
+      await user.click(screen.getByRole('button', { name: 'Create Relationship' }))
+      await waitFor(() => {
+        expect(apiClient.causal.createLink).toHaveBeenCalledWith('event3', 'event1', expect.objectContaining({ evidence: 'Selected pair' }))
+      })
+    })
+
+    it('says why when the selected pair is already linked, and opens nothing', async () => {
+      mockGlobalStore.selectedEvents = ['event2', 'event1']
+      render(<CausalGraphComponent />)
+
+      await user.click(screen.getByRole('button', { name: 'Draw Link' }))
+
+      expect(mockGlobalStore.addError).toHaveBeenCalledWith({
+        message: 'Causal relationship already exists between these events',
+        type: 'validation'
+      })
+      expect(screen.queryByRole('heading', { name: 'Create Causal Relationship' })).not.toBeInTheDocument()
+      expect(screen.queryByText('Cancel Link')).not.toBeInTheDocument()
+    })
+
+    it('runs the click mode as usual with one event selected', async () => {
+      mockGlobalStore.selectedEvents = ['event1']
+      render(<CausalGraphComponent />)
+
+      await user.click(screen.getByRole('button', { name: 'Draw Link' }))
+      expect(await screen.findByText('Cancel Link')).toBeInTheDocument()
+    })
+  })
+
+  describe('read-only (the Compare dialog)', () => {
+    it('hides Draw Link, Explore Paths and Suggest Links, and ignores D', async () => {
+      render(<CausalGraphComponent readOnly />)
+
+      expect(screen.queryByRole('button', { name: 'Draw Link' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Explore Paths' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Suggest Links' })).not.toBeInTheDocument()
+
+      await user.keyboard('d')
+      expect(screen.queryByText('Cancel Link')).not.toBeInTheDocument()
+      expect(screen.queryByRole('status', { name: /cause/i })).not.toBeInTheDocument()
+      // The legend still explains the drawing
+      expect(screen.getByRole('note', { name: 'Legend' })).toBeInTheDocument()
+    })
+
+    it('opens no edit form on right-click', async () => {
+      const onRelationshipEdit = vi.fn()
+      render(<CausalGraphComponent readOnly onRelationshipEdit={onRelationshipEdit} />)
+      await waitFor(() => {
+        expect(getEventHandlers(mockCy, 'cxttap', 'edge').length).toBeGreaterThan(0)
+      })
+
+      act(() => {
+        getEventHandlers(mockCy, 'cxttap', 'edge')[0]!({
+          target: { data: () => ({ relationship: mockCausalRelationships[0] }) },
+          originalEvent: { clientX: 0, clientY: 0 }
+        })
+      })
+      expect(onRelationshipEdit).not.toHaveBeenCalled()
+    })
   })
 })

@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react'
+import React, { useId, useMemo } from 'react'
+import { ArrowRightIcon, ArrowTrendingDownIcon, ArrowTrendingUpIcon } from '@heroicons/react/24/outline'
 import { PressureWithContext } from '@/types/pressure'
 
 export interface PressureConfidenceTrackerProps {
@@ -9,6 +10,17 @@ export interface PressureConfidenceTrackerProps {
   className?: string
 }
 
+type Trend = 'increasing' | 'decreasing' | 'stable'
+
+const TREND_ICON: Record<Trend, typeof ArrowRightIcon> = {
+  increasing: ArrowTrendingUpIcon,
+  decreasing: ArrowTrendingDownIcon,
+  stable: ArrowRightIcon,
+}
+
+/** Confidence on the 0–1 scale the rest of the Timeline view uses. */
+const formatScore = (score: number): string => score.toFixed(2)
+
 export const PressureConfidenceTracker: React.FC<PressureConfidenceTrackerProps> = ({
   pressure,
   confidenceHistory,
@@ -17,7 +29,7 @@ export const PressureConfidenceTracker: React.FC<PressureConfidenceTrackerProps>
   className = ''
 }) => {
   // Calculate confidence trend
-  const confidenceTrend = useMemo(() => {
+  const confidenceTrend = useMemo((): Trend => {
     if (confidenceHistory.length < 2) return 'stable'
     
     const recent = confidenceHistory.slice(-3)
@@ -54,37 +66,25 @@ export const PressureConfidenceTracker: React.FC<PressureConfidenceTrackerProps>
     return { average, min, max, volatility }
   }, [confidenceHistory, pressure.confidence_score])
 
-  const getTrendIcon = (trend: string) => {
-    switch (trend) {
-      case 'increasing': return '📈'
-      case 'decreasing': return '📉'
-      default: return '➡️'
-    }
-  }
-
-  const getTrendColor = (trend: string) => {
-    switch (trend) {
-      case 'increasing': return 'text-green-600'
-      case 'decreasing': return 'text-red-600'
-      default: return 'text-gray-600'
-    }
-  }
-
+  // Volatility is named, not coloured: a green "Low" was 2.8:1 on white and the
+  // word already says it.
   const getVolatilityLevel = (volatility: number) => {
-    if (volatility < 0.1) return { level: 'Low', color: 'text-green-600' }
-    if (volatility < 0.2) return { level: 'Medium', color: 'text-yellow-600' }
-    return { level: 'High', color: 'text-red-600' }
+    if (volatility < 0.1) return 'Low'
+    if (volatility < 0.2) return 'Medium'
+    return 'High'
   }
 
   const volatilityInfo = getVolatilityLevel(confidenceStats.volatility)
+  const TrendIcon = TREND_ICON[confidenceTrend]
+  const sliderId = useId()
 
   return (
-    <div className={`pressure-confidence-tracker bg-white rounded-lg border border-gray-200 p-4 ${className}`}>
+    <div className={`pressure-confidence-tracker ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-medium text-gray-900">Confidence Tracking</h3>
-        <div className={`flex items-center space-x-2 ${getTrendColor(confidenceTrend)}`}>
-          <span className="text-lg">{getTrendIcon(confidenceTrend)}</span>
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-base font-semibold text-ink">Confidence Tracking</h4>
+        <div className="flex items-center gap-1.5 text-ink-secondary" data-trend={confidenceTrend}>
+          <TrendIcon className="h-4 w-4" aria-hidden="true" />
           <span className="text-sm font-medium capitalize">{confidenceTrend}</span>
         </div>
       </div>
@@ -92,68 +92,49 @@ export const PressureConfidenceTracker: React.FC<PressureConfidenceTrackerProps>
       {/* Current Confidence */}
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-gray-700">Current Confidence</span>
-          <span className="text-lg font-bold text-gray-900">
-            {Math.round(pressure.confidence_score * 100)}%
+          <span className="text-sm font-medium text-ink-secondary">Current Confidence</span>
+          <span className="font-mono-code text-base font-semibold text-ink">
+            {formatScore(pressure.confidence_score)}
           </span>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-3">
-          <div 
-            className="bg-blue-500 h-3 rounded-full transition-all duration-300"
+        <div className="w-full bg-subtle rounded-full h-2">
+          <div
+            className="bg-baseline h-2 rounded-full transition-all duration-300"
             style={{ width: `${pressure.confidence_score * 100}%` }}
           />
         </div>
       </div>
 
-      {/* Statistics */}
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <div className="bg-gray-50 rounded-lg p-3">
-          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Average</div>
-          <div className="text-lg font-semibold text-gray-900">
-            {Math.round(confidenceStats.average * 100)}%
-          </div>
+      {/* Statistics: one row of label/value pairs, not a grid of tiles */}
+      <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3 mb-4 text-sm">
+        <div data-stat="average">
+          <dt className="text-xs font-medium text-ink-muted">Average</dt>
+          <dd className="font-mono-code text-ink">{formatScore(confidenceStats.average)}</dd>
         </div>
-        
-        <div className="bg-gray-50 rounded-lg p-3">
-          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Volatility</div>
-          <div className={`text-lg font-semibold ${volatilityInfo.color}`}>
-            {volatilityInfo.level}
-          </div>
+        <div data-stat="volatility">
+          <dt className="text-xs font-medium text-ink-muted">Volatility</dt>
+          <dd className="text-ink">{volatilityInfo}</dd>
         </div>
-        
-        <div className="bg-gray-50 rounded-lg p-3">
-          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Min</div>
-          <div className="text-lg font-semibold text-gray-900">
-            {Math.round(confidenceStats.min * 100)}%
-          </div>
+        <div data-stat="min">
+          <dt className="text-xs font-medium text-ink-muted">Min</dt>
+          <dd className="font-mono-code text-ink">{formatScore(confidenceStats.min)}</dd>
         </div>
-        
-        <div className="bg-gray-50 rounded-lg p-3">
-          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Max</div>
-          <div className="text-lg font-semibold text-gray-900">
-            {Math.round(confidenceStats.max * 100)}%
-          </div>
+        <div data-stat="max">
+          <dt className="text-xs font-medium text-ink-muted">Max</dt>
+          <dd className="font-mono-code text-ink">{formatScore(confidenceStats.max)}</dd>
         </div>
-      </div>
+      </dl>
 
       {/* Confidence History Chart */}
       {showHistory && confidenceHistory.length > 1 && (
         <div className="mb-4">
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Confidence History</h4>
-          <div className="relative h-20 bg-gray-50 rounded-lg p-2">
-            <svg className="w-full h-full" viewBox="0 0 300 60">
-              {/* Grid lines */}
-              <defs>
-                <pattern id="grid" width="30" height="15" patternUnits="userSpaceOnUse">
-                  <path d="M 30 0 L 0 0 0 15" fill="none" stroke="#e5e7eb" strokeWidth="0.5"/>
-                </pattern>
-              </defs>
-              <rect width="100%" height="100%" fill="url(#grid)" />
-              
+          <p className="text-sm font-medium text-ink-secondary mb-2">Confidence History</p>
+          <div className="relative h-20 bg-subtle rounded-md p-2">
+            <svg className="w-full h-full" viewBox="0 0 300 60" aria-hidden="true">
               {/* Confidence line */}
               <polyline
                 fill="none"
-                stroke="#3b82f6"
+                stroke="var(--accent-baseline)"
                 strokeWidth="2"
                 points={confidenceHistory.map((conf, index) => {
                   const x = (index / (confidenceHistory.length - 1)) * 280 + 10
@@ -161,7 +142,7 @@ export const PressureConfidenceTracker: React.FC<PressureConfidenceTrackerProps>
                   return `${x},${y}`
                 }).join(' ')}
               />
-              
+
               {/* Data points */}
               {confidenceHistory.map((conf, index) => {
                 const x = (index / (confidenceHistory.length - 1)) * 280 + 10
@@ -172,15 +153,15 @@ export const PressureConfidenceTracker: React.FC<PressureConfidenceTrackerProps>
                     cx={x}
                     cy={y}
                     r="3"
-                    fill="#3b82f6"
-                    stroke="#ffffff"
+                    fill="var(--accent-baseline)"
+                    stroke="var(--surface-card)"
                     strokeWidth="1"
                   />
                 )
               })}
             </svg>
           </div>
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
+          <div className="flex justify-between text-xs text-ink-muted mt-1">
             <span>Oldest</span>
             <span>Most Recent</span>
           </div>
@@ -189,27 +170,28 @@ export const PressureConfidenceTracker: React.FC<PressureConfidenceTrackerProps>
 
       {/* Update Controls */}
       {onConfidenceUpdate && (
-        <div className="border-t border-gray-200 pt-4">
+        <div className="border-t border-line pt-4">
           <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-gray-700">
+            <label htmlFor={sliderId} className="text-sm font-medium text-ink-secondary">
               Update Confidence
             </label>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-ink-muted">
               {confidenceHistory.length} updates tracked
             </span>
           </div>
           <div className="flex items-center space-x-3">
             <input
+              id={sliderId}
               type="range"
               min="0"
               max="1"
               step="0.01"
               value={pressure.confidence_score}
               onChange={(e) => onConfidenceUpdate(parseFloat(e.target.value))}
-              className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              className="flex-1 cursor-pointer accent-[var(--accent-baseline)]"
             />
-            <span className="text-sm font-medium text-gray-900 min-w-[3rem]">
-              {Math.round(pressure.confidence_score * 100)}%
+            <span className="font-mono-code text-sm text-ink min-w-[3rem] text-right">
+              {formatScore(pressure.confidence_score)}
             </span>
           </div>
         </div>
@@ -217,14 +199,9 @@ export const PressureConfidenceTracker: React.FC<PressureConfidenceTrackerProps>
 
       {/* Insights */}
       {confidenceHistory.length > 2 && (
-        <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-          <div className="flex items-start space-x-2">
-            <span className="text-blue-500 text-sm">💡</span>
-            <div className="text-sm text-blue-800">
-              <strong>Insight:</strong> {getConfidenceInsight(confidenceTrend, confidenceStats.volatility, confidenceHistory.length)}
-            </div>
-          </div>
-        </div>
+        <p className="mt-4 text-sm text-ink-secondary">
+          <strong className="font-semibold text-ink">Insight:</strong> {getConfidenceInsight(confidenceTrend, confidenceStats.volatility, confidenceHistory.length)}
+        </p>
       )}
     </div>
   )

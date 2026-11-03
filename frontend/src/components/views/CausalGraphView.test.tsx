@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CausalGraphView } from './CausalGraphView'
 import { useEvents, useCausalRelationships } from '@/hooks/useAPI'
@@ -17,8 +17,18 @@ vi.mock('@/hooks/useAPI', () => ({
 }))
 
 vi.mock('@/components/causal-graph', () => ({
-  CausalGraphComponent: ({ events, causalRelationships, focusEventId, onNodeClick }: CausalGraphComponentProps) => (
+  CausalGraphComponent: ({ events, causalRelationships, focusEventId, onNodeClick, onNodeContextMenu, onRelationshipContextMenu }: CausalGraphComponentProps) => (
     <div data-testid="causal-graph-component">
+      {events?.[0] && (
+        <button data-testid="context-first-event" onClick={() => onNodeContextMenu?.(events[0]!, { x: 10, y: 10 })}>
+          Event menu
+        </button>
+      )}
+      {causalRelationships?.[0] && (
+        <button data-testid="context-first-link" onClick={() => onRelationshipContextMenu?.(causalRelationships[0]!, { x: 10, y: 10 })}>
+          Link menu
+        </button>
+      )}
       <span data-testid="rendered-events-count">{events?.length ?? 0}</span>
       <span data-testid="rendered-rel-count">{causalRelationships?.length ?? 0}</span>
       <span data-testid="focus-event-id">{focusEventId ?? ''}</span>
@@ -156,5 +166,69 @@ describe('CausalGraphView', () => {
     expect(screen.getByTestId('focus-event-id')).toHaveTextContent('')
     fireEvent.click(screen.getByTestId('select-first-event'))
     expect(screen.getByTestId('focus-event-id')).toHaveTextContent('e1')
+  })
+
+  it('titles the view on the shared scale and names the selected event by what happened', () => {
+    mockUseEvents.mockReturnValue({
+      data: sampleEvents,
+      isLoading: false
+    } as unknown as ReturnType<typeof useEvents>)
+    mockUseCausalRelationships.mockReturnValue({
+      data: sampleRelationships,
+      isLoading: false
+    } as unknown as ReturnType<typeof useCausalRelationships>)
+
+    renderWithClient(<CausalGraphView />)
+
+    // The breadcrumb and navigation name the view; the heading is for the outline.
+    const title = screen.getByRole('heading', { level: 2, name: 'Causal Graph' })
+    expect(title).toHaveClass('sr-only')
+
+    // The inspector beside the graph describes the selection
+    const inspector = screen.getByTestId('causal-inspector')
+    expect(inspector).toHaveTextContent(/Select an event on the graph/)
+    fireEvent.click(screen.getByTestId('select-first-event'))
+    expect(within(inspector).getByText('Event One')).toBeInTheDocument()
+    expect(within(inspector).getByText(/Actor A → Target B/)).toBeInTheDocument()
+  })
+
+  describe('delete confirmation', () => {
+    beforeEach(() => {
+      mockUseEvents.mockReturnValue({ data: sampleEvents, isLoading: false } as unknown as ReturnType<typeof useEvents>)
+      mockUseCausalRelationships.mockReturnValue({
+        data: sampleRelationships,
+        isLoading: false
+      } as unknown as ReturnType<typeof useCausalRelationships>)
+    })
+
+    it('names the event, says its links go with it, and says how to get it back', () => {
+      renderWithClient(<CausalGraphView />)
+      fireEvent.click(screen.getByTestId('context-first-event'))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
+
+      const dialog = screen.getByRole('dialog')
+      expect(dialog).toHaveTextContent('Delete event')
+      expect(dialog).toHaveTextContent('Delete “Event One”? Its causal link goes with it.')
+      expect(dialog).toHaveTextContent('Version history keeps the graph as it was, so you can restore it from Versions.')
+      expect(dialog).not.toHaveTextContent(/cannot be undone/i)
+    })
+
+    it('names a link by its cause and effect', () => {
+      renderWithClient(<CausalGraphView />)
+      fireEvent.click(screen.getByTestId('context-first-link'))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
+
+      const dialog = screen.getByRole('dialog')
+      expect(dialog).toHaveTextContent('Delete link')
+      expect(dialog).toHaveTextContent('Delete the link from “Event One” to “Event Two”?')
+      expect(dialog).not.toHaveTextContent(/cannot be undone/i)
+    })
+  })
+
+  it('says how Draw Link works in the cue line', () => {
+    mockUseEvents.mockReturnValue({ data: sampleEvents, isLoading: false } as unknown as ReturnType<typeof useEvents>)
+    mockUseCausalRelationships.mockReturnValue({ data: [], isLoading: false } as unknown as ReturnType<typeof useCausalRelationships>)
+    renderWithClient(<CausalGraphView />)
+    expect(screen.getByText(/Draw Link \(D\) links two selected events, or the cause and effect you click next/)).toBeInTheDocument()
   })
 })

@@ -143,7 +143,7 @@ describe('graph switching through the header changes the data the views read', (
     renderHarness()
 
     // The timeline first renders graph A's two events.
-    expect(await screen.findByText('2 events, 0 arcs')).toBeInTheDocument()
+    expect(await screen.findByText('2 events · 0 arcs')).toBeInTheDocument()
     expect(screen.getByTestId('rendered-events')).toHaveTextContent('2')
 
     // Switch to graph B through the mounted GraphSelector.
@@ -155,7 +155,7 @@ describe('graph switching through the header changes the data the views read', (
       expect(fake.state.activated).toContain('graph-b')
     })
     await waitFor(() => {
-      expect(screen.getByText('1 events, 0 arcs')).toBeInTheDocument()
+      expect(screen.getByText('1 event · 0 arcs')).toBeInTheDocument()
     })
     expect(screen.getByTestId('rendered-events')).toHaveTextContent('1')
 

@@ -12,6 +12,7 @@ import { ViewToolbar } from './ViewToolbar'
 const graphSpies = vi.hoisted(() => ({
   switchGraph: vi.fn(),
   deleteGraph: vi.fn(),
+  branchGraph: vi.fn(),
 }))
 
 vi.mock('@/hooks/useGraphs', () => {
@@ -36,9 +37,11 @@ vi.mock('@/hooks/useGraphs', () => {
     useActiveGraph: () => ({ data: graph }),
     useGraphs: () => ({ data: { graphs: [graph, copiedGraph], total: 2 }, isLoading: false }),
     useGraphVersions: () => ({ data: [], isLoading: false, error: null }),
+    useGraphHeadVersion: () => null,
     useRollbackGraph: () => ({ mutateAsync: vi.fn(), isPending: false }),
     useSwitchGraph: () => ({ mutate: graphSpies.switchGraph, isPending: false }),
     useDeleteGraph: () => ({ mutate: graphSpies.deleteGraph, isPending: false }),
+    useBranchGraph: () => ({ mutateAsync: graphSpies.branchGraph, isPending: false }),
   }
 })
 
@@ -109,6 +112,12 @@ vi.mock('@/hooks/useExport', async (importOriginal) => {
   }
 })
 
+/** The graph-management actions live in the toolbar's "Graph" menu. */
+async function chooseGraphMenuItem(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getByRole('button', { name: 'Graph' }))
+  await user.click(screen.getByRole('menuitem', { name }))
+}
+
 describe('ViewToolbar graph data operation entry points', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -128,7 +137,7 @@ describe('ViewToolbar graph data operation entry points', () => {
     const user = userEvent.setup()
     renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
-    await user.click(screen.getByRole('button', { name: 'Export' }))
+    await chooseGraphMenuItem(user, 'Export')
 
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText('Export Graph')).toBeInTheDocument()
@@ -144,10 +153,10 @@ describe('ViewToolbar graph data operation entry points', () => {
     const user = userEvent.setup()
     renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
-    await user.click(screen.getByRole('button', { name: 'Versions' }))
+    await chooseGraphMenuItem(user, 'Versions')
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByRole('heading', { name: 'Version History' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('heading', { name: 'Version history' })).toBeInTheDocument()
     expect(within(dialog).getByText('No version history available')).toBeInTheDocument()
   })
 
@@ -155,7 +164,7 @@ describe('ViewToolbar graph data operation entry points', () => {
     const user = userEvent.setup()
     renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
-    await user.click(screen.getByRole('button', { name: 'Copy History' }))
+    await chooseGraphMenuItem(user, 'Copy history')
     const dialog = await screen.findByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: 'Open' }))
 
@@ -166,7 +175,7 @@ describe('ViewToolbar graph data operation entry points', () => {
     const user = userEvent.setup()
     renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
-    await user.click(screen.getByRole('button', { name: 'Copy History' }))
+    await chooseGraphMenuItem(user, 'Copy history')
     const dialog = await screen.findByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }))
 
@@ -175,5 +184,19 @@ describe('ViewToolbar graph data operation entry points', () => {
     await user.click(screen.getByRole('button', { name: 'Delete copy' }))
 
     expect(graphSpies.deleteGraph).toHaveBeenCalledWith('graph-copy-1')
+  })
+
+  it('branches the active graph from "Branch or copy…" and offers to switch to the branch', async () => {
+    const user = userEvent.setup()
+    graphSpies.branchGraph.mockResolvedValue({
+      id: 'graph-branch-1',
+      name: 'Alpha what-if',
+      parentGraphId: 'graph-1',
+    })
+    renderWithProviders(<ViewToolbar viewMode="timeline" />)
+
+    await chooseGraphMenuItem(user, 'Branch or copy…')
+    const dialog = await screen.findByRole('dialog', { name: 'Branch or copy this graph' })
+    expect(within(dialog).getByRole('radio', { name: /^Branch/ })).toBeChecked()
   })
 })

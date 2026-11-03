@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
+import { HistoricalDateInput } from './HistoricalDateInput'
+import { parseHistoricalDate } from './filterUtils'
 
 export interface FilterState {
   dateRange: {
@@ -21,6 +23,17 @@ interface FilterPanelProps {
   availableActors: string[]
   availableTargets: string[]
   timeRange: { start: string; end: string }
+  hideSearch?: boolean
+  /**
+   * Replaces the built-in search field (e.g. with a SearchInterface that has
+   * suggestions). Rendered at the top of the panel body.
+   */
+  search?: ReactNode
+  /**
+   * Closes the panel. When given, a Close button is shown in the header at
+   * every breakpoint; it is the panel's only dismiss control.
+   */
+  onClose?: () => void
   className?: string
 }
 
@@ -40,10 +53,13 @@ export function FilterPanel({
   onFiltersChange,
   availableActors = [],
   availableTargets = [],
+  hideSearch = false,
+  search,
+  onClose,
   className = ''
 }: FilterPanelProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
+  const dateHintId = useId()
 
   // The URL -> filters sync below needs the *current* filters and callback, but
   // must stay keyed on `searchParams` alone: listing them would make every filter
@@ -78,10 +94,11 @@ export function FilterPanel({
       urlFilters.eventTypes = searchParams.get('eventTypes')!.split(',')
     }
     
-    if (searchParams.get('startDate') && searchParams.get('endDate')) {
+    // Either bound alone is a filter (an open-ended range).
+    if (searchParams.get('startDate') || searchParams.get('endDate')) {
       urlFilters.dateRange = {
-        start: searchParams.get('startDate')!,
-        end: searchParams.get('endDate')!
+        start: searchParams.get('startDate') ?? '',
+        end: searchParams.get('endDate') ?? ''
       }
     }
     
@@ -114,10 +131,8 @@ export function FilterPanel({
       newParams.set('eventTypes', filters.eventTypes.join(','))
     }
     
-    if (filters.dateRange) {
-      newParams.set('startDate', filters.dateRange.start)
-      newParams.set('endDate', filters.dateRange.end)
-    }
+    if (filters.dateRange?.start) newParams.set('startDate', filters.dateRange.start)
+    if (filters.dateRange?.end) newParams.set('endDate', filters.dateRange.end)
     
     if (filters.confidenceThreshold > 0) {
       newParams.set('confidence', filters.confidenceThreshold.toString())
@@ -142,6 +157,18 @@ export function FilterPanel({
     handleFilterChange(key, newValues)
   }
 
+  /** One bound changed; with both bounds empty there is no date filter. */
+  const handleDateBoundChange = (edge: 'start' | 'end', value: string) => {
+    const start = edge === 'start' ? value : filters.dateRange?.start ?? ''
+    const end = edge === 'end' ? value : filters.dateRange?.end ?? ''
+    handleFilterChange('dateRange', start === '' && end === '' ? null : { start, end })
+  }
+
+  const startBound = filters.dateRange?.start ? parseHistoricalDate(filters.dateRange.start, 'start') : null
+  const endBound = filters.dateRange?.end ? parseHistoricalDate(filters.dateRange.end, 'end') : null
+  const dateRangeInverted =
+    startBound?.ok === true && endBound?.ok === true && startBound.date.getTime() > endBound.date.getTime()
+
   const clearFilters = () => {
     onFiltersChange(DEFAULT_FILTERS)
   }
@@ -162,11 +189,11 @@ export function FilterPanel({
   const activeFilterCount = getActiveFilterCount()
 
   return (
-    <div className={`bg-white border-l shadow-sm ${className}`}>
-      <div className="p-4 border-b">
+    <div className={`bg-card text-ink ${className}`}>
+      <div className="p-4 border-b border-line">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <h3 className="text-lg font-medium text-gray-900">Filters</h3>
+            <h3 className="font-display text-xl font-semibold text-ink">Filters</h3>
             {activeFilterCount > 0 && (
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                 {activeFilterCount}
@@ -176,108 +203,104 @@ export function FilterPanel({
           <div className="flex items-center space-x-2">
             {activeFilterCount > 0 && (
               <button
+                type="button"
                 onClick={clearFilters}
-                className="text-sm text-gray-500 hover:text-gray-700 underline"
+                className="text-sm text-ink-muted hover:text-ink underline"
               >
                 Clear all
               </button>
             )}
-            <button
-              onClick={() => setIsCollapsed(!isCollapsed)}
-              className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              aria-label={isCollapsed ? 'Expand filters' : 'Collapse filters'}
-            >
-              <svg
-                className={`w-5 h-5 transition-transform duration-200 ${
-                  isCollapsed ? 'rotate-180' : ''
-                }`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-1 rounded-md text-ink-muted hover:text-ink hover:bg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                aria-label="Close filter panel"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
-            </button>
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {!isCollapsed && (
-        <div className="p-4 space-y-6 max-h-96 overflow-y-auto">
-          {/* Search */}
-          <div>
-            <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
-              Search
-            </label>
-            <input
-              type="text"
-              id="search"
-              value={filters.searchQuery}
-              onChange={(e) => handleFilterChange('searchQuery', e.target.value)}
-              placeholder="Search events, arcs, or descriptions..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
+      <div className="p-4 space-y-6">
+          {search}
 
-          {/* Date Range */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Date Range
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label htmlFor="startDate" className="sr-only">Start date</label>
-                <input
-                  type="date"
-                  id="startDate"
-                  value={filters.dateRange?.start || ''}
-                  onChange={(e) => handleFilterChange('dateRange', {
-                    start: e.target.value,
-                    end: filters.dateRange?.end || ''
-                  })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label htmlFor="endDate" className="sr-only">End date</label>
-                <input
-                  type="date"
-                  id="endDate"
-                  value={filters.dateRange?.end || ''}
-                  onChange={(e) => handleFilterChange('dateRange', {
-                    start: filters.dateRange?.start || '',
-                    end: e.target.value
-                  })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
+          {/* Search (hidden when the parent supplies its own search) */}
+          {!hideSearch && !search && (
+            <div>
+              <label htmlFor="search" className="block text-sm font-medium text-ink-secondary mb-2">
+                Search
+              </label>
+              <input
+                type="text"
+                id="search"
+                value={filters.searchQuery}
+                onChange={(e) => handleFilterChange('searchQuery', e.target.value)}
+                placeholder="Search events, arcs, or descriptions..."
+                className="w-full px-3 py-2 border border-line rounded-md bg-card text-ink shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
             </div>
-          </div>
+          )}
+
+          {/* Date Range: typed, year first, so it reads the same in every
+              locale and reaches BCE (a native date picker does neither). */}
+          <fieldset>
+            <legend className="block text-sm font-medium text-ink-secondary mb-2">
+              Date Range
+            </legend>
+            <div className="grid grid-cols-2 gap-2">
+              <HistoricalDateInput
+                id="startDate"
+                label="Start date"
+                edge="start"
+                value={filters.dateRange?.start || ''}
+                onCommit={(value) => handleDateBoundChange('start', value)}
+                hintId={dateHintId}
+                placeholder="1843"
+              />
+              <HistoricalDateInput
+                id="endDate"
+                label="End date"
+                edge="end"
+                value={filters.dateRange?.end || ''}
+                onCommit={(value) => handleDateBoundChange('end', value)}
+                hintId={dateHintId}
+                placeholder="1843-11-20"
+              />
+            </div>
+            <p id={dateHintId} className="mt-1.5 text-xs text-ink-muted">
+              A year, year-month or full date, year first: 1843, 1843-11, 1843-11-20. Add BCE for earlier years (44 BCE). Each bound covers the whole period it names.
+            </p>
+            {dateRangeInverted && (
+              <p className="mt-1 text-xs text-amber-800 dark:text-amber-300" role="status">
+                The start is after the end, so no event matches.
+              </p>
+            )}
+          </fieldset>
 
           {/* Actors */}
           {availableActors.length > 0 && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-ink-secondary mb-2">
                 Actors ({filters.actors.length} selected)
               </label>
-              <div className="max-h-32 overflow-y-auto border border-gray-300 rounded-md">
+              <div className="max-h-32 overflow-y-auto border border-line rounded-md">
                 {availableActors.map((actor) => (
                   <label
                     key={actor}
-                    className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                    className="flex items-center px-3 py-2 hover:bg-subtle cursor-pointer"
                   >
                     <input
                       type="checkbox"
                       checked={filters.actors.includes(actor)}
                       onChange={(e) => handleMultiSelectChange('actors', actor, e.target.checked)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-line rounded"
                     />
-                    <span className="ml-2 text-sm text-gray-700">{actor}</span>
+                    <span className="ml-2 text-sm text-ink-secondary">{actor}</span>
                   </label>
                 ))}
               </div>
@@ -287,32 +310,32 @@ export function FilterPanel({
           {/* Targets */}
           {availableTargets.length > 0 && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-ink-secondary mb-2">
                 Targets ({filters.targets.length} selected)
               </label>
-              <div className="max-h-32 overflow-y-auto border border-gray-300 rounded-md">
+              <div className="max-h-32 overflow-y-auto border border-line rounded-md">
                 {availableTargets.map((target) => (
                   <label
                     key={target}
-                    className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                    className="flex items-center px-3 py-2 hover:bg-subtle cursor-pointer"
                   >
                     <input
                       type="checkbox"
                       checked={filters.targets.includes(target)}
                       onChange={(e) => handleMultiSelectChange('targets', target, e.target.checked)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-line rounded"
                     />
-                    <span className="ml-2 text-sm text-gray-700">{target}</span>
+                    <span className="ml-2 text-sm text-ink-secondary">{target}</span>
                   </label>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Confidence Threshold */}
+          {/* Minimum event confidence (distinct from the pressure panel's threshold) */}
           <div>
-            <label htmlFor="confidence" className="block text-sm font-medium text-gray-700 mb-2">
-              Confidence Threshold: {filters.confidenceThreshold.toFixed(2)}
+            <label htmlFor="confidence" className="block text-sm font-medium text-ink-secondary mb-2 tabular-nums">
+              Minimum event confidence: {filters.confidenceThreshold.toFixed(2)}
             </label>
             <input
               type="range"
@@ -322,9 +345,9 @@ export function FilterPanel({
               step="0.01"
               value={filters.confidenceThreshold}
               onChange={(e) => handleFilterChange('confidenceThreshold', parseFloat(e.target.value))}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+              className="w-full h-2 bg-subtle rounded-lg appearance-none cursor-pointer slider"
             />
-            <div className="flex justify-between text-xs text-gray-500 mt-1">
+            <div className="flex justify-between text-xs text-ink-muted mt-1 tabular-nums">
               <span>0.00</span>
               <span>1.00</span>
             </div>
@@ -332,7 +355,7 @@ export function FilterPanel({
 
           {/* Causal Weight Range */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-ink-secondary mb-2 tabular-nums">
               Causal Weight Range: {filters.causalWeightRange[0].toFixed(2)} - {filters.causalWeightRange[1].toFixed(2)}
             </label>
             <div className="space-y-2">
@@ -347,7 +370,7 @@ export function FilterPanel({
                   parseFloat(e.target.value),
                   filters.causalWeightRange[1]
                 ])}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                className="w-full h-2 bg-subtle rounded-lg appearance-none cursor-pointer slider"
               />
               <input
                 type="range"
@@ -360,16 +383,15 @@ export function FilterPanel({
                   filters.causalWeightRange[0],
                   parseFloat(e.target.value)
                 ])}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                className="w-full h-2 bg-subtle rounded-lg appearance-none cursor-pointer slider"
               />
             </div>
-            <div className="flex justify-between text-xs text-gray-500 mt-1">
+            <div className="flex justify-between text-xs text-ink-muted mt-1 tabular-nums">
               <span>Min: 0.00</span>
               <span>Max: 1.00</span>
             </div>
           </div>
         </div>
-      )}
     </div>
   )
 }

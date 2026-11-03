@@ -52,6 +52,13 @@ describe('InferenceService - Pattern Detection', () => {
       expect(economicPressure!.confidence_score).toBeGreaterThan(0.5);
       expect(economicPressure!.evidence.length).toBeGreaterThanOrEqual(2);
       expect(economicPressure!.description).toContain('Economic pressure detected');
+      // The dates read as the app writes them, in UTC, not as Date#toDateString
+      // ("Sun Jan 01 2023", in the server's own time zone).
+      expect(economicPressure!.description).toMatch(
+        /^Economic pressure detected in cluster from [A-Z][a-z]{2} \d{1,2}, \d{4} to [A-Z][a-z]{2} \d{1,2}, \d{4}$/
+      );
+      expect(economicPressure!.description).toContain('Jan 1, 2023');
+      expect(economicPressure!.description).not.toMatch(/\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b/);
     });
 
     it('should report the evidence events by id and the period inferred over', () => {

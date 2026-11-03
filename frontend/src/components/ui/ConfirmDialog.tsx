@@ -68,7 +68,7 @@ export function ConfirmDialog({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
         </svg>
       ),
-      buttonClass: 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500',
+      buttonClass: 'bg-amber-700 hover:bg-amber-800 focus:ring-amber-500',
     },
     info: {
       icon: (
@@ -91,7 +91,7 @@ export function ConfirmDialog({
     >
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+        className="fixed inset-0 bg-black/50 transition-opacity"
         onClick={() => !isLoading && onCancel()}
       />
 
@@ -99,27 +99,27 @@ export function ConfirmDialog({
       <div className="flex min-h-full items-center justify-center p-4">
         <div
           ref={dialogRef}
-          className="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg"
+          className="relative transform overflow-hidden rounded-lg border border-line bg-card text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg"
         >
-          <div className="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
+          <div className="bg-card px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
             <div className="sm:flex sm:items-start">
               <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
                 {style.icon}
               </div>
               <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
-                <h3
-                  className="text-base font-semibold leading-6 text-gray-900"
+                <h2
+                  className="font-display text-xl font-semibold leading-tight text-ink"
                   id="confirm-dialog-title"
                 >
                   {title}
-                </h3>
+                </h2>
                 <div className="mt-2">
-                  <p className="text-sm text-gray-500">{message}</p>
+                  <p className="text-sm text-ink-secondary">{message}</p>
                 </div>
               </div>
             </div>
           </div>
-          <div className="bg-gray-50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6">
+          <div className="border-t border-line bg-subtle px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6">
             <button
               type="button"
               disabled={isLoading}
@@ -143,7 +143,7 @@ export function ConfirmDialog({
               type="button"
               disabled={isLoading}
               onClick={onCancel}
-              className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+              className="mt-3 inline-flex w-full justify-center rounded-md bg-card px-3 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-inset ring-line hover:bg-subtle sm:mt-0 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2"
             >
               {cancelLabel}
             </button>

@@ -36,23 +36,23 @@ describe('PressureConfidenceTracker', () => {
 
     expect(screen.getByText('Confidence Tracking')).toBeInTheDocument()
     expect(screen.getByText('Current Confidence')).toBeInTheDocument()
-    // 75% appears in multiple places (current confidence, max, slider value)
-    // Check that at least one exists
-    expect(screen.getAllByText('75%').length).toBeGreaterThan(0)
+    // Confidence reads on the 0–1 scale the filter panel uses. 0.75 appears in
+    // several places (current confidence, max, slider value).
+    expect(screen.getAllByText('0.75').length).toBeGreaterThan(0)
   })
 
   it('displays confidence statistics correctly', () => {
     render(<PressureConfidenceTracker {...defaultProps} />)
 
     expect(screen.getByText('Average')).toBeInTheDocument()
-    expect(screen.getByText('68%')).toBeInTheDocument() // Average of [0.6, 0.65, 0.7, 0.75]
+    expect(screen.getByText('0.68')).toBeInTheDocument() // Average of [0.6, 0.65, 0.7, 0.75]
     expect(screen.getByText('Min')).toBeInTheDocument()
-    expect(screen.getByText('60%')).toBeInTheDocument() // Min value
+    expect(screen.getByText('0.60')).toBeInTheDocument() // Min value
     expect(screen.getByText('Max')).toBeInTheDocument()
-    // Max value is 75%, same as current confidence - get parent container (.bg-gray-50)
-    const maxSection = screen.getByText('Max').closest<HTMLElement>('.bg-gray-50')
+    // Max value is 0.75, same as current confidence - scope to its pair
+    const maxSection = screen.getByText('Max').closest<HTMLElement>('[data-stat="max"]')
     if (maxSection === null) throw new Error('Expected a Max statistics section')
-    expect(within(maxSection).getByText('75%')).toBeInTheDocument()
+    expect(within(maxSection).getByText('0.75')).toBeInTheDocument()
     expect(screen.getByText('Volatility')).toBeInTheDocument()
   })
 
@@ -67,9 +67,10 @@ describe('PressureConfidenceTracker', () => {
       />
     )
 
-    expect(screen.getByText('📈')).toBeInTheDocument()
+    // A drawn icon, not an emoji; the word carries the trend
+    expect(screen.queryByText('📈')).not.toBeInTheDocument()
     // Component renders lowercase trend with CSS capitalize
-    expect(screen.getByText('increasing')).toBeInTheDocument()
+    expect(screen.getByText('increasing').closest('[data-trend]')).toHaveAttribute('data-trend', 'increasing')
   })
 
   it('shows decreasing trend correctly', () => {
@@ -83,8 +84,7 @@ describe('PressureConfidenceTracker', () => {
       />
     )
 
-    expect(screen.getByText('📉')).toBeInTheDocument()
-    expect(screen.getByText('decreasing')).toBeInTheDocument()
+    expect(screen.getByText('decreasing').closest('[data-trend]')).toHaveAttribute('data-trend', 'decreasing')
   })
 
   it('shows stable trend correctly', () => {
@@ -96,8 +96,7 @@ describe('PressureConfidenceTracker', () => {
       />
     )
 
-    expect(screen.getByText('➡️')).toBeInTheDocument()
-    expect(screen.getByText('stable')).toBeInTheDocument()
+    expect(screen.getByText('stable').closest('[data-trend]')).toHaveAttribute('data-trend', 'stable')
   })
 
   it('displays volatility levels correctly', () => {
@@ -164,15 +163,15 @@ describe('PressureConfidenceTracker', () => {
   it('displays insights when sufficient history is available', () => {
     render(<PressureConfidenceTracker {...defaultProps} />)
     
-    expect(screen.getByText('💡')).toBeInTheDocument()
+    expect(screen.queryByText('💡')).not.toBeInTheDocument()
     expect(screen.getByText('Insight:')).toBeInTheDocument()
   })
 
   it('handles empty confidence history', () => {
     render(<PressureConfidenceTracker {...defaultProps} confidenceHistory={[]} />)
 
-    // Should show current confidence (75% appears multiple times - current and slider)
-    expect(screen.getAllByText('75%').length).toBeGreaterThan(0)
+    // Should show current confidence (0.75 appears multiple times - current and slider)
+    expect(screen.getAllByText('0.75').length).toBeGreaterThan(0)
     expect(screen.queryByText('Confidence History')).not.toBeInTheDocument()
   })
 
@@ -198,7 +197,7 @@ describe('PressureConfidenceTracker', () => {
     // Find the progress bar container (next sibling of "Current Confidence" label row)
     const currentConfidenceLabel = screen.getByText('Current Confidence')
     const currentConfidenceSection = currentConfidenceLabel.closest('.mb-4')
-    const progressBar = currentConfidenceSection?.querySelector('.bg-blue-500')
+    const progressBar = currentConfidenceSection?.querySelector('.bg-baseline')
     expect(progressBar).toHaveStyle({ width: '75%' })
   })
 
@@ -230,8 +229,8 @@ describe('PressureConfidenceTracker', () => {
   it('updates display when pressure confidence changes', () => {
     const { rerender } = render(<PressureConfidenceTracker {...defaultProps} />)
 
-    // 75% appears multiple times - verify at least one exists
-    expect(screen.getAllByText('75%').length).toBeGreaterThan(0)
+    // 0.75 appears multiple times - verify at least one exists
+    expect(screen.getAllByText('0.75').length).toBeGreaterThan(0)
 
     rerender(
       <PressureConfidenceTracker
@@ -240,7 +239,7 @@ describe('PressureConfidenceTracker', () => {
       />
     )
 
-    // After update, 90% should appear (may also appear multiple times)
-    expect(screen.getAllByText('90%').length).toBeGreaterThan(0)
+    // After update, 0.90 should appear (may also appear multiple times)
+    expect(screen.getAllByText('0.90').length).toBeGreaterThan(0)
   })
 })

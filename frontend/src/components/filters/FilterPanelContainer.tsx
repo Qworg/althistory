@@ -31,7 +31,8 @@ function suggestionId(type: SearchSuggestion['type'], value: string): string {
 export function FilterPanelContainer() {
   const {
     activeFilters,
-    setFilters
+    setFilters,
+    setFilterPanelOpen
   } = useGlobalStore()
 
   const { data: events = [] } = useEvents()
@@ -101,25 +102,32 @@ export function FilterPanelContainer() {
     return [...eventSuggestions, ...arcSuggestions, ...actorSuggestions, ...targetSuggestions]
   }, [events, arcs, availableActors, availableTargets])
 
+  const handleClose = useCallback(() => setFilterPanelOpen?.(false), [setFilterPanelOpen])
+
+  // One dismiss control at every breakpoint: the panel header's Close button
+  // flips the same `uiState.filterPanelOpen` flag as the toolbar's
+  // Hide/Show Filters toggle, and MainLayout unmounts the panel when it is off,
+  // so closing on desktop gives the column back to the view.
   return (
     <aside
-      className="w-80 shrink-0 overflow-y-auto hidden lg:block"
+      className="fixed inset-y-0 right-0 z-40 w-80 max-w-full shrink-0 overflow-y-auto border-l border-line bg-card text-ink shadow-xl lg:static lg:z-auto lg:shadow-none"
       aria-label="Filter panel"
     >
-      <div className="p-4 border-b bg-white">
-        <SearchInterface
-          value={panelFilters.searchQuery}
-          onChange={(value) => handleFiltersChange({ ...panelFilters, searchQuery: value })}
-          suggestions={suggestions}
-          placeholder="Search events, arcs, or actors..."
-        />
-      </div>
       <FilterPanel
         filters={panelFilters}
         onFiltersChange={handleFiltersChange}
         availableActors={availableActors}
         availableTargets={availableTargets}
         timeRange={timeRange}
+        onClose={handleClose}
+        search={
+          <SearchInterface
+            value={panelFilters.searchQuery}
+            onChange={(value) => handleFiltersChange({ ...panelFilters, searchQuery: value })}
+            suggestions={suggestions}
+            placeholder="Search events, arcs, or actors..."
+          />
+        }
       />
     </aside>
   )

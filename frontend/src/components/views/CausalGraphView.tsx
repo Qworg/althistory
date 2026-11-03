@@ -6,6 +6,15 @@ import { filterCausalRelationships, filterEvents } from '@/components/filters/fi
 import { useEvents, useCausalRelationships, useDeleteCausalLink, useUpdateCausalLink, useDeleteEvent, useUpdateEvent } from '@/hooks/useAPI'
 import { ContextMenu, ConfirmDialog } from '@/components/ui'
 import { EventDetailModal, CausalRelationshipModal } from '@/components/modals'
+import { CausalEventInspector } from '@/components/causal-graph/CausalEventInspector'
+import { truncateLabel, formatActorTarget } from '@/components/causal-graph/causalGraphPresentation'
+
+/**
+ * The graph canvas is as tall as the window allows below the view header
+ * (never under 400px, never so tall that it dwarfs a large screen). The page
+ * is not height-constrained, so "fill the parent" would collapse it.
+ */
+const GRAPH_CANVAS_HEIGHT = 'h-[clamp(400px,calc(100dvh_-_18rem),960px)]'
 
 type ContextMenuState = {
   type: 'event' | 'relationship'
@@ -18,6 +27,39 @@ type DeleteConfirmState = {
   item: Event | CausalRelationship
 } | null
 
+/** What a delete is about to remove, named, and how it can be undone. */
+const RESTORE_NOTE = 'Version history keeps the graph as it was, so you can restore it from Versions.'
+
+function eventName(event: Event | undefined): string {
+  if (!event) return 'an event no longer in this graph'
+  return `“${truncateLabel(event.description || formatActorTarget(event) || event.id, 80)}”`
+}
+
+function describeDeletion(
+  target: NonNullable<DeleteConfirmState>,
+  events: Event[],
+  relationships: CausalRelationship[]
+): { title: string; message: string } {
+  if (target.type === 'event') {
+    const event = target.item as Event
+    const links = relationships.filter(
+      rel => rel.cause_event_id === event.id || rel.effect_event_id === event.id
+    ).length
+    const cascade = links === 0 ? '' : links === 1 ? ' Its causal link goes with it.' : ` Its ${links} causal links go with it.`
+    return {
+      title: 'Delete event',
+      message: `Delete ${eventName(event)}?${cascade} ${RESTORE_NOTE}`
+    }
+  }
+  const rel = target.item as CausalRelationship
+  const cause = events.find(e => e.id === rel.cause_event_id)
+  const effect = events.find(e => e.id === rel.effect_event_id)
+  return {
+    title: 'Delete link',
+    message: `Delete the link from ${eventName(cause)} to ${eventName(effect)}? ${RESTORE_NOTE}`
+  }
+}
+
 type EditModalState = {
   type: 'event' | 'relationship'
   item: Event | CausalRelationship
@@ -26,8 +68,6 @@ type EditModalState = {
 export function CausalGraphView() {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
   const [selectedRelationship, setSelectedRelationship] = useState<CausalRelationship | null>(null)
-  const [hoveredEvent, setHoveredEvent] = useState<Event | null>(null)
-  const [hoveredRelationship, setHoveredRelationship] = useState<CausalRelationship | null>(null)
 
   // Context menu and modal state
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
@@ -52,6 +92,13 @@ export function CausalGraphView() {
 
   const isLoading = eventsLoading || relationshipsLoading
 
+  // The selected event as the graph holds it now (an edit shows at once), or
+  // none once a filter has hidden it.
+  const selectedEventNow = useMemo(
+    () => (selectedEvent ? filteredEvents.find((e) => e.id === selectedEvent.id) ?? null : null),
+    [selectedEvent, filteredEvents]
+  )
+
   // Mutation hooks
   const deleteCausalLinkMutation = useDeleteCausalLink()
   const updateCausalLinkMutation = useUpdateCausalLink()
@@ -63,17 +110,14 @@ export function CausalGraphView() {
     setSelectedRelationship(null)
   }, [])
 
-  const handleNodeHover = useCallback((event: Event | null) => {
-    setHoveredEvent(event)
-  }, [])
 
   const handleEdgeClick = useCallback((relationship: CausalRelationship) => {
     setSelectedRelationship(relationship)
     setSelectedEvent(null)
   }, [])
 
-  const handleEdgeHover = useCallback((relationship: CausalRelationship | null) => {
-    setHoveredRelationship(relationship)
+  const handleInspectorEdit = useCallback((event: Event) => {
+    setEditModal({ type: 'event', item: event })
   }, [])
 
   // Context menu handlers
@@ -128,6 +172,11 @@ export function CausalGraphView() {
       setDeleteConfirm(null)
     } catch (error) {
       console.error('Failed to delete:', error)
+      const addError = useGlobalStore.getState?.()?.addError
+      addError?.({
+        type: 'network',
+        message: `Failed to delete ${deleteConfirm.type}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      })
     }
   }, [deleteConfirm, deleteEventMutation, deleteCausalLinkMutation, selectedEvent, selectedRelationship])
 
@@ -204,125 +253,84 @@ export function CausalGraphView() {
   return (
     <div className="flex flex-col h-full space-y-4">
       {/* Header with stats */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-card border border-line rounded-lg shadow-sm p-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Causal Graph View</h2>
-            <p className="text-sm text-gray-600 mt-1">
-              Explore causal relationships between events
+            {/* The breadcrumb and the navigation already name the view. */}
+            <h2 className="sr-only">Causal Graph</h2>
+            <p className="text-xs text-ink-secondary">
+              Select a node to inspect it
+              {/* Hover and right-click need a mouse: not offered on a touch screen. */}
+              <span className="hidden [@media(pointer:fine)]:inline"> · Hover a link for its weight and type · Right-click to edit</span>
+              {' '}· Draw Link (D) links two selected events, or the cause and effect you click next
             </p>
           </div>
 
           {/* Statistics */}
-          <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-sm text-gray-600">
+          <div className="font-mono-code flex flex-wrap items-center gap-3 sm:gap-6 text-xs text-ink-muted">
             <span>{filteredEvents.length} events</span>
             <span>{filteredRelationships.length} relationships</span>
           </div>
         </div>
 
-        {/* Selection info */}
-        {(selectedEvent || selectedRelationship) && (
-          <div className="mt-3 pt-3 border-t border-gray-100 text-sm">
-            {selectedEvent && (
-              <span className="text-blue-600 font-medium">
-                Selected: {selectedEvent.actor} → {selectedEvent.target}
-              </span>
-            )}
+        {/* A selected link (a selected event is described in the inspector) */}
+        {selectedRelationship && (
+          <div className="mt-3 pt-3 border-t border-line text-sm">
             {selectedRelationship && (
-              <span className="text-green-600 font-medium">
-                Relationship weight: {selectedRelationship.weight.toFixed(2)}
+              <span className="text-ink">
+                <span className="font-medium text-selected">Selected link:</span>{' '}
+                <span className="capitalize">{selectedRelationship.relationship_type}</span>
+                <span className="text-ink-secondary"> · weight </span>
+                <span className="font-mono-code">{selectedRelationship.weight.toFixed(2)}</span>
               </span>
             )}
           </div>
         )}
       </div>
 
-      {/* Main graph container */}
-      <div className="flex-1 bg-white rounded-lg shadow p-4">
+      {/* The graph, with the selected event's inspector beside it on a wide
+          screen and under it on a narrow one. */}
+      <div className="flex-1 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="bg-card border border-line rounded-lg shadow-sm p-4 min-w-0">
         {isLoading ? (
           <div className="flex items-center justify-center h-full min-h-[400px]">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading graph data...</p>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-baseline mx-auto mb-4" aria-hidden="true"></div>
+              <p className="text-ink-secondary">Loading graph data...</p>
             </div>
           </div>
         ) : filteredEvents.length === 0 ? (
           <div className="flex items-center justify-center h-full min-h-[400px]">
             <div className="text-center">
-              <p className="text-gray-600 mb-2">No events to display</p>
-              <p className="text-sm text-gray-500">Create events in the Timeline view first</p>
+              <p className="text-ink-secondary mb-2">No events to display</p>
+              <p className="text-sm text-ink-secondary">Create events in the Timeline view first</p>
             </div>
           </div>
         ) : (
           <CausalGraphComponent
-            className="h-full"
+            canvasClassName={GRAPH_CANVAS_HEIGHT}
             events={filteredEvents}
             causalRelationships={filteredRelationships}
             focusEventId={selectedEvent?.id}
             onNodeClick={handleNodeClick}
-            onNodeHover={handleNodeHover}
             onEdgeClick={handleEdgeClick}
-            onEdgeHover={handleEdgeHover}
             onNodeContextMenu={handleNodeContextMenu}
             onRelationshipContextMenu={handleRelationshipContextMenu}
           />
         )}
       </div>
 
-      {/* Info panels - hidden on mobile to save space, shown on hover/tap */}
-      {(hoveredEvent || hoveredRelationship) && (
-        <div className="bg-white rounded-lg shadow p-3 sm:p-4">
-          {hoveredEvent && (
-            <div>
-              <h3 className="font-semibold text-gray-900 mb-2 text-sm sm:text-base">Event Details</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 text-xs sm:text-sm">
-                <div>
-                  <span className="font-medium text-gray-700">Actor:</span>
-                  <span className="ml-2 text-gray-900">{hoveredEvent.actor}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-700">Target:</span>
-                  <span className="ml-2 text-gray-900">{hoveredEvent.target}</span>
-                </div>
-                <div className="sm:col-span-2">
-                  <span className="font-medium text-gray-700">Description:</span>
-                  <span className="ml-2 text-gray-900">{hoveredEvent.description}</span>
-                </div>
-                <div className="sm:col-span-2">
-                  <span className="font-medium text-gray-700">Timestamp:</span>
-                  <span className="ml-2 text-gray-900">
-                    {new Date(hoveredEvent.timestamp).toLocaleString()}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {hoveredRelationship && (
-            <div>
-              <h3 className="font-semibold text-gray-900 mb-2 text-sm sm:text-base">Causal Relationship</h3>
-              <div className="grid grid-cols-2 gap-2 sm:gap-4 text-xs sm:text-sm">
-                <div>
-                  <span className="font-medium text-gray-700">Weight:</span>
-                  <span className="ml-2 text-gray-900">{hoveredRelationship.weight.toFixed(2)}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-700">Confidence:</span>
-                  <span className="ml-2 text-gray-900">{hoveredRelationship.confidence.toFixed(2)}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-700">Type:</span>
-                  <span className="ml-2 text-gray-900 capitalize">{hoveredRelationship.relationship_type}</span>
-                </div>
-                <div className="col-span-2">
-                  <span className="font-medium text-gray-700">Evidence:</span>
-                  <span className="ml-2 text-gray-900">{hoveredRelationship.evidence}</span>
-                </div>
-              </div>
-            </div>
-          )}
+        <div className="bg-card border border-line rounded-lg shadow-sm p-4 lg:max-h-[calc(100dvh_-_12rem)] lg:overflow-y-auto">
+          <CausalEventInspector
+            event={selectedEventNow}
+            events={filteredEvents}
+            relationships={filteredRelationships}
+            onSelectEvent={handleNodeClick}
+            onEdit={handleInspectorEdit}
+            isLoading={relationshipsLoading}
+          />
         </div>
-      )}
+      </div>
 
       {/* Context Menu */}
       {contextMenu && (
@@ -341,8 +349,7 @@ export function CausalGraphView() {
       {deleteConfirm && (
         <ConfirmDialog
           isOpen={true}
-          title={`Delete ${deleteConfirm.type === 'event' ? 'Event' : 'Relationship'}`}
-          message={`Are you sure you want to delete this ${deleteConfirm.type}? This action cannot be undone.`}
+          {...describeDeletion(deleteConfirm, fetchedEvents, fetchedRelationships)}
           confirmLabel="Delete"
           onConfirm={handleDeleteConfirm}
           onCancel={handleDeleteCancel}

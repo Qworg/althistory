@@ -113,7 +113,9 @@ describe('ViewSwitcher', () => {
     
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/causal-graph', { replace: false })
-      expect(mockStore.setViewMode).toHaveBeenCalledWith('causal')
+      // Navigating is the whole switch: the route sets the store's view mode
+      // (useViewStateManager), so the switcher no longer writes it itself.
+      expect(mockStore.setViewMode).not.toHaveBeenCalled()
     })
   })
 

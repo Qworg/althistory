@@ -1,11 +1,14 @@
-import { memo, useMemo, useState, useCallback, useRef } from 'react'
+import { memo, useMemo, useState, useCallback, useRef, useLayoutEffect } from 'react'
+import type React from 'react'
 import * as d3 from 'd3'
 import { Event, Arc } from '@/types'
+import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
 import {
   analyzeEventDivergence,
   PointOfDivergence,
   EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
+import { layoutEventLabels, truncateLabel, LABEL_ROW_OFFSETS, type EventLabelPlacement, type LabelLayoutConfig } from '@/components/timeline/eventLabelLayout'
 
 export interface CounterfactualTimelineCanvasProps {
   readonly baselineName: string
@@ -14,6 +17,10 @@ export interface CounterfactualTimelineCanvasProps {
   readonly counterfactualEvents: readonly Event[]
   readonly baselineArcs?: readonly Arc[]
   readonly counterfactualArcs?: readonly Arc[]
+  /**
+   * Fallback width. The canvas fills its container, measured with a
+   * ResizeObserver; this is used until (or where) it can be measured.
+   */
   readonly width?: number
   readonly height?: number
   readonly margin?: { top: number; right: number; bottom: number; left: number }
@@ -30,6 +37,224 @@ interface HoveredItem {
 }
 
 const DEFAULT_MARGIN = { top: 32, right: 32, bottom: 48, left: 140 }
+/** Below COMPACT_WIDTH (a phone's full-screen sheet) the margins give the plot more room. */
+const COMPACT_MARGIN = { top: 32, right: 16, bottom: 36, left: 96 }
+const COMPACT_WIDTH = 560
+
+/** "Halifax Appointed, King → Halifax, May 10, 1940, 12:00 UTC (Halifax Government lane)". */
+function eventLabel(event: Event, laneName: string): string {
+  return `${event.description}, ${event.actor} → ${event.target}, ${formatHistoricalTimestamp(event.timestamp)} (${laneName} lane)`
+}
+
+/** Keyboard focus ring for an event mark, shown while its group is :focus-visible. */
+function FocusRing() {
+  return (
+    <circle
+      className="event-focus-ring opacity-0 group-focus-visible:opacity-100"
+      r={14}
+      fill="none"
+      stroke="var(--accent-selected)"
+      strokeWidth={2}
+      pointerEvents="none"
+    />
+  )
+}
+
+/** Narrowest canvas drawn; below this the lanes are unreadable anyway. */
+const MIN_WIDTH = 280
+
+/** Event titles, axis dates and the divergence label: 12px, the floor for SVG text a user reads. */
+const LABEL_FONT_PX = 12
+/**
+ * The lanes' label rows, measured at the size they are drawn: estimated at the
+ * default 10px, a 12px label near the plot's edge was placed as if it fitted
+ * and ran past the clip ("abbage completes…").
+ */
+const LANE_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: LABEL_ROW_OFFSETS, fontSize: LABEL_FONT_PX }
+/** Advance of one character of the 12px monospace axis dates (0.6em). */
+const TICK_CHAR_PX = 7.2
+/** Clear space kept between two axis dates. */
+const TICK_GAP_PX = 12
+/** Width of the tooltip, which is clamped inside the canvas. */
+const TOOLTIP_WIDTH_PX = 240
+
+/**
+ * Axis tick labels in the historical-date style used everywhere else. Ticks
+ * that all fall on New Year's Day name the year alone; otherwise each tick is
+ * a full UTC date ("May 10, 1940"), never shifted by the viewer's zone.
+ */
+function formatTicks(dates: readonly Date[]): string[] {
+  const allYearStarts = dates.every(
+    d =>
+      d.getUTCMonth() === 0 &&
+      d.getUTCDate() === 1 &&
+      d.getUTCHours() === 0 &&
+      d.getUTCMinutes() === 0
+  )
+  return dates.map(d => (allYearStarts ? String(d.getUTCFullYear()) : formatHistoricalDate(d)))
+}
+
+/**
+ * Drop axis ticks whose dates would overprint their neighbour's. d3 picks
+ * "nice" ticks for a count it treats as a hint, so a narrow axis can get more
+ * than fit; keep them left to right while each clears the last one kept.
+ */
+function thinTicks<T extends { x: number; label: string }>(ticks: readonly T[]): T[] {
+  const kept: T[] = []
+  let lastRight = -Infinity
+  for (const tick of ticks) {
+    const half = (tick.label.length * TICK_CHAR_PX) / 2
+    if (tick.x - half < lastRight + TICK_GAP_PX) continue
+    kept.push(tick)
+    lastRight = tick.x + half
+  }
+  return kept
+}
+
+/** Lane label: 12px semibold, about 7px a character. */
+const LANE_LABEL_CHAR_PX = 7
+const LANE_LABEL_LINE_HEIGHT = 14
+
+/**
+ * Split a lane name into at most two lines that fit `maxChars`, truncating the
+ * last with an ellipsis. The full name stays in the <title> and aria-label.
+ */
+function wrapLaneLabel(name: string, maxChars: number): string[] {
+  if (name.length <= maxChars) return [name]
+  const words = name.split(/\s+/).filter(Boolean)
+  let first = ''
+  let index = 0
+  while (index < words.length) {
+    const word = words[index] ?? ''
+    const candidate = first ? `${first} ${word}` : word
+    if (candidate.length > maxChars) break
+    first = candidate
+    index++
+  }
+  if (!first) {
+    // A single word longer than a line: cut it.
+    return [truncateLabel(name, maxChars)]
+  }
+  const rest = words.slice(index).join(' ')
+  return rest ? [first, truncateLabel(rest, maxChars)] : [first]
+}
+
+type MarkStatus = 'shared' | 'divergent_added' | 'baseline_only' | 'modified'
+
+const STATUS_TEXT: Record<MarkStatus, string> = {
+  shared: 'In both histories',
+  divergent_added: 'Added in branch',
+  modified: 'Changed in branch',
+  baseline_only: 'Only in baseline',
+}
+
+/**
+ * The mark drawn for an event, by status. Shape and fill carry the status as
+ * well as colour, so it reads without colour vision: a circle is an event the
+ * baseline has (filled when the branch shares it, dashed and hollow when only
+ * the baseline does); a square is the branch's own (filled when it is new,
+ * hollow when it changes a shared event). Shared by the canvas, its legend and
+ * the tooltip. `r` is the circle's radius; the square has about the same area.
+ */
+function EventMark({ status, r }: { status: MarkStatus; r: number }) {
+  switch (status) {
+    case 'divergent_added':
+    case 'modified': {
+      const side = r * 1.8
+      const filled = status === 'divergent_added'
+      return (
+        <rect
+          x={-side / 2}
+          y={-side / 2}
+          width={side}
+          height={side}
+          rx={1.5}
+          style={{
+            fill: filled ? 'var(--accent-divergence)' : 'var(--surface-card)',
+            stroke: filled ? 'var(--surface-card)' : 'var(--accent-divergence)',
+          }}
+          strokeWidth={filled ? 1.5 : 2.5}
+        />
+      )
+    }
+    case 'baseline_only':
+      return (
+        <circle
+          r={r}
+          style={{ fill: 'var(--surface-card)', stroke: 'var(--text-muted)' }}
+          strokeWidth={1.5}
+          strokeDasharray="2 2"
+        />
+      )
+    default:
+      return <circle r={r} style={{ fill: 'var(--accent-baseline)', stroke: 'var(--surface-card)' }} strokeWidth={1.5} />
+  }
+}
+
+/** A legend or tooltip swatch: the event mark at small size. */
+function LegendMark({ status }: { status: MarkStatus }) {
+  return (
+    <svg className="w-4 h-4 shrink-0" viewBox="-8 -8 16 16" aria-hidden="true">
+      {status === 'shared' && (
+        // The dotted rule that joins a shared event across the two lanes.
+        <line x1={0} y1={-8} x2={0} y2={8} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} strokeDasharray="2 2" />
+      )}
+      <EventMark status={status} r={4.5} />
+    </svg>
+  )
+}
+
+/** The point-of-divergence swatch: the amber diamond on its dashed rule. */
+function DivergenceMark() {
+  return (
+    <svg className="w-4 h-4 shrink-0" viewBox="-8 -8 16 16" aria-hidden="true">
+      <line x1={0} y1={-8} x2={0} y2={8} style={{ stroke: 'var(--accent-divergence)' }} strokeWidth={1.5} strokeDasharray="3 2" />
+      <polygon points="0,-5 5,0 0,5 -5,0" style={{ fill: 'var(--accent-divergence)' }} />
+    </svg>
+  )
+}
+
+function Chevron({ direction }: { direction: 'left' | 'right' }) {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d={direction === 'left' ? 'M15 19l-7-7 7-7' : 'M9 5l7 7-7 7'} />
+    </svg>
+  )
+}
+
+const CONTROL_BUTTON =
+  'inline-flex items-center justify-center h-7 min-w-7 px-1.5 text-ink-secondary hover:text-ink hover:bg-subtle rounded-md'
+
+/** Enter and Space activate an SVG role="button" the way they do a <button>. */
+function activateOnKey(e: React.KeyboardEvent, activate: () => void) {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    activate()
+  }
+}
+
+/**
+ * The container's content width, kept current with a ResizeObserver. Null
+ * until measured, and where it cannot be (no ResizeObserver, or a zero width
+ * as in jsdom), so the caller falls back to its fixed width.
+ */
+function useContainerWidth(ref: React.RefObject<HTMLDivElement | null>): number | null {
+  const [measured, setMeasured] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element) return
+    const update = (next: number) => setMeasured(next > 0 ? Math.floor(next) : null)
+    update(element.clientWidth)
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0]
+      if (entry) update(entry.contentRect.width)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [ref])
+  return measured
+}
 
 /**
  * Interactive D3 dual-lane timeline visualizing divergence between a baseline
@@ -42,9 +267,9 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
   counterfactualName,
   baselineEvents,
   counterfactualEvents,
-  width = 960,
+  width: fallbackWidth = 960,
   height = 360,
-  margin = DEFAULT_MARGIN,
+  margin: marginProp,
   onEventSelect,
   className = '',
 }: CounterfactualTimelineCanvasProps) {
@@ -53,6 +278,10 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
   const [hovered, setHovered] = useState<HoveredItem | null>(null)
   const [hoveredPod, setHoveredPod] = useState<PointOfDivergence | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const measuredWidth = useContainerWidth(canvasRef)
+  const width = Math.max(MIN_WIDTH, measuredWidth ?? fallbackWidth)
+  const margin = marginProp ?? (width < COMPACT_WIDTH ? COMPACT_MARGIN : DEFAULT_MARGIN)
 
   const innerWidth = Math.max(100, width - margin.left - margin.right)
   const innerHeight = Math.max(100, height - margin.top - margin.bottom)
@@ -103,19 +332,31 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
     return [new Date(currentStartMs), new Date(currentEndMs)]
   }, [baseDomain, zoomFactor, panOffset])
 
-  // 4. D3 Scale calculation
+  // 4. D3 Scale calculation. UTC, so ticks fall on UTC day boundaries and
+  // the labels match the stored (UTC) historical dates.
   const xScale = useMemo(() => {
-    return d3.scaleTime().domain(currentDomain).range([0, innerWidth])
+    return d3.scaleUtc().domain(currentDomain).range([0, innerWidth])
   }, [currentDomain, innerWidth])
 
   // 5. Ticks for time axis
   const timeTicks = useMemo(() => {
-    return xScale.ticks(6).map(date => ({
-      date,
-      x: xScale(date),
-      label: d3.timeFormat('%Y-%m-%d')(date),
-    }))
-  }, [xScale])
+    const dates = xScale.ticks(Math.max(2, Math.min(6, Math.floor(innerWidth / 110))))
+    const labels = formatTicks(dates)
+    const kept = thinTicks(
+      dates.map((date, i) => ({
+        date,
+        x: xScale(date),
+        label: labels[i] ?? '',
+      }))
+    )
+    // A date centred on an end tick would run off the SVG: anchor it inward.
+    return kept.map(tick => {
+      const half = (tick.label.length * TICK_CHAR_PX) / 2
+      const anchor: 'start' | 'middle' | 'end' =
+        tick.x + half > innerWidth + margin.right ? 'end' : tick.x - half < -margin.left ? 'start' : 'middle'
+      return { ...tick, anchor }
+    })
+  }, [xScale, innerWidth, margin.left, margin.right])
 
   // Zoom controls
   const handleZoomIn = useCallback(() => {
@@ -153,6 +394,15 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
     }
   }, [metrics.pointOfDivergence, xScale, innerWidth])
 
+  // The divergence marker's label goes on whichever side of the line has
+  // room; a narrow plot gets the short form.
+  const podLabel = innerWidth < 360 ? 'Divergence' : 'Point of divergence'
+  const podLabelWidth = podLabel.length * 7 + 12
+  const podLabelOnLeft =
+    podCoordinate !== null &&
+    podCoordinate.x + podLabelWidth > innerWidth &&
+    podCoordinate.x > innerWidth - podCoordinate.x
+
   // Shared event pairs for vertical alignment connectors
   const sharedAlignmentLines = useMemo(() => {
     const pairs: { id: string; x: number }[] = []
@@ -168,114 +418,164 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
     return pairs
   }, [baselineEvents, itemMap, xScale, innerWidth])
 
+  // Collision-free event titles, laid out per lane. The point-of-divergence
+  // event is named first, so the mark the comparison turns on is never the
+  // one left unlabelled.
+  const podEventId = metrics.pointOfDivergence?.event?.id
+  const baselineLabels = useMemo<Map<string, EventLabelPlacement>>(
+    () =>
+      layoutEventLabels(
+        baselineEvents.map(event => ({
+          id: event.id,
+          x: xScale(new Date(event.timestamp)),
+          description: event.description,
+          priority: event.id === podEventId,
+        })),
+        innerWidth,
+        LANE_LABEL_CONFIG
+      ),
+    [baselineEvents, xScale, innerWidth, podEventId]
+  )
+  const counterfactualLabels = useMemo<Map<string, EventLabelPlacement>>(
+    () =>
+      layoutEventLabels(
+        counterfactualEvents.map(event => ({
+          id: event.id,
+          x: xScale(new Date(event.timestamp)),
+          description: event.description,
+          priority: event.id === podEventId,
+        })),
+        innerWidth,
+        LANE_LABEL_CONFIG
+      ),
+    [counterfactualEvents, xScale, innerWidth, podEventId]
+  )
+
+  const laneLabelMaxChars = Math.max(6, Math.floor((margin.left - 16) / LANE_LABEL_CHAR_PX))
+  const baselineLaneLines = wrapLaneLabel(baselineName, laneLabelMaxChars)
+  const counterfactualLaneLines = wrapLaneLabel(counterfactualName, laneLabelMaxChars)
+
+  const renderLaneLabel = (lines: string[], fullName: string, laneY: number, swatch: string) => (
+    <g>
+      <text
+        x={0}
+        y={laneY + (lines.length > 1 ? -3 : 4)}
+        textAnchor="end"
+        fontSize={12}
+        fontWeight={600}
+        style={{ fill: 'var(--text-primary)' }}
+      >
+        <title>{fullName}</title>
+        {lines.map((line, i) => (
+          <tspan key={i} x={0} dy={i === 0 ? 0 : LANE_LABEL_LINE_HEIGHT}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+      <circle cx={7} cy={laneY} r={3.5} style={{ fill: swatch }} />
+    </g>
+  )
+
+  const renderEventLabels = (
+    events: readonly Event[],
+    placements: Map<string, EventLabelPlacement>,
+    laneY: number,
+    lane: 'baseline' | 'counterfactual'
+  ) =>
+    events.map(event => {
+      const placement = placements.get(event.id)
+      if (!placement) return null
+      return (
+        <text
+          key={`${lane}-label-${event.id}`}
+          data-testid={`${lane === 'baseline' ? 'event' : 'cf-event'}-label-${event.id}`}
+          x={xScale(new Date(event.timestamp))}
+          y={laneY + placement.offset}
+          textAnchor={placement.anchor}
+          fontSize={LABEL_FONT_PX}
+          fontWeight={placement.emphasis ? 600 : 400}
+          pointerEvents="none"
+          style={{
+            fill: placement.emphasis ? 'var(--text-primary)' : 'var(--text-secondary)',
+            paintOrder: 'stroke',
+            stroke: 'var(--surface-subtle)',
+            strokeWidth: 3,
+            strokeLinejoin: 'round',
+          }}
+        >
+          {placement.text}
+        </text>
+      )
+    })
+
   return (
-    <div className={`counterfactual-timeline-container relative bg-white rounded-lg shadow-sm border border-gray-200 p-4 ${className}`}>
-      {/* Top Action / Legend Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-gray-100 pb-3">
-        <div className="flex flex-wrap items-center gap-4 text-xs font-medium">
-          <div className="flex items-center gap-1.5 text-blue-700">
-            <span className="w-3 h-3 rounded-full bg-blue-500 inline-block" />
-            <span>Baseline: {baselineName}</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-purple-700">
-            <span className="w-3 h-3 rounded-full bg-purple-600 inline-block" />
-            <span>Branch: {counterfactualName}</span>
-          </div>
+    // A plain region, not a card: it sits inside a dialog that is already one.
+    <div className={`counterfactual-timeline-container relative min-w-0 ${className}`}>
+      {/* Legend (every mark the canvas draws) and the view controls */}
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 mb-3">
+        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-ink-secondary min-w-0" aria-label="Legend">
+          {(['shared', 'divergent_added', 'modified', 'baseline_only'] as const).map(status => (
+            <li key={status} className="flex items-center gap-1.5">
+              <LegendMark status={status} />
+              {STATUS_TEXT[status]}
+            </li>
+          ))}
           {metrics.pointOfDivergence && (
-            <div className="flex items-center gap-1.5 text-amber-700 font-semibold bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
-              <span className="w-2.5 h-2.5 rotate-45 bg-amber-500 inline-block" />
-              <span>PoD: {new Date(metrics.pointOfDivergence.timestamp).toLocaleDateString()}</span>
-            </div>
+            <li className="flex items-center gap-1.5 text-ink">
+              <DivergenceMark />
+              <span>
+                Point of divergence,{' '}
+                <span className="font-mono-code">{formatHistoricalDate(metrics.pointOfDivergence.timestamp)}</span>
+              </span>
+            </li>
           )}
-        </div>
+        </ul>
 
         {/* Zoom & Pan Controls */}
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={handlePanLeft}
-            className="p-1 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded"
-            title="Pan Left"
-          >
-            ◀
+        <div className="flex items-center gap-0.5 ml-auto" role="group" aria-label="Timeline view">
+          <button type="button" onClick={handlePanLeft} className={CONTROL_BUTTON} title="Pan left" aria-label="Pan left">
+            <Chevron direction="left" />
           </button>
-          <button
-            type="button"
-            onClick={handlePanRight}
-            className="p-1 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded"
-            title="Pan Right"
-          >
-            ▶
+          <button type="button" onClick={handlePanRight} className={CONTROL_BUTTON} title="Pan right" aria-label="Pan right">
+            <Chevron direction="right" />
           </button>
-          <button
-            type="button"
-            onClick={handleZoomIn}
-            className="p-1 px-2 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"
-            title="Zoom In"
-          >
-            +
+          <button type="button" onClick={handleZoomIn} className={CONTROL_BUTTON} title="Zoom in" aria-label="Zoom in">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+            </svg>
           </button>
-          <button
-            type="button"
-            onClick={handleZoomOut}
-            className="p-1 px-2 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"
-            title="Zoom Out"
-          >
-            -
+          <button type="button" onClick={handleZoomOut} className={CONTROL_BUTTON} title="Zoom out" aria-label="Zoom out">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" d="M5 12h14" />
+            </svg>
           </button>
-          <button
-            type="button"
-            onClick={handleResetZoom}
-            className="p-1 px-2 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"
-            title="Reset View"
-          >
+          <button type="button" onClick={handleResetZoom} className={`${CONTROL_BUTTON} text-xs font-medium`} title="Reset view">
             Reset
           </button>
         </div>
       </div>
 
-      {/* D3-driven SVG Dual-Lane Canvas */}
-      <div className="overflow-x-auto">
+      {/* Dual-lane canvas: React renders the SVG, d3 supplies the scale. The
+          wrapper is measured for the width and positions the tooltip. */}
+      <div ref={canvasRef} className="relative">
         <svg
           ref={svgRef}
           width={width}
           height={height}
-          className="select-none"
+          className="block select-none"
           role="img"
-          aria-label={`Counterfactual divergence timeline between ${baselineName} and ${counterfactualName}`}
+          aria-label={`Timelines of ${baselineName} (baseline) and ${counterfactualName} (branch), aligned at the point of divergence`}
         >
           <defs>
             <clipPath id="dual-lane-clip">
               <rect x={0} y={0} width={innerWidth} height={innerHeight} />
             </clipPath>
-            {/* Divergence Point Gradient */}
-            <linearGradient id="pod-glow" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#F59E0B" stopOpacity="0.8" />
-              <stop offset="50%" stopColor="#FBBF24" stopOpacity="0.4" />
-              <stop offset="100%" stopColor="#F59E0B" stopOpacity="0.8" />
-            </linearGradient>
           </defs>
 
-          {/* Lane Labels in Left Margin */}
-          <g transform={`translate(${margin.left - 12}, ${margin.top})`}>
-            <text
-              x={0}
-              y={baselineLaneY + 4}
-              textAnchor="end"
-              className="text-xs font-semibold fill-blue-800"
-              fontSize={12}
-            >
-              {baselineName}
-            </text>
-            <text
-              x={0}
-              y={counterfactualLaneY + 4}
-              textAnchor="end"
-              className="text-xs font-semibold fill-purple-800"
-              fontSize={12}
-            >
-              {counterfactualName}
-            </text>
+          {/* Lane labels in the left margin, wrapped and truncated to fit it */}
+          <g transform={`translate(${margin.left - 16}, ${margin.top})`}>
+            {renderLaneLabel(baselineLaneLines, baselineName, baselineLaneY, 'var(--accent-baseline)')}
+            {renderLaneLabel(counterfactualLaneLines, counterfactualName, counterfactualLaneY, 'var(--accent-divergence)')}
           </g>
 
           <g transform={`translate(${margin.left}, ${margin.top})`}>
@@ -285,7 +585,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
               y={0}
               width={innerWidth}
               height={innerHeight}
-              fill="#F9FAFB"
+              style={{ fill: 'var(--surface-subtle)' }}
               rx={6}
             />
 
@@ -297,7 +597,8 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
                 y1={baselineLaneY}
                 x2={innerWidth}
                 y2={baselineLaneY}
-                stroke="#DBEAFE"
+                style={{ stroke: 'var(--accent-baseline)' }}
+                strokeOpacity={0.35}
                 strokeWidth={2}
                 strokeDasharray="4 4"
               />
@@ -308,7 +609,8 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
                 y1={counterfactualLaneY}
                 x2={innerWidth}
                 y2={counterfactualLaneY}
-                stroke="#EDE9FE"
+                style={{ stroke: 'var(--accent-divergence)' }}
+                strokeOpacity={0.45}
                 strokeWidth={2}
                 strokeDasharray="4 4"
               />
@@ -321,23 +623,32 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
                   y1={baselineLaneY}
                   x2={pair.x}
                   y2={counterfactualLaneY}
-                  stroke="#E5E7EB"
-                  strokeWidth={1.5}
+                  style={{ stroke: 'var(--text-muted)' }}
+                  strokeOpacity={0.5}
+                  strokeWidth={1}
                   strokeDasharray="2 2"
                 />
               ))}
 
               {/* Point of Divergence Marker */}
               {podCoordinate && podCoordinate.isInView && (
-                <g className="cursor-pointer" onClick={() => setHoveredPod(podCoordinate.pod)}>
-                  {/* Glow band */}
+                <g
+                  className="pod-marker group cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Point of divergence: ${podCoordinate.pod.description}, ${formatHistoricalTimestamp(podCoordinate.pod.timestamp)}`}
+                  style={{ outline: 'none' }}
+                  onClick={() => setHoveredPod(podCoordinate.pod)}
+                  onKeyDown={e => activateOnKey(e, () => setHoveredPod(podCoordinate.pod))}
+                >
+                  {/* Band */}
                   <rect
                     x={podCoordinate.x - 12}
                     y={0}
                     width={24}
                     height={innerHeight}
-                    fill="#FEF3C7"
-                    opacity={0.35}
+                    style={{ fill: 'var(--accent-divergence)' }}
+                    opacity={0.1}
                   />
 
                   {/* Divergence Line */}
@@ -346,27 +657,40 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
                     y1={0}
                     x2={podCoordinate.x}
                     y2={innerHeight}
-                    stroke="#F59E0B"
-                    strokeWidth={2.5}
+                    style={{ stroke: 'var(--accent-divergence)' }}
+                    strokeWidth={2}
                     strokeDasharray="6 3"
                   />
 
-                  {/* Top PoD Fork Badge */}
+                  {/* Diamond badge */}
                   <g transform={`translate(${podCoordinate.x}, 16)`}>
+                    <circle
+                      className="opacity-0 group-focus-visible:opacity-100"
+                      r={13}
+                      fill="none"
+                      stroke="var(--accent-selected)"
+                      strokeWidth={2}
+                    />
                     <polygon
                       points="0,-8 8,0 0,8 -8,0"
-                      fill="#F59E0B"
-                      stroke="#B45309"
+                      style={{ fill: 'var(--accent-divergence)', stroke: 'var(--surface-card)' }}
                       strokeWidth={1.5}
                     />
                     <text
-                      x={12}
+                      x={podLabelOnLeft ? -12 : 12}
                       y={4}
-                      fontSize={11}
-                      fontWeight="bold"
-                      fill="#B45309"
+                      textAnchor={podLabelOnLeft ? 'end' : 'start'}
+                      fontSize={LABEL_FONT_PX}
+                      fontWeight={600}
+                      style={{
+                        fill: 'var(--text-primary)',
+                        paintOrder: 'stroke',
+                        stroke: 'var(--surface-subtle)',
+                        strokeWidth: 3,
+                        strokeLinejoin: 'round',
+                      }}
                     >
-                      Point of Divergence
+                      {podLabel}
                     </text>
                   </g>
                 </g>
@@ -378,35 +702,36 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
                 if (x < -20 || x > innerWidth + 20) return null
 
                 const item = itemMap.get(event.id)
-                const isShared = item?.status === 'shared'
-                const isSuperseded = item?.status === 'baseline_only'
+                const status: MarkStatus = item?.status === 'baseline_only' ? 'baseline_only' : 'shared'
+                const select = () => onEventSelect?.(event, 'baseline')
+                const show = () =>
+                  setHovered({
+                    event,
+                    lane: 'baseline',
+                    status: item?.status ?? 'shared',
+                    x: margin.left + x,
+                    y: margin.top + baselineLaneY,
+                  })
 
                 return (
                   <g
                     key={`base-${event.id}`}
                     data-testid={`event-node-${event.id}`}
                     transform={`translate(${x}, ${baselineLaneY})`}
-                    className="cursor-pointer"
-                    onClick={() => onEventSelect?.(event, 'baseline')}
-                    onMouseEnter={() =>
-                      setHovered({
-                        event,
-                        lane: 'baseline',
-                        status: item?.status ?? 'shared',
-                        x: margin.left + x,
-                        y: margin.top + baselineLaneY,
-                      })
-                    }
+                    className="group cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={eventLabel(event, baselineName)}
+                    style={{ outline: 'none' }}
+                    onClick={select}
+                    onKeyDown={e => activateOnKey(e, select)}
+                    onMouseEnter={show}
                     onMouseLeave={() => setHovered(null)}
+                    onFocus={show}
+                    onBlur={() => setHovered(null)}
                   >
-                    <circle
-                      r={isShared ? 6 : 7}
-                      fill={isShared ? '#3B82F6' : '#9CA3AF'}
-                      stroke={isShared ? '#1D4ED8' : '#4B5563'}
-                      strokeWidth={1.5}
-                      strokeDasharray={isSuperseded ? '2 2' : undefined}
-                      opacity={isSuperseded ? 0.75 : 1}
-                    />
+                    <FocusRing />
+                    <EventMark status={status} r={6.5} />
                   </g>
                 )
               })}
@@ -417,61 +742,66 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
                 if (x < -20 || x > innerWidth + 20) return null
 
                 const item = itemMap.get(event.id)
-                const isDivergent = item?.status === 'divergent_added' || item?.status === 'modified'
+                const status: MarkStatus =
+                  item?.status === 'modified'
+                    ? 'modified'
+                    : item?.status === 'shared'
+                      ? 'shared'
+                      : 'divergent_added'
+                const select = () => onEventSelect?.(event, 'counterfactual')
+                const show = () =>
+                  setHovered({
+                    event,
+                    lane: 'counterfactual',
+                    status: item?.status ?? 'divergent_added',
+                    x: margin.left + x,
+                    y: margin.top + counterfactualLaneY,
+                  })
 
                 return (
                   <g
                     key={`cf-${event.id}`}
                     data-testid={`cf-event-node-${event.id}`}
                     transform={`translate(${x}, ${counterfactualLaneY})`}
-                    className="cursor-pointer"
-                    onClick={() => onEventSelect?.(event, 'counterfactual')}
-                    onMouseEnter={() =>
-                      setHovered({
-                        event,
-                        lane: 'counterfactual',
-                        status: item?.status ?? 'divergent_added',
-                        x: margin.left + x,
-                        y: margin.top + counterfactualLaneY,
-                      })
-                    }
+                    className="group cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={eventLabel(event, counterfactualName)}
+                    style={{ outline: 'none' }}
+                    onClick={select}
+                    onKeyDown={e => activateOnKey(e, select)}
+                    onMouseEnter={show}
                     onMouseLeave={() => setHovered(null)}
+                    onFocus={show}
+                    onBlur={() => setHovered(null)}
                   >
-                    {/* Golden halo for divergent milestone events */}
-                    {isDivergent && (
-                      <circle
-                        r={11}
-                        fill="none"
-                        stroke="#F59E0B"
-                        strokeWidth={1.5}
-                        strokeDasharray="3 2"
-                        opacity={0.8}
-                      />
-                    )}
-
-                    <circle
-                      r={isDivergent ? 7 : 6}
-                      fill={isDivergent ? '#8B5CF6' : '#3B82F6'}
-                      stroke={isDivergent ? '#6D28D9' : '#1D4ED8'}
-                      strokeWidth={2}
-                    />
+                    <FocusRing />
+                    <EventMark status={status} r={status === 'shared' ? 6.5 : 7} />
                   </g>
                 )
               })}
+
+              {/* Event titles: decorative (each mark carries its full name
+                  in its aria-label), so hidden from assistive technology. */}
+              <g aria-hidden="true">
+                {renderEventLabels(baselineEvents, baselineLabels, baselineLaneY, 'baseline')}
+                {renderEventLabels(counterfactualEvents, counterfactualLabels, counterfactualLaneY, 'counterfactual')}
+              </g>
             </g>
 
             {/* Bottom Time Axis */}
             <g transform={`translate(0, ${innerHeight})`}>
-              <line x1={0} y1={0} x2={innerWidth} y2={0} stroke="#D1D5DB" strokeWidth={1} />
+              <line x1={0} y1={0} x2={innerWidth} y2={0} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
               {timeTicks.map(tick => (
                 <g key={`tick-${tick.label}-${tick.x}`} transform={`translate(${tick.x}, 0)`}>
-                  <line x1={0} y1={0} x2={0} y2={6} stroke="#9CA3AF" strokeWidth={1} />
+                  <line x1={0} y1={0} x2={0} y2={6} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
                   <text
                     x={0}
                     y={18}
-                    textAnchor="middle"
-                    fontSize={10}
-                    fill="#6B7280"
+                    textAnchor={tick.anchor}
+                    fontSize={LABEL_FONT_PX}
+                    className="font-mono-code"
+                    style={{ fill: 'var(--text-secondary)' }}
                   >
                     {tick.label}
                   </text>
@@ -480,54 +810,51 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
             </g>
           </g>
         </svg>
+
+        {/* Hover/focus tooltip, positioned in the canvas wrapper's coordinates. */}
+        {hovered && (
+          <div
+            role="tooltip"
+            className="absolute z-30 pointer-events-none bg-card text-ink border border-line rounded-md p-2.5 shadow-lg text-xs"
+            style={{
+              maxWidth: `${TOOLTIP_WIDTH_PX}px`,
+              // Kept inside the canvas, so it never widens a narrow sheet.
+              left: `${Math.max(4, Math.min(hovered.x + 12, width - TOOLTIP_WIDTH_PX - 4))}px`,
+              // Above the mark where there is room, otherwise below it.
+              top: `${hovered.y >= 104 ? hovered.y - 100 : hovered.y + 16}px`,
+            }}
+          >
+            <div className="font-semibold mb-0.5">{hovered.event.description}</div>
+            <div className="text-ink-secondary">
+              {hovered.event.actor} → {hovered.event.target}
+            </div>
+            <div className="font-mono-code text-ink-muted mt-1">
+              {formatHistoricalTimestamp(hovered.event.timestamp)}
+            </div>
+            <div className="mt-1.5 pt-1.5 border-t border-line flex items-center gap-1.5 font-medium">
+              <LegendMark status={hovered.status} />
+              {STATUS_TEXT[hovered.status]}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Floating Hover Tooltip */}
-      {hovered && (
-        <div
-          className="absolute z-30 pointer-events-none bg-gray-900 text-white rounded-lg p-2.5 shadow-xl text-xs max-w-xs transition-opacity duration-150"
-          style={{
-            left: `${Math.min(hovered.x + 12, width - 240)}px`,
-            top: `${Math.max(hovered.y - 70, 10)}px`,
-          }}
-        >
-          <div className="font-semibold text-white mb-0.5">{hovered.event.description}</div>
-          <div className="text-gray-300">
-            {hovered.event.actor} → {hovered.event.target}
-          </div>
-          <div className="text-gray-400 mt-1">
-            {new Date(hovered.event.timestamp).toLocaleString()}
-          </div>
-          <div className="mt-1.5 pt-1.5 border-t border-gray-700 flex items-center gap-1.5 font-medium">
-            {hovered.status === 'shared' && (
-              <span className="text-blue-400">✓ Shared Continuity</span>
-            )}
-            {hovered.status === 'divergent_added' && (
-              <span className="text-purple-400">★ Counterfactual Divergence</span>
-            )}
-            {hovered.status === 'modified' && (
-              <span className="text-amber-400">✎ Modified in Branch</span>
-            )}
-            {hovered.status === 'baseline_only' && (
-              <span className="text-gray-400">∅ Baseline Only (Prevented)</span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Point of Divergence Click Detail Card */}
+      {/* Point of divergence detail, opened from the marker */}
       {hoveredPod && (
-        <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-xs text-amber-900">
+        <div className="mt-4 p-3 bg-divergence/10 border border-divergence/40 rounded-md flex items-center justify-between gap-2 text-sm text-ink">
           <div>
-            <span className="font-bold mr-1">Point of Divergence:</span>
+            <span className="font-semibold mr-1">Point of divergence:</span>
             <span>{hoveredPod.description}</span>
           </div>
           <button
             type="button"
             onClick={() => setHoveredPod(null)}
-            className="text-amber-700 hover:text-amber-900 font-bold ml-2"
+            aria-label="Dismiss point of divergence details"
+            className={CONTROL_BUTTON}
           >
-            ✕
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
       )}

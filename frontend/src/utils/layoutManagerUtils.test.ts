@@ -20,7 +20,12 @@ import {
   FIT_PADDING,
   DEFAULT_ZOOM,
   LayoutConfig,
-  toCytoscapeLayoutOptions
+  toCytoscapeLayoutOptions,
+  PRIMARY_LAYOUT_NAMES,
+  isPrimaryLayout,
+  canvasStretch,
+  CANVAS_STRETCH_LAYOUTS,
+  MAX_CANVAS_STRETCH
 } from './layoutManagerUtils'
 
 describe('Layout Manager Utils', () => {
@@ -38,7 +43,7 @@ describe('Layout Manager Utils', () => {
 
     it('returns null for invalid shortcuts', () => {
       expect(getLayoutFromShortcut('x')).toBeNull()
-      expect(getLayoutFromShortcut('9')).toBeNull()
+      expect(getLayoutFromShortcut('9')).toBe('time')
       expect(getLayoutFromShortcut('0')).toBeNull()
       expect(getLayoutFromShortcut('')).toBeNull()
     })
@@ -194,7 +199,7 @@ describe('Layout Manager Utils', () => {
       expect(coseOptions.name).toBe('cose')
       expect(coseOptions.animationDuration).toBe(1000)
       expect(coseOptions.fit).toBe(true)
-      expect(coseOptions.padding).toBe(50)
+      expect(coseOptions.padding).toBe(FIT_PADDING)
     })
 
     it('returns minimal options for unknown layouts', () => {
@@ -250,8 +255,8 @@ describe('Layout Manager Utils', () => {
     it('preserves other options from defaults', () => {
       const preview = getPreviewLayoutOptions('cose')
 
-      expect(preview.nodeRepulsion).toBe(400000)
-      expect(preview.padding).toBe(50)
+      expect(preview.nodeRepulsion).toBe(getDefaultLayoutOptions('cose').nodeRepulsion)
+      expect(preview.padding).toBe(FIT_PADDING)
     })
   })
 
@@ -286,13 +291,14 @@ describe('Layout Manager Utils', () => {
       expect(names).toContain('dagre')
       expect(names).toContain('cose-bilkent')
       expect(names).toContain('random')
-      expect(names).toHaveLength(8)
+      expect(names).toContain('time')
+      expect(names).toHaveLength(9)
     })
   })
 
   describe('Constants', () => {
     it('has correct LAYOUT_SHORTCUTS', () => {
-      expect(Object.keys(LAYOUT_SHORTCUTS)).toHaveLength(8)
+      expect(Object.keys(LAYOUT_SHORTCUTS)).toHaveLength(9)
       expect(LAYOUT_SHORTCUTS['1']).toBe('cose')
     })
 
@@ -313,7 +319,8 @@ describe('Layout Manager Utils', () => {
     })
 
     it('has correct display constants', () => {
-      expect(FIT_PADDING).toBe(50)
+      // Small: 50px each side gave a quarter of a 400px canvas to margin
+      expect(FIT_PADDING).toBe(30)
       expect(DEFAULT_ZOOM).toBe(1)
     })
   })
@@ -334,5 +341,66 @@ describe('Layout Manager Utils', () => {
       const options = toCytoscapeLayoutOptions({ name: 'grid', nodeDimensionsIncludeLabels: false }) as unknown as Record<string, unknown>
       expect(options.nodeDimensionsIncludeLabels).toBe(false)
     })
+  })
+})
+
+describe('primary layouts', () => {
+  it('names time order, force-directed and the layered layout, all of them real layouts with shortcuts', () => {
+    expect(PRIMARY_LAYOUT_NAMES).toEqual(['time', 'cose', 'dagre'])
+    for (const name of PRIMARY_LAYOUT_NAMES) {
+      expect(isValidLayoutName(name)).toBe(true)
+      expect(getShortcutForLayout(name)).not.toBeNull()
+    }
+  })
+
+  it('leaves every other layout (Random included) for "More layouts"', () => {
+    expect(isPrimaryLayout('dagre')).toBe(true)
+    expect(isPrimaryLayout('random')).toBe(false)
+    expect(isPrimaryLayout('circle')).toBe(false)
+  })
+})
+
+describe('using the canvas', () => {
+  it('tunes the force layouts to spread a graph out rather than pack it into a ball', () => {
+    const cose = getDefaultLayoutOptions('cose')
+    // gravity 80 and 100px edges pulled the graph into ~40% of a wide canvas
+    expect(cose.gravity as number).toBeLessThanOrEqual(1)
+    expect(cose.idealEdgeLength as number).toBeGreaterThanOrEqual(150)
+    expect(cose.nodeRepulsion as number).toBeGreaterThanOrEqual(1_000_000)
+    expect(cose.componentSpacing as number).toBeGreaterThanOrEqual(100)
+    const bilkent = getDefaultLayoutOptions('cose-bilkent')
+    expect(bilkent.idealEdgeLength as number).toBeGreaterThanOrEqual(100)
+    for (const name of getAvailableLayoutNames()) {
+      expect(getDefaultLayoutOptions(name).padding, name).toBe(FIT_PADDING)
+    }
+  })
+
+  it('stretches only the shapeless (force) layouts to the canvas', () => {
+    expect(CANVAS_STRETCH_LAYOUTS).toEqual(['cose', 'cose-bilkent'])
+  })
+
+  it('widens a round cloud to fill a wide canvas', () => {
+    // A 600x600 cloud in a 1200x500 canvas: widened 2.4x to the canvas aspect
+    const { sx, sy } = canvasStretch({ w: 600, h: 600 }, { width: 1200, height: 500 })
+    expect(sx).toBeCloseTo(2.4, 5)
+    expect(sy).toBe(1)
+  })
+
+  it('heightens a flat graph to fill a tall canvas', () => {
+    const { sx, sy } = canvasStretch({ w: 900, h: 300 }, { width: 400, height: 400 })
+    expect(sx).toBe(1)
+    expect(sy).toBe(MAX_CANVAS_STRETCH)
+  })
+
+  it('never shrinks, caps the stretch, and leaves degenerate shapes alone', () => {
+    // Already the canvas's aspect
+    expect(canvasStretch({ w: 200, h: 100 }, { width: 800, height: 400 })).toEqual({ sx: 1, sy: 1 })
+    // A vertical chain would need a huge stretch: capped
+    expect(canvasStretch({ w: 10, h: 1000 }, { width: 1000, height: 500 }).sx).toBe(MAX_CANVAS_STRETCH)
+    // One node, or every node on one line
+    expect(canvasStretch({ w: 0, h: 0 }, { width: 800, height: 400 })).toEqual({ sx: 1, sy: 1 })
+    expect(canvasStretch({ w: 500, h: 0 }, { width: 800, height: 400 })).toEqual({ sx: 1, sy: 1 })
+    // A hidden (zero-size) canvas
+    expect(canvasStretch({ w: 500, h: 500 }, { width: 0, height: 0 })).toEqual({ sx: 1, sy: 1 })
   })
 })

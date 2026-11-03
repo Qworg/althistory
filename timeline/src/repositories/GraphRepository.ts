@@ -14,6 +14,7 @@ import {
   VersionRef,
   VersionOperation,
   MergeParent,
+  EntityType,
 } from '../models/Graph';
 import { VersionRepository, EntityChanges, ResolvedGraphData } from './VersionRepository';
 
@@ -273,6 +274,18 @@ export class GraphRepository {
    */
   async getLatestVersion(graphId: string): Promise<VersionRef | null> {
     return this.versionRepository.getLatestVersion(graphId);
+  }
+
+  /**
+   * Some entities' data at the graph's head version, by id (absent ids are
+   * omitted). For describing a write in Version history.
+   */
+  async getHeadEntities(
+    graphId: string,
+    type: EntityType,
+    ids: string[]
+  ): Promise<Record<string, Record<string, unknown>>> {
+    return this.versionRepository.getHeadEntities(graphId, type, ids);
   }
 
   /**

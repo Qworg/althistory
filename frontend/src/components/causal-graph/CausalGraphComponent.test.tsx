@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { render, waitFor, screen, fireEvent, act } from '@testing-library/react'
 import type { Core, CytoscapeOptions } from 'cytoscape'
 import { CausalGraphComponent } from './CausalGraphComponent'
 import { useGlobalStore } from '@/stores/globalStore'
@@ -11,6 +11,8 @@ import {
   setupCytoscapeTestEnvironment,
   getEventHandlers
 } from '@/test/helpers/cytoscapeTestHelpers'
+import { FIT_PADDING, getDefaultLayoutOptions } from '@/utils/layoutManagerUtils'
+import { GRAPH_PALETTES } from './causalGraphPresentation'
 
 /**
  * Shape of the store double created by the `vi.mock` factory below. Only the
@@ -78,6 +80,14 @@ vi.mock('@/stores/globalStore', () => {
   }
 })
 
+// Shared spies for the hook functions the analysis tools call, so a test can
+// assert on them across renders (the factories below run on every render).
+const hookSpies = vi.hoisted(() => ({
+  startExploration: vi.fn(),
+  stopExploration: vi.fn(),
+  loadSuggestions: vi.fn()
+}))
+
 // Mock hooks
 vi.mock('@/hooks/useCausalPathExploration', () => ({
   default: () => ({
@@ -85,8 +95,8 @@ vi.mock('@/hooks/useCausalPathExploration', () => ({
     currentHighlight: null,
     navigationState: { isNavigating: false, currentPathIndex: 0, currentStepIndex: 0, autoAdvance: false, autoAdvanceInterval: 2000 },
     isLoading: false,
-    startExploration: vi.fn(),
-    stopExploration: vi.fn(),
+    startExploration: hookSpies.startExploration,
+    stopExploration: hookSpies.stopExploration,
     navigateToPath: vi.fn(),
     navigateToStep: vi.fn(),
     nextStep: vi.fn(),
@@ -102,7 +112,7 @@ vi.mock('@/hooks/useCausalSuggestions', () => ({
   default: () => ({
     suggestions: [],
     isLoading: false,
-    loadSuggestions: vi.fn(),
+    loadSuggestions: hookSpies.loadSuggestions,
     acceptSuggestion: vi.fn(),
     rejectSuggestion: vi.fn(),
     addFeedback: vi.fn()
@@ -273,6 +283,179 @@ describe('CausalGraphComponent', () => {
       expect(nodeStyle?.label).toBe('data(label)')
       // The label sits outside the node, so it must not be white on the canvas.
       expect(nodeStyle?.color).not.toBe('#FFFFFF')
+    })
+
+    it('hides labels that would be too small to read rather than drawing them unreadably', async () => {
+      render(<CausalGraphComponent />)
+
+      await waitFor(() => expect(mockedCytoscape).toHaveBeenCalled())
+      const styles = (mockedCytoscape.mock.calls[0]?.[0]?.style ?? []) as Array<{ selector: string; style: Record<string, unknown> }>
+      const nodeStyle = styles.find((entry) => entry.selector === 'node')?.style
+      expect(nodeStyle?.['min-zoomed-font-size']).toBeGreaterThanOrEqual(8)
+      expect(nodeStyle?.['font-size']).toBe('12px')
+      expect(nodeStyle?.['text-wrap']).toBe('wrap')
+      expect(nodeStyle?.['text-max-width']).toBeDefined()
+      // A divergence point keeps readable ink: white text vanished on the label pill.
+      const divergence = styles.find((entry) => entry.selector === 'node.divergence-point')?.style
+      expect(divergence?.color).toBeUndefined()
+    })
+
+    it('labels each node with its event description, shortened to fit', async () => {
+      const mockState = getMockStoreState()
+      mockState.events = [
+        { ...mockEvents[0]!, description: 'Babbage completes the Analytical Engine in London' },
+        { ...mockEvents[1]!, description: '' }
+      ]
+      mockState.causalRelationships = []
+
+      render(<CausalGraphComponent />)
+
+      await waitFor(() => {
+        expect(mockCy.add).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ data: expect.objectContaining({ id: '1', label: 'Babbage completes the Analy…' }) }),
+            // No description: the actor pair is all there is to say.
+            expect.objectContaining({ data: expect.objectContaining({ id: '2', label: 'Actor 2 → Target 2' }) })
+          ])
+        )
+      })
+    })
+
+    it('shows the full description, actor → target and UTC date in the hover tooltip', async () => {
+      render(<CausalGraphComponent />)
+
+      await waitFor(() => {
+        expect(getEventHandlers(mockCy, 'mouseover', 'node').length).toBeGreaterThan(0)
+      })
+
+      act(() => {
+        getEventHandlers(mockCy, 'mouseover', 'node')[0]!({
+          target: {
+            data: () => ({ id: '1', event: mockEvents[0] }),
+            addClass: vi.fn(),
+            renderedPosition: vi.fn(() => ({ x: 100, y: 100 }))
+          }
+        })
+      })
+
+      const tooltip = screen.getByRole('tooltip')
+      expect(tooltip).toHaveTextContent('Event 1')
+      expect(tooltip).toHaveTextContent('Actor 1 → Target 1')
+      expect(tooltip).toHaveTextContent('Jan 1, 2023')
+      // The canvas points assistive technology at the tooltip while it is open.
+      expect(screen.getByRole('application')).toHaveAttribute('aria-describedby', tooltip.id)
+    })
+
+    it('announces the event keyboard navigation moves to, in full', async () => {
+      render(<CausalGraphComponent />)
+
+      const canvas = screen.getByRole('application')
+      fireEvent.keyDown(canvas, { key: 'ArrowRight' })
+
+      await waitFor(() => {
+        expect(screen.getByText('Event 1. Actor 1 → Target 1. Jan 1, 2023')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('Framing the graph', () => {
+    it('hides labels that would overprint another, keeping one per crowded spot', async () => {
+      const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+        cb(0)
+        return 1
+      })
+      try {
+        render(<CausalGraphComponent />)
+        await waitFor(() => {
+          expect(getEventHandlers(mockCy, 'layoutstop').length).toBeGreaterThan(0)
+        })
+        // Stack every node on one spot so their label boxes coincide
+        mockCy._mockData.nodes.forEach((node) => {
+          node.position = { x: 0, y: 0 }
+        })
+        getEventHandlers(mockCy, 'layoutstop')[0]!()
+
+        // The last pass decides: read each node's most recent label-culled call
+        type Spied = { id: () => string; addClass: ReturnType<typeof vi.fn>; removeClass: ReturnType<typeof vi.fn> }
+        const lastCall = (fn: ReturnType<typeof vi.fn>) =>
+          Math.max(-1, ...fn.mock.invocationCallOrder.filter((_, i) => fn.mock.calls[i]?.[0] === 'label-culled'))
+        const state = new Map<string, 'shown' | 'culled'>()
+        mockCy.nodes().forEach((node: Spied) => {
+          state.set(node.id(), lastCall(node.addClass) > lastCall(node.removeClass) ? 'culled' : 'shown')
+        })
+        const values = [...state.values()]
+        expect(values.filter((v) => v === 'shown')).toHaveLength(1)
+        expect(values.filter((v) => v === 'culled').length).toBe(state.size - 1)
+
+        // A culled label comes back for the node being looked at
+        const styles = (mockedCytoscape.mock.calls[0]?.[0]?.style ?? []) as Array<{ selector: string; style: Record<string, unknown> }>
+        expect(styles.find((e) => e.selector === 'node.label-culled')?.style['text-opacity']).toBe(0)
+        expect(styles.find((e) => e.selector.includes('node.label-culled:selected'))?.style['text-opacity']).toBe(1)
+      } finally {
+        raf.mockRestore()
+      }
+    })
+
+    it('refits the graph once a layout has settled', async () => {
+      render(<CausalGraphComponent />)
+
+      await waitFor(() => {
+        expect(getEventHandlers(mockCy, 'layoutstop').length).toBeGreaterThan(0)
+      })
+      mockCy.fit.mockClear()
+
+      getEventHandlers(mockCy, 'layoutstop')[0]!()
+
+      expect(mockCy.fit).toHaveBeenCalledWith(undefined, FIT_PADDING)
+    })
+
+    it('resizes and refits the canvas when its container changes size', async () => {
+      let notify: ResizeObserverCallback | null = null
+      const observed: Element[] = []
+      const disconnect = vi.fn()
+      class CapturingResizeObserver {
+        constructor(callback: ResizeObserverCallback) {
+          notify = callback
+        }
+        observe(target: Element) {
+          observed.push(target)
+        }
+        unobserve() {}
+        disconnect = disconnect
+      }
+      const original = globalThis.ResizeObserver
+      globalThis.ResizeObserver = CapturingResizeObserver as unknown as typeof ResizeObserver
+      const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+        cb(0)
+        return 1
+      })
+
+      try {
+        const { unmount } = render(<CausalGraphComponent />)
+
+        await waitFor(() => expect(notify).not.toBeNull())
+        expect(observed).toContain(screen.getByRole('application'))
+        mockCy.fit.mockClear()
+        mockCy.resize.mockClear()
+
+        const resizeTo = (width: number, height: number) =>
+          notify!([{ contentRect: { width, height } } as unknown as ResizeObserverEntry], {} as ResizeObserver)
+
+        resizeTo(800, 600)
+        expect(mockCy.resize).toHaveBeenCalledTimes(1)
+        expect(mockCy.fit).toHaveBeenCalledWith(undefined, FIT_PADDING)
+
+        // The same size again, or a hidden (zero-size) container, is not a resize.
+        resizeTo(800, 600)
+        resizeTo(0, 0)
+        expect(mockCy.resize).toHaveBeenCalledTimes(1)
+
+        unmount()
+        expect(disconnect).toHaveBeenCalled()
+      } finally {
+        globalThis.ResizeObserver = original
+        raf.mockRestore()
+      }
     })
   })
 
@@ -475,14 +658,15 @@ describe('CausalGraphComponent', () => {
               data: expect.objectContaining({
                 id: '1',
                 event: mockEvents[0],
-                label: 'Actor 1 → Target 1'
+                // Labelled with what happened, not with the actor pair.
+                label: 'Event 1'
               })
             }),
             expect.objectContaining({
               data: expect.objectContaining({
                 id: '2',
                 event: mockEvents[1],
-                label: 'Actor 2 → Target 2'
+                label: 'Event 2'
               })
             }),
             expect.objectContaining({
@@ -552,7 +736,9 @@ describe('CausalGraphComponent', () => {
             id: () => '2',
             position: () => ({ x: 300, y: 400 })
           })
-        }
+        },
+        // layoutstop also re-applies zoom-scaled label sizing to the nodes
+        style: vi.fn()
       })
 
       handlers[0]!()
@@ -573,8 +759,84 @@ describe('CausalGraphComponent', () => {
     })
   })
 
+  describe('Analysis tools', () => {
+    const tapNode = async (event: Event) => {
+      const handlers = getEventHandlers(mockCy, 'tap', 'node')
+      await act(async () => {
+        handlers[handlers.length - 1]!({
+          target: { data: () => ({ id: event.id, event }), hasClass: () => false }
+        })
+      })
+    }
+
+    it('only selects a tapped node: it does not open path exploration or suggestions', async () => {
+      const onNodeClick = vi.fn()
+      render(<CausalGraphComponent onNodeClick={onNodeClick} />)
+      await waitFor(() => expect(mockCy.on).toHaveBeenCalledWith('tap', 'node', expect.any(Function)))
+
+      await tapNode(mockEvents[0]!)
+
+      expect(onNodeClick).toHaveBeenCalledWith(mockEvents[0])
+      expect(hookSpies.startExploration).not.toHaveBeenCalled()
+      expect(hookSpies.loadSuggestions).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: 'Explore Paths' })).toHaveAttribute('aria-pressed', 'false')
+      expect(screen.getByRole('button', { name: 'Suggest Links' })).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('does not open the tools when the focused event changes', async () => {
+      const { rerender } = render(<CausalGraphComponent />)
+      await waitFor(() => expect(mockCy.add).toHaveBeenCalled())
+      rerender(<CausalGraphComponent focusEventId="1" />)
+      await waitFor(() => expect(mockCy.getElementById).toHaveBeenCalledWith('1'))
+
+      expect(hookSpies.startExploration).not.toHaveBeenCalled()
+      expect(hookSpies.loadSuggestions).not.toHaveBeenCalled()
+    })
+
+    it('marks the tools unavailable, with a reason, until an event is selected', () => {
+      render(<CausalGraphComponent />)
+      const explore = screen.getByRole('button', { name: 'Explore Paths' })
+      expect(explore).toHaveAttribute('aria-disabled', 'true')
+      expect(explore).toHaveAttribute('title', expect.stringMatching(/Select an event/))
+
+      fireEvent.click(explore)
+      expect(hookSpies.startExploration).not.toHaveBeenCalled()
+      expect(explore).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('opens one tool at a time for the tapped event', async () => {
+      render(<CausalGraphComponent />)
+      await waitFor(() => expect(mockCy.on).toHaveBeenCalledWith('tap', 'node', expect.any(Function)))
+      await tapNode(mockEvents[1]!)
+
+      const explore = screen.getByRole('button', { name: 'Explore Paths' })
+      const suggest = screen.getByRole('button', { name: 'Suggest Links' })
+      expect(explore).not.toHaveAttribute('aria-disabled')
+
+      fireEvent.click(explore)
+      expect(explore).toHaveAttribute('aria-pressed', 'true')
+      await waitFor(() => expect(hookSpies.startExploration).toHaveBeenCalledWith('2'))
+
+      fireEvent.click(suggest)
+      expect(suggest).toHaveAttribute('aria-pressed', 'true')
+      expect(explore).toHaveAttribute('aria-pressed', 'false')
+      expect(hookSpies.stopExploration).toHaveBeenCalled()
+      await waitFor(() => expect(hookSpies.loadSuggestions).toHaveBeenCalledWith('2'))
+
+      fireEvent.click(suggest)
+      expect(suggest).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('respects enablePathExploration and enableSuggestions', () => {
+      render(<CausalGraphComponent enablePathExploration={false} enableSuggestions={false} />)
+      expect(screen.queryByRole('button', { name: 'Explore Paths' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Suggest Links' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Draw Link' })).toBeInTheDocument()
+    })
+  })
+
   describe('Focus Event', () => {
-    it('focuses on event when focusEventId prop changes', async () => {
+    it('focuses on event when focusEventId prop changes, keeping the user’s zoom', async () => {
       const { rerender } = render(<CausalGraphComponent />)
 
       await waitFor(() => {
@@ -585,15 +847,11 @@ describe('CausalGraphComponent', () => {
 
       await waitFor(() => {
         expect(mockCy.getElementById).toHaveBeenCalledWith('1')
-        expect(mockCy.animate).toHaveBeenCalledWith(
-          expect.objectContaining({
-            zoom: 1.5
-          }),
-          expect.objectContaining({
-            duration: 500
-          })
-        )
       })
+      // At most a pan to bring it into view: never a jump to a fixed zoom.
+      for (const [options] of mockCy.animate.mock.calls) {
+        expect(options).not.toHaveProperty('zoom')
+      }
     })
   })
 
@@ -759,6 +1017,163 @@ describe('CausalGraphComponent', () => {
       const standardNode = addedElements.find(el => el.data.id === 'event-standard')
       expect(standardNode).toBeDefined()
       expect(standardNode?.classes).toBeUndefined()
+    })
+  })
+  describe('Theme and relationship types', () => {
+    type Rule = { selector: string; style: Record<string, unknown> }
+    const initialSheet = () => (mockedCytoscape.mock.calls[0]?.[0]?.style ?? []) as Rule[]
+    const rule = (sheet: Rule[], selector: string) => sheet.find((r) => r.selector === selector)?.style
+
+    afterEach(() => {
+      document.documentElement.classList.remove('dark', 'high-contrast')
+    })
+
+    it('draws each relationship type in its own colour and line style', async () => {
+      render(<CausalGraphComponent />)
+      await waitFor(() => expect(mockedCytoscape).toHaveBeenCalled())
+      const sheet = initialSheet()
+      const light = GRAPH_PALETTES.light
+
+      // Direct is the base edge: solid
+      expect(rule(sheet, 'edge')).toMatchObject({ 'line-style': 'solid', 'line-color': light.edgeDirect, opacity: 1 })
+      expect(rule(sheet, 'edge[relationshipType = "indirect"]')).toMatchObject({
+        'line-style': 'dashed', 'line-color': light.edgeIndirect, 'target-arrow-color': light.edgeIndirect
+      })
+      expect(rule(sheet, 'edge[relationshipType = "contributory"]')).toMatchObject({
+        'line-style': 'dashed', 'line-cap': 'round', 'line-color': light.edgeContributory
+      })
+      // The old weight-coloured rules are gone: width carries the weight
+      expect(sheet.some((r) => r.selector.includes('weight'))).toBe(false)
+      expect(rule(sheet, 'node')).toMatchObject({ 'background-color': light.nodeFill, 'border-color': light.nodeBorder })
+      // No raw hex outside the palette and the label ink/surface
+      const allowed = new Set<unknown>([...Object.values(light), '#18181b', '#475569', '#ffffff', '#e2dfd7'])
+      for (const r of sheet) {
+        for (const [key, value] of Object.entries(r.style)) {
+          if (typeof value === 'string' && value.startsWith('#')) expect(allowed.has(value), `${r.selector} ${key}`).toBe(true)
+        }
+      }
+    })
+
+    it('gives each edge its relationship type to style by', async () => {
+      render(<CausalGraphComponent />)
+      await waitFor(() => {
+        expect(mockCy.add).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ data: expect.objectContaining({ id: 'rel1', relationshipType: 'direct' }) })
+          ])
+        )
+      })
+    })
+
+    it('starts in the dark palette when the page is dark', async () => {
+      document.documentElement.classList.add('dark')
+      render(<CausalGraphComponent />)
+      await waitFor(() => expect(mockedCytoscape).toHaveBeenCalled())
+      expect(rule(initialSheet(), 'edge')?.['line-color']).toBe(GRAPH_PALETTES.dark.edgeDirect)
+    })
+
+    it('replaces the whole stylesheet when dark mode or high contrast is switched on', async () => {
+      render(<CausalGraphComponent />)
+      await waitFor(() => expect(screen.queryByText('Initializing causal graph...')).not.toBeInTheDocument())
+      mockCy.style.mockClear()
+
+      const lastSheet = () => {
+        const calls = mockCy.style.mock.calls.filter((call) => Array.isArray(call[0]))
+        return calls[calls.length - 1]?.[0] as Rule[] | undefined
+      }
+
+      act(() => {
+        document.documentElement.classList.add('dark')
+      })
+      await waitFor(() => expect(lastSheet()).toBeDefined())
+      expect(rule(lastSheet()!, 'edge')?.['line-color']).toBe(GRAPH_PALETTES.dark.edgeDirect)
+      expect(rule(lastSheet()!, 'node:selected')?.['background-color']).toBe(GRAPH_PALETTES.dark.selectedFill)
+
+      mockCy.style.mockClear()
+      act(() => {
+        document.documentElement.classList.add('high-contrast')
+      })
+      await waitFor(() => expect(lastSheet()).toBeDefined())
+      const hc = lastSheet()!
+      expect(rule(hc, 'edge')?.['line-color']).toBe(GRAPH_PALETTES['high-contrast-dark'].edgeDirect)
+      // High contrast also thickens the lines
+      expect(rule(hc, 'edge')?.width).toBe('mapData(weight, 0, 1, 3, 9)')
+
+      // The legend follows too
+      const legend = screen.getByRole('note', { name: 'Legend' })
+      expect(legend.querySelector('line')?.getAttribute('stroke')).toBe(GRAPH_PALETTES['high-contrast-dark'].edgeDirect)
+    })
+
+    it('keeps a legend that names each type by its line style', () => {
+      render(<CausalGraphComponent />)
+      const legend = screen.getByRole('note', { name: 'Legend' })
+      expect(legend).toHaveTextContent('Direct (solid)')
+      expect(legend).toHaveTextContent('Indirect (dashed)')
+      expect(legend).toHaveTextContent('Contributory (dotted)')
+      expect(legend).toHaveTextContent('Thicker = more weight')
+      expect(legend).not.toHaveTextContent('Point of divergence')
+    })
+
+    it('adds divergence points to the legend when there are any', () => {
+      render(<CausalGraphComponent divergenceEventIds={['1']} />)
+      expect(screen.getByRole('note', { name: 'Legend' })).toHaveTextContent('Point of divergence')
+    })
+  })
+
+  describe('Using the canvas', () => {
+    it('lays the graph out with the shared, tuned force options', async () => {
+      render(<CausalGraphComponent />)
+      await waitFor(() => {
+        expect(mockCy.layout).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'cose',
+            idealEdgeLength: getDefaultLayoutOptions('cose').idealEdgeLength,
+            nodeRepulsion: getDefaultLayoutOptions('cose').nodeRepulsion,
+            componentSpacing: getDefaultLayoutOptions('cose').componentSpacing,
+            gravity: getDefaultLayoutOptions('cose').gravity,
+            padding: FIT_PADDING
+          })
+        )
+      })
+    })
+
+    it('stretches a force layout to the canvas aspect before fitting it', async () => {
+      render(<CausalGraphComponent />)
+      await waitFor(() => {
+        expect(getEventHandlers(mockCy, 'layoutstop').length).toBeGreaterThan(0)
+      })
+      // A square 200x200 cloud on an 800x400 canvas (740x340 inside the padding)
+      mockCy._mockData.nodes.forEach((node, i) => {
+        node.position = i % 2 ? { x: 200, y: 200 } : { x: 0, y: 0 }
+      })
+      mockCy.fit.mockClear()
+
+      getEventHandlers(mockCy, 'layoutstop')[0]!({ layout: { options: { name: 'cose' } } })
+
+      const xs = mockCy._mockData.nodes.map((n) => n.position!.x)
+      const ys = mockCy._mockData.nodes.map((n) => n.position!.y)
+      const width = Math.max(...xs) - Math.min(...xs)
+      const height = Math.max(...ys) - Math.min(...ys)
+      expect(height).toBe(200)
+      expect(width / height).toBeCloseTo(740 / 340, 5)
+      // Then framed
+      expect(mockCy.fit).toHaveBeenCalledWith(undefined, FIT_PADDING)
+    })
+
+    it('leaves a layered layout its own shape', async () => {
+      render(<CausalGraphComponent />)
+      await waitFor(() => {
+        expect(getEventHandlers(mockCy, 'layoutstop').length).toBeGreaterThan(0)
+      })
+      mockCy._mockData.nodes.forEach((node, i) => {
+        node.position = i % 2 ? { x: 200, y: 200 } : { x: 0, y: 0 }
+      })
+
+      getEventHandlers(mockCy, 'layoutstop')[0]!({ layout: { options: { name: 'dagre' } } })
+
+      mockCy._mockData.nodes.forEach((node, i) => {
+        expect(node.position).toEqual(i % 2 ? { x: 200, y: 200 } : { x: 0, y: 0 })
+      })
     })
   })
 })

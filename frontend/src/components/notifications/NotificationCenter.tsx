@@ -27,8 +27,8 @@ const STYLES: Record<ErrorType, NotificationStyle> = {
   },
   general: {
     label: 'Error',
-    container: 'bg-gray-50 border-gray-200 text-gray-800',
-    icon: 'text-gray-600',
+    container: 'bg-card border-line text-ink',
+    icon: 'text-ink-secondary',
   },
 }
 
@@ -101,14 +101,14 @@ export function NotificationCenter() {
           >
             {errorIcon(style.icon)}
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{style.label}</p>
+              <p className="text-sm font-semibold">{style.label}</p>
               <p className="mt-0.5 text-sm break-words">{error.message}</p>
             </div>
             <button
               type="button"
               onClick={() => removeError(error.id)}
               aria-label={`Dismiss ${style.label.toLowerCase()}`}
-              className="flex-shrink-0 rounded p-1 hover:bg-black/5 focus:outline-none focus:ring-2 focus:ring-current"
+              className="flex-shrink-0 rounded p-1 hover:bg-current/10 focus:outline-none focus:ring-2 focus:ring-current"
             >
               <svg
                 className="h-4 w-4"
@@ -128,7 +128,7 @@ export function NotificationCenter() {
         <button
           type="button"
           onClick={clearErrors}
-          className="pointer-events-auto self-end rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400"
+          className="pointer-events-auto self-end rounded-md border border-line bg-card px-3 py-1.5 text-xs font-medium text-ink-secondary shadow-sm hover:bg-subtle hover:text-ink focus:outline-none focus:ring-2 focus:ring-selected"
         >
           Dismiss all
         </button>

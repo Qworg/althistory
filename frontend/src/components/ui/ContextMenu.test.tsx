@@ -46,7 +46,7 @@ describe('ContextMenu', () => {
     it('applies danger styling to danger items', () => {
       render(<ContextMenu {...defaultProps} />)
       const deleteButton = screen.getByText('Delete')
-      expect(deleteButton).toHaveClass('text-red-600')
+      expect(deleteButton).toHaveClass('text-red-700')
     })
 
     it('renders disabled items with disabled styling', () => {
@@ -58,7 +58,7 @@ describe('ContextMenu', () => {
 
       const editButton = screen.getByText('Edit')
       expect(editButton).toBeDisabled()
-      expect(editButton).toHaveClass('text-gray-400')
+      expect(editButton).toHaveClass('text-ink-muted', 'cursor-not-allowed')
     })
   })
 

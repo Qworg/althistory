@@ -12,7 +12,7 @@ describe('Header', () => {
   it('renders the application title', () => {
     renderWithProviders(<Header {...defaultProps} />)
 
-    expect(screen.getByText('Timeline Interface')).toBeInTheDocument()
+    expect(screen.getByText('althistory')).toBeInTheDocument()
   })
 
   it('has proper semantic structure', () => {
@@ -64,6 +64,19 @@ describe('Header', () => {
     expect(screen.getByLabelText('User menu')).toBeInTheDocument()
   })
 
+  it('shows the help button in every layout', () => {
+    for (const props of [
+      { isMobile: false, layoutMode: 'sidebar' as const },
+      { isMobile: false, layoutMode: 'topbar' as const },
+      { isMobile: true, layoutMode: 'sidebar' as const },
+    ]) {
+      const { unmount } = renderWithProviders(<Header {...props} />)
+      const button = screen.getByRole('button', { name: 'Help and keyboard shortcuts' })
+      expect(button).toHaveAttribute('aria-haspopup', 'dialog')
+      unmount()
+    }
+  })
+
   it('has sticky positioning', () => {
     renderWithProviders(<Header {...defaultProps} />)
 
@@ -84,5 +97,36 @@ describe('Header', () => {
     // The breadcrumb should be rendered in the mobile location
     const header = screen.getByRole('banner')
     expect(header).toBeInTheDocument()
+  })
+
+  describe('phone layout', () => {
+    it('keeps the heading for screen readers but gives its width to the graph selector', () => {
+      renderWithProviders(<Header isMobile={true} layoutMode="sidebar" />)
+
+      const heading = screen.getByRole('heading', { level: 1, name: 'althistory' })
+      expect(heading).toHaveClass('sr-only')
+    })
+
+    it('shows the wordmark on desktop', () => {
+      renderWithProviders(<Header {...defaultProps} />)
+
+      expect(screen.getByRole('heading', { level: 1, name: 'althistory' })).not.toHaveClass('sr-only')
+    })
+
+    it('gives help and the user menu 44px targets that do not shrink away', () => {
+      renderWithProviders(<Header isMobile={true} layoutMode="sidebar" />)
+
+      expect(screen.getByRole('button', { name: 'Help and keyboard shortcuts' })).toHaveClass('h-11', 'w-11', 'shrink-0')
+      expect(screen.getByRole('button', { name: 'User menu' })).toHaveClass('h-11', 'w-11')
+    })
+
+    it('uses the compact toolbar, with no breadcrumb (the bottom bar names the view)', () => {
+      renderWithProviders(<Header isMobile={true} layoutMode="sidebar" />)
+
+      const toolbar = screen.getByRole('toolbar', { name: 'View toolbar' })
+      expect(toolbar).not.toHaveClass('flex-wrap')
+      expect(screen.queryByRole('button', { name: 'Graph' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('navigation', { name: 'Breadcrumb' })).not.toBeInTheDocument()
+    })
   })
 })

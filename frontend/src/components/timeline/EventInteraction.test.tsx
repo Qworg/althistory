@@ -416,13 +416,15 @@ describe('Timeline Event Interactions', () => {
   })
 
   describe('Keyboard Navigation', () => {
-    it('event elements have tabIndex for keyboard focus', () => {
+    it('makes exactly one mark the tab stop (roving tabindex); the rest are focusable by arrow keys', () => {
       renderWithProviders(<Timeline {...defaultProps} />)
 
-      mockEvents.forEach(event => {
-        const eventGroup = document.querySelector(`[data-event-id="${event.id}"]`)
-        expect(eventGroup).toHaveAttribute('tabindex', '0')
-      })
+      const marks = Array.from(document.querySelectorAll('[data-mark-key]'))
+      expect(marks.length).toBeGreaterThan(0)
+      marks.forEach(mark => expect(mark).toHaveAttribute('tabindex'))
+      expect(marks.filter(mark => mark.getAttribute('tabindex') === '0')).toHaveLength(1)
+      // While a mark is the tab stop, the canvas is reached with Escape, not Tab.
+      expect(document.querySelector('svg[data-timeline-canvas]')).toHaveAttribute('tabindex', '-1')
     })
 
     it('event elements have proper ARIA role', () => {

@@ -2,12 +2,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'vitest-axe'
+import type { ReactElement } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { EventDetailModal } from './EventDetailModal'
 import {
   createMockEvent,
   createMockArc,
   createMockCausalRelationship
 } from '@/test/fixtures/modalFixtures'
+
+vi.mock('@/hooks/useAPI', () => ({
+  useEvents: vi.fn(() => ({
+    data: [
+      { id: 'e1', description: 'a', actor: 'Prussian General Staff', target: 'Calculating Offices', timestamp: '1866-01-01T00:00:00Z' },
+      { id: 'e2', description: 'b', actor: 'Clerks', target: 'Prussian General Staff', timestamp: '1867-01-01T00:00:00Z' },
+    ],
+  })),
+}))
 
 describe('EventDetailModal', () => {
   const defaultProps = {
@@ -147,7 +158,7 @@ describe('EventDetailModal', () => {
       // Check that required fields have aria-required
       expect(screen.getByLabelText(/description/i)).toHaveAttribute('aria-required', 'true')
       expect(screen.getByLabelText(/actor/i)).toHaveAttribute('aria-required', 'true')
-      expect(screen.getByLabelText(/timestamp/i)).toHaveAttribute('aria-required', 'true')
+      expect(screen.getByLabelText(/^date/i)).toHaveAttribute('aria-required', 'true')
     })
 
     it('has HTML5 required attributes on required fields', () => {
@@ -156,7 +167,7 @@ describe('EventDetailModal', () => {
       expect(screen.getByLabelText(/description/i)).toBeRequired()
       expect(screen.getByLabelText(/actor/i)).toBeRequired()
       expect(screen.getByLabelText(/target/i)).toBeRequired()
-      expect(screen.getByLabelText(/timestamp/i)).toBeRequired()
+      expect(screen.getByLabelText(/^date/i)).toBeRequired()
     })
 
     it('validates timestamp format when provided', async () => {
@@ -168,7 +179,7 @@ describe('EventDetailModal', () => {
       await user.type(screen.getByLabelText(/description/i), 'Test Event')
       await user.type(screen.getByLabelText(/actor/i), 'Test Actor')
       await user.type(screen.getByLabelText(/target/i), 'Test Target')
-      fireEvent.change(screen.getByLabelText(/timestamp/i), { target: { value: '2023-01-01T12:00' } })
+      fireEvent.change(screen.getByLabelText(/^date/i), { target: { value: '2023-01-01T12:00' } })
 
       const saveButton = screen.getByRole('button', { name: /save/i })
       await user.click(saveButton)
@@ -193,6 +204,72 @@ describe('EventDetailModal', () => {
     })
   })
 
+  describe('Inline validation', () => {
+    it('replaces the browser bubbles with messages under each field', async () => {
+      const user = userEvent.setup()
+      const onSave = vi.fn().mockResolvedValue(undefined)
+      render(<EventDetailModal {...defaultProps} onSave={onSave} isOpen={true} />)
+
+      const form = screen.getByLabelText(/description/i).closest('form')!
+      expect(form).toHaveAttribute('novalidate')
+
+      await user.click(screen.getByRole('button', { name: /save/i }))
+
+      expect(onSave).not.toHaveBeenCalled()
+      const description = screen.getByLabelText(/description/i)
+      expect(description).toHaveAttribute('aria-invalid', 'true')
+      expect(document.getElementById(description.getAttribute('aria-describedby')!)).toHaveTextContent(
+        'Describe what happened.'
+      )
+      expect(screen.getByLabelText(/actor/i)).toHaveAttribute('aria-invalid', 'true')
+      expect(screen.getByLabelText(/target/i)).toHaveAttribute('aria-invalid', 'true')
+      expect(screen.getByLabelText(/^date/i)).toHaveAttribute('aria-invalid', 'true')
+      // The first invalid field takes focus.
+      await waitFor(() => expect(description).toHaveFocus())
+    })
+
+    it('focuses the first field still invalid, and clears a message once fixed', async () => {
+      const user = userEvent.setup()
+      render(<EventDetailModal {...defaultProps} isOpen={true} />)
+
+      await user.type(screen.getByLabelText(/description/i), 'The census is taken')
+      await user.click(screen.getByRole('button', { name: /save/i }))
+
+      const actor = screen.getByLabelText(/actor/i)
+      await waitFor(() => expect(actor).toHaveFocus())
+      expect(screen.getByLabelText(/description/i)).not.toHaveAttribute('aria-invalid', 'true')
+
+      await user.type(actor, 'Registrar')
+      expect(actor).not.toHaveAttribute('aria-invalid', 'true')
+      expect(screen.queryByText(/Name who acted/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Actor and target suggestions', () => {
+    it('offers the actors and targets already in the graph', () => {
+      const client = new QueryClient()
+      render(
+        <QueryClientProvider client={client}>
+          <EventDetailModal {...defaultProps} isOpen={true} />
+        </QueryClientProvider>
+      )
+
+      const actor = screen.getByLabelText(/actor/i)
+      const target = screen.getByLabelText(/target/i)
+      const listId = actor.getAttribute('list')!
+      expect(listId).toBeTruthy()
+      expect(target).toHaveAttribute('list', listId)
+      const options = Array.from(document.getElementById(listId)!.querySelectorAll('option')).map((o) => o.value)
+      expect(options).toEqual(['Calculating Offices', 'Clerks', 'Prussian General Staff'])
+    })
+
+    it('offers none without a query client', () => {
+      render(<EventDetailModal {...defaultProps} isOpen={true} />)
+
+      expect(screen.getByLabelText(/actor/i)).not.toHaveAttribute('list')
+    })
+  })
+
   describe('Save Actions', () => {
     it('calls onSave with form data when valid', async () => {
       const user = userEvent.setup()
@@ -204,7 +281,7 @@ describe('EventDetailModal', () => {
       await user.type(screen.getByLabelText(/actor/i), 'New Actor')
       await user.type(screen.getByLabelText(/target/i), 'New Target')
 
-      const timestampInput = screen.getByLabelText(/timestamp/i)
+      const timestampInput = screen.getByLabelText(/^date/i)
       fireEvent.change(timestampInput, { target: { value: '2023-01-01T12:00' } })
 
       const saveButton = screen.getByRole('button', { name: /save/i })
@@ -230,12 +307,12 @@ describe('EventDetailModal', () => {
       await user.type(screen.getByLabelText(/description/i), 'New Event')
       await user.type(screen.getByLabelText(/actor/i), 'New Actor')
       await user.type(screen.getByLabelText(/target/i), 'New Target')
-      fireEvent.change(screen.getByLabelText(/timestamp/i), { target: { value: '2023-01-01T12:00' } })
+      fireEvent.change(screen.getByLabelText(/^date/i), { target: { value: '2023-01-01T12:00' } })
 
       const saveButton = screen.getByRole('button', { name: /save/i })
       await user.click(saveButton)
 
-      expect(screen.getByText('Saving...')).toBeInTheDocument()
+      expect(screen.getByText('Saving…')).toBeInTheDocument()
     })
 
     it('shows error message when save fails', async () => {
@@ -247,13 +324,13 @@ describe('EventDetailModal', () => {
       await user.type(screen.getByLabelText(/description/i), 'New Event')
       await user.type(screen.getByLabelText(/actor/i), 'New Actor')
       await user.type(screen.getByLabelText(/target/i), 'New Target')
-      fireEvent.change(screen.getByLabelText(/timestamp/i), { target: { value: '2023-01-01T12:00' } })
+      fireEvent.change(screen.getByLabelText(/^date/i), { target: { value: '2023-01-01T12:00' } })
 
       const saveButton = screen.getByRole('button', { name: /save/i })
       await user.click(saveButton)
 
       await waitFor(() => {
-        expect(screen.getByText('Failed to save event. Please try again.')).toBeInTheDocument()
+        expect(screen.getByText(/could not be saved\. Your changes are still here/)).toBeInTheDocument()
       })
     })
 
@@ -266,7 +343,7 @@ describe('EventDetailModal', () => {
       await user.type(screen.getByLabelText(/description/i), 'New Event')
       await user.type(screen.getByLabelText(/actor/i), 'New Actor')
       await user.type(screen.getByLabelText(/target/i), 'New Target')
-      fireEvent.change(screen.getByLabelText(/timestamp/i), { target: { value: '2023-01-01T12:00' } })
+      fireEvent.change(screen.getByLabelText(/^date/i), { target: { value: '2023-01-01T12:00' } })
 
       const saveButton = screen.getByRole('button', { name: /save/i })
       await user.click(saveButton)
@@ -296,7 +373,7 @@ describe('EventDetailModal', () => {
       await user.click(deleteButton)
 
       expect(screen.getByText('Delete Event')).toBeInTheDocument()
-      expect(screen.getByText(/are you sure you want to delete/i)).toBeInTheDocument()
+      expect(screen.getByText(/will be removed\. Version history can restore/i)).toBeInTheDocument()
     })
 
     it('calls onDelete when delete is confirmed', async () => {
@@ -336,7 +413,7 @@ describe('EventDetailModal', () => {
       await user.click(cancelButton)
 
       expect(onDelete).not.toHaveBeenCalled()
-      expect(screen.queryByText(/are you sure you want to delete/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/will be removed\. Version history can restore/i)).not.toBeInTheDocument()
     })
   })
 
@@ -406,7 +483,7 @@ describe('EventDetailModal', () => {
       expect(screen.getByLabelText(/description/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/actor/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/target/i)).toBeInTheDocument()
-      expect(screen.getByLabelText(/timestamp/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/^date/i)).toBeInTheDocument()
     })
 
     it('marks required fields with aria-required', () => {
@@ -414,7 +491,7 @@ describe('EventDetailModal', () => {
 
       expect(screen.getByLabelText(/description/i)).toHaveAttribute('aria-required', 'true')
       expect(screen.getByLabelText(/actor/i)).toHaveAttribute('aria-required', 'true')
-      expect(screen.getByLabelText(/timestamp/i)).toHaveAttribute('aria-required', 'true')
+      expect(screen.getByLabelText(/^date/i)).toHaveAttribute('aria-required', 'true')
     })
 
     it('initializes aria-invalid to false on valid fields', () => {
@@ -488,5 +565,74 @@ describe('EventDetailModal', () => {
 
       expect(await axe(container)).toHaveNoViolations()
     })
+  })
+})
+
+describe('EventDetailModal: what the form records', () => {
+  const withClient = (ui: ReactElement) =>
+    render(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>)
+
+  async function fillRequired(date: string) {
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText(/description/i), 'Something happens')
+    await user.type(screen.getByLabelText(/^actor/i), 'Someone')
+    await user.type(screen.getByLabelText(/^target/i), 'Somewhere')
+    fireEvent.change(screen.getByLabelText(/^date/i), { target: { value: date } })
+    return user
+  }
+
+  it('makes no claim of confidence unless one is given', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<EventDetailModal event={null} isOpen onClose={vi.fn()} onSave={onSave} />)
+    expect(screen.getByLabelText(/^confidence/i)).toHaveValue(null)
+    const user = await fillRequired('1843-11-20')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0]![0].metadata).not.toHaveProperty('confidence')
+  })
+
+  it('saves confidence and evidence into the event metadata, keeping the rest', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const event = { ...createMockEvent({}), metadata: { arcId: 'arc-1', confidence: 0.5 } }
+    render(<EventDetailModal event={event} isOpen onClose={vi.fn()} onSave={onSave} />)
+    expect(screen.getByLabelText(/^confidence/i)).toHaveValue(0.5)
+    fireEvent.change(screen.getByLabelText(/^confidence/i), { target: { value: '0.3' } })
+    fireEvent.change(screen.getByLabelText(/^evidence/i), { target: { value: 'Hansard, 1861' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0]![0].metadata).toEqual({ arcId: 'arc-1', confidence: 0.3, evidence: 'Hansard, 1861' })
+  })
+
+  it('reads a BCE date and a year-only date', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<EventDetailModal event={null} isOpen onClose={vi.fn()} onSave={onSave} />)
+    const user = await fillRequired('44-03-15 BCE')
+    expect(screen.getByText(/Reads as/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(new Date(onSave.mock.calls[0]![0].timestamp).getUTCFullYear()).toBe(-43)
+  })
+
+  it('refuses a date it cannot read, saying how to write one', async () => {
+    const onSave = vi.fn()
+    render(<EventDetailModal event={null} isOpen onClose={vi.fn()} onSave={onSave} />)
+    const user = await fillRequired('March 1843')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/Write the year first/)).toBeInTheDocument()
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
+  it('links a new event to the cause picked for it', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    withClient(<EventDetailModal event={null} isOpen onClose={vi.fn()} onSave={onSave} />)
+    const user = await fillRequired('1866-06-01')
+    // Only causes no later than the new event are offered (e2 is 1867)
+    const picker = screen.getByLabelText(/caused by/i)
+    expect(Array.from((picker as HTMLSelectElement).options).map(o => o.value)).toEqual(['', 'e1'])
+    await user.selectOptions(picker, 'e1')
+    await user.selectOptions(screen.getByLabelText(/^link$/i), 'contributory')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0]![1]).toEqual({ cause: { eventId: 'e1', type: 'contributory' } })
   })
 })

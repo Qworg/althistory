@@ -2,6 +2,10 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { useGraphCopy } from '@/hooks/useGraphCopy'
 import { CopyOperation } from '@/types'
 import { ConfirmDialog } from '@/components/ui'
+import { ModalBase } from '@/components/modals/ModalBase'
+import { formatHistoricalRange } from '@/utils/historicalTime'
+import { COPY_TYPE_LABELS } from './copyTypeLabels'
+import { CopyStatusBadge } from './CopyStatusBadge'
 
 interface CopyHistoryPanelProps {
   isOpen: boolean
@@ -94,7 +98,8 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter(op =>
         op.name.toLowerCase().includes(query) ||
-        op.type.toLowerCase().includes(query)
+        op.type.toLowerCase().includes(query) ||
+        (COPY_TYPE_LABELS[op.type] ?? '').toLowerCase().includes(query)
       )
     }
 
@@ -139,36 +144,7 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
     }
   }, [sortField])
 
-  const getStatusIcon = (status: CopyOperation['status']) => {
-    switch (status) {
-      case 'pending':
-        return '⏳'
-      case 'in_progress':
-        return '🔄'
-      case 'completed':
-        return '✅'
-      case 'failed':
-        return '❌'
-      default:
-        return '❓'
-    }
-  }
-
-  const getStatusColor = (status: CopyOperation['status']) => {
-    switch (status) {
-      case 'pending':
-        return 'text-yellow-600 bg-yellow-100'
-      case 'in_progress':
-        return 'text-blue-600 bg-blue-100'
-      case 'completed':
-        return 'text-green-600 bg-green-100'
-      case 'failed':
-        return 'text-red-600 bg-red-100'
-      default:
-        return 'text-gray-600 bg-gray-100'
-    }
-  }
-
+  // Wall-clock time (when the copy was made), so the viewer's local time.
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString()
   }
@@ -184,258 +160,240 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
     return `${Math.round(durationMs / 3600000)}h`
   }
 
-  const getSortIcon = (field: SortField) => {
-    if (sortField !== field) {
-      return <span className="text-gray-400">↕️</span>
-    }
-    return sortDirection === 'asc' ? <span className="text-blue-600">↑</span> : <span className="text-blue-600">↓</span>
-  }
+  const ariaSort = (field: SortField): React.AriaAttributes['aria-sort'] =>
+    sortField === field ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'
 
-  if (!isOpen) return null
+  const SortIcon = ({ field }: { field: SortField }) => (
+    <svg
+      className={`ml-1 h-3.5 w-3.5 ${sortField === field ? 'text-ink' : 'text-ink-muted'}`}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d={sortField !== field ? 'M8 9l4-4 4 4M16 15l-4 4-4-4' : sortDirection === 'asc' ? 'M8 14l4-4 4 4' : 'M16 10l-4 4-4-4'}
+      />
+    </svg>
+  )
+
+  const cell = 'border border-line px-4 py-3'
+  const fieldClass =
+    'px-3 py-2 border border-line bg-card text-ink rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-selected'
+  const linkButton =
+    'text-sm underline underline-offset-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-selected'
+
+  const sortableHeader = (field: SortField, label: string) => (
+    <th scope="col" aria-sort={ariaSort(field)} className={`${cell} text-left`}>
+      <button
+        type="button"
+        onClick={() => handleSort(field)}
+        className="inline-flex items-center text-sm font-semibold text-ink hover:text-ink-secondary rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+      >
+        {label}
+        <SortIcon field={field} />
+      </button>
+    </th>
+  )
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="copy-history-title"
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-    >
-      <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h2 id="copy-history-title" className="text-2xl font-bold text-gray-900">Copy History</h2>
-              <p className="text-gray-600 mt-1">
-                Manage and review all graph copy operations
-              </p>
-            </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-              aria-label="Close panel"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Filters and Search */}
-          <div className="flex flex-wrap gap-4 mb-6">
-            <div className="flex-1 min-w-64">
-              <label htmlFor="search-operations" className="sr-only">Search operations</label>
-              <input
-                id="search-operations"
-                type="text"
-                placeholder="Search by name or type..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                aria-label="Search by name or type"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <label htmlFor="filter-status" className="sr-only">Filter by status</label>
-            <select
-              id="filter-status"
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as 'all' | 'completed' | 'failed')}
-              aria-label="Filter by status"
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Status</option>
-              <option value="completed">Completed</option>
-              <option value="failed">Failed</option>
-            </select>
-
-            <button
-              onClick={clearCompletedOperations}
-              className="px-4 py-2 text-red-600 border border-red-300 rounded-md hover:bg-red-50 transition-colors"
-              disabled={copyState.completedOperations.length === 0}
-            >
-              Clear History
-            </button>
-          </div>
-
-          {/* Operations Table */}
-          {filteredOperations.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse border border-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th 
-                      className="border border-gray-200 px-4 py-3 text-left cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('name')}
-                    >
-                      <div className="flex items-center">
-                        Name {getSortIcon('name')}
-                      </div>
-                    </th>
-                    <th 
-                      className="border border-gray-200 px-4 py-3 text-left cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('type')}
-                    >
-                      <div className="flex items-center">
-                        Type {getSortIcon('type')}
-                      </div>
-                    </th>
-                    <th 
-                      className="border border-gray-200 px-4 py-3 text-left cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('status')}
-                    >
-                      <div className="flex items-center">
-                        Status {getSortIcon('status')}
-                      </div>
-                    </th>
-                    <th 
-                      className="border border-gray-200 px-4 py-3 text-left cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('created_at')}
-                    >
-                      <div className="flex items-center">
-                        Created {getSortIcon('created_at')}
-                      </div>
-                    </th>
-                    <th className="border border-gray-200 px-4 py-3 text-left">Duration</th>
-                    <th className="border border-gray-200 px-4 py-3 text-left">Progress</th>
-                    <th className="border border-gray-200 px-4 py-3 text-left">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredOperations.map((operation) => (
-                    <tr key={operation.id} className="hover:bg-gray-50">
-                      <td className="border border-gray-200 px-4 py-3">
-                        <div className="font-medium">{operation.name}</div>
-                        {operation.parameters.timeRange && (
-                          <div className="text-xs text-gray-500">
-                            {new Date(operation.parameters.timeRange.start).toLocaleDateString()} - {new Date(operation.parameters.timeRange.end).toLocaleDateString()}
-                          </div>
-                        )}
-                        {operation.parameters.filter && (
-                          <div className="text-xs text-gray-500">
-                            Filtered: {operation.parameters.filter.actors?.length || 0} actors, {operation.parameters.filter.targets?.length || 0} targets
-                          </div>
-                        )}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-3">
-                        <span className="capitalize">{operation.type.replace('_', ' ')}</span>
-                      </td>
-                      <td className="border border-gray-200 px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(operation.status)}`}>
-                          <span className="mr-1">{getStatusIcon(operation.status)}</span>
-                          {operation.status.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="border border-gray-200 px-4 py-3 text-sm">
-                        {formatDate(operation.created_at)}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-3 text-sm">
-                        {formatDuration(operation.created_at, operation.completed_at)}
-                      </td>
-                      <td className="border border-gray-200 px-4 py-3">
-                        <div className="flex items-center">
-                          <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
-                            <div
-                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                              style={{ width: `${operation.progress}%` }}
-                            />
-                          </div>
-                          <span className="text-sm text-gray-600">{operation.progress}%</span>
-                        </div>
-                      </td>
-                      <td className="border border-gray-200 px-4 py-3">
-                        <div className="flex space-x-2">
-                          {operation.status === 'completed' && onSwitchToGraph && (
-                            <button
-                              onClick={() => onSwitchToGraph(operation.id)}
-                              className="text-blue-600 hover:text-blue-800 text-sm underline"
-                              title="Switch to this graph"
-                            >
-                              Open
-                            </button>
-                          )}
-                          
-                          {operation.status === 'completed' && onCompareGraphs && (
-                            <button
-                              onClick={() => onCompareGraphs('Original', operation.name, operation.id)}
-                              className="text-green-600 hover:text-green-800 text-sm underline"
-                              title="Compare with original"
-                            >
-                              Compare
-                            </button>
-                          )}
-                          
-                          {onDeleteCopy && (
-                            <button
-                              onClick={() => setPendingDelete(operation)}
-                              className="text-red-600 hover:text-red-800 text-sm underline"
-                              title="Delete this copy"
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Copy Operations Found</h3>
-              <p className="text-gray-600">
-                {searchQuery || filterStatus !== 'all' 
-                  ? 'No operations match your current filters.'
-                  : 'Create a graph copy to see operations here.'
-                }
-              </p>
-            </div>
-          )}
-
-          {/* Summary Stats */}
-          {allOperations.length > 0 && (
-            <div className="mt-6 pt-6 border-t">
-              <div className="grid grid-cols-4 gap-4 text-center">
-                <div>
-                  <div className="text-2xl font-bold text-gray-900">{allOperations.length}</div>
-                  <div className="text-sm text-gray-600">Total Operations</div>
-                </div>
-                <div>
-                  <div className="text-2xl font-bold text-green-600">
-                    {allOperations.filter(op => op.status === 'completed').length}
-                  </div>
-                  <div className="text-sm text-gray-600">Completed</div>
-                </div>
-                <div>
-                  <div className="text-2xl font-bold text-blue-600">
-                    {allOperations.filter(op => op.status === 'in_progress').length}
-                  </div>
-                  <div className="text-sm text-gray-600">In Progress</div>
-                </div>
-                <div>
-                  <div className="text-2xl font-bold text-red-600">
-                    {allOperations.filter(op => op.status === 'failed').length}
-                  </div>
-                  <div className="text-sm text-gray-600">Failed</div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Close Button */}
-          <div className="flex justify-end mt-6">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
-            >
-              Close
-            </button>
-          </div>
+    <ModalBase
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Copy history"
+      size="4xl"
+      // Escape belongs to the delete confirmation while it is open.
+      closeOnEscape={pendingDelete === null}
+      footer={
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-md border border-line bg-card text-sm font-medium text-ink-secondary hover:bg-subtle hover:text-ink transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+          >
+            Close
+          </button>
         </div>
+      }
+    >
+      <p className="text-sm text-ink-secondary mb-6">
+        Copies made from your graphs: open one, compare it with the original, or delete it.
+        Branches are listed in the graph manager.
+      </p>
+
+      {/* Filters and Search */}
+      <div className="flex flex-wrap gap-4 mb-6">
+        <div className="flex-1 min-w-64">
+          <label htmlFor="search-operations" className="sr-only">Search by name or type</label>
+          <input
+            id="search-operations"
+            type="text"
+            placeholder="Search by name or type..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className={`w-full ${fieldClass}`}
+          />
+        </div>
+
+        <label htmlFor="filter-status" className="sr-only">Filter by status</label>
+        <select
+          id="filter-status"
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value as 'all' | 'completed' | 'failed')}
+          className={fieldClass}
+        >
+          <option value="all">All statuses</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+        </select>
+
+        <button
+          type="button"
+          onClick={clearCompletedOperations}
+          className="px-4 py-2 text-sm text-red-700 border border-red-300 rounded-md hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:text-red-300 dark:border-red-400/40 dark:hover:bg-red-500/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+          disabled={copyState.completedOperations.length === 0}
+        >
+          Clear history
+        </button>
       </div>
+
+      {/* Operations Table */}
+      {filteredOperations.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse border border-line text-sm">
+            <thead className="bg-subtle">
+              <tr>
+                {sortableHeader('name', 'Name')}
+                {sortableHeader('type', 'Type')}
+                {sortableHeader('status', 'Status')}
+                {sortableHeader('created_at', 'Created')}
+                <th scope="col" className={`${cell} text-left font-semibold text-ink`}>Duration</th>
+                <th scope="col" className={`${cell} text-left font-semibold text-ink`}>Progress</th>
+                <th scope="col" className={`${cell} text-left font-semibold text-ink`}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredOperations.map((operation) => (
+                <tr key={operation.id} className="hover:bg-subtle">
+                  <td className={cell}>
+                    <div className="font-medium text-ink break-words">{operation.name}</div>
+                    {operation.parameters.timeRange && (
+                      <div className="text-xs text-ink-muted font-mono-code">
+                        {formatHistoricalRange(operation.parameters.timeRange.start, operation.parameters.timeRange.end)}
+                      </div>
+                    )}
+                    {operation.parameters.filter && (
+                      <div className="text-xs text-ink-muted">
+                        Filtered: {operation.parameters.filter.actors?.length || 0} actors, {operation.parameters.filter.targets?.length || 0} targets
+                      </div>
+                    )}
+                  </td>
+                  <td className={`${cell} text-ink-secondary`}>
+                    {COPY_TYPE_LABELS[operation.type] ?? 'Copy'}
+                  </td>
+                  <td className={cell}>
+                    <CopyStatusBadge status={operation.status} />
+                  </td>
+                  <td className={`${cell} font-mono-code text-ink-secondary`}>
+                    {formatDate(operation.created_at)}
+                  </td>
+                  <td className={`${cell} font-mono-code text-ink-secondary`}>
+                    {formatDuration(operation.created_at, operation.completed_at)}
+                  </td>
+                  <td className={cell}>
+                    <div className="flex items-center">
+                      <div className="w-16 bg-subtle border border-line rounded-full h-2 mr-2" aria-hidden="true">
+                        <div
+                          className="bg-baseline h-full rounded-full transition-all duration-300"
+                          style={{ width: `${operation.progress}%` }}
+                        />
+                      </div>
+                      <span className="font-mono-code text-ink-secondary">{operation.progress}%</span>
+                    </div>
+                  </td>
+                  <td className={cell}>
+                    <div className="flex gap-3">
+                      {operation.status === 'completed' && onSwitchToGraph && (
+                        <button
+                          type="button"
+                          onClick={() => onSwitchToGraph(operation.id)}
+                          className={`${linkButton} text-baseline`}
+                          title="Switch to this graph"
+                        >
+                          Open
+                        </button>
+                      )}
+
+                      {operation.status === 'completed' && onCompareGraphs && (
+                        <button
+                          type="button"
+                          onClick={() => onCompareGraphs('Original', operation.name, operation.id)}
+                          className={`${linkButton} text-ink-secondary hover:text-ink`}
+                          title="Compare with the original"
+                        >
+                          Compare
+                        </button>
+                      )}
+
+                      {onDeleteCopy && (
+                        <button
+                          type="button"
+                          onClick={() => setPendingDelete(operation)}
+                          className={`${linkButton} text-red-700 hover:text-red-800 dark:text-red-300`}
+                          title="Delete this copy"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="text-center py-10">
+          <p className="text-base font-semibold text-ink mb-1">No copies found</p>
+          <p className="text-sm text-ink-secondary">
+            {searchQuery || filterStatus !== 'all'
+              ? 'No copies match your current filters.'
+              : 'Copies you make with Branch or copy… in the Graph menu show here.'
+            }
+          </p>
+        </div>
+      )}
+
+      {/* Summary Stats */}
+      {allOperations.length > 0 && (
+        <dl className="mt-6 pt-6 border-t border-line grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+          <div className="flex flex-col-reverse">
+            <dt className="text-sm text-ink-secondary">Total copies</dt>
+            <dd className="font-mono-code text-2xl font-semibold text-ink">{allOperations.length}</dd>
+          </div>
+          <div className="flex flex-col-reverse">
+            <dt className="text-sm text-ink-secondary">Completed</dt>
+            <dd className="font-mono-code text-2xl font-semibold text-ink">
+              {allOperations.filter(op => op.status === 'completed').length}
+            </dd>
+          </div>
+          <div className="flex flex-col-reverse">
+            <dt className="text-sm text-ink-secondary">In progress</dt>
+            <dd className="font-mono-code text-2xl font-semibold text-ink">
+              {allOperations.filter(op => op.status === 'in_progress').length}
+            </dd>
+          </div>
+          <div className="flex flex-col-reverse">
+            <dt className="text-sm text-ink-secondary">Failed</dt>
+            <dd className="font-mono-code text-2xl font-semibold text-ink">
+              {allOperations.filter(op => op.status === 'failed').length}
+            </dd>
+          </div>
+        </dl>
+      )}
 
       {/* Deleting a copy deletes the graph the copy created, so it asks
           first. The dialog says that plainly: "delete this copy" reads like
@@ -453,6 +411,6 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
       />
-    </div>
+    </ModalBase>
   )
 }

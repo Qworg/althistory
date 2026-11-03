@@ -119,6 +119,35 @@ describe('CausalRelationshipModal', () => {
     expect(screen.getByRole('combobox', { name: /relationship type/i })).toHaveValue('direct')
   })
 
+  it('resolves create-mode events from eventPool before the global store', () => {
+    // A counterfactual branch's events are not in the global store
+    const branchEvents: Event[] = [
+      {
+        id: 'branch-cause', description: 'Clerks strike', actor: 'Clerks', target: 'Offices',
+        timestamp: '1851-03-01T00:00:00Z', created_at: '2023-01-01T00:00:00Z', updated_at: '2023-01-01T00:00:00Z'
+      },
+      {
+        id: 'branch-effect', description: 'Offices petition', actor: 'Offices', target: 'Parliament',
+        timestamp: '1851-04-01T00:00:00Z', created_at: '2023-01-01T00:00:00Z', updated_at: '2023-01-01T00:00:00Z'
+      }
+    ]
+    render(
+      <CausalRelationshipModal
+        relationship={null}
+        isOpen={true}
+        onClose={mockOnClose}
+        onCreate={vi.fn()}
+        causeEventId="branch-cause"
+        effectEventId="branch-effect"
+        eventPool={branchEvents}
+      />
+    )
+
+    expect(screen.getByText('Clerks → Offices')).toBeInTheDocument()
+    expect(screen.getByText('Offices → Parliament')).toBeInTheDocument()
+    expect(screen.queryByText('Unknown Event')).not.toBeInTheDocument()
+  })
+
   it('should display weight and confidence sliders with correct values', () => {
     render(
       <CausalRelationshipModal

@@ -82,14 +82,14 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
   }
 
   return (
-    <div className={`bg-white border border-gray-200 rounded-lg shadow-lg p-4 max-w-md ${className}`}>
+    <div className={`bg-card text-ink border border-line rounded-lg shadow-lg p-4 max-w-md ${className}`}>
       {/* Header */}
       <div className="mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">Assign Event to Arc</h3>
+        <h2 className="font-display text-xl font-semibold text-ink mb-2">Assign Event to Arc</h2>
         <div className="bg-gray-50 rounded-md p-3">
           <p className="text-sm font-medium text-gray-900">{event.description}</p>
           <p className="text-xs text-gray-500 mt-1">
-            {event.actor} → {event.target} • {new Date(event.timestamp).toLocaleString()}
+            {event.actor} → {event.target} • <span className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</span>
           </p>
         </div>
       </div>
@@ -125,7 +125,7 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
         {/* Compatible arcs */}
         {compatibleArcs.length > 0 && (
           <div className="mb-4">
-            <h4 className="text-sm font-medium text-green-700 mb-2">Compatible Arcs</h4>
+            <h3 className="text-base font-semibold text-ink mb-2">Compatible Arcs</h3>
             <div className="space-y-2 max-h-40 overflow-y-auto">
               {compatibleArcs.map(arc => (
                 <label key={arc.id} className="flex items-start">
@@ -159,9 +159,9 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
         {/* Incompatible arcs (shown but disabled) */}
         {incompatibleArcs.length > 0 && (
           <div>
-            <h4 className="text-sm font-medium text-red-700 mb-2">
+            <h3 className="text-base font-semibold text-ink mb-2">
               Incompatible Arcs (Event outside time range)
-            </h4>
+            </h3>
             <div className="space-y-2 max-h-32 overflow-y-auto">
               {incompatibleArcs.map(arc => (
                 <div key={arc.id} className="flex items-start opacity-50">

@@ -14,7 +14,7 @@ test.describe('create event', () => {
     const state = await installApiStub(page)
 
     await page.goto('/')
-    await expect(page.getByText('3 events, 1 arcs')).toBeVisible()
+    await expect(page.getByText('3 events · 1 arc')).toBeVisible()
 
     await page.getByRole('button', { name: 'Create Event' }).click()
     const dialog = page.getByRole('dialog')
@@ -23,7 +23,7 @@ test.describe('create event', () => {
     await dialog.getByLabel(/Description/).fill('Harrying of the North')
     await dialog.getByLabel(/Actor/).fill('William of Normandy')
     await dialog.getByLabel(/Target/).fill('Northern England')
-    await dialog.getByLabel(/Timestamp/).fill('1069-01-15T09:00')
+    await dialog.getByLabel(/^Date/).fill('1069-01-15 09:00')
 
     await dialog.getByRole('button', { name: 'Save' }).click()
 
@@ -41,7 +41,7 @@ test.describe('create event', () => {
 
     // The write is observable through the UI: the refetched list now has four
     // events and the new one is rendered.
-    await expect(page.getByText('4 events, 1 arcs')).toBeVisible()
+    await expect(page.getByText('4 events · 1 arc')).toBeVisible()
     await expect(
       page.locator('g[data-timeline-mark="event"][aria-label*="Harrying of the North"]'),
     ).toBeVisible()

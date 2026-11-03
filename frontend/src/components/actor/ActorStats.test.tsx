@@ -68,9 +68,30 @@ describe('ActorStats', () => {
 
     it('applies custom className', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithTimeSpan} className="custom-class" />)
-      
-      const container = screen.getByText('Statistics for Alice').closest('div')
+
+      const container = screen.getByText('Statistics for Alice').closest('section')
       expect(container).toHaveClass('custom-class')
+    })
+
+    it('is a section under an h3, with h4 subsections, so the view heading order is not skipped', () => {
+      renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithTimeSpan} />)
+
+      const heading = screen.getByRole('heading', { name: 'Statistics for Alice' })
+      expect(heading.tagName).toBe('H3')
+      expect(screen.getByRole('region', { name: 'Statistics for Alice' })).toContainElement(heading)
+      const subheadings = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent)
+      expect(subheadings).toEqual(['As Actor', 'As Target', 'Activity Distribution'])
+    })
+
+    it('is one flat surface: no tiles, panels or icon chips', () => {
+      const { container } = renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithTimeSpan} />)
+
+      const section = container.querySelector('section')!
+      expect(section.className).not.toMatch(/bg-(subtle|card)/)
+      expect(section.querySelector('[class*="bg-card"], [class*="-100"]')).toBeNull()
+      expect(section.querySelectorAll('svg')).toHaveLength(0)
+      // Figures in ink, not in decorative blue and green.
+      expect(section.querySelector('[class*="text-blue"], [class*="text-green"], [class*="text-purple"], [class*="text-orange"]')).toBeNull()
     })
   })
 
@@ -87,7 +108,7 @@ describe('ActorStats', () => {
 
       // '0' appears multiple times (total events, actor/target roles, activity rate)
       // Just check that Total Events section exists with its content
-      const totalEventsSection = screen.getByText('Total Events').closest('div')
+      const totalEventsSection = screen.getByText('Total Events').closest('[data-stat]')
       expect(totalEventsSection).toHaveTextContent('0')
     })
   })
@@ -97,7 +118,7 @@ describe('ActorStats', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithTimeSpan} />)
 
       // The duration for Jan 1-31 is 30 days = 1 month (no remaining days, so shows "1 month")
-      const timeSpanSection = screen.getByText('Time Span').closest('.bg-white')
+      const timeSpanSection = screen.getByText('Time Span').closest('[data-stat]')
       expect(timeSpanSection).toHaveTextContent('1 month')
       // Date formatting may vary by timezone, just check it contains the dates
       expect(timeSpanSection).toHaveTextContent(/Jan \d+, 2024/)
@@ -108,12 +129,15 @@ describe('ActorStats', () => {
       
       expect(screen.getByText('4 years')).toBeInTheDocument()
       expect(screen.getByText('Time Span')).toBeInTheDocument()
+      // Over a multi-year span the rate is per year, with no per-day figure beside it
+      expect(screen.getByText('Activity').closest('[data-stat]')).toHaveTextContent('13 events per year')
+      expect(screen.queryByText(/per day/i)).not.toBeInTheDocument()
     })
 
     it('displays "Same day" for same-day events', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsSameDay} />)
 
-      const timeSpanSection = screen.getByText('Time Span').closest('.bg-white')
+      const timeSpanSection = screen.getByText('Time Span').closest('[data-stat]')
       expect(timeSpanSection).toHaveTextContent('Same day')
       expect(timeSpanSection).toHaveTextContent('Jan 1, 2024')
     })
@@ -130,10 +154,9 @@ describe('ActorStats', () => {
     it('calculates activity rate correctly for normal span', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithTimeSpan} />)
 
-      // 10 events over 30 days = ~0.33 events/day (calculated as floor of diffDays)
-      const activitySection = screen.getByText('Events/Day').closest('.bg-white')
-      // The exact rate depends on how days are calculated, just check the section has a decimal rate
-      expect(activitySection).toHaveTextContent(/0\.\d+/)
+      // 10 events over 30 days = 0.33 a day, read as 2.3 a week
+      const activitySection = screen.getByText('Activity').closest('[data-stat]')
+      expect(activitySection).toHaveTextContent('2.3 events per week')
     })
 
     it('displays high activity rate with one decimal', () => {
@@ -154,16 +177,16 @@ describe('ActorStats', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={highActivityStats} />)
 
       // 100 events over ~30 days = ~3.3 events/day (1 decimal for rates >= 1)
-      const activitySection = screen.getByText('Events/Day').closest('.bg-white')
-      expect(activitySection).toHaveTextContent(/\d\.\d/)
+      const activitySection = screen.getByText('Activity').closest('[data-stat]')
+      expect(activitySection).toHaveTextContent('3.3 events per day')
     })
 
     it('displays zero activity rate when no events', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithoutTimeSpan} />)
 
-      // Check the activity rate section shows 0
-      const activitySection = screen.getByText('Events/Day').closest('.bg-white')
-      expect(activitySection).toHaveTextContent('0')
+      // No events, no rate -- not "0 Events/Day"
+      const activitySection = screen.getByText('Activity').closest('[data-stat]')
+      expect(activitySection).toHaveTextContent('No events')
     })
   })
 
@@ -172,17 +195,15 @@ describe('ActorStats', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithTimeSpan} />)
 
       // Numbers appear in multiple places, check the role distribution section
-      const roleSection = screen.getByText('Actor / Target').closest('.bg-white')
-      expect(roleSection).toHaveTextContent('6')
-      expect(roleSection).toHaveTextContent('4')
+      const roleSection = screen.getByText('Actor / Target').closest('[data-stat]')
+      expect(roleSection).toHaveTextContent('6 / 4')
     })
 
     it('displays zero values correctly', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithoutTimeSpan} />)
       
-      const actorTargetSection = screen.getByText('Actor / Target').closest('div')
-      expect(actorTargetSection).toHaveTextContent('0')
-      expect(actorTargetSection).toHaveTextContent('0')
+      const actorTargetSection = screen.getByText('Actor / Target').closest('[data-stat]')
+      expect(actorTargetSection).toHaveTextContent('0 / 0')
     })
   })
 
@@ -193,10 +214,10 @@ describe('ActorStats', () => {
       expect(screen.getByText('As Actor')).toBeInTheDocument()
       
       // Check events count
-      const asActorSection = screen.getByText('As Actor').closest('div')
-      expect(asActorSection).toHaveTextContent('Events:6')
-      expect(asActorSection).toHaveTextContent('Unique Targets:3')
-      expect(asActorSection).toHaveTextContent('Avg per Target:2.0')
+      const asActorSection = screen.getByText('As Actor').closest('[data-role]')
+      expect(asActorSection).toHaveTextContent('Events6')
+      expect(asActorSection).toHaveTextContent('Unique targets3')
+      expect(asActorSection).toHaveTextContent('Average per target2.0')
     })
 
     it('displays "As Target" section correctly', () => {
@@ -205,20 +226,20 @@ describe('ActorStats', () => {
       expect(screen.getByText('As Target')).toBeInTheDocument()
       
       // Check events count
-      const asTargetSection = screen.getByText('As Target').closest('div')
-      expect(asTargetSection).toHaveTextContent('Events:4')
-      expect(asTargetSection).toHaveTextContent('Unique Actors:2')
-      expect(asTargetSection).toHaveTextContent('Avg per Actor:2.0')
+      const asTargetSection = screen.getByText('As Target').closest('[data-role]')
+      expect(asTargetSection).toHaveTextContent('Events4')
+      expect(asTargetSection).toHaveTextContent('Unique actors2')
+      expect(asTargetSection).toHaveTextContent('Average per actor2.0')
     })
 
     it('handles division by zero in averages', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithoutTimeSpan} />)
       
-      const asActorSection = screen.getByText('As Actor').closest('div')
-      expect(asActorSection).toHaveTextContent('Avg per Target:0')
-      
-      const asTargetSection = screen.getByText('As Target').closest('div')
-      expect(asTargetSection).toHaveTextContent('Avg per Actor:0')
+      const asActorSection = screen.getByText('As Actor').closest('[data-role]')
+      expect(asActorSection).toHaveTextContent('Average per target0')
+
+      const asTargetSection = screen.getByText('As Target').closest('[data-role]')
+      expect(asTargetSection).toHaveTextContent('Average per actor0')
     })
   })
 
@@ -294,19 +315,11 @@ describe('ActorStats', () => {
   })
 
   describe('Visual Elements', () => {
-    it('displays icons for different sections', () => {
-      renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithTimeSpan} />)
-
-      // Check that SVG icons are present (heroicons use aria-hidden, not role=img)
-      const container = screen.getByText('Statistics for Alice').closest('div')
-      const svgElements = container?.querySelectorAll('svg')
-      expect(svgElements?.length).toBeGreaterThan(0)
-    })
-
     it('displays colored indicators in activity distribution', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithTimeSpan} />)
-      
-      const distributionSection = screen.getByText('Activity Distribution').closest('div')
+
+      // The role colours are the actor timeline's: they carry meaning here.
+      const distributionSection = screen.getByText('Activity Distribution').closest('[data-stat]')
       
       // Check for colored elements (divs with background colors)
       const coloredElements = distributionSection?.querySelectorAll('[class*="bg-blue"], [class*="bg-green"]')
@@ -332,8 +345,10 @@ describe('ActorStats', () => {
       
       renderWithProviders(<ActorStats actor="Alice" stats={lowActivityStats} />)
       
-      // Should display with 3 decimal places for very small rates
-      expect(screen.getByText(/0\.00\d/)).toBeInTheDocument()
+      // A sparse actor reads per month, not "0.003 Events/Day"
+      const activitySection = screen.getByText('Activity').closest('[data-stat]')
+      expect(activitySection).toHaveTextContent('0.08 events per month')
+      expect(screen.queryByText(/Events\/Day/)).not.toBeInTheDocument()
     })
 
     it('handles large numbers correctly', () => {
@@ -355,13 +370,12 @@ describe('ActorStats', () => {
 
       // Numbers appear in multiple places (role distribution and detail sections)
       // Check Total Events section
-      const totalEventsSection = screen.getByText('Total Events').closest('.bg-white')
+      const totalEventsSection = screen.getByText('Total Events').closest('[data-stat]')
       expect(totalEventsSection).toHaveTextContent('9999')
 
       // Check role distribution section
-      const roleSection = screen.getByText('Actor / Target').closest('.bg-white')
-      expect(roleSection).toHaveTextContent('5000')
-      expect(roleSection).toHaveTextContent('4999')
+      const roleSection = screen.getByText('Actor / Target').closest('[data-stat]')
+      expect(roleSection).toHaveTextContent('5000 / 4999')
     })
   })
 })

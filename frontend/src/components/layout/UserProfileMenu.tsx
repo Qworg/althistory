@@ -1,17 +1,23 @@
 import { useState, useRef, useEffect } from 'react'
 import { useGlobalStore } from '@/stores/globalStore'
 import { ApiKeyDashboard } from '@/components/api-keys/ApiKeyDashboard'
+import { useHelpStore } from '@/components/help/helpStore'
 import { LayoutMode } from '@/types'
 
 interface UserProfileMenuProps {
   variant?: 'header' | 'sidebar'
+  /** Sidebar variant only: icon-only trigger for the collapsed icon rail. */
+  compact?: boolean
+  /** Header variant only: a 44px trigger for the phone layout. */
+  touch?: boolean
 }
 
-export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
+export function UserProfileMenu({ variant = 'header', compact = false, touch = false }: UserProfileMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [showApiKeys, setShowApiKeys] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const { userPreferences, setUserPreferences } = useGlobalStore()
+  const openHelp = useHelpStore((state) => state.openHelp)
 
   const { layoutMode, theme } = userPreferences
 
@@ -51,7 +57,21 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
     setUserPreferences({ theme: newTheme })
   }
 
+  const highContrast = Boolean(userPreferences.accessibility?.highContrast)
+
+  const handleToggleHighContrast = () => {
+    setUserPreferences({
+      accessibility: {
+        highContrast: !highContrast,
+        reducedMotion: Boolean(userPreferences.accessibility?.reducedMotion),
+        screenReaderOptimized: Boolean(userPreferences.accessibility?.screenReaderOptimized),
+      },
+    })
+  }
+
   const isSidebarVariant = variant === 'sidebar'
+  // The collapsed rail is too narrow for the label, so only the icon shows.
+  const isRail = isSidebarVariant && compact
 
   // Dropdown position classes based on variant
   const dropdownPositionClasses = isSidebarVariant
@@ -64,31 +84,32 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`
-          ${isSidebarVariant
-            ? 'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left text-gray-700 hover:bg-gray-100 transition-colors'
-            : 'p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500'
+          ${isRail
+            ? 'w-full flex items-center justify-center p-2 rounded-lg text-ink-secondary hover:text-ink hover:bg-subtle transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-selected'
+            : isSidebarVariant
+            ? 'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-ink-secondary hover:text-ink hover:bg-subtle transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-selected'
+            : `${touch ? 'inline-flex h-11 w-11 items-center justify-center' : 'p-2'} rounded-md text-ink-muted hover:text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-selected`
           }
         `}
         aria-expanded={isOpen}
         aria-haspopup="true"
         aria-label="User menu"
+        title={isRail ? 'User menu' : undefined}
       >
         {/* User icon */}
-        <svg className={isSidebarVariant ? 'h-8 w-8' : 'h-5 w-5'} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
         </svg>
-        {isSidebarVariant && (
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium truncate">User</div>
-            <div className="text-xs text-gray-500">Settings</div>
-          </div>
+        {isSidebarVariant && !isRail && (
+          <span className="flex-1 min-w-0 truncate text-sm font-medium">User</span>
         )}
-        {isSidebarVariant && (
+        {isSidebarVariant && !isRail && (
           <svg
-            className={`h-4 w-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+            className={`h-4 w-4 text-ink-muted transition-transform ${isOpen ? 'rotate-180' : ''}`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
+            aria-hidden="true"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
           </svg>
@@ -100,24 +121,24 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
         <div
           className={`
             absolute ${dropdownPositionClasses} z-50
-            ${isSidebarVariant ? 'w-full' : 'w-64'}
-            bg-white rounded-lg shadow-lg border border-gray-200
+            ${isSidebarVariant && !isRail ? 'w-full' : 'w-64'}
+            bg-card rounded-lg shadow-lg border border-line
             overflow-hidden
           `}
           role="menu"
           aria-orientation="vertical"
         >
           {/* User header */}
-          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-            <p className="text-sm font-medium text-gray-900">User</p>
-            <p className="text-xs text-gray-500">Manage your preferences</p>
+          <div className="px-4 py-3 border-b border-line bg-subtle">
+            <p className="text-sm font-medium text-ink">User</p>
+            <p className="text-xs text-ink-muted">Manage your preferences</p>
           </div>
 
           {/* Settings sections */}
           <div className="p-4 space-y-4">
             {/* Layout toggle */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+              <label className="block text-xs font-medium text-ink-muted uppercase tracking-wider mb-2">
                 Layout
               </label>
               <div className="flex gap-2">
@@ -126,8 +147,8 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
                   className={`
                     flex-1 px-3 py-2 text-sm rounded-md border transition-colors
                     ${layoutMode === 'sidebar'
-                      ? 'bg-blue-50 border-blue-500 text-blue-700'
-                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                      ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
+                      : 'bg-card border-line text-ink-secondary hover:bg-subtle'
                     }
                   `}
                   role="menuitem"
@@ -139,8 +160,8 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
                   className={`
                     flex-1 px-3 py-2 text-sm rounded-md border transition-colors
                     ${layoutMode === 'topbar'
-                      ? 'bg-blue-50 border-blue-500 text-blue-700'
-                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                      ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
+                      : 'bg-card border-line text-ink-secondary hover:bg-subtle'
                     }
                   `}
                   role="menuitem"
@@ -152,7 +173,7 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
 
             {/* Theme toggle */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+              <label className="block text-xs font-medium text-ink-muted uppercase tracking-wider mb-2">
                 Theme
               </label>
               <div className="flex gap-2">
@@ -161,8 +182,8 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
                   className={`
                     flex-1 px-2 py-1.5 text-xs rounded-md border transition-colors
                     ${theme === 'light'
-                      ? 'bg-blue-50 border-blue-500 text-blue-700'
-                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                      ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
+                      : 'bg-card border-line text-ink-secondary hover:bg-subtle'
                     }
                   `}
                   role="menuitem"
@@ -174,8 +195,8 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
                   className={`
                     flex-1 px-2 py-1.5 text-xs rounded-md border transition-colors
                     ${theme === 'dark'
-                      ? 'bg-blue-50 border-blue-500 text-blue-700'
-                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                      ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
+                      : 'bg-card border-line text-ink-secondary hover:bg-subtle'
                     }
                   `}
                   role="menuitem"
@@ -187,8 +208,8 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
                   className={`
                     flex-1 px-2 py-1.5 text-xs rounded-md border transition-colors
                     ${theme === 'system'
-                      ? 'bg-blue-50 border-blue-500 text-blue-700'
-                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                      ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
+                      : 'bg-card border-line text-ink-secondary hover:bg-subtle'
                     }
                   `}
                   role="menuitem"
@@ -197,14 +218,39 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
                 </button>
               </div>
             </div>
+
+            {/* Accessibility toggle */}
+            <div>
+              <label className="block text-xs font-medium text-ink-muted uppercase tracking-wider mb-2">
+                Accessibility
+              </label>
+              <button
+                type="button"
+                onClick={handleToggleHighContrast}
+                aria-pressed={highContrast}
+                className={`
+                  w-full flex items-center justify-between px-3 py-2 text-xs rounded-md border transition-colors
+                  ${highContrast
+                    ? 'bg-indigo-50 border-indigo-600 text-indigo-900 font-semibold dark:bg-indigo-500/20 dark:border-indigo-300 dark:text-indigo-100'
+                    : 'bg-card border-line text-ink-secondary hover:bg-subtle'
+                  }
+                `}
+                role="menuitem"
+              >
+                <span>High Contrast Mode</span>
+                <span className="text-xs uppercase tracking-wide">
+                  {highContrast ? 'On' : 'Off'}
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* Footer actions */}
-          <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 space-y-1">
+          <div className="px-4 py-3 border-t border-line bg-subtle space-y-1">
             {/* Req 20: admin-only key management lives with the other account
                 settings rather than in the graph-scoped view chrome. */}
             <button
-              className="w-full text-left text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              className="w-full text-left text-sm text-ink-secondary hover:text-ink transition-colors"
               role="menuitem"
               onClick={() => {
                 setIsOpen(false)
@@ -214,11 +260,15 @@ export function UserProfileMenu({ variant = 'header' }: UserProfileMenuProps) {
               API Keys
             </button>
             <button
-              className="w-full text-left text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              className="w-full flex items-center justify-between text-left text-sm text-ink-secondary hover:text-ink transition-colors"
               role="menuitem"
-              onClick={() => setIsOpen(false)}
+              onClick={() => {
+                setIsOpen(false)
+                openHelp()
+              }}
             >
-              Sign out
+              <span>Help &amp; keyboard shortcuts</span>
+              <kbd className="font-mono-code text-xs text-ink-muted" aria-hidden="true">?</kbd>
             </button>
           </div>
         </div>

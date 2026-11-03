@@ -1,32 +1,34 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { TimeRange, CreateArcRequest, Event, Arc } from '@/types'
 import { useCreateArc } from '@/hooks/useAPI'
-import { formatHistoricalDate } from '@/utils/historicalTime'
+import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
 
-// Helper to convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
+// Helper to convert an ISO instant to a datetime-local value (YYYY-MM-DDTHH:mm), in UTC
 const isoToDatetimeLocal = (isoString: string): string => {
   if (!isoString) return ''
   try {
     const date = new Date(isoString)
     if (isNaN(date.getTime())) return ''
-    // Format as local datetime
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    const hours = String(date.getHours()).padStart(2, '0')
-    const minutes = String(date.getMinutes()).padStart(2, '0')
+        const year = String(date.getUTCFullYear()).padStart(4, '0')
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+    const day = String(date.getUTCDate()).padStart(2, '0')
+    const hours = String(date.getUTCHours()).padStart(2, '0')
+    const minutes = String(date.getUTCMinutes()).padStart(2, '0')
     return `${year}-${month}-${day}T${hours}:${minutes}`
   } catch {
     return ''
   }
 }
 
-// Helper to convert datetime-local format to ISO string
+// Helper to convert a datetime-local value, read as UTC, to an ISO instant
 const datetimeLocalToIso = (datetimeLocal: string): string => {
   if (!datetimeLocal) return ''
   try {
-    // datetime-local is in local time, create Date from it
-    const date = new Date(datetimeLocal)
+    // The field is a UTC wall-clock time: historical dates are stored as UTC
+    // instants, and reading it in the browser's zone shifted them (before
+    // standard time, by local mean time's odd seconds as well).
+    const hasZone = /(Z|[+-]\d\d:\d\d)$/.test(datetimeLocal)
+    const date = new Date(hasZone ? datetimeLocal : `${datetimeLocal}Z`)
     if (isNaN(date.getTime())) return ''
     return date.toISOString()
   } catch {
@@ -142,8 +144,8 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
     }
 
     if (formData.start_time && formData.end_time) {
-      const startTime = new Date(formData.start_time)
-      const endTime = new Date(formData.end_time)
+      const startTime = new Date(datetimeLocalToIso(formData.start_time))
+      const endTime = new Date(datetimeLocalToIso(formData.end_time))
       
       if (startTime >= endTime) {
         newErrors.end_time = 'End time must be after start time'
@@ -221,14 +223,14 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
     return `${hours} hour${hours !== 1 ? 's' : ''}`
   }
 
-  const duration = formatDuration(new Date(formData.start_time), new Date(formData.end_time))
+  const duration = formatDuration(new Date(datetimeLocalToIso(formData.start_time)), new Date(datetimeLocalToIso(formData.end_time)))
 
   return (
-    <div className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${className}`}>
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+    <div className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 ${className}`}>
+      <div role="dialog" aria-modal="true" aria-label="Create New Arc" className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Create New Arc</h2>
+          <h2 className="font-display text-xl font-semibold text-ink">Create New Arc</h2>
           <button
             onClick={handleCancel}
             className="p-2 hover:bg-gray-100 rounded-md transition-colors"
@@ -251,10 +253,10 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
 
           {/* Time Range Info */}
           <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-            <h3 className="text-sm font-medium text-blue-900 mb-2">Selected Time Range</h3>
+            <h3 className="text-base font-semibold text-blue-900 mb-2">Selected Time Range</h3>
             <div className="text-sm text-blue-700 space-y-1">
-              <div>Start: {new Date(formData.start_time).toLocaleString()}</div>
-              <div>End: {new Date(formData.end_time).toLocaleString()}</div>
+              <div>Start: <span className="font-mono-code">{formatHistoricalTimestamp(datetimeLocalToIso(formData.start_time))}</span></div>
+              <div>End: <span className="font-mono-code">{formatHistoricalTimestamp(datetimeLocalToIso(formData.end_time))}</span></div>
               <div>Duration: {duration}</div>
               {containedEvents.length > 0 && (
                 <div>Contains {containedEvents.length} event{containedEvents.length !== 1 ? 's' : ''}</div>
@@ -303,12 +305,12 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
 
           {/* Time Range Adjustment */}
           <div className="space-y-4">
-            <h3 className="text-sm font-medium text-gray-900">Time Range</h3>
+            <h3 className="text-base font-semibold text-ink">Time Range</h3>
             
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="arc-start-time" className="block text-sm font-medium text-gray-700 mb-1">
-                  Start Time
+                  Start Time <span className="font-normal text-ink-muted">(UTC)</span>
                 </label>
                 <input
                   id="arc-start-time"
@@ -325,7 +327,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
 
               <div>
                 <label htmlFor="arc-end-time" className="block text-sm font-medium text-gray-700 mb-1">
-                  End Time
+                  End Time <span className="font-normal text-ink-muted">(UTC)</span>
                 </label>
                 <input
                   id="arc-end-time"
@@ -351,7 +353,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
           {/* Parent Arc Selection */}
           {parentArcs.length > 0 && (
             <div className="space-y-4">
-              <h3 className="text-sm font-medium text-gray-900">Hierarchy (Optional)</h3>
+              <h3 className="text-base font-semibold text-ink">Hierarchy (Optional)</h3>
               
               <div>
                 <label htmlFor="parent-arc" className="block text-sm font-medium text-gray-700 mb-1">
@@ -385,7 +387,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
           {/* Contained Events Preview */}
           {containedEvents.length > 0 && (
             <div className="space-y-4">
-              <h3 className="text-sm font-medium text-gray-900">
+              <h3 className="text-base font-semibold text-ink">
                 Events to be contained ({containedEvents.length})
               </h3>
               
@@ -394,7 +396,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                   <div key={event.id} className="bg-gray-50 rounded-md p-2">
                     <p className="text-sm font-medium text-gray-900">{event.description}</p>
                     <p className="text-xs text-gray-500">
-                      {event.actor} → {event.target} • {new Date(event.timestamp).toLocaleString()}
+                      {event.actor} → {event.target} • <span className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</span>
                     </p>
                   </div>
                 ))}

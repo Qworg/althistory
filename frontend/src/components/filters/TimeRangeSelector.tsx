@@ -122,7 +122,7 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
       {/* Date Inputs */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="startDate" className="block text-sm font-medium text-ink-secondary mb-1">
             Start Date & Time
           </label>
           <input
@@ -130,14 +130,14 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
             type="datetime-local"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3 py-2 border border-line bg-card text-ink rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent"
             disabled={disabled}
             min={eventDateRange?.min.toISOString().slice(0, 16)}
             max={eventDateRange?.max.toISOString().slice(0, 16)}
           />
         </div>
         <div>
-          <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="endDate" className="block text-sm font-medium text-ink-secondary mb-1">
             End Date & Time
           </label>
           <input
@@ -145,7 +145,7 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
             type="datetime-local"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3 py-2 border border-line bg-card text-ink rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent"
             disabled={disabled}
             min={eventDateRange?.min.toISOString().slice(0, 16)}
             max={eventDateRange?.max.toISOString().slice(0, 16)}
@@ -175,34 +175,34 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
       {/* Preset Buttons */}
       {showPresets && eventDateRange && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-ink-secondary mb-2">
             Quick Presets
           </label>
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => handlePresetSelect('all_events')}
-              className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+              className="px-3 py-2 text-sm bg-subtle text-ink-secondary hover:text-ink hover:bg-line rounded-md transition-colors"
               disabled={disabled}
             >
               All Events
             </button>
             <button
               onClick={() => handlePresetSelect('first_half')}
-              className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+              className="px-3 py-2 text-sm bg-subtle text-ink-secondary hover:text-ink hover:bg-line rounded-md transition-colors"
               disabled={disabled}
             >
               First Half
             </button>
             <button
               onClick={() => handlePresetSelect('second_half')}
-              className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+              className="px-3 py-2 text-sm bg-subtle text-ink-secondary hover:text-ink hover:bg-line rounded-md transition-colors"
               disabled={disabled}
             >
               Second Half
             </button>
             <button
               onClick={() => handlePresetSelect('last_year')}
-              className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+              className="px-3 py-2 text-sm bg-subtle text-ink-secondary hover:text-ink hover:bg-line rounded-md transition-colors"
               disabled={disabled}
             >
               Last Year
@@ -213,11 +213,11 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
 
       {/* Data Range Info */}
       {eventDateRange && (
-        <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded">
+        <div className="text-xs text-ink-muted p-2 bg-subtle rounded">
           <strong>Available Data Range:</strong><br />
           {formatDateForDisplay(eventDateRange.min)} → {formatDateForDisplay(eventDateRange.max)}
           <br />
-          <span className="text-gray-400">({events.length} events total)</span>
+          <span className="text-ink-muted">({events.length} events total)</span>
         </div>
       )}
     </div>

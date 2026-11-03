@@ -6,6 +6,8 @@ import {
   hasActiveFilters,
   toPanelFilters,
   fromPanelFilters,
+  parseHistoricalDate,
+  formatHistoricalDateBound,
   filtersEqual
 } from './filterUtils'
 import type { FilterState } from '@/types'
@@ -203,5 +205,81 @@ describe('panel filter adapters', () => {
   it('compares store filters by value', () => {
     expect(filtersEqual(baseFilters, { ...baseFilters })).toBe(true)
     expect(filtersEqual(baseFilters, { ...baseFilters, actors: ['a'] })).toBe(false)
+  })
+})
+
+describe('historical date bounds', () => {
+  const iso = (text: string, edge: 'start' | 'end') => {
+    const parsed = parseHistoricalDate(text, edge)
+    if (!parsed.ok) throw new Error(parsed.error)
+    return parsed.date.toISOString()
+  }
+
+  it('reads a start as the first moment of the period it names, in UTC', () => {
+    expect(iso('1843', 'start')).toBe('1843-01-01T00:00:00.000Z')
+    expect(iso('1843-11', 'start')).toBe('1843-11-01T00:00:00.000Z')
+    expect(iso('1843-11-20', 'start')).toBe('1843-11-20T00:00:00.000Z')
+  })
+
+  it('reads an end as the last moment of the period it names', () => {
+    expect(iso('1843', 'end')).toBe('1843-12-31T23:59:59.999Z')
+    expect(iso('1843-02', 'end')).toBe('1843-02-28T23:59:59.999Z')
+    expect(iso('1844-02', 'end')).toBe('1844-02-29T23:59:59.999Z')
+    expect(iso('1843-11-20', 'end')).toBe('1843-11-20T23:59:59.999Z')
+  })
+
+  it('reads BCE years with no year 0 (1 BCE is astronomical year 0)', () => {
+    expect(iso('1 BCE', 'start')).toBe('0000-01-01T00:00:00.000Z')
+    expect(iso('44 BCE', 'start')).toBe('-000043-01-01T00:00:00.000Z')
+    expect(iso('-44', 'start')).toBe('-000043-01-01T00:00:00.000Z')
+    expect(iso('44-03-15 BC', 'start')).toBe('-000043-03-15T00:00:00.000Z')
+    expect(parseHistoricalDate('0', 'start').ok).toBe(false)
+  })
+
+  it('keeps two-digit years in the first century, not the 1900s', () => {
+    expect(iso('79-08-24', 'start')).toBe('0079-08-24T00:00:00.000Z')
+    expect(iso('79 CE', 'end')).toBe('0079-12-31T23:59:59.999Z')
+  })
+
+  it('refuses ambiguous or impossible input with a reason', () => {
+    for (const text of ['11/20/1843', '20.11.1843', 'Nov 1843', '1843-13', '1843-02-30', '-44 BCE', '']) {
+      const parsed = parseHistoricalDate(text, 'start')
+      expect(parsed.ok, text).toBe(false)
+      if (!parsed.ok) expect(parsed.error.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('spells each bound canonically, and the stored instant reads back to the same instant', () => {
+    for (const [text, edge, canonical] of [
+      ['1843', 'start', '1843'],
+      ['1843-1', 'start', '1843-01'],
+      ['1843-11-20', 'end', '1843-11-20'],
+      ['-44', 'start', '44 BCE'],
+      ['44-3-15 bce', 'end', '44-03-15 BCE'],
+      ['1870-12', 'end', '1870-12'],
+    ] as const) {
+      const parsed = parseHistoricalDate(text, edge)
+      expect(parsed.ok && parsed.text).toBe(canonical)
+      // The store may spell it more briefly (the start of January 1843 is the
+      // start of 1843), but never as a different moment.
+      if (parsed.ok) expect(iso(formatHistoricalDateBound(parsed.date, edge), edge)).toBe(parsed.date.toISOString())
+    }
+  })
+
+  it('round-trips typed bounds through the store shape', () => {
+    const panel = { ...toPanelFilters(baseFilters), dateRange: { start: '44 BCE', end: '1843-11' } }
+    const store = fromPanelFilters(panel)
+    expect(store.dateRange!.start.toISOString()).toBe('-000043-01-01T00:00:00.000Z')
+    expect(store.dateRange!.end.toISOString()).toBe('1843-11-30T23:59:59.999Z')
+    expect(toPanelFilters(store).dateRange).toEqual({ start: '44 BCE', end: '1843-11' })
+  })
+
+  it('filters events across the BCE/CE boundary', () => {
+    const ancient = [
+      { ...events[0]!, id: 'caesar', timestamp: '-000043-03-15T00:00:00.000Z' },
+      { ...events[0]!, id: 'vesuvius', timestamp: '0079-08-24T00:00:00.000Z' },
+    ]
+    const store = fromPanelFilters({ ...toPanelFilters(baseFilters), dateRange: { start: '50 BCE', end: '1 CE' } })
+    expect(filterEvents(ancient, store).map((e) => e.id)).toEqual(['caesar'])
   })
 })

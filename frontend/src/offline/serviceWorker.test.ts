@@ -13,7 +13,7 @@ import swSource from '../../public/sw.js?raw'
  *   - a failed navigation must not replace the cached shell (else a 404 or 500
  *     page becomes the offline shell), and
  *   - install must precache the hashed build assets referenced by the document,
- *     not just `/`, `/index.html` and `/vite.svg` (else an offline load has the
+ *     not just `/`, `/index.html` and `/favicon.svg` (else an offline load has the
  *     document but none of its JavaScript, i.e. a blank page).
  * It does not prove anything about how a real browser schedules the worker.
  */
@@ -142,7 +142,7 @@ function runFetch(sandbox: Sandbox, request: SwRequest): Promise<Response | unde
 }
 
 const indexHtml = `<!doctype html><html><head>
-  <link rel="icon" href="/vite.svg">
+  <link rel="icon" href="/favicon.svg">
   <script type="module" crossorigin src="/assets/index-abc123.js"></script>
   <link rel="stylesheet" crossorigin href="/assets/index-def456.css">
   <link rel="preconnect" href="https://cdn.example.com">
@@ -158,7 +158,7 @@ describe('app-shell service worker', () => {
       const url = String(input)
       if (url === '/index.html') return new Response(indexHtml, { status: 200 })
       if (url === '/') return new Response(indexHtml, { status: 200 })
-      if (url === '/vite.svg') return new Response('<svg/>', { status: 200 })
+      if (url === '/favicon.svg') return new Response('<svg/>', { status: 200 })
       if (url.startsWith('/assets/')) return new Response('/* built asset */', { status: 200 })
       return new Response('missing', { status: 404 })
     })
@@ -167,14 +167,14 @@ describe('app-shell service worker', () => {
 
     const entries = sandbox.store.get(CACHE_NAME)
     expect(entries).toBeDefined()
-    // Without the parse of index.html only /, /index.html and /vite.svg are
+    // Without the parse of index.html only /, /index.html and /favicon.svg are
     // cached, and an offline load has no JavaScript to run.
     expect([...(entries?.keys() ?? [])].sort()).toEqual([
       '/',
       '/assets/index-abc123.js',
       '/assets/index-def456.css',
+      '/favicon.svg',
       '/index.html',
-      '/vite.svg',
     ])
   })
 

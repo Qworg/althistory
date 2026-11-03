@@ -1,10 +1,12 @@
 import React, { useEffect, useId, useCallback, useRef } from 'react'
+import { useStackedDialogKeys } from './useStackedDialogKeys'
 
 const FOCUSABLE_SELECTOR =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
 
 /**
- * Custom hook to trap focus within an element for accessibility
+ * Moves focus into the dialog when it opens and back to the opener when it
+ * closes. Keeping focus inside (Tab wrapping) is useStackedDialogKeys' job.
  */
 function useFocusTrap(isOpen: boolean) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -36,54 +38,26 @@ function useFocusTrap(isOpen: boolean) {
     }
   }, [isOpen])
 
-  // Handle Tab key to trap focus
-  const handleTabKey = useCallback((e: KeyboardEvent) => {
-    const container = containerRef.current
-    if (!container || e.key !== 'Tab') return
-
-    const focusableElements = container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
-    if (focusableElements.length === 0) return
-
-    const firstElement = focusableElements[0]
-    const lastElement = focusableElements[focusableElements.length - 1]
-
-    // Guard against undefined elements (shouldn't happen given length check above)
-    if (!firstElement || !lastElement) return
-
-    if (e.shiftKey) {
-      // Shift+Tab: if on first element, go to last
-      if (document.activeElement === firstElement) {
-        e.preventDefault()
-        lastElement.focus()
-      }
-    } else {
-      // Tab: if on last element, go to first
-      if (document.activeElement === lastElement) {
-        e.preventDefault()
-        firstElement.focus()
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!isOpen) return
-
-    document.addEventListener('keydown', handleTabKey)
-    return () => document.removeEventListener('keydown', handleTabKey)
-  }, [isOpen, handleTabKey])
+  // Tab wrapping (and Escape) is handled by useStackedDialogKeys, which acts
+  // only for the topmost dialog, so stacked dialogs do not fight over focus.
 
   return containerRef
 }
 
+/**
+ * Desktop widths. Below `lg` every size is a full-screen sheet, so the caps
+ * apply from `lg` up. `full` is the viewport less the shared side margin
+ * (the margin is applied once, on the content box).
+ */
 const sizeClasses = {
-  sm: 'max-w-sm',
-  md: 'max-w-md',
-  lg: 'max-w-lg',
-  xl: 'max-w-xl',
-  '2xl': 'max-w-2xl',
-  '3xl': 'max-w-3xl',
-  '4xl': 'max-w-4xl',
-  full: 'max-w-full mx-4'
+  sm: 'lg:max-w-sm',
+  md: 'lg:max-w-md',
+  lg: 'lg:max-w-lg',
+  xl: 'lg:max-w-xl',
+  '2xl': 'lg:max-w-2xl',
+  '3xl': 'lg:max-w-3xl',
+  '4xl': 'lg:max-w-4xl',
+  full: 'lg:max-w-[calc(100%-2rem)]'
 }
 
 export interface ModalBaseProps {
@@ -112,6 +86,10 @@ export interface ModalBaseProps {
 /**
  * Base modal component with proper accessibility attributes.
  * Provides consistent modal behavior across the application.
+ *
+ * Below `lg` (the phone layout) it is a full-screen sheet: no side margins,
+ * the full dynamic viewport height, the header and footer fixed in place and
+ * only the body scrolling. From `lg` up it is the centred card.
  */
 export const ModalBase: React.FC<ModalBaseProps> = ({
   isOpen,
@@ -128,19 +106,10 @@ export const ModalBase: React.FC<ModalBaseProps> = ({
   const titleId = useId()
   const focusTrapRef = useFocusTrap(isOpen)
 
-  // Handle escape key
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape' && closeOnEscape) {
-      onClose()
-    }
-  }, [closeOnEscape, onClose])
-
-  useEffect(() => {
-    if (!isOpen) return
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, handleKeyDown])
+  // Escape closes only the topmost dialog, and Tab stays inside it. With
+  // closeOnEscape false, Escape is swallowed while this dialog is on top
+  // rather than falling through to whatever is underneath.
+  useStackedDialogKeys(focusTrapRef, isOpen, onClose, closeOnEscape)
 
   // Prevent body scroll when modal is open
   useEffect(() => {
@@ -167,11 +136,11 @@ export const ModalBase: React.FC<ModalBaseProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className={`fixed inset-0 z-50 flex items-center justify-center overflow-y-auto ${className}`}
+      className={`fixed inset-0 z-50 flex items-stretch justify-center lg:items-center lg:overflow-y-auto ${className}`}
     >
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+        className="fixed inset-0 bg-black/50 transition-opacity"
         onClick={handleBackdropClick}
         aria-hidden="true"
       />
@@ -179,11 +148,12 @@ export const ModalBase: React.FC<ModalBaseProps> = ({
       {/* Content */}
       <div
         ref={focusTrapRef}
-        className={`relative bg-white rounded-lg shadow-xl w-full ${sizeClasses[size]} mx-4 my-8`}
+        className={`relative flex flex-col w-full h-dvh bg-card text-ink shadow-xl lg:h-auto lg:rounded-lg lg:border lg:border-line lg:mx-4 lg:my-8 ${sizeClasses[size]}`}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h2 id={titleId} className="text-lg font-semibold text-gray-900">
+        {/* Header (stays put: only the body scrolls) */}
+        <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-2 lg:p-4 border-b border-line">
+          <h2 id={titleId} className="font-display text-xl leading-tight font-semibold text-ink">
             {title}
           </h2>
           {showCloseButton && (
@@ -191,7 +161,7 @@ export const ModalBase: React.FC<ModalBaseProps> = ({
               type="button"
               onClick={onClose}
               aria-label="Close modal"
-              className="p-2 hover:bg-gray-100 rounded-md transition-colors text-gray-400 hover:text-gray-600"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center lg:h-auto lg:w-auto lg:p-2 hover:bg-subtle rounded-md transition-colors text-ink-muted hover:text-ink"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -201,13 +171,13 @@ export const ModalBase: React.FC<ModalBaseProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 lg:flex-none lg:max-h-[calc(100vh-200px)]">
           {children}
         </div>
 
-        {/* Footer */}
+        {/* Footer (stays put on a phone, in thumb reach) */}
         {footer && (
-          <div className="border-t border-gray-200 p-4 bg-gray-50 rounded-b-lg">
+          <div className="shrink-0 border-t border-line p-4 bg-subtle lg:rounded-b-lg">
             {footer}
           </div>
         )}
@@ -255,19 +225,10 @@ export const PanelBase: React.FC<PanelBaseProps> = ({
   const titleId = useId()
   const focusTrapRef = useFocusTrap(isOpen)
 
-  // Handle escape key
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape' && closeOnEscape) {
-      onClose()
-    }
-  }, [closeOnEscape, onClose])
-
-  useEffect(() => {
-    if (!isOpen) return
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, handleKeyDown])
+  // Escape closes only the topmost dialog, and Tab stays inside it. With
+  // closeOnEscape false, Escape is swallowed while this dialog is on top
+  // rather than falling through to whatever is underneath.
+  useStackedDialogKeys(focusTrapRef, isOpen, onClose, closeOnEscape)
 
   if (!isOpen) return null
 
@@ -279,20 +240,20 @@ export const PanelBase: React.FC<PanelBaseProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className={`fixed inset-y-0 ${positionClasses} bg-white shadow-xl border-l border-gray-200 transform transition-transform duration-300 ease-in-out z-50 ${className}`}
+      className={`fixed inset-y-0 ${positionClasses} max-w-full bg-card text-ink shadow-xl border-l border-line transform transition-transform duration-300 ease-in-out z-50 ${className}`}
       style={{ width }}
     >
       <div className="flex flex-col h-full">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h2 id={titleId} className="text-lg font-semibold text-gray-900">
+        <div className="flex items-center justify-between p-4 border-b border-line">
+          <h2 id={titleId} className="font-display text-xl leading-tight font-semibold text-ink">
             {title}
           </h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close panel"
-            className="p-2 hover:bg-gray-100 rounded-md transition-colors text-gray-400 hover:text-gray-600"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center lg:h-auto lg:w-auto lg:p-2 hover:bg-subtle rounded-md transition-colors text-ink-muted hover:text-ink"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -307,7 +268,7 @@ export const PanelBase: React.FC<PanelBaseProps> = ({
 
         {/* Footer */}
         {footer && (
-          <div className="border-t border-gray-200 p-4">
+          <div className="border-t border-line p-4">
             {footer}
           </div>
         )}

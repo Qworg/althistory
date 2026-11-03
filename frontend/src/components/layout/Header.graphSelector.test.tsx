@@ -56,6 +56,7 @@ vi.mock('@/hooks/useGraphs', () => {
       isSwitching: false,
     }),
     useGraphVersions: () => ({ data: [], isLoading: false }),
+    useGraphHeadVersion: () => 3,
     useGraphBranches: () => ({ data: [], isLoading: false }),
   }
 })

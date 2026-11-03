@@ -15,11 +15,11 @@ test.describe('ingestion wizard', () => {
     const state = await installApiStub(page)
 
     await page.goto('/')
-    await expect(page.getByText('3 events, 1 arcs')).toBeVisible()
+    await expect(page.getByText('3 events · 1 arc')).toBeVisible()
 
     await page.getByRole('button', { name: 'Ingest' }).click()
     const dialog = page.getByRole('dialog')
-    await expect(dialog.getByRole('heading', { name: 'Ingest from Web' })).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: 'Ingest from Wikipedia' })).toBeVisible()
 
     await expect(dialog.getByRole('tab', { name: 'Wikipedia' })).toHaveAttribute(
       'aria-selected',
@@ -29,7 +29,7 @@ test.describe('ingestion wizard', () => {
     await dialog
       .getByLabel(/Wikipedia URL/)
       .fill('https://en.wikipedia.org/wiki/Battle_of_Hastings')
-    await dialog.getByRole('button', { name: /Extract Entities/ }).click()
+    await dialog.getByRole('button', { name: /Extract events/ }).click()
 
     // Review step: the extraction is rendered as an editable table.
     await expect(dialog.getByRole('heading', { name: 'Events (2/2 selected)' })).toBeVisible()
@@ -42,7 +42,7 @@ test.describe('ingestion wizard', () => {
     expect(state.ingestedVia).toEqual(['/ingest/url'])
 
     // Complete the import; the approve payload must carry the selection.
-    await dialog.getByRole('button', { name: /Import Selected \(3\)/ }).click()
+    await dialog.getByRole('button', { name: /Import selected \(3\)/ }).click()
     await expect(dialog.getByRole('heading', { name: 'Import complete' })).toBeVisible()
     await expect(
       dialog.getByText('Imported 2 events, 1 arcs and 0 relationships.'),

@@ -1,6 +1,7 @@
 import { Event, InferredPressure, PressureType } from '@/models';
 import { CausalSuggestion, CausalRelationshipType, DrivenByRelationship } from '@/models/relationships';
 import { isTemporalInversion } from '@/utils/causalOrder';
+import { formatHistoricalSpan } from '@/utils/historicalDate';
 
 /**
  * Represents a cluster of temporally related events
@@ -615,7 +616,7 @@ export class InferenceService {
     };
     
     return new InferredPressure({
-      description: `Economic pressure detected in cluster from ${cluster.timeRange.start.toDateString()} to ${cluster.timeRange.end.toDateString()}`,
+      description: `Economic pressure detected in cluster ${formatHistoricalSpan(cluster.timeRange.start, cluster.timeRange.end)}`,
       confidence_score: confidence,
       pressure_type: 'economic',
       evidence,
@@ -650,7 +651,7 @@ export class InferenceService {
     };
     
     return new InferredPressure({
-      description: `Social pressure detected in cluster from ${cluster.timeRange.start.toDateString()} to ${cluster.timeRange.end.toDateString()}`,
+      description: `Social pressure detected in cluster ${formatHistoricalSpan(cluster.timeRange.start, cluster.timeRange.end)}`,
       confidence_score: confidence,
       pressure_type: 'social',
       evidence,
@@ -685,7 +686,7 @@ export class InferenceService {
     };
     
     return new InferredPressure({
-      description: `Political pressure detected in cluster from ${cluster.timeRange.start.toDateString()} to ${cluster.timeRange.end.toDateString()}`,
+      description: `Political pressure detected in cluster ${formatHistoricalSpan(cluster.timeRange.start, cluster.timeRange.end)}`,
       confidence_score: confidence,
       pressure_type: 'political',
       evidence,
@@ -720,7 +721,7 @@ export class InferenceService {
     };
     
     return new InferredPressure({
-      description: `Environmental pressure detected in cluster from ${cluster.timeRange.start.toDateString()} to ${cluster.timeRange.end.toDateString()}`,
+      description: `Environmental pressure detected in cluster ${formatHistoricalSpan(cluster.timeRange.start, cluster.timeRange.end)}`,
       confidence_score: confidence,
       pressure_type: 'environmental',
       evidence,

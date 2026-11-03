@@ -104,11 +104,15 @@ describe('Causal Graph Integration Tests', () => {
         </TestProviders>
       )
 
-      expect(screen.getByText('Graph Layout')).toBeInTheDocument()
-      expect(screen.getByRole('heading', { name: /force-based/i })).toBeInTheDocument()
-      expect(screen.getByRole('heading', { name: /hierarchical/i })).toBeInTheDocument()
-      expect(screen.getByRole('heading', { name: /circular/i })).toBeInTheDocument()
-      expect(screen.getByRole('heading', { name: /grid-based/i })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Graph Layout' })).toBeInTheDocument()
+      // The three most useful layouts are always shown; the rest sit behind
+      // "More layouts".
+      expect(screen.getByRole('button', { name: /^clusters/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^time order/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /cause to effect/i })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'More layouts' }))
+      expect(screen.getByRole('button', { name: /^ring/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /grid/i })).toBeInTheDocument()
     })
 
     it('changes layout on button click', async () => {
@@ -123,16 +127,16 @@ describe('Causal Graph Integration Tests', () => {
         </TestProviders>
       )
 
-      const hierarchicalButton = screen.getByRole('button', { name: /hierarchical/i })
+      const rankedButton = screen.getByRole('button', { name: /cause to effect/i })
       await act(async () => {
-        fireEvent.click(hierarchicalButton)
+        fireEvent.click(rankedButton)
       })
 
       await waitFor(() => {
         expect(mockCytoscapeInstance.layout).toHaveBeenCalledWith(
-          expect.objectContaining({ name: 'breadthfirst' })
+          expect.objectContaining({ name: 'dagre' })
         )
-        expect(onLayoutChange).toHaveBeenCalledWith('breadthfirst')
+        expect(onLayoutChange).toHaveBeenCalledWith('dagre')
       })
     })
 
@@ -182,7 +186,7 @@ describe('Causal Graph Integration Tests', () => {
         </TestProviders>
       )
 
-      fireEvent.click(screen.getByRole('button', { name: /circular/i }))
+      fireEvent.click(screen.getByRole('button', { name: /cause to effect/i }))
 
       expect(screen.getByText('Applying layout...')).toBeInTheDocument()
     })

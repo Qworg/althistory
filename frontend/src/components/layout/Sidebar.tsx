@@ -1,10 +1,13 @@
+import React, { useId } from 'react'
 import { NavLink } from 'react-router'
 import { UserProfileMenu } from './UserProfileMenu'
+import { TimelineViewIcon, CausalGraphViewIcon, ActorViewIcon } from './viewIcons'
+import { useGlobalStore } from '@/stores/globalStore'
 
 interface SidebarItem {
   path: string
   label: string
-  icon: string
+  icon: React.ReactNode
   description?: string
 }
 
@@ -12,72 +15,127 @@ const sidebarItems: SidebarItem[] = [
   {
     path: '/timeline',
     label: 'Timeline',
-    icon: '📊',
+    icon: <TimelineViewIcon />,
     description: 'View events chronologically'
   },
   {
     path: '/causal-graph',
     label: 'Causal Graph',
-    icon: '🔗',
+    icon: <CausalGraphViewIcon />,
     description: 'Explore cause-effect relationships'
   },
   {
     path: '/actor-perspective',
     label: 'Actor Perspective',
-    icon: '👤',
+    icon: <ActorViewIcon />,
     description: 'Focus on specific actors'
   }
 ]
 
+/** A panel with its left rail marked, and a chevron pointing the way it will move. */
+function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 4v16" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d={collapsed ? 'M13.5 10l2 2-2 2' : 'M15.5 10l-2 2 2 2'}
+      />
+    </svg>
+  )
+}
+
+/**
+ * The view navigation in sidebar layout. It collapses to a 56px icon rail; the
+ * choice is a persisted user preference (`setSidebarCollapsed`). Collapsed,
+ * every link keeps its view name as its accessible name and tooltip.
+ */
 export function Sidebar() {
+  const collapsed = useGlobalStore((state) => state.uiState.sidebarCollapsed)
+  const setSidebarCollapsed = useGlobalStore((state) => state.setSidebarCollapsed)
+  const sidebarId = useId()
+
+  const toggleLabel = collapsed ? 'Expand sidebar' : 'Collapse sidebar'
+
   return (
     <aside
-      className="bg-white shadow-sm border-r w-64 flex-shrink-0"
+      id={sidebarId}
+      className={`bg-card shadow-sm border-r border-line flex-shrink-0 transition-[width] duration-200 ease-out motion-reduce:transition-none ${
+        collapsed ? 'w-14' : 'w-64'
+      }`}
       aria-label="Sidebar navigation"
+      data-collapsed={collapsed || undefined}
     >
       <div className="flex flex-col h-full">
-        {/* Header */}
-        <div className="p-4 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">Views</h2>
-        </div>
+        {/* The links name the views; the heading keeps the outline intact for
+            screen readers without a second visible label. */}
+        <h2 className="sr-only">Views</h2>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-2" role="navigation">
+        <nav className={`flex-1 space-y-2 ${collapsed ? 'px-2 py-4' : 'p-4'}`} role="navigation">
           {sidebarItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
+              aria-label={collapsed ? item.label : undefined}
+              title={collapsed ? item.label : undefined}
               className={({ isActive }) =>
-                `flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 group ${
+                `flex items-center rounded-lg text-sm font-medium transition-colors duration-200 group focus:outline-none focus-visible:ring-2 focus-visible:ring-selected ${
+                  collapsed ? 'justify-center p-2' : 'px-3 py-2.5'
+                } ${
                   isActive
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                    ? 'bg-blue-50 text-blue-800 border border-blue-200/80 dark:bg-blue-500/15 dark:text-blue-200 dark:border-blue-400/30'
+                    : 'text-ink-secondary hover:text-ink hover:bg-subtle border border-transparent'
                 }`
               }
             >
-              <span className="text-lg" aria-hidden="true">{item.icon}</span>
-              <div className="ml-3 flex-1">
-                <div className="text-sm font-medium">{item.label}</div>
-                {item.description && (
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    {item.description}
-                  </div>
-                )}
-              </div>
+              <span className="text-current shrink-0" aria-hidden="true" data-testid={`sidebar-icon-${item.path.slice(1)}`}>
+                {item.icon}
+              </span>
+              {!collapsed && (
+                <div className="ml-3 flex-1 min-w-0">
+                  <div className="text-sm font-medium">{item.label}</div>
+                  {item.description && (
+                    <div className="text-xs text-ink-muted mt-0.5">
+                      {item.description}
+                    </div>
+                  )}
+                </div>
+              )}
             </NavLink>
           ))}
         </nav>
 
-        {/* User profile section */}
-        <div className="border-t p-4">
-          <UserProfileMenu variant="sidebar" />
+        {/* Collapse / expand */}
+        <div className={collapsed ? 'px-2 pb-2' : 'px-4 pb-2'}>
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed(!collapsed)}
+            aria-expanded={!collapsed}
+            aria-controls={sidebarId}
+            aria-label={toggleLabel}
+            title={toggleLabel}
+            className={`w-full flex items-center rounded-lg text-sm text-ink-muted hover:text-ink hover:bg-subtle transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-selected ${
+              collapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2'
+            }`}
+          >
+            <SidebarToggleIcon collapsed={collapsed} />
+            {!collapsed && <span>Collapse</span>}
+          </button>
         </div>
 
-        {/* Version footer */}
-        <div className="p-4 border-t">
-          <div className="text-xs text-gray-500">
-            Timeline Interface v1.0
+        {/* User menu and version: one compact row, so the rail goes to the views */}
+        <div className={`border-t border-line ${collapsed ? 'p-2' : 'flex items-center gap-2 px-2 py-2'}`}>
+          <div className={collapsed ? '' : 'flex-1 min-w-0'}>
+            <UserProfileMenu variant="sidebar" compact={collapsed} />
           </div>
+          {!collapsed && (
+            <span className="shrink-0 pr-2 font-mono-code text-xs text-ink-muted" title="althistory v1.0">
+              v1.0
+            </span>
+          )}
         </div>
       </div>
     </aside>

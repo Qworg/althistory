@@ -256,14 +256,14 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
       <div className="flex items-center justify-between p-4 border-b border-gray-200">
         <div className="flex items-center space-x-3">
           <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
-          <h3 className="text-lg font-semibold text-gray-800">Causal Chain Explorer</h3>
+          <h3 className="font-display text-xl font-semibold text-ink">Causal Chain Explorer</h3>
           {isLoading && (
             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
           )}
         </div>
         <button
           onClick={stopExploration}
-          className="text-gray-400 hover:text-gray-600 transition-colors"
+          className="text-ink-muted hover:text-ink transition-colors"
           title="Stop exploration (Escape)"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -318,7 +318,7 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
       {explorationState.currentPath && (
         <div className="p-4">
           <div className="flex items-center justify-between mb-4">
-            <h4 className="text-md font-medium text-gray-800">
+            <h4 className="text-base font-semibold text-ink">
               Path Navigation ({currentSteps.length} steps)
             </h4>
             <div className="flex items-center space-x-2">
@@ -442,7 +442,7 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
 
                 {/* Connection arrow */}
                 {index < currentSteps.length - 1 && (
-                  <div className="flex-shrink-0 text-gray-400">
+                  <div className="flex-shrink-0 text-ink-muted">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                     </svg>

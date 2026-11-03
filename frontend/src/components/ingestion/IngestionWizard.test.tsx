@@ -102,6 +102,38 @@ function makePreview(): IngestResponse {
   }
 }
 
+/** A preview with relationships and an error on one of them. */
+function makePreviewWithRelationships(): IngestResponse {
+  const preview = makePreview()
+  return {
+    ...preview,
+    validationIssues: [
+      ...preview.validationIssues,
+      {
+        entityTempId: 'rel-1',
+        entityType: 'relationship',
+        severity: 'error',
+        message: 'Effect precedes cause',
+      },
+    ],
+    extraction: {
+      ...preview.extraction,
+      relationships: [
+        {
+          tempId: 'rel-1',
+          causeEventTempId: 'evt-2',
+          effectEventTempId: 'evt-1',
+          weight: 0.7,
+          confidence: 0.8,
+          reasoning: 'Ordering looks reversed',
+          source: { type: 'wikipedia', extractedAt: '2024-01-01T00:00:00Z' },
+          selected: true,
+        },
+      ],
+    },
+  }
+}
+
 function makeImportResult(): ImportResult {
   return {
     success: true,
@@ -123,7 +155,7 @@ async function extractFromText(user: User): Promise<void> {
     within(panel).getByLabelText(/Text to extract/),
     'The Battle of Hastings was fought in 1066.'
   )
-  await user.click(within(panel).getByRole('button', { name: /Extract Entities/ }))
+  await user.click(screen.getByRole('button', { name: /Extract events/ }))
   await screen.findByLabelText('Select event evt-1')
 }
 
@@ -170,7 +202,7 @@ describe('IngestionWizard', () => {
     await user.clear(maxPages)
     await user.type(maxPages, '5')
 
-    await user.click(screen.getByRole('button', { name: /Extract Entities/ }))
+    await user.click(screen.getByRole('button', { name: /Extract events/ }))
 
     await waitFor(() => expect(mockedUrl).toHaveBeenCalledTimes(1))
     expect(mockedUrl).toHaveBeenCalledWith({
@@ -190,7 +222,7 @@ describe('IngestionWizard', () => {
     const panel = screen.getByRole('tabpanel')
     await user.selectOptions(within(panel).getByLabelText(/Query type/), 'person-timeline')
     await user.type(within(panel).getByLabelText(/Person Wikidata ID/), 'Q42')
-    await user.click(within(panel).getByRole('button', { name: /Extract Entities/ }))
+    await user.click(screen.getByRole('button', { name: /Extract events/ }))
 
     await waitFor(() => expect(mockedWikidata).toHaveBeenCalledTimes(1))
     expect(mockedWikidata).toHaveBeenCalledWith({
@@ -230,7 +262,7 @@ describe('IngestionWizard', () => {
     await user.clear(description)
     await user.type(description, 'Edited before import')
 
-    await user.click(screen.getByRole('button', { name: /Import Selected/ }))
+    await user.click(screen.getByRole('button', { name: /Import selected/ }))
     await waitFor(() => expect(mockedApprove).toHaveBeenCalledTimes(1))
 
     const [jobId, request] = firstApproveCall()
@@ -251,7 +283,7 @@ describe('IngestionWizard', () => {
     // Both events start checked; untick the second one.
     await user.click(screen.getByLabelText('Select event evt-2'))
 
-    await user.click(screen.getByRole('button', { name: /Import Selected/ }))
+    await user.click(screen.getByRole('button', { name: /Import selected/ }))
     await waitFor(() => expect(mockedApprove).toHaveBeenCalledTimes(1))
 
     const [, request] = firstApproveCall()
@@ -276,7 +308,7 @@ describe('IngestionWizard', () => {
     await user.click(screen.getByLabelText('Select event evt-1'))
     await user.click(screen.getByLabelText('Select event evt-2'))
 
-    await user.click(screen.getByRole('button', { name: /Import Selected/ }))
+    await user.click(screen.getByRole('button', { name: /Import selected/ }))
     await waitFor(() => expect(mockedApprove).toHaveBeenCalledTimes(1))
 
     const [, request] = firstApproveCall()
@@ -306,6 +338,71 @@ describe('IngestionWizard', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('asks before Escape throws away a review with extracted rows and edits', async () => {
+    const user = userEvent.setup()
+    mockedText.mockResolvedValue(makePreview())
+    mockedDeleteJob.mockResolvedValue({ success: true })
+    const onClose = vi.fn()
+
+    renderWithProviders(<IngestionWizard isOpen onClose={onClose} />)
+    await extractFromText(user)
+    await user.type(screen.getByLabelText('Description for event evt-1'), ' (edited)')
+
+    await user.keyboard('{Escape}')
+
+    const confirm = screen.getByRole('dialog', { name: 'Discard this review?' })
+    expect(confirm).toHaveTextContent('Discard 2 extracted events, 1 arc and your edits?')
+    expect(onClose).not.toHaveBeenCalled()
+    // The question is read with the focused button.
+    const keep = within(confirm).getByRole('button', { name: 'Keep reviewing' })
+    expect(keep).toHaveFocus()
+    expect(document.getElementById(keep.getAttribute('aria-describedby')!)).toHaveTextContent(/Nothing has been imported yet/)
+
+    // Escape on the question closes only the question; the review is intact.
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Discard this review?' })).not.toBeInTheDocument()
+    expect((screen.getByLabelText('Description for event evt-1') as HTMLTextAreaElement).value).toContain(
+      '(edited)'
+    )
+    expect(onClose).not.toHaveBeenCalled()
+
+    // Confirming discards the job and closes.
+    await user.click(screen.getByRole('button', { name: 'Close modal' }))
+    await user.click(within(screen.getByRole('dialog', { name: 'Discard this review?' })).getByRole('button', { name: 'Discard' }))
+    await waitFor(() => expect(mockedDeleteJob).toHaveBeenCalledWith('job-1'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes the source step without asking', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+
+    renderWithProviders(<IngestionWizard isOpen onClose={onClose} />)
+    await user.keyboard('{Escape}')
+
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog', { name: 'Discard this review?' })).not.toBeInTheDocument()
+  })
+
+  it('is titled by its source and puts "Extract events" in the footer', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+
+    expect(screen.getByRole('dialog', { name: 'Ingest from Wikipedia' })).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Wikidata' }))
+    expect(screen.getByRole('dialog', { name: 'Ingest from Wikidata' })).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Text' }))
+    expect(screen.getByRole('dialog', { name: 'Ingest from text' })).toBeInTheDocument()
+
+    // One primary action, outside the tab panel, enabled once there is text.
+    const extract = screen.getByRole('button', { name: 'Extract events' })
+    expect(within(screen.getByRole('tabpanel')).queryByRole('button', { name: /Extract/ })).not.toBeInTheDocument()
+    expect(extract).toBeDisabled()
+    await user.type(screen.getByLabelText(/Text to extract/), 'Something happened in 1851.')
+    expect(extract).toBeEnabled()
+    expect(screen.getByLabelText(/Text to extract/)).toHaveAttribute('placeholder', expect.stringMatching(/^For example: /))
+  })
+
   it('reports the import result to onIngestComplete after approval', async () => {
     const user = userEvent.setup()
     const importResult = makeImportResult()
@@ -318,7 +415,7 @@ describe('IngestionWizard', () => {
     )
     await extractFromText(user)
 
-    await user.click(screen.getByRole('button', { name: /Import Selected/ }))
+    await user.click(screen.getByRole('button', { name: /Import selected/ }))
 
     await waitFor(() => expect(onIngestComplete).toHaveBeenCalledWith(importResult))
   })
@@ -347,7 +444,7 @@ describe('IngestionWizard', () => {
       'https://example.com/not-wikipedia'
     )
     expect(screen.getByRole('alert')).toHaveTextContent(/valid Wikipedia article URL/i)
-    expect(screen.getByRole('button', { name: /Extract Entities/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Extract events/ })).toBeDisabled()
   })
 
   it('sorts rows in EntityReviewTable when column headers are clicked', async () => {
@@ -362,5 +459,73 @@ describe('IngestionWizard', () => {
     await user.click(descHeaders[0]!)
 
     expect(screen.getByLabelText('Description for event evt-1')).toBeInTheDocument()
+  })
+
+  it('names relationship events and shows the relationship row error in the table', async () => {
+    const user = userEvent.setup()
+    mockedText.mockResolvedValue(makePreviewWithRelationships())
+
+    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+    await extractFromText(user)
+
+    const relationshipCheckbox = screen.getByLabelText('Select relationship rel-1')
+    const row = relationshipCheckbox.closest('tr')!
+    expect(within(row).getByText('Norman conquest begins (William → England)')).toBeInTheDocument()
+    expect(within(row).getByText('Battle of Hastings (Harold → William)')).toBeInTheDocument()
+    expect(row).toHaveAttribute('data-invalid', 'true')
+    expect(within(row).getByText('Effect precedes cause')).toBeInTheDocument()
+  })
+
+  it('lists validation issues by readable label and jumps to the row', async () => {
+    const user = userEvent.setup()
+    mockedText.mockResolvedValue(makePreviewWithRelationships())
+
+    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+    await extractFromText(user)
+
+    const eventIssue = screen.getByRole('button', {
+      name: /Event “Norman conquest begins”: Low confidence/,
+    })
+    const relationshipIssue = screen.getByRole('button', {
+      name: /Relationship “Norman conquest begins → Battle of Hastings”: Effect precedes cause/,
+    })
+    expect(screen.queryByText(/event evt-2:/)).not.toBeInTheDocument()
+
+    await user.click(eventIssue)
+    expect(screen.getByLabelText('Description for event evt-2')).toHaveFocus()
+
+    await user.click(relationshipIssue)
+    expect(screen.getByLabelText('Select relationship rel-1')).toHaveFocus()
+  })
+
+  it('selects events by confidence threshold', async () => {
+    const user = userEvent.setup()
+    mockedText.mockResolvedValue(makePreview())
+
+    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+    await extractFromText(user)
+
+    // Default threshold 0.7: evt-1 (0.9) stays, evt-2 (0.6) is deselected.
+    await user.click(screen.getByRole('button', { name: /^Select 1 events with confidence/ }))
+
+    expect(screen.getByLabelText('Select event evt-1')).toBeChecked()
+    expect(screen.getByLabelText('Select event evt-2')).not.toBeChecked()
+    expect(screen.getByRole('heading', { name: 'Events (1/2 selected)' })).toBeInTheDocument()
+    // Other collections are untouched.
+    expect(screen.getByLabelText('Select arc arc-1')).toBeChecked()
+  })
+
+  it('shows where the user is in the ingestion steps', async () => {
+    const user = userEvent.setup()
+    mockedText.mockResolvedValue(makePreview())
+
+    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+
+    const progress = screen.getByRole('list', { name: 'Ingestion progress' })
+    const current = () => progress.querySelector('[aria-current="step"]')
+    expect(current()).toHaveTextContent('Source')
+
+    await extractFromText(user)
+    expect(current()).toHaveTextContent('Review')
   })
 })

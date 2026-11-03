@@ -132,7 +132,7 @@ export function ActiveFilters({
 
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className}`}>
-      <span className="text-sm font-medium text-gray-700">Active filters:</span>
+      <span className="text-sm font-medium text-ink-secondary">Active filters:</span>
       
       {filterTags.map((tag, index) => (
         <span
@@ -167,7 +167,7 @@ export function ActiveFilters({
       {filterTags.length > 1 && (
         <button
           onClick={onClearAll}
-          className="text-sm text-gray-500 hover:text-gray-700 underline focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
+          className="text-sm text-ink-muted hover:text-ink underline focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
         >
           Clear all
         </button>

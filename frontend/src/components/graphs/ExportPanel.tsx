@@ -129,7 +129,7 @@ export const ExportPanel = memo(function ExportPanel({
   if (!activeGraphId) {
     return (
       <div className={`bg-white border rounded-lg p-4 ${className}`}>
-        <div className="text-gray-500 text-sm">Select a graph to export</div>
+        <div className="text-ink-muted text-sm">Select a graph to export</div>
       </div>
     )
   }
@@ -139,15 +139,15 @@ export const ExportPanel = memo(function ExportPanel({
       {/* Header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors"
+        className="w-full px-4 py-3 flex items-center justify-between bg-subtle hover:bg-subtle transition-colors"
       >
         <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-5 h-5 text-ink-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
               d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" 
             />
           </svg>
-          <span className="font-medium text-gray-700">Export</span>
+          <span className="font-medium text-ink-secondary">Export</span>
         </div>
         <div className="flex items-center gap-2">
           {hasActiveJobs && (
@@ -156,7 +156,7 @@ export const ExportPanel = memo(function ExportPanel({
             </span>
           )}
           <svg 
-            className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+            className={`w-4 h-4 text-ink-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`}
             fill="none" viewBox="0 0 24 24" stroke="currentColor"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -194,8 +194,8 @@ export const ExportPanel = memo(function ExportPanel({
           </div>
 
           {/* Export Options */}
-          <div className="border rounded-lg p-3 space-y-3">
-            <div className="text-sm font-medium text-gray-700">Export Options</div>
+          <div className="border border-line rounded-lg p-3 space-y-3">
+            <div className="text-sm font-medium text-ink-secondary">Export Options</div>
             
             {/* Scope Selection */}
             <div className="flex gap-2">
@@ -210,7 +210,7 @@ export const ExportPanel = memo(function ExportPanel({
                 />
                 <div className={`
                   p-2 text-center border rounded cursor-pointer text-sm
-                  ${scope === 'full' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'hover:bg-gray-50'}
+                  ${scope === 'full' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200' : 'border-line hover:bg-subtle'}
                 `}>
                   Full Export
                 </div>
@@ -226,7 +226,7 @@ export const ExportPanel = memo(function ExportPanel({
                 />
                 <div className={`
                   p-2 text-center border rounded cursor-pointer text-sm
-                  ${scope === 'filtered' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'hover:bg-gray-50'}
+                  ${scope === 'filtered' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200' : 'border-line hover:bg-subtle'}
                 `}>
                   Filtered
                 </div>
@@ -235,7 +235,7 @@ export const ExportPanel = memo(function ExportPanel({
 
             {/* Filters (when filtered) */}
             {scope === 'filtered' && (
-              <div className="space-y-2 pt-2 border-t">
+              <div className="space-y-2 pt-2 border-t border-line">
                 <button
                   onClick={() => setShowFilters(!showFilters)}
                   className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
@@ -250,26 +250,26 @@ export const ExportPanel = memo(function ExportPanel({
                   <div className="space-y-2 ml-5">
                     {/* Time Range */}
                     <div>
-                      <label className="text-xs text-gray-500">Time Range</label>
+                      <label className="text-xs text-ink-muted">Time Range</label>
                       <div className="flex gap-2">
                         <input
                           type="date"
                           value={filters.timeRange?.start || ''}
                           onChange={(e) => handleTimeRangeChange('start', e.target.value)}
-                          className="flex-1 px-2 py-1 border rounded text-sm"
+                          className="flex-1 px-2 py-1 border border-line bg-card text-ink rounded text-sm"
                         />
                         <input
                           type="date"
                           value={filters.timeRange?.end || ''}
                           onChange={(e) => handleTimeRangeChange('end', e.target.value)}
-                          className="flex-1 px-2 py-1 border rounded text-sm"
+                          className="flex-1 px-2 py-1 border border-line bg-card text-ink rounded text-sm"
                         />
                       </div>
                     </div>
 
                     {/* Actors */}
                     <div>
-                      <label className="text-xs text-gray-500">Actors (comma-separated)</label>
+                      <label className="text-xs text-ink-muted">Actors (comma-separated)</label>
                       <input
                         type="text"
                         value={filters.actors?.join(', ') || ''}
@@ -277,7 +277,7 @@ export const ExportPanel = memo(function ExportPanel({
                           e.target.value.split(',').map(s => s.trim()).filter(Boolean)
                         )}
                         placeholder="e.g., Napoleon, Wellington"
-                        className="w-full px-2 py-1 border rounded text-sm"
+                        className="w-full px-2 py-1 border border-line bg-card text-ink rounded text-sm"
                       />
                     </div>
                   </div>
@@ -300,7 +300,7 @@ export const ExportPanel = memo(function ExportPanel({
             <button
               onClick={handleExport}
               disabled={isCreating}
-              className="w-full px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 disabled:opacity-50 text-sm"
+              className="w-full px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium"
             >
               {isCreating ? 'Starting Export...' : 'Start Export Job'}
             </button>
@@ -308,7 +308,7 @@ export const ExportPanel = memo(function ExportPanel({
 
           {/* Active Job Progress */}
           {activeJob && (activeJob.status === 'pending' || activeJob.status === 'processing') && (
-            <div className="border rounded-lg p-3 bg-blue-50">
+            <div className="border border-line rounded-lg p-3 bg-blue-50">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-blue-700">Exporting...</span>
                 <button
@@ -331,7 +331,7 @@ export const ExportPanel = memo(function ExportPanel({
           {/* Completed Exports */}
           {completedJobs.length > 0 && (
             <div className="space-y-2">
-              <div className="text-sm font-medium text-gray-700">Recent Exports</div>
+              <div className="text-sm font-medium text-ink-secondary">Recent Exports</div>
               <ExportHistoryList
                 jobs={completedJobs}
                 maxItems={3}
@@ -342,8 +342,8 @@ export const ExportPanel = memo(function ExportPanel({
           )}
 
           {/* Validate Import File */}
-          <div className="border-t pt-4">
-            <div className="text-sm font-medium text-gray-700 mb-2">Validate Import File</div>
+          <div className="border-t border-line pt-4">
+            <div className="text-sm font-medium text-ink-secondary mb-2">Validate Import File</div>
             <input
               ref={fileInputRef}
               type="file"
@@ -354,7 +354,7 @@ export const ExportPanel = memo(function ExportPanel({
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isValidating}
-              className="w-full px-4 py-2 border border-dashed rounded text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              className="w-full px-4 py-2 border border-dashed border-line rounded text-sm text-ink-secondary hover:bg-subtle disabled:opacity-50"
             >
               {isValidating ? 'Validating...' : 'Select file to validate'}
             </button>
@@ -362,7 +362,7 @@ export const ExportPanel = memo(function ExportPanel({
 
           {/* Stats */}
           {stats && (
-            <div className="text-xs text-gray-400 pt-2 border-t">
+            <div className="text-xs text-ink-muted pt-2 border-t border-line">
               {stats.total} total exports - {stats.completed} completed
             </div>
           )}

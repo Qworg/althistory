@@ -420,6 +420,22 @@ export async function installApiStub(
         pagination: { total: state.graphs.length },
       })
     }
+    // Version history: the header's version badge reads the head. The stub
+    // graphs have no recorded versions.
+    if (/^\/graphs\/[^/]+\/versions$/.test(path) && method === 'GET') {
+      return json(route, 200, { success: true, data: [] })
+    }
+
+    // Causal links (the timeline draws them and the inspector lists them).
+    // The covered flows create none.
+    if (path === '/causal/relationships' && method === 'GET') {
+      return json(route, 200, { success: true, data: [] })
+    }
+
+    // The server's active graph, which the app reconciles its own with
+    if (path === '/graphs/active' && method === 'GET') {
+      return json(route, 200, { success: true, data: state.graphs[0] ?? null })
+    }
     const graphMatch = /^\/graphs\/([^/]+)$/.exec(path)
     if (graphMatch && method === 'GET') {
       const found = state.graphs.find((graph) => graph.id === graphMatch[1]) ?? state.graphs[0]

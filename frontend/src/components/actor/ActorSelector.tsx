@@ -63,7 +63,7 @@ export function ActorSelector({
 
   return (
     <div className={`relative ${className}`}>
-      <label className="block text-sm font-medium text-gray-700 mb-2">
+      <label className="block text-sm font-medium text-ink-secondary mb-2">
         Select Actor
       </label>
       
@@ -72,7 +72,7 @@ export function ActorSelector({
         <button
           type="button"
           onClick={handleToggleDropdown}
-          className={`relative w-full bg-white border border-gray-300 rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${
+          className={`relative w-full bg-card border border-gray-300 rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${
             isOpen ? 'ring-1 ring-blue-500 border-blue-500' : ''
           }`}
           aria-haspopup="listbox"
@@ -87,7 +87,7 @@ export function ActorSelector({
           {selectedActor && (
             <span
               onClick={handleClearSelection}
-              className="absolute inset-y-0 right-8 flex items-center pr-2 hover:text-gray-700 cursor-pointer"
+              className="absolute inset-y-0 right-8 flex items-center pr-2 hover:text-ink-secondary cursor-pointer"
               aria-label="Clear selection"
               role="button"
               tabIndex={0}
@@ -114,9 +114,9 @@ export function ActorSelector({
 
         {/* Dropdown menu */}
         {isOpen && (
-          <div className="absolute z-10 mt-1 w-full bg-white shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
+          <div className="absolute z-10 mt-1 w-full bg-card shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
             {/* Search input */}
-            <div className="sticky top-0 bg-white px-3 py-2 border-b border-gray-200">
+            <div className="sticky top-0 bg-card px-3 py-2 border-b border-line">
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <MagnifyingGlassIcon className="h-4 w-4 text-gray-400" />
@@ -126,7 +126,7 @@ export function ActorSelector({
                   value={searchQuery}
                   onChange={handleSearchChange}
                   onKeyDown={handleKeyDown}
-                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="block w-full pl-10 pr-3 py-2 border border-line rounded-md leading-5 bg-card text-ink focus:outline-none focus:ring-1 focus:ring-selected focus:border-selected sm:text-sm"
                   placeholder="Search actors..."
                   autoFocus
                 />
@@ -142,7 +142,7 @@ export function ActorSelector({
                     type="button"
                     onClick={() => handleActorSelect(actor)}
                     className={`w-full text-left px-3 py-2 hover:bg-gray-100 focus:bg-gray-100 focus:outline-none ${
-                      actor === selectedActor ? 'bg-blue-50 text-blue-900' : 'text-gray-900'
+                      actor === selectedActor ? 'bg-blue-50 text-blue-900' : 'text-ink'
                     }`}
                     role="option"
                     aria-selected={actor === selectedActor}
@@ -158,7 +158,7 @@ export function ActorSelector({
                   </button>
                 ))
               ) : (
-                <div className="px-3 py-2 text-gray-500 text-sm">
+                <div className="px-3 py-2 text-ink-muted text-sm">
                   {searchQuery ? `No actors found matching "${searchQuery}"` : 'No actors available'}
                 </div>
               )}
@@ -166,7 +166,7 @@ export function ActorSelector({
 
             {/* Actor count */}
             {filteredActors.length > 0 && (
-              <div className="sticky bottom-0 bg-gray-50 px-3 py-2 text-xs text-gray-500 border-t border-gray-200">
+              <div className="sticky bottom-0 bg-subtle px-3 py-2 text-xs text-ink-muted border-t border-line">
                 {filteredActors.length} of {actors.length} actors
                 {searchQuery && ` matching "${searchQuery}"`}
               </div>

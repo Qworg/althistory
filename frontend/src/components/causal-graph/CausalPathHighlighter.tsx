@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useRef } from 'react'
 import type { Core, Css } from 'cytoscape'
 import { CausalPath } from '@/types'
+import { readGraphCanvasTheme, type GraphPalette } from './causalGraphPresentation'
 
 export interface CausalPathHighlighterProps {
   cytoscapeInstance: Core | null
@@ -53,76 +54,82 @@ export interface PathHighlightStyle {
   }
 }
 
-// Module-level rather than per-render: the object is constant, and building it
-// inside the component made every consumer of it a fresh reference on every
-// render, which defeated useCallback/useEffect memoisation.
-const highlightStyles: PathHighlightStyle = {
-  node: {
-    highlighted: {
-      'background-color': '#F59E0B',
-      'border-color': '#D97706',
-      'border-width': 4,
-      'z-index': 100,
-      'overlay-opacity': 0.2,
-      'overlay-color': '#F59E0B'
+/**
+ * The path styles for a theme's palette. Built when a path is drawn (Cytoscape
+ * cannot read CSS variables, so the colours are resolved then), from the same
+ * palette as the rest of the graph: every state is at least 3:1 against the
+ * canvas, and none is told apart by colour alone -- the current step is also
+ * the largest and thickest, visited steps thicker than the ones ahead.
+ */
+function buildPathHighlightStyles(c: GraphPalette): PathHighlightStyle {
+  return {
+    node: {
+      highlighted: {
+        'background-color': c.highlightedFill,
+        'border-color': c.highlightedBorder,
+        'border-width': 4,
+        'z-index': 100,
+        'overlay-opacity': 0.2,
+        'overlay-color': c.highlightedFill
+      },
+      current: {
+        'background-color': c.pathCurrent,
+        'border-color': c.highlightedBorder,
+        'border-width': 5,
+        'z-index': 150,
+        'overlay-opacity': 0.3,
+        'overlay-color': c.pathCurrent,
+        'width': 'mapData(weight, 0, 1, 40, 80)',
+        'height': 'mapData(weight, 0, 1, 40, 80)'
+      },
+      visited: {
+        'background-color': c.pathVisited,
+        'border-color': c.nodeBorder,
+        'border-width': 3,
+        'z-index': 80,
+        'opacity': 1
+      },
+      unvisited: {
+        'background-color': c.pathUnvisited,
+        'border-color': c.nodeBorder,
+        'border-width': 2,
+        'z-index': 60,
+        'opacity': 1
+      }
     },
-    current: {
-      'background-color': '#EF4444',
-      'border-color': '#DC2626',
-      'border-width': 5,
-      'z-index': 150,
-      'overlay-opacity': 0.3,
-      'overlay-color': '#EF4444',
-      'width': 'mapData(weight, 0, 1, 40, 80)',
-      'height': 'mapData(weight, 0, 1, 40, 80)'
-    },
-    visited: {
-      'background-color': '#10B981',
-      'border-color': '#059669',
-      'border-width': 3,
-      'z-index': 80,
-      'opacity': 0.9
-    },
-    unvisited: {
-      'background-color': '#6B7280',
-      'border-color': '#4B5563',
-      'border-width': 2,
-      'z-index': 60,
-      'opacity': 0.6
-    }
-  },
-  edge: {
-    highlighted: {
-      'line-color': '#F59E0B',
-      'target-arrow-color': '#F59E0B',
-      'width': 'mapData(weight, 0, 1, 4, 12)',
-      'opacity': 1,
-      'z-index': 100,
-      'overlay-opacity': 0.2,
-      'overlay-color': '#F59E0B'
-    },
-    current: {
-      'line-color': '#EF4444',
-      'target-arrow-color': '#EF4444',
-      'width': 'mapData(weight, 0, 1, 6, 16)',
-      'opacity': 1,
-      'z-index': 150,
-      'overlay-opacity': 0.3,
-      'overlay-color': '#EF4444'
-    },
-    visited: {
-      'line-color': '#10B981',
-      'target-arrow-color': '#10B981',
-      'width': 'mapData(weight, 0, 1, 3, 10)',
-      'opacity': 0.9,
-      'z-index': 80
-    },
-    unvisited: {
-      'line-color': '#6B7280',
-      'target-arrow-color': '#6B7280',
-      'width': 'mapData(weight, 0, 1, 2, 6)',
-      'opacity': 0.4,
-      'z-index': 60
+    edge: {
+      highlighted: {
+        'line-color': c.edgeHighlighted,
+        'target-arrow-color': c.edgeHighlighted,
+        'width': 'mapData(weight, 0, 1, 4, 12)',
+        'opacity': 1,
+        'z-index': 100,
+        'overlay-opacity': 0.2,
+        'overlay-color': c.edgeHighlighted
+      },
+      current: {
+        'line-color': c.pathCurrent,
+        'target-arrow-color': c.pathCurrent,
+        'width': 'mapData(weight, 0, 1, 6, 16)',
+        'opacity': 1,
+        'z-index': 150,
+        'overlay-opacity': 0.3,
+        'overlay-color': c.pathCurrent
+      },
+      visited: {
+        'line-color': c.pathVisited,
+        'target-arrow-color': c.pathVisited,
+        'width': 'mapData(weight, 0, 1, 3, 10)',
+        'opacity': 1,
+        'z-index': 80
+      },
+      unvisited: {
+        'line-color': c.pathUnvisited,
+        'target-arrow-color': c.pathUnvisited,
+        'width': 'mapData(weight, 0, 1, 2, 6)',
+        'opacity': 1,
+        'z-index': 60
+      }
     }
   }
 }
@@ -232,6 +239,7 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
   // Highlight entire path
   const highlightPath = useCallback((path: CausalPath) => {
     if (!cytoscapeInstance) return
+    const highlightStyles = buildPathHighlightStyles(readGraphCanvasTheme().colors)
 
     // Clear previous highlights
     clearHighlights()
@@ -281,6 +289,7 @@ export const CausalPathHighlighter: React.FC<CausalPathHighlighterProps> = ({
   // Highlight path with step progression
   const highlightPathWithSteps = useCallback((path: CausalPath, stepIndex: number) => {
     if (!cytoscapeInstance) return
+    const highlightStyles = buildPathHighlightStyles(readGraphCanvasTheme().colors)
 
     // Clear previous highlights
     clearHighlights()

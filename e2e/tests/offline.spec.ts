@@ -15,7 +15,7 @@ test.describe('offline indicator', () => {
   }) => {
     await installApiStub(page)
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: 'Timeline View' })).toBeVisible()
+    await expect(page.locator('svg[data-timeline-canvas]')).toBeVisible()
 
     // Online with no queued work: the indicator renders nothing.
     await expect(page.getByTestId('offline-indicator')).toHaveCount(0)

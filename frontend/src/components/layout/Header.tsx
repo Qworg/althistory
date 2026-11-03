@@ -4,6 +4,7 @@ import { Breadcrumb } from './Breadcrumb'
 import { ViewToolbar } from '@/components/views/ViewToolbar'
 import { UserProfileMenu } from './UserProfileMenu'
 import { GraphSelector, GraphManagerModal } from '@/components/graphs'
+import { HelpButton } from '@/components/help/HelpButton'
 import { useGlobalStore } from '@/stores/globalStore'
 import { LayoutMode } from '@/types'
 
@@ -25,14 +26,28 @@ export function Header({ isMobile, layoutMode }: HeaderProps) {
   const showUserProfile = isMobile || layoutMode === 'topbar'
 
   return (
-    <header className="bg-white shadow-sm border-b sticky top-0 z-40" role="banner">
+    <header className="bg-card shadow-sm border-b border-line sticky top-0 z-40" role="banner">
       <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
+        <div className={`flex justify-between items-center gap-2 lg:gap-4 ${isMobile ? 'h-14' : 'h-16'}`}>
           {/* Left section: Title and breadcrumb */}
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center">
-              <h1 className="text-xl font-semibold text-gray-900">
-                Timeline Interface
+          <div className="flex items-center gap-4 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <span
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#0f172a] text-amber-400 shadow-xs ring-1 ring-inset ring-white/10"
+                aria-hidden="true"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z" />
+                </svg>
+              </span>
+              {/* A phone has room for the mark or the graph selector, not both
+                  and the wordmark: the wordmark yields, the heading stays. */}
+              <h1
+                className={`font-display text-[1.375rem] leading-none font-semibold tracking-tight text-ink ${
+                  isMobile ? 'sr-only' : ''
+                }`}
+              >
+                althistory
               </h1>
             </div>
 
@@ -43,27 +58,29 @@ export function Header({ isMobile, layoutMode }: HeaderProps) {
             )}
           </div>
 
-          {/* Right section: graph switcher, navigation and user menu */}
-          <div className="flex items-center space-x-4">
+          {/* Right section: graph switcher, navigation, help and user menu.
+              The selector is the part that gives way, so help and the user
+              menu stay on screen at any width. */}
+          <div className={`flex items-center min-w-0 ${isMobile ? 'flex-1 justify-end gap-1' : 'gap-4'}`}>
             {/* Req 17.1: the active graph is always switchable from the header. */}
-            <GraphSelector onOpenManager={() => setIsGraphManagerOpen(true)} />
+            <GraphSelector
+              onOpenManager={() => setIsGraphManagerOpen(true)}
+              className={isMobile ? 'min-w-0 flex-1 [&>button]:w-full [&>button]:min-h-11' : ''}
+            />
 
             {showViewSwitcher && <Navigation />}
 
-            {showUserProfile && <UserProfileMenu variant="header" />}
+            <HelpButton touch={isMobile} />
+
+            {showUserProfile && <UserProfileMenu variant="header" touch={isMobile} />}
           </div>
         </div>
 
-        {/* Mobile breadcrumb */}
-        {isMobile && (
-          <div className="pb-3">
-            <Breadcrumb />
-          </div>
-        )}
-
-        {/* View-specific toolbar */}
-        <div className="border-t border-gray-200 py-2">
-          <ViewToolbar viewMode={viewMode} className="justify-center" />
+        {/* View-specific toolbar. On a phone it keeps the view's primary
+            actions; the rest is in the bottom bar's More sheet. (The bottom
+            bar also says which view is open, so there is no breadcrumb.) */}
+        <div className={`border-t border-line ${isMobile ? 'py-1' : 'py-2'}`}>
+          <ViewToolbar viewMode={viewMode} compact={isMobile} className="justify-center" />
         </div>
       </div>
 

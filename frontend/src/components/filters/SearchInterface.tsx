@@ -19,6 +19,48 @@ interface SearchInterfaceProps {
   isLoading?: boolean
 }
 
+/** Stroke icons for suggestion types, in the app's 24×24 outline set. */
+function SuggestionTypeIcon({ type }: { type: SearchSuggestion['type'] }) {
+  const common = {
+    className: 'h-4 w-4',
+    fill: 'none',
+    viewBox: '0 0 24 24',
+    stroke: 'currentColor',
+    strokeWidth: 1.75,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+  }
+  switch (type) {
+    case 'event':
+      return (
+        <svg {...common}>
+          <path d="M8 3v4m8-4v4M3 10h18M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
+        </svg>
+      )
+    case 'arc':
+      return (
+        <svg {...common}>
+          <path d="M4 7v10M20 7v10M4 12h16" />
+        </svg>
+      )
+    case 'actor':
+      return (
+        <svg {...common}>
+          <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+      )
+    case 'target':
+    default:
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="8" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      )
+  }
+}
+
 export function SearchInterface({
   value,
   onChange,
@@ -115,21 +157,6 @@ export function SearchInterface({
     inputRef.current?.focus()
   }
 
-  const getTypeIcon = (type: SearchSuggestion['type']) => {
-    switch (type) {
-      case 'event':
-        return '📅'
-      case 'arc':
-        return '📊'
-      case 'actor':
-        return '👤'
-      case 'target':
-        return '🎯'
-      default:
-        return '🔍'
-    }
-  }
-
   const getTypeLabel = (type: SearchSuggestion['type']) => {
     switch (type) {
       case 'event':
@@ -167,7 +194,8 @@ export function SearchInterface({
       <div className="relative">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
           <svg
-            className="h-5 w-5 text-gray-400"
+            className="h-5 w-5 text-ink-muted"
+            aria-hidden="true"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -190,7 +218,7 @@ export function SearchInterface({
           onBlur={handleInputBlur}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full pl-10 pr-10 py-2 border border-line rounded-md bg-card text-ink shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           aria-label="Search"
           aria-expanded={isOpen}
           aria-haspopup="listbox"
@@ -200,12 +228,14 @@ export function SearchInterface({
         
         {value && (
           <button
+            type="button"
             onClick={clearSearch}
             className="absolute inset-y-0 right-0 pr-3 flex items-center"
             aria-label="Clear search"
           >
             <svg
-              className="h-5 w-5 text-gray-400 hover:text-gray-600"
+              className="h-5 w-5 text-ink-muted hover:text-ink"
+              aria-hidden="true"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -223,7 +253,7 @@ export function SearchInterface({
         {isLoading && (
           <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
             <svg
-              className="animate-spin h-5 w-5 text-gray-400"
+              className="animate-spin h-5 w-5 text-ink-muted"
               fill="none"
               viewBox="0 0 24 24"
             >
@@ -247,7 +277,7 @@ export function SearchInterface({
 
       {/* Suggestions dropdown */}
       {isOpen && showSuggestions && filteredSuggestions.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+        <div className="absolute z-50 w-full mt-1 bg-card border border-line rounded-md shadow-lg max-h-60 overflow-auto">
           <ul
             ref={listRef}
             role="listbox"
@@ -262,24 +292,24 @@ export function SearchInterface({
                 className={`px-4 py-2 cursor-pointer flex items-start space-x-3 ${
                   index === highlightedIndex
                     ? 'bg-blue-100 text-blue-900'
-                    : 'text-gray-900 hover:bg-gray-50'
+                    : 'text-ink hover:bg-subtle'
                 }`}
                 onClick={() => handleSuggestionClick(suggestion)}
               >
-                <span className="text-lg flex-shrink-0 mt-0.5" aria-hidden="true">
-                  {getTypeIcon(suggestion.type)}
+                <span className="flex-shrink-0 mt-0.5 text-ink-muted" aria-hidden="true">
+                  <SuggestionTypeIcon type={suggestion.type} />
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium">
                     {highlightMatch(suggestion.text, debouncedValue)}
                   </div>
                   {suggestion.description && (
-                    <div className="text-xs text-gray-500 mt-0.5 truncate">
+                    <div className="text-xs text-ink-muted mt-0.5 truncate">
                       {highlightMatch(suggestion.description, debouncedValue)}
                     </div>
                   )}
                 </div>
-                <span className="text-xs text-gray-400 flex-shrink-0">
+                <span className="text-xs text-ink-muted flex-shrink-0">
                   {getTypeLabel(suggestion.type)}
                 </span>
               </li>
@@ -290,8 +320,8 @@ export function SearchInterface({
 
       {/* No results message */}
       {isOpen && showSuggestions && debouncedValue && filteredSuggestions.length === 0 && !isLoading && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg">
-          <div className="px-4 py-3 text-sm text-gray-500 text-center">
+        <div className="absolute z-50 w-full mt-1 bg-card border border-line rounded-md shadow-lg">
+          <div className="px-4 py-3 text-sm text-ink-muted text-center">
             No results found for "{debouncedValue}"
           </div>
         </div>

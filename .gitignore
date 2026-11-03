@@ -212,3 +212,8 @@ cython_debug/
 # (the committed outputs are docs/images/ and docs/media/)
 media/.build/
 media/out/
+
+# Local agent/design-tool config (Impeccable hooks, caches, critiques)
+.codex/
+.github/hooks/
+.impeccable/

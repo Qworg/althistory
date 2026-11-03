@@ -155,16 +155,31 @@ export function formatPressureType(pressureType: string): string {
 }
 
 /**
- * Gets pressure type icon (using text symbols for now)
+ * SVG path data (24×24 viewBox, drawn with stroke="currentColor", round caps)
+ * for each pressure type, in the app's outline icon set. Shared by React
+ * consumers and by string-built tooltips, which can wrap a path in an <svg>.
  */
-export function getPressureTypeIcon(pressureType: string): string {
-  const icons = {
-    economic: '💰',
-    social: '👥',
-    environmental: '🌍',
-    political: '🏛️'
-  }
-  return icons[pressureType as keyof typeof icons] || '❓'
+export const PRESSURE_TYPE_ICON_PATHS = {
+  economic:
+    'M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  social:
+    'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z',
+  environmental:
+    'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9',
+  political: 'M3 21h18M4 18h16M6 18v-7m4 7v-7m4 7v-7m4 7v-7M12 3l9 5H3l9-5z',
+} as const
+
+/** Path for a pressure type not in the set: a circled question mark. */
+export const UNKNOWN_PRESSURE_ICON_PATH =
+  'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
+
+/**
+ * SVG path data for a pressure type's icon; see PRESSURE_TYPE_ICON_PATHS.
+ */
+export function getPressureTypeIconPath(pressureType: string): string {
+  return Object.prototype.hasOwnProperty.call(PRESSURE_TYPE_ICON_PATHS, pressureType)
+    ? PRESSURE_TYPE_ICON_PATHS[pressureType as keyof typeof PRESSURE_TYPE_ICON_PATHS]
+    : UNKNOWN_PRESSURE_ICON_PATH
 }
 
 /**

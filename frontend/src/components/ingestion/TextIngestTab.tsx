@@ -6,15 +6,22 @@
  * configured LLM.
  */
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import type { TextIngestContext, TextIngestRequest } from '@/types'
 
 export interface TextIngestTabProps {
   onSubmit: (request: TextIngestRequest) => void
   isSubmitting: boolean
+  /**
+   * The id of the form, so the wizard's footer button can submit it. The
+   * primary action lives in the dialog footer, not in the tab.
+   */
+  formId: string
+  /** Reports whether the form can be submitted as it stands. */
+  onCanSubmitChange?: (canSubmit: boolean) => void
 }
 
-export function TextIngestTab({ onSubmit, isSubmitting }: TextIngestTabProps) {
+export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChange }: TextIngestTabProps) {
   const [text, setText] = useState('')
   const [useLLM, setUseLLM] = useState(true)
   const [defaultActors, setDefaultActors] = useState('')
@@ -22,10 +29,15 @@ export function TextIngestTab({ onSubmit, isSubmitting }: TextIngestTabProps) {
   const [endDate, setEndDate] = useState('')
   const [locale, setLocale] = useState('')
 
+  const canSubmit = !isSubmitting && text.trim().length > 0
+  useEffect(() => {
+    onCanSubmitChange?.(canSubmit)
+  }, [canSubmit, onCanSubmitChange])
+
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
     const trimmed = text.trim()
-    if (!trimmed) return
+    if (!trimmed || isSubmitting) return
 
     const context: TextIngestContext = {}
     const parsedActors = defaultActors
@@ -50,9 +62,9 @@ export function TextIngestTab({ onSubmit, isSubmitting }: TextIngestTabProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form id={formId} onSubmit={handleSubmit} className="space-y-4" noValidate>
       <div>
-        <label htmlFor="ingest-text-body" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="ingest-text-body" className="block text-sm font-medium text-ink">
           Text to extract *
         </label>
         <textarea
@@ -61,14 +73,14 @@ export function TextIngestTab({ onSubmit, isSubmitting }: TextIngestTabProps) {
           required
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder="The Battle of Hastings was fought on 14 October 1066..."
-          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          placeholder="For example: The Battle of Hastings was fought on 14 October 1066…"
+          className="mt-1 block w-full rounded-md border border-line px-3 py-2 bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
         <div className="sm:col-span-2">
-          <label htmlFor="ingest-text-actors" className="block text-xs font-medium text-gray-600">
+          <label htmlFor="ingest-text-actors" className="block text-xs font-medium text-ink-secondary">
             Default actors (comma-separated)
           </label>
           <input
@@ -76,12 +88,12 @@ export function TextIngestTab({ onSubmit, isSubmitting }: TextIngestTabProps) {
             type="text"
             value={defaultActors}
             onChange={(event) => setDefaultActors(event.target.value)}
-            placeholder="Normans, Anglo-Saxons"
-            className="mt-1 block w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            placeholder="e.g. Normans, Anglo-Saxons"
+            className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
         <div>
-          <label htmlFor="ingest-text-start-date" className="block text-xs font-medium text-gray-600">
+          <label htmlFor="ingest-text-start-date" className="block text-xs font-medium text-ink-secondary">
             Time range start
           </label>
           <input
@@ -89,12 +101,12 @@ export function TextIngestTab({ onSubmit, isSubmitting }: TextIngestTabProps) {
             type="text"
             value={startDate}
             onChange={(event) => setStartDate(event.target.value)}
-            placeholder="1066-01-01"
-            className="mt-1 block w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            placeholder="e.g. 1066-01-01"
+            className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
         <div>
-          <label htmlFor="ingest-text-end-date" className="block text-xs font-medium text-gray-600">
+          <label htmlFor="ingest-text-end-date" className="block text-xs font-medium text-ink-secondary">
             Time range end
           </label>
           <input
@@ -102,12 +114,12 @@ export function TextIngestTab({ onSubmit, isSubmitting }: TextIngestTabProps) {
             type="text"
             value={endDate}
             onChange={(event) => setEndDate(event.target.value)}
-            placeholder="1066-12-31"
-            className="mt-1 block w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            placeholder="e.g. 1066-12-31"
+            className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
         <div>
-          <label htmlFor="ingest-text-locale" className="block text-xs font-medium text-gray-600">
+          <label htmlFor="ingest-text-locale" className="block text-xs font-medium text-ink-secondary">
             Locale
           </label>
           <input
@@ -115,31 +127,22 @@ export function TextIngestTab({ onSubmit, isSubmitting }: TextIngestTabProps) {
             type="text"
             value={locale}
             onChange={(event) => setLocale(event.target.value)}
-            placeholder="en"
-            className="mt-1 block w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            placeholder="e.g. en"
+            className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
       </div>
 
-      <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+      <label className="flex items-center gap-2 text-sm font-medium text-ink">
         <input
           type="checkbox"
           checked={useLLM}
           onChange={(event) => setUseLLM(event.target.checked)}
-          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          className="h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-500"
         />
         Use LLM extraction
       </label>
 
-      <div className="flex justify-end">
-        <button
-          type="submit"
-          disabled={isSubmitting || text.trim().length === 0}
-          className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
-        >
-          {isSubmitting ? 'Extracting...' : 'Extract Entities'}
-        </button>
-      </div>
     </form>
   )
 }

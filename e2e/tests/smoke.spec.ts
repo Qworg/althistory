@@ -14,8 +14,8 @@ test.describe('timeline smoke', () => {
 
     await page.goto('/')
 
-    await expect(page.getByRole('heading', { name: 'Timeline View' })).toBeVisible()
-    await expect(page.getByText('3 events, 1 arcs')).toBeVisible()
+    await expect(page.locator('svg[data-timeline-canvas]')).toBeVisible()
+    await expect(page.getByText('3 events · 1 arc')).toBeVisible()
 
     // The marks are real DOM nodes the D3/React timeline rendered.
     await expect(page.locator('g[data-timeline-mark="event"]')).toHaveCount(3)
@@ -30,7 +30,7 @@ test.describe('timeline smoke', () => {
       page.locator('g[data-timeline-mark="event"][aria-label*="Coronation of William I"]'),
     ).toBeVisible()
 
-    await expect(page.locator('svg[role="img"]')).toHaveAttribute(
+    await expect(page.locator('svg[data-timeline-canvas]')).toHaveAttribute(
       'aria-label',
       'Timeline with 3 events and 1 arcs',
     )

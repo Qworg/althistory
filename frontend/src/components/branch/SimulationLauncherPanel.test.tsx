@@ -49,11 +49,12 @@ describe('SimulationLauncherPanel', () => {
   it('disables the run button when no graph is selected', () => {
     renderWithProviders(<SimulationLauncherPanel graphId="" graphName="Prime Timeline" />)
 
-    expect(screen.getByRole('button', { name: /Run Simulation/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Preview simulation/ })).toBeDisabled()
     expect(screen.getByText(/Select a graph before running/)).toBeInTheDocument()
   })
 
-  it('runs a simulation with the selected options and reports the result upward', async () => {
+  it('previews with the selected options and writes nothing', async () => {
+    simulateMock.mockResolvedValue(makeResult({ dryRun: true }))
     const onSimulated = vi.fn()
     renderWithProviders(
       <SimulationLauncherPanel graphId="graph-1" graphName="Prime Timeline" onSimulated={onSimulated} />
@@ -64,52 +65,72 @@ describe('SimulationLauncherPanel', () => {
     fireEvent.change(screen.getByLabelText(/Domain/), { target: { value: 'military' } })
     fireEvent.change(screen.getByLabelText(/Seed context/), { target: { value: 'A blockade' } })
 
-    fireEvent.click(screen.getByRole('button', { name: /Run Simulation/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Preview simulation/ }))
 
-    await waitFor(() => expect(onSimulated).toHaveBeenCalledTimes(1))
+    expect(await screen.findByTestId('simulated-milestones')).toBeInTheDocument()
     expect(simulateMock).toHaveBeenCalledWith('graph-1', {
       steps: 4,
       timeAdvanceMonths: 24,
       aggressiveness: 0.5,
-      dryRun: false,
+      dryRun: true,
       domain: 'military',
       seedContext: 'A blockade',
     })
-
-    expect(await screen.findByTestId('simulated-milestones')).toBeInTheDocument()
+    expect(screen.getByText(/Simulation preview/)).toBeInTheDocument()
     expect(screen.getByText(/mobilises armed forces/)).toBeInTheDocument()
-    expect(screen.getAllByText(/military/).length).toBeGreaterThan(0)
+    // A historical date, in UTC: not shifted to Dec 31, 200 west of Greenwich.
+    expect(screen.getByText(/Jan 1, 201/)).toBeInTheDocument()
+    // A preview changes nothing, so the parent has nothing to refresh.
+    expect(onSimulated).not.toHaveBeenCalled()
+  })
+
+  it('adds the previewed events with the previewed options, then reports upward', async () => {
+    simulateMock.mockResolvedValueOnce(makeResult({ dryRun: true })).mockResolvedValueOnce(makeResult({ dryRun: false }))
+    const onSimulated = vi.fn()
+    renderWithProviders(
+      <SimulationLauncherPanel graphId="graph-1" graphName="Prime Timeline" onSimulated={onSimulated} />
+    )
+
+    fireEvent.change(screen.getByLabelText(/Steps/), { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: /Preview simulation/ }))
+    const add = await screen.findByRole('button', { name: /Add 1 event to Prime Timeline/ })
+    // Changing a field after the preview does not change what is saved.
+    fireEvent.change(screen.getByLabelText(/Steps/), { target: { value: '9' } })
+    fireEvent.click(add)
+
+    await waitFor(() => expect(onSimulated).toHaveBeenCalledTimes(1))
+    expect(simulateMock).toHaveBeenLastCalledWith('graph-1', expect.objectContaining({ steps: 4, dryRun: false }))
+    expect(await screen.findByText(/Added to Prime Timeline/)).toBeInTheDocument()
+  })
+
+  it('discards a preview without saving', async () => {
+    simulateMock.mockResolvedValue(makeResult({ dryRun: true }))
+    renderWithProviders(<SimulationLauncherPanel graphId="graph-1" graphName="Prime Timeline" />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Preview simulation/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Discard preview/ }))
+
+    expect(screen.queryByTestId('simulated-milestones')).not.toBeInTheDocument()
+    expect(simulateMock).toHaveBeenCalledTimes(1)
   })
 
   it('omits the domain when left on auto', async () => {
     renderWithProviders(<SimulationLauncherPanel graphId="graph-1" graphName="Prime Timeline" />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Run Simulation/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Preview simulation/ }))
 
     await waitFor(() => expect(simulateMock).toHaveBeenCalledTimes(1))
     const options = simulateMock.mock.calls[0]?.[1]
     expect(options).not.toHaveProperty('domain')
   })
 
-  it('passes dryRun through and labels the result as a preview', async () => {
-    simulateMock.mockResolvedValue(makeResult({ dryRun: true }))
-    renderWithProviders(<SimulationLauncherPanel graphId="graph-1" graphName="Prime Timeline" />)
-
-    fireEvent.click(screen.getByLabelText(/Preview only/))
-    fireEvent.click(screen.getByRole('button', { name: /Run Simulation/ }))
-
-    await waitFor(() => expect(simulateMock).toHaveBeenCalledTimes(1))
-    expect(simulateMock).toHaveBeenCalledWith('graph-1', expect.objectContaining({ dryRun: true }))
-    expect(await screen.findByText(/Simulation Preview/)).toBeInTheDocument()
-  })
-
   it('surfaces an engine failure instead of leaving the spinner running', async () => {
     simulateMock.mockRejectedValue(new Error('graph has no events'))
     renderWithProviders(<SimulationLauncherPanel graphId="graph-1" graphName="Prime Timeline" />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Run Simulation/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Preview simulation/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('graph has no events')
-    expect(screen.getByRole('button', { name: /Run Simulation/ })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /Preview simulation/ })).toBeEnabled()
   })
 })

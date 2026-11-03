@@ -1,4 +1,6 @@
 import { NavLink } from 'react-router'
+import { ActorViewIcon, CausalGraphViewIcon, TimelineViewIcon } from './viewIcons'
+import { useMoreSheetStore } from './moreSheetStore'
 
 interface NavItem {
   path: string
@@ -7,39 +9,29 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  {
-    path: '/timeline',
-    label: 'Timeline',
-    icon: (
-      <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    ),
-  },
-  {
-    path: '/causal-graph',
-    label: 'Causal',
-    icon: (
-      <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-      </svg>
-    ),
-  },
-  {
-    path: '/actor-perspective',
-    label: 'Actors',
-    icon: (
-      <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-      </svg>
-    ),
-  },
+  { path: '/timeline', label: 'Timeline', icon: <TimelineViewIcon className="h-6 w-6" /> },
+  { path: '/causal-graph', label: 'Causal', icon: <CausalGraphViewIcon className="h-6 w-6" /> },
+  { path: '/actor-perspective', label: 'Actors', icon: <ActorViewIcon className="h-6 w-6" /> },
 ]
 
+const itemClass =
+  'flex flex-col items-center justify-center flex-1 h-full px-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selected'
+
+/**
+ * The phone navigation: the three views, then "More", which opens the sheet of
+ * graph tools the phone toolbar has no room for (drawn by the ViewToolbar).
+ *
+ * It sits at z-30, under the sticky header (z-40): the dialogs the toolbar
+ * opens live in the header's stacking context, and a bar above it would cover
+ * their bottom edge, where a full-screen sheet keeps its footer buttons.
+ */
 export function MobileBottomBar() {
+  const moreOpen = useMoreSheetStore((state) => state.isOpen)
+  const setMoreOpen = useMoreSheetStore((state) => state.setOpen)
+
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50"
+      className="fixed bottom-0 left-0 right-0 bg-card border-t border-line z-30"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       role="navigation"
       aria-label="Mobile navigation"
@@ -50,10 +42,10 @@ export function MobileBottomBar() {
             key={item.path}
             to={item.path}
             className={({ isActive }) =>
-              `flex flex-col items-center justify-center flex-1 h-full px-2 transition-colors ${
+              `${itemClass} ${
                 isActive
-                  ? 'text-blue-600 border-t-2 border-blue-600 -mt-[2px]'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'text-blue-700 dark:text-blue-300 border-t-2 border-blue-600 dark:border-blue-400 -mt-[2px]'
+                  : 'text-ink-muted hover:text-ink'
               }`
             }
           >
@@ -61,6 +53,20 @@ export function MobileBottomBar() {
             <span className="text-xs mt-1">{item.label}</span>
           </NavLink>
         ))}
+        <button
+          type="button"
+          onClick={() => setMoreOpen(!moreOpen)}
+          aria-haspopup="dialog"
+          aria-expanded={moreOpen}
+          className={`${itemClass} ${moreOpen ? 'text-ink' : 'text-ink-muted hover:text-ink'}`}
+        >
+          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+            <circle cx="5" cy="12" r="1.5" />
+            <circle cx="12" cy="12" r="1.5" />
+            <circle cx="19" cy="12" r="1.5" />
+          </svg>
+          <span className="text-xs mt-1">More</span>
+        </button>
       </div>
     </nav>
   )

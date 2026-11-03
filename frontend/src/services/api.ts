@@ -1,6 +1,38 @@
 import axios from 'axios'
 import type { AxiosInstance, AxiosResponse, AxiosError } from 'axios'
 import { toGraphVersion, type ServerVersionRef } from './graphVersions'
+
+/** One entity a version added, changed or deleted, by kind and id. */
+export interface VersionEntityRef {
+    type: string
+    id: string
+}
+
+/**
+ * A version as Version history reads it: the counted `GraphVersion`, plus which
+ * entities changed. The ids are never shown; Version history resolves them to
+ * names ("Added link: “Census of 1851” → “Clerks' protest”").
+ */
+export interface GraphVersionWithEntities extends GraphVersion {
+    entities?: {
+        added: VersionEntityRef[]
+        modified: VersionEntityRef[]
+        deleted: VersionEntityRef[]
+    }
+}
+
+function withChangedEntities(ref: ServerVersionRef): GraphVersionWithEntities {
+    const pick = (list: Array<{ type: string; id: string }> | undefined): VersionEntityRef[] =>
+        (list ?? []).map(({ type, id }) => ({ type, id }))
+    return {
+        ...toGraphVersion(ref),
+        entities: {
+            added: pick(ref.changes?.added),
+            modified: pick(ref.changes?.modified),
+            deleted: pick(ref.changes?.deleted),
+        },
+    }
+}
 import { 
   Event, 
   Arc, 
@@ -640,6 +672,19 @@ class APIClient {
             }
         },
 
+        /**
+         * The graph the server treats as active: the one every request without
+         * an `X-Graph-Id` header is scoped to. `null` when none is active.
+         */
+        getActive: async (): Promise<Graph | null> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: Graph | null }> = await this.client.get('/graphs/active')
+                return response.data.data ?? null
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
         create: async (data: CreateGraphRequest): Promise<Graph> => {
             try {
                 const response: AxiosResponse<{ success: boolean; data: Graph }> = await this.client.post('/graphs', data)
@@ -670,7 +715,12 @@ class APIClient {
         branch: async (id: string, data: BranchGraphRequest): Promise<Graph> => {
             try {
                 const response: AxiosResponse<{ success: boolean; data: Graph }> = 
-                    await this.client.post(`/graphs/${id}/branch`, { name: data.branchName })
+                    // The API's BranchGraphRequest is { name, description? }; it
+                    // has no version field, so a branch always forks the head.
+                    await this.client.post(`/graphs/${id}/branch`, {
+                        name: data.branchName,
+                        ...(data.description ? { description: data.description } : {})
+                    })
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -750,21 +800,26 @@ class APIClient {
         },
 
         // Version history
-        getVersions: async (id: string, limit?: number): Promise<GraphVersion[]> => {
+        getVersions: async (id: string, limit?: number): Promise<GraphVersionWithEntities[]> => {
             try {
                 const response: AxiosResponse<{ success: boolean; data: ServerVersionRef[] }> =
                     await this.client.get(`/graphs/${id}/versions`, { params: { limit } })
-                return response.data.data.map(toGraphVersion)
+                return response.data.data.map(withChangedEntities)
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }
         },
 
-        rollback: async (id: string, version: number): Promise<Graph> => {
+        rollback: async (id: string, version: number): Promise<Graph & { restoredAsVersion?: number }> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: Graph }> = 
+                // A rollback commits a NEW version whose content is `version`'s;
+                // the route returns that version record alongside the graph.
+                const response: AxiosResponse<{ success: boolean; data: Graph; version?: { version?: number } }> =
                     await this.client.post(`/graphs/${id}/rollback/${version}`)
-                return response.data.data
+                const restoredAsVersion = response.data.version?.version
+                return typeof restoredAsVersion === 'number'
+                    ? { ...response.data.data, restoredAsVersion }
+                    : response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }

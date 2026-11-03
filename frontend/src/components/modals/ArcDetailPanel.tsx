@@ -1,29 +1,34 @@
 import React, { useState, useEffect } from 'react'
 import { Arc, Event, UpdateArcRequest, CreateArcRequest } from '@/types'
 import { formatDuration } from '../timeline/arcHierarchyUtils'
+import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 
-// Helper to convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
+// Helper to convert an ISO instant to a datetime-local value (YYYY-MM-DDTHH:mm), in UTC
 const isoToDatetimeLocal = (isoString: string): string => {
   if (!isoString) return ''
   try {
     const date = new Date(isoString)
     if (isNaN(date.getTime())) return ''
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    const hours = String(date.getHours()).padStart(2, '0')
-    const minutes = String(date.getMinutes()).padStart(2, '0')
+    const year = String(date.getUTCFullYear()).padStart(4, '0')
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+    const day = String(date.getUTCDate()).padStart(2, '0')
+    const hours = String(date.getUTCHours()).padStart(2, '0')
+    const minutes = String(date.getUTCMinutes()).padStart(2, '0')
     return `${year}-${month}-${day}T${hours}:${minutes}`
   } catch {
     return ''
   }
 }
 
-// Helper to convert datetime-local format to ISO string
+// Helper to convert a datetime-local value, read as UTC, to an ISO instant
 const datetimeLocalToIso = (datetimeLocal: string): string => {
   if (!datetimeLocal) return ''
   try {
-    const date = new Date(datetimeLocal)
+    // The field is a UTC wall-clock time: historical dates are stored as UTC
+    // instants, and reading it in the browser's zone shifted them (before
+    // standard time, by local mean time's odd seconds as well).
+    const hasZone = /(Z|[+-]\d\d:\d\d)$/.test(datetimeLocal)
+    const date = new Date(hasZone ? datetimeLocal : `${datetimeLocal}Z`)
     if (isNaN(date.getTime())) return ''
     return date.toISOString()
   } catch {
@@ -125,8 +130,8 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
     }
 
     if (formData.start_time && formData.end_time) {
-      const startTime = new Date(formData.start_time)
-      const endTime = new Date(formData.end_time)
+      const startTime = new Date(datetimeLocalToIso(formData.start_time))
+      const endTime = new Date(datetimeLocalToIso(formData.end_time))
       
       if (startTime >= endTime) {
         newErrors.end_time = 'End time must be after start time'
@@ -221,7 +226,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
       <div className="flex flex-col h-full">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h2 id="arc-panel-title" className="text-lg font-semibold text-gray-900">
+          <h2 id="arc-panel-title" className="font-display text-xl font-semibold text-ink">
             {isCreateMode ? 'Create Arc' : 'Arc Details'}
           </h2>
           <button
@@ -246,7 +251,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
 
           {/* Basic Information */}
           <div className="space-y-4">
-            <h3 className="text-sm font-medium text-gray-900">Basic Information</h3>
+            <h3 className="text-base font-semibold text-ink">Basic Information</h3>
             
             <div>
               <label htmlFor="arc-name" className="block text-sm font-medium text-gray-700 mb-1">
@@ -291,12 +296,12 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
 
           {/* Time Range */}
           <div className="space-y-4">
-            <h3 className="text-sm font-medium text-gray-900">Time Range</h3>
+            <h3 className="text-base font-semibold text-ink">Time Range</h3>
             
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="arc-start-time" className="block text-sm font-medium text-gray-700 mb-1">
-                  Start Time <span className="text-red-500">*</span>
+                  Start Time <span className="font-normal text-ink-muted">(UTC)</span> <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="arc-start-time"
@@ -315,7 +320,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
 
               <div>
                 <label htmlFor="arc-end-time" className="block text-sm font-medium text-gray-700 mb-1">
-                  End Time <span className="text-red-500">*</span>
+                  End Time <span className="font-normal text-ink-muted">(UTC)</span> <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="arc-end-time"
@@ -349,7 +354,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
           {/* Hierarchy Information - only show in edit mode */}
           {!isCreateMode && (
             <div className="space-y-4">
-              <h3 className="text-sm font-medium text-gray-900">Hierarchy</h3>
+              <h3 className="text-base font-semibold text-ink">Hierarchy</h3>
 
               {parentArc && (
                 <div className="bg-gray-50 rounded-md p-3">
@@ -379,7 +384,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
           {/* Contained Events - only show in edit mode */}
           {!isCreateMode && (
             <div className="space-y-4">
-              <h3 className="text-sm font-medium text-gray-900">
+              <h3 className="text-base font-semibold text-ink">
                 Contained Events ({containedEvents.length})
               </h3>
 
@@ -389,7 +394,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
                     <div key={event.id} className="bg-gray-50 rounded-md p-3">
                       <p className="text-sm font-medium text-gray-900">{event.description}</p>
                       <p className="text-xs text-gray-500">
-                        {event.actor} → {event.target} • {new Date(event.timestamp).toLocaleString()}
+                        {event.actor} → {event.target} • <span className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</span>
                       </p>
                     </div>
                   ))}
