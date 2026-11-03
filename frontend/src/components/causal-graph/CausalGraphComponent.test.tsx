@@ -836,7 +836,7 @@ describe('CausalGraphComponent', () => {
   })
 
   describe('Focus Event', () => {
-    it('focuses on event when focusEventId prop changes', async () => {
+    it('focuses on event when focusEventId prop changes, keeping the user’s zoom', async () => {
       const { rerender } = render(<CausalGraphComponent />)
 
       await waitFor(() => {
@@ -847,15 +847,11 @@ describe('CausalGraphComponent', () => {
 
       await waitFor(() => {
         expect(mockCy.getElementById).toHaveBeenCalledWith('1')
-        expect(mockCy.animate).toHaveBeenCalledWith(
-          expect.objectContaining({
-            zoom: 1.5
-          }),
-          expect.objectContaining({
-            duration: 500
-          })
-        )
       })
+      // At most a pan to bring it into view: never a jump to a fixed zoom.
+      for (const [options] of mockCy.animate.mock.calls) {
+        expect(options).not.toHaveProperty('zoom')
+      }
     })
   })
 

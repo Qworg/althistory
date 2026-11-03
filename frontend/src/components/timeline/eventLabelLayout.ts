@@ -38,16 +38,19 @@ export interface LabelLayoutConfig {
   /** Baseline offsets of the label rows, nearest the track first. */
   rowOffsets: readonly number[]
   fontSize: number
+  /** Longest unprioritised label, in characters (default LABEL_MAX_CHARS). */
+  maxChars?: number
 }
 
 /**
- * The main timeline: three rows of 12px labels. The pitch is the font plus a
+ * The main timeline: four rows of 12px labels. The pitch is the font plus a
  * little leading, and the first row clears the mark's 15px focus ring.
- * timelineLayout.ts reserves room above the event track for all three rows.
+ * timelineLayout.ts reserves room above the event track for every row.
  */
 export const TIMELINE_LABEL_CONFIG: LabelLayoutConfig = {
-  rowOffsets: [-18, -32, -46],
+  rowOffsets: [-18, -32, -46, -60],
   fontSize: LABEL_FONT_SIZE,
+  maxChars: 22,
 }
 
 /** Baseline offsets of the default layout's two rows (ActorTimeline's 10px labels). */
@@ -130,7 +133,7 @@ export function layoutEventLabels(
 
   const rest = inView.filter((i) => !i.priority).sort((a, b) => a.x - b.x)
   for (const item of rest) {
-    place(item, LABEL_MAX_CHARS, allRows)
+    place(item, config.maxChars ?? LABEL_MAX_CHARS, allRows)
   }
 
   return placements

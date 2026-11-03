@@ -22,6 +22,8 @@ export const graphKeys = {
   all: ['graphs'] as const,
   lists: () => [...graphKeys.all, 'list'] as const,
   list: (filters: { status?: GraphStatus }) => [...graphKeys.lists(), filters] as const,
+  /** The server's active graph (GET /graphs/active). */
+  active: () => [...graphKeys.all, 'active'] as const,
   details: () => [...graphKeys.all, 'detail'] as const,
   detail: (id: string) => [...graphKeys.details(), id] as const,
   versions: (id: string) => [...graphKeys.detail(id), 'versions'] as const,
@@ -37,7 +39,7 @@ export function useActiveGraphId() {
   })
 
   useEffect(() => {
-    const handleGraphSwitch = (event: CustomEvent<{ graphId: string }>) => {
+    const handleGraphSwitch = (event: CustomEvent<{ graphId: string | null }>) => {
       setActiveGraphId(event.detail.graphId)
       useGlobalStore.getState().clearSelection()
     }
@@ -49,6 +51,50 @@ export function useActiveGraphId() {
   }, [])
 
   return activeGraphId
+}
+
+/** Adopts `graphId` as the active graph locally and tells every reader. */
+function adoptActiveGraph(graphId: string | null) {
+  if (graphId) localStorage.setItem('active_graph_id', graphId)
+  else localStorage.removeItem('active_graph_id')
+  window.dispatchEvent(new CustomEvent('graph-switched', { detail: { graphId } }))
+}
+
+/**
+ * Keeps the locally remembered active graph in step with the server's.
+ *
+ * The entity requests (events, arcs, links, pressures) send no `X-Graph-Id`,
+ * so the server scopes them to ITS active graph. The header reads the id kept
+ * in localStorage. When the two disagree (a graph deleted from the CLI, a
+ * fresh data directory, a stale browser profile), the header said "Select a
+ * graph" over a canvas that was showing, and accepting edits to, a graph the
+ * user never chose. The server's answer wins, because it is the one the data
+ * on screen came from; when it has no active graph, neither does the client.
+ *
+ * Mount once, at the layout.
+ */
+export function useActiveGraphReconciler() {
+  const queryClient = useQueryClient()
+  const { data: serverActive, isSuccess, dataUpdatedAt } = useQuery({
+    queryKey: graphKeys.active(),
+    queryFn: () => apiClient.graphs.getActive(),
+    staleTime: 30000,
+  })
+
+  // Keyed on the server's answer arriving, not on the local id: a switch made
+  // in this tab updates both sides itself (see useSwitchGraph), and reacting
+  // to the local change would race the switch and undo it.
+  useEffect(() => {
+    if (!isSuccess) return
+    const serverId = serverActive?.id ?? null
+    if (serverId === localStorage.getItem('active_graph_id')) return
+    if (serverActive) queryClient.setQueryData(graphKeys.detail(serverActive.id), serverActive)
+    adoptActiveGraph(serverId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataUpdatedAt])
+
+  /** True once the server has answered and no graph is active on either side. */
+  return { noActiveGraph: isSuccess && !serverActive?.id }
 }
 
 /**
@@ -260,7 +306,10 @@ export function useSwitchGraph() {
 
   return useMutation({
     mutationFn: (id: string) => apiClient.graphs.switch(id),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
+      // The server's active graph is now `id`; record that, so the reconciler
+      // (useActiveGraphReconciler) does not read the old answer as a mismatch.
+      queryClient.setQueryData(graphKeys.active(), queryClient.getQueryData(graphKeys.detail(id)) ?? { id })
       // Clear selections and store caches to avoid ghost state across graphs
       useGlobalStore.getState().clearSelection()
       useGlobalStore.getState().setEvents([])

@@ -18,6 +18,8 @@ export interface PressureExplorationProps {
    */
   arcs?: Arc[]
   events?: Event[]
+  /** `events` is filtered: count only pressures with evidence among them. */
+  scopeToEvents?: boolean
   selectedEvents?: Set<string>
   onEventHighlight?: (eventIds: Set<string>) => void
   onEventSelect?: (event: Event) => void
@@ -54,6 +56,7 @@ function renderPressureTypeIcon(type: string, className = 'w-4 h-4'): React.Reac
 export const PressureExploration: React.FC<PressureExplorationProps> = ({
   arcs = [],
   events = [],
+  scopeToEvents = false,
   onEventHighlight,
   onEventSelect,
   defaultExpanded = false,
@@ -75,7 +78,7 @@ export const PressureExploration: React.FC<PressureExplorationProps> = ({
     trackConfidenceChange,
     setConfidenceThreshold,
     togglePressureIndicators
-  } = usePressures(arcs, events)
+  } = usePressures(arcs, events, { scopeToEvents })
 
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
   const [showConfidenceTracker, setShowConfidenceTracker] = useState(false)
@@ -117,7 +120,11 @@ export const PressureExploration: React.FC<PressureExplorationProps> = ({
   }, [trackConfidenceChange])
 
   const types = Object.keys(pressureStats.typeDistribution)
-  const { visibleCount, totalPressures, hiddenCount } = pressureStats
+  const { visibleCount, totalPressures, hiddenCount, outOfScopeCount } = pressureStats
+  const outOfScopeNote =
+    outOfScopeCount > 0
+      ? ` · ${outOfScopeCount} more outside the current filters`
+      : ''
 
   // The one line that stands in for the whole section while it is closed. Each
   // type name is its own text node (lower case, as the data has it) so it can
@@ -127,7 +134,9 @@ export const PressureExploration: React.FC<PressureExplorationProps> = ({
   ) : error ? (
     'The pressures could not be loaded.'
   ) : totalPressures === 0 ? (
-    'No pressures detected.'
+    outOfScopeCount > 0
+      ? `No pressures among the filtered events (${outOfScopeCount} outside the current filters).`
+      : 'No pressures detected.'
   ) : (
     <>
       {hiddenCount > 0
@@ -152,6 +161,7 @@ export const PressureExploration: React.FC<PressureExplorationProps> = ({
           <span className="font-mono-code">{formatConfidence(visualConfig.confidenceThreshold)}</span>
         </>
       )}
+      {outOfScopeNote}
     </>
   )
 

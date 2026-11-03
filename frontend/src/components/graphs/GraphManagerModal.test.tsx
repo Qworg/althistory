@@ -286,7 +286,7 @@ describe('GraphManagerModal', () => {
       expect(screen.getByText('Active Graph')).toBeInTheDocument()
       // Main Timeline appears in both sidebar and graph list
       expect(screen.getAllByText('Main Timeline').length).toBeGreaterThanOrEqual(2)
-      expect(screen.getByText(/v3 - 150 events/)).toBeInTheDocument()
+      expect(screen.getByText(/v3 · 150 events/)).toBeInTheDocument()
     })
 
     it('should start on specified initial tab', () => {
@@ -295,7 +295,7 @@ describe('GraphManagerModal', () => {
       )
       
       const versionsTab = screen.getByRole('button', { name: /versions/i })
-      expect(versionsTab).toHaveClass('bg-blue-100')
+      expect(versionsTab).toHaveClass('bg-selected/10')
     })
   })
 
@@ -327,7 +327,7 @@ describe('GraphManagerModal', () => {
       const graphCards = screen.getAllByText('Main Timeline')
       // Find the one in the graph list (inside the grid)
       const graphCard = graphCards.find(el => el.closest('.grid'))?.closest('.p-4')
-      expect(graphCard).toHaveClass('border-blue-500')
+      expect(graphCard).toHaveClass('border-selected')
     })
 
     it('should show branch name badge for branched graphs', () => {
@@ -338,13 +338,15 @@ describe('GraphManagerModal', () => {
       expect(screen.getByText('alt-history')).toBeInTheDocument()
     })
 
-    it('should show status badge', () => {
+    it('marks the open graph, not the default "active" status', () => {
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
-      
-      const activeStatusBadges = screen.getAllByText('active')
-      expect(activeStatusBadges.length).toBeGreaterThan(0)
+
+      // Every graph is "active" unless archived, so the badge only says so
+      // for the one that is open.
+      expect(screen.getAllByText('Open')).toHaveLength(1)
+      expect(screen.queryByText('active')).not.toBeInTheDocument()
     })
 
     it('should open CreateGraphModal when New Graph button is clicked', async () => {
@@ -614,8 +616,9 @@ describe('GraphManagerModal', () => {
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="branches" />
       )
-      
-      expect(screen.getByText('alt-history')).toBeInTheDocument()
+
+      // The branch by its graph name, as the header and Compare name it
+      expect(screen.getAllByText('Alternative Branch').length).toBeGreaterThan(0)
     })
 
     it('should show Create Branch button', async () => {

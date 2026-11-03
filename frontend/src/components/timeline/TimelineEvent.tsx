@@ -9,6 +9,9 @@ import {
   type EventLabelPlacement,
 } from './eventLabelLayout'
 import { EVENT_STEM_LENGTH } from './timelineLayout'
+import { eventConfidence } from './eventInspectorUtils'
+import { confidenceTier } from './confidenceTier'
+
 
 /**
  * Radius of the transparent hit area: a 24px target, twice the 12px dot, so
@@ -29,6 +32,8 @@ export interface TimelineEventProps {
   isHighlighted?: boolean
   /** Whether this event is the active selection in the timeline inspector. */
   isSelected?: boolean
+  /** Whether a selection's ripple is being traced and this event is not on it. */
+  isDimmed?: boolean
   /**
    * Whether the event exists only in this branch: it falls after the point of
    * divergence and has no counterpart in the ghosted baseline. Drawn in the
@@ -84,6 +89,7 @@ export const TimelineEvent = memo(function TimelineEvent({
   y,
   isHighlighted = false,
   isSelected = false,
+  isDimmed = false,
   isBranchOwn = false,
   isTabStop = true,
   label,
@@ -141,6 +147,15 @@ export const TimelineEvent = memo(function TimelineEvent({
     }
   }, [handleClick])
 
+  const confidence = eventConfidence(event)
+  const tier = confidenceTier(confidence)
+  const markColor = isSelected
+    ? 'var(--accent-selected)'
+    : isBranchOwn
+      ? 'var(--accent-divergence)'
+      : 'var(--accent-baseline)'
+  const markRadius = isHighlighted ? 9 : isSelected ? 8 : 6
+
   return (
     <g
       className="event group"
@@ -148,10 +163,13 @@ export const TimelineEvent = memo(function TimelineEvent({
       data-timeline-mark="event"
       data-mark-key={`event:${event.id}`}
       data-branch-own={isBranchOwn ? 'true' : undefined}
+      data-confidence-tier={tier}
+      data-dimmed={isDimmed ? 'true' : undefined}
+      opacity={isDimmed ? 0.28 : undefined}
       transform={`translate(${x}, ${y})`}
       tabIndex={isTabStop ? 0 : -1}
       role="button"
-      aria-label={`Event: ${event.description} by ${event.actor} targeting ${event.target} at ${formatHistoricalTimestamp(event.timestamp)}${isBranchOwn ? ' (this branch only)' : ''}`}
+      aria-label={`Event: ${event.description} by ${event.actor} targeting ${event.target} at ${formatHistoricalTimestamp(event.timestamp)}${confidence !== null ? `, confidence ${confidence.toFixed(2)}` : ''}${isBranchOwn ? ' (this branch only)' : ''}`}
       // The whole group takes the click, so the stem and label (which sit
       // over and around the dot) never swallow it.
       onClick={handleClick}
@@ -188,22 +206,30 @@ export const TimelineEvent = memo(function TimelineEvent({
         strokeWidth={2}
         pointerEvents="none"
       />
-      <circle
-        className="event-marker"
-        r={isHighlighted ? 9 : isSelected ? 8 : 6}
-        // Shared history is the cobalt baseline; amber is reserved for
-        // divergence: the branch's own events, and the highlighted
-        // (pressure evidence) ring.
-        fill={
-          isSelected
-            ? 'var(--accent-selected)'
-            : isBranchOwn
-              ? 'var(--accent-divergence)'
-              : 'var(--accent-baseline)'
-        }
-        stroke={isHighlighted ? 'var(--accent-divergence)' : 'var(--surface-card)'}
-        strokeWidth={isHighlighted || isSelected ? 3 : 2}
-      />
+      {/* Shared history is the cobalt baseline; amber is reserved for
+          divergence: the branch's own events, and the highlighted (pressure
+          evidence) ring. Confidence is the mark's shape (confidenceTier). */}
+      {tier === 'firm' ? (
+        <circle
+          className="event-marker"
+          r={markRadius}
+          fill={markColor}
+          stroke={isHighlighted ? 'var(--accent-divergence)' : 'var(--surface-card)'}
+          strokeWidth={isHighlighted || isSelected ? 3 : 2}
+        />
+      ) : (
+        <>
+          <circle
+            className="event-marker"
+            r={markRadius - 0.75}
+            fill="var(--surface-card)"
+            stroke={isHighlighted ? 'var(--accent-divergence)' : markColor}
+            strokeWidth={2.25}
+            strokeDasharray={tier === 'speculative' ? '2.6 2.2' : undefined}
+          />
+          {tier === 'probable' && <circle r={2.25} fill={markColor} pointerEvents="none" />}
+        </>
+      )}
       {isSelected && (
         <circle
           className="event-selected-ring"

@@ -241,7 +241,11 @@ describe('BranchComparisonModal', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Differences' }))
 
     expect(screen.getByRole('group', { name: 'Show events' })).toBeInTheDocument()
+    // It opens on the changes; the shared history is one click away.
+    expect(screen.getByRole('button', { name: /^Changes/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('Halifax Appointed Prime Minister')).toBeInTheDocument()
+    expect(screen.queryByText('Chamberlain Resigns')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^All/ }))
     expect(screen.getByText('Chamberlain Resigns')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
@@ -311,49 +315,45 @@ describe('BranchComparisonModal', () => {
     expect(switchButton.className).toContain('border-line')
   })
 
-  it('opens the merge dialog from the footer', () => {
+  it('opens the merge as a step of the comparison, not a second dialog', () => {
     renderWithProviders(<BranchComparisonModal {...mergeableProps} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Merge into baseline…' }))
 
-    expect(screen.getByRole('dialog', { name: 'Merge branch' })).toBeInTheDocument()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(screen.getByRole('heading', { name: 'Merge branch' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Preview merge' })).toBeInTheDocument()
   })
 
-  it('closes only the merge dialog on Escape, then returns focus to its opener', () => {
+  it('steps back to the comparison on Escape, then returns focus to its opener', () => {
     const handleClose = vi.fn()
     renderWithProviders(<BranchComparisonModal {...mergeableProps} onClose={handleClose} />)
 
     const opener = screen.getByRole('button', { name: 'Merge into baseline…' })
     opener.focus()
     fireEvent.click(opener)
-    expect(screen.getByRole('dialog', { name: 'Merge branch' })).toBeInTheDocument()
+    expect(screen.getByTestId('merge-step')).toBeInTheDocument()
 
     fireEvent.keyDown(document, { key: 'Escape' })
 
-    expect(screen.queryByRole('dialog', { name: 'Merge branch' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('merge-step')).not.toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: 'Compare branches' })).toBeInTheDocument()
     expect(handleClose).not.toHaveBeenCalled()
-    expect(opener).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Merge into baseline…' })).toHaveFocus()
 
     // The next Escape belongs to the comparison.
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(handleClose).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps Tab inside the merge dialog while it is on top', () => {
+  it('steps back from the merge with its own button', () => {
     renderWithProviders(<BranchComparisonModal {...mergeableProps} />)
     fireEvent.click(screen.getByRole('button', { name: 'Merge into baseline…' }))
 
-    const mergeDialog = screen.getByRole('dialog', { name: 'Merge branch' })
-    const focusables = Array.from(mergeDialog.querySelectorAll<HTMLElement>(FOCUSABLE))
-    const first = focusables[0]!
-    const last = focusables[focusables.length - 1]!
+    fireEvent.click(screen.getByRole('button', { name: 'Back to comparison' }))
 
-    last.focus()
-    fireEvent.keyDown(last, { key: 'Tab' })
-    expect(first).toHaveFocus()
-    expect(mergeDialog).toContainElement(document.activeElement as HTMLElement)
+    expect(screen.queryByTestId('merge-step')).not.toBeInTheDocument()
+    expect(screen.getByRole('tablist')).toBeInTheDocument()
   })
 
   it('leaves a dialog underneath it open on Escape', () => {
@@ -376,7 +376,7 @@ describe('BranchComparisonModal', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Simulate forward' }))
 
     expect(screen.getByTestId('simulation-launcher')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Run simulation/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Preview simulation/ })).toBeInTheDocument()
   })
 
   it('embeds the causal graph as a read-only preview, without editing tools', () => {

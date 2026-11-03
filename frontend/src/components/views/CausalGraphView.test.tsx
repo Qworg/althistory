@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CausalGraphView } from './CausalGraphView'
 import { useEvents, useCausalRelationships } from '@/hooks/useAPI'
@@ -180,12 +180,16 @@ describe('CausalGraphView', () => {
 
     renderWithClient(<CausalGraphView />)
 
-    const title = screen.getByRole('heading', { level: 2, name: 'Causal Graph View' })
-    expect(title).toHaveClass('font-display', 'text-[1.75rem]', 'font-semibold')
+    // The breadcrumb and navigation name the view; the heading is for the outline.
+    const title = screen.getByRole('heading', { level: 2, name: 'Causal Graph' })
+    expect(title).toHaveClass('sr-only')
 
+    // The inspector beside the graph describes the selection
+    const inspector = screen.getByTestId('causal-inspector')
+    expect(inspector).toHaveTextContent(/Select an event on the graph/)
     fireEvent.click(screen.getByTestId('select-first-event'))
-    expect(screen.getByText('Event One')).toBeInTheDocument()
-    expect(screen.getByText(/Actor A → Target B/)).toBeInTheDocument()
+    expect(within(inspector).getByText('Event One')).toBeInTheDocument()
+    expect(within(inspector).getByText(/Actor A → Target B/)).toBeInTheDocument()
   })
 
   describe('delete confirmation', () => {

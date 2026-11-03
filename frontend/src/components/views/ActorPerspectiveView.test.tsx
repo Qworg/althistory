@@ -203,8 +203,8 @@ describe('ActorPerspectiveView', () => {
     it('renders the component with correct title and description', () => {
       renderWithQueryClient(<ActorPerspectiveView />)
       
-      expect(screen.getByText('Actor Perspective View')).toBeInTheDocument()
-      expect(screen.getByText('Explore events and relationships from a specific actor\'s perspective')).toBeInTheDocument()
+      // Named for the outline; the breadcrumb and navigation show it on screen.
+      expect(screen.getByRole('heading', { level: 2, name: 'Actor Perspective' })).toHaveClass('sr-only')
     })
 
     it('renders actor selector', () => {
@@ -232,7 +232,7 @@ describe('ActorPerspectiveView', () => {
       
       // In loading state, the title is not rendered, only the skeleton
       expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
-      expect(screen.queryByText('Actor Perspective View')).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { level: 2, name: 'Actor Perspective' })).not.toBeInTheDocument()
     })
   })
 
@@ -487,8 +487,8 @@ describe('ActorPerspectiveView', () => {
       fireEvent.change(screen.getByTestId('actor-select'), { target: { value: 'Alice' } })
       fireEvent.click(screen.getByTestId('timeline-event-1'))
 
-      const title = screen.getByRole('heading', { level: 2, name: 'Actor Perspective View' })
-      expect(title).toHaveClass('font-display', 'text-[1.75rem]', 'leading-tight', 'font-semibold')
+      const title = screen.getByRole('heading', { level: 2, name: 'Actor Perspective' })
+      expect(title).toHaveClass('sr-only')
       expect(screen.getByRole('heading', { level: 3, name: 'Timeline for Alice' })).toBeInTheDocument()
       const selected = screen.getByRole('heading', { level: 4, name: 'Selected Event' })
       expect(selected).toHaveClass('text-base', 'font-semibold')

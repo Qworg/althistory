@@ -127,7 +127,7 @@ describe('TimelineView filtering', () => {
   it('renders every fetched event and arc with no active filters', () => {
     renderView()
 
-    expect(screen.getByText('3 events, 2 arcs')).toBeInTheDocument()
+    expect(screen.getByText('3 events · 2 arcs')).toBeInTheDocument()
     expect(screen.getByTestId('rendered-events')).toHaveTextContent('3')
     expect(screen.getByTestId('rendered-arcs')).toHaveTextContent('2')
   })
@@ -141,7 +141,7 @@ describe('TimelineView filtering', () => {
     await waitFor(() => {
       expect(screen.getByTestId('rendered-events')).toHaveTextContent('1')
     })
-    expect(screen.getByText('1 events, 0 arcs')).toBeInTheDocument()
+    expect(screen.getByText('1 event · 0 arcs')).toBeInTheDocument()
     expect(screen.getByTestId('rendered-arcs')).toHaveTextContent('0')
   })
 
@@ -154,7 +154,7 @@ describe('TimelineView filtering', () => {
     await waitFor(() => {
       expect(screen.getByTestId('rendered-events')).toHaveTextContent('1')
     })
-    expect(screen.getByText('1 events, 2 arcs')).toBeInTheDocument()
+    expect(screen.getByText('1 event · 2 arcs')).toBeInTheDocument()
   })
 
   it('re-filters the rendered events when the store filters change', async () => {

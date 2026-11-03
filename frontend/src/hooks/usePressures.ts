@@ -29,8 +29,18 @@ export function usePressures(
    * no evidence.
    */
   arcs: Arc[] = [],
-  events: Event[] = []
+  events: Event[] = [],
+  options: {
+    /**
+     * `events` is a filtered subset of the graph: a pressure none of whose
+     * evidence survives the filter is out of view, and is neither drawn nor
+     * counted. Without it, filtering the timeline down to nothing still said
+     * "3 pressures detected" over an empty axis.
+     */
+    scopeToEvents?: boolean
+  } = {}
 ) {
+  const { scopeToEvents = false } = options
   // The visualisation configuration and the exploration state are shared, so
   // the panel's controls reach the timeline and not only the panel.
   const visualConfig = usePressureStore((state) => state.visualConfig)
@@ -93,10 +103,23 @@ export function usePressures(
     )
   }, [pressureData, arcs, events, explorationState.selectedPressure])
 
+  // The pressures whose evidence the current filter left on screen. One with
+  // no recorded evidence cannot be placed, so it stays.
+  const pressuresInScope = useMemo(
+    () =>
+      scopeToEvents
+        ? pressuresWithContext.filter(
+            pressure => (pressure.evidence_event_ids?.length ?? 0) === 0 || pressure.evidenceEvents.length > 0
+          )
+        : pressuresWithContext,
+    [pressuresWithContext, scopeToEvents]
+  )
+  const outOfScopeCount = pressuresWithContext.length - pressuresInScope.length
+
   // Filter pressures by confidence threshold
   const visiblePressures = useMemo(() => {
-    return filterPressuresByConfidence(pressuresWithContext, visualConfig.confidenceThreshold)
-  }, [pressuresWithContext, visualConfig.confidenceThreshold])
+    return filterPressuresByConfidence(pressuresInScope, visualConfig.confidenceThreshold)
+  }, [pressuresInScope, visualConfig.confidenceThreshold])
 
   // Group pressures by type
   const pressuresByType = useMemo(() => {
@@ -134,10 +157,10 @@ export function usePressures(
   // Configuration handlers
   // Statistics
   const pressureStats = useMemo(() => {
-    const totalPressures = pressuresWithContext.length
+    const totalPressures = pressuresInScope.length
     const visibleCount = visiblePressures.length
-    const averageConfidence = pressuresWithContext.length > 0 
-      ? pressuresWithContext.reduce((sum, p) => sum + p.confidence_score, 0) / pressuresWithContext.length
+    const averageConfidence = pressuresInScope.length > 0 
+      ? pressuresInScope.reduce((sum, p) => sum + p.confidence_score, 0) / pressuresInScope.length
       : 0
     
     const typeDistribution = Object.entries(pressuresByType).reduce((dist, [type, pressures]) => {
@@ -150,9 +173,11 @@ export function usePressures(
       visibleCount,
       averageConfidence,
       typeDistribution,
-      hiddenCount: totalPressures - visibleCount
+      hiddenCount: totalPressures - visibleCount,
+      /** Pressures whose evidence the active filters hide entirely. */
+      outOfScopeCount
     }
-  }, [pressuresWithContext, visiblePressures, pressuresByType])
+  }, [pressuresInScope, visiblePressures, pressuresByType, outOfScopeCount])
 
   return {
     // Data

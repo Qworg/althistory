@@ -43,7 +43,7 @@ describe('Layout Manager Utils', () => {
 
     it('returns null for invalid shortcuts', () => {
       expect(getLayoutFromShortcut('x')).toBeNull()
-      expect(getLayoutFromShortcut('9')).toBeNull()
+      expect(getLayoutFromShortcut('9')).toBe('time')
       expect(getLayoutFromShortcut('0')).toBeNull()
       expect(getLayoutFromShortcut('')).toBeNull()
     })
@@ -291,13 +291,14 @@ describe('Layout Manager Utils', () => {
       expect(names).toContain('dagre')
       expect(names).toContain('cose-bilkent')
       expect(names).toContain('random')
-      expect(names).toHaveLength(8)
+      expect(names).toContain('time')
+      expect(names).toHaveLength(9)
     })
   })
 
   describe('Constants', () => {
     it('has correct LAYOUT_SHORTCUTS', () => {
-      expect(Object.keys(LAYOUT_SHORTCUTS)).toHaveLength(8)
+      expect(Object.keys(LAYOUT_SHORTCUTS)).toHaveLength(9)
       expect(LAYOUT_SHORTCUTS['1']).toBe('cose')
     })
 
@@ -344,8 +345,8 @@ describe('Layout Manager Utils', () => {
 })
 
 describe('primary layouts', () => {
-  it('names force-directed and the two layered layouts, all of them real layouts with shortcuts', () => {
-    expect(PRIMARY_LAYOUT_NAMES).toEqual(['cose', 'breadthfirst', 'dagre'])
+  it('names time order, force-directed and the layered layout, all of them real layouts with shortcuts', () => {
+    expect(PRIMARY_LAYOUT_NAMES).toEqual(['time', 'cose', 'dagre'])
     for (const name of PRIMARY_LAYOUT_NAMES) {
       expect(isValidLayoutName(name)).toBe(true)
       expect(getShortcutForLayout(name)).not.toBeNull()

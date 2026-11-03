@@ -7,7 +7,7 @@ import {
   type SimulationResult,
 } from '@/types'
 import { formatHistoricalDate } from '@/utils/historicalTime'
-import { PRIMARY_BUTTON, FIELD, countNoun } from './branchUi'
+import { PRIMARY_BUTTON, SECONDARY_BUTTON, QUIET_BUTTON, FIELD, countNoun } from './branchUi'
 
 export interface SimulationLauncherPanelProps {
   /** Graph to evolve forward. The panel is inert without one. */
@@ -29,7 +29,12 @@ const DEFAULT_AGGRESSIVENESS = 0.5
 /**
  * Controls for the autonomous historical simulation engine.
  *
- * The panel owns its own request state and reports the completed run upward;
+ * A run is a preview first: generated history is a hypothesis, and nothing is
+ * written until the user has read it and chosen to keep it. The engine is
+ * deterministic over the graph and the options, so "Add to graph" runs the
+ * previewed options for real and gets the events that were shown.
+ *
+ * The panel owns its own request state and reports a saved run upward;
  * it deliberately does not fetch graph data, so it can be dropped into the
  * branch comparison modal or a toolbar without duplicating that wiring.
  */
@@ -43,22 +48,23 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
   const [domain, setDomain] = useState<DomainChoice>(AUTO_DOMAIN)
   const [aggressiveness, setAggressiveness] = useState(DEFAULT_AGGRESSIVENESS)
   const [seedContext, setSeedContext] = useState('')
-  const [dryRun, setDryRun] = useState(false)
-  const [isRunning, setIsRunning] = useState(false)
+  const [isRunning, setIsRunning] = useState<'preview' | 'save' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<SimulationResult | null>(null)
+  /** The options the shown preview was made with: what "Add to graph" runs. */
+  const [previewOptions, setPreviewOptions] = useState<SimulationRequestOptions | null>(null)
 
-  const handleRun = useCallback(async () => {
+  const handlePreview = useCallback(async () => {
     if (!graphId || isRunning) return
 
-    setIsRunning(true)
+    setIsRunning('preview')
     setError(null)
 
     const options: SimulationRequestOptions = {
       steps,
       timeAdvanceMonths: months,
       aggressiveness,
-      dryRun,
+      dryRun: true,
     }
     if (domain !== AUTO_DOMAIN) {
       options.domain = domain
@@ -71,15 +77,40 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
     try {
       const simulated = await apiClient.inference.simulate(graphId, options)
       setResult(simulated)
-      onSimulated?.(simulated)
+      setPreviewOptions(options)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Simulation failed')
+      setError(err instanceof Error ? `The simulation could not run: ${err.message}` : 'The simulation could not run.')
     } finally {
-      setIsRunning(false)
+      setIsRunning(null)
     }
-  }, [graphId, isRunning, steps, months, aggressiveness, dryRun, domain, seedContext, onSimulated])
+  }, [graphId, isRunning, steps, months, aggressiveness, domain, seedContext])
 
-  const canRun = graphId.length > 0 && !isRunning
+  const handleSave = useCallback(async () => {
+    if (!graphId || isRunning || !previewOptions) return
+    setIsRunning('save')
+    setError(null)
+    try {
+      const saved = await apiClient.inference.simulate(graphId, { ...previewOptions, dryRun: false })
+      setResult(saved)
+      setPreviewOptions(null)
+      onSimulated?.(saved)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `The events could not be added: ${err.message}. The preview is still here; nothing was saved.`
+          : 'The events could not be added. Nothing was saved.'
+      )
+    } finally {
+      setIsRunning(null)
+    }
+  }, [graphId, isRunning, previewOptions, onSimulated])
+
+  const handleDiscard = useCallback(() => {
+    setResult(null)
+    setPreviewOptions(null)
+  }, [])
+
+  const canRun = graphId.length > 0 && isRunning === null
 
   return (
     <div className="space-y-4" data-testid="simulation-launcher">
@@ -161,23 +192,17 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
         </label>
 
         <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
-          <label className="flex items-center gap-2 text-sm text-ink-secondary">
-            <input
-              type="checkbox"
-              checked={dryRun}
-              onChange={e => setDryRun(e.target.checked)}
-              className="rounded border-line"
-            />
-            Preview only (persist nothing)
-          </label>
+          <p className="text-xs text-ink-secondary">
+            You see the simulated events first; nothing is added to the graph until you keep them.
+          </p>
 
           <button
             type="button"
-            onClick={handleRun}
+            onClick={handlePreview}
             disabled={!canRun}
-            className={`${PRIMARY_BUTTON} w-full sm:w-auto`}
+            className={`${result && previewOptions ? SECONDARY_BUTTON : PRIMARY_BUTTON} w-full sm:w-auto`}
           >
-            {isRunning ? 'Simulating…' : 'Run simulation'}
+            {isRunning === 'preview' ? 'Simulating…' : result && previewOptions ? 'Preview again' : 'Preview simulation'}
           </button>
         </div>
 
@@ -209,12 +234,18 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
               </span>
               <span>
                 {countNoun(result.steps, 'step')} · {countNoun(result.events.length, 'event')} ·{' '}
-                {countNoun(result.relationships.length, 'causal link')}
+                {/* A preview writes no links: each event is linked to the one
+                    before it as it is added. */}
+                {result.dryRun ? 'linked in sequence when added' : countNoun(result.relationships.length, 'causal link')}
               </span>
             </div>
           </div>
-          {result.dryRun && (
-            <p className="text-xs text-ink-secondary mt-1">A preview: nothing was saved to the graph.</p>
+          {result.dryRun ? (
+            <p className="text-xs text-ink-secondary mt-1">A preview: nothing has been saved to the graph.</p>
+          ) : (
+            <p className="text-xs text-ink-secondary mt-1" role="status">
+              Added to {graphName}. Version history can restore the graph to before this run.
+            </p>
           )}
 
           {result.events.length === 0 ? (
@@ -235,6 +266,19 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
                 </li>
               ))}
             </ol>
+          )}
+
+          {result.dryRun && result.events.length > 0 && previewOptions && (
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+              <button type="button" onClick={handleDiscard} disabled={isRunning !== null} className={QUIET_BUTTON}>
+                Discard preview
+              </button>
+              <button type="button" onClick={handleSave} disabled={isRunning !== null} className={PRIMARY_BUTTON}>
+                {isRunning === 'save'
+                  ? 'Adding…'
+                  : `Add ${countNoun(result.events.length, 'event')} to ${graphName}`}
+              </button>
+            </div>
           )}
         </section>
       )}

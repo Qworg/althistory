@@ -88,11 +88,15 @@
      3:1 non-text minimum for the divergence line, diamond and fork marks. */
   --accent-divergence: #b86304;
   --accent-selected: #4f46e5;
+  /* Opacity of the divergence amber over the branch's after-split region. */
+  --divergence-wash: 0.06;
 
-  /* Timeline arc bars */
-  --arc-fill: #93c5fd;
-  --arc-fill-selected: #60a5fa;
-  --arc-stroke: #6b7280;
+  /* Timeline arc bars: periods are tints of the baseline ink, so the event
+     marks (the full-strength baseline) and the causal links lead, and an
+     arc reads as the ground they stand on. */
+  --arc-fill: color-mix(in srgb, var(--accent-baseline) 13%, var(--surface-card));
+  --arc-fill-selected: color-mix(in srgb, var(--accent-baseline) 30%, var(--surface-card));
+  --arc-stroke: color-mix(in srgb, var(--accent-baseline) 48%, var(--surface-card));
   --arc-grip: #374151;
 
   font-family: var(--font-sans);
@@ -214,9 +218,10 @@ html.dark {
   --accent-baseline: #60a5fa;
   --accent-divergence: #f59e0b;
   --accent-selected: #818cf8;
-  --arc-fill: rgb(59 130 246 / 0.32);
-  --arc-fill-selected: rgb(96 165 250 / 0.6);
-  --arc-stroke: #60a5fa;
+  --arc-fill: color-mix(in srgb, var(--accent-baseline) 30%, var(--surface-card));
+  --arc-fill-selected: color-mix(in srgb, var(--accent-baseline) 52%, var(--surface-card));
+  --arc-stroke: color-mix(in srgb, var(--accent-baseline) 70%, var(--surface-card));
+  --divergence-wash: 0.045;
   --arc-grip: #cbd5e1;
 
   /*

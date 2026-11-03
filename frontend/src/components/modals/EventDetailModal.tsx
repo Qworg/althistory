@@ -2,6 +2,8 @@ import { useState, useEffect, useContext, useMemo } from 'react'
 import { QueryClientContext } from '@tanstack/react-query'
 import { Arc, CausalRelationship, Event } from '@/types'
 import { useEvents } from '@/hooks/useAPI'
+import { formatHistoricalDateBound, parseHistoricalDate } from '@/components/filters/filterUtils'
+import { formatHistoricalDate } from '@/utils/historicalTime'
 
 /** The fields checked on save, in the order they appear (and are focused). */
 const VALIDATED_FIELDS = ['description', 'actor', 'target', 'timestamp'] as const
@@ -34,44 +36,143 @@ function PartySuggestions() {
   )
 }
 
-// Helper to convert an ISO instant to a datetime-local value (YYYY-MM-DDTHH:mm), in UTC
-const isoToDatetimeLocal = (isoString: string): string => {
-  if (!isoString) return ''
-  try {
-    const date = new Date(isoString)
-    if (isNaN(date.getTime())) return ''
-    const year = String(date.getUTCFullYear()).padStart(4, '0')
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0')
-    const day = String(date.getUTCDate()).padStart(2, '0')
-    const hours = String(date.getUTCHours()).padStart(2, '0')
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0')
-    return `${year}-${month}-${day}T${hours}:${minutes}`
-  } catch {
-    return ''
-  }
+/**
+ * What caused a new event: one of the graph's events, no later than the new
+ * one (a cause may share its effect's moment, never follow it), and the kind
+ * of link. Optional; the link is created with the event.
+ */
+function CausePicker({
+  causeId,
+  causeType,
+  timestampText,
+  onChange,
+}: {
+  causeId: string
+  causeType: CausalLinkType
+  timestampText: string
+  onChange: (causeId: string, causeType: CausalLinkType) => void
+}) {
+  const { data: events } = useEvents({ limit: 1000 })
+  const parsed = timestampText.trim() ? fromDateField(timestampText) : null
+  const limit = parsed?.ok ? new Date(parsed.iso).getTime() : null
+  const candidates = useMemo(
+    () =>
+      [...(events ?? [])]
+        .filter((e) => limit === null || new Date(e.timestamp).getTime() <= limit)
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+    [events, limit]
+  )
+  // A cause the new date has overtaken is no longer offered, so drop it.
+  useEffect(() => {
+    if (causeId && events && !candidates.some((e) => e.id === causeId)) onChange('', causeType)
+  }, [causeId, candidates, events, causeType, onChange])
+
+  return (
+    <fieldset className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-x-4 gap-y-1">
+      <legend className="sr-only">Cause</legend>
+      <div className="min-w-0">
+        <label htmlFor="cause" className="block text-sm font-medium text-ink-secondary">
+          Caused by <span className="font-normal text-ink-muted">(optional)</span>
+        </label>
+        <select
+          id="cause"
+          value={causeId}
+          onChange={(e) => onChange(e.target.value, causeType)}
+          className="mt-1 block w-full border border-line rounded-md shadow-sm px-3 py-2 bg-card text-ink focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        >
+          <option value="">Nothing yet</option>
+          {candidates.map((e) => (
+            <option key={e.id} value={e.id}>
+              {formatHistoricalDate(e.timestamp)} · {e.description}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label htmlFor="cause-type" className="block text-sm font-medium text-ink-secondary">
+          Link
+        </label>
+        <select
+          id="cause-type"
+          value={causeType}
+          disabled={!causeId}
+          onChange={(e) => onChange(causeId, e.target.value as CausalLinkType)}
+          className="mt-1 block w-full border border-line rounded-md shadow-sm px-3 py-2 bg-card text-ink focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60"
+        >
+          <option value="direct">Direct</option>
+          <option value="indirect">Indirect</option>
+          <option value="contributory">Contributory</option>
+        </select>
+      </div>
+      <p className="sm:col-span-2 text-xs text-ink-muted">
+        {limit === null
+          ? 'Lists every event; give the date to list only those up to it.'
+          : 'Lists the events up to this date: a cause cannot come after its effect.'}
+      </p>
+    </fieldset>
+  )
 }
 
-// Helper to convert a datetime-local value, read as UTC, to an ISO instant
-const datetimeLocalToIso = (datetimeLocal: string): string => {
-  if (!datetimeLocal) return ''
-  try {
-    // The field is a UTC wall-clock time: historical dates are stored as UTC
-    // instants, and reading it in the browser's zone shifted them (before
-    // standard time, by local mean time's odd seconds as well).
-    const hasZone = /(Z|[+-]\d\d:\d\d)$/.test(datetimeLocal)
-    const date = new Date(hasZone ? datetimeLocal : `${datetimeLocal}Z`)
-    if (isNaN(date.getTime())) return ''
-    return date.toISOString()
-  } catch {
-    return ''
+/**
+ * The date field, as the filter panel writes dates: year first, as precise as
+ * is known (`1843`, `1843-11`, `1843-11-20`), `BCE` before 1 CE, and an
+ * optional UTC time after it (`1843-11-20 14:30`). A native date-time picker
+ * shows the browser's locale order and cannot reach BCE at all.
+ */
+const TIME_SUFFIX = /^(.+?)(?:[ T](\d{1,2}):(\d{2}))$/
+
+function toDateField(isoString: string): string {
+  if (!isoString) return ''
+  const date = new Date(isoString)
+  if (isNaN(date.getTime())) return ''
+  const day = formatHistoricalDateBound(date, 'start')
+  const hours = date.getUTCHours()
+  const minutes = date.getUTCMinutes()
+  return hours || minutes ? `${day} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}` : day
+}
+
+type DateFieldParse = { ok: true; iso: string } | { ok: false; error: string }
+
+function fromDateField(text: string): DateFieldParse {
+  const trimmed = text.trim()
+  const timed = TIME_SUFFIX.exec(trimmed)
+  const datePart = timed ? timed[1]! : trimmed
+  const parsed = parseHistoricalDate(datePart, 'start')
+  if (!parsed.ok) return { ok: false, error: parsed.error }
+  const date = new Date(parsed.date.getTime())
+  if (timed) {
+    const hours = Number(timed[2])
+    const minutes = Number(timed[3])
+    if (hours > 23 || minutes > 59) return { ok: false, error: 'The time must be 00:00 to 23:59, in UTC.' }
+    date.setUTCHours(hours, minutes, 0, 0)
   }
+  return { ok: true, iso: date.toISOString() }
+}
+
+/** The event's recorded confidence, as the field shows it ('' when none is recorded). */
+function confidenceField(event: Event | null): string {
+  const value = event?.metadata?.confidence
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : ''
+}
+
+function metadataText(event: Event | null, key: string): string {
+  const value = event?.metadata?.[key]
+  return typeof value === 'string' ? value : ''
+}
+
+export type CausalLinkType = 'direct' | 'indirect' | 'contributory'
+
+/** What the form asks for beyond the event itself: the link to its cause, when one was picked. */
+export interface EventSaveExtras {
+  cause?: { eventId: string; type: CausalLinkType }
 }
 
 interface EventDetailModalProps {
   event: Event | null
   isOpen: boolean
   onClose: () => void
-  onSave: (updates: Partial<Event>) => Promise<void>
+  /** `extras.cause` is set when the user named what caused a new event. */
+  onSave: (updates: Partial<Event>, extras?: EventSaveExtras) => Promise<void>
   onDelete?: () => Promise<void>
   relatedArcs?: Arc[]
   causalRelationships?: CausalRelationship[]
@@ -90,8 +191,24 @@ interface EventFormData {
   target: string
   timestamp: string
   event_type: string
-  confidence: number
+  /** '' when not stated: no claim of certainty, rather than a default of 1. */
+  confidence: string
   evidence: string
+  /** The event that caused this one (create only), and how. */
+  causeId: string
+  causeType: CausalLinkType
+}
+
+const EMPTY_FORM: EventFormData = {
+  description: '',
+  actor: '',
+  target: '',
+  timestamp: '',
+  event_type: '',
+  confidence: '',
+  evidence: '',
+  causeId: '',
+  causeType: 'direct',
 }
 
 export function EventDetailModal({
@@ -105,15 +222,7 @@ export function EventDetailModal({
   initialTimestamp,
   className = ''
 }: EventDetailModalProps) {
-  const [formData, setFormData] = useState<EventFormData>({
-    description: '',
-    actor: '',
-    target: '',
-    timestamp: '',
-    event_type: '',
-    confidence: 1.0,
-    evidence: ''
-  })
+  const [formData, setFormData] = useState<EventFormData>(EMPTY_FORM)
   const [isLoading, setIsLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -134,23 +243,20 @@ export function EventDetailModal({
   useEffect(() => {
     if (event) {
       setFormData({
+        ...EMPTY_FORM,
         description: event.description || '',
         actor: event.actor || '',
         target: event.target || '',
-        timestamp: isoToDatetimeLocal(event.timestamp || ''),
-        event_type: '', // Not in Event type
-        confidence: 1.0, // Not in Event type
-        evidence: '' // Not in Event type
+        timestamp: toDateField(event.timestamp || ''),
+        // Kept in the event's metadata, where the timeline reads confidence.
+        event_type: metadataText(event, 'eventType'),
+        confidence: confidenceField(event),
+        evidence: metadataText(event, 'evidence'),
       })
     } else {
       setFormData({
-        description: '',
-        actor: '',
-        target: '',
-        timestamp: initialTimestamp ? isoToDatetimeLocal(initialTimestamp) : '',
-        event_type: '',
-        confidence: 1.0,
-        evidence: ''
+        ...EMPTY_FORM,
+        timestamp: initialTimestamp ? toDateField(initialTimestamp) : '',
       })
     }
     setErrors({})
@@ -192,17 +298,17 @@ export function EventDetailModal({
     }
 
     if (!formData.timestamp.trim()) {
-      newErrors.timestamp = 'Give the date and time it happened, in UTC.'
+      newErrors.timestamp = 'Give the date it happened, year first: 1843, 1843-11 or 1843-11-20.'
     } else {
-      // Validate that the timestamp can be parsed as a valid date
-      const date = new Date(datetimeLocalToIso(formData.timestamp))
-      if (isNaN(date.getTime())) {
-        newErrors.timestamp = 'Enter a complete date and time.'
-      }
+      const parsed = fromDateField(formData.timestamp)
+      if (!parsed.ok) newErrors.timestamp = parsed.error
     }
 
-    if (formData.confidence < 0 || formData.confidence > 1) {
-      newErrors.confidence = 'Confidence must be between 0 and 1'
+    if (formData.confidence.trim() !== '') {
+      const value = Number(formData.confidence)
+      if (!Number.isFinite(value) || value < 0 || value > 1) {
+        newErrors.confidence = 'Give a confidence from 0 to 1, or leave it empty.'
+      }
     }
 
     setErrors(newErrors)
@@ -237,17 +343,31 @@ export function EventDetailModal({
     try {
       // Only pass fields that exist on Event type
       // Convert datetime-local format to ISO string for API
+      const parsedDate = fromDateField(formData.timestamp)
+      // The rest of the metadata is the event's own; only the fields this form
+      // edits are replaced (an empty one is removed rather than saved blank).
+      const metadata: Record<string, unknown> = { ...(event?.metadata ?? {}) }
+      const setOrDrop = (key: string, value: unknown) => {
+        if (value === '' || value === undefined) delete metadata[key]
+        else metadata[key] = value
+      }
+      setOrDrop('confidence', formData.confidence.trim() === '' ? undefined : Number(formData.confidence))
+      setOrDrop('evidence', formData.evidence.trim())
+      setOrDrop('eventType', formData.event_type.trim())
       const eventData: Partial<Event> = {
         description: formData.description,
         actor: formData.actor,
         target: formData.target,
-        timestamp: datetimeLocalToIso(formData.timestamp)
+        timestamp: parsedDate.ok ? parsedDate.iso : '',
+        metadata,
       }
-      await onSave(eventData)
+      const extras: EventSaveExtras | undefined =
+        !event && formData.causeId ? { cause: { eventId: formData.causeId, type: formData.causeType } } : undefined
+      await (extras ? onSave(eventData, extras) : onSave(eventData))
       onClose()
     } catch (error) {
       console.error('Failed to save event:', error)
-      setErrors({ submit: 'Failed to save event. Please try again.' })
+      setErrors({ submit: 'The event could not be saved. Your changes are still here; try again.' })
     } finally {
       setIsLoading(false)
     }
@@ -261,7 +381,7 @@ export function EventDetailModal({
       onClose()
     } catch (error) {
       console.error('Failed to delete event:', error)
-      setErrors({ submit: 'Failed to delete event. Please try again.' })
+      setErrors({ submit: 'The event could not be deleted. Try again.' })
     } finally {
       setIsLoading(false)
       setShowDeleteConfirm(false)
@@ -295,11 +415,11 @@ export function EventDetailModal({
           &#8203;
         </span>
 
-        <div className="relative z-10 inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
+        <div className="relative z-10 inline-block align-bottom bg-card rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
           {/* noValidate: the browser's own "Please fill out this field."
               bubbles are replaced by the messages under each field. */}
           <form onSubmit={handleSubmit} noValidate>
-            <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+            <div className="bg-card px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
               <div className="sm:flex sm:items-start">
                 <div className="w-full">
                   <div className="flex items-center justify-between mb-4">
@@ -309,7 +429,7 @@ export function EventDetailModal({
                     <button
                       type="button"
                       onClick={onClose}
-                      className="rounded-md text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="rounded-md text-ink-muted hover:text-ink-secondary focus:outline-none focus:ring-2 focus:ring-blue-500"
                       aria-label="Close modal"
                     >
                       <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -327,7 +447,7 @@ export function EventDetailModal({
                   <div className="space-y-4">
                     {/* Description */}
                     <div>
-                      <label htmlFor="description" className="block text-sm font-medium text-gray-700">
+                      <label htmlFor="description" className="block text-sm font-medium text-ink-secondary">
                         Description <span className="text-red-500">*</span>
                       </label>
                       <textarea
@@ -339,7 +459,7 @@ export function EventDetailModal({
                         aria-invalid={!!errors.description}
                         aria-describedby={errors.description ? 'description-error' : undefined}
                         className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          errors.description ? 'border-red-300' : 'border-gray-300'
+                          errors.description ? 'border-red-300' : 'border-line'
                         }`}
                         placeholder="What happened?"
                         required
@@ -352,7 +472,7 @@ export function EventDetailModal({
                     {/* Actor and Target */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label htmlFor="actor" className="block text-sm font-medium text-gray-700">
+                        <label htmlFor="actor" className="block text-sm font-medium text-ink-secondary">
                           Actor <span className="text-red-500">*</span>
                         </label>
                         <input
@@ -366,7 +486,7 @@ export function EventDetailModal({
                           aria-invalid={!!errors.actor}
                           aria-describedby={errors.actor ? 'actor-error' : undefined}
                           className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            errors.actor ? 'border-red-300' : 'border-gray-300'
+                            errors.actor ? 'border-red-300' : 'border-line'
                           }`}
                           placeholder="Who acted"
                           required
@@ -377,7 +497,7 @@ export function EventDetailModal({
                       </div>
 
                       <div>
-                        <label htmlFor="target" className="block text-sm font-medium text-gray-700">
+                        <label htmlFor="target" className="block text-sm font-medium text-ink-secondary">
                           Target <span className="text-red-500">*</span>
                         </label>
                         <input
@@ -391,7 +511,7 @@ export function EventDetailModal({
                           aria-invalid={!!errors.target}
                           aria-describedby={errors.target ? 'target-error' : undefined}
                           className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            errors.target ? 'border-red-300' : 'border-gray-300'
+                            errors.target ? 'border-red-300' : 'border-line'
                           }`}
                           placeholder="Who or what was acted upon"
                           required
@@ -406,29 +526,40 @@ export function EventDetailModal({
                     {/* Timestamp and Event Type */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label htmlFor="timestamp" className="block text-sm font-medium text-gray-700">
-                          Timestamp <span className="font-normal text-ink-muted">(UTC)</span> <span className="text-red-500">*</span>
+                        <label htmlFor="timestamp" className="block text-sm font-medium text-ink-secondary">
+                          Date <span className="font-normal text-ink-muted">(UTC)</span> <span className="text-red-500">*</span>
                         </label>
                         <input
-                          type="datetime-local"
+                          type="text"
                           id="timestamp"
+                          inputMode="text"
+                          autoComplete="off"
+                          spellCheck={false}
                           value={formData.timestamp}
                           onChange={(e) => handleInputChange('timestamp', e.target.value)}
                           aria-required="true"
                           aria-invalid={!!errors.timestamp}
-                          aria-describedby={errors.timestamp ? 'timestamp-error' : undefined}
-                          className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            errors.timestamp ? 'border-red-300' : 'border-gray-300'
+                          aria-describedby={`timestamp-hint${errors.timestamp ? ' timestamp-error' : ''}`}
+                          className={`mt-1 block w-full font-mono-code border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                            errors.timestamp ? 'border-red-300' : 'border-line'
                           }`}
                           required
                         />
+                        <p id="timestamp-hint" className="mt-1 text-xs text-ink-muted">
+                          {(() => {
+                            const parsed = formData.timestamp.trim() ? fromDateField(formData.timestamp) : null
+                            return parsed?.ok
+                              ? `Reads as ${formatHistoricalDate(parsed.iso)}.`
+                              : 'Year first, as precise as you know: 1843, 1843-11 or 1843-11-20. Add BCE before 1 CE, and a time if it matters (1843-11-20 14:30).'
+                          })()}
+                        </p>
                         {errors.timestamp && (
                           <p id="timestamp-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.timestamp}</p>
                         )}
                       </div>
 
                       <div>
-                        <label htmlFor="event_type" className="block text-sm font-medium text-gray-700">
+                        <label htmlFor="event_type" className="block text-sm font-medium text-ink-secondary">
                           Event Type
                         </label>
                         <input
@@ -436,44 +567,52 @@ export function EventDetailModal({
                           id="event_type"
                           value={formData.event_type}
                           onChange={(e) => handleInputChange('event_type', e.target.value)}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Enter event type..."
+                          className="mt-1 block w-full border border-line rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         />
+                        <p className="mt-1 text-xs text-ink-muted">Optional, e.g. treaty, battle, invention.</p>
                       </div>
                     </div>
 
-                    {/* Confidence */}
+                    {/* Confidence: optional, so a new event makes no claim it was not given */}
                     <div>
-                      <label htmlFor="confidence" className="block text-sm font-medium text-gray-700">
-                        Confidence: {formData.confidence.toFixed(2)}
+                      <label htmlFor="confidence" className="block text-sm font-medium text-ink-secondary">
+                        Confidence <span className="font-normal text-ink-muted">(optional, 0 to 1)</span>
                       </label>
                       <input
-                        type="range"
+                        type="number"
                         id="confidence"
-                        min="0"
-                        max="1"
-                        step="0.01"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        inputMode="decimal"
                         value={formData.confidence}
-                        onChange={(e) => handleInputChange('confidence', parseFloat(e.target.value))}
-                        aria-valuemin={0}
-                        aria-valuemax={1}
-                        aria-valuenow={formData.confidence}
+                        onChange={(e) => handleInputChange('confidence', e.target.value)}
                         aria-invalid={!!errors.confidence}
-                        aria-describedby={errors.confidence ? 'confidence-error' : undefined}
-                        className="mt-1 block w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                        aria-describedby={`confidence-hint${errors.confidence ? ' confidence-error' : ''}`}
+                        className="mt-1 block w-32 font-mono-code border border-line rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
-                      <div className="flex justify-between text-xs text-gray-500 mt-1">
-                        <span>0.00</span>
-                        <span>1.00</span>
-                      </div>
+                      <p id="confidence-hint" className="mt-1 text-xs text-ink-muted">
+                        How sure the history is that this happened. Empty means not stated. The timeline draws
+                        an event below 0.75 as probable and below 0.4 as speculative.
+                      </p>
                       {errors.confidence && (
-                        <p id="confidence-error" role="alert" className="mt-1 text-sm text-red-600">{errors.confidence}</p>
+                        <p id="confidence-error" role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.confidence}</p>
                       )}
                     </div>
 
+                    {/* What caused it: a new event can be linked to its cause as it is made */}
+                    {!event && hasQueryClient && (
+                      <CausePicker
+                        causeId={formData.causeId}
+                        causeType={formData.causeType}
+                        timestampText={formData.timestamp}
+                        onChange={(causeId, causeType) => setFormData((prev) => ({ ...prev, causeId, causeType }))}
+                      />
+                    )}
+
                     {/* Evidence */}
                     <div>
-                      <label htmlFor="evidence" className="block text-sm font-medium text-gray-700">
+                      <label htmlFor="evidence" className="block text-sm font-medium text-ink-secondary">
                         Evidence
                       </label>
                       <textarea
@@ -481,14 +620,14 @@ export function EventDetailModal({
                         rows={3}
                         value={formData.evidence}
                         onChange={(e) => handleInputChange('evidence', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="Enter supporting evidence..."
+                        className="mt-1 block w-full border border-line rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
+                      <p className="mt-1 text-xs text-ink-muted">Optional: the source or reasoning behind it.</p>
                     </div>
 
                     {/* Related Information */}
                     {event && (relatedArcs.length > 0 || causalRelationships.length > 0) && (
-                      <div className="border-t pt-4">
+                      <div className="border-t border-line pt-4">
                         <h3 className="text-base font-semibold text-ink mb-3">Related Information</h3>
                         
                         {relatedArcs.length > 0 && (
@@ -496,7 +635,7 @@ export function EventDetailModal({
                             <h4 className="text-sm font-semibold text-ink-secondary mb-2">Related Arcs</h4>
                             <div className="space-y-1">
                               {relatedArcs.map((arc) => (
-                                <div key={arc.id} className="text-sm text-gray-600 bg-gray-50 px-2 py-1 rounded">
+                                <div key={arc.id} className="text-sm text-ink-secondary bg-subtle px-2 py-1 rounded">
                                   {arc.name}
                                 </div>
                               ))}
@@ -509,7 +648,7 @@ export function EventDetailModal({
                             <h4 className="text-sm font-semibold text-ink-secondary mb-2">Causal Relationships</h4>
                             <div className="space-y-1">
                               {causalRelationships.map((rel) => (
-                                <div key={rel.id} className="text-sm text-gray-600 bg-gray-50 px-2 py-1 rounded">
+                                <div key={rel.id} className="text-sm text-ink-secondary bg-subtle px-2 py-1 rounded">
                                   {rel.relationship_type} (Weight: {rel.weight})
                                 </div>
                               ))}
@@ -523,19 +662,19 @@ export function EventDetailModal({
               </div>
             </div>
 
-            <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+            <div className="bg-subtle px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
               <button
                 type="submit"
                 disabled={isLoading}
                 className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLoading ? 'Saving...' : 'Save'}
+                {isLoading ? 'Saving…' : 'Save'}
               </button>
 
               <button
                 type="button"
                 onClick={onClose}
-                className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                className="mt-3 w-full inline-flex justify-center rounded-md border border-line shadow-sm px-4 py-2 bg-card text-base font-medium text-ink-secondary hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
               >
                 Cancel
               </button>
@@ -544,7 +683,7 @@ export function EventDetailModal({
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="mt-3 w-full inline-flex justify-center rounded-md border border-red-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:mt-0 sm:w-auto sm:text-sm"
+                  className="mt-3 w-full inline-flex justify-center rounded-md border border-red-300 shadow-sm px-4 py-2 bg-card text-base font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:mt-0 sm:w-auto sm:text-sm"
                 >
                   Delete
                 </button>
@@ -559,8 +698,8 @@ export function EventDetailModal({
         <div className="fixed inset-0 z-60 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
             <div className="fixed inset-0 bg-black/60 transition-opacity" />
-            <div className="relative z-10 inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+            <div className="relative z-10 inline-block align-bottom bg-card rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+              <div className="bg-card px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                 <div className="sm:flex sm:items-start">
                   <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
                     <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -572,26 +711,30 @@ export function EventDetailModal({
                       Delete Event
                     </h2>
                     <div className="mt-2">
-                      <p className="text-sm text-gray-500">
-                        Are you sure you want to delete this event? This action cannot be undone.
+                      <p className="text-sm text-ink-secondary">
+                        “{event?.description}”
+                        {causalRelationships.length > 0
+                          ? ` and its ${causalRelationships.length} causal ${causalRelationships.length === 1 ? 'link' : 'links'} will be removed.`
+                          : ' will be removed.'}{' '}
+                        Version history can restore the graph to before the deletion.
                       </p>
                     </div>
                   </div>
                 </div>
               </div>
-              <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <div className="bg-subtle px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
                 <button
                   type="button"
                   onClick={handleDelete}
                   disabled={isLoading}
                   className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
                 >
-                  {isLoading ? 'Deleting...' : 'Delete'}
+                  {isLoading ? 'Deleting…' : 'Delete event'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                  className="mt-3 w-full inline-flex justify-center rounded-md border border-line shadow-sm px-4 py-2 bg-card text-base font-medium text-ink-secondary hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
                 >
                   Cancel
                 </button>

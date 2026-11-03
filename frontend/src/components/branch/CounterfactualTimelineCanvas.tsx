@@ -8,7 +8,7 @@ import {
   PointOfDivergence,
   EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
-import { layoutEventLabels, truncateLabel, type EventLabelPlacement } from '@/components/timeline/eventLabelLayout'
+import { layoutEventLabels, truncateLabel, LABEL_ROW_OFFSETS, type EventLabelPlacement, type LabelLayoutConfig } from '@/components/timeline/eventLabelLayout'
 
 export interface CounterfactualTimelineCanvasProps {
   readonly baselineName: string
@@ -65,6 +65,12 @@ const MIN_WIDTH = 280
 
 /** Event titles, axis dates and the divergence label: 12px, the floor for SVG text a user reads. */
 const LABEL_FONT_PX = 12
+/**
+ * The lanes' label rows, measured at the size they are drawn: estimated at the
+ * default 10px, a 12px label near the plot's edge was placed as if it fitted
+ * and ran past the clip ("abbage completes…").
+ */
+const LANE_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: LABEL_ROW_OFFSETS, fontSize: LABEL_FONT_PX }
 /** Advance of one character of the 12px monospace axis dates (0.6em). */
 const TICK_CHAR_PX = 7.2
 /** Clear space kept between two axis dates. */
@@ -425,7 +431,8 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
           description: event.description,
           priority: event.id === podEventId,
         })),
-        innerWidth
+        innerWidth,
+        LANE_LABEL_CONFIG
       ),
     [baselineEvents, xScale, innerWidth, podEventId]
   )
@@ -438,7 +445,8 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
           description: event.description,
           priority: event.id === podEventId,
         })),
-        innerWidth
+        innerWidth,
+        LANE_LABEL_CONFIG
       ),
     [counterfactualEvents, xScale, innerWidth, podEventId]
   )

@@ -395,4 +395,28 @@ describe('usePressures', () => {
     expect(history).toHaveLength(10) // Should be limited to 10 entries
     expect(history?.[0]).toBe(0.2) // First two entries should be removed
   })
+
+  describe('scoped to filtered events', () => {
+    const withEvidence: InferredPressure[] = [
+      { ...mockPressures[0]!, evidence_event_ids: ['event-1'] },
+      { ...mockPressures[1]!, confidence_score: 0.9, evidence_event_ids: ['event-hidden'] },
+    ]
+
+    it('counts only pressures whose evidence the filter kept', () => {
+      mockUseInferredPressures.mockReturnValue(createQueryResult({ kind: 'success', data: withEvidence }))
+      const { result } = renderHook(() => usePressures([], mockEvents, { scopeToEvents: true }))
+
+      expect(result.current.visiblePressures.map(p => p.id)).toEqual(['pressure-1'])
+      expect(result.current.pressureStats.totalPressures).toBe(1)
+      expect(result.current.pressureStats.outOfScopeCount).toBe(1)
+    })
+
+    it('counts every pressure when the events are the whole graph', () => {
+      mockUseInferredPressures.mockReturnValue(createQueryResult({ kind: 'success', data: withEvidence }))
+      const { result } = renderHook(() => usePressures([], mockEvents))
+
+      expect(result.current.pressureStats.totalPressures).toBe(2)
+      expect(result.current.pressureStats.outOfScopeCount).toBe(0)
+    })
+  })
 })

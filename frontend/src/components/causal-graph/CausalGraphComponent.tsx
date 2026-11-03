@@ -10,10 +10,12 @@ import {
   mergeLayoutOptions,
   canvasStretch,
   CANVAS_STRETCH_LAYOUTS,
+  DEFAULT_CAUSAL_LAYOUT,
   FIT_PADDING
 } from '@/utils/layoutManagerUtils'
 import { isCausalOrderValid, isTemporalInversion } from '@/utils/causalOrder'
 import CausalPathHighlighter from './CausalPathHighlighter'
+import { computeRipple } from '@/components/timeline/timelineLinks'
 import CausalChainNavigationControls from './CausalChainNavigationControls'
 import CausalSuggestionManager from './CausalSuggestionManager'
 import CausalSuggestionOverlay from './CausalSuggestionOverlay'
@@ -323,7 +325,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
 
     // Read session data from store (not from closure) to get current layout preference
     const currentSessionData = useGlobalStore.getState().sessionData
-    const savedLayout = currentSessionData.viewportState.causalGraph.layout || 'cose'
+    const savedLayout = currentSessionData.viewportState.causalGraph.layout || DEFAULT_CAUSAL_LAYOUT
 
     // Set initialized to true immediately for testing
     setIsInitialized(true)
@@ -714,7 +716,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
 
     if (!hasPositions) {
       cyRef.current.layout(toCytoscapeLayoutOptions(
-        mergeLayoutOptions(causalGraphState.layout || 'cose', { animationDuration: 500 })
+        mergeLayoutOptions(causalGraphState.layout || DEFAULT_CAUSAL_LAYOUT, { animationDuration: 500 })
       )).run()
     } else {
       cyRef.current.fit(undefined, FIT_PADDING)
@@ -733,16 +735,45 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   const focusOnEvent = useCallback((eventId: string) => {
     if (!cyRef.current || !isInitialized) return
 
-    const node = cyRef.current.getElementById(eventId)
+    const cy = cyRef.current
+    const node = cy.getElementById(eventId)
     if (node.length > 0) {
-      cyRef.current.animate({
-        center: { eles: node },
-        zoom: 1.5
-      }, {
-        duration: 500
-      })
+      // The zoom is the user's: selecting an event keeps it, and pans only
+      // when the event is out of view. (Jumping to a fixed zoom on every
+      // click threw away the overview the user had framed.)
+      const extent = cy.extent()
+      const p = node.position()
+      const margin = 40 / cy.zoom()
+      const inView =
+        p.x > extent.x1 + margin && p.x < extent.x2 - margin && p.y > extent.y1 + margin && p.y < extent.y2 - margin
+      if (!inView) cy.animate({ center: { eles: node } }, { duration: 300 })
       node.select()
     }
+  }, [isInitialized])
+
+  // The ripple of the focused event, as on the timeline: its direct causes
+  // and what it sets in motion up to RIPPLE_DEPTH steps on stay at full
+  // strength; everything else fades back.
+  const applyRipple = useCallback((eventId: string | null) => {
+    const cy = cyRef.current
+    if (!cy || !isInitialized) return
+    cy.batch(() => {
+      cy.elements().removeClass('ripple ripple-faded')
+      if (!eventId) return
+      const links = cy.edges().map(edge => ({
+        id: edge.id(),
+        causeId: String(edge.data('source')),
+        effectId: String(edge.data('target')),
+        type: 'direct' as const,
+        weight: 0,
+      }))
+      const ripple = computeRipple(eventId, links)
+      if (ripple.links.size === 0) return
+      const keep = new Set<string>([eventId, ...ripple.causes, ...ripple.effects.keys(), ...ripple.links.keys()])
+      cy.elements().forEach(element => {
+        element.addClass(keep.has(element.id()) ? 'ripple' : 'ripple-faded')
+      })
+    })
   }, [isInitialized])
 
 
@@ -1000,6 +1031,12 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       setToolTargetId(focusEventId)
     }
   }, [focusEventId, focusOnEvent, isInitialized])
+
+  // Re-applied when the graph's elements are rebuilt, so the trace survives
+  // a data refresh.
+  useEffect(() => {
+    applyRipple(focusEventId ?? null)
+  }, [focusEventId, applyRipple, events, causalRelationships])
 
   // Handle path selection callback
   useEffect(() => {

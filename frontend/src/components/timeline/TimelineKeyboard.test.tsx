@@ -304,9 +304,9 @@ describe('Timeline layout', () => {
     const arcBar = document.querySelector('[data-arc-id="early"] .arc-main')!
     const arcBottom = Number(arcBar.getAttribute('y')) + Number(arcBar.getAttribute('height'))
     const trackY = translateY(mark('event:mid'))
-    // Room for three 12px label rows between them, and no more.
-    expect(trackY - arcBottom).toBeGreaterThan(46)
-    expect(trackY - arcBottom).toBeLessThan(80)
+    // Room for four 12px label rows between them, and no more.
+    expect(trackY - arcBottom).toBeGreaterThan(60)
+    expect(trackY - arcBottom).toBeLessThan(94)
     const oneRowHeight = Number(canvas().getAttribute('height'))
 
     // Overlapping arcs take a second row: the track moves down and the canvas grows with it.

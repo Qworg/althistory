@@ -128,10 +128,11 @@ describe('TimelineView layout', () => {
     expect(canvasHeight()).toBeGreaterThan(timelineContentHeight([first]))
   })
 
-  it('titles the view on the shared type scale', () => {
+  it('names the view for the outline, leaving the top of the card to the canvas', () => {
     renderView()
-    const title = screen.getByRole('heading', { level: 2, name: 'Timeline View' })
-    expect(title).toHaveClass('font-display', 'text-[1.75rem]', 'leading-tight', 'font-semibold')
+    // The breadcrumb and the navigation already show which view this is.
+    const title = screen.getByRole('heading', { level: 2, name: 'Timeline' })
+    expect(title).toHaveClass('sr-only')
   })
 
   it('opens with the pressure analysis collapsed below the timeline', () => {

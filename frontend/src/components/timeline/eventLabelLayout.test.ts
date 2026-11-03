@@ -54,12 +54,12 @@ describe('layoutEventLabels', () => {
   })
 })
 
-describe('layoutEventLabels with the main timeline config (three rows of 12px)', () => {
-  it('uses a third row before dropping a label', () => {
-    const crowd = ['a', 'b', 'c', 'd'].map((id, i) => ({ id, x: 200 + i * 10, description: `Long label ${id}` }))
+describe('layoutEventLabels with the main timeline config (four rows of 12px)', () => {
+  it('uses every row before dropping a label', () => {
+    const crowd = ['a', 'b', 'c', 'd', 'e'].map((id, i) => ({ id, x: 200 + i * 10, description: `Long label ${id}` }))
     const placements = layoutEventLabels(crowd, 800, TIMELINE_LABEL_CONFIG)
-    expect(['a', 'b', 'c'].map(id => placements.get(id)?.offset)).toEqual([...TIMELINE_LABEL_CONFIG.rowOffsets])
-    expect(placements.has('d')).toBe(false)
+    expect(['a', 'b', 'c', 'd'].map(id => placements.get(id)?.offset)).toEqual([...TIMELINE_LABEL_CONFIG.rowOffsets])
+    expect(placements.has('e')).toBe(false)
   })
 
   it('estimates width at 12px, so labels that fit at 10px can collide at 12px', () => {

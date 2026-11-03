@@ -119,7 +119,7 @@ export function ContextMenu({ isOpen, position, items, onClose }: ContextMenuPro
       ref={menuRef}
       role="menu"
       aria-label="Context menu"
-      className="fixed z-50 min-w-[160px] bg-card rounded-lg shadow-lg border border-line py-1 outline-none"
+      className="fixed z-50 w-max min-w-[160px] max-w-[18rem] bg-card rounded-lg shadow-lg border border-line py-1 outline-none"
       style={{
         left: adjustedPosition.x,
         top: adjustedPosition.y,

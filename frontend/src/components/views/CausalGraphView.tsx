@@ -6,7 +6,7 @@ import { filterCausalRelationships, filterEvents } from '@/components/filters/fi
 import { useEvents, useCausalRelationships, useDeleteCausalLink, useUpdateCausalLink, useDeleteEvent, useUpdateEvent } from '@/hooks/useAPI'
 import { ContextMenu, ConfirmDialog } from '@/components/ui'
 import { EventDetailModal, CausalRelationshipModal } from '@/components/modals'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { CausalEventInspector } from '@/components/causal-graph/CausalEventInspector'
 import { truncateLabel, formatActorTarget } from '@/components/causal-graph/causalGraphPresentation'
 
 /**
@@ -68,8 +68,6 @@ type EditModalState = {
 export function CausalGraphView() {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
   const [selectedRelationship, setSelectedRelationship] = useState<CausalRelationship | null>(null)
-  const [hoveredEvent, setHoveredEvent] = useState<Event | null>(null)
-  const [hoveredRelationship, setHoveredRelationship] = useState<CausalRelationship | null>(null)
 
   // Context menu and modal state
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
@@ -94,6 +92,13 @@ export function CausalGraphView() {
 
   const isLoading = eventsLoading || relationshipsLoading
 
+  // The selected event as the graph holds it now (an edit shows at once), or
+  // none once a filter has hidden it.
+  const selectedEventNow = useMemo(
+    () => (selectedEvent ? filteredEvents.find((e) => e.id === selectedEvent.id) ?? null : null),
+    [selectedEvent, filteredEvents]
+  )
+
   // Mutation hooks
   const deleteCausalLinkMutation = useDeleteCausalLink()
   const updateCausalLinkMutation = useUpdateCausalLink()
@@ -105,17 +110,14 @@ export function CausalGraphView() {
     setSelectedRelationship(null)
   }, [])
 
-  const handleNodeHover = useCallback((event: Event | null) => {
-    setHoveredEvent(event)
-  }, [])
 
   const handleEdgeClick = useCallback((relationship: CausalRelationship) => {
     setSelectedRelationship(relationship)
     setSelectedEvent(null)
   }, [])
 
-  const handleEdgeHover = useCallback((relationship: CausalRelationship | null) => {
-    setHoveredRelationship(relationship)
+  const handleInspectorEdit = useCallback((event: Event) => {
+    setEditModal({ type: 'event', item: event })
   }, [])
 
   // Context menu handlers
@@ -254,12 +256,13 @@ export function CausalGraphView() {
       <div className="bg-card border border-line rounded-lg shadow-sm p-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
-            <h2 className="font-display text-[1.75rem] leading-tight font-semibold text-ink">Causal Graph View</h2>
-            <p className="text-sm text-ink-secondary mt-1">
-              Explore causal relationships between events
-            </p>
-            <p className="text-xs text-ink-secondary mt-0.5">
-              Click a node to inspect it · Hover a link for its weight and type · Right-click to edit · Draw Link (D) links two selected events, or the cause and effect you click next
+            {/* The breadcrumb and the navigation already name the view. */}
+            <h2 className="sr-only">Causal Graph</h2>
+            <p className="text-xs text-ink-secondary">
+              Select a node to inspect it
+              {/* Hover and right-click need a mouse: not offered on a touch screen. */}
+              <span className="hidden [@media(pointer:fine)]:inline"> · Hover a link for its weight and type · Right-click to edit</span>
+              {' '}· Draw Link (D) links two selected events, or the cause and effect you click next
             </p>
           </div>
 
@@ -270,18 +273,9 @@ export function CausalGraphView() {
           </div>
         </div>
 
-        {/* Selection info */}
-        {(selectedEvent || selectedRelationship) && (
+        {/* A selected link (a selected event is described in the inspector) */}
+        {selectedRelationship && (
           <div className="mt-3 pt-3 border-t border-line text-sm">
-            {selectedEvent && (
-              <span className="text-ink">
-                <span className="font-medium text-selected">Selected:</span>{' '}
-                <span className="font-medium">{selectedEvent.description || `${selectedEvent.actor} → ${selectedEvent.target}`}</span>
-                {selectedEvent.description && (
-                  <span className="text-ink-secondary"> · {selectedEvent.actor} → {selectedEvent.target}</span>
-                )}
-              </span>
-            )}
             {selectedRelationship && (
               <span className="text-ink">
                 <span className="font-medium text-selected">Selected link:</span>{' '}
@@ -294,8 +288,10 @@ export function CausalGraphView() {
         )}
       </div>
 
-      {/* Main graph container */}
-      <div className="flex-1 bg-card border border-line rounded-lg shadow-sm p-4">
+      {/* The graph, with the selected event's inspector beside it on a wide
+          screen and under it on a narrow one. */}
+      <div className="flex-1 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="bg-card border border-line rounded-lg shadow-sm p-4 min-w-0">
         {isLoading ? (
           <div className="flex items-center justify-center h-full min-h-[400px]">
             <div className="text-center">
@@ -317,69 +313,24 @@ export function CausalGraphView() {
             causalRelationships={filteredRelationships}
             focusEventId={selectedEvent?.id}
             onNodeClick={handleNodeClick}
-            onNodeHover={handleNodeHover}
             onEdgeClick={handleEdgeClick}
-            onEdgeHover={handleEdgeHover}
             onNodeContextMenu={handleNodeContextMenu}
             onRelationshipContextMenu={handleRelationshipContextMenu}
           />
         )}
       </div>
 
-      {/* Info panels - hidden on mobile to save space, shown on hover/tap */}
-      {(hoveredEvent || hoveredRelationship) && (
-        <div className="bg-subtle text-ink border border-line rounded-lg p-3 sm:p-4">
-          {hoveredEvent && (
-            <div>
-              <h3 className="font-display text-xl font-semibold text-ink mb-2">Event Details</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 text-xs sm:text-sm">
-                <div>
-                  <span className="font-medium text-ink-secondary">Actor:</span>
-                  <span className="ml-2 text-ink">{hoveredEvent.actor}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-ink-secondary">Target:</span>
-                  <span className="ml-2 text-ink">{hoveredEvent.target}</span>
-                </div>
-                <div className="sm:col-span-2">
-                  <span className="font-medium text-ink-secondary">Description:</span>
-                  <span className="ml-2 text-ink">{hoveredEvent.description}</span>
-                </div>
-                <div className="sm:col-span-2">
-                  <span className="font-medium text-ink-secondary">Timestamp:</span>
-                  <span className="ml-2 font-mono-code text-ink">
-                    {formatHistoricalTimestamp(hoveredEvent.timestamp)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {hoveredRelationship && (
-            <div>
-              <h3 className="font-display text-xl font-semibold text-ink mb-2">Causal Relationship</h3>
-              <div className="grid grid-cols-2 gap-2 sm:gap-4 text-xs sm:text-sm">
-                <div>
-                  <span className="font-medium text-ink-secondary">Weight:</span>
-                  <span className="ml-2 font-mono-code text-ink">{hoveredRelationship.weight.toFixed(2)}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-ink-secondary">Confidence:</span>
-                  <span className="ml-2 font-mono-code text-ink">{hoveredRelationship.confidence.toFixed(2)}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-ink-secondary">Type:</span>
-                  <span className="ml-2 text-ink capitalize">{hoveredRelationship.relationship_type}</span>
-                </div>
-                <div className="col-span-2">
-                  <span className="font-medium text-ink-secondary">Evidence:</span>
-                  <span className="ml-2 text-ink">{hoveredRelationship.evidence}</span>
-                </div>
-              </div>
-            </div>
-          )}
+        <div className="bg-card border border-line rounded-lg shadow-sm p-4 lg:max-h-[calc(100dvh_-_12rem)] lg:overflow-y-auto">
+          <CausalEventInspector
+            event={selectedEventNow}
+            events={filteredEvents}
+            relationships={filteredRelationships}
+            onSelectEvent={handleNodeClick}
+            onEdit={handleInspectorEdit}
+            isLoading={relationshipsLoading}
+          />
         </div>
-      )}
+      </div>
 
       {/* Context Menu */}
       {contextMenu && (

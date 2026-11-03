@@ -7,7 +7,6 @@ import { PressureWithContext } from '@/types/pressure'
 import { useEvents } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
 import {
-  useCreateEvent,
   useDeleteEvent,
   useUpdateEvent,
   useDeleteArc,
@@ -15,10 +14,12 @@ import {
   useCausalRelationships,
 } from '@/hooks/useAPI'
 import { useGlobalStore } from '@/stores/globalStore'
-import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
+import { filterArcs, filterEvents, hasActiveFilters } from '@/components/filters/filterUtils'
 import { Event, Arc } from '@/types'
 import { ContextMenu, ConfirmDialog } from '@/components/ui'
 import { EventDetailModal, ArcDetailPanel } from '@/components/modals'
+import type { EventSaveExtras } from '@/components/modals/EventDetailModal'
+import { useCreateEventWithCause } from '@/hooks/useCreateEventWithCause'
 import { EventArcAssignment } from '@/components/timeline/EventArcAssignment'
 import {
   findExcludedContainedEvents,
@@ -30,12 +31,15 @@ import type { UpdateArcRequest } from '@/types'
 import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { useEditHistory } from '@/hooks/useEditHistory'
 import { editShortcutLabels } from '@/utils/platform'
+import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
 import { useActiveGraphId } from '@/hooks/useGraphs'
 import { BranchFromEventDialog } from '@/components/graphs/BranchFromEventDialog'
 import { timelineContentHeight } from '@/components/timeline/timelineLayout'
 import { BranchComparisonModal } from '@/components/branch/BranchComparisonModal'
 import { useBaselineGhost } from '@/hooks/useBaselineGhost'
 import { EventCausesEffects } from '@/components/timeline/EventCausesEffects'
+import { TimelineLegend } from '@/components/timeline/TimelineLegend'
+import { computeRipple, RIPPLE_DEPTH, type TimelineLink } from '@/components/timeline/timelineLinks'
 import {
   causesAndEffects,
   containingArcs,
@@ -90,8 +94,29 @@ export function TimelineView() {
     () => filterArcs(fetchedArcs, activeFilters),
     [fetchedArcs, activeFilters]
   )
+  const filtersActive = hasActiveFilters(activeFilters)
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
   const [selectedArc, setSelectedArc] = useState<Arc | null>(null)
+
+  // A selection the filter has just hidden leaves the inspector: it would
+  // otherwise describe a mark that is no longer on the canvas. (Only once it
+  // is known to the graph, so a just-created event is not dropped mid-fetch.)
+  useEffect(() => {
+    if (
+      selectedEvent &&
+      fetchedEvents.some((e) => e.id === selectedEvent.id) &&
+      !events.some((e) => e.id === selectedEvent.id)
+    ) {
+      setSelectedEvent(null)
+    }
+    if (
+      selectedArc &&
+      fetchedArcs.some((a) => a.id === selectedArc.id) &&
+      !arcs.some((a) => a.id === selectedArc.id)
+    ) {
+      setSelectedArc(null)
+    }
+  }, [events, arcs, fetchedEvents, fetchedArcs, selectedEvent, selectedArc])
 
   // Context menu and modal state
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
@@ -146,7 +171,7 @@ export function TimelineView() {
     visualConfig,
     selectPressure,
     showEvidenceModalAction,
-  } = usePressures(arcs, events)
+  } = usePressures(arcs, events, { scopeToEvents: filtersActive })
 
   // Clicking an indicator on the timeline opens the exploration panel on that
   // pressure. The indicator's tooltip promises it ("Click to explore evidence
@@ -172,7 +197,7 @@ export function TimelineView() {
   // Mutation hooks
   const deleteEventMutation = useDeleteEvent()
   const updateEventMutation = useUpdateEvent()
-  const createEventMutation = useCreateEvent()
+  const createEventWithCause = useCreateEventWithCause()
   const deleteArcMutation = useDeleteArc()
   const updateArcMutation = useUpdateArc()
 
@@ -184,9 +209,29 @@ export function TimelineView() {
   // then three label rows and the event track, plus the divergence band and
   // the baseline lane when this graph is a branch). Height beyond that was an
   // empty band; the canvas grows itself when arcs are expanded.
+  // The causal links as the canvas draws them: between events of this graph
+  // that the filters left on screen.
+  const timelineLinks = useMemo<TimelineLink[]>(() => {
+    const visible = new Set(events.map((e) => e.id))
+    return relationships
+      .filter((r) => !r.isCrossGraph && visible.has(r.cause_event_id) && visible.has(r.effect_event_id))
+      .map((r) => ({
+        id: r.id,
+        causeId: r.cause_event_id,
+        effectId: r.effect_event_id,
+        type: r.relationship_type,
+        weight: r.weight,
+      }))
+  }, [relationships, events])
+
   const dynamicHeight = useMemo(
-    () => timelineContentHeight(arcs, { ghost: Boolean(ghost), divergence: Boolean(ghost?.divergence) }),
-    [arcs, ghost]
+    () =>
+      timelineContentHeight(arcs, {
+        ghost: Boolean(ghost),
+        divergence: Boolean(ghost?.divergence),
+        links: timelineLinks.length > 0,
+      }),
+    [arcs, ghost, timelineLinks.length]
   )
 
   // Measure the card on mount and resize. The card only exists once loading
@@ -233,6 +278,21 @@ export function TimelineView() {
     setSelectedEvent(null)
   }, [])
 
+  // Escape clears the inspector's selection, and with it the ripple trace.
+  // (The marks stop Escape themselves while one has focus: there it returns
+  // focus to the canvas first.)
+  const hasInspectorSelection = Boolean(selectedEvent || selectedArc)
+  useEffect(() => {
+    if (!hasInspectorSelection) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || shouldIgnoreAppShortcut(event)) return
+      setSelectedEvent(null)
+      setSelectedArc(null)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [hasInspectorSelection])
+
   // The inspector reads the selected event as it is now, not the snapshot
   // taken when it was clicked, so an edit shows without reselecting.
   const inspectedEvent = useMemo(
@@ -249,18 +309,34 @@ export function TimelineView() {
     }
   }, [inspectedEvent, fetchedArcs, fetchedEvents, relationships])
 
+  // How far the selection's consequences reach (the canvas traces the same).
+  const rippleReach = useMemo(
+    () => (inspectedEvent ? computeRipple(inspectedEvent.id, timelineLinks).effects.size : 0),
+    [inspectedEvent, timelineLinks]
+  )
+
   const handleEventCreate = useCallback((timestamp: Date) => {
     setCreateTimestamp(timestamp)
   }, [])
 
-  const handleCreateEventSave = useCallback(async (eventData: Partial<Event>) => {
+  const handleCreateEventSave = useCallback(async (eventData: Partial<Event>, extras?: EventSaveExtras) => {
     try {
-      await createEventMutation.mutateAsync({
-        description: eventData.description ?? '',
-        actor: eventData.actor ?? '',
-        target: eventData.target ?? '',
-        timestamp: eventData.timestamp ?? createTimestamp?.toISOString() ?? new Date().toISOString(),
-      })
+      const outcome = await createEventWithCause(
+        {
+          description: eventData.description ?? '',
+          actor: eventData.actor ?? '',
+          target: eventData.target ?? '',
+          timestamp: eventData.timestamp ?? createTimestamp?.toISOString() ?? new Date().toISOString(),
+          ...(eventData.metadata && Object.keys(eventData.metadata).length > 0 ? { metadata: eventData.metadata } : {}),
+        },
+        extras
+      )
+      if (outcome.status === 'queued' && outcome.linkSkipped) {
+        addError({
+          type: 'network',
+          message: 'You are offline: the event is queued, but its cause link was not made. Link it once you are back online.',
+        })
+      }
       setCreateTimestamp(null)
     } catch (error) {
       addError({
@@ -270,7 +346,7 @@ export function TimelineView() {
       // Re-throw so the modal keeps itself open and shows its inline message.
       throw error
     }
-  }, [createEventMutation, createTimestamp, addError])
+  }, [createEventWithCause, createTimestamp, addError])
 
   // Guardrails, read through refs so the drag preview, the commit, and an
   // undo/redo issued later all judge against the current graph -- not the one
@@ -678,6 +754,13 @@ export function TimelineView() {
   }
 
   const isDeleting = deleteEventMutation.isPending || deleteArcMutation.isPending
+  // An event's links go with it, so the confirmation says how many.
+  const deleteConfirmLinks =
+    deleteConfirm?.type === 'event'
+      ? relationships.filter(
+          (r) => r.cause_event_id === deleteConfirm.item.id || r.effect_event_id === deleteConfirm.item.id
+        ).length
+      : 0
   const deleteConfirmName = deleteConfirm
     ? deleteConfirm.type === 'event'
       ? (deleteConfirm.item as Event).description
@@ -687,13 +770,16 @@ export function TimelineView() {
   return (
     <div className="space-y-6">
       <div ref={containerRef} className="bg-card border border-line rounded-lg shadow-sm p-6">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mb-3">
-          <div>
-            <h2 className="font-display text-[1.75rem] leading-tight font-semibold text-ink">Timeline View</h2>
+        {/* The breadcrumb and the navigation already name the view, so its
+            heading is for the document outline only, and the canvas starts
+            at the top of the card. */}
+        <h2 className="sr-only">Timeline</h2>
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mb-2 empty:hidden">
+          {baselineGhost.branch && baselineGhost.baseline && <div className="min-w-0">
             {/* On a branch: which baseline it came from and where it departs,
                 with the full comparison one click away. */}
             {baselineGhost.branch && baselineGhost.baseline && (
-              <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-secondary" data-testid="branch-context">
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-secondary" data-testid="branch-context">
                 <svg className="h-4 w-4 shrink-0 text-divergence" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
                   <circle cx="6" cy="5" r="2" />
                   <circle cx="6" cy="19" r="2" />
@@ -723,16 +809,10 @@ export function TimelineView() {
                 </button>
               </p>
             )}
-            <p className="text-xs text-ink-muted mt-0.5">
-              Double-click canvas to add event · Drag marks to retime (Esc cancels, {editKeys.undo} undoes) · Right-click for actions
-            </p>
-          </div>
-          <div className="font-mono-code text-xs text-ink-muted">
-            {events.length} events, {arcs.length} arcs
-          </div>
+          </div>}
         </div>
 
-        <div className="mb-4">
+        <div className="mb-2">
           <Timeline
             events={events}
             arcs={arcs}
@@ -754,8 +834,18 @@ export function TimelineView() {
             getArcResizeViolation={previewArcResizeViolation}
             onEventContextMenu={handleEventContextMenu}
             onArcContextMenu={handleArcContextMenu}
+            links={timelineLinks}
           />
         </div>
+
+        {/* What the marks and links mean, and the gestures. The gestures are
+            pointer-only, so a touch screen is not told to double-click. */}
+        <TimelineLegend
+          counts={{ events: events.length, arcs: arcs.length, links: timelineLinks.length }}
+          hasLinks={timelineLinks.length > 0}
+          isTracing={Boolean(selectedEvent)}
+          undoKey={editKeys.undo}
+        />
 
         {/* Last direct edit, with undo/redo. role="status" so the outcome of a
             drag, an undo or a redo is announced, not only drawn. */}
@@ -919,6 +1009,15 @@ export function TimelineView() {
                   onSelectEvent={handleEventSelect}
                   isLoading={relationshipsLoading}
                 />
+                {rippleReach > inspector.effects.length && (
+                  <p className="text-sm text-ink-secondary" data-testid="ripple-reach">
+                    In all, it sets{' '}
+                    <span className="font-medium text-ink">
+                      {rippleReach} {rippleReach === 1 ? 'event' : 'events'}
+                    </span>{' '}
+                    in motion within {RIPPLE_DEPTH} steps, traced on the timeline above.
+                  </p>
+                )}
               </div>
             )}
             {selectedArc && (
@@ -963,6 +1062,7 @@ export function TimelineView() {
         <PressureExploration
           arcs={arcs}
           events={events}
+          scopeToEvents={filtersActive}
           onEventHighlight={handlePressureEvidenceHighlight}
           onEventSelect={handleEventSelect}
           className="mt-6 border-t border-line pt-5"
@@ -999,8 +1099,11 @@ export function TimelineView() {
           isOpen={true}
           title={`Delete “${deleteConfirmName}”?`}
           message={
-            `The ${deleteConfirm.type} is removed from this graph. Its previous version stays in ` +
-            `the graph's Version history, so it can be restored from Versions.`
+            `The ${deleteConfirm.type} is removed from this graph` +
+            (deleteConfirmLinks > 0
+              ? `, with the ${deleteConfirmLinks} causal ${deleteConfirmLinks === 1 ? 'link' : 'links'} that join it to other events. `
+              : '. ') +
+            `Its previous version stays in the graph's Version history, so it can be restored from Versions.`
           }
           confirmLabel={`Delete ${deleteConfirm.type}`}
           onConfirm={handleDeleteConfirm}

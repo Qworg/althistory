@@ -123,7 +123,9 @@ export const GraphManagerModal = memo(function GraphManagerModal({
 
   const handleRollback = useCallback(async (version: number) => {
     if (!activeGraphId) return
-    if (window.confirm(`Are you sure you want to rollback to version ${version}? This cannot be undone.`)) {
+    // A restore commits a NEW version with the old content, so it is itself
+    // undoable from Version history: the confirmation says so, not the reverse.
+    if (window.confirm(`Restore version ${version}? The graph returns to how it was then, saved as a new version; the current state stays in Version history.`)) {
       await rollbackGraph(activeGraphId, version)
     }
   }, [activeGraphId, rollbackGraph])
@@ -151,7 +153,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
                 className={`
                   w-full px-3 py-2 rounded text-left text-sm font-medium capitalize
                   ${activeTab === tab 
-                    ? 'bg-blue-100 text-blue-700' 
+                    ? 'bg-selected/10 text-ink' 
                     : 'text-ink-secondary hover:bg-card hover:text-ink'}
                   transition-colors
                 `}
@@ -169,7 +171,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
                 {activeGraph.name}
               </div>
               <div className="text-xs text-ink-muted mt-1 font-mono-code">
-                v{activeGraph.version} - {activeGraph.metadata.eventCount} events
+                {headVersion !== null ? `v${headVersion} · ` : ''}{activeGraph.metadata.eventCount} events
               </div>
             </div>
           )}
@@ -268,7 +270,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
               <button
                 onClick={handleBranchGraph}
                 disabled={!branchName.trim() || isBranching}
-                className="px-4 py-2 text-sm bg-blue-700 text-white rounded hover:bg-blue-800 disabled:opacity-50"
+                className="px-4 py-2 text-sm bg-baseline text-white rounded hover:bg-baseline/90 disabled:opacity-50"
               >
                 {isBranching ? 'Creating branch…' : 'Create branch'}
               </button>
@@ -367,14 +369,14 @@ const GraphsTab = memo(function GraphsTab({
         <div className="flex items-center gap-2">
           <button
             onClick={onCreate}
-            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="px-3 py-1.5 text-sm bg-baseline text-white rounded hover:bg-baseline/90"
           >
             New Graph
           </button>
           <button
             onClick={onBranch}
             disabled={!activeGraphId}
-            className="px-3 py-1.5 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50"
+            className="px-3 py-1.5 text-sm border border-divergence/60 text-ink rounded hover:bg-divergence/10 disabled:opacity-50"
           >
             Branch this graph
           </button>
@@ -388,8 +390,8 @@ const GraphsTab = memo(function GraphsTab({
             onClick={() => onSelect(graph)}
             className={`
               p-4 border rounded-lg cursor-pointer transition-all
-              ${graph.id === activeGraphId ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/15' : 'border-line hover:border-ink-muted'}
-              ${selectedGraph?.id === graph.id ? 'ring-2 ring-blue-500' : ''}
+              ${graph.id === activeGraphId ? 'border-selected bg-selected/10' : 'border-line hover:border-ink-muted'}
+              ${selectedGraph?.id === graph.id ? 'ring-2 ring-selected' : ''}
             `}
           >
             {editingGraph?.id === graph.id ? (
@@ -419,7 +421,7 @@ const GraphsTab = memo(function GraphsTab({
                 <div className="flex gap-2">
                   <button
                     onClick={onSaveEdit}
-                    className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                    className="px-3 py-1 bg-baseline text-white rounded text-sm hover:bg-baseline/90"
                   >
                     Save
                   </button>
@@ -439,7 +441,7 @@ const GraphsTab = memo(function GraphsTab({
                     <h4 className="text-base font-semibold text-ink">
                       {graph.name}
                       {graph.branchName && (
-                        <span className="ml-2 text-xs text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">
+                        <span className="ml-2 text-xs text-ink-secondary border border-divergence/50 px-1.5 py-0.5 rounded">
                           {graph.branchName}
                         </span>
                       )}
@@ -448,20 +450,23 @@ const GraphsTab = memo(function GraphsTab({
                       <p className="text-sm text-ink-muted mt-1">{graph.description}</p>
                     )}
                   </div>
-                  <span className={`
-                    text-xs px-2 py-0.5 rounded capitalize
-                    ${graph.status === 'active' ? 'bg-green-100 text-green-700' : 
-                      graph.status === 'archived' ? 'bg-yellow-100 text-yellow-700' : 
-                      'bg-red-100 text-red-700'}
-                  `}>
-                    {graph.status}
-                  </span>
+                  {/* "Active" is the default status of every graph, so it says
+                      nothing; the badge marks the exceptions and the open one. */}
+                  {graph.id === activeGraphId ? (
+                    <span className="shrink-0 rounded border border-selected/30 px-2 py-0.5 text-xs font-medium text-selected">
+                      Open
+                    </span>
+                  ) : graph.status !== 'active' ? (
+                    <span className="shrink-0 rounded bg-subtle px-2 py-0.5 text-xs capitalize text-ink-secondary">
+                      {graph.status}
+                    </span>
+                  ) : null}
                 </div>
                 
                 <div className="flex items-center gap-4 mt-3 text-sm text-ink-muted">
                   <span>{graph.metadata.eventCount} events</span>
                   <span>{graph.metadata.arcCount} arcs</span>
-                  <span>v{graph.version}</span>
+                  <GraphHeadVersion graph={graph} />
                 </div>
 
                 {selectedGraph?.id === graph.id && (
@@ -469,7 +474,7 @@ const GraphsTab = memo(function GraphsTab({
                     {graph.id !== activeGraphId && (
                       <button
                         onClick={() => onSwitch(graph.id)}
-                        className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                        className="px-3 py-1 bg-baseline text-white rounded text-sm hover:bg-baseline/90"
                       >
                         Switch to Graph
                       </button>
@@ -524,7 +529,7 @@ const BranchesTab = memo(function BranchesTab({
         <h3 className="font-display text-xl font-semibold text-ink">Branches</h3>
         <button
           onClick={onCreateBranch}
-          className="px-3 py-1.5 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+          className="px-3 py-1.5 text-sm border border-divergence/60 text-ink rounded hover:bg-divergence/10"
         >
           Create branch
         </button>
@@ -541,22 +546,22 @@ const BranchesTab = memo(function BranchesTab({
               key={branch.id}
               className={`
                 p-4 border rounded-lg
-                ${branch.id === activeGraphId ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/15' : 'border-line'}
+                ${branch.id === activeGraphId ? 'border-selected bg-selected/10' : 'border-line'}
               `}
             >
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-base font-semibold text-ink">
-                    {branch.branchName || branch.name}
+                    {branch.name}
                   </h4>
                   <div className="text-sm text-ink-muted mt-1">
-                    {branch.metadata.eventCount} events - v{branch.version}
+                    {branch.metadata.eventCount} events <GraphHeadVersion graph={branch} prefix=" · " />
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => onCompare?.(branch.id)}
-                    className="px-3 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded text-sm hover:bg-purple-100 font-medium"
+                    className="px-3 py-1 border border-divergence/60 text-ink rounded text-sm hover:bg-divergence/10 font-medium"
                     title="Compare branch against baseline"
                   >
                     Compare
@@ -564,7 +569,7 @@ const BranchesTab = memo(function BranchesTab({
                   {branch.id !== activeGraphId && (
                     <button
                       onClick={() => onSwitch(branch.id)}
-                      className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                      className="px-3 py-1 bg-baseline text-white rounded text-sm hover:bg-baseline/90"
                     >
                       Switch
                     </button>
@@ -613,7 +618,7 @@ const VersionsTab = memo(function VersionsTab({
               key={version.commitHash}
               className={`
                 p-4 border rounded-lg
-                ${version.version === currentVersion ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/15' : 'border-line'}
+                ${version.version === currentVersion ? 'border-selected bg-selected/10' : 'border-line'}
               `}
             >
               <div className="flex items-start justify-between">
@@ -621,7 +626,7 @@ const VersionsTab = memo(function VersionsTab({
                   <div className="flex items-center gap-2">
                     <span className="font-semibold">v{version.version}</span>
                     {version.version === currentVersion && (
-                      <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                      <span className="text-xs bg-selected/10 text-ink px-1.5 py-0.5 rounded">
                         Current
                       </span>
                     )}
@@ -686,3 +691,18 @@ const VersionsTab = memo(function VersionsTab({
 })
 
 export default GraphManagerModal
+
+/**
+ * A graph's number in Version history (its head commit): the same number the
+ * header badge, merge and restore use. `Graph.version` is an internal change
+ * counter that runs ahead of it, so showing that here contradicted the header.
+ */
+function GraphHeadVersion({ graph, prefix = '' }: { graph: Graph; prefix?: string }) {
+  const head = useGraphHeadVersion(graph.id, graph.version)
+  if (head === null) return null
+  return (
+    <span className="font-mono-code">
+      {prefix}v{head}
+    </span>
+  )
+}

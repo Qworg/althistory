@@ -155,8 +155,8 @@ describe('historical dates in the arc and event dialogs', () => {
     const onSave = vi.fn().mockResolvedValue(undefined)
     render(<EventDetailModal event={engine} isOpen onClose={vi.fn()} onSave={onSave} />)
 
-    const field = screen.getByLabelText(/timestamp/i)
-    expect(field).toHaveValue('1843-11-20T00:00')
+    const field = screen.getByLabelText(/^date/i)
+    expect(field).toHaveValue('1843-11-20')
     expect(field.closest('div')?.parentElement).toHaveTextContent('(UTC)')
 
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))

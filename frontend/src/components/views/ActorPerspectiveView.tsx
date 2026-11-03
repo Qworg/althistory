@@ -234,11 +234,9 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
       <div className="bg-card border border-line rounded-lg shadow-sm p-4 sm:p-6">
         <div className="flex flex-wrap justify-between items-start gap-4 mb-6">
           <div>
-            <h2 className="font-display text-[1.75rem] leading-tight font-semibold text-ink mb-1">Actor Perspective View</h2>
-            <p className="text-sm text-ink-secondary">
-              Explore events and relationships from a specific actor's perspective
-            </p>
-            <p className="text-xs text-ink-muted mt-0.5">
+            {/* The breadcrumb and the navigation already name the view. */}
+            <h2 className="sr-only">Actor Perspective</h2>
+            <p className="text-xs text-ink-muted">
               Pick an actor · Click a mark, or Tab to it and press Enter, to inspect it · C and T switch the layout, S the statistics
             </p>
           </div>

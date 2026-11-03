@@ -1,6 +1,7 @@
 import { isTypingTarget } from './keyboardShortcuts'
 import React from 'react'
 import type { LayoutOptions as CytoscapeLayoutOptions } from 'cytoscape'
+import { timeOrderNodePosition } from './timeOrderLayout'
 
 /**
  * A bag of Cytoscape layout options.
@@ -53,16 +54,21 @@ export const LAYOUT_SHORTCUTS: Record<string, string> = {
   '5': 'concentric',
   '6': 'dagre',
   '7': 'cose-bilkent',
-  '8': 'random'
+  '8': 'random',
+  '9': 'time'
 }
 
 /**
  * The layouts the layout panel always shows, in order. These are the ones that
- * read a causal graph best: force-directed for clusters, and the two layered
- * layouts for cause-before-effect flow. The rest stay one click away under
- * "More layouts" (and on their number keys).
+ * read a causal graph best: time order (the default: the same picture on every
+ * load, causes left of their effects), force-directed for clusters, and the
+ * layered cause-to-effect ranks. The rest stay one click away under "More
+ * layouts" (and on their number keys).
  */
-export const PRIMARY_LAYOUT_NAMES: readonly string[] = ['cose', 'breadthfirst', 'dagre']
+export const PRIMARY_LAYOUT_NAMES: readonly string[] = ['time', 'cose', 'dagre']
+
+/** The layout a graph opens in. */
+export const DEFAULT_CAUSAL_LAYOUT = 'time'
 
 /** Whether a layout is shown without opening "More layouts". */
 export function isPrimaryLayout(layoutName: string): boolean {
@@ -165,6 +171,16 @@ export const FIT_PADDING = 30
  * then stretches the result to its own aspect (see canvasStretch).
  */
 export const DEFAULT_LAYOUT_OPTIONS: Record<string, LayoutOptions> = {
+  // Time order: a preset layout whose positions come from the events' dates
+  // (utils/timeOrderLayout.ts).
+  time: {
+    name: 'preset',
+    positions: timeOrderNodePosition,
+    animate: true,
+    animationDuration: 500,
+    fit: true,
+    padding: FIT_PADDING,
+  } as LayoutOptions,
   cose: {
     name: 'cose',
     animationDuration: 1000,

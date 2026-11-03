@@ -166,7 +166,7 @@ describe('MainLayout', () => {
       for (const name of ['Graph', 'Compare branches', 'Import', 'Ingest']) {
         expect(within(toolbar).queryByRole('button', { name })).not.toBeInTheDocument()
       }
-      expect(within(header).queryByRole('status', { name: /streaming/i })).not.toBeInTheDocument()
+      expect(within(header).queryByRole('status', { name: /live saving/i })).not.toBeInTheDocument()
 
       // They are in the bottom bar's More sheet.
       const more = within(screen.getByRole('navigation', { name: 'Mobile navigation' })).getByRole('button', { name: 'More' })
@@ -177,7 +177,7 @@ describe('MainLayout', () => {
       for (const name of ['Branch or copy…', 'Copy progress', 'Copy history', 'Export', 'Versions', 'Compare branches', 'Import', 'Ingest']) {
         expect(within(sheet).getByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument()
       }
-      expect(within(sheet).getByRole('status', { name: /streaming/i })).toBeInTheDocument()
+      expect(within(sheet).getByRole('status', { name: /live saving/i })).toBeInTheDocument()
 
       // Choosing an item closes the sheet and opens the tool.
       await user.click(within(sheet).getByRole('button', { name: /^Copy history/ }))

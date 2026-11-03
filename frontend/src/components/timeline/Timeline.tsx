@@ -27,6 +27,13 @@ import {
   computeTimelineLayout,
 } from './timelineLayout'
 import {
+  computeRipple,
+  linkPath,
+  linkStrokeWidth,
+  LINK_DASH,
+  type TimelineLink,
+} from './timelineLinks'
+import {
   buildNavModel,
   keyboardTimeStep,
   markSpan,
@@ -101,6 +108,11 @@ export interface TimelineProps {
   showPressureIndicators?: boolean
   /** When the active graph is a branch: its baseline, ghosted beneath (see TimelineGhost). */
   ghost?: TimelineGhost
+  /**
+   * The causal links between the events. Drawn in a band under the track;
+   * selecting an event traces its ripple through them (see timelineLinks.ts).
+   */
+  links?: TimelineLink[]
   className?: string
 }
 
@@ -225,6 +237,7 @@ const Timeline = memo(function Timeline({
   selectedEventId = null,
   showPressureIndicators = true,
   ghost,
+  links,
   className = '',
 }: TimelineProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -278,16 +291,26 @@ const Timeline = memo(function Timeline({
   const hasGhost = ghostEvents !== undefined
   const divergence = ghost?.divergence ?? null
   const hasDivergence = divergence !== null
+  // Only links between two events on this canvas can be drawn.
+  const drawableLinks = useMemo(() => {
+    if (!links || links.length === 0) return []
+    const ids = new Set(events.map(ev => ev.id))
+    return links.filter(link => ids.has(link.causeId) && ids.has(link.effectId))
+  }, [links, events])
+  const hasLinks = drawableLinks.length > 0
   const layout = useMemo(
     () =>
       computeTimelineLayout({
         maxArcLevel,
         hasGhostLane: hasGhost,
         hasDivergence,
+        hasLinks,
         margin,
       }),
-    [maxArcLevel, hasGhost, hasDivergence, margin]
+    [maxArcLevel, hasGhost, hasDivergence, hasLinks, margin]
   )
+  const ripple = useMemo(() => computeRipple(selectedEventId, drawableLinks), [selectedEventId, drawableLinks])
+  const isTracing = selectedEventId !== null && ripple.links.size > 0
   const svgHeight = Math.max(height ?? 0, layout.height)
 
   // The baseline shares the time scale, so its events count toward the extent.
@@ -431,12 +454,17 @@ const Timeline = memo(function Timeline({
           id: ev.id,
           x: xScale(new Date(ev.timestamp)),
           description: ev.description,
-          priority: ev.id === selectedEventId || (highlightedEventIds?.has(ev.id) ?? false),
+          // The selection's ripple is named first, so the trace reads as words.
+          priority:
+            ev.id === selectedEventId ||
+            (highlightedEventIds?.has(ev.id) ?? false) ||
+            ripple.causes.has(ev.id) ||
+            ripple.effects.has(ev.id),
         })),
         innerWidth,
         TIMELINE_LABEL_CONFIG
       ),
-    [visibleEvents, xScale, innerWidth, selectedEventId, highlightedEventIds]
+    [visibleEvents, xScale, innerWidth, selectedEventId, highlightedEventIds, ripple]
   )
 
   // ── Branch baseline (ghost) ──────────────────────────────────────────────
@@ -536,6 +564,8 @@ const Timeline = memo(function Timeline({
   const handleEventContextMenu = useCallback((evt: React.MouseEvent, ev: Event) => {
     evt.preventDefault()
     if (Date.now() - keyboardMenuAtRef.current < KEYBOARD_MENU_ECHO_MS) return
+    // The hover tooltip would sit on top of the menu it opened.
+    setHovered(null)
     if (onEventContextMenu) {
       // Use the new context menu callback
       onEventContextMenu(ev, { x: evt.clientX, y: evt.clientY })
@@ -549,6 +579,7 @@ const Timeline = memo(function Timeline({
   const handleArcContextMenu = useCallback((evt: React.MouseEvent, arc: Arc) => {
     evt.preventDefault()
     if (Date.now() - keyboardMenuAtRef.current < KEYBOARD_MENU_ECHO_MS) return
+    setHovered(null)
     if (onArcContextMenu) {
       onArcContextMenu(arc, { x: evt.clientX, y: evt.clientY })
     }
@@ -1202,6 +1233,26 @@ const Timeline = memo(function Timeline({
 
           {/* Clipped content area - prevents elements from escaping when zooming */}
           <g clipPath={`url(#${clipId})`}>
+            {/* After the split: the branch's own history, washed in the
+                divergence amber so "before" and "after" read at a glance. */}
+            {divergence && (() => {
+              const x = Math.max(0, xScale(divergence))
+              if (x >= innerWidth) return null
+              return (
+                <rect
+                  className="timeline-after-divergence"
+                  data-testid="timeline-after-divergence"
+                  x={x}
+                  y={0}
+                  width={innerWidth - x}
+                  height={axisY}
+                  style={{ fill: 'var(--accent-divergence)', fillOpacity: 'var(--divergence-wash)' }}
+                  pointerEvents="none"
+                  aria-hidden="true"
+                />
+              )
+            })()}
+
             {/* Point of divergence: a permanent landmark, the full height of the plot. */}
             {divergence && (() => {
               const x = xScale(divergence)
@@ -1302,6 +1353,53 @@ const Timeline = memo(function Timeline({
               </g>
             )}
 
+            {/* Causal links, in the band under the stems (timelineLinks.ts).
+                Decorative to assistive tech: the inspector lists the causes
+                and effects of the selection in words. */}
+            {layout.linkBand && (
+              <g className="timeline-links" data-testid="timeline-links" aria-hidden="true" pointerEvents="none">
+                {drawableLinks.map(link => {
+                  const cause = eventsById.get(link.causeId)
+                  const effect = eventsById.get(link.effectId)
+                  if (!cause || !effect) return null
+                  const x1 = xScale(new Date(cause.timestamp))
+                  const x2 = xScale(new Date(effect.timestamp))
+                  if (Math.max(x1, x2) < -40 || Math.min(x1, x2) > innerWidth + 40) return null
+                  const role = ripple.links.get(link.id)
+                  const onRipple = role !== undefined
+                  const stroke = !isTracing
+                    ? 'var(--text-muted)'
+                    : role === 'cause'
+                      ? 'var(--text-primary)'
+                      : onRipple
+                        ? 'var(--accent-selected)'
+                        : 'var(--text-muted)'
+                  const opacity = !isTracing
+                    ? 0.34
+                    : role === 'cause'
+                      ? 0.85
+                      : typeof role === 'number'
+                        ? [1, 0.72, 0.5][role - 1] ?? 0.5
+                        : 0.08
+                  return (
+                    <path
+                      key={link.id}
+                      className="timeline-link"
+                      data-link-id={link.id}
+                      data-ripple={role === undefined ? undefined : String(role)}
+                      d={linkPath(x1, x2, layout.linkBand!.top, layout.linkBand!.height, innerWidth)}
+                      fill="none"
+                      style={{ stroke }}
+                      strokeOpacity={opacity}
+                      strokeWidth={linkStrokeWidth(link.weight)}
+                      strokeDasharray={LINK_DASH[link.type]}
+                      strokeLinecap="round"
+                    />
+                  )
+                })}
+              </g>
+            )}
+
             {/* Arcs - using memoized TimelineArc component */}
             {visibleArcs.map(arc => {
               const x1 = xScale(new Date(arc.start_time))
@@ -1337,6 +1435,12 @@ const Timeline = memo(function Timeline({
                   y={eventY}
                   isHighlighted={highlightedEventIds?.has(ev.id) ?? false}
                   isSelected={selectedEventId === ev.id}
+                  isDimmed={
+                    isTracing &&
+                    ev.id !== selectedEventId &&
+                    !ripple.causes.has(ev.id) &&
+                    !ripple.effects.has(ev.id)
+                  }
                   isBranchOwn={branchOwnIds?.has(ev.id) ?? false}
                   isTabStop={tabStopKey === eventMarkKey(ev.id)}
                   label={eventLabels.get(ev.id) ?? null}

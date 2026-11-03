@@ -40,7 +40,7 @@ export interface BranchComparisonModalProps {
 }
 
 type ActiveTab = 'timeline' | 'causal' | 'diff' | 'summary' | 'simulate'
-type DiffFilter = 'all' | 'divergent' | 'shared' | 'baseline_only' | 'modified'
+type DiffFilter = 'changes' | 'all' | 'divergent' | 'shared' | 'baseline_only' | 'modified'
 type DiffStatus = 'shared' | 'divergent_added' | 'baseline_only' | 'modified'
 
 interface GraphDataState {
@@ -219,7 +219,8 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
   const tabRefs = useRef<Partial<Record<ActiveTab, HTMLButtonElement | null>>>({})
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('timeline')
-  const [diffFilter, setDiffFilter] = useState<DiffFilter>('all')
+  // Opens on what differs: the shared history would bury the few changes.
+  const [diffFilter, setDiffFilter] = useState<DiffFilter>('changes')
 
   const [baselineGraphId, setBaselineGraphId] = useState<string>('')
   const [counterfactualGraphId, setCounterfactualGraphId] = useState<string>('')
@@ -229,10 +230,30 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
   // the baseline.
   const [reloadToken, setReloadToken] = useState(0)
   const reload = useCallback(() => setReloadToken(token => token + 1), [])
-  const [showMergeModal, setShowMergeModal] = useState(false)
-
-  // The merge dialog sits on top of this one: ModalBase gives Escape to the
-  // topmost dialog only, so while it is open this dialog stays put.
+  // Merging is a step of this dialog, not a second dialog stacked on it: the
+  // comparison is what the merge is decided from, and "Back" returns to it.
+  const [step, setStep] = useState<'compare' | 'merge'>('compare')
+  // While the merge writes, Escape must not close the dialog under it.
+  const [mergeWriting, setMergeWriting] = useState(false)
+  useEffect(() => {
+    if (!isOpen) {
+      setStep('compare')
+      setMergeWriting(false)
+    }
+  }, [isOpen])
+  // Back from the merge step lands on the button that opened it.
+  const mergeOpenerRef = useRef<HTMLButtonElement>(null)
+  const returnFocusToOpener = useRef(false)
+  const backToComparison = useCallback(() => {
+    returnFocusToOpener.current = true
+    setStep('compare')
+  }, [])
+  useEffect(() => {
+    if (step === 'compare' && returnFocusToOpener.current) {
+      returnFocusToOpener.current = false
+      mergeOpenerRef.current?.focus()
+    }
+  }, [step])
 
   // Initialize selected graphs when modal opens
   useEffect(() => {
@@ -279,12 +300,14 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
   const resolvedCounterfactualName = useMemo(() => {
     if (copiedGraphName) return copiedGraphName
     const found = graphList?.find(g => g.id === counterfactualGraphId)
-    return found ? (found.branchName || found.name) : 'Branch'
+    return found ? found.name : 'Branch'
   }, [copiedGraphName, graphList, counterfactualGraphId])
 
   // Filtered event diff items
   const filteredEventDiff = useMemo(() => {
     switch (diffFilter) {
+      case 'changes':
+        return eventDiffItems.filter(i => i.status !== 'shared')
       case 'divergent':
         return eventDiffItems.filter(i => i.status === 'divergent_added')
       case 'shared':
@@ -365,7 +388,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
           </button>
         )}
         {canMerge && (
-          <button type="button" onClick={() => setShowMergeModal(true)} className={PRIMARY_BUTTON}>
+          <button ref={mergeOpenerRef} type="button" onClick={() => setStep('merge')} className={PRIMARY_BUTTON}>
             Merge into baseline…
           </button>
         )}
@@ -377,13 +400,34 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
     <>
       <ModalBase
         isOpen={isOpen}
-        onClose={onClose}
+        // In the merge step, Escape steps back to the comparison.
+        onClose={step === 'merge' ? backToComparison : onClose}
         title="Compare branches"
         size="full"
         // ModalBase's widest fixed size is 4xl; the dual-lane canvas wants more.
         className="[&>div:last-child]:max-w-6xl"
-        footer={footer}
+        // The merge step brings its own action row.
+        footer={step === 'merge' ? undefined : footer}
+        closeOnEscape={!mergeWriting}
+        showCloseButton={step !== 'merge'}
       >
+        {step === 'merge' ? (
+          <BranchMergeModal
+            presentation="inline"
+            isOpen
+            onClose={backToComparison}
+            cancelLabel="Back to comparison"
+            onBusyChange={setMergeWriting}
+            targetGraphId={baselineGraphId}
+            targetGraphName={resolvedBaselineName}
+            sourceGraphId={counterfactualGraphId}
+            sourceGraphName={resolvedCounterfactualName}
+            targetData={baselineData}
+            sourceData={counterfactualData}
+            onMerged={reload}
+            onRestored={reload}
+          />
+        ) : (
         <div className="space-y-4 text-sm text-ink">
           <p className="text-ink-secondary">
             Baseline and counterfactual side by side, aligned at the point of divergence.
@@ -591,7 +635,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                 {activeTab === 'diff' && (
                   <div className="flex flex-col gap-3 lg:h-full">
                     <div role="group" aria-label="Show events" className="flex flex-wrap items-center gap-2">
-                      {(['all', 'divergent', 'shared', 'baseline_only', 'modified'] as DiffFilter[]).map(filter => {
+                      {(['changes', 'all', 'divergent', 'shared', 'baseline_only', 'modified'] as DiffFilter[]).map(filter => {
                         const pressed = diffFilter === filter
                         return (
                           <button
@@ -605,6 +649,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                                 : 'bg-card border-line text-ink-secondary hover:bg-subtle'
                             }`}
                           >
+                            {filter === 'changes' && `Changes (${eventDiffItems.filter(i => i.status !== 'shared').length})`}
                             {filter === 'all' && `All (${eventDiffItems.length})`}
                             {filter === 'divergent' && `Added in branch (${metrics.divergentEventsCount})`}
                             {filter === 'shared' && `Shared (${metrics.sharedEventsCount})`}
@@ -729,20 +774,8 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
             )}
           </div>
         </div>
+        )}
       </ModalBase>
-
-      <BranchMergeModal
-        isOpen={showMergeModal}
-        onClose={() => setShowMergeModal(false)}
-        targetGraphId={baselineGraphId}
-        targetGraphName={resolvedBaselineName}
-        sourceGraphId={counterfactualGraphId}
-        sourceGraphName={resolvedCounterfactualName}
-        targetData={baselineData}
-        sourceData={counterfactualData}
-        onMerged={reload}
-        onRestored={reload}
-      />
     </>
   )
 }

@@ -34,44 +34,51 @@ export interface CausalGraphLayoutManagerProps {
 // uses, so a layout looks the same however it was chosen.
 const layoutConfigs: LayoutConfig[] = [
   {
+    name: 'time',
+    label: 'Time order',
+    description: 'Events left to right by date, as on the timeline: every cause left of its effects',
+    category: 'hierarchical',
+    options: { ...DEFAULT_LAYOUT_OPTIONS['time'] }
+  },
+  {
     name: 'cose',
-    label: 'Force-Directed',
-    description: 'Physics-based layout with node repulsion and edge attraction',
+    label: 'Clusters',
+    description: 'Linked events pull together; unlinked ones drift apart',
     category: 'force',
     options: { ...DEFAULT_LAYOUT_OPTIONS['cose'] }
   },
   {
     name: 'cose-bilkent',
-    label: 'Enhanced Force',
-    description: 'Advanced force-directed layout with better clustering',
+    label: 'Tight clusters',
+    description: 'Like Clusters, with tighter, cleaner groups',
     category: 'force',
     options: { ...DEFAULT_LAYOUT_OPTIONS['cose-bilkent'] }
   },
   {
     name: 'breadthfirst',
-    label: 'Hierarchical',
-    description: 'Tree-like layout showing clear hierarchical relationships',
+    label: 'Tree',
+    description: 'Root causes at the top, their effects in levels below',
     category: 'hierarchical',
     options: { ...DEFAULT_LAYOUT_OPTIONS['breadthfirst'] }
   },
   {
     name: 'dagre',
-    label: 'Directed Graph',
-    description: 'Optimized layout for directed acyclic graphs',
+    label: 'Cause to effect',
+    description: 'Every cause above its effects, ranked step by step',
     category: 'hierarchical',
     options: { ...DEFAULT_LAYOUT_OPTIONS['dagre'] }
   },
   {
     name: 'circle',
-    label: 'Circular',
-    description: 'Nodes arranged in a circle, good for showing connections',
+    label: 'Ring',
+    description: 'Every event on one circle, so each link is in view',
     category: 'circular',
     options: { ...DEFAULT_LAYOUT_OPTIONS['circle'] }
   },
   {
     name: 'concentric',
-    label: 'Concentric',
-    description: 'Concentric circles based on node importance',
+    label: 'Hubs at centre',
+    description: 'The most-linked events in the middle, the least at the edge',
     category: 'circular',
     options: {
       ...DEFAULT_LAYOUT_OPTIONS['concentric'],
@@ -82,7 +89,7 @@ const layoutConfigs: LayoutConfig[] = [
   {
     name: 'grid',
     label: 'Grid',
-    description: 'Organized grid layout for systematic viewing',
+    description: 'Rows and columns, for scanning every event',
     category: 'grid',
     options: {
       ...DEFAULT_LAYOUT_OPTIONS['grid'],
@@ -92,8 +99,8 @@ const layoutConfigs: LayoutConfig[] = [
   },
   {
     name: 'random',
-    label: 'Random',
-    description: 'Random positioning for exploring different perspectives',
+    label: 'Scatter',
+    description: 'Random positions, to see the graph afresh',
     category: 'force',
     options: { ...DEFAULT_LAYOUT_OPTIONS['random'] }
   }

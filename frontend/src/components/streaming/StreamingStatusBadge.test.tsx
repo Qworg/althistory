@@ -9,12 +9,12 @@ describe('StreamingStatusBadge', () => {
 
     // "Off" is a resting state, not a fault: neutral wording, and the
     // explanation of what streaming is lives in the tooltip.
-    const badge = screen.getByRole('status', { name: 'Streaming off' })
-    expect(badge).toHaveTextContent('Streaming off')
+    const badge = screen.getByRole('status', { name: 'Live saving off' })
+    expect(badge).toHaveTextContent('Live saving off')
     expect(badge.className).not.toMatch(/rose|red|amber/)
-    expect(badge).toHaveAttribute('title', expect.stringMatching(/Edits still save normally/))
+    expect(badge).toHaveAttribute('title', expect.stringMatching(/Edits save normally/))
     // The media tour finds the last toolbar control by this exact name.
-    const connectButton = screen.getByRole('button', { name: 'Connect' })
+    const connectButton = screen.getByRole('button', { name: 'Turn on' })
 
     fireEvent.click(connectButton)
     expect(onConnect).toHaveBeenCalledTimes(1)
@@ -22,7 +22,7 @@ describe('StreamingStatusBadge', () => {
 
   it('renders connecting state correctly', () => {
     render(<StreamingStatusBadge status="connecting" />)
-    expect(screen.getByText('Streaming: connecting…')).toBeInTheDocument()
+    expect(screen.getByText('Live saving: connecting…')).toBeInTheDocument()
   })
 
   it('renders connected state with stats and disconnect action', () => {
@@ -35,10 +35,10 @@ describe('StreamingStatusBadge', () => {
       />
     )
 
-    expect(screen.getByText('Streaming on')).toBeInTheDocument()
+    expect(screen.getByText('Live saving on')).toBeInTheDocument()
     expect(screen.getByText('8/10')).toBeInTheDocument()
 
-    const disconnectBtn = screen.getByText('Disconnect')
+    const disconnectBtn = screen.getByText('Turn off')
     fireEvent.click(disconnectBtn)
     expect(onDisconnect).toHaveBeenCalledTimes(1)
   })
@@ -53,7 +53,7 @@ describe('StreamingStatusBadge', () => {
       />
     )
     expect(container.innerHTML).not.toMatch(/text-\[(?:\d|1[01])px\]/)
-    const disconnect = screen.getByRole('button', { name: 'Disconnect' })
+    const disconnect = screen.getByRole('button', { name: 'Turn off' })
     expect(disconnect.className).toContain('text-xs')
     expect(disconnect.className).toContain('hover:text-ink')
     expect(disconnect.className).not.toMatch(/hover:text-(?:slate|emerald)-900/)
@@ -61,7 +61,7 @@ describe('StreamingStatusBadge', () => {
 
   it('renders error state correctly', () => {
     render(<StreamingStatusBadge status="error" error="Network refused" />)
-    expect(screen.getByText('Streaming error')).toBeInTheDocument()
+    expect(screen.getByText('Live saving failed')).toBeInTheDocument()
     expect(screen.getByText('Network refused')).toBeInTheDocument()
   })
 })

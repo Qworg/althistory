@@ -14,7 +14,8 @@ import { PanelBase } from '@/components/modals/ModalBase'
 import { ExportPanel, VersionHistoryPanel } from '@/components/graphs'
 import { ImportWizard } from '@/components/import'
 import { IngestionWizard } from '@/components/ingestion'
-import { useCreateEvent, useCreateArc } from '@/hooks/useAPI'
+import { useCreateArc } from '@/hooks/useAPI'
+import { useCreateEventWithCause } from '@/hooks/useCreateEventWithCause'
 import { useActiveGraphId, useSwitchGraph, useDeleteGraph } from '@/hooks/useGraphs'
 import { StreamingStatusBadge } from '@/components/streaming/StreamingStatusBadge'
 import { useStreamingWrite } from '@/hooks/useStreamingWrite'
@@ -51,6 +52,21 @@ interface ToolbarAction {
  * Graph-management actions, collapsed into the toolbar's "Graph" menu. Their
  * keyboard shortcuts work whether or not the menu is open.
  */
+/**
+ * Actions that write to, or read from, the active graph. With no active graph
+ * the server has nothing to scope them to, so they wait for one to be chosen.
+ * (Import stays available: it can create a graph of its own.)
+ */
+const NEEDS_GRAPH_ACTION_IDS = new Set([
+  'create-event',
+  'create-arc',
+  'ingest-data',
+  'branch-divergence',
+  'copy-graph',
+  'export-data',
+  'version-history'
+])
+
 const GRAPH_MENU_ACTION_IDS = new Set([
   'copy-graph',
   'copy-progress',
@@ -109,7 +125,7 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
   }, [compact, moreSheetOpen, setMoreSheetOpen])
 
   // Mutations
-  const createEventMutation = useCreateEvent()
+  const createEventWithCause = useCreateEventWithCause()
   const createArcMutation = useCreateArc()
 
   // Graph-level operations (copy switching/deletion and the import/export tools)
@@ -420,8 +436,20 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
     }
   }, [viewMode, getTimelineActions, getActorPerspectiveActions])
 
-  const viewSpecificActions = getViewSpecificActions().filter(action => !action.hidden)
-  const commonActions = getCommonActions()
+  const requireGraph = useCallback(
+    (actions: ToolbarAction[]): ToolbarAction[] =>
+      activeGraphId
+        ? actions
+        : actions.map(action =>
+            NEEDS_GRAPH_ACTION_IDS.has(action.id)
+              ? { ...action, disabled: true, tooltip: 'Choose a graph first, from the graph menu at the top right' }
+              : action
+          ),
+    [activeGraphId]
+  )
+
+  const viewSpecificActions = requireGraph(getViewSpecificActions()).filter(action => !action.hidden)
+  const commonActions = requireGraph(getCommonActions())
   const graphMenuActions = commonActions.filter(action => GRAPH_MENU_ACTION_IDS.has(action.id))
   const graphToolActions = commonActions.filter(action => GRAPH_TOOL_ACTION_IDS.has(action.id))
   // Filters and the conditional clears: on the toolbar at every width.
@@ -435,8 +463,8 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
   // render; both builders are themselves useCallback'd and rebuild exactly when
   // the state their actions depend on changes.
   const allActions = React.useMemo<Array<ToolbarAction>>(
-    () => [...getViewSpecificActions(), ...getCommonActions()],
-    [getViewSpecificActions, getCommonActions]
+    () => requireGraph([...getViewSpecificActions(), ...getCommonActions()]),
+    [getViewSpecificActions, getCommonActions, requireGraph]
   )
 
   // Handle keyboard shortcuts
@@ -706,14 +734,15 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
         event={null}
         isOpen={showCreateEventModal}
         onClose={() => setShowCreateEventModal(false)}
-        onSave={async (eventData) => {
+        onSave={async (eventData, extras) => {
           const createData: CreateEventRequest = {
             description: eventData.description || '',
             actor: eventData.actor || '',
             target: eventData.target || '',
-            timestamp: eventData.timestamp || new Date().toISOString()
+            timestamp: eventData.timestamp || new Date().toISOString(),
+            ...(eventData.metadata && Object.keys(eventData.metadata).length > 0 ? { metadata: eventData.metadata } : {}),
           }
-          await createEventMutation.mutateAsync(createData)
+          await createEventWithCause(createData, extras)
         }}
       />
 

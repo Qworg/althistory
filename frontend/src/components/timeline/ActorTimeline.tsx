@@ -8,6 +8,12 @@ import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } f
 
 /** Two rows of 12px labels (the 12px floor); the pitch is the font plus leading. */
 const ACTOR_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: [-16, -30], fontSize: 12 }
+/**
+ * Arc names are drawn at 12px medium, which runs wider than the regular
+ * weight the estimate assumes; measured at 13px so two neighbouring names do
+ * not overprint ("The Calculating O… / Engines on the Wi…").
+ */
+const ARC_NAME_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: ACTOR_LABEL_CONFIG.rowOffsets, fontSize: 13 }
 
 export interface ActorEventData extends Event {
   role: 'actor' | 'target'
@@ -228,10 +234,10 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
       if (endX - startX < 1) return []
       return [{ id: arc.id, x: startX + (endX - startX) / 2, description: arc.name }]
     })
-    const placements = layoutEventLabels(items, innerWidth, ACTOR_LABEL_CONFIG)
+    const placements = layoutEventLabels(items, innerWidth, ARC_NAME_LABEL_CONFIG)
     const rows = new Map<string, { y: number; anchor: EventLabelPlacement['anchor']; text: string }>()
     placements.forEach((placement, id) => {
-      const row = Math.max(0, ACTOR_LABEL_CONFIG.rowOffsets.indexOf(placement.offset))
+      const row = Math.max(0, ARC_NAME_LABEL_CONFIG.rowOffsets.indexOf(placement.offset))
       if (row >= ARC_LABEL_MAX_ROWS) return
       rows.set(id, { y: ARC_LABEL_TOP + row * ARC_LABEL_ROW_STEP, anchor: placement.anchor, text: placement.text })
     })

@@ -17,6 +17,7 @@
 import { useState, useMemo, useId } from 'react'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 import type {
+  Event,
   ExtractedArc,
   ExtractedEvent,
   ExtractedEdit,
@@ -32,6 +33,7 @@ import {
   reviewRowId,
   type ReviewEventLookup,
 } from './reviewLabels'
+import { findDuplicateEvent, matchKnownName, type NameMatch } from './reviewMatching'
 
 export type ReviewEntity = ExtractedEvent | ExtractedArc | ExtractedRelationship
 export type ReviewEntityType = 'event' | 'arc' | 'relationship'
@@ -45,7 +47,7 @@ interface ReviewColumn {
    * How the field is edited: a wrapping multi-line box for prose, a date box
    * with the date in words under it, or a single-line input.
    */
-  kind?: 'prose' | 'date'
+  kind?: 'prose' | 'date' | 'name'
   /**
    * The column's share of the table. The table is laid out at the dialog's
    * width (`table-fixed`), so columns without a width share what is left.
@@ -87,6 +89,7 @@ const eventColumns: ReviewColumn[] = [
     key: 'actor',
     label: 'Actor',
     editable: true,
+    kind: 'name',
     width: 'w-[17%]',
     value: (entity) => ('actor' in entity ? entity.actor : ''),
     edit: (raw) => ({ actor: raw }),
@@ -95,6 +98,7 @@ const eventColumns: ReviewColumn[] = [
     key: 'target',
     label: 'Target',
     editable: true,
+    kind: 'name',
     width: 'w-[17%]',
     value: (entity) => ('target' in entity ? entity.target : ''),
     edit: (raw) => ({ target: raw }),
@@ -212,6 +216,12 @@ export interface EntityReviewTableProps {
    * effect events instead of showing bare tempIds.
    */
   eventLookup?: ReviewEventLookup
+  /**
+   * What the target graph already holds, so event rows can say when an actor
+   * or target is a variant of a name the graph uses, and when an event looks
+   * like one it already has (see reviewMatching.ts).
+   */
+  graphContext?: { names: readonly string[]; events: readonly Event[] }
 }
 
 const DEFAULT_CONFIDENCE_THRESHOLD = '0.7'
@@ -242,6 +252,7 @@ export function EntityReviewTable({
   onSelectByConfidence,
   issues = [],
   eventLookup,
+  graphContext,
 }: EntityReviewTableProps) {
   const columns = useMemo(
     () =>
@@ -290,6 +301,22 @@ export function EntityReviewTable({
     }
     return grouped
   }, [issues, entityType])
+
+  // Per event row: a likely duplicate already in the graph, and how its
+  // actor and target relate to the names the graph uses.
+  const graphMatches = useMemo(() => {
+    const matches = new Map<string, { duplicate: Event | null; actor: NameMatch | null; target: NameMatch | null }>()
+    if (entityType !== 'event' || !graphContext) return matches
+    for (const entity of entities) {
+      if (!('actor' in entity)) continue
+      matches.set(entity.tempId, {
+        duplicate: findDuplicateEvent(entity, graphContext.events),
+        actor: matchKnownName(entity.actor, graphContext.names),
+        target: matchKnownName(entity.target, graphContext.names),
+      })
+    }
+    return matches
+  }, [entityType, entities, graphContext])
 
   const allSelected = entities.length > 0 && entities.every((entity) => entity.selected)
   const selectedCount = entities.filter((entity) => entity.selected).length
@@ -442,15 +469,41 @@ export function EntityReviewTable({
                             className={`${fieldClass} resize-y field-sizing-content min-h-[3.25rem]`}
                           />
                         ) : edit ? (
-                          <input
-                            type={column.inputType ?? 'text'}
-                            aria-label={fieldLabel}
-                            aria-describedby={issuesId}
-                            aria-invalid={hasError || undefined}
-                            value={String(rawValue)}
-                            onChange={(event) => onEdit(entity.tempId, edit(event.target.value))}
-                            className={`${fieldClass} ${column.inputType === 'number' ? 'font-mono-code' : ''}`}
-                          />
+                          <>
+                            {column.kind === 'name' ? (
+                              // A name wraps rather than being cut off in a
+                              // narrow column ("Prussian General S").
+                              <textarea
+                                aria-label={fieldLabel}
+                                aria-describedby={issuesId}
+                                aria-invalid={hasError || undefined}
+                                value={String(rawValue)}
+                                rows={1}
+                                onChange={(event) => onEdit(entity.tempId, edit(event.target.value.replace(/\n/g, ' ')))}
+                                onKeyDown={(event) => {
+                                  // One line of meaning: Enter does not add a break.
+                                  if (event.key === 'Enter') event.preventDefault()
+                                }}
+                                className={`${fieldClass} resize-none field-sizing-content`}
+                              />
+                            ) : (
+                              <input
+                                type={column.inputType ?? 'text'}
+                                aria-label={fieldLabel}
+                                aria-describedby={issuesId}
+                                aria-invalid={hasError || undefined}
+                                value={String(rawValue)}
+                                onChange={(event) => onEdit(entity.tempId, edit(event.target.value))}
+                                className={`${fieldClass} ${column.inputType === 'number' ? 'font-mono-code' : ''}`}
+                              />
+                            )}
+                            {(column.key === 'actor' || column.key === 'target') && (
+                              <NameMatchHint
+                                match={graphMatches.get(entity.tempId)?.[column.key] ?? null}
+                                onUse={(name) => onEdit(entity.tempId, edit(name))}
+                              />
+                            )}
+                          </>
                         ) : refTempId !== undefined ? (
                           <EventReference
                             tempId={refTempId}
@@ -474,6 +527,16 @@ export function EntityReviewTable({
                           >
                             {String(rawValue)}
                           </span>
+                        )}
+                        {columnIndex === 0 && graphMatches.get(entity.tempId)?.duplicate && (
+                          <p className="mt-1 text-xs text-amber-800 dark:text-amber-300" data-testid="possible-duplicate">
+                            <span className="font-medium">Possibly already in the graph:</span>{' '}
+                            “{graphMatches.get(entity.tempId)!.duplicate!.description}”,{' '}
+                            <span className="font-mono-code">
+                              {formatHistoricalTimestamp(graphMatches.get(entity.tempId)!.duplicate!.timestamp)}
+                            </span>
+                            . Untick the row to skip it.
+                          </p>
                         )}
                         {columnIndex === 0 && rowIssues.length > 0 && (
                           <ul id={issuesId} className="mt-1 space-y-0.5 text-xs">
@@ -504,6 +567,30 @@ export function EntityReviewTable({
         </table>
       </div>
     </div>
+  )
+}
+
+/**
+ * Under an actor or target field: whether the graph already knows the name,
+ * or uses a variant of it, with one click to adopt the graph's spelling.
+ */
+function NameMatchHint({ match, onUse }: { match: NameMatch | null; onUse: (name: string) => void }) {
+  if (!match) return null
+  if (match.kind === 'known') {
+    return <span className="mt-1 block text-xs text-ink-muted">Already in the graph</span>
+  }
+  return (
+    <span className="mt-1 block text-xs text-amber-800 dark:text-amber-300">
+      The graph has{' '}
+      <button
+        type="button"
+        onClick={() => onUse(match.name)}
+        className="rounded-sm font-medium text-ink underline decoration-amber-500/70 underline-offset-2 hover:decoration-amber-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-selected"
+      >
+        {match.name}
+      </button>
+      <span className="sr-only"> (use this name)</span>
+    </span>
   )
 }
 

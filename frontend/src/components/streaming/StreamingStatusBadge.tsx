@@ -19,7 +19,7 @@ export interface StreamingStatusBadgeProps {
 }
 
 const OFF_HINT =
-  'Streaming writes are off. Edits still save normally; connect to send them over a live connection with per-write acknowledgement.'
+  'Edits save normally. Turn live saving on to send each edit over a live connection and see it confirmed as it lands.'
 
 const actionClass =
   'ml-0.5 rounded-sm text-xs font-medium underline underline-offset-2 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected transition-colors'
@@ -38,32 +38,32 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
         return {
           bg: 'bg-emerald-50 text-emerald-800 border-emerald-200',
           dot: 'bg-emerald-500',
-          label: 'Streaming on',
+          label: 'Live saving on',
         }
       case 'connecting':
         return {
           bg: 'bg-amber-50 text-amber-800 border-amber-200',
           dot: 'bg-amber-500 animate-pulse',
-          label: 'Streaming: connecting…',
+          label: 'Live saving: connecting…',
         }
       case 'error':
         return {
           bg: 'bg-rose-50 text-rose-800 border-rose-200',
           dot: 'bg-rose-500',
-          label: 'Streaming error',
+          label: 'Live saving failed',
         }
       case 'disconnected':
       default:
         return {
           bg: 'bg-subtle text-ink-secondary border-line',
           dot: 'border border-ink-muted',
-          label: 'Streaming off',
+          label: 'Live saving off',
         }
     }
   }
 
   const config = getStatusConfig()
-  const statsTitle = stats ? `Sent: ${stats.sent}, Acked: ${stats.acked}, Failed: ${stats.failed}` : undefined
+  const statsTitle = stats ? `${stats.acked} of ${stats.sent} edits confirmed${stats.failed ? `, ${stats.failed} failed` : ''}` : undefined
   const title = error || statsTitle || (status === 'disconnected' ? OFF_HINT : undefined)
 
   return (
@@ -96,13 +96,13 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
 
       {status === 'disconnected' && onConnect && (
         <button type="button" onClick={onConnect} className={actionClass}>
-          Connect
+          Turn on
         </button>
       )}
 
       {status === 'connected' && onDisconnect && (
         <button type="button" onClick={onDisconnect} className={actionClass}>
-          Disconnect
+          Turn off
         </button>
       )}
     </div>

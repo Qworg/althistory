@@ -71,6 +71,22 @@ describe('ViewToolbar', () => {
   beforeEach(() => {
     mockUseGlobalStore.mockReturnValue(asStore(mockStore))
     vi.clearAllMocks()
+    // The graph-scoped actions wait for an active graph (see below).
+    localStorage.setItem('active_graph_id', 'graph-1')
+  })
+
+  describe('without an active graph', () => {
+    it('disables the actions that need one and says how to get one', () => {
+      localStorage.removeItem('active_graph_id')
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+
+      const create = screen.getByRole('button', { name: /create event/i })
+      expect(create).toBeDisabled()
+      expect(create).toHaveAttribute('title', expect.stringMatching(/choose a graph first/i))
+      expect(screen.getByRole('button', { name: /^ingest$/i })).toBeDisabled()
+      // Import can create a graph of its own
+      expect(screen.getByRole('button', { name: /^import$/i })).toBeEnabled()
+    })
   })
 
   describe('Timeline view toolbar', () => {
@@ -613,7 +629,7 @@ describe('ViewToolbar', () => {
   describe('Streaming status integration', () => {
     it('renders streaming status badge in the toolbar', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
-      expect(screen.getByRole('status', { name: /streaming/i })).toBeInTheDocument()
+      expect(screen.getByRole('status', { name: /live saving/i })).toBeInTheDocument()
     })
   })
 
@@ -637,7 +653,7 @@ describe('ViewToolbar', () => {
       for (const name of ['Graph', 'Compare branches', 'Import', 'Ingest']) {
         expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
       }
-      expect(screen.queryByRole('status', { name: /streaming/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('status', { name: /live saving/i })).not.toBeInTheDocument()
     })
 
     it('keeps the graph shortcuts working without the menu', () => {

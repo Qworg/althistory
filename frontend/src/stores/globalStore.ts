@@ -155,7 +155,8 @@ const initialSessionData: SessionData = {
       fitToViewTrigger: 0,
     },
     causalGraph: {
-      layout: 'cose',
+      // Time order: the same picture on every load (see timeOrderLayout.ts)
+      layout: 'time',
       nodePositions: {},
     },
   },

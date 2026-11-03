@@ -95,14 +95,15 @@ const VIEW_LABELS: Record<ViewMode, string> = {
 
 /** Names for the layouts in `LAYOUT_SHORTCUTS` (the layout manager's own labels). */
 export const LAYOUT_LABELS: Record<string, string> = {
-  cose: 'force-directed',
-  breadthfirst: 'hierarchical',
-  circle: 'circular',
+  time: 'time order',
+  cose: 'clusters',
+  breadthfirst: 'tree',
+  circle: 'ring',
   grid: 'grid',
-  concentric: 'concentric',
-  dagre: 'directed graph',
-  'cose-bilkent': 'enhanced force',
-  random: 'random',
+  concentric: 'hubs at centre',
+  dagre: 'cause to effect',
+  'cose-bilkent': 'tight clusters',
+  random: 'scatter',
 }
 
 const LAYOUT_ACTION_DESCRIPTIONS: Record<string, string> = {

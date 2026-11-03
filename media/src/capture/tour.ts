@@ -93,7 +93,8 @@ async function snap(
 async function openTimeline(ctx: TourContext): Promise<void> {
   await ctx.page.goto(`${ctx.appUrl}/`)
   const total = scenario.events.length
-  await ctx.page.getByText(`${total} events, ${scenario.arcs.length} arcs`).waitFor()
+  // The counts line under the canvas: "19 events · 4 arcs · 24 links".
+  await ctx.page.getByText(`${total} events · ${scenario.arcs.length} arcs`, { exact: false }).first().waitFor()
   await ctx.page.locator('g[data-timeline-mark="event"]').nth(total - 1).waitFor()
   // The pressure panel loads separately; the scenario's clusters always yield
   // an economic pressure, so its chip is the sign the panel has data (the
@@ -132,7 +133,7 @@ async function overview(ctx: TourContext): Promise<Shot> {
     // The toolbar is several button groups; its extent is first to last control.
     toolbar: union(
       await rectOf(page.getByRole('button', { name: 'Fit to View' }).first(), 'the first toolbar button'),
-      await rectOf(page.getByRole('button', { name: 'Connect' }).first(), 'the last toolbar control')
+      await rectOf(page.getByRole('button', { name: 'Turn on' }).first(), 'the last toolbar control')
     ),
     graphSelector: await rectOf(page.getByRole('button', { name: new RegExp(scenario.graph.name) }).first(), 'the graph selector'),
     timeline: await rectOf(page.locator('svg[data-timeline-canvas]').first(), 'the timeline'),
@@ -189,7 +190,7 @@ async function causalGraph(ctx: TourContext): Promise<Shot> {
   await page.goto(`${ctx.appUrl}/causal-graph`)
   await page.getByText(`${scenario.links.length} relationships`).waitFor()
   await hideFilters(page)
-  const directed = page.getByRole('button', { name: /Directed Graph/ })
+  const directed = page.getByRole('button', { name: /Cause to effect/ })
   await directed.click()
   // The layout animates; let it finish before fitting, or Fit frames the
   // half-way positions.
@@ -206,10 +207,10 @@ async function causalGraph(ctx: TourContext): Promise<Shot> {
     {
       graph: await rectOf(canvas, 'the causal graph canvas'),
       layouts: await rectOf(page.locator('section.causal-graph-layout-manager').first(), 'the layout panel'),
-      directed: await rectOf(directed, 'the Directed Graph button'),
+      directed: await rectOf(directed, 'the Cause to effect button'),
       counts: await rectOf(page.getByText(`${scenario.links.length} relationships`), 'the relationship count'),
     },
-    centre(await rectOf(directed, 'the Directed Graph button')),
+    centre(await rectOf(directed, 'the Cause to effect button')),
     { fullPage: true }
   )
 }

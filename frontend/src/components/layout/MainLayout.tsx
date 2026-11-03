@@ -9,6 +9,8 @@ import { ActiveFiltersBar, FilterPanelContainer } from '@/components/filters/Fil
 import { CopyCompletionNotifier } from '@/components/notifications/CopyCompletionNotifier'
 import { HelpDialog } from '@/components/help/HelpDialog'
 import { useHelpShortcut } from '@/components/help/useHelpShortcut'
+import { useActiveGraphReconciler } from '@/hooks/useGraphs'
+import { NoActiveGraph } from '@/components/graphs/NoActiveGraph'
 
 interface MainLayoutProps {
   children: ReactNode
@@ -30,6 +32,9 @@ export function MainLayout({ children }: MainLayoutProps) {
 
   // `?` opens the help and reference dialog (mounted once, below)
   useHelpShortcut()
+
+  // The header's active graph follows the server's, which scopes the data
+  const { noActiveGraph } = useActiveGraphReconciler()
 
   // Sync high contrast accessibility preference to the root document element
   useEffect(() => {
@@ -159,8 +164,14 @@ export function MainLayout({ children }: MainLayoutProps) {
         >
           <div className="h-full">
             <div className={`max-w-full mx-auto px-4 sm:px-6 lg:px-8 h-full ${isMobile ? 'py-4' : 'py-6'}`}>
-              <ActiveFiltersBar className="mb-4" />
-              {children}
+              {noActiveGraph ? (
+                <NoActiveGraph />
+              ) : (
+                <>
+                  <ActiveFiltersBar className="mb-4" />
+                  {children}
+                </>
+              )}
             </div>
           </div>
         </main>

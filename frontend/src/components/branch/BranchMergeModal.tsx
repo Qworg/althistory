@@ -48,6 +48,16 @@ export interface BranchMergeModalProps {
   readonly onMerged?: (result: GraphMergeResponse) => void
   /** Called after the user restores the version the merge replaced. */
   readonly onRestored?: (version: number) => void
+  /**
+   * `inline` renders the flow as a step of a dialog that is already open (the
+   * branch comparison), instead of stacking a second dialog on it. `onClose`
+   * then means "back", and the step's own action row replaces the footer.
+   */
+  readonly presentation?: 'modal' | 'inline'
+  /** The label of the button that leaves the flow (default "Cancel"/"Close"). */
+  readonly cancelLabel?: string
+  /** Told when a write starts and ends, so a host dialog can hold Escape meanwhile. */
+  readonly onBusyChange?: (writing: boolean) => void
 }
 
 type Phase = 'idle' | 'analyzing' | 'review' | 'committing' | 'done'
@@ -146,6 +156,9 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
   sourceData,
   onMerged,
   onRestored,
+  presentation = 'modal',
+  cancelLabel,
+  onBusyChange,
 }: BranchMergeModalProps) {
   const rollback = useRollbackGraph()
   const invalidateGraphData = useInvalidateGraphData()
@@ -328,6 +341,10 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
   // restore in flight cannot, or its outcome would never be shown.
   const writing = phase === 'committing' || restoreState === 'restoring'
 
+  useEffect(() => {
+    onBusyChange?.(writing)
+  }, [writing, onBusyChange])
+
   if (!isOpen) return null
 
   const target = quoted(targetGraphName)
@@ -381,24 +398,14 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
           disabled={writing}
           className={SECONDARY_BUTTON}
         >
-          {phase === 'done' ? 'Close' : 'Cancel'}
+          {cancelLabel ?? (phase === 'done' ? 'Close' : 'Cancel')}
         </button>
         {footerPrimary}
       </div>
     </div>
   )
 
-  return (
-    <ModalBase
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Merge branch"
-      size="3xl"
-      closeOnEscape={!writing}
-      closeOnBackdrop={false}
-      showCloseButton={!writing}
-      footer={footer}
-    >
+  const body = (
       <div className="space-y-4 text-sm text-ink">
         <p className="text-ink-secondary">
           From <span className="font-semibold text-ink">{source}</span> (branch) into{' '}
@@ -731,6 +738,33 @@ export const BranchMergeModal = React.memo(function BranchMergeModal({
           </section>
         )}
       </div>
+  )
+
+  if (presentation === 'inline') {
+    return (
+      <section aria-labelledby="merge-step-heading" data-testid="merge-step">
+        <h3 id="merge-step-heading" className="mb-3 text-base font-semibold text-ink">
+          Merge branch
+        </h3>
+        {body}
+        {/* The step's action row stays in reach while its body scrolls. */}
+        <div className="sticky bottom-0 -mx-1 mt-6 border-t border-line bg-card px-1 pt-3 pb-1">{footer}</div>
+      </section>
+    )
+  }
+
+  return (
+    <ModalBase
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Merge branch"
+      size="3xl"
+      closeOnEscape={!writing}
+      closeOnBackdrop={false}
+      showCloseButton={!writing}
+      footer={footer}
+    >
+      {body}
     </ModalBase>
   )
 })

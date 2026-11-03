@@ -86,6 +86,8 @@ export interface CreateEventRequest {
   actor: string
   target: string
   timestamp: string
+  /** Confidence, evidence, event type and arc assignment live here. */
+  metadata?: Record<string, unknown>
 }
 
 export interface UpdateEventRequest {

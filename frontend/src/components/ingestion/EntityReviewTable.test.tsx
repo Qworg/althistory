@@ -244,3 +244,38 @@ describe('EntityReviewTable', () => {
     expect(await axe(container)).toHaveNoViolations()
   })
 })
+
+describe('EntityReviewTable against the target graph', () => {
+  const graphEvents = [
+    {
+      id: 'g1',
+      description: 'Battle of Hastings',
+      actor: 'King Harold',
+      target: 'William of Normandy',
+      timestamp: '1066-10-14T00:00:00Z',
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-01T00:00:00Z',
+    },
+  ]
+  const graphContext = { names: ['King Harold', 'William of Normandy', 'England'], events: graphEvents }
+
+  it('offers the graph’s spelling of a name, and adopts it in one click', async () => {
+    const onEdit = vi.fn()
+    renderTable({ graphContext, onEdit })
+    const row = document.getElementById(reviewRowId('event', 'temp-1'))!
+    await userEvent.click(within(row).getByRole('button', { name: /King Harold/ }))
+    expect(onEdit).toHaveBeenCalledWith('temp-1', { actor: 'King Harold' })
+    // A name the graph already uses is confirmed, not questioned
+    const second = document.getElementById(reviewRowId('event', 'temp-2'))!
+    expect(within(second).getByText('Already in the graph')).toBeInTheDocument()
+  })
+
+  it('flags an event the graph probably already holds', () => {
+    renderTable({ graphContext })
+    const row = document.getElementById(reviewRowId('event', 'temp-1'))!
+    expect(within(row).getByTestId('possible-duplicate')).toHaveTextContent(/Battle of Hastings/)
+    const other = document.getElementById(reviewRowId('event', 'temp-2'))!
+    expect(within(other).queryByTestId('possible-duplicate')).not.toBeInTheDocument()
+  })
+})
+

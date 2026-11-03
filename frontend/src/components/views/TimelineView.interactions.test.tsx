@@ -151,7 +151,8 @@ describe('TimelineView direct-manipulation handlers', () => {
     mocks.timelineProps.current = null
     mocks.updateEvent.mockResolvedValue(undefined)
     mocks.updateArc.mockResolvedValue(undefined)
-    mocks.createEvent.mockResolvedValue(undefined)
+    // useCreateEvent resolves to an offline-aware outcome, not the bare event.
+    mocks.createEvent.mockResolvedValue({ delivery: 'sent', value: { id: 'created', description: 'A new battle', actor: 'Someone', target: 'Somewhere', timestamp: '2020-06-01T10:00:00.000Z', created_at: '', updated_at: '' } })
     useGlobalStore.setState({ errors: [], activeFilters: { ...defaultFilters } })
     vi.mocked(useEvents).mockReturnValue(
       eventsResult({ data: events, isLoading: false, error: null })
@@ -318,7 +319,7 @@ describe('TimelineView direct-manipulation handlers', () => {
     })
 
     expect(screen.getByRole('heading', { name: /create event/i })).toBeInTheDocument()
-    const timestampInput = screen.getByLabelText(/timestamp/i) as HTMLInputElement
+    const timestampInput = screen.getByLabelText(/^date/i) as HTMLInputElement
     expect(timestampInput.value).not.toBe('')
 
     await user.type(screen.getByLabelText(/description/i), 'A new battle')

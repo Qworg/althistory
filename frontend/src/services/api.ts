@@ -672,6 +672,19 @@ class APIClient {
             }
         },
 
+        /**
+         * The graph the server treats as active: the one every request without
+         * an `X-Graph-Id` header is scoped to. `null` when none is active.
+         */
+        getActive: async (): Promise<Graph | null> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: Graph | null }> = await this.client.get('/graphs/active')
+                return response.data.data ?? null
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
         create: async (data: CreateGraphRequest): Promise<Graph> => {
             try {
                 const response: AxiosResponse<{ success: boolean; data: Graph }> = await this.client.post('/graphs', data)

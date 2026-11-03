@@ -18,6 +18,8 @@ import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { EntityReviewTable } from './EntityReviewTable'
 import { buildEventLookup, entityLabel, reviewRowId } from './reviewLabels'
+import { knownNames } from './reviewMatching'
+import { useEvents } from '@/hooks/useEvents'
 import { WikipediaIngestTab } from './WikipediaIngestTab'
 import { WikidataIngestTab } from './WikidataIngestTab'
 import { TextIngestTab } from './TextIngestTab'
@@ -112,6 +114,15 @@ export function IngestionWizard({
   targetGraphId,
 }: IngestionWizardProps) {
   const [step, setStep] = useState<WizardStep>('source')
+
+  // The graph the extraction will enter, for the review table to match names
+  // and events against. The wizard imports into the active graph, which is
+  // the one these unscoped requests read.
+  const { data: graphEvents } = useEvents({ limit: 1000 })
+  const graphContext = useMemo(
+    () => (graphEvents && graphEvents.length > 0 ? { names: knownNames(graphEvents), events: graphEvents } : undefined),
+    [graphEvents]
+  )
   const [activeTab, setActiveTab] = useState<SourceTab>('wikipedia')
   const [jobId, setJobId] = useState<string | null>(null)
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null)
@@ -634,6 +645,7 @@ export function IngestionWizard({
                 entityType="event"
                 entities={extraction.events}
                 issues={issues}
+                graphContext={graphContext}
                 onToggleSelection={(tempId) => handleToggleSelection('events', tempId)}
                 onEdit={handleEdit}
                 onSelectAll={() => handleSetAllSelected('events', true)}

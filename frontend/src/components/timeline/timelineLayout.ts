@@ -10,6 +10,9 @@
  *   arc rows            one per render level, each a 12px label over a 16px bar
  *   event label rows    up to three rows of 12px labels (eventLabelLayout.ts)
  *   event track         the marks, with their stems
+ *   [link band]         only when the graph has causal links: each link is an
+ *                       arc that leaves the cause's stem and lands on the
+ *                       effect's, so causality reads along the time axis
  *   [baseline lane]     only when a branch's baseline is ghosted beneath it
  *   time axis           ticks and 12px tick labels in the bottom margin
  *
@@ -48,6 +51,14 @@ const EVENT_TO_AXIS = 30
 export const GHOST_LANE_OFFSET = 46
 /** From the baseline lane to the axis. */
 const GHOST_TO_AXIS = 22
+/**
+ * Depth of the causal-link band under the stems. Deep enough that a link
+ * across the whole axis still curves clear of its neighbours, shallow enough
+ * that the track, its labels and the axis stay in one glance.
+ */
+export const LINK_BAND_HEIGHT = 120
+/** From the bottom of the link band to the baseline lane or the axis. */
+const LINK_BAND_TO_NEXT = 14
 /** Room for a short track with no arcs and no labels: the canvas never collapses below this. */
 const MIN_INNER_HEIGHT = 96
 
@@ -58,6 +69,8 @@ export interface TimelineLayoutInput {
   hasGhostLane?: boolean
   /** Whether a point of divergence is drawn (it takes a band above the arcs). */
   hasDivergence?: boolean
+  /** Whether causal links are drawn (they take a band under the stems). */
+  hasLinks?: boolean
   margin?: TimelineMargin
 }
 
@@ -68,6 +81,8 @@ export interface TimelineLayout {
   eventY: number
   /** y of the ghosted baseline lane, or null when there is none. */
   ghostY: number | null
+  /** Top and depth of the causal-link band, or null when there is none. */
+  linkBand: { top: number; height: number } | null
   /** y of the time axis. */
   axisY: number
   /** The plot height the content needs (axisY; the tick labels sit in the bottom margin). */
@@ -85,18 +100,27 @@ export function computeTimelineLayout({
   maxArcLevel,
   hasGhostLane = false,
   hasDivergence = false,
+  hasLinks = false,
   margin = DEFAULT_TIMELINE_MARGIN,
 }: TimelineLayoutInput): TimelineLayout {
   const arcTop = (hasDivergence ? DIVERGENCE_BAND_HEIGHT : 0) + ARC_TOP
   const arcsBottom =
     maxArcLevel >= 0 ? arcRowY(maxArcLevel, arcTop) + ARC_BAR_HEIGHT + ARC_TO_LABELS_GAP : arcTop - ARC_TOP
   const eventY = arcsBottom + EVENT_LABEL_CLEARANCE
-  const ghostY = hasGhostLane ? eventY + GHOST_LANE_OFFSET : null
-  const axisY = Math.max(MIN_INNER_HEIGHT, ghostY !== null ? ghostY + GHOST_TO_AXIS : eventY + EVENT_TO_AXIS)
+  const linkBand = hasLinks ? { top: eventY + EVENT_STEM_LENGTH, height: LINK_BAND_HEIGHT } : null
+  // What sits under the track: the link band when there is one, else the stems.
+  const underTrack = linkBand ? linkBand.top + linkBand.height + LINK_BAND_TO_NEXT : null
+  // The lane's 12px label sits above it, so it starts a label's height down.
+  const ghostY = hasGhostLane ? (underTrack !== null ? underTrack + 10 : eventY + GHOST_LANE_OFFSET) : null
+  const axisY = Math.max(
+    MIN_INNER_HEIGHT,
+    ghostY !== null ? ghostY + GHOST_TO_AXIS : underTrack ?? eventY + EVENT_TO_AXIS
+  )
   return {
     arcTop,
     eventY,
     ghostY,
+    linkBand,
     axisY,
     innerHeight: axisY,
     height: margin.top + axisY + margin.bottom,
@@ -113,7 +137,7 @@ export function computeTimelineLayout({
  */
 export function timelineContentHeight(
   arcs: Arc[],
-  options: { ghost?: boolean; divergence?: boolean; margin?: TimelineMargin } = {}
+  options: { ghost?: boolean; divergence?: boolean; links?: boolean; margin?: TimelineMargin } = {}
 ): number {
   const { maxLevel } =
     arcs.length > 0
@@ -123,6 +147,7 @@ export function timelineContentHeight(
     maxArcLevel: arcs.length > 0 ? maxLevel : -1,
     hasGhostLane: options.ghost ?? false,
     hasDivergence: options.divergence ?? false,
+    hasLinks: options.links ?? false,
     margin: options.margin,
   }).height
 }

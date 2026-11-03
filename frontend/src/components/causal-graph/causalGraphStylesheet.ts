@@ -137,6 +137,22 @@ export function buildCausalGraphStylesheet(theme: GraphCanvasTheme): StylesheetS
       }
     },
 
+    // Tracing a selection's ripple (as on the timeline): what is off it fades
+    // back. Inactive context, so it may sit under the 3:1 floor (WCAG 1.4.11).
+    {
+      selector: 'node.ripple-faded',
+      style: {
+        'opacity': 0.25,
+        'text-opacity': 0.35
+      }
+    },
+    {
+      selector: 'edge.ripple-faded',
+      style: {
+        'opacity': 0.12
+      }
+    },
+
     // A label that would overprint a more important one is not drawn...
     {
       selector: 'node.label-culled',
@@ -147,7 +163,7 @@ export function buildCausalGraphStylesheet(theme: GraphCanvasTheme): StylesheetS
     },
     // ...unless its node is the one being looked at
     {
-      selector: 'node.label-culled:selected, node.label-culled.highlighted',
+      selector: 'node.label-culled:selected, node.label-culled.highlighted, node.label-culled.ripple',
       style: {
         'text-opacity': 1,
         'text-background-opacity': 0.9,

@@ -65,28 +65,28 @@ describe('CausalGraphLayoutManager', () => {
     )
   }
 
-  it('shows the three most useful layouts, with the rest behind "More layouts"', () => {
+  it('shows the three most useful layouts, time order first, with the rest behind "More layouts"', () => {
     renderLayoutManager()
 
     expect(screen.getByRole('heading', { level: 3, name: 'Graph Layout' })).toBeInTheDocument()
     const primary = screen.getByRole('group', { name: 'Layout' })
     expect(within(primary).getAllByRole('button').map(b => b.textContent)).toEqual([
-      'Force-Directed1',
-      'Hierarchical2',
-      'Directed Graph6'
+      'Time order9',
+      'Clusters1',
+      'Cause to effect6'
     ])
     // The panel is a section of the surface it sits on, not a card of its own.
     expect(primary.closest('.causal-graph-layout-manager')?.className).not.toMatch(/shadow|bg-white/)
 
     const more = screen.getByRole('button', { name: 'More layouts' })
     expect(more).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByRole('button', { name: /circular/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^ring/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /random/i })).not.toBeInTheDocument()
 
     fireEvent.click(more)
     expect(more).toHaveAttribute('aria-expanded', 'true')
     const extra = screen.getByRole('group', { name: 'More layouts' })
-    for (const name of ['Enhanced Force', 'Circular', 'Concentric', 'Grid', 'Random']) {
+    for (const name of ['Tree', 'Tight clusters', 'Ring', 'Hubs at centre', 'Grid', 'Scatter']) {
       expect(within(extra).getByRole('button', { name: new RegExp(name) })).toBeInTheDocument()
     }
   })
@@ -99,22 +99,22 @@ describe('CausalGraphLayoutManager', () => {
     renderLayoutManager()
 
     expect(screen.getByRole('button', { name: 'More layouts' })).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByRole('button', { name: /circular/i })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /^ring/i })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('shows current active layout', () => {
     renderLayoutManager()
 
-    const forceDirectedButton = screen.getByRole('button', { name: /force-directed/i })
+    const forceDirectedButton = screen.getByRole('button', { name: /^clusters/i })
     expect(forceDirectedButton).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: /hierarchical/i })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: /^cause to effect/i })).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('applies layout when button is clicked', async () => {
     const onLayoutChange = vi.fn()
     renderLayoutManager({ onLayoutChange })
 
-    const hierarchicalButton = screen.getByRole('button', { name: /hierarchical/i })
+    const hierarchicalButton = screen.getByRole('button', { name: /^cause to effect/i })
 
     await act(async () => {
       fireEvent.click(hierarchicalButton)
@@ -122,17 +122,17 @@ describe('CausalGraphLayoutManager', () => {
 
     await waitFor(() => {
       expect(mockCytoscapeInstance.layout).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'breadthfirst' })
+        expect.objectContaining({ name: 'dagre' })
       )
       expect(mockStore.updateSessionData).toHaveBeenCalled()
-      expect(onLayoutChange).toHaveBeenCalledWith('breadthfirst')
+      expect(onLayoutChange).toHaveBeenCalledWith('dagre')
     })
   })
 
   it('shows loading state during transition', async () => {
     renderLayoutManager()
 
-    const directedButton = screen.getByRole('button', { name: /directed graph/i })
+    const directedButton = screen.getByRole('button', { name: /cause to effect/i })
     fireEvent.click(directedButton)
 
     expect(screen.getByText('Applying layout...')).toBeInTheDocument()
@@ -201,16 +201,16 @@ describe('CausalGraphLayoutManager', () => {
   it('shows layout description for current layout', () => {
     renderLayoutManager()
 
-    expect(screen.getByText(/physics-based layout with node repulsion/i)).toBeInTheDocument()
+    expect(screen.getByText(/linked events pull together/i)).toBeInTheDocument()
   })
 
   it('shows each layout\'s keyboard shortcut', () => {
     renderLayoutManager()
 
-    const forceDirectedButton = screen.getByRole('button', { name: /force-directed/i })
+    const forceDirectedButton = screen.getByRole('button', { name: /^clusters/i })
     expect(within(forceDirectedButton).getByText('1')).toBeInTheDocument()
     expect(forceDirectedButton).toHaveAttribute('aria-keyshortcuts', '1')
-    expect(screen.getByRole('button', { name: /directed graph/i })).toHaveAttribute('aria-keyshortcuts', '6')
+    expect(screen.getByRole('button', { name: /cause to effect/i })).toHaveAttribute('aria-keyshortcuts', '6')
   })
 
   it('provides quick action buttons', () => {
@@ -233,11 +233,11 @@ describe('CausalGraphLayoutManager', () => {
   it('marks the other layouts unavailable while one is applied, never the current choice disabled', async () => {
     renderLayoutManager()
 
-    const hierarchicalButton = screen.getByRole('button', { name: /hierarchical/i })
+    const hierarchicalButton = screen.getByRole('button', { name: /^cause to effect/i })
     fireEvent.click(hierarchicalButton)
 
     // The current choice reads as chosen, not as unavailable
-    const current = screen.getByRole('button', { name: /force-directed/i })
+    const current = screen.getByRole('button', { name: /^clusters/i })
     expect(current).toHaveAttribute('aria-pressed', 'true')
     expect(current).not.toBeDisabled()
     expect(current).not.toHaveAttribute('aria-disabled')
@@ -248,7 +248,7 @@ describe('CausalGraphLayoutManager', () => {
 
     // A second choice while the first is applied is ignored
     mockCytoscapeInstance.layout.mockClear()
-    fireEvent.click(screen.getByRole('button', { name: /directed graph/i }))
+    fireEvent.click(screen.getByRole('button', { name: /cause to effect/i }))
     expect(mockCytoscapeInstance.layout).not.toHaveBeenCalled()
   })
 
@@ -265,31 +265,31 @@ describe('CausalGraphLayoutManager', () => {
   it('uses the shared, tuned layout options', async () => {
     renderLayoutManager()
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /hierarchical/i }))
+      fireEvent.click(screen.getByRole('button', { name: /^cause to effect/i }))
     })
     expect(mockCytoscapeInstance.layout).toHaveBeenCalledWith(
-      expect.objectContaining({ ...DEFAULT_LAYOUT_OPTIONS.breadthfirst })
+      expect.objectContaining({ ...DEFAULT_LAYOUT_OPTIONS.dagre })
     )
   })
 
   it('shows tooltips with layout descriptions', () => {
     renderLayoutManager()
 
-    const forceDirectedButton = screen.getByRole('button', { name: /force-directed/i })
-    expect(forceDirectedButton).toHaveAttribute('title', expect.stringContaining('Physics-based layout'))
+    const forceDirectedButton = screen.getByRole('button', { name: /^clusters/i })
+    expect(forceDirectedButton).toHaveAttribute('title', expect.stringContaining('Linked events pull together'))
   })
 
   it('handles preview mode when enabled', () => {
     renderLayoutManager({ showLayoutPreview: true })
 
-    const hierarchicalButton = screen.getByRole('button', { name: /hierarchical/i })
+    const hierarchicalButton = screen.getByRole('button', { name: /^cause to effect/i })
 
     // Mouse enter should trigger preview
     fireEvent.mouseEnter(hierarchicalButton)
 
     expect(mockCytoscapeInstance.layout).toHaveBeenCalledWith(
       expect.objectContaining({
-        name: 'breadthfirst',
+        name: 'dagre',
         animationDuration: 300,
         fit: false
       })
@@ -299,7 +299,7 @@ describe('CausalGraphLayoutManager', () => {
   it('cancels preview on mouse leave', () => {
     renderLayoutManager({ showLayoutPreview: true })
 
-    const hierarchicalButton = screen.getByRole('button', { name: /hierarchical/i })
+    const hierarchicalButton = screen.getByRole('button', { name: /^cause to effect/i })
 
     fireEvent.mouseEnter(hierarchicalButton)
     fireEvent.mouseLeave(hierarchicalButton)
@@ -317,7 +317,7 @@ describe('CausalGraphLayoutManager', () => {
       />
     )
 
-    const hierarchicalButton = screen.getByRole('button', { name: /hierarchical/i })
+    const hierarchicalButton = screen.getByRole('button', { name: /^cause to effect/i })
     fireEvent.click(hierarchicalButton)
 
     expect(mockCytoscapeInstance.layout).not.toHaveBeenCalled()
@@ -328,7 +328,7 @@ describe('CausalGraphLayoutManager', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'More layouts' }))
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /circular/i }))
+      fireEvent.click(screen.getByRole('button', { name: /^ring/i }))
     })
 
     expect(mockCytoscapeInstance.layout).toHaveBeenCalledWith(
@@ -339,7 +339,7 @@ describe('CausalGraphLayoutManager', () => {
   it('names the current layout alongside its description', () => {
     renderLayoutManager()
 
-    expect(screen.getByText('Force-Directed:')).toBeInTheDocument()
+    expect(screen.getByText('Clusters:')).toBeInTheDocument()
   })
 
   describe('Utility Constants Integration', () => {

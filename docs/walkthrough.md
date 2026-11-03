@@ -53,13 +53,14 @@ confidence threshold hides the weaker inferences.
 
 ## 4. The causal graph
 
-![The causal graph in the Directed Graph layout](images/causal-graph.png)
+![The causal graph in the Cause to effect layout](images/causal-graph.png)
 
 **Causal Graph** shows the same events as a network. Every arrow is a
 cause-and-effect link with a type (direct, indirect or contributory) and a
-weight, drawn as its thickness. The layout panel rearranges the graph; for a
-history, *Directed Graph* reads top to bottom from causes to effects. *Create
-Link* adds a relationship by hand.
+weight, drawn as its thickness. The graph opens in *Time order*, left to right
+by date as on the timeline; *Cause to effect* reads top to bottom from causes
+to effects. Selecting an event keeps its causes and consequences lit and fades
+the rest. *Draw Link* adds a relationship by hand.
 
 ## 5. Actor perspective
 
