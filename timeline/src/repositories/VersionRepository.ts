@@ -400,9 +400,35 @@ export class VersionRepository {
       graphId,
       changes,
       'rollback',
-      `Rollback to version ${targetVersion}`,
+      // Read in Version history; the app speaks of restoring, not rolling back.
+      `Restored version ${targetVersion}`,
       userId
     );
+  }
+
+  /**
+   * The data of some entities as the graph's head version holds them, by id.
+   * Ids the head does not hold are absent from the result. Used to describe a
+   * write in words ("Added link: “A” → “B”") without resolving the whole tree.
+   */
+  async getHeadEntities(
+    graphId: string,
+    type: EntityType,
+    ids: string[]
+  ): Promise<Record<string, Record<string, unknown>>> {
+    const result: Record<string, Record<string, unknown>> = {};
+    const treeHash = await this.getCurrentTree(graphId);
+    if (!treeHash || ids.length === 0) return result;
+    const tree = await this.getTree(graphId, treeHash);
+    const key = `${type === 'relationship' ? 'relationships' : `${type}s`}` as keyof TreeObject;
+    const entries = tree[key] ?? {};
+    for (const id of ids) {
+      const hash = entries[id];
+      if (!hash) continue;
+      const obj = await this.getObject(graphId, hash);
+      if (obj) result[id] = obj.data;
+    }
+    return result;
   }
 
   /**

@@ -98,6 +98,19 @@ describe('FilterPanelContainer', () => {
     expect(screen.getByText('Actors (0 selected)')).toBeInTheDocument()
   })
 
+  it('closes through the same store flag as the toolbar toggle, at every breakpoint', () => {
+    renderHarness()
+
+    // No responsive class hides the dismiss control on large screens.
+    const close = screen.getByRole('button', { name: 'Close filter panel' })
+    expect(close.className).not.toMatch(/lg:hidden/)
+    expect(close.closest('.lg\\:hidden')).toBeNull()
+
+    fireEvent.click(close)
+
+    expect(useGlobalStore.getState().uiState.filterPanelOpen).toBe(false)
+  })
+
   it('writes a selected actor into the store and surfaces it as an active filter', async () => {
     renderHarness()
 

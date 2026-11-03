@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CopyHistoryPanel } from './CopyHistoryPanel'
 import { useGraphCopy } from '@/hooks/useGraphCopy'
 import { CopyOperation } from '@/types'
+import { formatHistoricalRange } from '@/utils/historicalTime'
 
 // Mock the useGraphCopy hook
 vi.mock('@/hooks/useGraphCopy')
@@ -122,7 +123,7 @@ describe('CopyHistoryPanel', () => {
       { wrapper: createWrapper() }
     )
 
-    expect(screen.queryByText('Copy History')).not.toBeInTheDocument()
+    expect(screen.queryByText('Copy history')).not.toBeInTheDocument()
   })
 
   it('should render when open', () => {
@@ -137,8 +138,8 @@ describe('CopyHistoryPanel', () => {
       { wrapper: createWrapper() }
     )
 
-    expect(screen.getByText('Copy History')).toBeInTheDocument()
-    expect(screen.getByText('Manage and review all graph copy operations')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Copy history' })).toBeInTheDocument()
+    expect(screen.getByText(/Branches are listed in the graph manager/)).toBeInTheDocument()
   })
 
   it('should display all operations', () => {
@@ -170,9 +171,14 @@ describe('CopyHistoryPanel', () => {
       { wrapper: createWrapper() }
     )
 
-    expect(screen.getByText('completed')).toBeInTheDocument()
-    expect(screen.getByText('failed')).toBeInTheDocument()
-    expect(screen.getByText('in progress')).toBeInTheDocument()
+    const table = screen.getByRole('table')
+    expect(within(table).getByText('Completed')).toBeInTheDocument()
+    expect(within(table).getByText('Failed')).toBeInTheDocument()
+    expect(within(table).getByText('In progress')).toBeInTheDocument()
+    // Copies are named for what they are.
+    expect(within(table).getByText('Full copy')).toBeInTheDocument()
+    expect(within(table).getByText('Time-range copy')).toBeInTheDocument()
+    expect(within(table).getByText('Filtered copy')).toBeInTheDocument()
   })
 
   it('should filter operations by status', async () => {
@@ -190,7 +196,7 @@ describe('CopyHistoryPanel', () => {
     )
 
     // Filter by completed
-    const statusFilter = screen.getByDisplayValue('All Status')
+    const statusFilter = screen.getByDisplayValue('All statuses')
     await user.selectOptions(statusFilter, 'completed')
 
     // Should only show completed operations
@@ -236,12 +242,18 @@ describe('CopyHistoryPanel', () => {
       { wrapper: createWrapper() }
     )
 
-    // Click on Name header to sort by name
-    const nameHeader = screen.getByText('Name')
-    await user.click(nameHeader)
+    // Sorted by creation date first
+    expect(screen.getByRole('columnheader', { name: /Created/ })).toHaveAttribute('aria-sort', 'descending')
 
-    // Should show sort indicator
-    expect(screen.getByText('↑')).toBeInTheDocument()
+    // The header is a button, so sorting works from the keyboard too
+    await user.click(screen.getByRole('button', { name: 'Name' }))
+
+    expect(screen.getByRole('columnheader', { name: /Name/ })).toHaveAttribute('aria-sort', 'ascending')
+    expect(screen.getByRole('columnheader', { name: /Created/ })).toHaveAttribute('aria-sort', 'none')
+    const rows = screen.getAllByRole('row').slice(1)
+    expect(rows.map((row) => within(row).getAllByRole('cell')[0]?.textContent)).toEqual([
+      'Test Copy 1', expect.stringContaining('Test Copy 2'), expect.stringContaining('Test Copy 3'),
+    ])
   })
 
   it('should call onSwitchToGraph when Open button is clicked', async () => {
@@ -364,7 +376,7 @@ describe('CopyHistoryPanel', () => {
       { wrapper: createWrapper() }
     )
 
-    const clearButton = screen.getByText('Clear History')
+    const clearButton = screen.getByText('Clear history')
     await user.click(clearButton)
 
     expect(mockUseGraphCopy.clearCompletedOperations).toHaveBeenCalled()
@@ -383,7 +395,7 @@ describe('CopyHistoryPanel', () => {
     )
 
     expect(screen.getByText('3')).toBeInTheDocument() // Total operations
-    expect(screen.getByText('Total Operations')).toBeInTheDocument()
+    expect(screen.getByText('Total copies')).toBeInTheDocument()
     // "Completed" appears in both status badges and summary, use getAllByText
     expect(screen.getAllByText(/Completed/i).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/In Progress/i).length).toBeGreaterThan(0)
@@ -407,8 +419,8 @@ describe('CopyHistoryPanel', () => {
     const searchInput = screen.getByPlaceholderText('Search by name or type...')
     await user.type(searchInput, 'NonExistentCopy')
 
-    expect(screen.getByText('No Copy Operations Found')).toBeInTheDocument()
-    expect(screen.getByText('No operations match your current filters.')).toBeInTheDocument()
+    expect(screen.getByText('No copies found')).toBeInTheDocument()
+    expect(screen.getByText('No copies match your current filters.')).toBeInTheDocument()
   })
 
   it('should close modal when close button is clicked', async () => {
@@ -426,7 +438,7 @@ describe('CopyHistoryPanel', () => {
     )
 
     // Use the specific close panel button (aria-label)
-    const closeButton = screen.getByRole('button', { name: /close panel/i })
+    const closeButton = screen.getByRole('button', { name: /close modal/i })
     await user.click(closeButton)
 
     expect(mockOnClose).toHaveBeenCalled()
@@ -444,19 +456,14 @@ describe('CopyHistoryPanel', () => {
       { wrapper: createWrapper() }
     )
 
-    // Check time range display.
-    // The panel formats each endpoint with `Date.prototype.toLocaleDateString()`
-    // in the runtime locale, and the fixture endpoints are UTC instants
-    // (`new Date('2023-12-31')` is 2023-12-31T00:00:00Z). West of UTC that
-    // instant lands on the previous local calendar day, so the old literal
-    // "1/1/2023 - 12/31/2023" only ever held in UTC and east of it. Derive the
-    // expected string from the same instants through the same formatter: it is
-    // locale- and timezone-stable while still pinning the range, the order and
-    // the " - " separator the panel renders.
+    // Check time range display. The endpoints are historical dates stored as
+    // UTC instants, so they are formatted in UTC (formatHistoricalRange) and do
+    // not move with the viewer's time zone.
     const timeRange = mockOperations[1].parameters.timeRange
     if (!timeRange) throw new Error('fixture operation is missing parameters.timeRange')
-    const expectedRange = `${timeRange.start.toLocaleDateString()} - ${timeRange.end.toLocaleDateString()}`
-    expect(screen.getByText(expectedRange)).toBeInTheDocument()
+    expect(screen.getByText(formatHistoricalRange(timeRange.start, timeRange.end))).toBeInTheDocument()
+    expect(screen.getByText(/Jan 1, 2023/)).toBeInTheDocument()
+    expect(screen.getByText(/Dec 31, 2023/)).toBeInTheDocument()
     
     // Check filter display
     expect(screen.getByText(/Filtered: 2 actors, 1 targets/)).toBeInTheDocument()
@@ -492,9 +499,8 @@ describe('CopyHistoryPanel', () => {
         { wrapper: createWrapper() }
       )
 
-      const dialog = screen.getByRole('dialog')
+      const dialog = screen.getByRole('dialog', { name: 'Copy history' })
       expect(dialog).toHaveAttribute('aria-modal', 'true')
-      expect(dialog).toHaveAttribute('aria-labelledby', 'copy-history-title')
     })
 
     it('should have accessible search input', () => {
@@ -541,7 +547,7 @@ describe('CopyHistoryPanel', () => {
         { wrapper: createWrapper() }
       )
 
-      const closeButton = screen.getByRole('button', { name: /close panel/i })
+      const closeButton = screen.getByRole('button', { name: /close modal/i })
       expect(closeButton).toBeInTheDocument()
     })
 

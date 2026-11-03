@@ -8,7 +8,8 @@ import { useState, useCallback, memo } from 'react'
 import { 
   useGraphManagement, 
   useGraphVersions,
-  useGraphBranches 
+  useGraphBranches,
+  useGraphHeadVersion,
 } from '@/hooks/useGraphs'
 import { Graph, GraphStatus, GraphVersion, CreateGraphRequest } from '@/types'
 import { ModalBase } from '@/components/modals/ModalBase'
@@ -35,6 +36,8 @@ export const GraphManagerModal = memo(function GraphManagerModal({
   const [showBranchDialog, setShowBranchDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [branchName, setBranchName] = useState('')
+  const [branchDescription, setBranchDescription] = useState('')
+  const [branchError, setBranchError] = useState<string | null>(null)
   const [comparingBranchId, setComparingBranchId] = useState<string | null>(null)
 
   const {
@@ -52,6 +55,8 @@ export const GraphManagerModal = memo(function GraphManagerModal({
     isBranching,
     isRollingBack,
   } = useGraphManagement()
+  // Version-history numbers (Graph.version is an internal change counter)
+  const headVersion = useGraphHeadVersion(activeGraph?.id, activeGraph?.version)
 
   const { data: versions, isLoading: isLoadingVersions } = useGraphVersions(
     activeTab === 'versions' ? activeGraphId : null
@@ -94,16 +99,27 @@ export const GraphManagerModal = memo(function GraphManagerModal({
     setShowDeleteDialog(false)
   }, [selectedGraph, deleteGraph])
 
+  const openBranchDialog = useCallback(() => {
+    setBranchError(null)
+    setShowBranchDialog(true)
+  }, [])
+
   const handleBranchGraph = useCallback(async () => {
     if (!activeGraphId || !branchName.trim()) return
+    setBranchError(null)
     try {
-      await branchGraph(activeGraphId, branchName.trim())
+      const description = branchDescription.trim()
+      await (description
+        ? branchGraph(activeGraphId, branchName.trim(), { description })
+        : branchGraph(activeGraphId, branchName.trim()))
       setBranchName('')
+      setBranchDescription('')
       setShowBranchDialog(false)
     } catch (error) {
-      console.error('Failed to create branch:', error)
+      const message = error instanceof Error && error.message ? error.message : 'The server did not say why.'
+      setBranchError(message)
     }
-  }, [activeGraphId, branchName, branchGraph])
+  }, [activeGraphId, branchName, branchDescription, branchGraph])
 
   const handleRollback = useCallback(async (version: number) => {
     if (!activeGraphId) return
@@ -126,7 +142,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
     >
       <div className="flex h-[600px]">
         {/* Sidebar Navigation */}
-        <div className="w-48 border-r bg-gray-50 flex flex-col">
+        <div className="w-48 border-r border-line bg-subtle flex flex-col">
           <nav className="flex-1 p-2">
             {(['graphs', 'branches', 'versions'] as Tab[]).map(tab => (
               <button
@@ -136,7 +152,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
                   w-full px-3 py-2 rounded text-left text-sm font-medium capitalize
                   ${activeTab === tab 
                     ? 'bg-blue-100 text-blue-700' 
-                    : 'text-gray-600 hover:bg-gray-100'}
+                    : 'text-ink-secondary hover:bg-card hover:text-ink'}
                   transition-colors
                 `}
               >
@@ -147,12 +163,12 @@ export const GraphManagerModal = memo(function GraphManagerModal({
 
           {/* Current Graph Info */}
           {activeGraph && (
-            <div className="p-3 border-t bg-white">
-              <div className="text-xs text-gray-500 mb-1">Active Graph</div>
-              <div className="font-medium text-sm text-gray-900 truncate">
+            <div className="p-3 border-t border-line bg-card">
+              <div className="text-xs text-ink-muted mb-1">Active Graph</div>
+              <div className="font-medium text-sm text-ink truncate">
                 {activeGraph.name}
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-ink-muted mt-1 font-mono-code">
                 v{activeGraph.version} - {activeGraph.metadata.eventCount} events
               </div>
             </div>
@@ -176,7 +192,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
                 onEditChange={setEditingGraph}
                 onSwitch={handleSwitchAndClose}
                 onDelete={() => setShowDeleteDialog(true)}
-                onBranch={() => setShowBranchDialog(true)}
+                onBranch={openBranchDialog}
                 onCreate={() => setShowCreateModal(true)}
               />
             )}
@@ -188,7 +204,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
                 isLoading={isLoadingBranches}
                 onSwitch={handleSwitchAndClose}
                 onCompare={setComparingBranchId}
-                onCreateBranch={() => setShowBranchDialog(true)}
+                onCreateBranch={openBranchDialog}
               />
             )}
 
@@ -196,7 +212,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
               <VersionsTab
                 versions={versions || []}
                 isLoading={isLoadingVersions}
-                currentVersion={activeGraph?.version}
+                currentVersion={headVersion ?? undefined}
                 onRollback={handleRollback}
                 isRollingBack={isRollingBack}
               />
@@ -208,29 +224,53 @@ export const GraphManagerModal = memo(function GraphManagerModal({
       {/* Branch Dialog */}
       {showBranchDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96 shadow-xl">
-            <h3 className="text-lg font-semibold mb-4">Create Branch</h3>
+          <div role="dialog" aria-modal="true" aria-labelledby="graph-manager-branch-title" className="bg-card text-ink border border-line rounded-lg p-6 w-[28rem] max-w-[calc(100vw-2rem)] shadow-xl">
+            <h2 id="graph-manager-branch-title" className="font-display text-xl font-semibold text-ink mb-2">Create branch</h2>
+            <p className="text-sm text-ink-secondary mb-4">
+              The branch starts as a full copy of {activeGraph?.name ?? 'the active graph'}, which stays as it is.
+              Switch to the branch to explore the what-if.
+            </p>
+            <label htmlFor="graph-manager-branch-name" className="block text-sm font-medium text-ink mb-1">
+              Branch name
+            </label>
             <input
+              id="graph-manager-branch-name"
               type="text"
               value={branchName}
               onChange={(e) => setBranchName(e.target.value)}
-              placeholder="Branch name..."
-              className="w-full px-3 py-2 border rounded mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="e.g. Clerks Prevail"
+              maxLength={255}
+              className="w-full px-3 py-2 border border-line bg-card text-ink rounded mb-3 text-sm focus:outline-none focus:ring-2 focus:ring-selected"
               autoFocus
             />
+            <label htmlFor="graph-manager-branch-description" className="block text-sm font-medium text-ink mb-1">
+              Description <span className="font-normal text-ink-muted">(optional)</span>
+            </label>
+            <textarea
+              id="graph-manager-branch-description"
+              value={branchDescription}
+              onChange={(e) => setBranchDescription(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 border border-line bg-card text-ink rounded mb-4 text-sm focus:outline-none focus:ring-2 focus:ring-selected"
+            />
+            {branchError && (
+              <p role="alert" className="mb-4 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-800 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-200">
+                Couldn't create the branch: {branchError}
+              </p>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setShowBranchDialog(false)}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded"
+                className="px-4 py-2 text-sm text-ink-secondary hover:bg-subtle hover:text-ink rounded"
               >
                 Cancel
               </button>
               <button
                 onClick={handleBranchGraph}
                 disabled={!branchName.trim() || isBranching}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-2 text-sm bg-blue-700 text-white rounded hover:bg-blue-800 disabled:opacity-50"
               >
-                {isBranching ? 'Creating...' : 'Create Branch'}
+                {isBranching ? 'Creating branch…' : 'Create branch'}
               </button>
             </div>
           </div>
@@ -240,15 +280,15 @@ export const GraphManagerModal = memo(function GraphManagerModal({
       {/* Delete Confirmation Dialog */}
       {showDeleteDialog && selectedGraph && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96 shadow-xl">
-            <h3 className="text-lg font-semibold mb-2 text-red-600">Delete Graph</h3>
-            <p className="text-gray-600 mb-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="graph-manager-delete-title" className="bg-card text-ink border border-line rounded-lg p-6 w-96 max-w-[calc(100vw-2rem)] shadow-xl">
+            <h2 id="graph-manager-delete-title" className="font-display text-xl font-semibold mb-2 text-red-700 dark:text-red-300">Delete graph</h2>
+            <p className="text-sm text-ink-secondary mb-4">
               Are you sure you want to delete "{selectedGraph.name}"? This action cannot be undone.
             </p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setShowDeleteDialog(false)}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded"
+                className="px-4 py-2 text-sm text-ink-secondary hover:bg-subtle hover:text-ink rounded"
               >
                 Cancel
               </button>
@@ -323,7 +363,7 @@ const GraphsTab = memo(function GraphsTab({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h3 className="text-lg font-semibold">All Graphs</h3>
+        <h3 className="font-display text-xl font-semibold text-ink">All graphs</h3>
         <div className="flex items-center gap-2">
           <button
             onClick={onCreate}
@@ -336,7 +376,7 @@ const GraphsTab = memo(function GraphsTab({
             disabled={!activeGraphId}
             className="px-3 py-1.5 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50"
           >
-            Branch Current
+            Branch this graph
           </button>
         </div>
       </div>
@@ -348,7 +388,7 @@ const GraphsTab = memo(function GraphsTab({
             onClick={() => onSelect(graph)}
             className={`
               p-4 border rounded-lg cursor-pointer transition-all
-              ${graph.id === activeGraphId ? 'border-blue-500 bg-blue-50' : 'hover:border-gray-300'}
+              ${graph.id === activeGraphId ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/15' : 'border-line hover:border-ink-muted'}
               ${selectedGraph?.id === graph.id ? 'ring-2 ring-blue-500' : ''}
             `}
           >
@@ -359,19 +399,19 @@ const GraphsTab = memo(function GraphsTab({
                   type="text"
                   value={editingGraph.name}
                   onChange={(e) => onEditChange({ ...editingGraph, name: e.target.value })}
-                  className="w-full px-2 py-1 border rounded text-lg font-semibold"
+                  className="w-full px-2 py-1 border border-line rounded text-lg font-semibold"
                 />
                 <textarea
                   value={editingGraph.description || ''}
                   onChange={(e) => onEditChange({ ...editingGraph, description: e.target.value })}
                   placeholder="Description..."
-                  className="w-full px-2 py-1 border rounded text-sm"
+                  className="w-full px-2 py-1 border border-line rounded text-sm"
                   rows={2}
                 />
                 <select
                   value={editingGraph.status}
                   onChange={(e) => onEditChange({ ...editingGraph, status: e.target.value as GraphStatus })}
-                  className="px-2 py-1 border rounded text-sm"
+                  className="px-2 py-1 border border-line rounded text-sm"
                 >
                   <option value="active">Active</option>
                   <option value="archived">Archived</option>
@@ -385,7 +425,7 @@ const GraphsTab = memo(function GraphsTab({
                   </button>
                   <button
                     onClick={onCancelEdit}
-                    className="px-3 py-1 border rounded text-sm hover:bg-gray-50"
+                    className="px-3 py-1 border border-line rounded text-sm hover:bg-subtle"
                   >
                     Cancel
                   </button>
@@ -396,7 +436,7 @@ const GraphsTab = memo(function GraphsTab({
               <>
                 <div className="flex items-start justify-between">
                   <div>
-                    <h4 className="font-semibold text-gray-900">
+                    <h4 className="text-base font-semibold text-ink">
                       {graph.name}
                       {graph.branchName && (
                         <span className="ml-2 text-xs text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">
@@ -405,7 +445,7 @@ const GraphsTab = memo(function GraphsTab({
                       )}
                     </h4>
                     {graph.description && (
-                      <p className="text-sm text-gray-500 mt-1">{graph.description}</p>
+                      <p className="text-sm text-ink-muted mt-1">{graph.description}</p>
                     )}
                   </div>
                   <span className={`
@@ -418,14 +458,14 @@ const GraphsTab = memo(function GraphsTab({
                   </span>
                 </div>
                 
-                <div className="flex items-center gap-4 mt-3 text-sm text-gray-500">
+                <div className="flex items-center gap-4 mt-3 text-sm text-ink-muted">
                   <span>{graph.metadata.eventCount} events</span>
                   <span>{graph.metadata.arcCount} arcs</span>
                   <span>v{graph.version}</span>
                 </div>
 
                 {selectedGraph?.id === graph.id && (
-                  <div className="flex gap-2 mt-4 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex gap-2 mt-4 pt-3 border-t border-line" onClick={(e) => e.stopPropagation()}>
                     {graph.id !== activeGraphId && (
                       <button
                         onClick={() => onSwitch(graph.id)}
@@ -436,7 +476,7 @@ const GraphsTab = memo(function GraphsTab({
                     )}
                     <button
                       onClick={() => onEdit(graph)}
-                      className="px-3 py-1 border rounded text-sm hover:bg-gray-50"
+                      className="px-3 py-1 border border-line rounded text-sm hover:bg-subtle"
                     >
                       Edit
                     </button>
@@ -475,23 +515,23 @@ const BranchesTab = memo(function BranchesTab({
   onCreateBranch,
 }: BranchesTabProps) {
   if (isLoading) {
-    return <div className="text-center py-8 text-gray-500">Loading branches...</div>
+    return <div className="text-center py-8 text-ink-muted">Loading branches...</div>
   }
 
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h3 className="text-lg font-semibold">Branches</h3>
+        <h3 className="font-display text-xl font-semibold text-ink">Branches</h3>
         <button
           onClick={onCreateBranch}
           className="px-3 py-1.5 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
         >
-          Create Branch
+          Create branch
         </button>
       </div>
 
       {branches.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">
+        <div className="text-center py-8 text-ink-muted">
           No branches yet. Create a branch to explore alternative timelines.
         </div>
       ) : (
@@ -501,15 +541,15 @@ const BranchesTab = memo(function BranchesTab({
               key={branch.id}
               className={`
                 p-4 border rounded-lg
-                ${branch.id === activeGraphId ? 'border-blue-500 bg-blue-50' : ''}
+                ${branch.id === activeGraphId ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/15' : 'border-line'}
               `}
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="font-semibold text-gray-900">
+                  <h4 className="text-base font-semibold text-ink">
                     {branch.branchName || branch.name}
                   </h4>
-                  <div className="text-sm text-gray-500 mt-1">
+                  <div className="text-sm text-ink-muted mt-1">
                     {branch.metadata.eventCount} events - v{branch.version}
                   </div>
                 </div>
@@ -555,15 +595,15 @@ const VersionsTab = memo(function VersionsTab({
   isRollingBack,
 }: VersionsTabProps) {
   if (isLoading) {
-    return <div className="text-center py-8 text-gray-500">Loading version history...</div>
+    return <div className="text-center py-8 text-ink-muted">Loading version history...</div>
   }
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold">Version History</h3>
+      <h3 className="font-display text-xl font-semibold text-ink">Version history</h3>
 
       {versions.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">
+        <div className="text-center py-8 text-ink-muted">
           No version history available.
         </div>
       ) : (
@@ -573,7 +613,7 @@ const VersionsTab = memo(function VersionsTab({
               key={version.commitHash}
               className={`
                 p-4 border rounded-lg
-                ${version.version === currentVersion ? 'border-blue-500 bg-blue-50' : ''}
+                ${version.version === currentVersion ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/15' : 'border-line'}
               `}
             >
               <div className="flex items-start justify-between">
@@ -586,13 +626,13 @@ const VersionsTab = memo(function VersionsTab({
                       </span>
                     )}
                     {version.operation && (
-                      <span className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded capitalize">
+                      <span className="text-xs bg-subtle text-ink-secondary px-1.5 py-0.5 rounded capitalize">
                         {version.operation}
                       </span>
                     )}
                   </div>
-                  <div className="text-sm text-gray-600 mt-1">{version.message}</div>
-                  <div className="text-xs text-gray-400 mt-2">
+                  <div className="text-sm text-ink-secondary mt-1">{version.message}</div>
+                  <div className="text-xs text-ink-muted mt-2">
                     {new Date(version.timestamp).toLocaleString()}
                     {version.author && ` by ${version.author}`}
                   </div>

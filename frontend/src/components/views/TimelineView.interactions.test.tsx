@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, act, waitFor } from '@testing-library/react'
+import { render, screen, act, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router'
@@ -45,6 +45,8 @@ vi.mock('@/hooks/useAPI', async (importOriginal) => {
     useCreateEvent: () => ({ mutateAsync: mocks.createEvent, isPending: false }),
     useDeleteEvent: () => ({ mutateAsync: mocks.deleteEvent, isPending: false }),
     useDeleteArc: () => ({ mutateAsync: mocks.deleteArc, isPending: false }),
+    // No server: the inspector's causal links come back empty, not refused.
+    useCausalRelationships: () => ({ data: [], isLoading: false, error: null }),
   }
 })
 
@@ -346,5 +348,137 @@ describe('TimelineView direct-manipulation handlers', () => {
     await user.click(screen.getByRole('button', { name: /^save$/i }))
 
     expect(await screen.findByText(/Failed to create event: create failed/)).toBeInTheDocument()
+  })
+
+  describe('undo and redo', () => {
+    it('undoes a drag with Ctrl+Z by writing the original time back, then redoes it', async () => {
+      renderView()
+
+      await act(async () => {
+        await currentTimelineProps().onEventDrag?.(events[0]!, new Date('1066-11-01T00:00:00.000Z'))
+      })
+      expect(screen.getByText(/^Moved "Battle of Hastings" to/)).toHaveAttribute('role', 'status')
+
+      mocks.updateEvent.mockClear()
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
+      })
+      await waitFor(() =>
+        expect(mocks.updateEvent).toHaveBeenCalledWith({
+          id: 'e1',
+          data: { timestamp: '1066-10-14T09:00:00.000Z' },
+        })
+      )
+      expect(screen.getByText(/^Undone: moved "Battle of Hastings"/)).toBeInTheDocument()
+
+      mocks.updateEvent.mockClear()
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true, bubbles: true }))
+      })
+      await waitFor(() =>
+        expect(mocks.updateEvent).toHaveBeenCalledWith({
+          id: 'e1',
+          data: { timestamp: '1066-11-01T00:00:00.000Z' },
+        })
+      )
+    })
+
+    it('undoes an arc resize from the Undo button', async () => {
+      const user = userEvent.setup()
+      renderView()
+
+      await act(async () => {
+        await currentTimelineProps().onArcResize?.(normanArc, {
+          start: new Date('1066-08-01T00:00:00.000Z'),
+          end: new Date('1067-01-01T00:00:00.000Z'),
+        })
+      })
+      mocks.updateArc.mockClear()
+
+      await user.click(screen.getByRole('button', { name: /^undo/i }))
+
+      await waitFor(() =>
+        expect(mocks.updateArc).toHaveBeenCalledWith({
+          id: 'a1',
+          data: { start_time: normanArc.start_time, end_time: normanArc.end_time },
+        })
+      )
+      expect(screen.getByRole('button', { name: /^undo/i })).toBeDisabled()
+      expect(screen.getByRole('button', { name: /^redo/i })).toBeEnabled()
+    })
+
+    it('records nothing for a refused drag, so there is nothing to undo', async () => {
+      renderView()
+
+      await act(async () => {
+        await currentTimelineProps().onEventDrag?.(events[0]!, new Date('1068-06-01T00:00:00.000Z'))
+      })
+
+      expect(screen.queryByRole('button', { name: /^undo/i })).not.toBeInTheDocument()
+    })
+
+    it('hands the timeline the same guardrails, phrased for the live preview', () => {
+      renderView()
+      const props = currentTimelineProps()
+
+      expect(props.getEventDragViolation?.(events[0]!, new Date('1066-11-01T00:00:00.000Z'))).toBeNull()
+      expect(props.getEventDragViolation?.(events[0]!, new Date('1068-06-01T00:00:00.000Z'))).toMatch(
+        /^Will be refused: outside its containing arc "Norman Conquest"/
+      )
+      expect(
+        props.getArcResizeViolation?.(normanArc, {
+          start: new Date('1066-11-01T00:00:00.000Z'),
+          end: new Date('1067-01-01T00:00:00.000Z'),
+        })
+      ).toMatch(/contained events? would fall outside/)
+    })
+  })
+
+  it('sizes the canvas to the card even when data was still loading at mount', async () => {
+    // The card (and its ref) only renders after loading; the measurement has
+    // to attach then, or the canvas keeps its 800px default and overflows.
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({ width: 700, height: 400, top: 0, left: 0, right: 700, bottom: 400, x: 0, y: 0, toJSON: () => ({}) })
+    vi.mocked(useEvents).mockReturnValue(eventsResult({ data: undefined, isLoading: true, error: null }))
+    // The card's padding (24px a side) is read from its computed style
+    const realStyle = window.getComputedStyle
+    const style = vi.spyOn(window, 'getComputedStyle').mockImplementation(
+      (el, pseudo) => Object.assign(realStyle(el, pseudo), { paddingLeft: '24px', paddingRight: '24px' })
+    )
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const tree = (
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <TimelineView />
+        </BrowserRouter>
+      </QueryClientProvider>
+    )
+    const { rerender } = render(tree)
+    expect(mocks.timelineProps.current).toBeNull()
+
+    vi.mocked(useEvents).mockReturnValue(eventsResult({ data: events, isLoading: false, error: null }))
+    rerender(tree)
+
+    // 700px card minus its 24px padding on each side
+    await waitFor(() => expect(currentTimelineProps().width).toBe(652))
+    rect.mockRestore()
+    style.mockRestore()
+  })
+
+  it('opens "Branch from this event" from the inspector with the point of divergence filled in', async () => {
+    const user = userEvent.setup()
+    renderView()
+
+    act(() => {
+      currentTimelineProps().onEventSelect?.(events[0]!)
+    })
+    await user.click(screen.getByRole('button', { name: 'Branch from this event' }))
+
+    const dialog = await screen.findByRole('dialog', { name: /branch from this event/i })
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByRole('region', { name: /point of divergence/i })).toHaveTextContent('Battle of Hastings')
+    expect((within(dialog).getByLabelText(/branch name/i) as HTMLInputElement).value).toMatch(/what if: Battle of Hastings/)
   })
 })

@@ -6,7 +6,9 @@ import {
   formatPressureTooltip,
   getConfidenceLevel,
   formatPressureType,
-  getPressureTypeIcon,
+  getPressureTypeIconPath,
+  PRESSURE_TYPE_ICON_PATHS,
+  UNKNOWN_PRESSURE_ICON_PATH,
   calculatePressurePositions,
   filterPressuresByConfidence,
   groupPressuresByType
@@ -227,13 +229,23 @@ describe('pressureVisualization utils', () => {
     })
   })
 
-  describe('getPressureTypeIcon', () => {
-    it('returns correct icons for pressure types', () => {
-      expect(getPressureTypeIcon('economic')).toBe('💰')
-      expect(getPressureTypeIcon('social')).toBe('👥')
-      expect(getPressureTypeIcon('environmental')).toBe('🌍')
-      expect(getPressureTypeIcon('political')).toBe('🏛️')
-      expect(getPressureTypeIcon('unknown')).toBe('❓')
+  describe('getPressureTypeIconPath', () => {
+    it('returns the outline path for each known pressure type', () => {
+      for (const type of ['economic', 'social', 'environmental', 'political'] as const) {
+        expect(getPressureTypeIconPath(type)).toBe(PRESSURE_TYPE_ICON_PATHS[type])
+        expect(getPressureTypeIconPath(type)).toMatch(/^M/)
+      }
+    })
+
+    it('falls back to the unknown-type path, including for inherited keys', () => {
+      expect(getPressureTypeIconPath('unknown')).toBe(UNKNOWN_PRESSURE_ICON_PATH)
+      expect(getPressureTypeIconPath('toString')).toBe(UNKNOWN_PRESSURE_ICON_PATH)
+    })
+
+    it('never returns an emoji', () => {
+      for (const type of ['economic', 'social', 'environmental', 'political', 'unknown']) {
+        expect(getPressureTypeIconPath(type)).not.toMatch(/\p{Extended_Pictographic}/u)
+      }
     })
   })
 

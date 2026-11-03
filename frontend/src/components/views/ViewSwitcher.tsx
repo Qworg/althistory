@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect } from 'react'
+import React, { useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router'
 import { useGlobalStore } from '@/stores/globalStore'
 import { ViewMode, FilterState, SessionData } from '@/types'
+import { ActorViewIcon, CausalGraphViewIcon, TimelineViewIcon } from '@/components/layout/viewIcons'
+import { viewModeForPath } from '@/hooks/useViewShortcuts'
 
 /**
  * Blob `saveCurrentViewState` writes into `sessionData` under the dynamic key
@@ -41,11 +43,7 @@ const viewConfigs: ViewConfig[] = [
     mode: 'timeline',
     path: '/timeline',
     label: 'Timeline',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    ),
+    icon: <TimelineViewIcon />,
     description: 'Chronological view of events and arcs',
     shortcut: '1'
   },
@@ -53,11 +51,7 @@ const viewConfigs: ViewConfig[] = [
     mode: 'causal',
     path: '/causal-graph',
     label: 'Causal Graph',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-      </svg>
-    ),
+    icon: <CausalGraphViewIcon />,
     description: 'Network view of causal relationships',
     shortcut: '2'
   },
@@ -65,11 +59,7 @@ const viewConfigs: ViewConfig[] = [
     mode: 'actor-perspective',
     path: '/actor-perspective',
     label: 'Actor Perspective',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-      </svg>
-    ),
+    icon: <ActorViewIcon />,
     description: 'Actor-focused timeline view',
     shortcut: '3'
   }
@@ -84,7 +74,6 @@ export function ViewSwitcher({
   const location = useLocation()
   const { 
     viewMode, 
-    setViewMode, 
     selectedEvents, 
     selectedArcs, 
     activeFilters,
@@ -92,19 +81,10 @@ export function ViewSwitcher({
     updateSessionData 
   } = useGlobalStore()
 
-  // Determine current view mode from URL
-  const currentViewMode = React.useMemo((): ViewMode => {
-    const currentPath = location.pathname
-    const config = viewConfigs.find(config => config.path === currentPath)
-    return config?.mode || 'timeline'
-  }, [location.pathname])
-
-  // Update store when URL changes
-  useEffect(() => {
-    if (currentViewMode !== viewMode) {
-      setViewMode(currentViewMode)
-    }
-  }, [currentViewMode, viewMode, setViewMode])
+  // The view on screen comes from the URL. The store's `viewMode` is derived
+  // from the route once, in `useViewStateManager` (always mounted by
+  // MainLayout), so this switcher only navigates.
+  const currentViewMode = viewModeForPath(location.pathname)
 
   // Save current view state before switching
   const saveCurrentViewState = useCallback(() => {
@@ -130,11 +110,8 @@ export function ViewSwitcher({
     // Save current state before switching
     saveCurrentViewState()
 
-    // Navigate to new view
+    // Navigate to new view (the route sets the store's view mode)
     navigate(targetPath, { replace: false })
-
-    // Update view mode in store
-    setViewMode(targetMode)
 
     // Restore state for target view if available
     const targetStateKey = `${targetMode}State`
@@ -145,7 +122,7 @@ export function ViewSwitcher({
       // Note: This would be implemented with additional store actions
       console.log('Restoring state for', targetMode, savedState)
     }
-  }, [currentViewMode, navigate, setViewMode, saveCurrentViewState, sessionData])
+  }, [currentViewMode, navigate, saveCurrentViewState, sessionData])
 
   // Note: Keyboard shortcuts (Alt+1/2/3) are handled globally by useViewShortcuts hook in MainLayout
 
@@ -167,8 +144,8 @@ export function ViewSwitcher({
               transition-all duration-200 ease-in-out
               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
               ${isActive
-                ? 'bg-blue-100 text-blue-700 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                ? 'bg-blue-100 text-blue-700 shadow-sm dark:bg-blue-500/15 dark:text-blue-200'
+                : 'text-ink-secondary hover:text-ink hover:bg-subtle'
               }
               ${orientation === 'vertical' ? 'w-full justify-start' : ''}
             `}
@@ -177,7 +154,7 @@ export function ViewSwitcher({
             aria-controls={`${config.mode}-panel`}
             title={`${config.description} (Alt+${config.shortcut})`}
           >
-            <span className={`${showLabels && orientation === 'horizontal' ? 'mr-2' : ''}`}>
+            <span aria-hidden="true" className={`${showLabels && orientation === 'horizontal' ? 'mr-2' : ''}`}>
               {config.icon}
             </span>
             
@@ -190,7 +167,7 @@ export function ViewSwitcher({
             {/* Keyboard shortcut indicator */}
             {config.shortcut && (
               <span className={`
-                ml-auto text-xs text-gray-400 opacity-0 group-hover:opacity-100 
+                ml-auto text-xs text-ink-muted opacity-0 group-hover:opacity-100 
                 transition-opacity duration-200
                 ${orientation === 'horizontal' ? 'ml-2' : ''}
               `}>

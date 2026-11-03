@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { GraphSelector } from './GraphSelector'
-import { useGraphManagement } from '@/hooks/useGraphs'
+import { useGraphManagement, useGraphHeadVersion } from '@/hooks/useGraphs'
 import { Graph } from '@/types'
+import { formatHistoricalRange } from '@/utils/historicalTime'
 
 // Mock dependencies
 vi.mock('@/hooks/useGraphs')
@@ -114,6 +115,8 @@ describe('GraphSelector', () => {
   beforeEach(() => {
     mockGraphManagement = createMockGraphManagement()
     vi.mocked(useGraphManagement).mockReturnValue(mockGraphManagement)
+    // Version history head for the active graph (not Graph.version)
+    vi.mocked(useGraphHeadVersion).mockReturnValue(3)
   })
 
   afterEach(() => {
@@ -133,7 +136,7 @@ describe('GraphSelector', () => {
       expect(screen.getByText('v3')).toBeInTheDocument()
     })
 
-    it('should show "Select Graph" when no graph is active', () => {
+    it('should invite selection when no graph is active', () => {
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
         activeGraphId: null,
         activeGraph: undefined
@@ -141,7 +144,7 @@ describe('GraphSelector', () => {
       
       render(<GraphSelector />)
       
-      expect(screen.getByText('Select Graph')).toBeInTheDocument()
+      expect(screen.getByText('Select a graph')).toBeInTheDocument()
     })
 
     it('should apply custom className', () => {
@@ -170,7 +173,7 @@ describe('GraphSelector', () => {
       render(<GraphSelector />)
       
       // Open dropdown
-      const button = screen.getByRole('button', { name: /Select Graph/i })
+      const button = screen.getByRole('button', { name: /Select a graph/i })
       await user.click(button)
       
       expect(screen.getByText('No active graphs found')).toBeInTheDocument()
@@ -212,6 +215,29 @@ describe('GraphSelector', () => {
       expect(screen.getByText('12 arcs')).toBeInTheDocument()
     })
 
+    it('shows the time range as UTC years with the full UTC dates in the title', async () => {
+      const ranged = {
+        ...mockGraphs[0]!,
+        // Midnight UTC on New Year's Day: a local-time year would read 1065
+        // anywhere west of Greenwich.
+        metadata: {
+          ...mockGraphs[0]!.metadata,
+          timeRange: { start: '1066-01-01T00:00:00Z', end: '1072-01-01T00:00:00Z' }
+        }
+      }
+      vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
+        activeGraph: ranged,
+        graphs: [ranged]
+      }))
+
+      render(<GraphSelector />)
+      await user.click(screen.getByRole('button'))
+
+      const range = screen.getByText('1066–1072')
+      expect(range).toHaveAttribute('title', formatHistoricalRange('1066-01-01T00:00:00Z', '1072-01-01T00:00:00Z'))
+      expect(range.closest('.font-mono-code')).not.toBeNull()
+    })
+
     it('should display branch name badge for branched graphs', async () => {
       render(<GraphSelector />)
       
@@ -226,7 +252,54 @@ describe('GraphSelector', () => {
       await user.click(screen.getByRole('button'))
       
       const activeGraphButton = screen.getByRole('button', { name: /Main Timeline.*150 events/i })
-      expect(activeGraphButton).toHaveClass('bg-blue-50')
+      expect(activeGraphButton).toHaveAttribute('aria-current', 'true')
+      expect(activeGraphButton).toHaveClass('bg-selected/10')
+      expect(screen.getByRole('button', { name: /Alternative Branch.*45 events/i })).not.toHaveAttribute('aria-current')
+    })
+
+    it('nests each branch under the graph it was forked from, with a fork glyph', async () => {
+      const unrelated: Graph = { ...mockGraphs[0]!, id: 'graph4', name: 'Second Baseline', parentGraphId: undefined }
+      vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
+        // The branch is listed last by the API; the selector puts it under its parent.
+        graphs: [mockGraphs[0]!, unrelated, mockGraphs[1]!],
+      }))
+      render(<GraphSelector />)
+      await user.click(screen.getByRole('button', { name: /Main Timeline/i }))
+
+      const items = screen.getAllByRole('button').filter((b) => b.hasAttribute('data-depth'))
+      expect(items.map((b) => b.getAttribute('data-depth'))).toEqual(['0', '1', '0'])
+      expect(items[1]).toHaveAccessibleName(/Alternative Branch/)
+      expect(items[1]!.querySelector('svg.text-divergence')).not.toBeNull()
+      expect(items[0]!.querySelector('svg.text-divergence')).toBeNull()
+    })
+
+    it("shows a branch by the part of its name that is its own, keeping the full name accessible", async () => {
+      const baseline: Graph = { ...mockGraphs[0]!, id: 'engine', name: 'The Engine Age' }
+      const branch: Graph = {
+        ...mockGraphs[1]!,
+        id: 'clerks',
+        name: 'The Engine Age — Clerks Prevail',
+        branchName: 'The Engine Age — Clerks Prevail',
+        parentGraphId: 'engine',
+      }
+      vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
+        activeGraphId: 'clerks',
+        activeGraph: branch,
+        graphs: [baseline, branch],
+      }))
+      render(<GraphSelector />)
+
+      // The selector button still names the graph in full (the walkthrough
+      // finds it by /The Engine Age/).
+      const trigger = screen.getByRole('button', { name: /The Engine Age — Clerks Prevail/ })
+      await user.click(trigger)
+
+      const item = screen.getByRole('button', { name: /^The Engine Age — Clerks Prevail.*45 events/ })
+      expect(item).toHaveAttribute('aria-current', 'true')
+      expect(item).toHaveAttribute('data-depth', '1')
+      expect(item.querySelector('span[aria-hidden="true"]:not(:empty)')?.textContent).toBe('Clerks Prevail')
+      // A branchName equal to the name is not repeated as a badge.
+      expect(item.textContent?.match(/The Engine Age — Clerks Prevail/g)).toHaveLength(1)
     })
 
     it('should filter graphs by status when filter tabs are clicked', async () => {
@@ -313,6 +386,18 @@ describe('GraphSelector', () => {
       const button = screen.getByRole('button')
       expect(button).toBeDisabled()
       expect(button).toHaveClass('cursor-not-allowed')
+    })
+
+    it('says it is loading, not "Select a graph", while the list loads', () => {
+      vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
+        isLoading: true,
+        activeGraph: undefined,
+      }))
+
+      render(<GraphSelector />)
+
+      expect(screen.getByRole('button')).toHaveTextContent('Loading graph…')
+      expect(screen.queryByText(/Select a graph/)).not.toBeInTheDocument()
     })
 
     it('should show "Switching..." when switching graphs', () => {

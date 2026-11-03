@@ -1,12 +1,67 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
-import cytoscape, { Core, BoundingBox } from 'cytoscape'
+import { useRef, useEffect, useState, useCallback, useId } from 'react'
+import cytoscape, { Core, BoundingBox, type StylesheetStyle } from 'cytoscape'
 import { Event, CausalRelationship } from '@/types'
+import { readGraphCanvasTheme, type GraphCanvasTheme } from './causalGraphPresentation'
+
+/** The minimap's stylesheet: the main graph's palette, simplified. */
+function buildOverviewStylesheet(theme: GraphCanvasTheme): StylesheetStyle[] {
+  const c = theme.colors
+  return [
+    // Simplified node styles for overview
+    {
+      selector: 'node',
+      style: {
+        'background-color': c.nodeFill,
+        'border-color': c.nodeBorder,
+        'border-width': 1,
+        'width': 8,
+        'height': 8,
+        'overlay-padding': '2px',
+        'z-index': 10
+      }
+    },
+    // Nodes inside the main view
+    {
+      selector: 'node.in-viewport',
+      style: {
+        'background-color': c.selectedFill,
+        'border-color': c.selectedBorder,
+        'border-width': 2,
+        'width': 10,
+        'height': 10
+      }
+    },
+    // Simplified edge styles
+    {
+      selector: 'edge',
+      style: {
+        'width': 1,
+        'line-color': c.edgeContributory,
+        'target-arrow-color': c.edgeContributory,
+        'target-arrow-shape': 'triangle',
+        'curve-style': 'straight',
+        'arrow-scale': 0.8,
+        'z-index': 5
+      }
+    },
+    // Strong relationships
+    {
+      selector: 'edge[weight >= 0.7]',
+      style: {
+        'line-color': c.edgeDirect,
+        'target-arrow-color': c.edgeDirect,
+        'width': 2
+      }
+    }
+  ]
+}
 
 export interface CausalGraphOverviewProps {
   mainCytoscapeInstance: Core | null
   events: Event[]
   causalRelationships: CausalRelationship[]
   className?: string
+  /** Map width in px; by default it fills the column it sits in. */
   width?: number
   height?: number
   onViewportChange?: (viewport: BoundingBox) => void
@@ -19,7 +74,7 @@ export function CausalGraphOverview({
   events,
   causalRelationships,
   className = '',
-  width = 200,
+  width,
   height = 150,
   onViewportChange,
   showMinimap = true,
@@ -28,8 +83,9 @@ export function CausalGraphOverview({
   const containerRef = useRef<HTMLDivElement>(null)
   const overviewCyRef = useRef<Core | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
-  const [mainViewport, setMainViewport] = useState<BoundingBox | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const headingId = useId()
+  const [palette, setPalette] = useState(() => readGraphCanvasTheme().colors)
 
   // Refs to store latest callback versions (fixes stale closure in event listeners)
   const updateViewportIndicatorRef = useRef<() => void>(() => {})
@@ -42,64 +98,8 @@ export function CausalGraphOverview({
     const overviewCy = cytoscape({
       container: containerRef.current,
       
-      style: [
-        // Simplified node styles for overview
-        {
-          selector: 'node',
-          style: {
-            'background-color': '#3B82F6',
-            'border-color': '#1E40AF',
-            'border-width': 1,
-            'width': 8,
-            'height': 8,
-            'font-size': '6px',
-            'color': '#FFFFFF',
-            'text-valign': 'center',
-            'text-halign': 'center',
-            'overlay-padding': '2px',
-            'z-index': 10
-          }
-        },
-        
-        // Highlighted nodes in viewport
-        {
-          selector: 'node.in-viewport',
-          style: {
-            'background-color': '#EF4444',
-            'border-color': '#DC2626',
-            'border-width': 2,
-            'width': 10,
-            'height': 10
-          }
-        },
-        
-        // Simplified edge styles
-        {
-          selector: 'edge',
-          style: {
-            'width': 1,
-            'line-color': '#9CA3AF',
-            'target-arrow-color': '#9CA3AF',
-            'target-arrow-shape': 'triangle',
-            'curve-style': 'straight',
-            'arrow-scale': 0.8,
-            'opacity': 0.6,
-            'z-index': 5
-          }
-        },
-        
-        // Strong relationships
-        {
-          selector: 'edge[weight >= 0.7]',
-          style: {
-            'line-color': '#DC2626',
-            'target-arrow-color': '#DC2626',
-            'width': 2,
-            'opacity': 0.8
-          }
-        }
-      ],
-      
+      style: buildOverviewStylesheet(readGraphCanvasTheme()),
+
       layout: {
         name: 'preset', // Use preset positions from main graph
         fit: true,
@@ -196,6 +196,8 @@ export function CausalGraphOverview({
 
     // Fit to container
     overviewCyRef.current.fit(undefined, 10)
+    // The map's extent changed, so the "in view" rectangle must follow
+    drawViewportOverlayRef.current()
 
   }, [overviewCyRef, mainCytoscapeInstance, isInitialized, events, causalRelationships])
 
@@ -205,16 +207,6 @@ export function CausalGraphOverview({
 
     // Get main graph viewport
     const newViewport = mainCytoscapeInstance.extent()
-
-    // Only update state if viewport actually changed (avoid unnecessary re-renders)
-    setMainViewport(prev => {
-      if (!prev ||
-          prev.x1 !== newViewport.x1 || prev.x2 !== newViewport.x2 ||
-          prev.y1 !== newViewport.y1 || prev.y2 !== newViewport.y2) {
-        return newViewport
-      }
-      return prev
-    })
 
     // Highlight nodes in current viewport
     overviewCyRef.current.nodes().removeClass('in-viewport')
@@ -235,46 +227,37 @@ export function CausalGraphOverview({
 
   }, [mainCytoscapeInstance, isInitialized, onViewportChange])
 
-  // Draw viewport rectangle overlay
+  // The "in view" rectangle: the main graph's visible extent mapped onto the
+  // overview. It is computed from both graphs' CURRENT extents every time --
+  // reading the saved mainViewport state here drew the previous viewport,
+  // because that state is set in the same tick -- clamped to the map, and
+  // rendered by React (ADR-001) rather than appended to the container.
+  const [overlayRect, setOverlayRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
   const drawViewportOverlay = useCallback(() => {
-    if (!overviewCyRef.current || !mainViewport || !containerRef.current) return
-
-    // Remove existing overlay
-    const existingOverlay = containerRef.current.querySelector('.viewport-overlay')
-    if (existingOverlay) {
-      existingOverlay.remove()
-    }
-
-    // Calculate overlay position and size
-    const overviewExtent = overviewCyRef.current.extent()
-    const containerRect = containerRef.current.getBoundingClientRect()
-    
-    const scaleX = containerRect.width / (overviewExtent.x2 - overviewExtent.x1)
-    const scaleY = containerRect.height / (overviewExtent.y2 - overviewExtent.y1)
-    
-    const overlayX = (mainViewport.x1 - overviewExtent.x1) * scaleX
-    const overlayY = (mainViewport.y1 - overviewExtent.y1) * scaleY
-    const overlayWidth = (mainViewport.x2 - mainViewport.x1) * scaleX
-    const overlayHeight = (mainViewport.y2 - mainViewport.y1) * scaleY
-    
-    // Create overlay element
-    const overlay = document.createElement('div')
-    overlay.className = 'viewport-overlay'
-    overlay.style.cssText = `
-      position: absolute;
-      left: ${overlayX}px;
-      top: ${overlayY}px;
-      width: ${overlayWidth}px;
-      height: ${overlayHeight}px;
-      border: 2px solid #EF4444;
-      background-color: rgba(239, 68, 68, 0.1);
-      pointer-events: none;
-      z-index: 1000;
-    `
-    
-    containerRef.current.appendChild(overlay)
-
-  }, [mainViewport])
+    const overview = overviewCyRef.current
+    const container = containerRef.current
+    if (!overview || !mainCytoscapeInstance || !container) return
+    const main = mainCytoscapeInstance.extent()
+    const ov = overview.extent()
+    const w = container.clientWidth
+    const h = container.clientHeight
+    const spanX = ov.x2 - ov.x1
+    const spanY = ov.y2 - ov.y1
+    if (!(w > 0 && h > 0 && spanX > 0 && spanY > 0)) return
+    const clamp = (v: number, max: number) => Math.min(max, Math.max(0, v))
+    const left = clamp(((main.x1 - ov.x1) / spanX) * w, w)
+    const top = clamp(((main.y1 - ov.y1) / spanY) * h, h)
+    const right = clamp(((main.x2 - ov.x1) / spanX) * w, w)
+    const bottom = clamp(((main.y2 - ov.y1) / spanY) * h, h)
+    const next = { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) }
+    setOverlayRect(prev =>
+      prev &&
+      Math.abs(prev.left - next.left) < 0.5 && Math.abs(prev.top - next.top) < 0.5 &&
+      Math.abs(prev.width - next.width) < 0.5 && Math.abs(prev.height - next.height) < 0.5
+        ? prev
+        : next
+    )
+  }, [mainCytoscapeInstance])
 
   // Initialize overview when main graph is ready
   useEffect(() => {
@@ -310,18 +293,53 @@ export function CausalGraphOverview({
       }
     }
 
+    // The overview's nodes are added with the main graph's positions at the
+    // time the data arrives -- before the main layout has run, when every node
+    // still sits at the origin -- so the map showed a single dot. Copy the
+    // positions again whenever the main layout settles or a node is dragged.
+    const syncPositions = () => {
+      const overview = overviewCyRef.current
+      if (!overview) return
+      overview.batch(() => {
+        mainCytoscapeInstance.nodes().forEach(mainNode => {
+          const overviewNode = overview.getElementById(mainNode.id())
+          if (overviewNode.length > 0) overviewNode.position({ ...mainNode.position() })
+        })
+      })
+      overview.fit(undefined, 10)
+    }
+    const handleLayoutChange = () => {
+      // The overview was just refitted, so its extent changed as well
+      syncPositions()
+      handleViewportChange()
+    }
+
     // Listen to various events that change viewport
     mainCytoscapeInstance.on('pan zoom resize', handleViewportChange)
-    mainCytoscapeInstance.on('layoutstop', handleViewportChange)
+    mainCytoscapeInstance.on('layoutstop', handleLayoutChange)
+    mainCytoscapeInstance.on('dragfree', 'node', handleLayoutChange)
 
     // Initial update
     handleViewportChange()
 
     return () => {
       mainCytoscapeInstance.off('pan zoom resize', handleViewportChange)
-      mainCytoscapeInstance.off('layoutstop', handleViewportChange)
+      mainCytoscapeInstance.off('layoutstop', handleLayoutChange)
+      mainCytoscapeInstance.off('dragfree', 'node', handleLayoutChange)
     }
   }, [mainCytoscapeInstance, isInitialized, showMinimap]) // Removed callback deps - using refs instead
+
+  // Follow the theme (.dark / .high-contrast on <html>), like the main graph
+  useEffect(() => {
+    if (!isInitialized || typeof MutationObserver === 'undefined') return
+    const observer = new MutationObserver(() => {
+      const theme = readGraphCanvasTheme()
+      overviewCyRef.current?.style(buildOverviewStylesheet(theme))
+      setPalette(theme.colors)
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [isInitialized])
 
   // Cleanup
   useEffect(() => {
@@ -339,42 +357,48 @@ export function CausalGraphOverview({
   }
 
   return (
-    <div className={`causal-graph-overview ${className}`}>
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="text-xs font-semibold text-gray-700">Graph Overview</h4>
-          <div className="flex items-center space-x-1 text-xs text-gray-500">
-            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-            <span>Nodes</span>
-            <div className="w-2 h-2 bg-red-500 rounded-full ml-2"></div>
-            <span>Viewport</span>
-          </div>
+    <section className={`causal-graph-overview ${className}`} aria-labelledby={headingId}>
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+        <h3 id={headingId} className="font-display text-xl font-semibold text-ink">Graph Overview</h3>
+        <div className="flex items-center gap-1 text-xs text-ink-secondary">
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: palette.nodeFill }} aria-hidden="true" />
+          <span>Events</span>
+          <span className="ml-2 h-2 w-2 rounded-sm border-2" style={{ borderColor: palette.selectedFill }} aria-hidden="true" />
+          <span>In view</span>
         </div>
-        
+      </div>
+
+      <div
+        className="relative overflow-hidden rounded border border-line bg-canvas"
+        style={{
+          width: width !== undefined ? `${width}px` : '100%',
+          height: `${height}px`,
+        }}
+      >
+        {/* Cytoscape owns this node's children; the overlay is its sibling.
+            Sized explicitly: Cytoscape's injected stylesheet forces its
+            container to position: relative, which cancels absolute/inset
+            sizing and left the map 0px tall. */}
         <div
           ref={containerRef}
-          className="relative bg-gray-50 rounded border border-gray-200"
-          style={{
-            width: `${width}px`,
-            height: `${height}px`,
-            overflow: 'hidden',
-            cursor: enableNavigation ? (isDragging ? 'grabbing' : 'grab') : 'default'
-          }}
+          className="h-full w-full"
+          style={{ cursor: enableNavigation ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
         />
-        
-        {/* Statistics */}
-        <div className="mt-2 flex justify-between text-xs text-gray-500">
-          <span>{events.length} nodes</span>
-          <span>{causalRelationships.length} edges</span>
-        </div>
-        
-        {/* Navigation hint */}
-        {enableNavigation && (
-          <div className="mt-1 text-xs text-gray-400 text-center">
-            Click to navigate
-          </div>
+        {overlayRect && (
+          <div
+            className="viewport-overlay pointer-events-none absolute border-2 border-selected bg-selected/10"
+            data-testid="overview-viewport"
+            style={{ left: overlayRect.left, top: overlayRect.top, width: overlayRect.width, height: overlayRect.height }}
+          />
         )}
       </div>
-    </div>
+
+      {/* Navigation hint */}
+      {enableNavigation && (
+        <p className="mt-2 text-xs text-ink-secondary">
+          Click the map to move the main view there.
+        </p>
+      )}
+    </section>
   )
 }

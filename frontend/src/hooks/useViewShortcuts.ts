@@ -1,19 +1,33 @@
 import { useEffect, useCallback } from 'react'
+import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
 import { useNavigate, useLocation } from 'react-router'
 import { useGlobalStore } from '@/stores/globalStore'
 import { ViewMode } from '@/types'
 
-interface ViewConfig {
+export interface ViewShortcutConfig {
   mode: ViewMode
   path: string
+  /** Pressed with Alt. */
   shortcut: string
 }
 
-const viewConfigs: ViewConfig[] = [
+/**
+ * The Alt+n view-switch bindings. Exported so the in-app shortcut reference
+ * (`components/help/shortcuts.ts`) lists exactly what this hook handles.
+ */
+export const VIEW_SHORTCUT_CONFIGS: readonly ViewShortcutConfig[] = [
   { mode: 'timeline', path: '/timeline', shortcut: '1' },
   { mode: 'causal', path: '/causal-graph', shortcut: '2' },
   { mode: 'actor-perspective', path: '/actor-perspective', shortcut: '3' },
 ]
+
+/**
+ * The view a route shows. The route is the one source of truth for the view
+ * mode: `/` renders the timeline, and so does any path no view claims.
+ */
+export function viewModeForPath(pathname: string): ViewMode {
+  return VIEW_SHORTCUT_CONFIGS.find((c) => c.path === pathname)?.mode ?? 'timeline'
+}
 
 /**
  * Hook to register global Alt+1/2/3 keyboard shortcuts for view switching.
@@ -22,7 +36,7 @@ const viewConfigs: ViewConfig[] = [
 export function useViewShortcuts() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { setViewMode, updateSessionData, viewMode, selectedEvents, selectedArcs, activeFilters } = useGlobalStore()
+  const { updateSessionData, viewMode, selectedEvents, selectedArcs, activeFilters } = useGlobalStore()
 
   // Save current view state before switching
   const saveCurrentViewState = useCallback(() => {
@@ -40,40 +54,29 @@ export function useViewShortcuts() {
     })
   }, [viewMode, selectedEvents, selectedArcs, activeFilters, updateSessionData])
 
-  // Get current view mode from URL
-  const getCurrentViewMode = useCallback((): ViewMode => {
-    const config = viewConfigs.find((c) => c.path === location.pathname)
-    return config?.mode || 'timeline'
-  }, [location.pathname])
-
-  // Handle view switching
+  // Handle view switching. Navigating is enough: `useViewStateManager` derives
+  // the store's view mode from the route.
   const handleViewSwitch = useCallback(
     (targetMode: ViewMode, targetPath: string) => {
-      const currentViewMode = getCurrentViewMode()
-      if (targetMode === currentViewMode) return
+      if (targetMode === viewModeForPath(location.pathname)) return
 
       saveCurrentViewState()
       navigate(targetPath, { replace: false })
-      setViewMode(targetMode)
     },
-    [getCurrentViewMode, navigate, setViewMode, saveCurrentViewState]
+    [location.pathname, navigate, saveCurrentViewState]
   )
 
   // Register keyboard shortcuts
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
-      // Don't trigger when typing in inputs
-      if (
-        event.target instanceof HTMLInputElement ||
-        event.target instanceof HTMLTextAreaElement ||
-        event.target instanceof HTMLSelectElement
-      ) {
+      // Not while typing, composing, or with a modal dialog open
+      if (shouldIgnoreAppShortcut(event)) {
         return
       }
 
       // Check for Alt + number shortcuts
       if (event.altKey && !event.ctrlKey && !event.shiftKey) {
-        const config = viewConfigs.find((c) => c.shortcut === event.key)
+        const config = VIEW_SHORTCUT_CONFIGS.find((c) => c.shortcut === event.key)
         if (config) {
           event.preventDefault()
           handleViewSwitch(config.mode, config.path)

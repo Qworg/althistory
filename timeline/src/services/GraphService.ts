@@ -464,7 +464,7 @@ export class GraphService {
           targetGraphId,
           changes,
           'merge',
-          `Merged from ${sourceGraph.name}`,
+          `Merged “${sourceGraph.name}”`,
           undefined,
           { graphId: request.sourceGraphId, version: sourceHead?.version ?? null },
           targetHead?.version ?? null

@@ -10,7 +10,11 @@
 
 import React from 'react'
 import { useGraphCopy } from '@/hooks/useGraphCopy'
+import { ModalBase } from '@/components/modals/ModalBase'
+import { formatHistoricalRange } from '@/utils/historicalTime'
 import { CopyOperation } from '@/types'
+import { COPY_TYPE_LABELS } from './copyTypeLabels'
+import { CopyStatusBadge } from './CopyStatusBadge'
 
 interface GraphCopyProgressPanelProps {
   isOpen: boolean
@@ -31,202 +35,153 @@ export const GraphCopyProgressPanel: React.FC<GraphCopyProgressPanelProps> = ({
     clearCompletedOperations
   } = useGraphCopy()
 
-  const getStatusColor = (status: CopyOperation['status']) => {
-    switch (status) {
-      case 'pending':
-        return 'text-yellow-600 bg-yellow-100'
-      case 'in_progress':
-        return 'text-blue-600 bg-blue-100'
-      case 'completed':
-        return 'text-green-600 bg-green-100'
-      case 'failed':
-        return 'text-red-600 bg-red-100'
-      default:
-        return 'text-gray-600 bg-gray-100'
-    }
-  }
-
-  const getStatusIcon = (status: CopyOperation['status']) => {
-    switch (status) {
-      case 'pending':
-        return (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        )
-      case 'in_progress':
-        return (
-          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-        )
-      case 'completed':
-        return (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-        )
-      case 'failed':
-        return (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        )
-      default:
-        return null
-    }
-  }
+  const iconButton =
+    'p-1 rounded-md text-ink-muted hover:text-ink hover:bg-subtle transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-selected'
 
   const renderOperation = (operation: CopyOperation, isActive: boolean) => (
-    <div key={operation.id} className="border border-gray-200 rounded-lg p-4 mb-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center space-x-2">
-          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(operation.status)}`}>
-            {getStatusIcon(operation.status)}
-            <span className="ml-1 capitalize">{operation.status.replace('_', ' ')}</span>
-          </span>
-          <h3 className="font-medium text-gray-900">{operation.name}</h3>
+    <li key={operation.id} className="border border-line rounded-lg p-4">
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <CopyStatusBadge status={operation.status} />
+          <h4 className="min-w-0 truncate text-base font-semibold text-ink" title={operation.name}>
+            {operation.name}
+          </h4>
         </div>
-        
-        <div className="flex items-center space-x-2">
+
+        <div className="flex shrink-0 items-center gap-1">
           {isActive && (
             <>
               <button
+                type="button"
                 onClick={() => refreshCopyStatus(operation.id)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                className={iconButton}
                 title="Refresh status"
+                aria-label={`Refresh status of ${operation.name}`}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
               </button>
               <button
+                type="button"
                 onClick={() => cancelCopy(operation.id)}
-                className="text-red-400 hover:text-red-600 transition-colors"
-                title="Cancel operation"
+                className={`${iconButton} hover:text-red-700 dark:hover:text-red-300`}
+                title="Cancel copy"
+                aria-label={`Cancel copy ${operation.name}`}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </>
           )}
-          
+
           {!isActive && operation.status === 'completed' && onSwitchToGraph && (
             <button
+              type="button"
               onClick={() => onSwitchToGraph(operation.id)}
-              className="text-blue-600 hover:text-blue-800 text-sm underline"
+              className="text-sm text-baseline hover:underline underline-offset-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
             >
-              Switch to Graph
+              Switch to copy
             </button>
           )}
         </div>
       </div>
 
-      <div className="text-sm text-gray-600 mb-2">
-        <span className="capitalize">{operation.type.replace('_', ' ')} copy</span>
+      <p className="text-sm text-ink-secondary">
+        {COPY_TYPE_LABELS[operation.type] ?? 'Copy'}
         {operation.parameters.timeRange && (
-          <span className="ml-2">
-            ({new Date(operation.parameters.timeRange.start).toLocaleDateString()} - {new Date(operation.parameters.timeRange.end).toLocaleDateString()})
+          <span className="ml-2 font-mono-code text-xs">
+            {formatHistoricalRange(operation.parameters.timeRange.start, operation.parameters.timeRange.end)}
           </span>
         )}
         {operation.parameters.filter && (
           <span className="ml-2">
-            (Filtered: {operation.parameters.filter.actors?.length || 0} actors, {operation.parameters.filter.targets?.length || 0} targets)
+            ({operation.parameters.filter.actors?.length || 0} actors, {operation.parameters.filter.targets?.length || 0} targets)
           </span>
         )}
-      </div>
+      </p>
 
       {/* Error Message */}
       {operation.error_message && (
-        <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+        <p className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-800 dark:bg-red-500/10 dark:border-red-400/40 dark:text-red-200">
           {operation.error_message}
-        </div>
+        </p>
       )}
 
-      {/* Completion Info */}
+      {/* Completion info: a wall-clock time, so the viewer's local time */}
       {operation.completed_at && (
-        <div className="text-xs text-gray-500 mt-2">
-          {operation.status === 'completed' ? 'Completed' : 'Failed'} at {new Date(operation.completed_at).toLocaleString()}
-        </div>
+        <p className="text-xs text-ink-muted mt-2">
+          {operation.status === 'completed' ? 'Completed' : 'Failed'}{' '}
+          <span className="font-mono-code">{new Date(operation.completed_at).toLocaleString()}</span>
+        </p>
       )}
-    </div>
+    </li>
   )
-
-  if (!isOpen) return null
 
   const hasActiveOperations = copyState.activeOperations.length > 0
   const hasCompletedOperations = copyState.completedOperations.length > 0
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">Graph Copy Operations</h2>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Active Operations */}
-          {hasActiveOperations && (
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                Active Operations ({copyState.activeOperations.length})
-              </h3>
-              {copyState.activeOperations.map(operation => renderOperation(operation, true))}
-            </div>
-          )}
-
-          {/* Completed Operations */}
-          {hasCompletedOperations && (
-            <div className="mb-6">
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Recent Operations ({copyState.completedOperations.length})
-                </h3>
-                <button
-                  onClick={clearCompletedOperations}
-                  className="text-sm text-gray-600 hover:text-gray-800 underline"
-                >
-                  Clear All
-                </button>
-              </div>
-              {copyState.completedOperations.slice(-5).map(operation => renderOperation(operation, false))}
-            </div>
-          )}
-
-          {/* Empty State */}
-          {!hasActiveOperations && !hasCompletedOperations && (
-            <div className="text-center py-12">
-              <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Copy Operations</h3>
-              <p className="text-gray-600">
-                Create a graph copy to see operations here.
-              </p>
-            </div>
-          )}
-
-          {/* Close Button */}
-          <div className="flex justify-end">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
-            >
-              Close
-            </button>
-          </div>
+    <ModalBase
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Copy progress"
+      size="3xl"
+      footer={
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-md border border-line bg-card text-sm font-medium text-ink-secondary hover:bg-subtle hover:text-ink transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+          >
+            Close
+          </button>
         </div>
-      </div>
-    </div>
+      }
+    >
+      {/* Active Operations */}
+      {hasActiveOperations && (
+        <section className="mb-6">
+          <h3 className="font-display text-xl font-semibold text-ink mb-3">
+            Running <span className="font-mono-code text-base text-ink-muted">({copyState.activeOperations.length})</span>
+          </h3>
+          <ul className="space-y-3">
+            {copyState.activeOperations.map(operation => renderOperation(operation, true))}
+          </ul>
+        </section>
+      )}
+
+      {/* Completed Operations */}
+      {hasCompletedOperations && (
+        <section className="mb-2">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-display text-xl font-semibold text-ink">
+              Recent <span className="font-mono-code text-base text-ink-muted">({copyState.completedOperations.length})</span>
+            </h3>
+            <button
+              type="button"
+              onClick={clearCompletedOperations}
+              className="text-sm text-ink-secondary hover:text-ink underline underline-offset-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+            >
+              Clear list
+            </button>
+          </div>
+          <ul className="space-y-3">
+            {copyState.completedOperations.slice(-5).map(operation => renderOperation(operation, false))}
+          </ul>
+        </section>
+      )}
+
+      {/* Empty State */}
+      {!hasActiveOperations && !hasCompletedOperations && (
+        <div className="text-center py-10">
+          <p className="text-base font-semibold text-ink mb-1">No copies yet</p>
+          <p className="text-sm text-ink-secondary">
+            Copies you make with Branch or copy… in the Graph menu show here. Branches are listed in the graph manager.
+          </p>
+        </div>
+      )}
+    </ModalBase>
   )
 }

@@ -55,6 +55,7 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
         borderColor: 'border-green-200',
         iconColor: 'text-green-600',
         titleColor: 'text-green-800',
+        hoverTitleColor: 'hover:text-green-800',
         textColor: 'text-green-700'
       }
     } else if (operation.status === 'failed') {
@@ -63,6 +64,7 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
         borderColor: 'border-red-200',
         iconColor: 'text-red-600',
         titleColor: 'text-red-800',
+        hoverTitleColor: 'hover:text-red-800',
         textColor: 'text-red-700'
       }
     } else {
@@ -71,6 +73,7 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
         borderColor: 'border-blue-200',
         iconColor: 'text-blue-600',
         titleColor: 'text-blue-800',
+        hoverTitleColor: 'hover:text-blue-800',
         textColor: 'text-blue-700'
       }
     }
@@ -104,7 +107,7 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
     } else if (operation.status === 'failed') {
       return 'Copy Failed'
     } else {
-      return 'Copy Status Update'
+      return 'Copy progress'
     }
   }
 
@@ -148,7 +151,7 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
           </div>
           
           <div className="ml-3 flex-1">
-            <h3 className={`text-sm font-medium ${styles.titleColor}`}>
+            <h3 className={`text-sm font-semibold ${styles.titleColor}`}>
               {getTitle()}
             </h3>
             <p className={`mt-1 text-sm ${styles.textColor}`}>
@@ -156,7 +159,7 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
             </p>
             
             {/* Operation details */}
-            <div className={`mt-2 text-xs ${styles.textColor} opacity-75`}>
+            <div className={`mt-2 text-xs ${styles.textColor}`}>
               <div>Type: {operation.type.replace('_', ' ')}</div>
               {operation.completed_at && (
                 <div>Completed: {new Date(operation.completed_at).toLocaleString()}</div>
@@ -190,10 +193,12 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
 
           <div className="ml-4 flex-shrink-0">
             <button
+              type="button"
               onClick={handleDismiss}
-              className={`inline-flex ${styles.textColor} hover:${styles.titleColor} transition-colors`}
+              aria-label="Close notification"
+              className={`inline-flex ${styles.textColor} ${styles.hoverTitleColor} transition-colors`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>

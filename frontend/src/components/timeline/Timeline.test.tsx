@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '../../test/utils'
 import { Timeline } from './Timeline'
 import { Event, Arc } from '../../types'
@@ -289,7 +289,9 @@ describe('Timeline Component', () => {
       const svg = document.querySelector('svg')
       expect(svg).toBeInTheDocument()
       expect(svg).toHaveAttribute('width', '1000') // default width
-      expect(svg).toHaveAttribute('height', '420') // default height
+      // No height given: the canvas is as tall as its content (an empty track and the axis).
+      expect(Number(svg?.getAttribute('height'))).toBeGreaterThan(0)
+      expect(Number(svg?.getAttribute('height'))).toBeLessThan(200)
     })
   })
 
@@ -427,9 +429,11 @@ describe('Timeline Component', () => {
   describe('Accessibility', () => {
     it('provides proper ARIA attributes', () => {
       renderWithProviders(<Timeline {...defaultProps} />)
-      
-      const svg = document.querySelector('svg')
-      expect(svg).toBeInTheDocument()
+
+      // A composite widget, not role="img" (whose children are presentational).
+      const svg = screen.getByRole('application', { name: /^Timeline with/ })
+      expect(svg).toHaveAttribute('aria-roledescription', 'timeline')
+      expect(svg).toHaveAccessibleDescription(/Escape returns to the canvas/)
     })
 
     it('supports keyboard navigation', () => {
@@ -437,7 +441,8 @@ describe('Timeline Component', () => {
       
       const svg = document.querySelector('svg')
       expect(svg).toBeInTheDocument()
-      expect(svg).toHaveAttribute('tabindex', '0')
+      // Focusable for pan/zoom; a mark is the tab stop.
+      expect(svg).toHaveAttribute('tabindex', '-1')
       
       if (svg) {
         // Arrow key panning

@@ -1,9 +1,12 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useId } from 'react'
+import { ChevronRightIcon } from '@heroicons/react/24/outline'
 import { Arc, Event } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { usePressures } from '@/hooks/usePressures'
 import PressureDetailModal from '@/components/modals/PressureDetailModal'
 import PressureConfidenceTracker from './PressureConfidenceTracker'
+import { formatPressureType, getPressureTypeIconPath } from '@/utils/pressureVisualization'
+import { formatHistoricalRange } from '@/utils/historicalTime'
 
 export interface PressureExplorationProps {
   /**
@@ -18,14 +21,42 @@ export interface PressureExplorationProps {
   selectedEvents?: Set<string>
   onEventHighlight?: (eventIds: Set<string>) => void
   onEventSelect?: (event: Event) => void
+  /** Whether the analysis starts open. The timeline is the view's subject, so it starts closed. */
+  defaultExpanded?: boolean
   className?: string
 }
 
+/**
+ * Confidence on the 0–1 scale the filter panel uses, so the two thresholds on
+ * the Timeline view read in the same unit.
+ */
+function formatConfidence(score: number): string {
+  return score.toFixed(2)
+}
+
+function renderPressureTypeIcon(type: string, className = 'w-4 h-4'): React.ReactNode {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d={getPressureTypeIconPath(type)} />
+    </svg>
+  )
+}
+
+/**
+ * The pressure analysis under the timeline.
+ *
+ * A disclosure section, closed by default: its one-line summary (how many
+ * pressures, of which kinds, how confident) is always visible, and the
+ * threshold, the list and the confidence tracker open beneath it. The detail
+ * modal is outside the collapsible region, so clicking an indicator on the
+ * timeline opens it whether the section is open or not.
+ */
 export const PressureExploration: React.FC<PressureExplorationProps> = ({
   arcs = [],
   events = [],
   onEventHighlight,
   onEventSelect,
+  defaultExpanded = false,
   className = ''
 }) => {
   const {
@@ -46,9 +77,17 @@ export const PressureExploration: React.FC<PressureExplorationProps> = ({
     togglePressureIndicators
   } = usePressures(arcs, events)
 
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded)
   const [showConfidenceTracker, setShowConfidenceTracker] = useState(false)
 
-  // Handle pressure selection from timeline
+  const baseId = useId()
+  const headingId = `${baseId}-heading`
+  const regionId = `${baseId}-region`
+  const summaryId = `${baseId}-summary`
+  const thresholdId = `${baseId}-threshold`
+  const thresholdHintId = `${baseId}-threshold-hint`
+
+  // Handle pressure selection from the list
   const handlePressureSelect = useCallback((pressure: PressureWithContext) => {
     selectPressure(pressure)
     showEvidenceModalAction(pressure)
@@ -77,191 +116,217 @@ export const PressureExploration: React.FC<PressureExplorationProps> = ({
     trackConfidenceChange(pressureId, newConfidence)
   }, [trackConfidenceChange])
 
+  const types = Object.keys(pressureStats.typeDistribution)
+  const { visibleCount, totalPressures, hiddenCount } = pressureStats
+
+  // The one line that stands in for the whole section while it is closed. Each
+  // type name is its own text node (lower case, as the data has it) so it can
+  // be found on its own.
+  const summary: React.ReactNode = isLoading ? (
+    'Inferring pressures…'
+  ) : error ? (
+    'The pressures could not be loaded.'
+  ) : totalPressures === 0 ? (
+    'No pressures detected.'
+  ) : (
+    <>
+      {hiddenCount > 0
+        ? `${visibleCount} of ${totalPressures} pressures shown`
+        : `${visibleCount} ${visibleCount === 1 ? 'pressure' : 'pressures'} detected`}
+      {types.length > 0 && (
+        <>
+          {' · '}
+          {types.map((type, index) => (
+            <React.Fragment key={type}>
+              {index > 0 && ', '}
+              <span className="text-ink">{type}</span>
+            </React.Fragment>
+          ))}
+        </>
+      )}
+      {' · average confidence '}
+      <span className="font-mono-code">{formatConfidence(pressureStats.averageConfidence)}</span>
+      {hiddenCount > 0 && (
+        <>
+          {` · ${hiddenCount} below `}
+          <span className="font-mono-code">{formatConfidence(visualConfig.confidenceThreshold)}</span>
+        </>
+      )}
+    </>
+  )
+
   return (
-    <div className={`pressure-exploration ${className}`}>
-      {/* Pressure Controls */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Pressure Analysis</h2>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={togglePressureIndicators}
-              className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                visualConfig.showIndicators
-                  ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              {visualConfig.showIndicators ? 'Hide' : 'Show'} Indicators
-            </button>
-            <button
-              onClick={() => setShowConfidenceTracker(!showConfidenceTracker)}
-              className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
-            >
-              {showConfidenceTracker ? 'Hide' : 'Show'} Tracker
-            </button>
-          </div>
-        </div>
-
-        {/* Pressure Statistics */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-          <div className="bg-gray-50 rounded-lg p-3">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Total</div>
-            <div className="text-2xl font-bold text-gray-900">{pressureStats.totalPressures}</div>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-3">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Visible</div>
-            <div className="text-2xl font-bold text-blue-600">{pressureStats.visibleCount}</div>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-3">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Avg Confidence</div>
-            <div className="text-2xl font-bold text-green-600">
-              {Math.round(pressureStats.averageConfidence * 100)}%
-            </div>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-3">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Hidden</div>
-            <div className="text-2xl font-bold text-gray-400">{pressureStats.hiddenCount}</div>
-          </div>
-        </div>
-
-        {/* Confidence Threshold Control */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-gray-700">
-              Confidence Threshold
-            </label>
-            <span className="text-sm text-gray-500">
-              {Math.round(visualConfig.confidenceThreshold * 100)}%
-            </span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={visualConfig.confidenceThreshold}
-            onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value))}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+    <section aria-labelledby={headingId} className={`pressure-exploration ${className}`}>
+      <h3 id={headingId} className="font-display text-xl font-semibold text-ink">
+        <button
+          type="button"
+          onClick={() => setIsExpanded((open) => !open)}
+          aria-expanded={isExpanded}
+          aria-controls={regionId}
+          aria-describedby={summaryId}
+          className="-ml-1 inline-flex items-center gap-1.5 rounded-md px-1 text-left hover:text-ink-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-selected"
+        >
+          <ChevronRightIcon
+            className={`h-5 w-5 shrink-0 text-ink-muted transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+            aria-hidden="true"
           />
-        </div>
+          Pressure Analysis
+        </button>
+      </h3>
+      <p
+        id={summaryId}
+        className="mt-1 text-sm text-ink-secondary"
+        data-testid="pressure-summary"
+        role={error ? 'alert' : undefined}
+      >
+        {summary}
+      </p>
 
-        {/* Pressure Type Distribution */}
-        <div>
-          <h3 className="text-sm font-medium text-gray-700 mb-2">Pressure Types</h3>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(pressureStats.typeDistribution).map(([type, count]) => (
-              <div
-                key={type}
-                className="flex items-center space-x-2 px-3 py-1 bg-gray-100 rounded-full"
-              >
-                <span className="text-sm">
-                  {type === 'economic' && '💰'}
-                  {type === 'social' && '👥'}
-                  {type === 'environmental' && '🌍'}
-                  {type === 'political' && '🏛️'}
-                </span>
-                <span className="text-sm font-medium text-gray-700 capitalize">{type}</span>
-                <span className="text-sm text-gray-500">({count})</span>
+      <div id={regionId} hidden={!isExpanded} className="mt-4 space-y-5">
+        {isExpanded && (
+          <>
+            {/* Controls */}
+            <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
+              <div className="w-full max-w-sm">
+                <div className="mb-1 flex items-baseline justify-between gap-4">
+                  <label htmlFor={thresholdId} className="text-sm font-medium text-ink-secondary">
+                    Minimum pressure confidence
+                  </label>
+                  <output htmlFor={thresholdId} className="font-mono-code text-sm text-ink">
+                    {formatConfidence(visualConfig.confidenceThreshold)}
+                  </output>
+                </div>
+                <input
+                  id={thresholdId}
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={visualConfig.confidenceThreshold}
+                  onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value))}
+                  aria-describedby={thresholdHintId}
+                  className="w-full cursor-pointer accent-[var(--accent-baseline)]"
+                />
+                <p id={thresholdHintId} className="mt-1 text-xs text-ink-muted">
+                  Hides inferred pressures below this score. The filter panel's threshold applies to events.
+                </p>
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
 
-      {/* Pressure List */}
-      <div className="bg-white rounded-lg border border-gray-200">
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Detected Pressures</h3>
-        </div>
-        <div className="divide-y divide-gray-200">
-          {isLoading ? (
-            // A request in flight is not an absence of pressures. Showing the
-            // empty state here sent the user to the confidence slider, which
-            // was not the problem.
-            <div className="p-8 text-center text-gray-500" role="status">
-              <div className="text-4xl mb-4">⏳</div>
-              <p className="text-lg font-medium mb-2">Inferring pressures…</p>
-              <p className="text-sm">The graph is being analysed for systemic pressures.</p>
+              <div className="flex flex-col gap-2 pt-0.5">
+                <label className="inline-flex items-center gap-2 text-sm text-ink-secondary">
+                  <input
+                    type="checkbox"
+                    checked={visualConfig.showIndicators}
+                    onChange={togglePressureIndicators}
+                    className="h-4 w-4 accent-[var(--accent-baseline)]"
+                  />
+                  Show indicators on the timeline
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm text-ink-secondary">
+                  <input
+                    type="checkbox"
+                    checked={showConfidenceTracker}
+                    onChange={() => setShowConfidenceTracker((shown) => !shown)}
+                    className="h-4 w-4 accent-[var(--accent-baseline)]"
+                  />
+                  Track confidence of the selected pressure
+                </label>
+              </div>
             </div>
-          ) : error ? (
-            <div className="p-8 text-center text-red-600" role="alert">
-              <div className="text-4xl mb-4">⚠️</div>
-              <p className="text-lg font-medium mb-2">The pressures could not be loaded</p>
-              <p className="text-sm">
+
+            {/* Pressure list */}
+            {isLoading ? (
+              // A request in flight is not an absence of pressures. Showing the
+              // empty state here sent the user to the confidence slider, which
+              // was not the problem.
+              <p className="py-4 text-sm text-ink-muted" role="status">
+                The graph is being analysed for systemic pressures.
+              </p>
+            ) : error ? (
+              <p className="py-4 text-sm text-red-700 dark:text-red-300">
                 {error instanceof Error ? error.message : 'The request failed.'}
               </p>
-            </div>
-          ) : visiblePressures.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              <div className="text-4xl mb-4">🔍</div>
-              <p className="text-lg font-medium mb-2">No pressures detected</p>
-              <p className="text-sm">
-                Try lowering the confidence threshold or check if pressure indicators are enabled.
+            ) : visiblePressures.length === 0 ? (
+              <p className="py-4 text-sm text-ink-muted">
+                No pressures at or above this confidence. Lower the minimum to see weaker inferences.
               </p>
-            </div>
-          ) : (
-            visiblePressures.map((pressure) => (
-              <div
-                key={pressure.id}
-                className="p-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                onClick={() => handlePressureSelect(pressure)}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-3 mb-2">
-                      <span className="text-xl">
-                        {pressure.pressure_type === 'economic' && '💰'}
-                        {pressure.pressure_type === 'social' && '👥'}
-                        {pressure.pressure_type === 'environmental' && '🌍'}
-                        {pressure.pressure_type === 'political' && '🏛️'}
+            ) : (
+              <ul className="divide-y divide-line border-y border-line" aria-label="Detected pressures">
+                {visiblePressures.map((pressure) => (
+                  <li key={pressure.id}>
+                    <button
+                      type="button"
+                      onClick={() => handlePressureSelect(pressure)}
+                      className="flex w-full items-start gap-3 px-2 py-3 text-left transition-colors hover:bg-subtle focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-selected"
+                    >
+                      <span className="mt-0.5 shrink-0 text-ink-muted">
+                        {renderPressureTypeIcon(pressure.pressure_type, 'w-5 h-5')}
                       </span>
-                      <div>
-                        <h4 className="font-medium text-gray-900 capitalize">
-                          {pressure.pressure_type} Pressure
-                        </h4>
-                        <div className="flex items-center space-x-4 text-sm text-gray-500">
-                          <span>Confidence: {Math.round(pressure.confidence_score * 100)}%</span>
-                          <span>Evidence: {pressure.evidenceEvents.length} events</span>
-                          <span>Influence: {Math.round(pressure.influenceStrength * 100)}%</span>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-gray-700 text-sm leading-relaxed">
-                      {pressure.description}
-                    </p>
-                  </div>
-                  <div className="ml-4">
-                    <div 
-                      className="w-3 h-3 rounded-full"
-                      style={{ 
-                        backgroundColor: pressure.renderColor,
-                        opacity: pressure.renderOpacity 
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2">
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: pressure.renderColor, opacity: pressure.renderOpacity }}
+                            aria-hidden="true"
+                          />
+                          <span className="text-sm font-semibold text-ink">
+                            {formatPressureType(pressure.pressure_type)} pressure
+                          </span>
+                        </span>
+                        <span className="mt-0.5 block text-xs text-ink-muted">
+                          Confidence <span className="font-mono-code text-ink-secondary">{formatConfidence(pressure.confidence_score)}</span>
+                          {' · '}
+                          {pressure.evidenceEvents.length} evidence {pressure.evidenceEvents.length === 1 ? 'event' : 'events'}
+                          {/* When it was inferred over, and where that falls. This
+                              slot used to show "Influence", a client-side
+                              confidence × evidence figure capped at 1: it read
+                              100% for nearly every pressure. */}
+                          {pressure.time_range && (
+                            <>
+                              {' · '}
+                              <span className="font-mono-code text-ink-secondary">
+                                {formatHistoricalRange(pressure.time_range.start, pressure.time_range.end)}
+                              </span>
+                            </>
+                          )}
+                          {pressure.affectedArcs.length > 0 && (
+                            <>
+                              {' · in '}
+                              {pressure.affectedArcs.map((arc) => arc.name).join(', ')}
+                            </>
+                          )}
+                        </span>
+                        <span className="mt-1 block text-sm leading-relaxed text-ink-secondary">
+                          {pressure.description}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {/* Confidence tracker */}
+            {showConfidenceTracker && (
+              selectedPressure ? (
+                <PressureConfidenceTracker
+                  pressure={selectedPressure}
+                  confidenceHistory={explorationState.confidenceTracking.get(selectedPressure.id) || []}
+                  onConfidenceUpdate={(newConfidence) =>
+                    handleConfidenceUpdate(selectedPressure.id, newConfidence)
+                  }
+                  showHistory={true}
+                />
+              ) : (
+                <p className="text-sm text-ink-muted">Select a pressure in the list to track its confidence.</p>
+              )
+            )}
+          </>
+        )}
       </div>
 
-      {/* Confidence Tracker */}
-      {showConfidenceTracker && selectedPressure && (
-        <div className="mt-4">
-          <PressureConfidenceTracker
-            pressure={selectedPressure}
-            confidenceHistory={explorationState.confidenceTracking.get(selectedPressure.id) || []}
-            onConfidenceUpdate={(newConfidence) => 
-              handleConfidenceUpdate(selectedPressure.id, newConfidence)
-            }
-            showHistory={true}
-          />
-        </div>
-      )}
-
-      {/* Pressure Detail Modal */}
+      {/* Pressure Detail Modal: outside the collapsible region, so an
+          indicator clicked on the timeline opens it either way. */}
       <PressureDetailModal
         pressure={selectedPressure}
         isOpen={explorationState.showEvidenceModal}
@@ -270,7 +335,7 @@ export const PressureExploration: React.FC<PressureExplorationProps> = ({
         onHighlightEvidence={handleHighlightEvidence}
         onClearHighlight={handleClearHighlight}
       />
-    </div>
+    </section>
   )
 }
 

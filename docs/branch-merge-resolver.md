@@ -54,9 +54,9 @@ entities the caller never reviewed.
 Per conflict the caller picks one side:
 
 - **Keep baseline** → `keep-target`
-- **Accept counterfactual** → `keep-source`
+- **Use branch** → `keep-source`
 
-“Keep all baseline” / “Accept all branch” apply a side to every conflict. The
+“Keep baseline for all” / “Use branch for all” apply a side to every conflict. The
 commit call sends one resolution per conflict, keyed `${entityType}:${entityId}`:
 
 ```jsonc
@@ -75,7 +75,7 @@ baseline advanced between the dry run and the commit, the server refuses and
 returns a fresh conflict set, which the UI re-renders instead of retrying
 blindly.
 
-### Harmonized compromise (Field-level blending)
+### Combine fields (field-level blending)
 
 The merge API and UI support field-level compromises across conflicts. Callers can specify `{ strategy: "merged", value: { ... } }` in `manualResolutions`:
 
@@ -96,7 +96,7 @@ The merge API and UI support field-level compromises across conflicts. Callers c
 }
 ```
 
-In `BranchMergeModal.tsx`, choosing **Harmonized compromise** renders an inline field selector allowing users to choose baseline vs. branch values per differing property.
+In `BranchMergeModal.tsx`, choosing **Combine fields** renders an inline field selector allowing users to choose baseline vs. branch values per differing property.
 
 A blended payload is applied as `{ ...target, ...payload, id }`, so it can change
 any field of the entity it resolves. Because that is unchecked, the service
@@ -157,5 +157,5 @@ Detected anomalies are returned in `anomalies: MergeAnomaly[]` and surfaced as b
 | :--- | :--- |
 | API client | `apiClient.graphs.mergeDetailed` in `frontend/src/services/api.ts` (returns 409 conflicts instead of throwing) |
 | Resolver UI | `frontend/src/components/branch/BranchMergeModal.tsx` |
-| Entry point | “Merge Branch into Baseline” in the footer of the Counterfactual Divergence Explorer (`BranchComparisonModal`), which the toolbar's *Branch Comparison* action opens |
+| Entry point | “Merge into baseline…” in the footer of the *Compare branches* dialog (`BranchComparisonModal`), which the toolbar's *Compare branches* action opens |
 | Backend | `dryRun` handling in `GraphService.mergeGraph` and the merge route |

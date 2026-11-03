@@ -123,9 +123,9 @@ The `althistory_simulate_timeline` tool wraps the same engine. See
 
 `frontend/src/components/branch/SimulationLauncherPanel.tsx` provides the
 controls (steps, months per hop, domain, aggressiveness, seed context, preview)
-and lists the generated milestones. It is mounted as the **Forward Simulation**
-tab of the Counterfactual Divergence Explorer
-(`BranchComparisonModal`), which the toolbar's *Branch Comparison* action opens.
+and lists the generated milestones. It is mounted as the **Simulate forward**
+tab of the *Compare branches* dialog
+(`BranchComparisonModal`), which the toolbar's *Compare branches* action opens.
 When a run completes, the modal refetches the branch so the dual-lane canvas
 picks up the new milestones.
 

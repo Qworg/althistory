@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ActorPerspectiveView } from './ActorPerspectiveView'
 import { useEvents } from '@/hooks/useEvents'
@@ -401,8 +401,9 @@ describe('ActorPerspectiveView', () => {
         const thematicButton = screen.getByText('Thematic')
         fireEvent.click(thematicButton)
         
-        // Check if the button becomes active (this would be reflected in styling)
-        expect(thematicButton).toHaveClass('bg-white', 'text-gray-900', 'shadow-sm')
+        // The active layout is announced, not just styled
+        expect(thematicButton).toHaveAttribute('aria-pressed', 'true')
+        expect(screen.getByText('Chronological')).toHaveAttribute('aria-pressed', 'false')
       })
     })
 
@@ -427,8 +428,8 @@ describe('ActorPerspectiveView', () => {
         expect(screen.getByText('Selected Event')).toBeInTheDocument()
         expect(screen.getByText('Event 1')).toBeInTheDocument()
         // Use more specific queries to avoid multiple matches
-        expect(screen.getByText('Description:')).toBeInTheDocument()
-        expect(screen.getByText('Target:')).toBeInTheDocument()
+        expect(screen.getByText('Description')).toBeInTheDocument()
+        expect(screen.getByText('Target')).toBeInTheDocument()
       })
     })
 
@@ -442,7 +443,9 @@ describe('ActorPerspectiveView', () => {
         const eventButton = screen.getByTestId('timeline-event-1')
         fireEvent.click(eventButton)
         
-        const roleBadge = screen.getByText('Actor')
+        // "Actor" is also a field label in the inspector; read the Role field
+        const roleField = screen.getByText('Role').parentElement as HTMLElement
+        const roleBadge = within(roleField).getByText('Actor')
         expect(roleBadge).toBeInTheDocument()
         expect(roleBadge).toHaveClass('bg-blue-100', 'text-blue-800')
       })
@@ -474,6 +477,25 @@ describe('ActorPerspectiveView', () => {
         expect(screen.getByTestId('stats-event-count')).toHaveTextContent('4')
         expect(screen.getByTestId('stats-as-actor')).toHaveTextContent('2')
         expect(screen.getByTestId('stats-as-target')).toHaveTextContent('2')
+      })
+    })
+  })
+
+  describe('Heading order', () => {
+    it('steps h2 → h3 → h4 without skipping, on the shared type scale', () => {
+      renderWithQueryClient(<ActorPerspectiveView />)
+      fireEvent.change(screen.getByTestId('actor-select'), { target: { value: 'Alice' } })
+      fireEvent.click(screen.getByTestId('timeline-event-1'))
+
+      const title = screen.getByRole('heading', { level: 2, name: 'Actor Perspective View' })
+      expect(title).toHaveClass('font-display', 'text-[1.75rem]', 'leading-tight', 'font-semibold')
+      expect(screen.getByRole('heading', { level: 3, name: 'Timeline for Alice' })).toBeInTheDocument()
+      const selected = screen.getByRole('heading', { level: 4, name: 'Selected Event' })
+      expect(selected).toHaveClass('text-base', 'font-semibold')
+
+      const levels = screen.getAllByRole('heading').map((h) => Number(h.tagName.slice(1)))
+      levels.forEach((level, i) => {
+        if (i > 0) expect(level - levels[i - 1]!).toBeLessThanOrEqual(1)
       })
     })
   })

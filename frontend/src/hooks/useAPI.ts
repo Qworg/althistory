@@ -6,7 +6,7 @@ import {
   UseMutationOptions
 } from '@tanstack/react-query'
 import { apiClient, APIError } from '@/services/api'
-import { useActiveGraphId } from './useGraphs'
+import { useActiveGraphId, graphKeys } from './useGraphs'
 import { submitMutation, type OfflineWriteOutcome } from '@/offline/offlineSync'
 import { useGlobalStore } from '@/stores/globalStore'
 import { 
@@ -118,6 +118,8 @@ export function useCreateEvent(options?: UseMutationOptions<OfflineWriteOutcome<
       
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.events.all })
+      // Every write is a new version: refresh the graph's metadata and version head
+      queryClient.invalidateQueries({ queryKey: graphKeys.all })
     },
     ...options
   })
@@ -142,6 +144,9 @@ export function useUpdateEvent(options?: UseMutationOptions<OfflineWriteOutcome<
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.events.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.causal.all })
+
+      // Every write is a new version: refresh the graph's metadata and version head
+      queryClient.invalidateQueries({ queryKey: graphKeys.all })
     },
     ...options
   })
@@ -166,6 +171,9 @@ export function useDeleteEvent(options?: UseMutationOptions<OfflineWriteOutcome<
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.events.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.causal.all })
+
+      // Every write is a new version: refresh the graph's metadata and version head
+      queryClient.invalidateQueries({ queryKey: graphKeys.all })
     },
     ...options
   })
@@ -218,6 +226,8 @@ export function useCreateArc(options?: UseMutationOptions<OfflineWriteOutcome<Ar
       
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.arcs.all })
+      // Every write is a new version: refresh the graph's metadata and version head
+      queryClient.invalidateQueries({ queryKey: graphKeys.all })
     },
     ...options
   })
@@ -241,6 +251,8 @@ export function useUpdateArc(options?: UseMutationOptions<OfflineWriteOutcome<Ar
       
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.arcs.all })
+      // Every write is a new version: refresh the graph's metadata and version head
+      queryClient.invalidateQueries({ queryKey: graphKeys.all })
     },
     ...options
   })
@@ -264,6 +276,8 @@ export function useDeleteArc(options?: UseMutationOptions<OfflineWriteOutcome<vo
       
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.arcs.all })
+      // Every write is a new version: refresh the graph's metadata and version head
+      queryClient.invalidateQueries({ queryKey: graphKeys.all })
     },
     ...options
   })
@@ -317,6 +331,8 @@ export function useCreateCausalLink(options?: UseMutationOptions<CausalRelations
       
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.causal.all })
+      // Every write is a new version: refresh the graph's metadata and version head
+      queryClient.invalidateQueries({ queryKey: graphKeys.all })
     },
     ...options
   })
@@ -336,6 +352,8 @@ export function useUpdateCausalLink(options?: UseMutationOptions<CausalRelations
 
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.causal.all })
+      // Every write is a new version: refresh the graph's metadata and version head
+      queryClient.invalidateQueries({ queryKey: graphKeys.all })
     },
     ...options
   })
@@ -355,6 +373,8 @@ export function useDeleteCausalLink(options?: UseMutationOptions<void, APIError,
 
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.causal.all })
+      // Every write is a new version: refresh the graph's metadata and version head
+      queryClient.invalidateQueries({ queryKey: graphKeys.all })
     },
     ...options
   })

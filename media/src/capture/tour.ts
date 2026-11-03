@@ -101,6 +101,16 @@ async function openTimeline(ctx: TourContext): Promise<void> {
   await ctx.page.getByText('economic', { exact: true }).first().waitFor()
 }
 
+// The filter rail starts closed (the view gets the full width); the overview
+// shot opens it so the walkthrough can point at it.
+async function showFilters(page: Page): Promise<void> {
+  const show = page.getByRole('button', { name: 'Show Filters' })
+  if (await show.isVisible()) {
+    await show.click()
+  }
+  await page.getByRole('heading', { name: 'Filters' }).waitFor()
+}
+
 async function hideFilters(page: Page): Promise<void> {
   const hide = page.getByRole('button', { name: 'Hide Filters' })
   if (await hide.isVisible()) {
@@ -116,7 +126,7 @@ async function hideFilters(page: Page): Promise<void> {
 async function overview(ctx: TourContext): Promise<Shot> {
   const { page } = ctx
   await openTimeline(ctx)
-  await page.getByRole('heading', { name: 'Filters' }).waitFor()
+  await showFilters(page)
   return snap(ctx, 'overview', {
     views: await rectOf(page.getByRole('navigation').first(), 'the view navigation'),
     // The toolbar is several button groups; its extent is first to last control.
@@ -125,7 +135,7 @@ async function overview(ctx: TourContext): Promise<Shot> {
       await rectOf(page.getByRole('button', { name: 'Connect' }).first(), 'the last toolbar control')
     ),
     graphSelector: await rectOf(page.getByRole('button', { name: new RegExp(scenario.graph.name) }).first(), 'the graph selector'),
-    timeline: await rectOf(page.locator('svg[role="img"]').first(), 'the timeline'),
+    timeline: await rectOf(page.locator('svg[data-timeline-canvas]').first(), 'the timeline'),
     filters: await rectOf(page.getByRole('heading', { name: 'Filters' }).locator('xpath=ancestor::div[2]'), 'the filter panel'),
   })
 }
@@ -134,7 +144,7 @@ async function timeline(ctx: TourContext): Promise<Shot> {
   const { page } = ctx
   await openTimeline(ctx)
   await hideFilters(page)
-  const svg = page.locator('svg[role="img"]').first()
+  const svg = page.locator('svg[data-timeline-canvas]').first()
   const mark = page.locator(`g[data-timeline-mark="event"][aria-label*="${FEATURED_EVENT}"]`).first()
   const markRect = await rectOf(mark, 'the featured event mark')
   const pointer = centre(markRect)
@@ -148,7 +158,7 @@ async function timeline(ctx: TourContext): Promise<Shot> {
     'timeline',
     {
       timeline: await rectOf(svg, 'the timeline'),
-      arcs: await rectOf(page.locator('svg[role="img"] g[data-timeline-mark="arc"]').first().locator('xpath=..'), 'the arc lane').catch(() => rectOf(svg, 'the timeline')),
+      arcs: await rectOf(page.locator('svg[data-timeline-canvas] g[data-timeline-mark="arc"]').first().locator('xpath=..'), 'the arc lane').catch(() => rectOf(svg, 'the timeline')),
       mark: markRect,
       tooltip: await rectOf(tooltip.locator('xpath=..'), 'the tooltip'),
     },
@@ -161,9 +171,12 @@ async function pressures(ctx: TourContext): Promise<Shot> {
   const { page } = ctx
   await openTimeline(ctx)
   await hideFilters(page)
-  const heading = page.getByRole('heading', { name: 'Pressure Analysis' })
-  await heading.waitFor()
-  const panel = heading.locator('xpath=ancestor::div[contains(@class,"rounded")][1]')
+  // The section starts collapsed behind its heading's disclosure button.
+  const toggle = page.getByRole('button', { name: 'Pressure Analysis' })
+  await toggle.waitFor()
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+  const panel = page.locator('section.pressure-exploration').first()
+  await panel.getByRole('list', { name: 'Detected pressures' }).waitFor()
   await panel.evaluate((el) => el.scrollIntoView({ block: 'start' }))
   await page.mouse.move(0, 0)
   return snap(ctx, 'pressures', {
@@ -192,7 +205,7 @@ async function causalGraph(ctx: TourContext): Promise<Shot> {
     'causal-graph',
     {
       graph: await rectOf(canvas, 'the causal graph canvas'),
-      layouts: await rectOf(page.getByText('Graph Layout').locator('xpath=ancestor::div[contains(@class,"rounded")][1]'), 'the layout panel'),
+      layouts: await rectOf(page.locator('section.causal-graph-layout-manager').first(), 'the layout panel'),
       directed: await rectOf(directed, 'the Directed Graph button'),
       counts: await rectOf(page.getByText(`${scenario.links.length} relationships`), 'the relationship count'),
     },

@@ -1,214 +1,223 @@
+/**
+ * Pressure bars are React-rendered (ADR-001 Tier 1): marks, gradient and the
+ * tooltip. The tooltip used to be a div d3 appended to document.body; it now
+ * lives in the timeline container, which is the svg's parent.
+ */
 import type { RefObject } from 'react'
-import { render, screen } from '@testing-library/react'
-import { vi } from 'vitest'
-import PressureIndicators from './PressureIndicators'
+import { useRef } from 'react'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import PressureIndicators, { type PressureIndicatorsProps } from './PressureIndicators'
 import { PressureWithContext } from '@/types/pressure'
 import { Arc } from '@/types'
+import { formatHistoricalRange } from '@/utils/historicalTime'
 
-// Mock D3 with proper chaining
-const mockD3Selection = {
-  selectAll: vi.fn(() => mockD3Selection),
-  data: vi.fn(() => mockD3Selection),
-  enter: vi.fn(() => mockD3Selection),
-  append: vi.fn(() => mockD3Selection),
-  attr: vi.fn(() => mockD3Selection),
-  style: vi.fn(() => mockD3Selection),
-  on: vi.fn(() => mockD3Selection),
-  remove: vi.fn(() => mockD3Selection),
-  select: vi.fn(() => mockD3Selection),
-  empty: vi.fn(() => false),
-  node: vi.fn(() => document.createElement('div'))
+const arc: Arc = {
+  id: 'arc-1',
+  name: 'Test Arc 1',
+  description: 'First test arc',
+  start_time: '2023-01-01T00:00:00Z',
+  end_time: '2023-01-31T00:00:00Z',
+  level: 0,
+  parent_arc_id: null,
+  created_at: '2023-01-01T00:00:00Z',
+  updated_at: '2023-01-01T00:00:00Z'
 }
 
-vi.mock('d3', () => ({
-  select: vi.fn(() => mockD3Selection)
-}))
+function pressure(id: string, overrides: Partial<PressureWithContext> = {}): PressureWithContext {
+  return {
+    id,
+    description: `Pressure ${id}`,
+    confidence_score: 0.8,
+    pressure_type: 'economic',
+    created_at: '2023-01-01T00:00:00Z',
+    updated_at: '2023-01-01T00:00:00Z',
+    affectedArcs: [arc],
+    evidenceEvents: [],
+    influenceStrength: 0.75,
+    isVisible: true,
+    isHighlighted: false,
+    renderColor: '#10b981',
+    renderOpacity: 0.6,
+    ...overrides
+  }
+}
+
+const timeScale = (date: Date) => date.getTime() / 1e10
+const yScale = (level: number) => 40 + level * 28
+const arcLevelMap = new Map([['arc-1', 0]])
+
+/** Renders the indicators the way Timeline does: inside an svg inside a positioned container. */
+function Harness(props: Partial<PressureIndicatorsProps>) {
+  const svgRef = useRef<SVGSVGElement>(null)
+  return (
+    <div data-testid="container" style={{ position: 'relative' }}>
+      <svg ref={svgRef}>
+        <PressureIndicators
+          pressures={[pressure('p1')]}
+          arcs={[arc]}
+          timeScale={timeScale}
+          yScale={yScale}
+          arcLevelMap={arcLevelMap}
+          svgRef={svgRef}
+          {...props}
+        />
+      </svg>
+    </div>
+  )
+}
 
 describe('PressureIndicators', () => {
-  const mockTimeScale = vi.fn((date: Date) => date.getTime() / 1000000)
-  const mockYScale = vi.fn((level: number) => level * 50)
-  
-  const mockPressures: PressureWithContext[] = [
-    {
-      id: 'pressure-1',
-      description: 'Economic pressure from trade sanctions',
-      confidence_score: 0.8,
-      pressure_type: 'economic',
-      created_at: '2023-01-01T00:00:00Z',
-      updated_at: '2023-01-01T00:00:00Z',
-      affectedArcs: [],
-      evidenceEvents: [],
-      influenceStrength: 0.75,
-      isVisible: true,
-      isHighlighted: false,
-      renderColor: '#10b981',
-      renderOpacity: 0.6
-    },
-    {
-      id: 'pressure-2',
-      description: 'Social unrest due to policy changes',
-      confidence_score: 0.6,
-      pressure_type: 'social',
-      created_at: '2023-01-02T00:00:00Z',
-      updated_at: '2023-01-02T00:00:00Z',
-      affectedArcs: [],
-      evidenceEvents: [],
-      influenceStrength: 0.5,
-      isVisible: true,
-      isHighlighted: true,
-      renderColor: '#f59e0b',
-      renderOpacity: 0.4
-    }
-  ]
-
-  const mockArcs: Arc[] = [
-    {
-      id: 'arc-1',
-      name: 'Test Arc 1',
-      description: 'First test arc',
-      start_time: '2023-01-01T00:00:00Z',
-      end_time: '2023-01-31T00:00:00Z',
-      level: 0,
-      parent_arc_id: null,
-      created_at: '2023-01-01T00:00:00Z',
-      updated_at: '2023-01-01T00:00:00Z'
-    }
-  ]
-
-  const mockArcLevelMap = new Map([['arc-1', 0]])
-  const mockSvgRef = { current: document.createElementNS('http://www.w3.org/2000/svg', 'svg') }
-
-  const defaultProps = {
-    pressures: mockPressures,
-    arcs: mockArcs,
-    timeScale: mockTimeScale,
-    yScale: mockYScale,
-    arcLevelMap: mockArcLevelMap,
-    svgRef: mockSvgRef,
-    onPressureClick: vi.fn(),
-    onPressureHover: vi.fn(),
-    showTooltips: true
-  }
-
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('renders pressure indicators', () => {
-    render(<PressureIndicators {...defaultProps} />)
-    
-    const indicatorsGroup = screen.getByTestId('pressure-indicators')
-    expect(indicatorsGroup).toBeInTheDocument()
+  it('renders one React-owned indicator per affected arc', () => {
+    const { container } = render(<Harness pressures={[pressure('p1'), pressure('p2', { pressure_type: 'social' })]} />)
+
+    expect(screen.getByTestId('pressure-indicators')).toBeInTheDocument()
+    expect(container.querySelectorAll('.pressure-indicator')).toHaveLength(2)
+    expect(container.querySelector('.pressure-indicator[data-pressure-id="p1"][data-arc-id="arc-1"]')).not.toBeNull()
   })
 
-  it('applies correct CSS classes', () => {
-    const customClassName = 'custom-pressure-class'
-    render(<PressureIndicators {...defaultProps} className={customClassName} />)
-    
-    const indicatorsGroup = screen.getByTestId('pressure-indicators')
-    expect(indicatorsGroup).toHaveClass('pressure-indicators', customClassName)
+  it('applies the custom class', () => {
+    render(<Harness className="custom-pressure-class" />)
+    expect(screen.getByTestId('pressure-indicators')).toHaveClass('pressure-indicators', 'custom-pressure-class')
   })
 
-  it('calls onPressureClick when pressure is clicked', async () => {
+  it('renders its confidence gradient in JSX and references it', () => {
+    const { container } = render(<Harness />)
+    const gradient = container.querySelector('linearGradient')
+    expect(gradient).not.toBeNull()
+    const overlay = container.querySelector('.confidence-indicator')
+    expect(overlay?.getAttribute('fill')).toBe(`url(#${gradient!.id})`)
+  })
+
+  it('handles an empty pressure list and a missing svg ref', () => {
+    const empty: RefObject<SVGSVGElement | null> = { current: null }
+    const { container } = render(
+      <svg>
+        <PressureIndicators
+          pressures={[]}
+          arcs={[arc]}
+          timeScale={timeScale}
+          yScale={yScale}
+          arcLevelMap={arcLevelMap}
+          svgRef={empty}
+        />
+      </svg>
+    )
+    expect(container.querySelectorAll('.pressure-indicator')).toHaveLength(0)
+  })
+
+  it('calls onPressureClick on click', () => {
     const onPressureClick = vi.fn()
-    render(<PressureIndicators {...defaultProps} onPressureClick={onPressureClick} />)
-    
-    // Since we're mocking D3, we verify the component renders without errors
-    const indicatorsGroup = screen.getByTestId('pressure-indicators')
-    expect(indicatorsGroup).toBeInTheDocument()
+    render(<Harness onPressureClick={onPressureClick} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Economic pressure on Test Arc 1/ }))
+    expect(onPressureClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }))
   })
 
-  it('calls onPressureHover when pressure is hovered', async () => {
+  it.each(['Enter', ' '])('activates with the %j key', (key) => {
+    const onPressureClick = vi.fn()
+    render(<Harness onPressureClick={onPressureClick} />)
+
+    const bar = screen.getByRole('button', { name: /Economic pressure/ })
+    // Out of the tab order (the timeline is one tab stop); still activatable
+    expect(bar).toHaveAttribute('tabindex', '-1')
+    const notPrevented = fireEvent.keyDown(bar, { key })
+    expect(onPressureClick).toHaveBeenCalledTimes(1)
+    expect(notPrevented).toBe(false)
+  })
+
+  it('shows a React tooltip inside the container on hover, not on document.body', () => {
     const onPressureHover = vi.fn()
-    render(<PressureIndicators {...defaultProps} onPressureHover={onPressureHover} />)
-    
-    // Since we're mocking D3, we verify the component renders without errors
-    const indicatorsGroup = screen.getByTestId('pressure-indicators')
-    expect(indicatorsGroup).toBeInTheDocument()
+    render(<Harness onPressureHover={onPressureHover} />)
+
+    const bar = screen.getByRole('button', { name: /Economic pressure/ })
+    fireEvent.mouseEnter(bar, { clientX: 20, clientY: 30 })
+
+    const tooltip = screen.getByRole('tooltip')
+    expect(tooltip).toHaveTextContent('Economic Pressure')
+    expect(tooltip).toHaveTextContent('Pressure p1')
+    expect(tooltip.parentElement).toBe(screen.getByTestId('container'))
+    // The pressure type is a stroke icon, not an emoji.
+    expect(tooltip.querySelector('svg path')).not.toBeNull()
+    expect(tooltip.textContent).not.toMatch(/💰/)
+    expect(onPressureHover).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'p1' }))
+
+    fireEvent.mouseLeave(bar)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    expect(onPressureHover).toHaveBeenLastCalledWith(null)
   })
 
-  it('handles empty pressure list', () => {
-    render(<PressureIndicators {...defaultProps} pressures={[]} />)
-    
-    const indicatorsGroup = screen.getByTestId('pressure-indicators')
-    expect(indicatorsGroup).toBeInTheDocument()
+  it('shows the tooltip on keyboard focus too', () => {
+    render(<Harness />)
+    const bar = screen.getByRole('button', { name: /Economic pressure/ })
+    fireEvent.focus(bar)
+    expect(screen.getByRole('tooltip')).toBeInTheDocument()
+    fireEvent.blur(bar)
+    expect(screen.queryByRole('tooltip')).toBeNull()
   })
 
-  it('handles missing SVG ref gracefully', () => {
-    const invalidSvgRef: RefObject<SVGSVGElement | null> = { current: null }
-    
-    expect(() => {
-      render(<PressureIndicators {...defaultProps} svgRef={invalidSvgRef} />)
-    }).not.toThrow()
+  it('respects showTooltips={false}', () => {
+    const onPressureHover = vi.fn()
+    render(<Harness showTooltips={false} onPressureHover={onPressureHover} />)
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /Economic pressure/ }))
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    expect(onPressureHover).toHaveBeenCalled()
   })
 
-  it('updates when pressure data changes', () => {
-    const { rerender } = render(<PressureIndicators {...defaultProps} />)
-    
-    const updatedPressures = [
-      ...mockPressures,
-      {
-        id: 'pressure-3',
-        description: 'Environmental pressure from climate change',
-        confidence_score: 0.9,
-        pressure_type: 'environmental',
-        created_at: '2023-01-03T00:00:00Z',
-        updated_at: '2023-01-03T00:00:00Z',
-        affectedArcs: [],
-        evidenceEvents: [],
-        influenceStrength: 0.85,
-        isVisible: true,
-        isHighlighted: false,
-        renderColor: '#06b6d4',
-        renderOpacity: 0.7
-      } as PressureWithContext
-    ]
-
-    rerender(<PressureIndicators {...defaultProps} pressures={updatedPressures} />)
-    
-    const indicatorsGroup = screen.getByTestId('pressure-indicators')
-    expect(indicatorsGroup).toBeInTheDocument()
+  it('removes the tooltip on unmount', () => {
+    const { unmount } = render(<Harness />)
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /Economic pressure/ }))
+    expect(document.querySelector('.pressure-tooltip')).not.toBeNull()
+    unmount()
+    expect(document.querySelector('.pressure-tooltip')).toBeNull()
   })
 
-  it('respects showTooltips prop', () => {
-    const { rerender } = render(<PressureIndicators {...defaultProps} showTooltips={false} />)
-    
-    const indicatorsGroup = screen.getByTestId('pressure-indicators')
-    expect(indicatorsGroup).toBeInTheDocument()
-
-    rerender(<PressureIndicators {...defaultProps} showTooltips={true} />)
-    expect(indicatorsGroup).toBeInTheDocument()
+  it('draws a top-level arc\'s indicator inside the plot, on the arc\'s own lane', () => {
+    // The timeline's real lane scale: level 0 at y=10. The indicator used to be
+    // placed 25px above the arc (y=-15), outside the plot's clip rectangle, so
+    // no indicator of a root arc was ever visible.
+    const timelineYScale = (level: number) => 10 + level * 28
+    const { container } = render(<Harness yScale={timelineYScale} />)
+    const bar = container.querySelector('.pressure-bar')!
+    const y = Number(bar.getAttribute('y'))
+    const height = Number(bar.getAttribute('height'))
+    expect(y).toBeGreaterThanOrEqual(0)
+    // Within the arc bar (top 10, 16px tall), not in the lane above.
+    expect(y).toBeGreaterThanOrEqual(10)
+    expect(y + height).toBeLessThanOrEqual(10 + 16)
   })
 
-  it('handles scale function changes', () => {
-    const newTimeScale = vi.fn((date: Date) => date.getTime() / 2000000)
-    const newYScale = vi.fn((level: number) => level * 100)
+  it('keeps a deeper arc\'s indicator out of the lane above it', () => {
+    const timelineYScale = (level: number) => 10 + level * 28
+    const { container } = render(<Harness yScale={timelineYScale} arcLevelMap={new Map([['arc-1', 1]])} />)
+    const y = Number(container.querySelector('.pressure-bar')!.getAttribute('y'))
+    expect(y).toBeGreaterThanOrEqual(38)
+    expect(y).toBeLessThan(38 + 16)
+  })
 
-    const { rerender } = render(<PressureIndicators {...defaultProps} />)
-    
-    rerender(
-      <PressureIndicators 
-        {...defaultProps} 
-        timeScale={newTimeScale}
-        yScale={newYScale}
+  it('shows the inferred period in the tooltip, not a saturated influence figure', () => {
+    render(
+      <Harness
+        pressures={[
+          pressure('p1', {
+            influenceStrength: 1,
+            time_range: { start: '1847-05-31T00:00:00Z', end: '1847-06-17T00:00:00Z' },
+          }),
+        ]}
       />
     )
-    
-    const indicatorsGroup = screen.getByTestId('pressure-indicators')
-    expect(indicatorsGroup).toBeInTheDocument()
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /Economic pressure/ }))
+    const tooltip = screen.getByRole('tooltip')
+    expect(tooltip.textContent).not.toMatch(/influence/i)
+    expect(tooltip).toHaveTextContent(formatHistoricalRange('1847-05-31T00:00:00Z', '1847-06-17T00:00:00Z'))
   })
 
-  it('handles arc level map changes', () => {
-    const newArcLevelMap = new Map([
-      ['arc-1', 1],
-      ['arc-2', 2]
-    ])
-
-    const { rerender } = render(<PressureIndicators {...defaultProps} />)
-    
-    rerender(<PressureIndicators {...defaultProps} arcLevelMap={newArcLevelMap} />)
-    
-    const indicatorsGroup = screen.getByTestId('pressure-indicators')
-    expect(indicatorsGroup).toBeInTheDocument()
+  it('omits indicators for arcs not in the rendered hierarchy', () => {
+    const { container } = render(<Harness arcLevelMap={new Map()} />)
+    expect(container.querySelectorAll('.pressure-indicator')).toHaveLength(0)
   })
 })

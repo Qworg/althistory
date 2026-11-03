@@ -68,9 +68,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return (
       <div
         role="alert"
-        className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12"
+        className="min-h-screen flex items-center justify-center bg-canvas px-4 py-12"
       >
-        <div className="max-w-md w-full bg-white border border-red-200 rounded-lg shadow-sm p-6">
+        <div className="max-w-md w-full bg-card border border-red-200 rounded-lg shadow-sm p-6">
           <div className="flex items-start gap-3">
             <svg
               className="w-6 h-6 flex-shrink-0 text-red-600"
@@ -87,12 +87,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               />
             </svg>
             <div>
-              <h1 className="text-lg font-semibold text-red-800">Something went wrong</h1>
-              <p className="mt-1 text-sm text-gray-600">
+              <h1 className="font-display text-xl font-semibold text-ink">Something went wrong</h1>
+              <p className="mt-1 text-sm text-ink-secondary">
                 An unexpected error stopped this part of the interface from rendering.
               </p>
               {error?.message && (
-                <pre className="mt-3 overflow-x-auto rounded bg-gray-100 p-2 text-xs text-gray-700">
+                <pre className="font-mono-code mt-3 overflow-x-auto rounded bg-subtle p-2 text-xs text-ink-secondary">
                   {error.message}
                 </pre>
               )}
@@ -110,7 +110,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <button
               type="button"
               onClick={this.handleRetry}
-              className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              className="inline-flex items-center rounded-md border border-line bg-card px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-subtle hover:text-ink focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
             >
               Try again
             </button>

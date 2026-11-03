@@ -74,6 +74,8 @@ export interface MockCollection {
   renderedMidpoint: ReturnType<typeof vi.fn>
   source: ReturnType<typeof vi.fn>
   target: ReturnType<typeof vi.fn>
+  /** Element style bypass (e.g. zoom-scaled label sizing). */
+  style: ReturnType<typeof vi.fn>
   length: number
   [key: string]: unknown
 }
@@ -103,6 +105,7 @@ export interface MockCytoscape {
   remove: ReturnType<typeof vi.fn>
   layout: ReturnType<typeof vi.fn>
   fit: ReturnType<typeof vi.fn>
+  extent: ReturnType<typeof vi.fn>
   animate: ReturnType<typeof vi.fn>
   getElementById: ReturnType<typeof vi.fn>
   $: ReturnType<typeof vi.fn>
@@ -112,6 +115,9 @@ export interface MockCytoscape {
   center: ReturnType<typeof vi.fn>
   pan: ReturnType<typeof vi.fn>
   resize: ReturnType<typeof vi.fn>
+  /** Canvas size in px (a wide 800x400 canvas by default). */
+  width: ReturnType<typeof vi.fn>
+  height: ReturnType<typeof vi.fn>
   container: ReturnType<typeof vi.fn>
   batch: ReturnType<typeof vi.fn>
   startBatch: ReturnType<typeof vi.fn>
@@ -185,6 +191,13 @@ function wrapAsElement(item: MockElement, mockData?: MockData): MockNode {
     unselect: unselectFn,
     renderedMidpoint: (): MockPosition => ({ x: 100, y: 100 }),
     renderedPosition: (): MockPosition => ({ x: 100, y: 100 }),
+    selected: (): boolean => false,
+    degree: (): number => 0,
+    // A 40x14 label box centred under the node's position
+    boundingBox: () => {
+      const p = item.position || { x: 0, y: 0 }
+      return { x1: p.x - 20, y1: p.y + 10, x2: p.x + 20, y2: p.y + 24, w: 40, h: 14 }
+    },
     source: (): MockCollection => {
       // Return the source node for edges
       const sourceId = item.data?.source
@@ -226,6 +239,7 @@ export function createMockCollection(
 ): MockCollection {
   const collection: MockCollection = {
     length: items.length,
+    style: vi.fn(() => collection),
     forEach: vi.fn((callback: (item: MockNode, index: number) => void) => {
       items.forEach((item, index) => callback(wrapAsElement(item, mockData), index))
       return collection
@@ -494,6 +508,9 @@ export function createMockCytoscape(): MockCytoscape {
 
     fit: vi.fn(() => cy),
 
+    /** Visible model-space rectangle (a fixed 0..100 square by default). */
+    extent: vi.fn(() => ({ x1: 0, y1: 0, x2: 100, y2: 100, w: 100, h: 100 })),
+
     animate: vi.fn(() => cy),
 
     getElementById: vi.fn((id: string) => {
@@ -532,6 +549,10 @@ export function createMockCytoscape(): MockCytoscape {
     }),
 
     resize: vi.fn(() => cy),
+
+    width: vi.fn(() => 800),
+
+    height: vi.fn(() => 400),
 
     container: vi.fn(() => document.createElement('div')),
 

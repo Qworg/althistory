@@ -1,27 +1,36 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
 import { useGlobalStore } from '@/stores/globalStore'
-import { ViewMode, CreateEventRequest, CreateArcRequest, CausalRelationshipData } from '@/types'
+import { ViewMode, CreateEventRequest, CreateArcRequest } from '@/types'
 import {
   GraphCopyModal,
   GraphCopyProgressPanel,
   CopyHistoryPanel,
   GraphComparisonModal,
   EventDetailModal,
-  ArcDetailPanel,
-  CausalRelationshipModal
+  ArcDetailPanel
 } from '@/components/modals'
 import { PanelBase } from '@/components/modals/ModalBase'
 import { ExportPanel, VersionHistoryPanel } from '@/components/graphs'
 import { ImportWizard } from '@/components/import'
 import { IngestionWizard } from '@/components/ingestion'
-import { useCreateEvent, useCreateArc, useCreateCausalLink } from '@/hooks/useAPI'
+import { useCreateEvent, useCreateArc } from '@/hooks/useAPI'
 import { useActiveGraphId, useSwitchGraph, useDeleteGraph } from '@/hooks/useGraphs'
 import { StreamingStatusBadge } from '@/components/streaming/StreamingStatusBadge'
 import { useStreamingWrite } from '@/hooks/useStreamingWrite'
+import { MoreSheet } from '@/components/layout/MoreSheet'
+import { useMoreSheetStore } from '@/components/layout/moreSheetStore'
 
 interface ViewToolbarProps {
   viewMode: ViewMode
   className?: string
+  /**
+   * The phone layout (below `lg`): only the view's primary actions and the
+   * filter controls, as 44px icon buttons. Graph management and streaming move
+   * to the MobileBottomBar's "More" sheet, which this toolbar draws. Every
+   * keyboard shortcut keeps working either way.
+   */
+  compact?: boolean
 }
 
 interface ToolbarAction {
@@ -32,9 +41,34 @@ interface ToolbarAction {
   disabled?: boolean
   tooltip?: string
   shortcut?: string
+  /** A toggle's state: rendered as aria-pressed with the selected styling. */
+  pressed?: boolean
+  /** Keyboard-only: the control it stands for lives in the view itself. */
+  hidden?: boolean
 }
 
-export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
+/**
+ * Graph-management actions, collapsed into the toolbar's "Graph" menu. Their
+ * keyboard shortcuts work whether or not the menu is open.
+ */
+const GRAPH_MENU_ACTION_IDS = new Set([
+  'copy-graph',
+  'copy-progress',
+  'copy-history',
+  'export-data',
+  'version-history'
+])
+
+/** Graph-level actions shown beside the Graph menu on desktop. */
+const GRAPH_TOOL_ACTION_IDS = new Set(['branch-divergence', 'import-data', 'ingest-data'])
+
+/** Shown only when they would do something (their shortcuts still apply). */
+const CONDITIONAL_ACTION_IDS = new Set(['clear-selection', 'clear-filters'])
+
+/** "Show copy history (Shift+H)" -> "Show copy history": no keys on a touch sheet. */
+const withoutShortcut = (text?: string) => text?.replace(/\s*\([^)]*\)\s*$/, '')
+
+export function ViewToolbar({ viewMode, className = '', compact = false }: ViewToolbarProps) {
   const { 
     selectedEvents, 
     selectedArcs, 
@@ -54,7 +88,6 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
   const [showComparisonModal, setShowComparisonModal] = useState(false)
   const [showCreateEventModal, setShowCreateEventModal] = useState(false)
   const [showCreateArcPanel, setShowCreateArcPanel] = useState(false)
-  const [showCreateCausalLinkModal, setShowCreateCausalLinkModal] = useState(false)
   const [showImportWizard, setShowImportWizard] = useState(false)
   const [showIngestionWizard, setShowIngestionWizard] = useState(false)
   const [showExportPanel, setShowExportPanel] = useState(false)
@@ -66,14 +99,18 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
     copiedGraphId: string
   } | null>(null)
 
-  // Actor perspective state
-  const [actorLayout, setActorLayout] = useState<'chronological' | 'thematic'>('chronological')
-  const [showActorStats, setShowActorStats] = useState(false)
+  const moreSheetOpen = useMoreSheetStore((state) => state.isOpen)
+  const setMoreSheetOpen = useMoreSheetStore((state) => state.setOpen)
+
+  // Widening past lg puts the tools back on the toolbar: the sheet must not
+  // reopen by itself on the way back down.
+  useEffect(() => {
+    if (!compact && moreSheetOpen) setMoreSheetOpen(false)
+  }, [compact, moreSheetOpen, setMoreSheetOpen])
 
   // Mutations
   const createEventMutation = useCreateEvent()
   const createArcMutation = useCreateArc()
-  const createCausalLinkMutation = useCreateCausalLink()
 
   // Graph-level operations (copy switching/deletion and the import/export tools)
   // all act on the active graph, so they share the same hooks as GraphSelector.
@@ -143,8 +180,8 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         onClick: () => {
           setShowCreateEventModal(true)
         },
-        tooltip: 'Create new event (Ctrl+N)',
-        shortcut: 'Ctrl+N'
+        tooltip: 'Create new event (E)',
+        shortcut: 'E'
       },
       {
         id: 'create-arc',
@@ -157,153 +194,69 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         onClick: () => {
           setShowCreateArcPanel(true)
         },
-        tooltip: 'Create new arc (Ctrl+Shift+C)',
-        shortcut: 'Ctrl+Shift+C|Ctrl+Shift+N'
+        tooltip: 'Create new arc (A)',
+        shortcut: 'A'
       }
     ]
   }, [sessionData, updateSessionData])
 
-  // Causal graph-specific actions
-  const getCausalGraphActions = useCallback((): ToolbarAction[] => {
-    const currentLayout = sessionData.viewportState.causalGraph.layout || 'cose'
-    
-    return [
-      {
-        id: 'layout-force',
-        label: 'Force Layout',
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-        ),
-        onClick: () => {
-          updateSessionData({
-            viewportState: {
-              ...sessionData.viewportState,
-              causalGraph: {
-                ...sessionData.viewportState.causalGraph,
-                layout: 'cose'
-              }
-            }
-          })
-        },
-        tooltip: 'Force-directed layout (1)',
-        shortcut: '1',
-        disabled: currentLayout === 'cose'
-      },
-      {
-        id: 'layout-hierarchical',
-        label: 'Hierarchical Layout',
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-          </svg>
-        ),
-        onClick: () => {
-          updateSessionData({
-            viewportState: {
-              ...sessionData.viewportState,
-              causalGraph: {
-                ...sessionData.viewportState.causalGraph,
-                layout: 'breadthfirst'
-              }
-            }
-          })
-        },
-        tooltip: 'Hierarchical layout (2)',
-        shortcut: '2',
-        disabled: currentLayout === 'breadthfirst'
-      },
-      {
-        id: 'layout-circular',
-        label: 'Circular Layout',
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        ),
-        onClick: () => {
-          updateSessionData({
-            viewportState: {
-              ...sessionData.viewportState,
-              causalGraph: {
-                ...sessionData.viewportState.causalGraph,
-                layout: 'circle'
-              }
-            }
-          })
-        },
-        tooltip: 'Circular layout (3)',
-        shortcut: '3',
-        disabled: currentLayout === 'circle'
-      },
-      {
-        id: 'create-causal-link',
-        label: 'Create Link',
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-        ),
-        onClick: () => {
-          setShowCreateCausalLinkModal(true)
-        },
-        tooltip: 'Create causal relationship (L) - Select 2 events first',
-        shortcut: 'L',
-        disabled: selectedEvents.length !== 2
-      }
-    ]
-  }, [sessionData, updateSessionData, selectedEvents.length])
+  // Causal graph view: no toolbar actions of its own. The canvas's layout
+  // panel is the one layout control (its keys 1-8, F and R are its own), and
+  // its Draw Link (D) is the one way to link events.
 
-  // Actor perspective-specific actions
+  // Actor perspective-specific actions. The layout is chosen in the view's own
+  // segmented control; C and T stay bound here, writing the same session state
+  // that control reads, so there is one layout switch and it has keys.
   const getActorPerspectiveActions = useCallback((): ToolbarAction[] => {
+    const actorState = sessionData?.viewportState?.actorPerspective
+    const currentLayout = actorState?.layout ?? 'chronological'
+    const currentShowStats = actorState?.showStats ?? true
+
+    const writeActorState = (next: Partial<{ layout: 'chronological' | 'thematic'; showStats: boolean }>) => {
+      updateSessionData({
+        viewportState: {
+          ...sessionData.viewportState,
+          actorPerspective: {
+            layout: currentLayout,
+            showStats: currentShowStats,
+            ...next
+          }
+        }
+      })
+    }
+
     return [
-      {
-        id: 'layout-chronological',
-        label: 'Chronological',
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        ),
-        onClick: () => {
-          setActorLayout('chronological')
-        },
-        tooltip: 'Chronological layout (C)',
-        shortcut: 'C',
-        disabled: actorLayout === 'chronological'
-      },
-      {
-        id: 'layout-thematic',
-        label: 'Thematic',
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-        ),
-        onClick: () => {
-          setActorLayout('thematic')
-        },
-        tooltip: 'Thematic layout (T)',
-        shortcut: 'T',
-        disabled: actorLayout === 'thematic'
-      },
       {
         id: 'actor-stats',
-        label: showActorStats ? 'Hide Stats' : 'Show Stats',
+        label: 'Statistics',
         icon: (
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
         ),
-        onClick: () => {
-          setShowActorStats(!showActorStats)
-        },
-        tooltip: 'Toggle actor statistics (S)',
+        onClick: () => writeActorState({ showStats: !currentShowStats }),
+        pressed: currentShowStats,
+        tooltip: 'Show or hide actor statistics (S)',
         shortcut: 'S'
+      },
+      {
+        id: 'layout-chronological',
+        label: 'Chronological layout',
+        icon: null,
+        hidden: true,
+        onClick: () => writeActorState({ layout: 'chronological' }),
+        shortcut: 'C'
+      },
+      {
+        id: 'layout-thematic',
+        label: 'Thematic layout',
+        icon: null,
+        hidden: true,
+        onClick: () => writeActorState({ layout: 'thematic' }),
+        shortcut: 'T'
       }
     ]
-  }, [actorLayout, showActorStats])
+  }, [sessionData, updateSessionData])
 
   // Common actions available in all views
   const getCommonActions = useCallback((): ToolbarAction[] => {
@@ -318,50 +271,53 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
     return [
       {
         id: 'copy-graph',
-        label: 'Copy Graph',
+        label: 'Branch or copy…',
         icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <circle cx="6" cy="6" r="2" />
+            <circle cx="6" cy="18" r="2" />
+            <circle cx="18" cy="9" r="2" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 8v8M6 12c0-2 1.5-3 4-3h6" />
           </svg>
         ),
         onClick: () => setShowCopyModal(true),
-        tooltip: 'Create graph copy (Ctrl+C)',
-        shortcut: 'Ctrl+C'
+        tooltip: 'Fork a what-if branch, or make a plain copy (Shift+B)',
+        shortcut: 'Shift+B'
       },
       {
         id: 'copy-progress',
-        label: 'Copy Status',
+        label: 'Copy progress',
         icon: (
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
         ),
         onClick: () => setShowProgressPanel(true),
-        tooltip: 'View copy operations (Ctrl+Shift+C)',
-        shortcut: 'Ctrl+Shift+C'
+        tooltip: 'Show copies in progress (Shift+S)',
+        shortcut: 'Shift+S'
       },
       {
         id: 'copy-history',
-        label: 'Copy History',
+        label: 'Copy history',
         icon: (
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         ),
         onClick: () => setShowHistoryPanel(true),
-        tooltip: 'View copy history (Ctrl+H)',
-        shortcut: 'Ctrl+H'
+        tooltip: 'Show copy history (Shift+H)',
+        shortcut: 'Shift+H'
       },
       {
         id: 'branch-divergence',
-        label: 'Branch Comparison',
+        label: 'Compare branches',
         icon: (
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
           </svg>
         ),
         onClick: () => setShowComparisonModal(true),
-        tooltip: 'Compare timeline against counterfactual branches (PoD explorer)'
+        tooltip: 'Compare this graph with a counterfactual branch: where they diverge and what changed'
       },
       {
         id: 'import-data',
@@ -372,7 +328,7 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           </svg>
         ),
         onClick: () => setShowImportWizard(true),
-        tooltip: 'Import graph data (Req 18)'
+        tooltip: 'Import graph archive (JSON/CSV)'
       },
       {
         id: 'ingest-data',
@@ -383,7 +339,7 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           </svg>
         ),
         onClick: () => setShowIngestionWizard(true),
-        tooltip: 'Ingest from Wikipedia, Wikidata or text (Req 19)'
+        tooltip: 'Extract historical events from Wikipedia, Wikidata, or text'
       },
       {
         id: 'export-data',
@@ -394,18 +350,20 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           </svg>
         ),
         onClick: () => setShowExportPanel(true),
-        tooltip: 'Export graph data (Req 5)'
+        tooltip: 'Export active graph archive'
       },
       {
         id: 'version-history',
         label: 'Versions',
+        // Stacked snapshots, so it does not share Copy history's clock.
         icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5" />
           </svg>
         ),
         onClick: () => setShowVersionHistory(true),
-        tooltip: 'View version history and roll back (Req 17.5)'
+        tooltip: 'View version history and restore snapshots'
       },
       {
         id: 'toggle-filters',
@@ -416,8 +374,8 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
           </svg>
         ),
         onClick: () => setFilterPanelOpen(!uiState.filterPanelOpen),
-        tooltip: 'Toggle filter panel (Ctrl+F)',
-        shortcut: 'Ctrl+F'
+        tooltip: 'Toggle filter panel (Shift+F)',
+        shortcut: 'Shift+F'
       },
       {
         id: 'clear-selection',
@@ -442,8 +400,8 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         ),
         onClick: clearFilters,
         disabled: !hasFilters,
-        tooltip: 'Clear all filters (Ctrl+R)',
-        shortcut: 'Ctrl+R'
+        tooltip: 'Clear all filters (Shift+R)',
+        shortcut: 'Shift+R'
       }
     ]
   }, [selectedEvents.length, selectedArcs.length, activeFilters, uiState.filterPanelOpen, clearSelection, clearFilters, setFilterPanelOpen])
@@ -454,16 +412,24 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
       case 'timeline':
         return getTimelineActions()
       case 'causal':
-        return getCausalGraphActions()
+        return []
       case 'actor-perspective':
         return getActorPerspectiveActions()
       default:
         return []
     }
-  }, [viewMode, getTimelineActions, getCausalGraphActions, getActorPerspectiveActions])
+  }, [viewMode, getTimelineActions, getActorPerspectiveActions])
 
-  const viewSpecificActions = getViewSpecificActions()
+  const viewSpecificActions = getViewSpecificActions().filter(action => !action.hidden)
   const commonActions = getCommonActions()
+  const graphMenuActions = commonActions.filter(action => GRAPH_MENU_ACTION_IDS.has(action.id))
+  const graphToolActions = commonActions.filter(action => GRAPH_TOOL_ACTION_IDS.has(action.id))
+  // Filters and the conditional clears: on the toolbar at every width.
+  const viewStateActions = commonActions.filter(action =>
+    !GRAPH_MENU_ACTION_IDS.has(action.id) &&
+    !GRAPH_TOOL_ACTION_IDS.has(action.id) &&
+    !(CONDITIONAL_ACTION_IDS.has(action.id) && action.disabled)
+  )
 
   // Memoised so the keyboard-shortcut effect below is not re-subscribed on every
   // render; both builders are themselves useCallback'd and rebuild exactly when
@@ -476,10 +442,8 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
   // Handle keyboard shortcuts
   React.useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
-      // Only handle shortcuts when no input is focused
-      if (event.target instanceof HTMLInputElement || 
-          event.target instanceof HTMLTextAreaElement ||
-          event.target instanceof HTMLSelectElement) {
+      // Not while typing, composing, or with a modal dialog open
+      if (shouldIgnoreAppShortcut(event)) {
         return
       }
 
@@ -491,10 +455,22 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         const key = event.key.toLowerCase()
         
         return shortcuts.some(shortcut => {
-          if (shortcut.includes('ctrl+') && !event.ctrlKey) return false
-          if (shortcut.includes('shift+') && !event.shiftKey) return false
-          if (shortcut.includes('alt+') && !event.altKey) return false
-          
+          // Modifiers must match exactly, not merely be present: otherwise the
+          // plain "F" (fit) also fired on Ctrl+F and "C" (chronological)
+          // swallowed Ctrl+C copy.
+          //
+          // Toolbar shortcuts are bare keys or Shift+key, the convention web
+          // apps use (Gmail, GitHub, Google Calendar's "c", Linear): Ctrl/⌘
+          // combinations belong to the browser and OS. Ctrl+N, Ctrl+Shift+N
+          // and Ctrl+T never reach the page; Ctrl+F/R/H would hijack find,
+          // reload and history; and ⌘H hides the app on macOS. So no toolbar
+          // shortcut uses Ctrl, nothing fires with Meta held, and there is no
+          // Ctrl-vs-⌘ variant to maintain.
+          if (shortcut.includes('ctrl+') !== event.ctrlKey) return false
+          if (shortcut.includes('shift+') !== event.shiftKey) return false
+          if (shortcut.includes('alt+') !== event.altKey) return false
+          if (event.metaKey) return false
+
           const keyPart = shortcut.split('+').pop()
           return keyPart === key
         })
@@ -514,79 +490,129 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
     return null
   }
 
+  const streamingBadge = (
+    <StreamingStatusBadge
+      status={streamStatus}
+      stats={streamStats}
+      error={streamError}
+      onConnect={connectStream}
+      onDisconnect={disconnectStream}
+    />
+  )
+
+  const renderButton = (action: ToolbarAction) => {
+    const isPrimaryCreate = action.id === 'create-event' || action.id === 'create-arc'
+    const isDivergenceExplorer = action.id === 'branch-divergence'
+    const isActiveFilterToggle = action.id === 'toggle-filters' && uiState.filterPanelOpen
+    const isSelected = action.pressed === true || isActiveFilterToggle
+    // Clear actions are icon-only until wide screens: they come and go with state.
+    const labelClass = CONDITIONAL_ACTION_IDS.has(action.id) ? 'lg:inline' : 'sm:inline'
+    return (
+      <button
+        key={action.id}
+        type="button"
+        onClick={action.onClick}
+        disabled={action.disabled}
+        aria-pressed={action.pressed}
+        className={`
+          inline-flex items-center rounded-md text-xs sm:text-sm font-medium
+          transition-colors duration-200 ease-out
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-selected focus-visible:ring-offset-1
+          ${compact ? 'h-11 min-w-11 justify-center px-2.5' : 'px-2.5 py-1'}
+          ${action.disabled
+            ? 'text-ink-muted opacity-60 cursor-not-allowed'
+            : isPrimaryCreate
+              ? 'bg-baseline/10 text-baseline border border-baseline/25 hover:bg-baseline/15'
+              : isDivergenceExplorer
+                ? 'bg-amber-50/80 text-amber-900 border border-amber-200/80 hover:bg-amber-100'
+                : isSelected
+                  ? 'bg-subtle text-ink border border-line'
+                  : 'text-ink-secondary hover:text-ink hover:bg-subtle border border-transparent'
+          }
+        `}
+        title={action.tooltip}
+        aria-label={action.label}
+      >
+        {action.icon}
+        {!compact && <span className={`ml-1 hidden ${labelClass}`}>{action.label}</span>}
+      </button>
+    )
+  }
+
+  const divider = <div className="w-px h-5 bg-line" aria-hidden="true" />
+
   return (
     <>
-      <div className={`flex items-center space-x-2 ${className}`} role="toolbar" aria-label="View toolbar">
-        {/* View-specific actions */}
-        {viewSpecificActions.length > 0 && (
-          <>
-            <div className="flex items-center space-x-1">
-              {viewSpecificActions.map((action) => (
-                <button
-                  key={action.id}
-                  onClick={action.onClick}
-                  disabled={action.disabled}
-                  className={`
-                    inline-flex items-center px-2 py-1 rounded text-sm font-medium
-                    transition-all duration-200 ease-in-out
-                    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1
-                    ${action.disabled
-                      ? 'text-gray-400 cursor-not-allowed'
-                      : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-                    }
-                  `}
-                  title={action.tooltip}
-                  aria-label={action.label}
-                >
-                  {action.icon}
-                  <span className="ml-1 hidden sm:inline">{action.label}</span>
-                </button>
-              ))}
-            </div>
-            
-            {commonActions.length > 0 && (
-              <div className="w-px h-6 bg-gray-300" aria-hidden="true" />
-            )}
-          </>
-        )}
+      {compact ? (
+        // Phone: the view's primary actions and the filter controls, one row.
+        <div className={`flex items-center gap-1 ${className}`} role="toolbar" aria-label="View toolbar">
+          {viewSpecificActions.map(renderButton)}
+          {viewSpecificActions.length > 0 && divider}
+          {viewStateActions.map(renderButton)}
+        </div>
+      ) : (
+        <div className={`flex flex-wrap items-center gap-x-2 gap-y-1.5 ${className}`} role="toolbar" aria-label="View toolbar">
+          {viewSpecificActions.length > 0 && (
+            <>
+              <div className="flex flex-wrap items-center gap-1">
+                {viewSpecificActions.map(renderButton)}
+              </div>
+              {divider}
+            </>
+          )}
 
-        {/* Common actions */}
-        {commonActions.length > 0 && (
-          <div className="flex items-center space-x-1">
-            {commonActions.map((action) => (
-              <button
-                key={action.id}
-                onClick={action.onClick}
-                disabled={action.disabled}
-                className={`
-                  inline-flex items-center px-2 py-1 rounded text-sm font-medium
-                  transition-all duration-200 ease-in-out
-                  focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1
-                  ${action.disabled
-                    ? 'text-gray-400 cursor-not-allowed'
-                    : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-                  }
-                `}
-                title={action.tooltip}
-                aria-label={action.label}
-              >
-                {action.icon}
-                <span className="ml-1 hidden sm:inline">{action.label}</span>
-              </button>
-            ))}
+          {/* Graph management: the Graph menu, then the graph-level tools */}
+          <div className="flex flex-wrap items-center gap-1">
+            {graphMenuActions.length > 0 && <GraphMenu actions={graphMenuActions} />}
+            {graphToolActions.map(renderButton)}
           </div>
-        )}
+          {divider}
 
-        {/* Streaming Status Badge */}
-        <div className="w-px h-6 bg-gray-300" aria-hidden="true" />
-        <StreamingStatusBadge
-          status={streamStatus}
-          stats={streamStats}
-          error={streamError}
-          onConnect={connectStream}
-          onDisconnect={disconnectStream}
+          {/* What the views show: filters and selection */}
+          <div className="flex flex-wrap items-center gap-1">
+            {viewStateActions.map(renderButton)}
+          </div>
+
+          {divider}
+          {streamingBadge}
+        </div>
+      )}
+
+      {/* Phone overflow, opened from the MobileBottomBar's "More" button */}
+      {compact && (
+        <MoreSheet
+          isOpen={moreSheetOpen}
+          onClose={() => setMoreSheetOpen(false)}
+          groups={[
+            {
+              label: 'Graph',
+              items: [...graphMenuActions, ...graphToolActions.filter(a => a.id === 'branch-divergence')].map(action => ({
+                id: action.id,
+                label: action.label,
+                icon: action.icon,
+                description: withoutShortcut(action.tooltip),
+                onClick: action.onClick
+              }))
+            },
+            {
+              label: 'Bring in history',
+              items: graphToolActions.filter(a => a.id !== 'branch-divergence').map(action => ({
+                id: action.id,
+                label: action.label,
+                icon: action.icon,
+                description: withoutShortcut(action.tooltip),
+                onClick: action.onClick
+              }))
+            }
+          ]}
+          footer={
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-medium text-ink-muted">Live streaming</span>
+              {streamingBadge}
+            </div>
+          }
         />
-      </div>
+      )}
 
       {/* Graph Copy Modal */}
       <GraphCopyModal
@@ -623,7 +649,7 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         onDeleteCopy={handleDeleteCopy}
       />
 
-      {/* Graph Comparison / Counterfactual Divergence Explorer Modal */}
+      {/* Compare branches (BranchComparisonModal via GraphComparisonModal) */}
       <GraphComparisonModal
         isOpen={showComparisonModal}
         onClose={() => {
@@ -664,14 +690,15 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         <ExportPanel />
       </PanelBase>
 
-      {/* Version History Panel (Req 17.5) */}
+      {/* Version History Panel (Req 17.5). The panel titles it, so the
+          component's own header is hidden. */}
       <PanelBase
         isOpen={showVersionHistory}
         onClose={() => setShowVersionHistory(false)}
-        title="Version History"
+        title="Version history"
         width="28rem"
       >
-        <VersionHistoryPanel />
+        <VersionHistoryPanel hideHeader />
       </PanelBase>
 
       {/* Create Event Modal */}
@@ -701,17 +728,190 @@ export function ViewToolbar({ viewMode, className = '' }: ViewToolbarProps) {
         }}
       />
 
-      {/* Create Causal Link Modal */}
-      <CausalRelationshipModal
-        relationship={null}
-        isOpen={showCreateCausalLinkModal}
-        onClose={() => setShowCreateCausalLinkModal(false)}
-        causeEventId={selectedEvents.length === 2 ? selectedEvents[0] : undefined}
-        effectEventId={selectedEvents.length === 2 ? selectedEvents[1] : undefined}
-        onCreate={async (causeId: string, effectId: string, data: CausalRelationshipData) => {
-          await createCausalLinkMutation.mutateAsync({ causeId, effectId, relationship: data })
-        }}
-      />
     </>
+  )
+}
+
+interface GraphMenuProps {
+  actions: ToolbarAction[]
+}
+
+/**
+ * The "Graph" disclosure menu: copy, copy status/history, export, versions.
+ * Follows the WAI-ARIA menu button pattern: the trigger opens the menu with
+ * click, Enter, Space or ArrowDown (ArrowUp focuses the last item); arrow keys,
+ * Home and End move between items; Escape closes it and returns focus to the
+ * trigger, as does choosing an item; Tab or a click outside closes it.
+ */
+function GraphMenu({ actions }: GraphMenuProps) {
+  const [open, setOpen] = useState(false)
+  const [initialFocus, setInitialFocus] = useState<'first' | 'last'>('first')
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const menuId = useId()
+
+  const openMenu = (focus: 'first' | 'last') => {
+    setInitialFocus(focus)
+    setOpen(true)
+  }
+
+  const closeMenu = useCallback((returnFocus: boolean) => {
+    setOpen(false)
+    if (returnFocus) triggerRef.current?.focus()
+  }, [])
+
+  // Move focus into the menu when it opens.
+  useEffect(() => {
+    if (!open) return
+    const items = itemRefs.current.filter((el): el is HTMLButtonElement => el !== null)
+    const target = initialFocus === 'last' ? items[items.length - 1] : items[0]
+    target?.focus()
+  }, [open, initialFocus])
+
+  // A press outside the trigger and the menu closes it, leaving focus where
+  // the press put it.
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node
+      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('touchstart', onPointerDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('touchstart', onPointerDown)
+    }
+  }, [open])
+
+  const focusItem = (index: number) => {
+    const items = itemRefs.current.filter((el): el is HTMLButtonElement => el !== null)
+    if (items.length === 0) return
+    const wrapped = (index + items.length) % items.length
+    items[wrapped]?.focus()
+  }
+
+  const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      openMenu('first')
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      openMenu('last')
+    } else if (event.key === 'Escape' && open) {
+      // Keep the toolbar's Escape (clear selection) from also firing.
+      event.preventDefault()
+      event.stopPropagation()
+      closeMenu(true)
+    }
+  }
+
+  const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const items = itemRefs.current.filter((el): el is HTMLButtonElement => el !== null)
+    const current = items.indexOf(document.activeElement as HTMLButtonElement)
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault()
+        focusItem(current + 1)
+        break
+      case 'ArrowUp':
+        event.preventDefault()
+        focusItem(current - 1)
+        break
+      case 'Home':
+        event.preventDefault()
+        focusItem(0)
+        break
+      case 'End':
+        event.preventDefault()
+        focusItem(items.length - 1)
+        break
+      case 'Escape':
+        // Keep the toolbar's Escape (clear selection) from also firing.
+        event.preventDefault()
+        event.stopPropagation()
+        closeMenu(true)
+        break
+      case 'Tab':
+        closeMenu(false)
+        break
+    }
+  }
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => (open ? closeMenu(false) : openMenu('first'))}
+        onKeyDown={handleTriggerKeyDown}
+        title="Branch, copy, export and version this graph"
+        className={`
+          inline-flex items-center px-2 py-1 rounded-md text-xs sm:text-sm font-medium
+          transition-all duration-200 ease-in-out
+          focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-1
+          ${open ? 'bg-subtle text-ink' : 'text-ink-secondary hover:text-ink hover:bg-subtle'}
+        `}
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+        </svg>
+        <span className="ml-1">Graph</span>
+        <svg
+          className={`w-3 h-3 ml-0.5 transition-transform ${open ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          ref={menuRef}
+          id={menuId}
+          role="menu"
+          aria-label="Graph"
+          onKeyDown={handleMenuKeyDown}
+          className="absolute left-0 top-full mt-1 z-40 w-max min-w-[14rem] py-1 bg-card border border-line rounded-md shadow-lg"
+        >
+          {actions.map((action, index) => (
+            <button
+              key={action.id}
+              ref={(el) => { itemRefs.current[index] = el }}
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              aria-label={action.label}
+              aria-disabled={action.disabled || undefined}
+              title={action.tooltip}
+              onClick={() => {
+                if (action.disabled) return
+                closeMenu(true)
+                action.onClick()
+              }}
+              className={`
+                w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm
+                focus:outline-none focus:bg-subtle
+                ${action.disabled ? 'text-ink-muted opacity-60 cursor-not-allowed' : 'text-ink-secondary hover:bg-subtle hover:text-ink'}
+              `}
+            >
+              <span aria-hidden="true">{action.icon}</span>
+              {/* One line per item: the menu grows to its longest label. */}
+              <span className="flex-1 whitespace-nowrap">{action.label}</span>
+              {action.shortcut && (
+                <kbd className="ml-4 font-mono-code text-xs text-ink-muted" aria-hidden="true">
+                  {action.shortcut}
+                </kbd>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }

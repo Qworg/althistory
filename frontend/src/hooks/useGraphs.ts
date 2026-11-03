@@ -93,6 +93,28 @@ export function useGraphVersions(id: string | null | undefined, limit?: number) 
 }
 
 /**
+ * The graph's current number in Version history (the head commit), or null
+ * while unknown. This is the number Version history, merge and restore speak
+ * in. It is NOT `Graph.version`, which is a metadata change counter that runs
+ * ahead of it (a rollback, for one, commits a new version), so showing that in
+ * the header contradicted the merge dialog's "creates version 47".
+ *
+ * `changeCounter` (pass `graph.version`) is part of the cache key, so the head
+ * is refetched whenever the graph changes.
+ */
+export function useGraphHeadVersion(id: string | null | undefined, changeCounter?: number): number | null {
+  const query = useQuery({
+    queryKey: [...graphKeys.versions(id ?? ''), 'head', changeCounter ?? null] as const,
+    queryFn: async () => {
+      const versions = await apiClient.graphs.getVersions(id!, 1)
+      return versions[0]?.version ?? null
+    },
+    enabled: !!id,
+  })
+  return typeof query.data === 'number' ? query.data : null
+}
+
+/**
  * Hook to get graph branches
  */
 export function useGraphBranches(id: string | null | undefined) {
@@ -152,7 +174,10 @@ export function useDeleteGraph() {
 }
 
 /**
- * Hook to branch a graph
+ * Hook to branch a graph: POST /graphs/:id/branch with `{ name, description? }`.
+ * The branch records its parent and fork point, so it can be compared with and
+ * merged back into the graph it came from. (A plain copy, `useGraphCopy`, does
+ * not.)
  */
 export function useBranchGraph() {
   const queryClient = useQueryClient()
@@ -192,6 +217,24 @@ export function useMergeGraph() {
 /**
  * Hook to rollback a graph to a previous version
  */
+/**
+ * Refresh everything a write to `graphId` can change: its metadata and version
+ * head (the header badge), the graph lists, and the entity queries the views
+ * read. For writes that go through apiClient directly rather than a mutation
+ * hook (the merge resolver calls mergeDetailed itself), which otherwise left
+ * the header on the old version and the timeline without the merged events.
+ */
+export function useInvalidateGraphData() {
+  const queryClient = useQueryClient()
+  return useCallback((graphId: string) => {
+    queryClient.invalidateQueries({ queryKey: graphKeys.detail(graphId) })
+    queryClient.invalidateQueries({ queryKey: graphKeys.lists() })
+    queryClient.invalidateQueries({ queryKey: ['events'] })
+    queryClient.invalidateQueries({ queryKey: ['arcs'] })
+    queryClient.invalidateQueries({ queryKey: ['causal'] })
+  }, [queryClient])
+}
+
 export function useRollbackGraph() {
   const queryClient = useQueryClient()
 
@@ -264,8 +307,15 @@ export function useGraphManagement() {
     return createGraph.mutateAsync(data)
   }, [createGraph])
 
-  const handleBranchGraph = useCallback((graphId: string, branchName: string, version?: number) => {
-    return branchGraph.mutateAsync({ id: graphId, data: { branchName, version } })
+  const handleBranchGraph = useCallback((
+    graphId: string,
+    branchName: string,
+    options?: { description?: string }
+  ) => {
+    return branchGraph.mutateAsync({
+      id: graphId,
+      data: { branchName, description: options?.description },
+    })
   }, [branchGraph])
 
   const handleRollback = useCallback((graphId: string, version: number) => {

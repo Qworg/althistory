@@ -11,6 +11,14 @@ import type { TimelineProps } from '@/components/timeline/Timeline'
 
 vi.mock('@/hooks/useEvents')
 vi.mock('@/hooks/useArcs')
+// No server: the inspector's causal links come back empty, not refused.
+vi.mock('@/hooks/useAPI', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useAPI')>()
+  return {
+    ...actual,
+    useCausalRelationships: () => ({ data: [], isLoading: false, error: null }),
+  }
+})
 
 vi.mock('@/components/timeline/Timeline', () => ({
   Timeline: ({ events, arcs }: TimelineProps) => (

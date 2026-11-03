@@ -119,7 +119,7 @@ export function ContextMenu({ isOpen, position, items, onClose }: ContextMenuPro
       ref={menuRef}
       role="menu"
       aria-label="Context menu"
-      className="fixed z-50 min-w-[160px] bg-white rounded-lg shadow-lg border border-gray-200 py-1 outline-none"
+      className="fixed z-50 min-w-[160px] bg-card rounded-lg shadow-lg border border-line py-1 outline-none"
       style={{
         left: adjustedPosition.x,
         top: adjustedPosition.y,
@@ -141,10 +141,10 @@ export function ContextMenu({ isOpen, position, items, onClose }: ContextMenuPro
           className={`
             w-full px-4 py-2 text-left text-sm
             ${item.disabled
-              ? 'text-gray-400 cursor-not-allowed'
+              ? 'text-ink-muted opacity-60 cursor-not-allowed'
               : item.danger
-                ? 'text-red-600 hover:bg-red-50 focus:bg-red-50'
-                : 'text-gray-700 hover:bg-gray-100 focus:bg-gray-100'
+                ? 'text-red-700 hover:bg-red-50 focus:bg-red-50'
+                : 'text-ink hover:bg-subtle focus:bg-subtle'
             }
             focus:outline-none transition-colors
           `}

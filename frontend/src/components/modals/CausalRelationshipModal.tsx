@@ -14,6 +14,12 @@ export interface CausalRelationshipModalProps {
   // For create mode - specify the cause and effect events
   causeEventId?: string
   effectEventId?: string
+  /**
+   * Events to resolve cause/effect ids against before falling back to the
+   * global store. A graph fed events by props (e.g. a counterfactual branch in
+   * the comparison view) passes them here, or both ends read "Unknown Event".
+   */
+  eventPool?: Event[]
   availableGraphs?: Array<{ id: string; name: string }>
 }
 
@@ -26,6 +32,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
   onDelete,
   causeEventId,
   effectEventId,
+  eventPool,
   availableGraphs
 }) => {
   const isCreateMode = !relationship && !!causeEventId && !!effectEventId
@@ -48,6 +55,11 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
     deleteCausalRelationship,
     addError
   } = useGlobalStore()
+
+  const findEvent = React.useCallback(
+    (id: string) => eventPool?.find(e => e.id === id) ?? events.find(e => e.id === id),
+    [eventPool, events]
+  )
 
   // Load available graphs for cross-graph reference selection
   useEffect(() => {
@@ -87,14 +99,14 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
         })
 
         // Find cause and effect events
-        const cause = events.find(e => e.id === relationship.cause_event_id)
-        const effect = events.find(e => e.id === relationship.effect_event_id)
+        const cause = findEvent(relationship.cause_event_id)
+        const effect = findEvent(relationship.effect_event_id)
         setCauseEvent(cause || null)
         setEffectEvent(effect || null)
       } else if (causeEventId && effectEventId) {
         // Create mode - find the selected events
-        const cause = events.find(e => e.id === causeEventId)
-        const effect = events.find(e => e.id === effectEventId)
+        const cause = findEvent(causeEventId)
+        const effect = findEvent(effectEventId)
         setCauseEvent(cause || null)
         setEffectEvent(effect || null)
         // Reset form data for new relationship
@@ -109,7 +121,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
         })
       }
     }
-  }, [relationship, isOpen, events, causeEventId, effectEventId])
+  }, [relationship, isOpen, findEvent, causeEventId, effectEventId])
 
   // Reset form when modal closes
   useEffect(() => {
@@ -236,8 +248,8 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
   if (!isOpen || (!relationship && !isCreateMode)) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div role="dialog" aria-modal="true" aria-label={isCreateMode ? 'Create Causal Relationship' : 'Edit Causal Relationship'} className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">

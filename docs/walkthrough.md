@@ -20,10 +20,16 @@ repository root and open <http://localhost:5173>.
 A graph is one history: its events, the arcs that group them, and the causal
 links between them. The **graph selector** in the top right switches between
 graphs. The left-hand **Views** switch between the timeline, causal graph and
-actor perspective. The **toolbar** holds everything that changes the graph:
-creating events and arcs, copying, import, ingestion, export and versions. The
+actor perspective; *Collapse* at the foot of the list shrinks them to an icon
+rail. The **toolbar** holds everything that changes the graph: creating events
+and arcs, branching and copying, import, ingestion, export and versions. The
 **filter panel** on the right narrows every view by text, date range, actor
-or confidence; *Hide Filters* gives the view the full width.
+or confidence. It starts closed so the view has the full width; *Show Filters*
+(or `Shift+F`) opens it, and any filter in force is listed above the view
+either way. The **?** button
+beside the graph selector (or the `?` key) opens *Help & reference*: every
+keyboard shortcut, grouped by the view it works in, and a glossary of the
+terms used here.
 
 ## 2. The timeline
 
@@ -37,7 +43,7 @@ sub-period of *The Calculating Offices* and sits on the row below. Each
 
 ## 3. Inferred pressures
 
-![The pressure analysis panel: three pressures at 92% average confidence](images/pressure-analysis.png)
+![The pressure analysis panel: three pressures, average confidence 0.92](images/pressure-analysis.png)
 
 Under the timeline, althistory looks for clusters of related events and infers
 the **pressures** behind them. In the demo, the Bank of England following
@@ -76,15 +82,18 @@ well; [`ingestion.md`](ingestion.md) describes the modes and what they cost.
 
 Nothing is written straight away. The extraction lands in a **review table**:
 correct an actor, fix a date, untick a row you do not want, then
-*Import Selected*.
+*Import selected*.
 
 ## 7. Graphs and branches
 
 ![The graph selector open, listing the main graph and a branch](images/graphs-and-branches.png)
 
-You can keep as many graphs as you like. **Branching** copies a graph so you
+You can keep as many graphs as you like. **Branching** forks a graph so you
 can explore a counterfactual, here *Clerks Prevail*, in which Parliament
-bans the engines outright, without touching the original.
+bans the engines outright, without touching the original: *Branch or copy…*
+in the toolbar's **Graph** menu (`Shift+B`) makes one, and *Compare branches*
+shows where a branch departs from its baseline. A plain copy, made from the
+same dialog, is an independent duplicate with no link back.
 [`branch-merge-resolver.md`](branch-merge-resolver.md) covers combining two
 graphs again.
 

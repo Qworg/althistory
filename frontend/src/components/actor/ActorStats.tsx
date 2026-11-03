@@ -1,4 +1,4 @@
-import { CalendarIcon, ChartBarIcon, UserIcon, UsersIcon } from '@heroicons/react/24/outline'
+import { useId } from 'react'
 import { formatHistoricalDate } from '@/utils/historicalTime'
 
 export interface ActorStatsData {
@@ -18,220 +18,200 @@ export interface ActorStatsProps {
   className?: string
 }
 
+const DAY_MS = 1000 * 60 * 60 * 24
+
+function formatDuration(start: Date, end: Date): string {
+  const diffDays = Math.floor((end.getTime() - start.getTime()) / DAY_MS)
+  const diffYears = Math.floor(diffDays / 365)
+  const remainingDays = diffDays % 365
+  const diffMonths = Math.floor(remainingDays / 30)
+  const remainingDaysAfterMonths = remainingDays % 30
+
+  if (diffYears > 0) {
+    if (diffMonths > 0) {
+      return `${diffYears}y ${diffMonths}m`
+    }
+    return `${diffYears} year${diffYears !== 1 ? 's' : ''}`
+  } else if (diffMonths > 0) {
+    if (remainingDaysAfterMonths > 0) {
+      return `${diffMonths}m ${remainingDaysAfterMonths}d`
+    }
+    return `${diffMonths} month${diffMonths !== 1 ? 's' : ''}`
+  } else if (diffDays > 0) {
+    return `${diffDays} day${diffDays !== 1 ? 's' : ''}`
+  }
+  return 'Same day'
+}
+
+function formatDateRange(start: Date, end: Date): string {
+  // Historical dates: formatted in UTC so the viewer's time zone cannot
+  // move them to a neighbouring day.
+  const startStr = formatHistoricalDate(start, 'en-US')
+  const endStr = formatHistoricalDate(end, 'en-US')
+  return startStr === endStr ? startStr : `${startStr} - ${endStr}`
+}
+
+function formatRate(rate: number): string {
+  if (rate >= 10) return rate.toFixed(0)
+  if (rate >= 0.1) return rate.toFixed(1)
+  return rate.toFixed(2)
+}
+
+/**
+ * How often the actor appears, in the unit that gives a readable number: per
+ * year over a multi-year span, otherwise per day, week or month. A sparse
+ * actor used to read "0.001 Events/Day" (with a per-year figure beside it).
+ */
+function activityRate(stats: ActorStatsData): { value: string; unit: string } | null {
+  if (!stats.timeSpan || stats.eventCount === 0) return null
+
+  const diffDays = Math.max(1, Math.floor((stats.timeSpan.end.getTime() - stats.timeSpan.start.getTime()) / DAY_MS))
+  const daily = stats.eventCount / diffDays
+
+  if (diffDays > 366) return { value: formatRate(stats.eventCount / (diffDays / 365.25)), unit: 'per year' }
+  if (daily >= 1) return { value: formatRate(daily), unit: 'per day' }
+  if (daily * 7 >= 1) return { value: formatRate(daily * 7), unit: 'per week' }
+  return { value: formatRate(daily * 30.44), unit: 'per month' }
+}
+
+function average(count: number, over: number): string {
+  return over > 0 ? (count / over).toFixed(1) : '0'
+}
+
+/** Role colours, matching the actor timeline's marks and legend. */
+const ROLE_DOT = { actor: 'bg-blue-500', target: 'bg-green-500' } as const
+
+/**
+ * The actor's statistics: one flat section inside the view's card -- headline
+ * figures in a rule-separated row, then the two roles side by side, then the
+ * split between them. It used to be seven bordered tiles with coloured icon
+ * chips inside a tinted panel inside the card.
+ */
 export function ActorStats({ actor, stats, className = '' }: ActorStatsProps) {
-  const formatDuration = (start: Date, end: Date): string => {
-    const diffMs = end.getTime() - start.getTime()
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-    const diffYears = Math.floor(diffDays / 365)
-    const remainingDays = diffDays % 365
-    const diffMonths = Math.floor(remainingDays / 30)
-    const remainingDaysAfterMonths = remainingDays % 30
-
-    if (diffYears > 0) {
-      if (diffMonths > 0) {
-        return `${diffYears}y ${diffMonths}m`
-      }
-      return `${diffYears} year${diffYears !== 1 ? 's' : ''}`
-    } else if (diffMonths > 0) {
-      if (remainingDaysAfterMonths > 0) {
-        return `${diffMonths}m ${remainingDaysAfterMonths}d`
-      }
-      return `${diffMonths} month${diffMonths !== 1 ? 's' : ''}`
-    } else if (diffDays > 0) {
-      return `${diffDays} day${diffDays !== 1 ? 's' : ''}`
-    } else {
-      return 'Same day'
-    }
-  }
-
-  const formatDateRange = (start: Date, end: Date): string => {
-    // Historical dates: formatted in UTC so the viewer's time zone cannot
-    // move them to a neighbouring day.
-    const startStr = formatHistoricalDate(start, 'en-US')
-    const endStr = formatHistoricalDate(end, 'en-US')
-    
-    if (startStr === endStr) {
-      return startStr
-    }
-    
-    return `${startStr} - ${endStr}`
-  }
-
-  const calculateActivityRate = (): string => {
-    if (!stats.timeSpan || stats.eventCount === 0) return '0'
-    
-    const diffMs = stats.timeSpan.end.getTime() - stats.timeSpan.start.getTime()
-    const diffDays = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
-    const rate = stats.eventCount / diffDays
-    
-    if (rate >= 1) {
-      return rate.toFixed(1)
-    } else if (rate >= 0.1) {
-      return rate.toFixed(2)
-    } else {
-      return rate.toFixed(3)
-    }
-  }
+  const headingId = useId()
+  const rate = activityRate(stats)
+  const { asActor, asTarget, uniqueTargets, uniqueActors } = stats.relationshipMetrics
+  const actorShare = stats.eventCount > 0 ? (asActor / stats.eventCount) * 100 : 0
+  const targetShare = stats.eventCount > 0 ? (asTarget / stats.eventCount) * 100 : 0
 
   return (
-    <div className={`bg-gray-50 rounded-lg p-4 ${className}`}>
-      <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
-        <ChartBarIcon className="h-4 w-4 mr-2 text-gray-500" />
+    <section aria-labelledby={headingId} className={`actor-stats ${className}`}>
+      <h3 id={headingId} className="font-display text-xl font-semibold text-ink">
         Statistics for {actor}
-      </h4>
-      
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {/* Total Events */}
-        <div className="bg-white rounded-lg p-3 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.eventCount}</p>
-              <p className="text-xs text-gray-600">Total Events</p>
-            </div>
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <CalendarIcon className="h-4 w-4 text-blue-600" />
-            </div>
-          </div>
+      </h3>
+
+      {/* Headline figures */}
+      <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-4 border-y border-line py-4 md:grid-cols-4">
+        <div data-stat="total">
+          <dt className="text-xs font-medium text-ink-muted">Total Events</dt>
+          <dd className="mt-1 font-mono-code text-lg font-semibold text-ink">{stats.eventCount}</dd>
         </div>
 
-        {/* Time Span */}
-        <div className="bg-white rounded-lg p-3 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-gray-900">
-                {stats.timeSpan ? formatDuration(stats.timeSpan.start, stats.timeSpan.end) : 'N/A'}
-              </p>
-              <p className="text-xs text-gray-600">Time Span</p>
-              {stats.timeSpan && (
-                <p className="text-xs text-gray-500 mt-1">
-                  {formatDateRange(stats.timeSpan.start, stats.timeSpan.end)}
-                </p>
-              )}
-            </div>
-            <div className="p-2 bg-green-100 rounded-lg">
-              <ChartBarIcon className="h-4 w-4 text-green-600" />
-            </div>
-          </div>
+        <div data-stat="span">
+          <dt className="text-xs font-medium text-ink-muted">Time Span</dt>
+          <dd className="mt-1 text-lg font-semibold text-ink">
+            {stats.timeSpan ? formatDuration(stats.timeSpan.start, stats.timeSpan.end) : 'N/A'}
+          </dd>
+          {stats.timeSpan && (
+            <dd className="font-mono-code text-xs text-ink-muted">
+              {formatDateRange(stats.timeSpan.start, stats.timeSpan.end)}
+            </dd>
+          )}
         </div>
 
-        {/* Activity Rate */}
-        <div className="bg-white rounded-lg p-3 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-lg font-bold text-gray-900">{calculateActivityRate()}</p>
-              <p className="text-xs text-gray-600">Events/Day</p>
-            </div>
-            <div className="p-2 bg-purple-100 rounded-lg">
-              <ChartBarIcon className="h-4 w-4 text-purple-600" />
-            </div>
-          </div>
+        <div data-stat="rate">
+          <dt className="text-xs font-medium text-ink-muted">Activity</dt>
+          <dd className="mt-1 text-lg font-semibold text-ink">
+            {rate ? (
+              <>
+                <span className="font-mono-code">{rate.value}</span>{' '}
+                <span className="text-sm font-normal text-ink-secondary">events {rate.unit}</span>
+              </>
+            ) : (
+              <span className="text-sm font-normal text-ink-secondary">No events</span>
+            )}
+          </dd>
         </div>
 
-        {/* Role Distribution */}
-        <div className="bg-white rounded-lg p-3 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex space-x-2 text-sm">
-                <span className="text-blue-600 font-semibold">{stats.relationshipMetrics.asActor}</span>
-                <span className="text-gray-400">/</span>
-                <span className="text-green-600 font-semibold">{stats.relationshipMetrics.asTarget}</span>
-              </div>
-              <p className="text-xs text-gray-600">Actor / Target</p>
-            </div>
-            <div className="p-2 bg-orange-100 rounded-lg">
-              <UserIcon className="h-4 w-4 text-orange-600" />
-            </div>
-          </div>
+        <div data-stat="roles">
+          <dt className="text-xs font-medium text-ink-muted">Actor / Target</dt>
+          <dd className="mt-1 font-mono-code text-lg font-semibold text-ink">
+            {asActor} / {asTarget}
+          </dd>
         </div>
-      </div>
+      </dl>
 
-      {/* Relationship Details */}
-      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white rounded-lg p-3 border border-gray-200">
-          <h5 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
-            <UserIcon className="h-4 w-4 mr-1 text-blue-600" />
+      {/* The two roles */}
+      <div className="grid grid-cols-1 gap-x-8 gap-y-4 py-4 md:grid-cols-2">
+        <div data-role="actor">
+          <h4 className="flex items-center gap-2 text-base font-semibold text-ink">
+            <span className={`h-2.5 w-2.5 rounded-full ${ROLE_DOT.actor}`} aria-hidden="true" />
             As Actor
-          </h5>
-          <div className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Events:</span>
-              <span className="font-medium">{stats.relationshipMetrics.asActor}</span>
+          </h4>
+          <dl className="mt-2 space-y-1 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-ink-secondary">Events</dt>
+              <dd className="font-mono-code text-ink">{asActor}</dd>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Unique Targets:</span>
-              <span className="font-medium">{stats.relationshipMetrics.uniqueTargets}</span>
+            <div className="flex justify-between gap-4">
+              <dt className="text-ink-secondary">Unique targets</dt>
+              <dd className="font-mono-code text-ink">{uniqueTargets}</dd>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Avg per Target:</span>
-              <span className="font-medium">
-                {stats.relationshipMetrics.uniqueTargets > 0 
-                  ? (stats.relationshipMetrics.asActor / stats.relationshipMetrics.uniqueTargets).toFixed(1)
-                  : '0'
-                }
-              </span>
+            <div className="flex justify-between gap-4">
+              <dt className="text-ink-secondary">Average per target</dt>
+              <dd className="font-mono-code text-ink">{average(asActor, uniqueTargets)}</dd>
             </div>
-          </div>
+          </dl>
         </div>
 
-        <div className="bg-white rounded-lg p-3 border border-gray-200">
-          <h5 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
-            <UsersIcon className="h-4 w-4 mr-1 text-green-600" />
+        <div data-role="target">
+          <h4 className="flex items-center gap-2 text-base font-semibold text-ink">
+            <span className={`h-2.5 w-2.5 rounded-full ${ROLE_DOT.target}`} aria-hidden="true" />
             As Target
-          </h5>
-          <div className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Events:</span>
-              <span className="font-medium">{stats.relationshipMetrics.asTarget}</span>
+          </h4>
+          <dl className="mt-2 space-y-1 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-ink-secondary">Events</dt>
+              <dd className="font-mono-code text-ink">{asTarget}</dd>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Unique Actors:</span>
-              <span className="font-medium">{stats.relationshipMetrics.uniqueActors}</span>
+            <div className="flex justify-between gap-4">
+              <dt className="text-ink-secondary">Unique actors</dt>
+              <dd className="font-mono-code text-ink">{uniqueActors}</dd>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Avg per Actor:</span>
-              <span className="font-medium">
-                {stats.relationshipMetrics.uniqueActors > 0 
-                  ? (stats.relationshipMetrics.asTarget / stats.relationshipMetrics.uniqueActors).toFixed(1)
-                  : '0'
-                }
-              </span>
+            <div className="flex justify-between gap-4">
+              <dt className="text-ink-secondary">Average per actor</dt>
+              <dd className="font-mono-code text-ink">{average(asTarget, uniqueActors)}</dd>
             </div>
-          </div>
+          </dl>
         </div>
       </div>
 
-      {/* Activity Distribution */}
-      {stats.relationshipMetrics.asActor > 0 && stats.relationshipMetrics.asTarget > 0 && (
-        <div className="mt-4 bg-white rounded-lg p-3 border border-gray-200">
-          <h5 className="text-sm font-medium text-gray-900 mb-2">Activity Distribution</h5>
-          <div className="flex h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div 
-              className="bg-blue-500 transition-all duration-300"
-              style={{ 
-                width: `${(stats.relationshipMetrics.asActor / stats.eventCount) * 100}%` 
-              }}
-              title={`${((stats.relationshipMetrics.asActor / stats.eventCount) * 100).toFixed(1)}% as Actor`}
+      {/* The split between the roles, in the timeline's role colours */}
+      {asActor > 0 && asTarget > 0 && (
+        <div className="border-t border-line pt-4" data-stat="distribution">
+          <h4 className="text-base font-semibold text-ink">Activity Distribution</h4>
+          <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-subtle" aria-hidden="true">
+            <div
+              className={`${ROLE_DOT.actor} transition-all duration-300`}
+              style={{ width: `${actorShare}%` }}
             />
-            <div 
-              className="bg-green-500 transition-all duration-300"
-              style={{ 
-                width: `${(stats.relationshipMetrics.asTarget / stats.eventCount) * 100}%` 
-              }}
-              title={`${((stats.relationshipMetrics.asTarget / stats.eventCount) * 100).toFixed(1)}% as Target`}
+            <div
+              className={`${ROLE_DOT.target} transition-all duration-300`}
+              style={{ width: `${targetShare}%` }}
             />
           </div>
-          <div className="flex justify-between mt-2 text-xs text-gray-600">
-            <span className="flex items-center">
-              <div className="w-2 h-2 bg-blue-500 rounded-full mr-1"></div>
-              Actor ({((stats.relationshipMetrics.asActor / stats.eventCount) * 100).toFixed(1)}%)
+          <div className="mt-2 flex justify-between text-xs text-ink-secondary">
+            <span className="flex items-center gap-1">
+              <span className={`h-2 w-2 rounded-full ${ROLE_DOT.actor}`} aria-hidden="true" />
+              Actor ({actorShare.toFixed(1)}%)
             </span>
-            <span className="flex items-center">
-              <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
-              Target ({((stats.relationshipMetrics.asTarget / stats.eventCount) * 100).toFixed(1)}%)
+            <span className="flex items-center gap-1">
+              <span className={`h-2 w-2 rounded-full ${ROLE_DOT.target}`} aria-hidden="true" />
+              Target ({targetShare.toFixed(1)}%)
             </span>
           </div>
         </div>
       )}
-    </div>
+    </section>
   )
 }

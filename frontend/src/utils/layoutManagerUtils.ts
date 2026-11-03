@@ -1,3 +1,4 @@
+import { isTypingTarget } from './keyboardShortcuts'
 import React from 'react'
 import type { LayoutOptions as CytoscapeLayoutOptions } from 'cytoscape'
 
@@ -22,9 +23,10 @@ export type LayoutOptions = Record<string, unknown>
  * stated in exactly one place.
  */
 export function toCytoscapeLayoutOptions(options: LayoutOptions): CytoscapeLayoutOptions {
-  // Every node draws its "actor → target" label below it, up to 140px wide.
-  // Cytoscape sizes nodes without their labels unless told otherwise, so the
-  // layouts packed nodes by the 30-60px circle alone and neighbouring labels
+  // Every node draws its label (the event's short description) below it, up
+  // to 120px wide. Cytoscape sizes nodes without their labels unless told
+  // otherwise, so the layouts packed nodes by the 30-60px circle alone and
+  // neighbouring labels
   // overlapped. Counting the label makes every layout leave room for it; a
   // caller can still opt out by passing the option explicitly.
   return { nodeDimensionsIncludeLabels: true, ...options } as unknown as CytoscapeLayoutOptions
@@ -52,6 +54,19 @@ export const LAYOUT_SHORTCUTS: Record<string, string> = {
   '6': 'dagre',
   '7': 'cose-bilkent',
   '8': 'random'
+}
+
+/**
+ * The layouts the layout panel always shows, in order. These are the ones that
+ * read a causal graph best: force-directed for clusters, and the two layered
+ * layouts for cause-before-effect flow. The rest stay one click away under
+ * "More layouts" (and on their number keys).
+ */
+export const PRIMARY_LAYOUT_NAMES: readonly string[] = ['cose', 'breadthfirst', 'dagre']
+
+/** Whether a layout is shown without opening "More layouts". */
+export function isPrimaryLayout(layoutName: string): boolean {
+  return PRIMARY_LAYOUT_NAMES.includes(layoutName)
 }
 
 /**
@@ -95,9 +110,7 @@ export function getActionFromShortcut(key: string): string | null {
  * Check if keyboard shortcut should be ignored (input focused)
  */
 export function shouldIgnoreKeyboardShortcut(): boolean {
-  const activeElement = document.activeElement
-  const tagName = activeElement?.tagName.toLowerCase()
-  return tagName === 'input' || tagName === 'textarea' || tagName === 'select'
+  return isTypingTarget(document.activeElement)
 }
 
 /**
@@ -134,21 +147,37 @@ export function getCategoryLabel(category: string): string {
 }
 
 /**
- * Default layout options for each layout type
+ * Padding, in px, between the graph and the canvas edge when it is fitted.
+ * Kept small: on a 400px-tall canvas 50px each side gave a quarter of the
+ * height to margin.
+ */
+export const FIT_PADDING = 30
+
+/**
+ * Default layout options for each layout type -- the one source the canvas,
+ * the layout panel and the keyboard shortcuts all start from.
+ *
+ * The force layouts are tuned to spread a graph out rather than pack it: the
+ * old cose settings (gravity 80, 100px edges) pulled every component into a
+ * tight ball that, once fitted, filled the canvas height and ~40% of its
+ * width. Lower gravity, longer ideal edges, matching repulsion and wider
+ * spacing between disconnected components let it breathe, and the canvas
+ * then stretches the result to its own aspect (see canvasStretch).
  */
 export const DEFAULT_LAYOUT_OPTIONS: Record<string, LayoutOptions> = {
   cose: {
     name: 'cose',
     animationDuration: 1000,
     fit: true,
-    padding: 50,
-    nodeRepulsion: 400000,
-    nodeOverlap: 10,
-    idealEdgeLength: 100,
+    padding: FIT_PADDING,
+    nodeRepulsion: 1000000,
+    nodeOverlap: 20,
+    idealEdgeLength: 160,
     edgeElasticity: 100,
     nestingFactor: 5,
-    gravity: 80,
-    numIter: 1000,
+    gravity: 0.25,
+    componentSpacing: 120,
+    numIter: 1500,
     initialTemp: 200,
     coolingFactor: 0.95,
     minTemp: 1.0,
@@ -158,16 +187,16 @@ export const DEFAULT_LAYOUT_OPTIONS: Record<string, LayoutOptions> = {
     name: 'cose-bilkent',
     animationDuration: 1000,
     fit: true,
-    padding: 50,
-    nodeRepulsion: 4500,
-    idealEdgeLength: 50,
+    padding: FIT_PADDING,
+    nodeRepulsion: 12000,
+    idealEdgeLength: 120,
     edgeElasticity: 0.45,
     nestingFactor: 0.1,
-    gravity: 0.25,
+    gravity: 0.15,
     numIter: 2500,
     tile: true,
-    tilingPaddingVertical: 10,
-    tilingPaddingHorizontal: 10,
+    tilingPaddingVertical: 40,
+    tilingPaddingHorizontal: 60,
     gravityRangeCompound: 1.5,
     gravityCompound: 1.0,
     gravityRange: 3.8,
@@ -177,7 +206,7 @@ export const DEFAULT_LAYOUT_OPTIONS: Record<string, LayoutOptions> = {
     name: 'breadthfirst',
     animationDuration: 1000,
     fit: true,
-    padding: 50,
+    padding: FIT_PADDING,
     directed: true,
     spacingFactor: 1.75,
     avoidOverlap: true,
@@ -188,18 +217,18 @@ export const DEFAULT_LAYOUT_OPTIONS: Record<string, LayoutOptions> = {
     name: 'dagre',
     animationDuration: 1000,
     fit: true,
-    padding: 50,
+    padding: FIT_PADDING,
     rankDir: 'TB',
     ranker: 'network-simplex',
-    nodeSep: 50,
+    nodeSep: 70,
     edgeSep: 10,
-    rankSep: 50
+    rankSep: 90
   },
   circle: {
     name: 'circle',
     animationDuration: 1000,
     fit: true,
-    padding: 50,
+    padding: FIT_PADDING,
     avoidOverlap: true,
     radius: undefined,
     startAngle: -Math.PI / 2,
@@ -212,7 +241,7 @@ export const DEFAULT_LAYOUT_OPTIONS: Record<string, LayoutOptions> = {
     name: 'concentric',
     animationDuration: 1000,
     fit: true,
-    padding: 50,
+    padding: FIT_PADDING,
     avoidOverlap: true,
     spacingFactor: 1.75,
     radius: undefined,
@@ -226,7 +255,7 @@ export const DEFAULT_LAYOUT_OPTIONS: Record<string, LayoutOptions> = {
     name: 'grid',
     animationDuration: 1000,
     fit: true,
-    padding: 50,
+    padding: FIT_PADDING,
     avoidOverlap: true,
     avoidOverlapPadding: 10,
     spacingFactor: 1.75,
@@ -239,9 +268,46 @@ export const DEFAULT_LAYOUT_OPTIONS: Record<string, LayoutOptions> = {
     name: 'random',
     animationDuration: 1000,
     fit: true,
-    padding: 50,
+    padding: FIT_PADDING,
     animate: true
   }
+}
+
+/**
+ * Layouts whose result has no meaningful shape of its own, so the canvas may
+ * stretch it to its aspect. Layered, circular and grid layouts keep theirs.
+ */
+export const CANVAS_STRETCH_LAYOUTS: readonly string[] = ['cose', 'cose-bilkent']
+
+/** The most a layout is stretched along one axis to meet the canvas aspect. */
+export const MAX_CANVAS_STRETCH = 2.5
+
+/**
+ * How far to stretch a laid-out graph so that, fitted, it fills the canvas.
+ *
+ * A force layout settles into a roughly round cloud; fitted into a wide
+ * canvas it fills the height and leaves the sides empty. Scaling the node
+ * positions (never shrinking, only spreading, so nothing new overlaps) along
+ * the short axis until the cloud has the canvas's aspect lets the fit use the
+ * whole canvas. Capped at MAX_CANVAS_STRETCH so a single chain does not
+ * become a line of distant dots. `bounds` is the box of the node positions;
+ * `canvas` the canvas size less its fit padding.
+ */
+export function canvasStretch(
+  bounds: { w: number; h: number },
+  canvas: { width: number; height: number },
+  max: number = MAX_CANVAS_STRETCH
+): { sx: number; sy: number } {
+  const none = { sx: 1, sy: 1 }
+  const valid = (n: number) => Number.isFinite(n) && n > 0
+  if (!valid(canvas.width) || !valid(canvas.height)) return none
+  // A single node, or every node on one line, has no aspect to correct
+  if (!valid(bounds.w) || !valid(bounds.h)) return none
+  const target = canvas.width / canvas.height
+  const current = bounds.w / bounds.h
+  if (current < target) return { sx: Math.min(max, target / current), sy: 1 }
+  if (current > target) return { sx: 1, sy: Math.min(max, current / target) }
+  return none
 }
 
 /**
@@ -283,11 +349,6 @@ export const LAYOUT_TIMEOUT_MS = 30000
  * Preview timeout constant in milliseconds
  */
 export const PREVIEW_TIMEOUT_MS = 2000
-
-/**
- * Fit padding constant
- */
-export const FIT_PADDING = 50
 
 /**
  * Default zoom level

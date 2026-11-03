@@ -372,6 +372,46 @@ describe('GlobalStore', () => {
     })
   })
 
+  describe('Layout defaults and preferences', () => {
+    it('starts with the filter rail closed', () => {
+      expect(useGlobalStore.getInitialState().uiState.filterPanelOpen).toBe(false)
+    })
+
+    it('starts with the sidebar expanded', () => {
+      expect(useGlobalStore.getInitialState().uiState.sidebarCollapsed).toBe(false)
+    })
+
+    it('persists the collapsed sidebar with the user preferences', () => {
+      const save = vi.mocked(userPreferencesPersistence.save)
+      save.mockClear()
+
+      useGlobalStore.getState().setSidebarCollapsed(true)
+
+      expect(useGlobalStore.getState().uiState.sidebarCollapsed).toBe(true)
+      expect(useGlobalStore.getState().userPreferences.sidebarCollapsed).toBe(true)
+      expect(save).toHaveBeenCalledTimes(1)
+      expect(save.mock.calls[0]?.[0]).toMatchObject({ sidebarCollapsed: true })
+
+      useGlobalStore.getState().setSidebarCollapsed(false)
+    })
+
+    it('restores the collapsed sidebar when preferences load', () => {
+      const load = vi.spyOn(userPreferencesPersistence, 'load').mockReturnValueOnce({
+        ...useGlobalStore.getState().userPreferences,
+        sidebarCollapsed: true,
+      })
+      useGlobalStore.setState((state) => ({
+        uiState: { ...state.uiState, sidebarCollapsed: false },
+      }))
+
+      useGlobalStore.getState().loadPreferences()
+
+      expect(useGlobalStore.getState().uiState.sidebarCollapsed).toBe(true)
+      load.mockRestore()
+      useGlobalStore.getState().setSidebarCollapsed(false)
+    })
+  })
+
   describe('Persistence Writes Committed State', () => {
     it('persists the newly set preference value, not the value it replaced', () => {
       useGlobalStore.setState({

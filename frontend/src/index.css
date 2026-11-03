@@ -1,16 +1,135 @@
 @import 'tailwindcss';
 
+/*
+ * `dark:` follows the `html.dark` class that MainLayout sets from the user's
+ * theme preference (light / dark / system), not the OS media query directly —
+ * otherwise an explicit "Light" choice on a dark OS would still get dark: styles.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Chromatic tints (badges, pills) in dark mode: see the file for why per class. */
+@import './styles/dark-tints.css';
+
+/*
+ * Semantic surface/ink utilities over the workbench tokens below. `inline`
+ * makes each utility reference the custom property itself, so the html.dark
+ * and .high-contrast overrides flow through without new classes:
+ *   bg-canvas  bg-card  bg-subtle  border-line
+ *   text-ink  text-ink-secondary  text-ink-muted
+ *   text-baseline / bg-divergence / ring-selected …
+ * Prefer these over bg-white / bg-gray-50 / text-gray-900 in new code.
+ */
+@theme inline {
+  --color-canvas: var(--surface-canvas);
+  --color-card: var(--surface-card);
+  --color-subtle: var(--surface-subtle);
+  --color-line: var(--border-subtle);
+  --color-ink: var(--text-primary);
+  --color-ink-secondary: var(--text-secondary);
+  --color-ink-muted: var(--text-muted);
+  --color-baseline: var(--accent-baseline);
+  --color-divergence: var(--accent-divergence);
+  --color-selected: var(--accent-selected);
+  --color-ink-placeholder: var(--text-placeholder);
+}
+
+/*
+ * Typefaces. Self-hosted from @fontsource (latin subset, font-display: swap),
+ * imported in src/main.tsx: Plex Sans 400/500/600, Plex Mono 400/500,
+ * Newsreader 500/600. Declared in @theme so Tailwind's own `font-sans`,
+ * `font-mono` and preflight default resolve to them, and `font-display` is a
+ * utility. A weight not imported there is synthesised badly or falls back to
+ * the next family in the stack -- add the import before using it.
+ */
+@theme {
+  --font-sans: 'IBM Plex Sans', 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Newsreader', 'Source Serif 4', 'Iowan Old Style', Georgia, serif;
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/*
+ * Type scale. Use these steps so the hierarchy reads at a glance: the heading
+ * steps sit at least 1.25x apart (28 / 20 / 16), and the display face marks
+ * the top two.
+ *
+ *   view title   h2  font-display text-[1.75rem] leading-tight font-semibold  28px
+ *   section      h3  font-display text-xl font-semibold                       20px
+ *   dialog/panel title (ModalBase, PanelBase h2) uses the section step, 20px
+ *   subsection   h4  text-base font-semibold   (Plex Sans)                    16px
+ *   body             text-sm                                                  14px
+ *   caption/meta     text-xs                                                  12px
+ *
+ * Inside a dialog, the dialog title is the top step, so its sections use the
+ * subsection step (16px) whatever their heading level. Nothing in HTML goes
+ * below text-xs (12px): no text-[10px] / text-[11px]. Keep heading levels
+ * sequential (h2 -> h3 -> h4); pick the level for the outline and the class
+ * for the size. Timestamps and figures use `.font-mono-code`.
+ */
+
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /*
+   * Archival & Cartographic Research Workbench tokens.
+   * Ink contrast (WCAG AA, >= 4.5:1) is asserted against canvas, card and
+   * subtle in both themes by src/styles/tokens.contrast.test.ts -- change a
+   * value here and that test tells you whether it still reads.
+   */
+  --surface-canvas: #f8f7f4;
+  --surface-card: #ffffff;
+  --surface-subtle: #f1efe9;
+  --border-subtle: #e2dfd7;
+  --text-primary: #18181b;
+  --text-secondary: #475569;
+  /* #64748b measured 4.1:1 on subtle; this passes on all three surfaces. */
+  --text-muted: #5d697c;
+  /* Placeholder text is real text: AA, not Tailwind's 50%-currentColor default. */
+  --text-placeholder: var(--text-muted);
+  --accent-baseline: #1d4ed8;
+  /* #b86304, not amber-600 #d97706: that was 2.97:1 on the canvas, under the
+     3:1 non-text minimum for the divergence line, diamond and fork marks. */
+  --accent-divergence: #b86304;
+  --accent-selected: #4f46e5;
+
+  /* Timeline arc bars */
+  --arc-fill: #93c5fd;
+  --arc-fill-selected: #60a5fa;
+  --arc-stroke: #6b7280;
+  --arc-grip: #374151;
+
+  font-family: var(--font-sans);
   line-height: 1.5;
   font-weight: 400;
   color-scheme: light;
-  color: #213547;
-  background-color: #ffffff;
+  color: var(--text-primary);
+  background-color: var(--surface-canvas);
+  caret-color: var(--accent-selected);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+@layer base {
+  ::placeholder {
+    color: var(--text-placeholder);
+    opacity: 1;
+  }
+}
+
+::selection {
+  background-color: rgba(79, 70, 229, 0.16);
+  color: #1e1b4b;
+}
+
+.tabular-nums,
+time,
+.timeline-tooltip,
+[data-numeric="true"] {
+  font-variant-numeric: tabular-nums;
+}
+
+.font-mono-code {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 * {
@@ -22,11 +141,32 @@ body {
   min-width: 320px;
   min-height: 100vh;
   overflow-x: hidden;
+  background-color: var(--surface-canvas);
+  color: var(--text-primary);
 }
 
 #root {
   width: 100%;
   height: 100vh;
+}
+
+/* Custom archival scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface-subtle);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 /* Touch optimization for mobile devices */
@@ -48,7 +188,7 @@ body {
 
 /* Focus styles for accessibility */
 *:focus {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--accent-selected);
   outline-offset: 2px;
 }
 
@@ -57,30 +197,138 @@ body {
 }
 
 *:focus-visible {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--accent-selected);
   outline-offset: 2px;
 }
 
-/* High contrast mode support */
-.high-contrast .text-gray-500,
-.high-contrast .text-gray-600 {
-  color: #000000;
+/* Dark theme overrides — "Cartographic Dark" */
+html.dark {
+  color-scheme: dark;
+  --surface-canvas: #0f172a;
+  --surface-card: #162036;
+  --surface-subtle: #1c2840;
+  --border-subtle: #2c3a55;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --accent-baseline: #60a5fa;
+  --accent-divergence: #f59e0b;
+  --accent-selected: #818cf8;
+  --arc-fill: rgb(59 130 246 / 0.32);
+  --arc-fill-selected: rgb(96 165 250 / 0.6);
+  --arc-stroke: #60a5fa;
+  --arc-grip: #cbd5e1;
+
+  /*
+   * Safety net for components still written against the raw neutral scale
+   * (bg-gray-50, text-gray-700, border-gray-200 …). Tailwind v4 utilities read
+   * these custom properties, so inverting the scale here keeps every one of
+   * them legible in dark mode: low steps become dark surfaces/rules, high steps
+   * become light ink. Chromatic families (blue, amber …) are deliberately left
+   * alone — `bg-blue-600 hover:bg-blue-700 text-white` must stay a dark button.
+   * New code should use the semantic utilities (bg-card, text-ink …) instead.
+   */
+  --color-gray-50: #1c2840;
+  --color-gray-100: #24324d;
+  --color-gray-200: #2c3a55;
+  --color-gray-300: #3d4e6b;
+  --color-gray-400: #7685a0;
+  --color-gray-500: #94a3b8;
+  --color-gray-600: #a9b6c8;
+  --color-gray-700: #cbd5e1;
+  --color-gray-800: #e2e8f0;
+  --color-gray-900: #f1f5f9;
+  --color-gray-950: #f8fafc;
+  --color-slate-50: #1c2840;
+  --color-slate-100: #24324d;
+  --color-slate-200: #2c3a55;
+  --color-slate-300: #3d4e6b;
+  --color-slate-400: #7685a0;
+  --color-slate-500: #94a3b8;
+  --color-slate-600: #a9b6c8;
+  --color-slate-700: #cbd5e1;
+  --color-slate-800: #e2e8f0;
+  --color-slate-900: #f1f5f9;
+  --color-slate-950: #f8fafc;
 }
 
-.high-contrast .border-gray-300 {
-  border-color: #000000;
+/*
+ * bg-white is a literal colour, not a scale step: route it to the card surface.
+ * Kept in the utilities layer with :where() so it has the specificity of the
+ * utility itself and `hover:bg-*` variants on the same element still win.
+ */
+@layer utilities {
+  :where(html.dark) .bg-white {
+    background-color: var(--surface-card);
+  }
 }
 
-@media (prefers-contrast: high) {
-  .text-gray-500 {
+html.dark ::selection {
+  background-color: rgba(129, 140, 248, 0.3);
+  color: #f8fafc;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #3d4e6b;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/*
+ * High contrast. The class sits on <html> alongside (or without) .dark, so
+ * each theme gets its own ink: black on the light surfaces, white on the dark
+ * ones. Forcing black in both is what made Dark + High Contrast unreadable.
+ */
+html.high-contrast:not(.dark) {
+  --text-primary: #000000;
+  --text-secondary: #000000;
+  --text-muted: #111827;
+  --border-subtle: #000000;
+}
+
+html.high-contrast.dark {
+  --text-primary: #ffffff;
+  --text-secondary: #ffffff;
+  --text-muted: #e2e8f0;
+  --border-subtle: #e2e8f0;
+}
+
+html.high-contrast:not(.dark) :is(.text-gray-400, .text-gray-500, .text-gray-600, .text-gray-700, .text-slate-500, .text-slate-600) {
+  color: #000000 !important;
+}
+
+html.high-contrast.dark :is(.text-gray-400, .text-gray-500, .text-gray-600, .text-gray-700, .text-slate-500, .text-slate-600) {
+  color: #ffffff !important;
+}
+
+html.high-contrast:not(.dark) :is(.border-gray-100, .border-gray-200, .border-gray-300, .border-slate-200) {
+  border-color: #000000 !important;
+}
+
+html.high-contrast.dark :is(.border-gray-100, .border-gray-200, .border-gray-300, .border-slate-200) {
+  border-color: #e2e8f0 !important;
+}
+
+html.high-contrast svg text {
+  font-weight: 600;
+}
+
+html.high-contrast:not(.dark) svg text {
+  fill: #000000 !important;
+}
+
+html.high-contrast.dark svg text {
+  fill: #ffffff !important;
+}
+
+@media (prefers-contrast: more) {
+  html:not(.dark) :is(.text-gray-400, .text-gray-500, .text-gray-600) {
     color: #000000;
   }
-  
-  .text-gray-600 {
-    color: #000000;
-  }
-  
-  .border-gray-300 {
+
+  html:not(.dark) :is(.border-gray-200, .border-gray-300) {
     border-color: #000000;
   }
 }

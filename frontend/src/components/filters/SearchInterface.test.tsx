@@ -206,6 +206,12 @@ describe('SearchInterface', () => {
       expect(screen.getByText('Actor')).toBeInTheDocument()
       expect(screen.getByText('Target')).toBeInTheDocument()
     })
+
+    // Each type is drawn with a stroke SVG, never an emoji glyph.
+    for (const option of screen.getAllByRole('option')) {
+      expect(option.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+      expect(option.textContent).not.toMatch(/\p{Extended_Pictographic}/u)
+    }
   })
 
   it('has proper accessibility attributes', () => {

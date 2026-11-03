@@ -1,8 +1,18 @@
-import { screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { BranchComparisonModal } from './BranchComparisonModal'
 import { renderWithProviders } from '@/test/utils'
 import { Event, Arc, CausalRelationship } from '@/types'
+import { ModalBase } from '@/components/modals/ModalBase'
+
+// The embedded causal graph is Cytoscape; record what the dialog asks of it.
+const causalGraph = vi.hoisted(() => ({ props: null as Record<string, unknown> | null }))
+vi.mock('@/components/causal-graph/CausalGraphComponent', () => ({
+  CausalGraphComponent: (props: Record<string, unknown>) => {
+    causalGraph.props = props
+    return <div data-testid="embedded-causal-graph" />
+  },
+}))
 
 // Mock apiClient
 vi.mock('@/services/api', () => ({
@@ -22,6 +32,7 @@ vi.mock('@/services/api', () => ({
         { id: 'graph-2', name: 'Halifax Branch', branchName: 'halifax-1940', version: 1, metadata: { eventCount: 2 } },
       ]),
       switch: vi.fn().mockResolvedValue({ success: true }),
+      getVersions: vi.fn().mockResolvedValue([]),
       mergeDetailed: vi.fn().mockResolvedValue({
         success: true,
         dryRun: true,
@@ -135,90 +146,293 @@ describe('BranchComparisonModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    causalGraph.props = null
   })
+
+  const FOCUSABLE =
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+  const mergeableProps = {
+    ...defaultProps,
+    initialBaselineGraphId: 'graph-1',
+    initialCounterfactualGraphId: 'graph-2',
+  }
 
   it('does not render when isOpen is false', () => {
     renderWithProviders(<BranchComparisonModal {...defaultProps} isOpen={false} />)
-    expect(screen.queryByText(/Counterfactual Divergence Explorer/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('renders header, KPI metrics, and Point of Divergence when open', () => {
+  it('is the "Compare branches" dialog, with the at-a-glance figures', () => {
     renderWithProviders(<BranchComparisonModal {...defaultProps} />)
 
-    expect(screen.getByText(/Counterfactual Divergence Explorer/)).toBeInTheDocument()
-    expect(screen.getByText(/Shared History/)).toBeInTheDocument()
-    expect(screen.getByText(/Counterfactual Drift/)).toBeInTheDocument()
-    expect(screen.getAllByText(/Point of Divergence/).length).toBeGreaterThan(0)
-    expect(screen.getByText('Pre-divergence continuity')).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: 'Compare branches' })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(screen.getByText(/aligned at the point of divergence/)).toBeInTheDocument()
+    expect(screen.getByText('Shared history')).toBeInTheDocument()
+    expect(screen.getByText('Branch changes')).toBeInTheDocument()
+    expect(screen.getAllByText(/Point of divergence/).length).toBeGreaterThan(0)
+    expect(screen.getByText('In both, before the split')).toBeInTheDocument()
+    expect(screen.queryByText(/Explorer|PoD/)).not.toBeInTheDocument()
   })
 
-  it('switches between views using tabs', async () => {
+  it('names the graph pickers by their labels alone', () => {
+    renderWithProviders(<BranchComparisonModal {...defaultProps} />)
+    // Explicit labels: the selected option is not folded into the name
+    expect(screen.getByRole('combobox', { name: 'Baseline' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Branch' })).toBeInTheDocument()
+  })
+
+  it('exposes the views as tabs that control one tab panel', () => {
     renderWithProviders(<BranchComparisonModal {...defaultProps} />)
 
-    // Tab 1: Timeline canvas is default
-    expect(screen.getByText(/Dual-Lane Timeline Visualizer/)).toBeInTheDocument()
+    const tablist = screen.getByRole('tablist', { name: 'Comparison views' })
+    const tabs = within(tablist).getAllByRole('tab')
+    expect(tabs.map(tab => tab.textContent)).toEqual([
+      'Timeline',
+      'Causal graph',
+      'Differences',
+      'Summary',
+      'Simulate forward',
+    ])
 
-    // Switch to Event & Causal Diff tab
-    const diffTab = screen.getByText(/Event & Causal Diff/)
-    fireEvent.click(diffTab)
+    const timelineTab = screen.getByRole('tab', { name: 'Timeline' })
+    expect(timelineTab).toHaveAttribute('aria-selected', 'true')
+    expect(timelineTab).toHaveAttribute('tabindex', '0')
+    expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'false')
+    expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('tabindex', '-1')
 
-    expect(screen.getByText(/Filter Events:/)).toBeInTheDocument()
+    const panel = screen.getByRole('tabpanel')
+    expect(timelineTab).toHaveAttribute('aria-controls', panel.id)
+    expect(panel).toHaveAttribute('aria-labelledby', timelineTab.id)
+  })
+
+  it('moves between tabs with the arrow, Home and End keys', () => {
+    renderWithProviders(<BranchComparisonModal {...defaultProps} />)
+
+    const timelineTab = screen.getByRole('tab', { name: 'Timeline' })
+    timelineTab.focus()
+
+    // Left from the first tab wraps to the last.
+    fireEvent.keyDown(timelineTab, { key: 'ArrowLeft' })
+    const simulateTab = screen.getByRole('tab', { name: 'Simulate forward' })
+    expect(simulateTab).toHaveAttribute('aria-selected', 'true')
+    expect(simulateTab).toHaveFocus()
+    expect(screen.getByTestId('simulation-launcher')).toBeInTheDocument()
+
+    fireEvent.keyDown(simulateTab, { key: 'ArrowLeft' })
+    expect(screen.getByRole('tab', { name: 'Summary' })).toHaveFocus()
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', screen.getByRole('tab', { name: 'Summary' }).id)
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Summary' }), { key: 'Home' })
+    expect(timelineTab).toHaveFocus()
+    expect(timelineTab).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.keyDown(timelineTab, { key: 'End' })
+    expect(simulateTab).toHaveFocus()
+
+    fireEvent.keyDown(simulateTab, { key: 'ArrowRight' })
+    expect(timelineTab).toHaveFocus()
+  })
+
+  it('switches between views using tabs', () => {
+    renderWithProviders(<BranchComparisonModal {...defaultProps} />)
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Differences' }))
+
+    expect(screen.getByRole('group', { name: 'Show events' })).toBeInTheDocument()
     expect(screen.getByText('Halifax Appointed Prime Minister')).toBeInTheDocument()
     expect(screen.getByText('Chamberlain Resigns')).toBeInTheDocument()
 
-    // Switch to Summary tab
-    const summaryTab = screen.getByText(/Summary Overview/)
-    fireEvent.click(summaryTab)
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
 
-    expect(screen.getByText(/Historical Divergence Analysis/)).toBeInTheDocument()
-    expect(screen.getAllByText(/Total Events:/)).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: 'Where the histories split' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Prime Timeline' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Halifax Branch' })).toBeInTheDocument()
+    expect(screen.getAllByText('Events')).toHaveLength(2)
   })
 
-  it('filters events in the Diff tab', () => {
+  it('filters events in the Differences tab', () => {
     renderWithProviders(<BranchComparisonModal {...defaultProps} />)
 
-    // Go to Diff tab
-    fireEvent.click(screen.getByText(/Event & Causal Diff/))
+    fireEvent.click(screen.getByRole('tab', { name: 'Differences' }))
 
-    // Filter to divergent additions only
-    const divergentFilter = screen.getByText(/Divergent Additions/)
-    fireEvent.click(divergentFilter)
+    const addedFilter = screen.getByRole('button', { name: /^Added in branch \(/ })
+    expect(addedFilter).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(addedFilter)
+    expect(addedFilter).toHaveAttribute('aria-pressed', 'true')
 
     expect(screen.getByText('Halifax Appointed Prime Minister')).toBeInTheDocument()
-    // Chamberlain resigns is shared, should not appear under divergent filter
+    // Chamberlain resigns is shared, should not appear under the added filter
     expect(screen.queryByText('Chamberlain Resigns')).not.toBeInTheDocument()
   })
 
-  it('calls onClose when close button is clicked', () => {
+  it('calls onClose from the footer and the header', () => {
     const handleClose = vi.fn()
     renderWithProviders(<BranchComparisonModal {...defaultProps} onClose={handleClose} />)
 
-    const closeBtn = screen.getByRole('button', { name: 'Close' })
-    fireEvent.click(closeBtn)
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close modal' }))
+    expect(handleClose).toHaveBeenCalledTimes(2)
+  })
+
+  it('closes on Escape', () => {
+    const handleClose = vi.fn()
+    renderWithProviders(<BranchComparisonModal {...defaultProps} onClose={handleClose} />)
+
+    fireEvent.keyDown(document, { key: 'Escape' })
     expect(handleClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('traps Tab inside the dialog', () => {
+    renderWithProviders(<BranchComparisonModal {...mergeableProps} />)
+
+    const dialog = screen.getByRole('dialog', { name: 'Compare branches' })
+    const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))
+    const first = focusables[0]!
+    const last = focusables[focusables.length - 1]!
+    expect(last).toHaveTextContent('Merge into baseline…')
+
+    last.focus()
+    fireEvent.keyDown(last, { key: 'Tab' })
+    expect(first).toHaveFocus()
+
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true })
+    expect(last).toHaveFocus()
+  })
+
+  it('has one primary footer action: merge is primary, switching is secondary', () => {
+    renderWithProviders(<BranchComparisonModal {...mergeableProps} />)
+
+    const merge = screen.getByRole('button', { name: 'Merge into baseline…' })
+    const switchButton = screen.getByRole('button', { name: 'Switch to this branch' })
+    expect(merge.className).toContain('bg-baseline')
+    expect(switchButton.className).not.toContain('bg-baseline')
+    expect(switchButton.className).toContain('border-line')
+  })
+
+  it('opens the merge dialog from the footer', () => {
+    renderWithProviders(<BranchComparisonModal {...mergeableProps} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Merge into baseline…' }))
+
+    expect(screen.getByRole('dialog', { name: 'Merge branch' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Preview merge' })).toBeInTheDocument()
+  })
+
+  it('closes only the merge dialog on Escape, then returns focus to its opener', () => {
+    const handleClose = vi.fn()
+    renderWithProviders(<BranchComparisonModal {...mergeableProps} onClose={handleClose} />)
+
+    const opener = screen.getByRole('button', { name: 'Merge into baseline…' })
+    opener.focus()
+    fireEvent.click(opener)
+    expect(screen.getByRole('dialog', { name: 'Merge branch' })).toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog', { name: 'Merge branch' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Compare branches' })).toBeInTheDocument()
+    expect(handleClose).not.toHaveBeenCalled()
+    expect(opener).toHaveFocus()
+
+    // The next Escape belongs to the comparison.
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(handleClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps Tab inside the merge dialog while it is on top', () => {
+    renderWithProviders(<BranchComparisonModal {...mergeableProps} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Merge into baseline…' }))
+
+    const mergeDialog = screen.getByRole('dialog', { name: 'Merge branch' })
+    const focusables = Array.from(mergeDialog.querySelectorAll<HTMLElement>(FOCUSABLE))
+    const first = focusables[0]!
+    const last = focusables[focusables.length - 1]!
+
+    last.focus()
+    fireEvent.keyDown(last, { key: 'Tab' })
+    expect(first).toHaveFocus()
+    expect(mergeDialog).toContainElement(document.activeElement as HTMLElement)
+  })
+
+  it('leaves a dialog underneath it open on Escape', () => {
+    const outerClose = vi.fn()
+    const handleClose = vi.fn()
+    renderWithProviders(
+      <ModalBase isOpen onClose={outerClose} title="Graphs">
+        <BranchComparisonModal {...defaultProps} onClose={handleClose} />
+      </ModalBase>
+    )
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(handleClose).toHaveBeenCalledTimes(1)
+    expect(outerClose).not.toHaveBeenCalled()
   })
 
   it('exposes the forward simulation launcher on its own tab', () => {
     renderWithProviders(<BranchComparisonModal {...defaultProps} />)
 
-    fireEvent.click(screen.getByText(/Forward Simulation/))
+    fireEvent.click(screen.getByRole('tab', { name: 'Simulate forward' }))
 
     expect(screen.getByTestId('simulation-launcher')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Run Simulation/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Run simulation/ })).toBeInTheDocument()
   })
 
-  it('opens the branch merge resolver from the footer', () => {
-    renderWithProviders(
-      <BranchComparisonModal
-        {...defaultProps}
-        initialBaselineGraphId="graph-1"
-        initialCounterfactualGraphId="graph-2"
-      />
-    )
+  it('embeds the causal graph as a read-only preview, without editing tools', () => {
+    renderWithProviders(<BranchComparisonModal {...defaultProps} />)
+    fireEvent.click(screen.getByRole('tab', { name: 'Causal graph' }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Merge Branch into Baseline' }))
+    expect(screen.getByTestId('embedded-causal-graph')).toBeInTheDocument()
+    expect(causalGraph.props).toMatchObject({
+      readOnly: true,
+      enablePathExploration: false,
+      enableSuggestions: false,
+      showSuggestionManager: false,
+      divergenceEventIds: ['cf_pod'],
+    })
+  })
 
-    expect(screen.getByText('Merge Branch')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Analyze Merge' })).toBeInTheDocument()
+  it('keeps one tab panel height across every view, scrolling inside it', () => {
+    renderWithProviders(<BranchComparisonModal {...defaultProps} />)
+
+    const heights = ['Timeline', 'Causal graph', 'Differences', 'Summary', 'Simulate forward'].map(name => {
+      fireEvent.click(screen.getByRole('tab', { name }))
+      return screen.getByRole('tabpanel').className
+    })
+    expect(new Set(heights).size).toBe(1)
+    expect(heights[0]).toMatch(/lg:h-\[/)
+    expect(heights[0]).toContain('lg:overflow-y-auto')
+  })
+
+  it('reflows for a phone-width sheet: stacked pickers, scrolling tabs, stacked footer', () => {
+    renderWithProviders(<BranchComparisonModal {...mergeableProps} />)
+
+    // The pickers stack below sm and fill the width.
+    const baseline = screen.getByRole('combobox', { name: 'Baseline' })
+    expect(baseline.className).toContain('w-full')
+    expect(baseline.parentElement?.parentElement?.className).toContain('grid-cols-1')
+
+    // The tabs stay one row that scrolls, rather than wrapping.
+    const tablist = screen.getByRole('tablist', { name: 'Comparison views' })
+    expect(tablist.className).toContain('overflow-x-auto')
+    expect(tablist.className).not.toContain('flex-wrap')
+
+    // The figures are a two-column strip on a phone, not bordered tiles.
+    const strip = screen.getByText('Shared history').closest('dl')!
+    expect(strip.className).toContain('grid-cols-2')
+    expect(strip.querySelector('.bg-card')).toBeNull()
+
+    // The footer actions stack, the primary last.
+    const merge = screen.getByRole('button', { name: 'Merge into baseline…' })
+    const actions = merge.parentElement!
+    expect(actions.className).toContain('flex-col')
+    expect(actions.lastElementChild).toBe(merge)
+  })
+
+  it('explains the timeline marks in the canvas legend, not in a caption under it', () => {
+    renderWithProviders(<BranchComparisonModal {...defaultProps} />)
+    expect(screen.getByRole('list', { name: 'Legend' })).toHaveTextContent('Added in branch')
+    expect(screen.queryByText(/Dotted lines join events/)).not.toBeInTheDocument()
   })
 })

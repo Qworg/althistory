@@ -2,12 +2,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'vitest-axe'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { EventDetailModal } from './EventDetailModal'
 import {
   createMockEvent,
   createMockArc,
   createMockCausalRelationship
 } from '@/test/fixtures/modalFixtures'
+
+vi.mock('@/hooks/useAPI', () => ({
+  useEvents: vi.fn(() => ({
+    data: [
+      { id: 'e1', description: 'a', actor: 'Prussian General Staff', target: 'Calculating Offices', timestamp: '1866-01-01T00:00:00Z' },
+      { id: 'e2', description: 'b', actor: 'Clerks', target: 'Prussian General Staff', timestamp: '1867-01-01T00:00:00Z' },
+    ],
+  })),
+}))
 
 describe('EventDetailModal', () => {
   const defaultProps = {
@@ -190,6 +200,72 @@ describe('EventDetailModal', () => {
 
       // onSave should not be called because HTML5 validation prevents submission
       expect(onSave).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Inline validation', () => {
+    it('replaces the browser bubbles with messages under each field', async () => {
+      const user = userEvent.setup()
+      const onSave = vi.fn().mockResolvedValue(undefined)
+      render(<EventDetailModal {...defaultProps} onSave={onSave} isOpen={true} />)
+
+      const form = screen.getByLabelText(/description/i).closest('form')!
+      expect(form).toHaveAttribute('novalidate')
+
+      await user.click(screen.getByRole('button', { name: /save/i }))
+
+      expect(onSave).not.toHaveBeenCalled()
+      const description = screen.getByLabelText(/description/i)
+      expect(description).toHaveAttribute('aria-invalid', 'true')
+      expect(document.getElementById(description.getAttribute('aria-describedby')!)).toHaveTextContent(
+        'Describe what happened.'
+      )
+      expect(screen.getByLabelText(/actor/i)).toHaveAttribute('aria-invalid', 'true')
+      expect(screen.getByLabelText(/target/i)).toHaveAttribute('aria-invalid', 'true')
+      expect(screen.getByLabelText(/timestamp/i)).toHaveAttribute('aria-invalid', 'true')
+      // The first invalid field takes focus.
+      await waitFor(() => expect(description).toHaveFocus())
+    })
+
+    it('focuses the first field still invalid, and clears a message once fixed', async () => {
+      const user = userEvent.setup()
+      render(<EventDetailModal {...defaultProps} isOpen={true} />)
+
+      await user.type(screen.getByLabelText(/description/i), 'The census is taken')
+      await user.click(screen.getByRole('button', { name: /save/i }))
+
+      const actor = screen.getByLabelText(/actor/i)
+      await waitFor(() => expect(actor).toHaveFocus())
+      expect(screen.getByLabelText(/description/i)).not.toHaveAttribute('aria-invalid', 'true')
+
+      await user.type(actor, 'Registrar')
+      expect(actor).not.toHaveAttribute('aria-invalid', 'true')
+      expect(screen.queryByText(/Name who acted/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Actor and target suggestions', () => {
+    it('offers the actors and targets already in the graph', () => {
+      const client = new QueryClient()
+      render(
+        <QueryClientProvider client={client}>
+          <EventDetailModal {...defaultProps} isOpen={true} />
+        </QueryClientProvider>
+      )
+
+      const actor = screen.getByLabelText(/actor/i)
+      const target = screen.getByLabelText(/target/i)
+      const listId = actor.getAttribute('list')!
+      expect(listId).toBeTruthy()
+      expect(target).toHaveAttribute('list', listId)
+      const options = Array.from(document.getElementById(listId)!.querySelectorAll('option')).map((o) => o.value)
+      expect(options).toEqual(['Calculating Offices', 'Clerks', 'Prussian General Staff'])
+    })
+
+    it('offers none without a query client', () => {
+      render(<EventDetailModal {...defaultProps} isOpen={true} />)
+
+      expect(screen.getByLabelText(/actor/i)).not.toHaveAttribute('list')
     })
   })
 

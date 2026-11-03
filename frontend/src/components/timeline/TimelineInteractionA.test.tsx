@@ -292,10 +292,14 @@ describe('Timeline mark interaction behaviour', () => {
       expect(document.querySelector('[data-arc-id="child"]')).not.toBeInTheDocument()
       expect(document.querySelector('[data-arc-id="grandchild"]')).not.toBeInTheDocument()
 
+      // The disclosure square is a pointer affordance; the arc mark itself
+      // carries the state in its accessible name.
       const toggle = document.querySelector('[data-arc-toggle="parent"]')
       expect(toggle).toBeInTheDocument()
-      expect(toggle).toHaveAttribute('aria-label', 'Expand arc Parent Arc')
-      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(toggle).toHaveAttribute('aria-hidden', 'true')
+      expect(toggle).toHaveAttribute('data-expanded', 'false')
+      const parentMark = () => screen.getByRole('button', { name: /^Arc: Parent Arc/ })
+      expect(parentMark()).toHaveAccessibleName(expect.stringContaining('1 sub-arc, collapsed'))
 
       fireEvent.click(toggle!)
 
@@ -306,11 +310,13 @@ describe('Timeline mark interaction behaviour', () => {
       // i.e. expansion is what puts a descendant in the DOM at all.
       expect(document.querySelector('[data-arc-id="child"]')).toBeInTheDocument()
       expect(document.querySelector('[data-arc-id="grandchild"]')).not.toBeInTheDocument()
-      expect(toggle).toHaveAttribute('aria-label', 'Collapse arc Parent Arc')
-      expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      expect(toggle).toHaveAttribute('data-expanded', 'true')
+      expect(parentMark()).toHaveAccessibleName(expect.stringContaining('1 sub-arc, expanded'))
+      // Toggling does not also select the arc.
+      expect(parentMark()).not.toHaveAccessibleName(expect.stringContaining('selected'))
 
       const childToggle = document.querySelector('[data-arc-toggle="child"]')
-      expect(childToggle).toHaveAttribute('aria-label', 'Expand arc Child Arc')
+      expect(childToggle).toHaveAttribute('data-expanded', 'false')
       fireEvent.click(childToggle!)
       expect(document.querySelector('[data-arc-id="grandchild"]')).toBeInTheDocument()
 
@@ -323,16 +329,33 @@ describe('Timeline mark interaction behaviour', () => {
       expect(document.querySelector('[data-arc-id="grandchild"]')).not.toBeInTheDocument()
     })
 
-    it('supports keyboard toggle (Enter)', () => {
+    it('expands and collapses the focused arc with Shift+Enter, and selects it with Enter', () => {
       const onArcExpand = vi.fn()
+      const onArcCollapse = vi.fn()
+      const onArcSelect = vi.fn()
       render(
-        <Timeline events={[]} arcs={[parentArc, childArc]} onArcExpand={onArcExpand} width={800} height={400} />
+        <Timeline
+          events={[]}
+          arcs={[parentArc, childArc]}
+          onArcExpand={onArcExpand}
+          onArcCollapse={onArcCollapse}
+          onArcSelect={onArcSelect}
+          width={800}
+          height={400}
+        />
       )
 
-      const toggle = document.querySelector('[data-arc-toggle="parent"]')
-      fireEvent.keyDown(toggle!, { key: 'Enter' })
-
+      const mark = screen.getByRole('button', { name: /^Arc: Parent Arc/ })
+      fireEvent.keyDown(mark, { key: 'Enter', shiftKey: true })
       expect(onArcExpand).toHaveBeenCalledWith(expect.objectContaining({ id: 'parent' }))
+      expect(onArcSelect).not.toHaveBeenCalled()
+      expect(document.querySelector('[data-arc-id="child"]')).toBeInTheDocument()
+
+      fireEvent.keyDown(screen.getByRole('button', { name: /^Arc: Parent Arc/ }), { key: 'Enter', shiftKey: true })
+      expect(onArcCollapse).toHaveBeenCalledWith(expect.objectContaining({ id: 'parent' }))
+
+      fireEvent.keyDown(screen.getByRole('button', { name: /^Arc: Parent Arc/ }), { key: 'Enter' })
+      expect(onArcSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'parent' }))
     })
   })
 
@@ -343,7 +366,9 @@ describe('Timeline mark interaction behaviour', () => {
 
       const handle = document.querySelector('[data-arc-id="parent"] [data-resize-edge="start"]')
       expect(handle).toBeInTheDocument()
-      expect(handle).toHaveAttribute('aria-label', 'Resize start of arc Parent Arc')
+      // Pointer only: the keyboard resizes the focused arc instead.
+      expect(handle).toHaveAttribute('aria-hidden', 'true')
+      expect(handle).not.toHaveAttribute('tabindex')
 
       fireEvent.mouseDown(handle!, { button: 0, clientX: 56 })
       fireEvent.mouseMove(window, { clientX: 420 })
@@ -369,16 +394,48 @@ describe('Timeline mark interaction behaviour', () => {
       expect(bounds.start.getTime()).toBeLessThanOrEqual(bounds.end.getTime())
     })
 
-    it('resizes via keyboard and keeps start <= end', () => {
+    // The view spans four days, so a keyboard step is one hour (about 1/40 of it).
+    const HOUR = 60 * 60 * 1000
+    const start = new Date(parentArc.start_time).getTime()
+    const end = new Date(parentArc.end_time).getTime()
+
+    it.each([
+      ['[', 'BracketLeft', false, { start: start - HOUR, end }],
+      ['{', 'BracketLeft', true, { start: start + HOUR, end }],
+      [']', 'BracketRight', false, { start, end: end + HOUR }],
+      ['}', 'BracketRight', true, { start, end: end - HOUR }],
+    ])('resizes the focused arc with %j (bracket picks the edge, Shift moves it inward)', (key, code, shiftKey, expected) => {
       const onArcResize = vi.fn()
       render(<Timeline events={[]} arcs={[parentArc]} onArcResize={onArcResize} width={800} height={400} />)
 
-      const handle = document.querySelector('[data-arc-id="parent"] [data-resize-edge="start"]')
-      fireEvent.keyDown(handle!, { key: 'ArrowRight' })
+      fireEvent.keyDown(screen.getByRole('button', { name: /^Arc: Parent Arc/ }), { key, code, shiftKey })
 
       expect(onArcResize).toHaveBeenCalledTimes(1)
+      const [arc, bounds] = onArcResize.mock.calls[0] as [Arc, { start: Date; end: Date }]
+      expect(arc.id).toBe('parent')
+      expect(bounds.start.getTime()).toBe(expected.start)
+      expect(bounds.end.getTime()).toBe(expected.end)
+    })
+
+    it('moves the whole focused arc with Shift+arrow, keeping its length', () => {
+      const onArcResize = vi.fn()
+      render(<Timeline events={[]} arcs={[parentArc]} onArcResize={onArcResize} width={800} height={400} />)
+
+      fireEvent.keyDown(screen.getByRole('button', { name: /^Arc: Parent Arc/ }), { key: 'ArrowLeft', shiftKey: true })
+
       const [, bounds] = onArcResize.mock.calls[0] as [Arc, { start: Date; end: Date }]
-      expect(bounds.start.getTime()).toBeGreaterThan(new Date(parentArc.start_time).getTime())
+      expect(bounds.start.getTime()).toBe(start - HOUR)
+      expect(bounds.end.getTime()).toBe(end - HOUR)
+    })
+
+    it('keeps start <= end when the keyboard shrinks an arc past its other edge', () => {
+      const onArcResize = vi.fn()
+      const instant: Arc = { ...parentArc, end_time: '2024-01-01T00:30:00Z' }
+      render(<Timeline events={events} arcs={[instant]} onArcResize={onArcResize} width={800} height={400} />)
+
+      fireEvent.keyDown(screen.getByRole('button', { name: /^Arc: Parent Arc/ }), { key: '{', code: 'BracketLeft', shiftKey: true })
+
+      const [, bounds] = onArcResize.mock.calls[0] as [Arc, { start: Date; end: Date }]
       expect(bounds.start.getTime()).toBeLessThanOrEqual(bounds.end.getTime())
     })
 

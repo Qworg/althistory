@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { useState } from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { axe } from 'vitest-axe'
 import { BrowserRouter } from 'react-router'
@@ -88,6 +89,114 @@ describe('FilterPanel', () => {
     })
   })
 
+  describe('historical date bounds', () => {
+    // The panel mirrors its filters into the URL, and jsdom keeps the URL
+    // between tests.
+    beforeEach(() => window.history.replaceState(null, '', '/'))
+
+    /** A panel that keeps its own filters, as the container does. */
+    function Stateful({ initial = mockFilters, onChange = vi.fn() }: { initial?: FilterState; onChange?: (f: FilterState) => void }) {
+      const [filters, setFilters] = useState(initial)
+      return (
+        <FilterPanel
+          {...mockProps}
+          filters={filters}
+          onFiltersChange={(next) => {
+            onChange(next)
+            setFilters(next)
+          }}
+        />
+      )
+    }
+
+    it('accepts a year, a year-month and a full date, year first', () => {
+      const onChange = vi.fn()
+      renderWithRouter(<Stateful onChange={onChange} />)
+
+      fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '1843' } })
+      expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ dateRange: { start: '1843', end: '' } }))
+
+      fireEvent.change(screen.getByLabelText('End date'), { target: { value: '1870-3' } })
+      expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ dateRange: { start: '1843', end: '1870-03' } }))
+    })
+
+    it('reads BCE and a minus sign the same way, and shows how it read them', () => {
+      const onChange = vi.fn()
+      renderWithRouter(<Stateful onChange={onChange} />)
+      const start = screen.getByLabelText('Start date')
+
+      fireEvent.change(start, { target: { value: '-44' } })
+      expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ dateRange: { start: '44 BCE', end: '' } }))
+      fireEvent.blur(start)
+      expect(start).toHaveValue('44 BCE')
+
+      fireEvent.change(start, { target: { value: '44-03-15 bc' } })
+      expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ dateRange: { start: '44-03-15 BCE', end: '' } }))
+    })
+
+    it('keeps a half-typed date as a draft, and explains an unreadable one when the field is left', () => {
+      const onChange = vi.fn()
+      renderWithRouter(<Stateful onChange={onChange} />)
+      const start = screen.getByLabelText('Start date')
+
+      fireEvent.change(start, { target: { value: '11/20/1843' } })
+      expect(onChange).not.toHaveBeenCalled()
+      expect(start).toHaveValue('11/20/1843')
+      expect(start).not.toHaveAttribute('aria-invalid')
+
+      fireEvent.blur(start)
+      expect(start).toHaveAttribute('aria-invalid', 'true')
+      expect(screen.getByText(/Write the year first/)).toBeInTheDocument()
+    })
+
+    it('names the impossible dates', () => {
+      renderWithRouter(<Stateful />)
+      const start = screen.getByLabelText('Start date')
+
+      fireEvent.change(start, { target: { value: '0' } })
+      fireEvent.blur(start)
+      expect(screen.getByText(/There is no year 0/)).toBeInTheDocument()
+
+      fireEvent.change(start, { target: { value: '1843-02-30' } })
+      expect(screen.queryByText(/There is no year 0/)).not.toBeInTheDocument()
+      fireEvent.keyDown(start, { key: 'Enter' })
+      expect(screen.getByText(/no day 30/)).toBeInTheDocument()
+    })
+
+    it('drops the date filter when both bounds are cleared', () => {
+      const onChange = vi.fn()
+      renderWithRouter(<Stateful initial={{ ...mockFilters, dateRange: { start: '1843', end: '' } }} onChange={onChange} />)
+
+      fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '' } })
+      expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ dateRange: null }))
+    })
+
+    it('empties the fields when the filters are cleared from outside', () => {
+      renderWithRouter(<Stateful initial={{ ...mockFilters, dateRange: { start: '1843', end: '1870' } }} />)
+      expect(screen.getByLabelText('Start date')).toHaveValue('1843')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear all' }))
+
+      expect(screen.getByLabelText('Start date')).toHaveValue('')
+      expect(screen.getByLabelText('End date')).toHaveValue('')
+    })
+
+    it('says when the start is after the end', () => {
+      renderWithRouter(<FilterPanel {...mockProps} filters={{ ...mockFilters, dateRange: { start: '1870', end: '1843' } }} />)
+
+      expect(screen.getByText(/start is after the end/)).toBeInTheDocument()
+    })
+
+    it('has no axe violations with an unreadable date', async () => {
+      const { container } = renderWithRouter(<Stateful />)
+      const start = screen.getByLabelText('Start date')
+      fireEvent.change(start, { target: { value: 'soon' } })
+      fireEvent.blur(start)
+
+      expect(await axe(container)).toHaveNoViolations()
+    })
+  })
+
   it('handles actor selection', () => {
     renderWithRouter(<FilterPanel {...mockProps} />)
     
@@ -123,7 +232,7 @@ describe('FilterPanel', () => {
   it('handles confidence threshold changes', () => {
     renderWithRouter(<FilterPanel {...mockProps} />)
     
-    const confidenceSlider = screen.getByLabelText(/Confidence Threshold/)
+    const confidenceSlider = screen.getByLabelText(/Minimum event confidence/)
     fireEvent.change(confidenceSlider, { target: { value: '0.5' } })
     
     expect(mockProps.onFiltersChange).toHaveBeenCalledWith({
@@ -166,17 +275,35 @@ describe('FilterPanel', () => {
     expect(mockProps.onFiltersChange).toHaveBeenCalledWith(mockFilters)
   })
 
-  it('toggles collapse state', () => {
+  it('has no collapse control that would leave an empty column open', () => {
     renderWithRouter(<FilterPanel {...mockProps} />)
-    
-    const collapseButton = screen.getByLabelText('Collapse filters')
-    fireEvent.click(collapseButton)
-    
-    // After collapse, search input should not be visible
-    expect(screen.queryByLabelText('Search')).not.toBeInTheDocument()
-    
-    // Button label should change
-    expect(screen.getByLabelText('Expand filters')).toBeInTheDocument()
+
+    expect(screen.queryByLabelText('Collapse filters')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Expand filters')).not.toBeInTheDocument()
+  })
+
+  it('shows a Close button that calls onClose when one is given', () => {
+    const onClose = vi.fn()
+    renderWithRouter(<FilterPanel {...mockProps} onClose={onClose} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close filter panel' }))
+
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('omits the Close button without onClose', () => {
+    renderWithRouter(<FilterPanel {...mockProps} />)
+
+    expect(screen.queryByRole('button', { name: 'Close filter panel' })).not.toBeInTheDocument()
+  })
+
+  it('renders a supplied search element in place of the built-in field', () => {
+    renderWithRouter(
+      <FilterPanel {...mockProps} search={<input aria-label="Custom search" />} />
+    )
+
+    expect(screen.getByLabelText('Custom search')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Search events, arcs, or descriptions...')).not.toBeInTheDocument()
   })
 
   it('shows selected count for multi-select filters', () => {
@@ -213,10 +340,15 @@ describe('FilterPanel', () => {
     const searchInput = screen.getByLabelText('Search')
     expect(searchInput).toHaveAttribute('type', 'text')
     
+    // Typed, not a native date picker: the picker shows the locale's order
+    // (mm/dd/yyyy in the US) and cannot reach BCE.
     const startDateInput = screen.getByLabelText('Start date')
-    expect(startDateInput).toHaveAttribute('type', 'date')
+    expect(startDateInput).toHaveAttribute('type', 'text')
+    const hint = document.getElementById(startDateInput.getAttribute('aria-describedby')!)
+    expect(hint).toHaveTextContent(/1843, 1843-11, 1843-11-20/)
+    expect(hint).toHaveTextContent(/BCE/)
     
-    const confidenceSlider = screen.getByLabelText(/Confidence Threshold/)
+    const confidenceSlider = screen.getByLabelText(/Minimum event confidence/)
     expect(confidenceSlider).toHaveAttribute('type', 'range')
   })
 

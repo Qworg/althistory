@@ -1,0 +1,312 @@
+/*
+ * Dark-mode treatment for the chromatic tint utilities.
+ *
+ * Light-mode badges and pills are written as a pale tint with dark text
+ * (`bg-amber-50 text-amber-900 border-amber-200`). Under html.dark those stayed
+ * pale -- bright light pills on a dark page. Remapping Tailwind's colour
+ * variables (as index.css does for the neutral scale) is not possible here:
+ * `bg-blue-600 hover:bg-blue-700 text-white` buttons and `dark:text-blue-200`
+ * would invert with them. So the treatment is per utility class instead:
+ *
+ *   bg-{c}-50..300       -> a translucent wash of {c}-500 (12% .. 36%)
+ *   border-{c}-50..300   -> {c}-500 at 22% .. 45%
+ *   text-{c}-600..900    -> the light end of the scale (400 / 300 / 200)
+ *
+ * including their hover: forms and the /80 opacity forms the code uses. An
+ * element that states its own dark colour (any `dark:bg-` / `dark:text-` /
+ * `dark:border-` class) is left to it. Solid fills (500+) and light text
+ * (50..400) are untouched: they already read on a dark surface.
+ *
+ * Palette values are Tailwind v4's defaults (200 / 300 / 400 / 500).
+ */
+@layer utilities {
+  /* blue */
+  :where(html.dark) .bg-blue-50:not([class*="dark:bg-"]), :where(html.dark) .bg-blue-50\/80:not([class*="dark:bg-"]) { background-color: rgb(59 130 246 / 0.12); }
+  :where(html.dark) .hover\:bg-blue-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(59 130 246 / 0.20); }
+  :where(html.dark) .bg-blue-100:not([class*="dark:bg-"]), :where(html.dark) .bg-blue-100\/80:not([class*="dark:bg-"]) { background-color: rgb(59 130 246 / 0.18); }
+  :where(html.dark) .hover\:bg-blue-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(59 130 246 / 0.26); }
+  :where(html.dark) .bg-blue-200:not([class*="dark:bg-"]) { background-color: rgb(59 130 246 / 0.26); }
+  :where(html.dark) .hover\:bg-blue-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(59 130 246 / 0.34); }
+  :where(html.dark) .bg-blue-300:not([class*="dark:bg-"]) { background-color: rgb(59 130 246 / 0.36); }
+  :where(html.dark) .hover\:bg-blue-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(59 130 246 / 0.44); }
+  :where(html.dark) .border-blue-50:not([class*="dark:border-"]) { border-color: rgb(59 130 246 / 0.22); }
+  :where(html.dark) .border-blue-100:not([class*="dark:border-"]) { border-color: rgb(59 130 246 / 0.22); }
+  :where(html.dark) .border-blue-200:not([class*="dark:border-"]), :where(html.dark) .border-blue-200\/80:not([class*="dark:border-"]) { border-color: rgb(59 130 246 / 0.32); }
+  :where(html.dark) .border-blue-300:not([class*="dark:border-"]) { border-color: rgb(59 130 246 / 0.45); }
+  :where(html.dark) .text-blue-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-blue-600:hover:not([class*="dark:hover:text-"]) { color: #60a5fa; }
+  :where(html.dark) .text-blue-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-blue-700:hover:not([class*="dark:hover:text-"]) { color: #93c5fd; }
+  :where(html.dark) .text-blue-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-blue-800:hover:not([class*="dark:hover:text-"]) { color: #bfdbfe; }
+  :where(html.dark) .text-blue-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-blue-900:hover:not([class*="dark:hover:text-"]) { color: #bfdbfe; }
+  /* indigo */
+  :where(html.dark) .bg-indigo-50:not([class*="dark:bg-"]), :where(html.dark) .bg-indigo-50\/80:not([class*="dark:bg-"]) { background-color: rgb(99 102 241 / 0.12); }
+  :where(html.dark) .hover\:bg-indigo-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(99 102 241 / 0.20); }
+  :where(html.dark) .bg-indigo-100:not([class*="dark:bg-"]), :where(html.dark) .bg-indigo-100\/80:not([class*="dark:bg-"]) { background-color: rgb(99 102 241 / 0.18); }
+  :where(html.dark) .hover\:bg-indigo-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(99 102 241 / 0.26); }
+  :where(html.dark) .bg-indigo-200:not([class*="dark:bg-"]) { background-color: rgb(99 102 241 / 0.26); }
+  :where(html.dark) .hover\:bg-indigo-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(99 102 241 / 0.34); }
+  :where(html.dark) .bg-indigo-300:not([class*="dark:bg-"]) { background-color: rgb(99 102 241 / 0.36); }
+  :where(html.dark) .hover\:bg-indigo-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(99 102 241 / 0.44); }
+  :where(html.dark) .border-indigo-50:not([class*="dark:border-"]) { border-color: rgb(99 102 241 / 0.22); }
+  :where(html.dark) .border-indigo-100:not([class*="dark:border-"]) { border-color: rgb(99 102 241 / 0.22); }
+  :where(html.dark) .border-indigo-200:not([class*="dark:border-"]), :where(html.dark) .border-indigo-200\/80:not([class*="dark:border-"]) { border-color: rgb(99 102 241 / 0.32); }
+  :where(html.dark) .border-indigo-300:not([class*="dark:border-"]) { border-color: rgb(99 102 241 / 0.45); }
+  :where(html.dark) .text-indigo-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-indigo-600:hover:not([class*="dark:hover:text-"]) { color: #818cf8; }
+  :where(html.dark) .text-indigo-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-indigo-700:hover:not([class*="dark:hover:text-"]) { color: #a5b4fc; }
+  :where(html.dark) .text-indigo-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-indigo-800:hover:not([class*="dark:hover:text-"]) { color: #c7d2fe; }
+  :where(html.dark) .text-indigo-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-indigo-900:hover:not([class*="dark:hover:text-"]) { color: #c7d2fe; }
+  /* violet */
+  :where(html.dark) .bg-violet-50:not([class*="dark:bg-"]), :where(html.dark) .bg-violet-50\/80:not([class*="dark:bg-"]) { background-color: rgb(139 92 246 / 0.12); }
+  :where(html.dark) .hover\:bg-violet-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(139 92 246 / 0.20); }
+  :where(html.dark) .bg-violet-100:not([class*="dark:bg-"]), :where(html.dark) .bg-violet-100\/80:not([class*="dark:bg-"]) { background-color: rgb(139 92 246 / 0.18); }
+  :where(html.dark) .hover\:bg-violet-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(139 92 246 / 0.26); }
+  :where(html.dark) .bg-violet-200:not([class*="dark:bg-"]) { background-color: rgb(139 92 246 / 0.26); }
+  :where(html.dark) .hover\:bg-violet-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(139 92 246 / 0.34); }
+  :where(html.dark) .bg-violet-300:not([class*="dark:bg-"]) { background-color: rgb(139 92 246 / 0.36); }
+  :where(html.dark) .hover\:bg-violet-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(139 92 246 / 0.44); }
+  :where(html.dark) .border-violet-50:not([class*="dark:border-"]) { border-color: rgb(139 92 246 / 0.22); }
+  :where(html.dark) .border-violet-100:not([class*="dark:border-"]) { border-color: rgb(139 92 246 / 0.22); }
+  :where(html.dark) .border-violet-200:not([class*="dark:border-"]), :where(html.dark) .border-violet-200\/80:not([class*="dark:border-"]) { border-color: rgb(139 92 246 / 0.32); }
+  :where(html.dark) .border-violet-300:not([class*="dark:border-"]) { border-color: rgb(139 92 246 / 0.45); }
+  :where(html.dark) .text-violet-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-violet-600:hover:not([class*="dark:hover:text-"]) { color: #a78bfa; }
+  :where(html.dark) .text-violet-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-violet-700:hover:not([class*="dark:hover:text-"]) { color: #c4b5fd; }
+  :where(html.dark) .text-violet-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-violet-800:hover:not([class*="dark:hover:text-"]) { color: #ddd6fe; }
+  :where(html.dark) .text-violet-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-violet-900:hover:not([class*="dark:hover:text-"]) { color: #ddd6fe; }
+  /* purple */
+  :where(html.dark) .bg-purple-50:not([class*="dark:bg-"]), :where(html.dark) .bg-purple-50\/80:not([class*="dark:bg-"]) { background-color: rgb(168 85 247 / 0.12); }
+  :where(html.dark) .hover\:bg-purple-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(168 85 247 / 0.20); }
+  :where(html.dark) .bg-purple-100:not([class*="dark:bg-"]), :where(html.dark) .bg-purple-100\/80:not([class*="dark:bg-"]) { background-color: rgb(168 85 247 / 0.18); }
+  :where(html.dark) .hover\:bg-purple-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(168 85 247 / 0.26); }
+  :where(html.dark) .bg-purple-200:not([class*="dark:bg-"]) { background-color: rgb(168 85 247 / 0.26); }
+  :where(html.dark) .hover\:bg-purple-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(168 85 247 / 0.34); }
+  :where(html.dark) .bg-purple-300:not([class*="dark:bg-"]) { background-color: rgb(168 85 247 / 0.36); }
+  :where(html.dark) .hover\:bg-purple-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(168 85 247 / 0.44); }
+  :where(html.dark) .border-purple-50:not([class*="dark:border-"]) { border-color: rgb(168 85 247 / 0.22); }
+  :where(html.dark) .border-purple-100:not([class*="dark:border-"]) { border-color: rgb(168 85 247 / 0.22); }
+  :where(html.dark) .border-purple-200:not([class*="dark:border-"]), :where(html.dark) .border-purple-200\/80:not([class*="dark:border-"]) { border-color: rgb(168 85 247 / 0.32); }
+  :where(html.dark) .border-purple-300:not([class*="dark:border-"]) { border-color: rgb(168 85 247 / 0.45); }
+  :where(html.dark) .text-purple-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-purple-600:hover:not([class*="dark:hover:text-"]) { color: #c084fc; }
+  :where(html.dark) .text-purple-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-purple-700:hover:not([class*="dark:hover:text-"]) { color: #d8b4fe; }
+  :where(html.dark) .text-purple-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-purple-800:hover:not([class*="dark:hover:text-"]) { color: #e9d5ff; }
+  :where(html.dark) .text-purple-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-purple-900:hover:not([class*="dark:hover:text-"]) { color: #e9d5ff; }
+  /* fuchsia */
+  :where(html.dark) .bg-fuchsia-50:not([class*="dark:bg-"]), :where(html.dark) .bg-fuchsia-50\/80:not([class*="dark:bg-"]) { background-color: rgb(217 70 239 / 0.12); }
+  :where(html.dark) .hover\:bg-fuchsia-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(217 70 239 / 0.20); }
+  :where(html.dark) .bg-fuchsia-100:not([class*="dark:bg-"]), :where(html.dark) .bg-fuchsia-100\/80:not([class*="dark:bg-"]) { background-color: rgb(217 70 239 / 0.18); }
+  :where(html.dark) .hover\:bg-fuchsia-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(217 70 239 / 0.26); }
+  :where(html.dark) .bg-fuchsia-200:not([class*="dark:bg-"]) { background-color: rgb(217 70 239 / 0.26); }
+  :where(html.dark) .hover\:bg-fuchsia-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(217 70 239 / 0.34); }
+  :where(html.dark) .bg-fuchsia-300:not([class*="dark:bg-"]) { background-color: rgb(217 70 239 / 0.36); }
+  :where(html.dark) .hover\:bg-fuchsia-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(217 70 239 / 0.44); }
+  :where(html.dark) .border-fuchsia-50:not([class*="dark:border-"]) { border-color: rgb(217 70 239 / 0.22); }
+  :where(html.dark) .border-fuchsia-100:not([class*="dark:border-"]) { border-color: rgb(217 70 239 / 0.22); }
+  :where(html.dark) .border-fuchsia-200:not([class*="dark:border-"]), :where(html.dark) .border-fuchsia-200\/80:not([class*="dark:border-"]) { border-color: rgb(217 70 239 / 0.32); }
+  :where(html.dark) .border-fuchsia-300:not([class*="dark:border-"]) { border-color: rgb(217 70 239 / 0.45); }
+  :where(html.dark) .text-fuchsia-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-fuchsia-600:hover:not([class*="dark:hover:text-"]) { color: #e879f9; }
+  :where(html.dark) .text-fuchsia-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-fuchsia-700:hover:not([class*="dark:hover:text-"]) { color: #f0abfc; }
+  :where(html.dark) .text-fuchsia-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-fuchsia-800:hover:not([class*="dark:hover:text-"]) { color: #f5d0fe; }
+  :where(html.dark) .text-fuchsia-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-fuchsia-900:hover:not([class*="dark:hover:text-"]) { color: #f5d0fe; }
+  /* pink */
+  :where(html.dark) .bg-pink-50:not([class*="dark:bg-"]), :where(html.dark) .bg-pink-50\/80:not([class*="dark:bg-"]) { background-color: rgb(236 72 153 / 0.12); }
+  :where(html.dark) .hover\:bg-pink-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(236 72 153 / 0.20); }
+  :where(html.dark) .bg-pink-100:not([class*="dark:bg-"]), :where(html.dark) .bg-pink-100\/80:not([class*="dark:bg-"]) { background-color: rgb(236 72 153 / 0.18); }
+  :where(html.dark) .hover\:bg-pink-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(236 72 153 / 0.26); }
+  :where(html.dark) .bg-pink-200:not([class*="dark:bg-"]) { background-color: rgb(236 72 153 / 0.26); }
+  :where(html.dark) .hover\:bg-pink-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(236 72 153 / 0.34); }
+  :where(html.dark) .bg-pink-300:not([class*="dark:bg-"]) { background-color: rgb(236 72 153 / 0.36); }
+  :where(html.dark) .hover\:bg-pink-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(236 72 153 / 0.44); }
+  :where(html.dark) .border-pink-50:not([class*="dark:border-"]) { border-color: rgb(236 72 153 / 0.22); }
+  :where(html.dark) .border-pink-100:not([class*="dark:border-"]) { border-color: rgb(236 72 153 / 0.22); }
+  :where(html.dark) .border-pink-200:not([class*="dark:border-"]), :where(html.dark) .border-pink-200\/80:not([class*="dark:border-"]) { border-color: rgb(236 72 153 / 0.32); }
+  :where(html.dark) .border-pink-300:not([class*="dark:border-"]) { border-color: rgb(236 72 153 / 0.45); }
+  :where(html.dark) .text-pink-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-pink-600:hover:not([class*="dark:hover:text-"]) { color: #f472b6; }
+  :where(html.dark) .text-pink-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-pink-700:hover:not([class*="dark:hover:text-"]) { color: #f9a8d4; }
+  :where(html.dark) .text-pink-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-pink-800:hover:not([class*="dark:hover:text-"]) { color: #fbcfe8; }
+  :where(html.dark) .text-pink-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-pink-900:hover:not([class*="dark:hover:text-"]) { color: #fbcfe8; }
+  /* rose */
+  :where(html.dark) .bg-rose-50:not([class*="dark:bg-"]), :where(html.dark) .bg-rose-50\/80:not([class*="dark:bg-"]) { background-color: rgb(244 63 94 / 0.12); }
+  :where(html.dark) .hover\:bg-rose-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(244 63 94 / 0.20); }
+  :where(html.dark) .bg-rose-100:not([class*="dark:bg-"]), :where(html.dark) .bg-rose-100\/80:not([class*="dark:bg-"]) { background-color: rgb(244 63 94 / 0.18); }
+  :where(html.dark) .hover\:bg-rose-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(244 63 94 / 0.26); }
+  :where(html.dark) .bg-rose-200:not([class*="dark:bg-"]) { background-color: rgb(244 63 94 / 0.26); }
+  :where(html.dark) .hover\:bg-rose-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(244 63 94 / 0.34); }
+  :where(html.dark) .bg-rose-300:not([class*="dark:bg-"]) { background-color: rgb(244 63 94 / 0.36); }
+  :where(html.dark) .hover\:bg-rose-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(244 63 94 / 0.44); }
+  :where(html.dark) .border-rose-50:not([class*="dark:border-"]) { border-color: rgb(244 63 94 / 0.22); }
+  :where(html.dark) .border-rose-100:not([class*="dark:border-"]) { border-color: rgb(244 63 94 / 0.22); }
+  :where(html.dark) .border-rose-200:not([class*="dark:border-"]), :where(html.dark) .border-rose-200\/80:not([class*="dark:border-"]) { border-color: rgb(244 63 94 / 0.32); }
+  :where(html.dark) .border-rose-300:not([class*="dark:border-"]) { border-color: rgb(244 63 94 / 0.45); }
+  :where(html.dark) .text-rose-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-rose-600:hover:not([class*="dark:hover:text-"]) { color: #fb7185; }
+  :where(html.dark) .text-rose-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-rose-700:hover:not([class*="dark:hover:text-"]) { color: #fda4af; }
+  :where(html.dark) .text-rose-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-rose-800:hover:not([class*="dark:hover:text-"]) { color: #fecdd3; }
+  :where(html.dark) .text-rose-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-rose-900:hover:not([class*="dark:hover:text-"]) { color: #fecdd3; }
+  /* red */
+  :where(html.dark) .bg-red-50:not([class*="dark:bg-"]), :where(html.dark) .bg-red-50\/80:not([class*="dark:bg-"]) { background-color: rgb(239 68 68 / 0.12); }
+  :where(html.dark) .hover\:bg-red-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(239 68 68 / 0.20); }
+  :where(html.dark) .bg-red-100:not([class*="dark:bg-"]), :where(html.dark) .bg-red-100\/80:not([class*="dark:bg-"]) { background-color: rgb(239 68 68 / 0.18); }
+  :where(html.dark) .hover\:bg-red-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(239 68 68 / 0.26); }
+  :where(html.dark) .bg-red-200:not([class*="dark:bg-"]) { background-color: rgb(239 68 68 / 0.26); }
+  :where(html.dark) .hover\:bg-red-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(239 68 68 / 0.34); }
+  :where(html.dark) .bg-red-300:not([class*="dark:bg-"]) { background-color: rgb(239 68 68 / 0.36); }
+  :where(html.dark) .hover\:bg-red-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(239 68 68 / 0.44); }
+  :where(html.dark) .border-red-50:not([class*="dark:border-"]) { border-color: rgb(239 68 68 / 0.22); }
+  :where(html.dark) .border-red-100:not([class*="dark:border-"]) { border-color: rgb(239 68 68 / 0.22); }
+  :where(html.dark) .border-red-200:not([class*="dark:border-"]), :where(html.dark) .border-red-200\/80:not([class*="dark:border-"]) { border-color: rgb(239 68 68 / 0.32); }
+  :where(html.dark) .border-red-300:not([class*="dark:border-"]) { border-color: rgb(239 68 68 / 0.45); }
+  :where(html.dark) .text-red-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-red-600:hover:not([class*="dark:hover:text-"]) { color: #f87171; }
+  :where(html.dark) .text-red-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-red-700:hover:not([class*="dark:hover:text-"]) { color: #fca5a5; }
+  :where(html.dark) .text-red-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-red-800:hover:not([class*="dark:hover:text-"]) { color: #fecaca; }
+  :where(html.dark) .text-red-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-red-900:hover:not([class*="dark:hover:text-"]) { color: #fecaca; }
+  /* orange */
+  :where(html.dark) .bg-orange-50:not([class*="dark:bg-"]), :where(html.dark) .bg-orange-50\/80:not([class*="dark:bg-"]) { background-color: rgb(249 115 22 / 0.12); }
+  :where(html.dark) .hover\:bg-orange-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(249 115 22 / 0.20); }
+  :where(html.dark) .bg-orange-100:not([class*="dark:bg-"]), :where(html.dark) .bg-orange-100\/80:not([class*="dark:bg-"]) { background-color: rgb(249 115 22 / 0.18); }
+  :where(html.dark) .hover\:bg-orange-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(249 115 22 / 0.26); }
+  :where(html.dark) .bg-orange-200:not([class*="dark:bg-"]) { background-color: rgb(249 115 22 / 0.26); }
+  :where(html.dark) .hover\:bg-orange-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(249 115 22 / 0.34); }
+  :where(html.dark) .bg-orange-300:not([class*="dark:bg-"]) { background-color: rgb(249 115 22 / 0.36); }
+  :where(html.dark) .hover\:bg-orange-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(249 115 22 / 0.44); }
+  :where(html.dark) .border-orange-50:not([class*="dark:border-"]) { border-color: rgb(249 115 22 / 0.22); }
+  :where(html.dark) .border-orange-100:not([class*="dark:border-"]) { border-color: rgb(249 115 22 / 0.22); }
+  :where(html.dark) .border-orange-200:not([class*="dark:border-"]), :where(html.dark) .border-orange-200\/80:not([class*="dark:border-"]) { border-color: rgb(249 115 22 / 0.32); }
+  :where(html.dark) .border-orange-300:not([class*="dark:border-"]) { border-color: rgb(249 115 22 / 0.45); }
+  :where(html.dark) .text-orange-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-orange-600:hover:not([class*="dark:hover:text-"]) { color: #fb923c; }
+  :where(html.dark) .text-orange-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-orange-700:hover:not([class*="dark:hover:text-"]) { color: #fdba74; }
+  :where(html.dark) .text-orange-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-orange-800:hover:not([class*="dark:hover:text-"]) { color: #fed7aa; }
+  :where(html.dark) .text-orange-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-orange-900:hover:not([class*="dark:hover:text-"]) { color: #fed7aa; }
+  /* amber */
+  :where(html.dark) .bg-amber-50:not([class*="dark:bg-"]), :where(html.dark) .bg-amber-50\/80:not([class*="dark:bg-"]) { background-color: rgb(245 158 11 / 0.12); }
+  :where(html.dark) .hover\:bg-amber-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(245 158 11 / 0.20); }
+  :where(html.dark) .bg-amber-100:not([class*="dark:bg-"]), :where(html.dark) .bg-amber-100\/80:not([class*="dark:bg-"]) { background-color: rgb(245 158 11 / 0.18); }
+  :where(html.dark) .hover\:bg-amber-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(245 158 11 / 0.26); }
+  :where(html.dark) .bg-amber-200:not([class*="dark:bg-"]) { background-color: rgb(245 158 11 / 0.26); }
+  :where(html.dark) .hover\:bg-amber-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(245 158 11 / 0.34); }
+  :where(html.dark) .bg-amber-300:not([class*="dark:bg-"]) { background-color: rgb(245 158 11 / 0.36); }
+  :where(html.dark) .hover\:bg-amber-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(245 158 11 / 0.44); }
+  :where(html.dark) .border-amber-50:not([class*="dark:border-"]) { border-color: rgb(245 158 11 / 0.22); }
+  :where(html.dark) .border-amber-100:not([class*="dark:border-"]) { border-color: rgb(245 158 11 / 0.22); }
+  :where(html.dark) .border-amber-200:not([class*="dark:border-"]), :where(html.dark) .border-amber-200\/80:not([class*="dark:border-"]) { border-color: rgb(245 158 11 / 0.32); }
+  :where(html.dark) .border-amber-300:not([class*="dark:border-"]) { border-color: rgb(245 158 11 / 0.45); }
+  :where(html.dark) .text-amber-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-amber-600:hover:not([class*="dark:hover:text-"]) { color: #fbbf24; }
+  :where(html.dark) .text-amber-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-amber-700:hover:not([class*="dark:hover:text-"]) { color: #fcd34d; }
+  :where(html.dark) .text-amber-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-amber-800:hover:not([class*="dark:hover:text-"]) { color: #fde68a; }
+  :where(html.dark) .text-amber-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-amber-900:hover:not([class*="dark:hover:text-"]) { color: #fde68a; }
+  /* yellow */
+  :where(html.dark) .bg-yellow-50:not([class*="dark:bg-"]), :where(html.dark) .bg-yellow-50\/80:not([class*="dark:bg-"]) { background-color: rgb(234 179 8 / 0.12); }
+  :where(html.dark) .hover\:bg-yellow-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(234 179 8 / 0.20); }
+  :where(html.dark) .bg-yellow-100:not([class*="dark:bg-"]), :where(html.dark) .bg-yellow-100\/80:not([class*="dark:bg-"]) { background-color: rgb(234 179 8 / 0.18); }
+  :where(html.dark) .hover\:bg-yellow-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(234 179 8 / 0.26); }
+  :where(html.dark) .bg-yellow-200:not([class*="dark:bg-"]) { background-color: rgb(234 179 8 / 0.26); }
+  :where(html.dark) .hover\:bg-yellow-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(234 179 8 / 0.34); }
+  :where(html.dark) .bg-yellow-300:not([class*="dark:bg-"]) { background-color: rgb(234 179 8 / 0.36); }
+  :where(html.dark) .hover\:bg-yellow-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(234 179 8 / 0.44); }
+  :where(html.dark) .border-yellow-50:not([class*="dark:border-"]) { border-color: rgb(234 179 8 / 0.22); }
+  :where(html.dark) .border-yellow-100:not([class*="dark:border-"]) { border-color: rgb(234 179 8 / 0.22); }
+  :where(html.dark) .border-yellow-200:not([class*="dark:border-"]), :where(html.dark) .border-yellow-200\/80:not([class*="dark:border-"]) { border-color: rgb(234 179 8 / 0.32); }
+  :where(html.dark) .border-yellow-300:not([class*="dark:border-"]) { border-color: rgb(234 179 8 / 0.45); }
+  :where(html.dark) .text-yellow-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-yellow-600:hover:not([class*="dark:hover:text-"]) { color: #facc15; }
+  :where(html.dark) .text-yellow-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-yellow-700:hover:not([class*="dark:hover:text-"]) { color: #fde047; }
+  :where(html.dark) .text-yellow-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-yellow-800:hover:not([class*="dark:hover:text-"]) { color: #fef08a; }
+  :where(html.dark) .text-yellow-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-yellow-900:hover:not([class*="dark:hover:text-"]) { color: #fef08a; }
+  /* lime */
+  :where(html.dark) .bg-lime-50:not([class*="dark:bg-"]), :where(html.dark) .bg-lime-50\/80:not([class*="dark:bg-"]) { background-color: rgb(132 204 22 / 0.12); }
+  :where(html.dark) .hover\:bg-lime-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(132 204 22 / 0.20); }
+  :where(html.dark) .bg-lime-100:not([class*="dark:bg-"]), :where(html.dark) .bg-lime-100\/80:not([class*="dark:bg-"]) { background-color: rgb(132 204 22 / 0.18); }
+  :where(html.dark) .hover\:bg-lime-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(132 204 22 / 0.26); }
+  :where(html.dark) .bg-lime-200:not([class*="dark:bg-"]) { background-color: rgb(132 204 22 / 0.26); }
+  :where(html.dark) .hover\:bg-lime-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(132 204 22 / 0.34); }
+  :where(html.dark) .bg-lime-300:not([class*="dark:bg-"]) { background-color: rgb(132 204 22 / 0.36); }
+  :where(html.dark) .hover\:bg-lime-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(132 204 22 / 0.44); }
+  :where(html.dark) .border-lime-50:not([class*="dark:border-"]) { border-color: rgb(132 204 22 / 0.22); }
+  :where(html.dark) .border-lime-100:not([class*="dark:border-"]) { border-color: rgb(132 204 22 / 0.22); }
+  :where(html.dark) .border-lime-200:not([class*="dark:border-"]), :where(html.dark) .border-lime-200\/80:not([class*="dark:border-"]) { border-color: rgb(132 204 22 / 0.32); }
+  :where(html.dark) .border-lime-300:not([class*="dark:border-"]) { border-color: rgb(132 204 22 / 0.45); }
+  :where(html.dark) .text-lime-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-lime-600:hover:not([class*="dark:hover:text-"]) { color: #a3e635; }
+  :where(html.dark) .text-lime-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-lime-700:hover:not([class*="dark:hover:text-"]) { color: #bef264; }
+  :where(html.dark) .text-lime-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-lime-800:hover:not([class*="dark:hover:text-"]) { color: #d9f99d; }
+  :where(html.dark) .text-lime-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-lime-900:hover:not([class*="dark:hover:text-"]) { color: #d9f99d; }
+  /* green */
+  :where(html.dark) .bg-green-50:not([class*="dark:bg-"]), :where(html.dark) .bg-green-50\/80:not([class*="dark:bg-"]) { background-color: rgb(34 197 94 / 0.12); }
+  :where(html.dark) .hover\:bg-green-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(34 197 94 / 0.20); }
+  :where(html.dark) .bg-green-100:not([class*="dark:bg-"]), :where(html.dark) .bg-green-100\/80:not([class*="dark:bg-"]) { background-color: rgb(34 197 94 / 0.18); }
+  :where(html.dark) .hover\:bg-green-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(34 197 94 / 0.26); }
+  :where(html.dark) .bg-green-200:not([class*="dark:bg-"]) { background-color: rgb(34 197 94 / 0.26); }
+  :where(html.dark) .hover\:bg-green-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(34 197 94 / 0.34); }
+  :where(html.dark) .bg-green-300:not([class*="dark:bg-"]) { background-color: rgb(34 197 94 / 0.36); }
+  :where(html.dark) .hover\:bg-green-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(34 197 94 / 0.44); }
+  :where(html.dark) .border-green-50:not([class*="dark:border-"]) { border-color: rgb(34 197 94 / 0.22); }
+  :where(html.dark) .border-green-100:not([class*="dark:border-"]) { border-color: rgb(34 197 94 / 0.22); }
+  :where(html.dark) .border-green-200:not([class*="dark:border-"]), :where(html.dark) .border-green-200\/80:not([class*="dark:border-"]) { border-color: rgb(34 197 94 / 0.32); }
+  :where(html.dark) .border-green-300:not([class*="dark:border-"]) { border-color: rgb(34 197 94 / 0.45); }
+  :where(html.dark) .text-green-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-green-600:hover:not([class*="dark:hover:text-"]) { color: #4ade80; }
+  :where(html.dark) .text-green-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-green-700:hover:not([class*="dark:hover:text-"]) { color: #86efac; }
+  :where(html.dark) .text-green-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-green-800:hover:not([class*="dark:hover:text-"]) { color: #bbf7d0; }
+  :where(html.dark) .text-green-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-green-900:hover:not([class*="dark:hover:text-"]) { color: #bbf7d0; }
+  /* emerald */
+  :where(html.dark) .bg-emerald-50:not([class*="dark:bg-"]), :where(html.dark) .bg-emerald-50\/80:not([class*="dark:bg-"]) { background-color: rgb(16 185 129 / 0.12); }
+  :where(html.dark) .hover\:bg-emerald-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(16 185 129 / 0.20); }
+  :where(html.dark) .bg-emerald-100:not([class*="dark:bg-"]), :where(html.dark) .bg-emerald-100\/80:not([class*="dark:bg-"]) { background-color: rgb(16 185 129 / 0.18); }
+  :where(html.dark) .hover\:bg-emerald-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(16 185 129 / 0.26); }
+  :where(html.dark) .bg-emerald-200:not([class*="dark:bg-"]) { background-color: rgb(16 185 129 / 0.26); }
+  :where(html.dark) .hover\:bg-emerald-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(16 185 129 / 0.34); }
+  :where(html.dark) .bg-emerald-300:not([class*="dark:bg-"]) { background-color: rgb(16 185 129 / 0.36); }
+  :where(html.dark) .hover\:bg-emerald-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(16 185 129 / 0.44); }
+  :where(html.dark) .border-emerald-50:not([class*="dark:border-"]) { border-color: rgb(16 185 129 / 0.22); }
+  :where(html.dark) .border-emerald-100:not([class*="dark:border-"]) { border-color: rgb(16 185 129 / 0.22); }
+  :where(html.dark) .border-emerald-200:not([class*="dark:border-"]), :where(html.dark) .border-emerald-200\/80:not([class*="dark:border-"]) { border-color: rgb(16 185 129 / 0.32); }
+  :where(html.dark) .border-emerald-300:not([class*="dark:border-"]) { border-color: rgb(16 185 129 / 0.45); }
+  :where(html.dark) .text-emerald-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-emerald-600:hover:not([class*="dark:hover:text-"]) { color: #34d399; }
+  :where(html.dark) .text-emerald-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-emerald-700:hover:not([class*="dark:hover:text-"]) { color: #6ee7b7; }
+  :where(html.dark) .text-emerald-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-emerald-800:hover:not([class*="dark:hover:text-"]) { color: #a7f3d0; }
+  :where(html.dark) .text-emerald-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-emerald-900:hover:not([class*="dark:hover:text-"]) { color: #a7f3d0; }
+  /* teal */
+  :where(html.dark) .bg-teal-50:not([class*="dark:bg-"]), :where(html.dark) .bg-teal-50\/80:not([class*="dark:bg-"]) { background-color: rgb(20 184 166 / 0.12); }
+  :where(html.dark) .hover\:bg-teal-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(20 184 166 / 0.20); }
+  :where(html.dark) .bg-teal-100:not([class*="dark:bg-"]), :where(html.dark) .bg-teal-100\/80:not([class*="dark:bg-"]) { background-color: rgb(20 184 166 / 0.18); }
+  :where(html.dark) .hover\:bg-teal-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(20 184 166 / 0.26); }
+  :where(html.dark) .bg-teal-200:not([class*="dark:bg-"]) { background-color: rgb(20 184 166 / 0.26); }
+  :where(html.dark) .hover\:bg-teal-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(20 184 166 / 0.34); }
+  :where(html.dark) .bg-teal-300:not([class*="dark:bg-"]) { background-color: rgb(20 184 166 / 0.36); }
+  :where(html.dark) .hover\:bg-teal-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(20 184 166 / 0.44); }
+  :where(html.dark) .border-teal-50:not([class*="dark:border-"]) { border-color: rgb(20 184 166 / 0.22); }
+  :where(html.dark) .border-teal-100:not([class*="dark:border-"]) { border-color: rgb(20 184 166 / 0.22); }
+  :where(html.dark) .border-teal-200:not([class*="dark:border-"]), :where(html.dark) .border-teal-200\/80:not([class*="dark:border-"]) { border-color: rgb(20 184 166 / 0.32); }
+  :where(html.dark) .border-teal-300:not([class*="dark:border-"]) { border-color: rgb(20 184 166 / 0.45); }
+  :where(html.dark) .text-teal-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-teal-600:hover:not([class*="dark:hover:text-"]) { color: #2dd4bf; }
+  :where(html.dark) .text-teal-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-teal-700:hover:not([class*="dark:hover:text-"]) { color: #5eead4; }
+  :where(html.dark) .text-teal-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-teal-800:hover:not([class*="dark:hover:text-"]) { color: #99f6e4; }
+  :where(html.dark) .text-teal-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-teal-900:hover:not([class*="dark:hover:text-"]) { color: #99f6e4; }
+  /* cyan */
+  :where(html.dark) .bg-cyan-50:not([class*="dark:bg-"]), :where(html.dark) .bg-cyan-50\/80:not([class*="dark:bg-"]) { background-color: rgb(6 182 212 / 0.12); }
+  :where(html.dark) .hover\:bg-cyan-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(6 182 212 / 0.20); }
+  :where(html.dark) .bg-cyan-100:not([class*="dark:bg-"]), :where(html.dark) .bg-cyan-100\/80:not([class*="dark:bg-"]) { background-color: rgb(6 182 212 / 0.18); }
+  :where(html.dark) .hover\:bg-cyan-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(6 182 212 / 0.26); }
+  :where(html.dark) .bg-cyan-200:not([class*="dark:bg-"]) { background-color: rgb(6 182 212 / 0.26); }
+  :where(html.dark) .hover\:bg-cyan-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(6 182 212 / 0.34); }
+  :where(html.dark) .bg-cyan-300:not([class*="dark:bg-"]) { background-color: rgb(6 182 212 / 0.36); }
+  :where(html.dark) .hover\:bg-cyan-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(6 182 212 / 0.44); }
+  :where(html.dark) .border-cyan-50:not([class*="dark:border-"]) { border-color: rgb(6 182 212 / 0.22); }
+  :where(html.dark) .border-cyan-100:not([class*="dark:border-"]) { border-color: rgb(6 182 212 / 0.22); }
+  :where(html.dark) .border-cyan-200:not([class*="dark:border-"]), :where(html.dark) .border-cyan-200\/80:not([class*="dark:border-"]) { border-color: rgb(6 182 212 / 0.32); }
+  :where(html.dark) .border-cyan-300:not([class*="dark:border-"]) { border-color: rgb(6 182 212 / 0.45); }
+  :where(html.dark) .text-cyan-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-cyan-600:hover:not([class*="dark:hover:text-"]) { color: #22d3ee; }
+  :where(html.dark) .text-cyan-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-cyan-700:hover:not([class*="dark:hover:text-"]) { color: #67e8f9; }
+  :where(html.dark) .text-cyan-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-cyan-800:hover:not([class*="dark:hover:text-"]) { color: #a5f3fc; }
+  :where(html.dark) .text-cyan-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-cyan-900:hover:not([class*="dark:hover:text-"]) { color: #a5f3fc; }
+  /* sky */
+  :where(html.dark) .bg-sky-50:not([class*="dark:bg-"]), :where(html.dark) .bg-sky-50\/80:not([class*="dark:bg-"]) { background-color: rgb(14 165 233 / 0.12); }
+  :where(html.dark) .hover\:bg-sky-50:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(14 165 233 / 0.20); }
+  :where(html.dark) .bg-sky-100:not([class*="dark:bg-"]), :where(html.dark) .bg-sky-100\/80:not([class*="dark:bg-"]) { background-color: rgb(14 165 233 / 0.18); }
+  :where(html.dark) .hover\:bg-sky-100:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(14 165 233 / 0.26); }
+  :where(html.dark) .bg-sky-200:not([class*="dark:bg-"]) { background-color: rgb(14 165 233 / 0.26); }
+  :where(html.dark) .hover\:bg-sky-200:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(14 165 233 / 0.34); }
+  :where(html.dark) .bg-sky-300:not([class*="dark:bg-"]) { background-color: rgb(14 165 233 / 0.36); }
+  :where(html.dark) .hover\:bg-sky-300:hover:not([class*="dark:hover:bg-"]) { background-color: rgb(14 165 233 / 0.44); }
+  :where(html.dark) .border-sky-50:not([class*="dark:border-"]) { border-color: rgb(14 165 233 / 0.22); }
+  :where(html.dark) .border-sky-100:not([class*="dark:border-"]) { border-color: rgb(14 165 233 / 0.22); }
+  :where(html.dark) .border-sky-200:not([class*="dark:border-"]), :where(html.dark) .border-sky-200\/80:not([class*="dark:border-"]) { border-color: rgb(14 165 233 / 0.32); }
+  :where(html.dark) .border-sky-300:not([class*="dark:border-"]) { border-color: rgb(14 165 233 / 0.45); }
+  :where(html.dark) .text-sky-600:not([class*="dark:text-"]), :where(html.dark) .hover\:text-sky-600:hover:not([class*="dark:hover:text-"]) { color: #38bdf8; }
+  :where(html.dark) .text-sky-700:not([class*="dark:text-"]), :where(html.dark) .hover\:text-sky-700:hover:not([class*="dark:hover:text-"]) { color: #7dd3fc; }
+  :where(html.dark) .text-sky-800:not([class*="dark:text-"]), :where(html.dark) .hover\:text-sky-800:hover:not([class*="dark:hover:text-"]) { color: #bae6fd; }
+  :where(html.dark) .text-sky-900:not([class*="dark:text-"]), :where(html.dark) .hover\:text-sky-900:hover:not([class*="dark:hover:text-"]) { color: #bae6fd; }
+}

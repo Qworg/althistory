@@ -283,6 +283,8 @@ export interface UserPreferences {
     reducedMotion: boolean
     screenReaderOptimized: boolean
   }
+  /** The sidebar is collapsed to its icon rail. Absent in older saved preferences. */
+  sidebarCollapsed?: boolean
 }
 
 // Session data that should be persisted temporarily
@@ -301,6 +303,10 @@ export interface SessionData {
     causalGraph: {
       layout: string
       nodePositions: Record<string, { x: number; y: number }>
+    }
+    actorPerspective?: {
+      layout: 'chronological' | 'thematic'
+      showStats: boolean
     }
   }
 }
@@ -368,6 +374,8 @@ export interface UpdateGraphRequest {
 
 export interface BranchGraphRequest {
   branchName: string
+  /** Sent to the API as the new graph's description. */
+  description?: string
   version?: number
 }
 

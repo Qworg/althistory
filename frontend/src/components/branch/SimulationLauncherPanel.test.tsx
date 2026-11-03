@@ -49,7 +49,7 @@ describe('SimulationLauncherPanel', () => {
   it('disables the run button when no graph is selected', () => {
     renderWithProviders(<SimulationLauncherPanel graphId="" graphName="Prime Timeline" />)
 
-    expect(screen.getByRole('button', { name: /Run Simulation/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Run simulation/ })).toBeDisabled()
     expect(screen.getByText(/Select a graph before running/)).toBeInTheDocument()
   })
 
@@ -64,7 +64,7 @@ describe('SimulationLauncherPanel', () => {
     fireEvent.change(screen.getByLabelText(/Domain/), { target: { value: 'military' } })
     fireEvent.change(screen.getByLabelText(/Seed context/), { target: { value: 'A blockade' } })
 
-    fireEvent.click(screen.getByRole('button', { name: /Run Simulation/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Run simulation/ }))
 
     await waitFor(() => expect(onSimulated).toHaveBeenCalledTimes(1))
     expect(simulateMock).toHaveBeenCalledWith('graph-1', {
@@ -78,13 +78,15 @@ describe('SimulationLauncherPanel', () => {
 
     expect(await screen.findByTestId('simulated-milestones')).toBeInTheDocument()
     expect(screen.getByText(/mobilises armed forces/)).toBeInTheDocument()
+    // A historical date, in UTC: not shifted to Dec 31, 200 west of Greenwich.
+    expect(screen.getByText(/Jan 1, 201/)).toBeInTheDocument()
     expect(screen.getAllByText(/military/).length).toBeGreaterThan(0)
   })
 
   it('omits the domain when left on auto', async () => {
     renderWithProviders(<SimulationLauncherPanel graphId="graph-1" graphName="Prime Timeline" />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Run Simulation/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Run simulation/ }))
 
     await waitFor(() => expect(simulateMock).toHaveBeenCalledTimes(1))
     const options = simulateMock.mock.calls[0]?.[1]
@@ -96,20 +98,20 @@ describe('SimulationLauncherPanel', () => {
     renderWithProviders(<SimulationLauncherPanel graphId="graph-1" graphName="Prime Timeline" />)
 
     fireEvent.click(screen.getByLabelText(/Preview only/))
-    fireEvent.click(screen.getByRole('button', { name: /Run Simulation/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Run simulation/ }))
 
     await waitFor(() => expect(simulateMock).toHaveBeenCalledTimes(1))
     expect(simulateMock).toHaveBeenCalledWith('graph-1', expect.objectContaining({ dryRun: true }))
-    expect(await screen.findByText(/Simulation Preview/)).toBeInTheDocument()
+    expect(await screen.findByText(/Simulation preview/)).toBeInTheDocument()
   })
 
   it('surfaces an engine failure instead of leaving the spinner running', async () => {
     simulateMock.mockRejectedValue(new Error('graph has no events'))
     renderWithProviders(<SimulationLauncherPanel graphId="graph-1" graphName="Prime Timeline" />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Run Simulation/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Run simulation/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('graph has no events')
-    expect(screen.getByRole('button', { name: /Run Simulation/ })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /Run simulation/ })).toBeEnabled()
   })
 })

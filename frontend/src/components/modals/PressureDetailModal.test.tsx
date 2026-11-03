@@ -4,6 +4,8 @@ import { axe } from 'vitest-axe'
 import PressureDetailModal from './PressureDetailModal'
 import { PressureWithContext } from '@/types/pressure'
 import { Event, Arc } from '@/types'
+import { getPressureTypeIconPath } from '@/utils/pressureVisualization'
+import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 
 describe('PressureDetailModal', () => {
   const mockEvents: Event[] = [
@@ -76,7 +78,9 @@ describe('PressureDetailModal', () => {
     expect(screen.getByTestId('pressure-detail-modal')).toBeInTheDocument()
     expect(screen.getByText('Economic Pressure')).toBeInTheDocument()
     expect(screen.getByText('HIGH CONFIDENCE')).toBeInTheDocument()
-    expect(screen.getByText('85% confident')).toBeInTheDocument()
+    // Confidence on the 0–1 scale the Timeline view's thresholds use
+    expect(screen.getAllByText('0.85').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/85% confident/)).not.toBeInTheDocument()
     expect(screen.getByText(mockPressure.description)).toBeInTheDocument()
   })
 
@@ -95,7 +99,7 @@ describe('PressureDetailModal', () => {
   it('displays correct confidence level styling', () => {
     const { rerender } = render(<PressureDetailModal {...defaultProps} />)
     
-    expect(screen.getByText('HIGH CONFIDENCE')).toHaveClass('text-green-600')
+    expect(screen.getByText('HIGH CONFIDENCE')).toHaveClass('text-green-800')
     
     // Test medium confidence
     const mediumConfidencePressure = {
@@ -103,7 +107,7 @@ describe('PressureDetailModal', () => {
       confidence_score: 0.5
     }
     rerender(<PressureDetailModal {...defaultProps} pressure={mediumConfidencePressure} />)
-    expect(screen.getByText('MEDIUM CONFIDENCE')).toHaveClass('text-yellow-600')
+    expect(screen.getByText('MEDIUM CONFIDENCE')).toHaveClass('text-yellow-800')
     
     // Test low confidence
     const lowConfidencePressure = {
@@ -111,15 +115,35 @@ describe('PressureDetailModal', () => {
       confidence_score: 0.2
     }
     rerender(<PressureDetailModal {...defaultProps} pressure={lowConfidencePressure} />)
-    expect(screen.getByText('LOW CONFIDENCE')).toHaveClass('text-red-600')
+    expect(screen.getByText('LOW CONFIDENCE')).toHaveClass('text-red-800')
   })
 
   it('displays metrics correctly', () => {
     render(<PressureDetailModal {...defaultProps} />)
     
-    expect(screen.getByText('85%')).toBeInTheDocument() // Confidence percentage
-    expect(screen.getByText('78%')).toBeInTheDocument() // Influence strength percentage
+    expect(screen.getAllByText('0.85').length).toBeGreaterThan(0) // Confidence score
     expect(screen.getByText('2')).toBeInTheDocument() // Evidence events count
+  })
+
+  it('drops the influence figure, which saturated at 100% and repeated confidence', () => {
+    render(
+      <PressureDetailModal
+        {...defaultProps}
+        pressure={{
+          ...mockPressure,
+          influenceStrength: 1,
+          time_range: { start: '1847-05-31T00:00:00Z', end: '1847-06-17T00:00:00Z' },
+        }}
+      />
+    )
+    expect(screen.queryByText(/influence/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('100%')).not.toBeInTheDocument()
+    // The period stays, once, under Metadata.
+    expect(
+      screen.getByText(
+        `${formatHistoricalTimestamp('1847-05-31T00:00:00Z')} – ${formatHistoricalTimestamp('1847-06-17T00:00:00Z')}`
+      )
+    ).toBeInTheDocument()
   })
 
   it('displays affected arcs', () => {
@@ -222,6 +246,30 @@ describe('PressureDetailModal', () => {
     expect(screen.getByText('Economic')).toBeInTheDocument()
   })
 
+  it('draws the pressure type as a stroke SVG, not an emoji', () => {
+    render(<PressureDetailModal {...defaultProps} />)
+
+    const heading = screen.getByRole('heading', { name: /Pressure$/ })
+    const header = heading.closest('div')!.parentElement!
+    const icon = header.querySelector('svg[stroke="currentColor"] path')
+    expect(icon).toHaveAttribute('d', getPressureTypeIconPath(mockPressure.pressure_type))
+    expect(header.textContent).not.toMatch(/\p{Extended_Pictographic}/u)
+  })
+
+  it('uses a translucent backdrop that Tailwind v4 renders', () => {
+    render(<PressureDetailModal {...defaultProps} />)
+
+    const modal = screen.getByTestId('pressure-detail-modal')
+    expect(modal).toHaveClass('bg-black/50')
+    expect(modal.className).not.toMatch(/bg-opacity-/)
+  })
+
+  it('formats evidence timestamps in UTC', () => {
+    render(<PressureDetailModal {...defaultProps} />)
+
+    expect(screen.getByText(formatHistoricalTimestamp('2023-01-15T00:00:00Z'))).toBeInTheDocument()
+  })
+
   it('applies custom className', () => {
     const customClassName = 'custom-modal-class'
     render(<PressureDetailModal {...defaultProps} className={customClassName} />)
@@ -254,11 +302,10 @@ describe('PressureDetailModal', () => {
     render(<PressureDetailModal {...defaultProps} />)
     
     // Check that progress bars are rendered by looking for the visual elements
-    const confidenceBar = screen.getByText('85%').previousElementSibling?.querySelector('div[style*="width: 85%"]')
-    const influenceBar = screen.getByText('78%').previousElementSibling?.querySelector('div[style*="width: 78%"]')
-    
+    const scores = screen.getAllByText('0.85')
+    const confidenceBar = scores[scores.length - 1]?.previousElementSibling?.querySelector('div[style*="width: 85%"]')
+
     expect(confidenceBar).toBeInTheDocument()
-    expect(influenceBar).toBeInTheDocument()
   })
 
   it('handles keyboard navigation', () => {

@@ -14,9 +14,10 @@
  * to smuggle in an edit.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { EntityReviewTable } from './EntityReviewTable'
+import { buildEventLookup, entityLabel, reviewRowId } from './reviewLabels'
 import { WikipediaIngestTab } from './WikipediaIngestTab'
 import { WikidataIngestTab } from './WikidataIngestTab'
 import { TextIngestTab } from './TextIngestTab'
@@ -43,11 +44,59 @@ type SourceTab = 'wikipedia' | 'wikidata' | 'text'
 type WizardStep = 'source' | 'review' | 'complete'
 type CollectionKey = 'events' | 'arcs' | 'relationships'
 
-const SOURCE_TABS: Array<{ id: SourceTab; label: string }> = [
-  { id: 'wikipedia', label: 'Wikipedia' },
-  { id: 'wikidata', label: 'Wikidata' },
-  { id: 'text', label: 'Text' },
+/** The visible progress of an ingestion, one entry per stage. */
+const PROGRESS_STEPS = ['Source', 'Extract', 'Review', 'Commit'] as const
+
+const ENTITY_TYPE_LABELS: Record<IngestionValidationIssue['entityType'], string> = {
+  event: 'Event',
+  arc: 'Arc',
+  relationship: 'Relationship',
+}
+
+/** Scrolls a review row into view and focuses its first field. */
+function focusReviewRow(entityType: IngestionValidationIssue['entityType'], tempId: string): void {
+  const row = document.getElementById(reviewRowId(entityType, tempId))
+  if (!row) return
+  if (typeof row.scrollIntoView === 'function') {
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
+  // The first editable field in document order (the description is a
+  // textarea), else the row's checkbox.
+  const target =
+    row.querySelector<HTMLElement>('textarea, input[type="text"], input[type="number"]') ??
+    row.querySelector<HTMLInputElement>('input')
+  target?.focus({ preventScroll: true })
+}
+
+const SOURCE_TABS: Array<{ id: SourceTab; label: string; title: string }> = [
+  { id: 'wikipedia', label: 'Wikipedia', title: 'Ingest from Wikipedia' },
+  { id: 'wikidata', label: 'Wikidata', title: 'Ingest from Wikidata' },
+  { id: 'text', label: 'Text', title: 'Ingest from text' },
 ]
+
+/** The id of each source tab's form, which the footer's "Extract events" submits. */
+const sourceFormId = (tab: SourceTab) => `ingest-form-${tab}`
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`
+}
+
+/**
+ * What a discard throws away: "12 extracted events and your edits", "12
+ * extracted events, 2 arcs and your edits".
+ */
+function describeDiscard(extraction: ExtractionResult, hasEdits: boolean): string {
+  const counts: Array<[number, string, string]> = [
+    [extraction.events.length, 'event', 'events'],
+    [extraction.arcs.length, 'arc', 'arcs'],
+    [extraction.relationships.length, 'link', 'links'],
+  ]
+  const items = counts.filter(([count]) => count > 0).map(([count, one, many]) => plural(count, one, many))
+  if (items[0]) items[0] = items[0].replace(/^(\d+) /, '$1 extracted ')
+  if (hasEdits) items.push('your edits')
+  if (items.length === 0) return 'this review'
+  return items.length === 1 ? items[0]! : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
 
 export interface IngestionWizardProps {
   isOpen: boolean
@@ -70,6 +119,13 @@ export function IngestionWizard({
   const [edits, setEdits] = useState<Record<string, ExtractedEdit>>({})
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false)
+  const [canSubmitSource, setCanSubmitSource] = useState<Record<SourceTab, boolean>>({
+    wikipedia: false,
+    wikidata: true,
+    text: false,
+  })
+  const discardMessageId = useId()
 
   const ingestWikipedia = useIngestWikipedia()
   const ingestWikidata = useIngestWikidata()
@@ -89,6 +145,7 @@ export function IngestionWizard({
     setEdits({})
     setResult(null)
     setError(null)
+    setConfirmingDiscard(false)
   }, [])
 
   // A closed modal should not keep the previous review (or its pasted text) in
@@ -185,6 +242,31 @@ export function IngestionWizard({
     })
   }, [])
 
+  const handleSelectByConfidence = useCallback((collection: CollectionKey, threshold: number) => {
+    setExtraction((previous) => {
+      if (!previous) return previous
+      if (collection === 'events') {
+        return {
+          ...previous,
+          events: previous.events.map((event) => ({ ...event, selected: event.confidence >= threshold })),
+        }
+      }
+      if (collection === 'arcs') {
+        return {
+          ...previous,
+          arcs: previous.arcs.map((arc) => ({ ...arc, selected: arc.confidence >= threshold })),
+        }
+      }
+      return {
+        ...previous,
+        relationships: previous.relationships.map((relationship) => ({
+          ...relationship,
+          selected: relationship.confidence >= threshold,
+        })),
+      }
+    })
+  }, [])
+
   const handleEdit = useCallback((tempId: string, updates: ExtractedEdit) => {
     setEdits((previous) => ({ ...previous, [tempId]: { ...previous[tempId], ...updates } }))
     setExtraction((previous) => {
@@ -218,6 +300,22 @@ export function IngestionWizard({
   )
   const selectedCount =
     selectedEventIds.length + selectedArcIds.length + selectedRelationshipIds.length
+
+  const eventLookup = useMemo(
+    () => buildEventLookup(extraction ? extraction.events : []),
+    [extraction]
+  )
+
+  const progressIndex =
+    step === 'source'
+      ? isSubmitting
+        ? 1
+        : 0
+      : step === 'review'
+        ? approveIngestion.isPending
+          ? 3
+          : 2
+        : 3
 
   const handleApprove = useCallback(async () => {
     if (!jobId || !extraction) return
@@ -276,6 +374,31 @@ export function IngestionWizard({
     onClose()
   }, [onClose, resetState])
 
+  // A review holds work: the extracted rows and the reviewer's edits. Closing
+  // it (Escape, the backdrop, the close button) used to throw that away
+  // without a word, so it asks first.
+  const hasReviewWork =
+    step === 'review' &&
+    !!extraction &&
+    (extraction.events.length + extraction.arcs.length + extraction.relationships.length > 0 ||
+      Object.keys(edits).length > 0)
+  const hasEdits = Object.keys(edits).length > 0
+
+  const requestClose = useCallback(() => {
+    if (hasReviewWork) {
+      setConfirmingDiscard(true)
+      return
+    }
+    handleClose()
+  }, [hasReviewWork, handleClose])
+
+  const reportCanSubmit = useCallback((tab: SourceTab, canSubmit: boolean) => {
+    setCanSubmitSource((previous) => (previous[tab] === canSubmit ? previous : { ...previous, [tab]: canSubmit }))
+  }, [])
+  const reportWikipedia = useCallback((can: boolean) => reportCanSubmit('wikipedia', can), [reportCanSubmit])
+  const reportWikidata = useCallback((can: boolean) => reportCanSubmit('wikidata', can), [reportCanSubmit])
+  const reportText = useCallback((can: boolean) => reportCanSubmit('text', can), [reportCanSubmit])
+
   const handleDiscard = useCallback(async () => {
     if (jobId) {
       try {
@@ -294,7 +417,7 @@ export function IngestionWizard({
         <button
           type="button"
           onClick={() => setStep('source')}
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
         >
           Back
         </button>
@@ -302,7 +425,7 @@ export function IngestionWizard({
           <button
             type="button"
             onClick={handleDiscard}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
             Discard
           </button>
@@ -312,7 +435,7 @@ export function IngestionWizard({
             disabled={approveIngestion.isPending || selectedCount === 0}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
           >
-            {approveIngestion.isPending ? 'Importing...' : `Import Selected (${selectedCount})`}
+            {approveIngestion.isPending ? 'Importing…' : `Import selected (${selectedCount})`}
           </button>
         </div>
       </div>
@@ -327,36 +450,87 @@ export function IngestionWizard({
         </button>
       </div>
     ) : (
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
         <button
           type="button"
-          onClick={handleClose}
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          onClick={requestClose}
+          className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
         >
           Cancel
+        </button>
+        <button
+          type="submit"
+          form={sourceFormId(activeTab)}
+          disabled={isSubmitting || !canSubmitSource[activeTab]}
+          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isSubmitting ? 'Extracting…' : 'Extract events'}
         </button>
       </div>
     )
 
+  const activeTitle = SOURCE_TABS.find((tab) => tab.id === activeTab)?.title ?? 'Bring in history'
+
   return (
+    <>
     <ModalBase
       isOpen={isOpen}
-      onClose={handleClose}
-      title="Ingest from Web"
+      onClose={requestClose}
+      title={activeTitle}
       size="4xl"
       footer={footer}
     >
+      <ol aria-label="Ingestion progress" className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+        {PROGRESS_STEPS.map((label, index) => {
+          const isCurrent = index === progressIndex
+          const isDone = index < progressIndex || (step === 'complete' && index === progressIndex)
+          return (
+            <li key={label} className="flex items-center gap-2" aria-current={isCurrent ? 'step' : undefined}>
+              {index > 0 && (
+                <span aria-hidden="true" className="h-px w-4 bg-line sm:w-6" />
+              )}
+              <span
+                className={`inline-flex items-center gap-1.5 font-medium ${
+                  isCurrent ? 'text-ink' : isDone ? 'text-ink-secondary' : 'text-ink-muted'
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`font-mono-code inline-flex h-5 w-5 items-center justify-center rounded-full border text-[0.6875rem] ${
+                    isCurrent
+                      ? 'border-blue-600 bg-blue-600 text-white'
+                      : isDone
+                        ? 'border-blue-600 text-blue-700 dark:text-blue-300'
+                        : 'border-line text-ink-muted'
+                  }`}
+                >
+                  {isDone && !isCurrent ? (
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    index + 1
+                  )}
+                </span>
+                {label}
+                {isDone && <span className="sr-only"> (done)</span>}
+              </span>
+            </li>
+          )
+        })}
+      </ol>
+
       {step === 'source' && (
         <div>
-          <p className="mb-4 text-sm text-gray-600">
-            Extract entities from Wikipedia, Wikidata or pasted text, review them, then import
+          <p className="mb-4 text-sm text-ink-secondary">
+            Extract events from Wikipedia, Wikidata or pasted text, review them, then import
             only the rows you select.
           </p>
 
           <div
             role="tablist"
             aria-label="Ingestion sources"
-            className="flex gap-1 border-b border-gray-200"
+            className="flex gap-1 border-b border-line"
           >
             {SOURCE_TABS.map((tab) => (
               <button
@@ -371,7 +545,7 @@ export function IngestionWizard({
                 className={`rounded-t-md px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                   activeTab === tab.id
                     ? 'border-b-2 border-blue-600 text-blue-700'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : 'text-ink-secondary hover:text-ink'
                 }`}
               >
                 {tab.label}
@@ -386,7 +560,12 @@ export function IngestionWizard({
               aria-labelledby="ingest-tab-wikipedia"
               hidden={activeTab !== 'wikipedia'}
             >
-              <WikipediaIngestTab onSubmit={handleWikipediaSubmit} isSubmitting={isSubmitting} />
+              <WikipediaIngestTab
+                onSubmit={handleWikipediaSubmit}
+                isSubmitting={isSubmitting}
+                formId={sourceFormId('wikipedia')}
+                onCanSubmitChange={reportWikipedia}
+              />
             </div>
             <div
               role="tabpanel"
@@ -394,7 +573,12 @@ export function IngestionWizard({
               aria-labelledby="ingest-tab-wikidata"
               hidden={activeTab !== 'wikidata'}
             >
-              <WikidataIngestTab onSubmit={handleWikidataSubmit} isSubmitting={isSubmitting} />
+              <WikidataIngestTab
+                onSubmit={handleWikidataSubmit}
+                isSubmitting={isSubmitting}
+                formId={sourceFormId('wikidata')}
+                onCanSubmitChange={reportWikidata}
+              />
             </div>
             <div
               role="tabpanel"
@@ -402,7 +586,12 @@ export function IngestionWizard({
               aria-labelledby="ingest-tab-text"
               hidden={activeTab !== 'text'}
             >
-              <TextIngestTab onSubmit={handleTextSubmit} isSubmitting={isSubmitting} />
+              <TextIngestTab
+                onSubmit={handleTextSubmit}
+                isSubmitting={isSubmitting}
+                formId={sourceFormId('text')}
+                onCanSubmitChange={reportText}
+              />
             </div>
           </div>
         </div>
@@ -411,14 +600,25 @@ export function IngestionWizard({
       {step === 'review' && extraction && (
         <div>
           {issues.length > 0 && (
-            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3" role="status">
-              <h3 className="text-sm font-medium text-amber-800">
+            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40" role="status">
+              <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">
                 {issues.length} validation issue{issues.length === 1 ? '' : 's'}
               </h3>
-              <ul className="mt-1 list-disc pl-5 text-xs text-amber-700">
+              <ul className="mt-1 space-y-0.5 text-xs text-amber-800 dark:text-amber-200">
                 {issues.map((issue, index) => (
                   <li key={`${issue.entityType}:${issue.entityTempId}:${index}`}>
-                    {issue.entityType} {issue.entityTempId}: {issue.message}
+                    <button
+                      type="button"
+                      onClick={() => focusReviewRow(issue.entityType, issue.entityTempId)}
+                      className="text-left underline decoration-amber-400 underline-offset-2 hover:decoration-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    >
+                      <span className="font-medium">
+                        {issue.severity === 'error' ? 'Error' : 'Warning'} ·{' '}
+                        {ENTITY_TYPE_LABELS[issue.entityType]} “
+                        {entityLabel(extraction, issue.entityType, issue.entityTempId, eventLookup)}”:
+                      </span>{' '}
+                      {issue.message}
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -427,7 +627,7 @@ export function IngestionWizard({
 
           {extraction.events.length > 0 && (
             <section className="mb-6">
-              <h3 className="mb-2 text-sm font-semibold text-gray-900">
+              <h3 className="mb-2 text-sm font-semibold text-ink">
                 Events ({selectedEventIds.length}/{extraction.events.length} selected)
               </h3>
               <EntityReviewTable
@@ -438,13 +638,14 @@ export function IngestionWizard({
                 onEdit={handleEdit}
                 onSelectAll={() => handleSetAllSelected('events', true)}
                 onDeselectAll={() => handleSetAllSelected('events', false)}
+                onSelectByConfidence={(threshold) => handleSelectByConfidence('events', threshold)}
               />
             </section>
           )}
 
           {extraction.arcs.length > 0 && (
             <section className="mb-6">
-              <h3 className="mb-2 text-sm font-semibold text-gray-900">
+              <h3 className="mb-2 text-sm font-semibold text-ink">
                 Arcs ({selectedArcIds.length}/{extraction.arcs.length} selected)
               </h3>
               <EntityReviewTable
@@ -455,13 +656,14 @@ export function IngestionWizard({
                 onEdit={handleEdit}
                 onSelectAll={() => handleSetAllSelected('arcs', true)}
                 onDeselectAll={() => handleSetAllSelected('arcs', false)}
+                onSelectByConfidence={(threshold) => handleSelectByConfidence('arcs', threshold)}
               />
             </section>
           )}
 
           {extraction.relationships.length > 0 && (
             <section className="mb-6">
-              <h3 className="mb-2 text-sm font-semibold text-gray-900">
+              <h3 className="mb-2 text-sm font-semibold text-ink">
                 Relationships ({selectedRelationshipIds.length}/{extraction.relationships.length}{' '}
                 selected)
               </h3>
@@ -473,6 +675,8 @@ export function IngestionWizard({
                 onEdit={handleEdit}
                 onSelectAll={() => handleSetAllSelected('relationships', true)}
                 onDeselectAll={() => handleSetAllSelected('relationships', false)}
+                onSelectByConfidence={(threshold) => handleSelectByConfidence('relationships', threshold)}
+                eventLookup={eventLookup}
               />
             </section>
           )}
@@ -481,8 +685,8 @@ export function IngestionWizard({
 
       {step === 'complete' && result && (
         <div className="space-y-3" role="status">
-          <h3 className="text-lg font-medium text-gray-900">Import complete</h3>
-          <p className="text-sm text-gray-600">
+          <h3 className="text-lg font-medium text-ink">Import complete</h3>
+          <p className="text-sm text-ink-secondary">
             Imported {result.imported.events} events, {result.imported.arcs} arcs and{' '}
             {result.imported.relationships} relationships.
           </p>
@@ -504,6 +708,42 @@ export function IngestionWizard({
         </div>
       )}
     </ModalBase>
+
+    {/* Stacked on the wizard: Escape here closes only this question. */}
+    {isOpen && confirmingDiscard && extraction && (
+      <ModalBase
+        isOpen
+        onClose={() => setConfirmingDiscard(false)}
+        title="Discard this review?"
+        size="md"
+        showCloseButton={false}
+        footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmingDiscard(false)}
+              aria-describedby={discardMessageId}
+              className="rounded-md border border-line bg-card px-3 py-2 text-sm font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              Keep reviewing
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleDiscard()}
+              className="rounded-md bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-800 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+            >
+              Discard
+            </button>
+          </div>
+        }
+      >
+        <p id={discardMessageId} className="text-sm text-ink">
+          Discard {describeDiscard(extraction, hasEdits)}? Nothing has been imported yet, so
+          closing now throws this review away.
+        </p>
+      </ModalBase>
+    )}
+    </>
   )
 }
 

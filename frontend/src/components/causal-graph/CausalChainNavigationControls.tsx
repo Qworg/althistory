@@ -92,7 +92,7 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
       <div className="flex items-center justify-between p-4 border-b border-gray-200">
         <div className="flex items-center space-x-3">
           <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
-          <h3 className="text-lg font-semibold text-gray-800">Chain Navigation</h3>
+          <h3 className="font-display text-xl font-semibold text-ink">Chain Navigation</h3>
           {autoAdvance && (
             <div className="flex items-center space-x-1 text-sm text-blue-600">
               <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -105,7 +105,7 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setShowAdvancedControls(!showAdvancedControls)}
-            className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            className="p-1 text-ink-muted hover:text-ink transition-colors"
             title="Toggle advanced controls"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -114,7 +114,7 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
           </button>
           <button
             onClick={onStopNavigation}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-ink-muted hover:text-ink transition-colors"
             title="Stop navigation"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -308,7 +308,7 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
       {/* Advanced Controls */}
       {showAdvancedControls && (
         <div className="p-4 border-b border-gray-200 bg-gray-50">
-          <h4 className="text-sm font-medium text-gray-700 mb-3">Advanced Controls</h4>
+          <h4 className="text-base font-semibold text-ink mb-3">Advanced Controls</h4>
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => onStepNavigate(0)}
@@ -341,7 +341,7 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
       {/* Current Step Info */}
       {currentPath && (
         <div className="p-4">
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Current Step</h4>
+          <h4 className="text-base font-semibold text-ink mb-2">Current Step</h4>
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
               <span className="font-medium text-gray-800">

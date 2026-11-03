@@ -1,28 +1,65 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useContext, useMemo } from 'react'
+import { QueryClientContext } from '@tanstack/react-query'
 import { Arc, CausalRelationship, Event } from '@/types'
+import { useEvents } from '@/hooks/useAPI'
 
-// Helper to convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
+/** The fields checked on save, in the order they appear (and are focused). */
+const VALIDATED_FIELDS = ['description', 'actor', 'target', 'timestamp'] as const
+type ValidatedField = (typeof VALIDATED_FIELDS)[number]
+
+const PARTY_SUGGESTIONS_ID = 'event-party-suggestions'
+
+/**
+ * The actors and targets already in the graph, offered as suggestions for both
+ * fields (a party that acts in one event is often acted upon in another), so
+ * "Prussian General Staff" is picked rather than retyped as a near-duplicate.
+ * Same query and key as the Timeline view, so it is usually cached.
+ */
+function PartySuggestions() {
+  const { data: events } = useEvents({ limit: 1000 })
+  const names = useMemo(() => {
+    const set = new Set<string>()
+    for (const e of events ?? []) {
+      if (e.actor?.trim()) set.add(e.actor.trim())
+      if (e.target?.trim()) set.add(e.target.trim())
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [events])
+  return (
+    <datalist id={PARTY_SUGGESTIONS_ID}>
+      {names.map((name) => (
+        <option key={name} value={name} />
+      ))}
+    </datalist>
+  )
+}
+
+// Helper to convert an ISO instant to a datetime-local value (YYYY-MM-DDTHH:mm), in UTC
 const isoToDatetimeLocal = (isoString: string): string => {
   if (!isoString) return ''
   try {
     const date = new Date(isoString)
     if (isNaN(date.getTime())) return ''
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    const hours = String(date.getHours()).padStart(2, '0')
-    const minutes = String(date.getMinutes()).padStart(2, '0')
+    const year = String(date.getUTCFullYear()).padStart(4, '0')
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+    const day = String(date.getUTCDate()).padStart(2, '0')
+    const hours = String(date.getUTCHours()).padStart(2, '0')
+    const minutes = String(date.getUTCMinutes()).padStart(2, '0')
     return `${year}-${month}-${day}T${hours}:${minutes}`
   } catch {
     return ''
   }
 }
 
-// Helper to convert datetime-local format to ISO string
+// Helper to convert a datetime-local value, read as UTC, to an ISO instant
 const datetimeLocalToIso = (datetimeLocal: string): string => {
   if (!datetimeLocal) return ''
   try {
-    const date = new Date(datetimeLocal)
+    // The field is a UTC wall-clock time: historical dates are stored as UTC
+    // instants, and reading it in the browser's zone shifted them (before
+    // standard time, by local mean time's odd seconds as well).
+    const hasZone = /(Z|[+-]\d\d:\d\d)$/.test(datetimeLocal)
+    const date = new Date(hasZone ? datetimeLocal : `${datetimeLocal}Z`)
     if (isNaN(date.getTime())) return ''
     return date.toISOString()
   } catch {
@@ -80,6 +117,18 @@ export function EventDetailModal({
   const [isLoading, setIsLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  // The first invalid field after a save attempt, focused once its message
+  // and aria-describedby are rendered (so a screen reader reads both).
+  const [pendingFocus, setPendingFocus] = useState<ValidatedField | null>(null)
+  // Suggestions need the events query; a host without a query client (a
+  // unit test, say) simply gets none.
+  const hasQueryClient = !!useContext(QueryClientContext)
+
+  useEffect(() => {
+    if (!pendingFocus) return
+    document.getElementById(pendingFocus)?.focus()
+    setPendingFocus(null)
+  }, [pendingFocus])
 
   // Update form data when event changes
   useEffect(() => {
@@ -131,24 +180,24 @@ export function EventDetailModal({
     const newErrors: Record<string, string> = {}
 
     if (!formData.description.trim()) {
-      newErrors.description = 'Description is required'
+      newErrors.description = 'Describe what happened.'
     }
 
     if (!formData.actor.trim()) {
-      newErrors.actor = 'Actor is required'
+      newErrors.actor = 'Name who acted, e.g. a person, faction or office.'
     }
 
     if (!formData.target.trim()) {
-      newErrors.target = 'Target is required'
+      newErrors.target = 'Name who or what was acted upon.'
     }
 
     if (!formData.timestamp.trim()) {
-      newErrors.timestamp = 'Timestamp is required'
+      newErrors.timestamp = 'Give the date and time it happened, in UTC.'
     } else {
       // Validate that the timestamp can be parsed as a valid date
-      const date = new Date(formData.timestamp)
+      const date = new Date(datetimeLocalToIso(formData.timestamp))
       if (isNaN(date.getTime())) {
-        newErrors.timestamp = 'Invalid timestamp'
+        newErrors.timestamp = 'Enter a complete date and time.'
       }
     }
 
@@ -157,6 +206,8 @@ export function EventDetailModal({
     }
 
     setErrors(newErrors)
+    const firstInvalid = VALIDATED_FIELDS.find((field) => newErrors[field])
+    if (firstInvalid) setPendingFocus(firstInvalid)
     return Object.keys(newErrors).length === 0
   }
 
@@ -238,21 +289,23 @@ export function EventDetailModal({
         className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0"
         onClick={handleBackdropClick}
       >
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" />
+        <div className="fixed inset-0 bg-black/60 transition-opacity" aria-hidden="true" />
 
         <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">
           &#8203;
         </span>
 
         <div className="relative z-10 inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
-          <form onSubmit={handleSubmit}>
+          {/* noValidate: the browser's own "Please fill out this field."
+              bubbles are replaced by the messages under each field. */}
+          <form onSubmit={handleSubmit} noValidate>
             <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
               <div className="sm:flex sm:items-start">
                 <div className="w-full">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg leading-6 font-medium text-gray-900" id="event-modal-title">
+                    <h2 className="font-display text-xl font-semibold text-ink" id="event-modal-title">
                       {event ? 'Edit Event' : 'Create Event'}
-                    </h3>
+                    </h2>
                     <button
                       type="button"
                       onClick={onClose}
@@ -288,11 +341,11 @@ export function EventDetailModal({
                         className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                           errors.description ? 'border-red-300' : 'border-gray-300'
                         }`}
-                        placeholder="Enter event description..."
+                        placeholder="What happened?"
                         required
                       />
                       {errors.description && (
-                        <p id="description-error" role="alert" className="mt-1 text-sm text-red-600">{errors.description}</p>
+                        <p id="description-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.description}</p>
                       )}
                     </div>
 
@@ -307,17 +360,19 @@ export function EventDetailModal({
                           id="actor"
                           value={formData.actor}
                           onChange={(e) => handleInputChange('actor', e.target.value)}
+                          list={hasQueryClient ? PARTY_SUGGESTIONS_ID : undefined}
+                          autoComplete="off"
                           aria-required="true"
                           aria-invalid={!!errors.actor}
                           aria-describedby={errors.actor ? 'actor-error' : undefined}
                           className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                             errors.actor ? 'border-red-300' : 'border-gray-300'
                           }`}
-                          placeholder="Enter actor..."
+                          placeholder="Who acted"
                           required
                         />
                         {errors.actor && (
-                          <p id="actor-error" role="alert" className="mt-1 text-sm text-red-600">{errors.actor}</p>
+                          <p id="actor-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.actor}</p>
                         )}
                       </div>
 
@@ -330,17 +385,20 @@ export function EventDetailModal({
                           id="target"
                           value={formData.target}
                           onChange={(e) => handleInputChange('target', e.target.value)}
+                          list={hasQueryClient ? PARTY_SUGGESTIONS_ID : undefined}
+                          autoComplete="off"
                           aria-required="true"
                           aria-invalid={!!errors.target}
                           aria-describedby={errors.target ? 'target-error' : undefined}
                           className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                             errors.target ? 'border-red-300' : 'border-gray-300'
                           }`}
-                          placeholder="Enter target..."
+                          placeholder="Who or what was acted upon"
                           required
                         />
+                        {hasQueryClient && <PartySuggestions />}
                         {errors.target && (
-                          <p id="target-error" role="alert" className="mt-1 text-sm text-red-600">{errors.target}</p>
+                          <p id="target-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.target}</p>
                         )}
                       </div>
                     </div>
@@ -349,7 +407,7 @@ export function EventDetailModal({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label htmlFor="timestamp" className="block text-sm font-medium text-gray-700">
-                          Timestamp <span className="text-red-500">*</span>
+                          Timestamp <span className="font-normal text-ink-muted">(UTC)</span> <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="datetime-local"
@@ -365,7 +423,7 @@ export function EventDetailModal({
                           required
                         />
                         {errors.timestamp && (
-                          <p id="timestamp-error" role="alert" className="mt-1 text-sm text-red-600">{errors.timestamp}</p>
+                          <p id="timestamp-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.timestamp}</p>
                         )}
                       </div>
 
@@ -431,11 +489,11 @@ export function EventDetailModal({
                     {/* Related Information */}
                     {event && (relatedArcs.length > 0 || causalRelationships.length > 0) && (
                       <div className="border-t pt-4">
-                        <h4 className="text-sm font-medium text-gray-900 mb-3">Related Information</h4>
+                        <h3 className="text-base font-semibold text-ink mb-3">Related Information</h3>
                         
                         {relatedArcs.length > 0 && (
                           <div className="mb-3">
-                            <h5 className="text-xs font-medium text-gray-700 mb-2">Related Arcs</h5>
+                            <h4 className="text-sm font-semibold text-ink-secondary mb-2">Related Arcs</h4>
                             <div className="space-y-1">
                               {relatedArcs.map((arc) => (
                                 <div key={arc.id} className="text-sm text-gray-600 bg-gray-50 px-2 py-1 rounded">
@@ -448,7 +506,7 @@ export function EventDetailModal({
 
                         {causalRelationships.length > 0 && (
                           <div>
-                            <h5 className="text-xs font-medium text-gray-700 mb-2">Causal Relationships</h5>
+                            <h4 className="text-sm font-semibold text-ink-secondary mb-2">Causal Relationships</h4>
                             <div className="space-y-1">
                               {causalRelationships.map((rel) => (
                                 <div key={rel.id} className="text-sm text-gray-600 bg-gray-50 px-2 py-1 rounded">
@@ -500,7 +558,7 @@ export function EventDetailModal({
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-60 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
+            <div className="fixed inset-0 bg-black/60 transition-opacity" />
             <div className="relative z-10 inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
               <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                 <div className="sm:flex sm:items-start">
@@ -510,9 +568,9 @@ export function EventDetailModal({
                     </svg>
                   </div>
                   <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
-                    <h3 className="text-lg leading-6 font-medium text-gray-900">
+                    <h2 className="font-display text-xl font-semibold text-ink">
                       Delete Event
-                    </h3>
+                    </h2>
                     <div className="mt-2">
                       <p className="text-sm text-gray-500">
                         Are you sure you want to delete this event? This action cannot be undone.

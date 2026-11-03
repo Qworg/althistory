@@ -9,7 +9,7 @@
  * The build assets are discovered by parsing the fetched `/index.html` at
  * install time. That matters: this file is copied verbatim into `dist/` by
  * Vite, so it cannot contain a build-time precache manifest (that would need
- * `vite-plugin-pwa`). Without the parse, only `/`, `/index.html` and `/vite.svg`
+ * `vite-plugin-pwa`). Without the parse, only `/`, `/index.html` and `/favicon.svg`
  * would be cached, and an offline reload would serve the document without its
  * hashed bundles -- a blank page. Static assets are also cached on first fetch
  * (cache-first below), which covers an asset added after install.
@@ -26,7 +26,7 @@
  */
 
 const CACHE_NAME = 'althistory-shell-v2'
-const SHELL_URLS = ['/', '/index.html', '/vite.svg']
+const SHELL_URLS = ['/', '/index.html', '/favicon.svg']
 
 /** Same-origin asset URLs referenced by the document, e.g. `/assets/index-abc.js`. */
 function extractAssetUrls(html) {

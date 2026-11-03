@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useId, useState, useRef } from 'react'
+import { GRAPH_STYLESHEET_REPLACED_EVENT } from './causalGraphStylesheet'
 import { Core } from 'cytoscape'
 import { Event, CausalRelationship } from '@/types'
 
@@ -46,6 +47,9 @@ export function CausalGraphPerformanceManager({
   })
   
   const [isMonitoring, setIsMonitoring] = useState(false)
+  // A diagnostic, not part of reading the graph: collapsed until asked for.
+  const [isExpanded, setIsExpanded] = useState(false)
+  const panelId = useId()
   const [optimizationLevel, setOptimizationLevel] = useState<'none' | 'basic' | 'aggressive'>('none')
   
   const performanceObserver = useRef<PerformanceObserver | null>(null)
@@ -101,7 +105,9 @@ export function CausalGraphPerformanceManager({
       }
     }
 
-    // FPS monitoring
+    // FPS monitoring. The sample window starts now: measured from 0, the
+    // first frame of a page that has been open a while read as ~1 FPS.
+    fpsCounter.current = { frames: 0, lastTime: performance.now() }
     const measureFPS = () => {
       const now = performance.now()
       fpsCounter.current.frames++
@@ -151,6 +157,30 @@ export function CausalGraphPerformanceManager({
     }
   }, [])
 
+  // The graph's own stylesheet, captured before this manager first reduces
+  // detail. Reduced-detail rules are layered on top of it, and full detail
+  // restores it exactly. Appending blanket "full detail" rules instead (as
+  // this used to, on every zoom) overrode everything the graph styles per
+  // node -- selected and highlighted borders, node sizes, and the label
+  // culling that keeps labels from overprinting -- because in Cytoscape the
+  // later rule wins regardless of selector.
+  const baseStyleRef = useRef<unknown>(null)
+
+  /** Start a reduced-detail style from the graph's own stylesheet. */
+  const reducedStyle = useCallback(() => {
+    if (!cytoscapeInstance) return null
+    // Style#json exists at runtime but is missing from @types/cytoscape
+    if (!baseStyleRef.current) baseStyleRef.current = (cytoscapeInstance.style() as unknown as { json(): unknown }).json()
+    return cytoscapeInstance.style().fromJson(baseStyleRef.current)
+  }, [cytoscapeInstance])
+
+  /** Back to the graph's own stylesheet, if detail was reduced. */
+  const restoreFullDetail = useCallback(() => {
+    if (!cytoscapeInstance || !baseStyleRef.current) return
+    cytoscapeInstance.style().fromJson(baseStyleRef.current).update()
+    baseStyleRef.current = null
+  }, [cytoscapeInstance])
+
   // Apply performance optimizations
   const applyOptimizations = useCallback((level: 'none' | 'basic' | 'aggressive') => {
     if (!cytoscapeInstance) return
@@ -159,27 +189,13 @@ export function CausalGraphPerformanceManager({
 
     switch (level) {
       case 'none':
-        // Reset to default settings
-        cytoscapeInstance.style()
-          .selector('node')
-          .style({
-            'text-opacity': 1,
-            'border-width': 2,
-            'overlay-padding': '6px'
-          })
-          .selector('edge')
-          .style({
-            'opacity': 0.8,
-            'curve-style': 'bezier',
-            'text-opacity': 1
-          })
-          .update()
+        restoreFullDetail()
         break
 
       case 'basic':
         // Basic optimizations
-        cytoscapeInstance.style()
-          .selector('node')
+        reducedStyle()
+          ?.selector('node')
           .style({
             'text-opacity': events.length > levelOfDetailThreshold ? 0 : 1,
             'border-width': events.length > levelOfDetailThreshold ? 1 : 2,
@@ -196,8 +212,8 @@ export function CausalGraphPerformanceManager({
 
       case 'aggressive':
         // Aggressive optimizations
-        cytoscapeInstance.style()
-          .selector('node')
+        reducedStyle()
+          ?.selector('node')
           .style({
             'text-opacity': 0,
             'border-width': 1,
@@ -215,7 +231,7 @@ export function CausalGraphPerformanceManager({
           .update()
         break
     }
-  }, [cytoscapeInstance, events.length, causalRelationships.length, levelOfDetailThreshold])
+  }, [cytoscapeInstance, events.length, causalRelationships.length, levelOfDetailThreshold, reducedStyle, restoreFullDetail])
 
   // Auto-optimize based on data size
   const autoOptimize = useCallback(() => {
@@ -251,8 +267,8 @@ export function CausalGraphPerformanceManager({
     // Adjust detail level based on zoom
     if (zoom < 0.5 && nodeCount > levelOfDetailThreshold) {
       // Very zoomed out - minimal detail
-      cytoscapeInstance.style()
-        .selector('node')
+      reducedStyle()
+        ?.selector('node')
         .style({
           'text-opacity': 0,
           'border-width': 0,
@@ -268,8 +284,8 @@ export function CausalGraphPerformanceManager({
         .update()
     } else if (zoom < 1.0 && nodeCount > levelOfDetailThreshold / 2) {
       // Medium zoom - basic detail
-      cytoscapeInstance.style()
-        .selector('node')
+      reducedStyle()
+        ?.selector('node')
         .style({
           'text-opacity': 0,
           'border-width': 1,
@@ -284,24 +300,11 @@ export function CausalGraphPerformanceManager({
         })
         .update()
     } else {
-      // Zoomed in - full detail
-      cytoscapeInstance.style()
-        .selector('node')
-        .style({
-          'text-opacity': 1,
-          'border-width': 2,
-          'width': 'mapData(weight, 0, 1, 30, 60)',
-          'height': 'mapData(weight, 0, 1, 30, 60)'
-        })
-        .selector('edge')
-        .style({
-          'opacity': 0.8,
-          'width': 'mapData(weight, 0, 1, 2, 8)',
-          'text-opacity': zoom > 1.5 ? 1 : 0
-        })
-        .update()
+      // Zoomed in (or a graph small enough to need no reduction): the graph's
+      // own stylesheet, untouched
+      restoreFullDetail()
     }
-  }, [cytoscapeInstance, enableOptimizations, events.length, levelOfDetailThreshold])
+  }, [cytoscapeInstance, enableOptimizations, events.length, levelOfDetailThreshold, reducedStyle, restoreFullDetail])
 
   /**
    * Release what this manager allocated, and nothing else.
@@ -339,9 +342,21 @@ export function CausalGraphPerformanceManager({
       const zoomHandler = () => handleZoomLevelOfDetailRef.current()
       cytoscapeInstance.on('zoom', zoomHandler)
 
+      // A theme change replaced the graph's stylesheet. A snapshot taken
+      // before it holds the old theme's colours: drop it, and reduce detail
+      // again (if it was reduced) on top of the new sheet.
+      const stylesheetReplacedHandler = () => {
+        if (!baseStyleRef.current) return
+        baseStyleRef.current = null
+        autoOptimizeRef.current()
+        handleZoomLevelOfDetailRef.current()
+      }
+      cytoscapeInstance.on(GRAPH_STYLESHEET_REPLACED_EVENT, stylesheetReplacedHandler)
+
       return () => {
         stopMonitoring()
         cytoscapeInstance.off('zoom', zoomHandler)
+        cytoscapeInstance.off(GRAPH_STYLESHEET_REPLACED_EVENT, stylesheetReplacedHandler)
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -360,125 +375,124 @@ export function CausalGraphPerformanceManager({
     }
   }, [stopMonitoring, cleanupMemory])
 
-  // Performance status indicator
-  const getPerformanceStatus = () => {
-    if (metrics.fps < 30) return { status: 'poor', color: 'red' }
-    if (metrics.fps < 50) return { status: 'fair', color: 'yellow' }
-    return { status: 'good', color: 'green' }
-  }
+  // Performance status indicator. Until a frame rate has been measured there
+  // is no status to report (0 FPS used to read as "poor").
+  const performanceStatus: { label: string; dot: string } | null =
+    metrics.fps <= 0 ? null
+      : metrics.fps < 30 ? { label: 'Poor', dot: 'bg-red-600' }
+        : metrics.fps < 50 ? { label: 'Fair', dot: 'bg-divergence' }
+          : { label: 'Good', dot: 'bg-green-600' }
 
-  const performanceStatus = getPerformanceStatus()
+  const metricRows: Array<[string, string]> = [
+    ['Nodes', metrics.nodeCount.toLocaleString()],
+    ['Edges', metrics.edgeCount.toLocaleString()],
+    ['FPS', metrics.fps > 0 ? String(metrics.fps) : '\u2014'],
+    ['Render', `${metrics.renderTime.toFixed(1)} ms`],
+    ['Layout', `${metrics.layoutTime.toFixed(1)} ms`],
+    ['Memory', `${(metrics.memoryUsage / 1024).toFixed(1)} MB`]
+  ]
+
+  const quietButton =
+    'flex-1 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-secondary transition-colors hover:bg-subtle hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected'
 
   return (
-    <div className={`causal-graph-performance-manager ${className}`}>
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-xs font-semibold text-gray-700">Performance</h4>
-          <div className={`flex items-center space-x-1 text-xs text-${performanceStatus.color}-600`}>
-            <div className={`w-2 h-2 bg-${performanceStatus.color}-500 rounded-full`}></div>
-            <span className="capitalize">{performanceStatus.status}</span>
-          </div>
-        </div>
-
-        {/* Metrics */}
-        <div className="space-y-2 text-xs">
-          <div className="flex justify-between">
-            <span className="text-gray-600">Nodes:</span>
-            <span className="font-medium">{metrics.nodeCount.toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Edges:</span>
-            <span className="font-medium">{metrics.edgeCount.toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">FPS:</span>
-            <span className="font-medium">{metrics.fps}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Render:</span>
-            <span className="font-medium">{metrics.renderTime.toFixed(1)}ms</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Layout:</span>
-            <span className="font-medium">{metrics.layoutTime.toFixed(1)}ms</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Memory:</span>
-            <span className="font-medium">{(metrics.memoryUsage / 1024).toFixed(1)}MB</span>
-          </div>
-        </div>
-
-        {/* Optimization controls */}
-        <div className="mt-3 pt-3 border-t border-gray-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-gray-700">Optimization:</span>
-            <span className={`text-xs px-2 py-1 rounded ${
-              metrics.isOptimized ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
-            }`}>
-              {optimizationLevel}
+    <section className={`causal-graph-performance-manager ${className}`}>
+      <h3 className="font-display text-xl font-semibold text-ink">
+        <button
+          type="button"
+          aria-expanded={isExpanded}
+          aria-controls={panelId}
+          onClick={() => setIsExpanded(open => !open)}
+          className="flex w-full items-center gap-2 rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+        >
+          <svg
+            className={`h-3 w-3 flex-shrink-0 text-ink-secondary transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+          </svg>
+          <span className="flex-1">Performance</span>
+          {performanceStatus && (
+            <span className="flex items-center gap-1 font-sans text-xs font-normal text-ink-secondary">
+              <span className={`h-2 w-2 rounded-full ${performanceStatus.dot}`} aria-hidden="true" />
+              {performanceStatus.label}
             </span>
-          </div>
-          
-          <div className="flex space-x-1">
-            {(['none', 'basic', 'aggressive'] as const).map((level) => (
-              <button
-                key={level}
-                onClick={() => applyOptimizations(level)}
-                className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
-                  optimizationLevel === level
-                    ? 'bg-blue-100 text-blue-700 border border-blue-300'
-                    : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
-                }`}
-              >
-                {level}
-              </button>
-            ))}
-          </div>
-        </div>
+          )}
+        </button>
+      </h3>
 
-        {/* Quick actions */}
-        <div className="mt-3 pt-3 border-t border-gray-200">
-          <div className="flex space-x-2">
+      {/* Large-data warnings matter even with the details collapsed. */}
+      {(metrics.nodeCount > maxNodes || metrics.edgeCount > maxEdges) && (
+        <p className="mt-2 text-xs text-ink-secondary" role="status">
+          <span className="font-semibold text-ink">Large graph.</span>{' '}
+          Turn on optimization or filter the events to keep it responsive.
+        </p>
+      )}
+
+      {isExpanded && (
+        <div id={panelId} className="mt-3 space-y-3">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+            {metricRows.map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-2">
+                <dt className="text-ink-secondary">{label}</dt>
+                <dd className="font-mono-code text-ink">{value}</dd>
+              </div>
+            ))}
+          </dl>
+
+          {metrics.fps < 30 && metrics.fps > 0 && (
+            <p className="text-xs text-ink-secondary">
+              <span className="font-semibold text-ink">Below 30 FPS.</span>{' '}
+              Try aggressive optimization or filter the events.
+            </p>
+          )}
+
+          {/* Optimization level */}
+          <div role="group" aria-labelledby={`${panelId}-optimization`}>
+            <p id={`${panelId}-optimization`} className="mb-1 text-xs font-medium text-ink-secondary">
+              Optimization
+            </p>
+            <div className="flex divide-x divide-line overflow-hidden rounded-md border border-line">
+              {(['none', 'basic', 'aggressive'] as const).map((level) => (
+                <button
+                  key={level}
+                  type="button"
+                  aria-pressed={optimizationLevel === level}
+                  onClick={() => applyOptimizations(level)}
+                  className={`flex-1 px-2 py-1 text-xs capitalize transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selected ${
+                    optimizationLevel === level
+                      ? 'bg-selected/10 font-semibold text-ink'
+                      : 'text-ink-secondary hover:bg-subtle hover:text-ink'
+                  }`}
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-2">
             <button
+              type="button"
               onClick={cleanupMemory}
-              className="flex-1 px-2 py-1 text-xs bg-gray-50 text-gray-600 border border-gray-200 rounded hover:bg-gray-100 transition-colors"
-              title="Clean up memory"
+              className={quietButton}
+              title="Clear the timing marks this panel recorded"
             >
               Cleanup
             </button>
             <button
+              type="button"
               onClick={() => setIsMonitoring(!isMonitoring)}
-              className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
-                isMonitoring
-                  ? 'bg-red-100 text-red-700 border border-red-300'
-                  : 'bg-green-100 text-green-700 border border-green-300'
-              }`}
+              className={quietButton}
               title={isMonitoring ? 'Stop monitoring' : 'Start monitoring'}
             >
-              {isMonitoring ? 'Stop' : 'Start'}
+              {isMonitoring ? 'Stop monitoring' : 'Start monitoring'}
             </button>
           </div>
         </div>
-
-        {/* Performance warnings */}
-        {(metrics.nodeCount > maxNodes || metrics.edgeCount > maxEdges) && (
-          <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-            <div className="font-medium mb-1">Performance Warning</div>
-            <div>
-              Large dataset detected. Consider enabling optimizations or filtering data.
-            </div>
-          </div>
-        )}
-
-        {metrics.fps < 30 && metrics.fps > 0 && (
-          <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-800">
-            <div className="font-medium mb-1">Low Performance</div>
-            <div>
-              Frame rate is below 30 FPS. Try aggressive optimization or reduce data size.
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+      )}
+    </section>
   )
 }

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { ActorTimeline } from '@/components/timeline/ActorTimeline'
 import { ActorSelector } from '@/components/actor/ActorSelector'
 import { ActorStats } from '@/components/actor/ActorStats'
@@ -32,7 +32,7 @@ export interface ActorStats {
 export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewProps) {
   const { data: fetchedEvents = [], isLoading: eventsLoading } = useEvents()
   const { data: fetchedArcs = [], isLoading: arcsLoading } = useArcs()
-  const { activeFilters } = useGlobalStore()
+  const { activeFilters, sessionData, updateSessionData } = useGlobalStore()
 
   // Apply the global filters client-side (see filterUtils for why). The actor
   // list is derived from the unfiltered events so filters do not remove the
@@ -47,8 +47,37 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
   )
   
   const [selectedActor, setSelectedActor] = useState<string>('')
-  const [layoutMode, setLayoutMode] = useState<'chronological' | 'thematic'>('chronological')
+  const [localLayoutMode, setLocalLayoutMode] = useState<'chronological' | 'thematic'>('chronological')
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
+  const timelineContainerRef = useRef<HTMLDivElement>(null)
+  const [timelineWidth, setTimelineWidth] = useState<number>(800)
+
+  const layoutMode = sessionData?.viewportState?.actorPerspective?.layout ?? localLayoutMode
+  const showStats = sessionData?.viewportState?.actorPerspective?.showStats ?? true
+
+  useEffect(() => {
+    const measure = () => {
+      const container = timelineContainerRef.current
+      if (container) {
+        const rect = container.getBoundingClientRect()
+        if (rect.width > 0) {
+          // The card's padding changes with the breakpoint, so read it.
+          const style = window.getComputedStyle(container)
+          const padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0)
+          setTimelineWidth(Math.max(300, Math.floor(rect.width - padding)))
+        }
+      }
+    }
+    const timeoutId = setTimeout(measure, 0)
+    const observer = new ResizeObserver(measure)
+    if (timelineContainerRef.current) {
+      observer.observe(timelineContainerRef.current)
+    }
+    return () => {
+      clearTimeout(timeoutId)
+      observer.disconnect()
+    }
+  }, [selectedActor])
 
   /**
    * The event that was selected under each actor.
@@ -171,17 +200,28 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
   }, [])
 
   const handleLayoutModeChange = useCallback((mode: 'chronological' | 'thematic') => {
-    setLayoutMode(mode)
-  }, [])
+    setLocalLayoutMode(mode)
+    if (updateSessionData && sessionData?.viewportState) {
+      updateSessionData({
+        viewportState: {
+          ...sessionData.viewportState,
+          actorPerspective: {
+            layout: mode,
+            showStats
+          }
+        }
+      })
+    }
+  }, [updateSessionData, sessionData, showStats])
 
   if (eventsLoading || arcsLoading) {
     return (
       <div className={`space-y-6 ${className}`}>
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card border border-line rounded-lg shadow-sm p-6">
           <div className="animate-pulse">
-            <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
-            <div className="h-12 bg-gray-200 rounded mb-4"></div>
-            <div className="h-96 bg-gray-200 rounded"></div>
+            <div className="h-8 bg-subtle rounded w-1/3 mb-4"></div>
+            <div className="h-12 bg-subtle rounded mb-4"></div>
+            <div className="h-96 bg-subtle rounded"></div>
           </div>
         </div>
       </div>
@@ -191,36 +231,48 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
   return (
     <div className={`space-y-6 ${className}`}>
       {/* Header with actor selection */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex justify-between items-start mb-6">
+      <div className="bg-card border border-line rounded-lg shadow-sm p-4 sm:p-6">
+        <div className="flex flex-wrap justify-between items-start gap-4 mb-6">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Actor Perspective View</h2>
-            <p className="text-gray-600">
+            <h2 className="font-display text-[1.75rem] leading-tight font-semibold text-ink mb-1">Actor Perspective View</h2>
+            <p className="text-sm text-ink-secondary">
               Explore events and relationships from a specific actor's perspective
+            </p>
+            <p className="text-xs text-ink-muted mt-0.5">
+              Pick an actor · Click a mark, or Tab to it and press Enter, to inspect it · C and T switch the layout, S the statistics
             </p>
           </div>
           
-          {/* Layout mode toggle */}
+          {/* The one layout switch for this view (the toolbar's C and T keys
+              drive the same session state). */}
           {selectedActor && (
             <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-600">Layout:</span>
-              <div className="flex bg-gray-100 rounded-lg p-1">
+              <span className="text-sm text-ink-secondary">Layout:</span>
+              <div className="flex bg-subtle border border-line rounded-lg p-1" role="group" aria-label="Actor timeline layout">
                 <button
+                  type="button"
                   onClick={() => handleLayoutModeChange('chronological')}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                  aria-pressed={layoutMode === 'chronological'}
+                  aria-keyshortcuts="C"
+                  title="Chronological layout (C)"
+                  className={`px-3 py-1 min-h-9 text-sm rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-selected ${
                     layoutMode === 'chronological'
-                      ? 'bg-white text-gray-900 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
+                      ? 'bg-card text-ink shadow-sm'
+                      : 'text-ink-secondary hover:text-ink'
                   }`}
                 >
                   Chronological
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleLayoutModeChange('thematic')}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                  aria-pressed={layoutMode === 'thematic'}
+                  aria-keyshortcuts="T"
+                  title="Thematic layout (T)"
+                  className={`px-3 py-1 min-h-9 text-sm rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-selected ${
                     layoutMode === 'thematic'
-                      ? 'bg-white text-gray-900 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
+                      ? 'bg-card text-ink shadow-sm'
+                      : 'text-ink-secondary hover:text-ink'
                   }`}
                 >
                   Thematic
@@ -239,7 +291,7 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
         />
 
         {/* Actor statistics */}
-        {selectedActor && (
+        {selectedActor && showStats && (
           <div className="transition-all duration-300 ease-in-out">
             <ActorStats
               actor={selectedActor}
@@ -252,24 +304,24 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
 
       {/* Actor timeline visualization */}
       {selectedActor && actorEvents.length > 0 && (
-        <div className="bg-white rounded-lg shadow p-6 transition-all duration-300 ease-in-out">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 transition-colors duration-200">
+        <div ref={timelineContainerRef} className="bg-card border border-line rounded-lg shadow-sm p-4 sm:p-6">
+          <div className="flex flex-wrap justify-between items-baseline gap-x-4 gap-y-1 mb-4">
+            <h3 className="font-display text-xl font-semibold text-ink">
               Timeline for {selectedActor}
             </h3>
-            <div className="text-sm text-gray-500 transition-opacity duration-200">
+            <div className="font-mono-code text-xs text-ink-muted">
               {actorEvents.length} events across {relevantArcs.length} arcs
             </div>
           </div>
 
-          <div className="transition-all duration-500 ease-in-out">
+          <div className="transition-all duration-500 ease-in-out overflow-x-auto">
             <ActorTimeline
               events={actorEvents}
               arcs={relevantArcs}
               actor={selectedActor}
               layoutMode={layoutMode}
-              width={800}
-              height={400}
+              width={timelineWidth}
+              height={340}
               onEventSelect={handleEventSelect}
               className="w-full"
             />
@@ -277,44 +329,57 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
 
           {/* Selected event details */}
           {selectedEvent && (
-            <div className="mt-6 p-4 bg-gray-50 rounded-lg transition-all duration-300 ease-in-out transform">
-              <h4 className="font-semibold text-gray-900 mb-2">Selected Event</h4>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p><strong>Description:</strong> {selectedEvent.description}</p>
-                  <p><strong>Timestamp:</strong> {formatHistoricalTimestamp(selectedEvent.timestamp)}</p>
+            <section
+              aria-label="Selected event"
+              className="mt-6 p-4 bg-subtle text-ink border border-selected/35 rounded-lg"
+            >
+              <h4 className="text-base font-semibold text-ink mb-2">Selected Event</h4>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                <div className="sm:col-span-2">
+                  <dt className="text-xs font-medium text-ink-muted">Description</dt>
+                  <dd className="text-ink">{selectedEvent.description}</dd>
                 </div>
                 <div>
-                  <p><strong>Actor:</strong> {selectedEvent.actor}</p>
-                  <p><strong>Target:</strong> {selectedEvent.target}</p>
-                  <p>
-                    <strong>Role:</strong> 
-                    <span className={`ml-1 px-2 py-1 rounded-full text-xs transition-colors duration-200 ${
+                  <dt className="text-xs font-medium text-ink-muted">Actor</dt>
+                  <dd className="text-ink">{selectedEvent.actor}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-ink-muted">Target</dt>
+                  <dd className="text-ink">{selectedEvent.target}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-ink-muted">Timestamp</dt>
+                  <dd className="font-mono-code text-ink">{formatHistoricalTimestamp(selectedEvent.timestamp)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-ink-muted">Role</dt>
+                  <dd>
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
                       selectedEvent.actor === selectedActor
                         ? 'bg-blue-100 text-blue-800'
                         : 'bg-green-100 text-green-800'
                     }`}>
                       {selectedEvent.actor === selectedActor ? 'Actor' : 'Target'}
                     </span>
-                  </p>
+                  </dd>
                 </div>
-              </div>
-            </div>
+              </dl>
+            </section>
           )}
         </div>
       )}
 
       {/* Empty state */}
       {selectedActor && actorEvents.length === 0 && (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card border border-line rounded-lg shadow-sm p-6">
           <div className="text-center py-12">
-            <div className="text-gray-400 mb-4">
+            <div className="text-ink-muted mb-4">
               <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
             </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Events Found</h3>
-            <p className="text-gray-600">
+            <h3 className="font-display text-xl font-semibold text-ink mb-2">No Events Found</h3>
+            <p className="text-ink-secondary">
               No events found for actor "{selectedActor}". Try selecting a different actor.
             </p>
           </div>
@@ -323,15 +388,15 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
 
       {/* No actor selected state */}
       {!selectedActor && (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card border border-line rounded-lg shadow-sm p-6">
           <div className="text-center py-12">
-            <div className="text-gray-400 mb-4">
+            <div className="text-ink-muted mb-4">
               <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
             </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Select an Actor</h3>
-            <p className="text-gray-600">
+            <h3 className="font-display text-xl font-semibold text-ink mb-2">Select an Actor</h3>
+            <p className="text-ink-secondary">
               Choose an actor from the dropdown above to view their timeline perspective.
             </p>
           </div>

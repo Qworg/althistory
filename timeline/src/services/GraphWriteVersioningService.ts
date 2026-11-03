@@ -34,6 +34,7 @@ import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
 import { createLogger, ILogger } from '@/utils/logger';
 import { StoredCausalRelationship } from './CausalService';
+import { formatHistoricalDate } from '@/utils/historicalDate';
 
 /** A write to a live entity that should be reflected in one named graph's version. */
 export type EntityWriteOperation = 'create' | 'update';
@@ -103,6 +104,116 @@ function relationshipToVersionData(
     confidence: relationship.confidence,
     relationship_type: relationship.relationship_type,
   };
+}
+
+/**
+ * What Version history shows for a write. These used to be
+ * `${operation} ${type} ${id}` ("create relationship local_179366…"), which
+ * put internal ids in front of people. A summary names the entity by what a
+ * person calls it; when the name cannot be read, it says what kind of thing
+ * changed and still leaves the id out.
+ */
+const NAME_LIMIT = 80;
+
+function quote(text: unknown): string | null {
+  if (typeof text !== 'string') return null;
+  const trimmed = text.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return null;
+  const clipped = trimmed.length > NAME_LIMIT ? `${trimmed.slice(0, NAME_LIMIT - 1).trimEnd()}…` : trimmed;
+  return `“${clipped}”`;
+}
+
+function entityName(type: EntityType, data: Record<string, unknown> | undefined): string | null {
+  if (!data) return null;
+  return type === 'arc' ? quote(data.name) : quote(data.description);
+}
+
+function sameInstant(a: unknown, b: unknown): boolean {
+  const ta = new Date(a as string).getTime();
+  const tb = new Date(b as string).getTime();
+  return Number.isFinite(ta) && Number.isFinite(tb) ? ta === tb : a === b;
+}
+
+const NOUN: Record<EntityType, string> = {
+  event: 'event',
+  arc: 'arc',
+  relationship: 'link',
+  pressure: 'pressure',
+};
+
+const ARTICLE: Record<EntityType, string> = {
+  event: 'an event',
+  arc: 'an arc',
+  relationship: 'a link',
+  pressure: 'a pressure',
+};
+
+const VERB: Record<EntityWriteOperation | 'delete', string> = {
+  create: 'Added',
+  update: 'Edited',
+  delete: 'Deleted',
+};
+
+/** The data a summary is written from; every field is optional. */
+export interface EntityWriteContext {
+  /** The entity as written (absent for a delete). */
+  data?: Record<string, unknown>;
+  /** The entity as the head held it before the write (update and delete). */
+  previous?: Record<string, unknown>;
+  /** For a link: its cause and effect events, as the head holds them. */
+  cause?: Record<string, unknown>;
+  effect?: Record<string, unknown>;
+  /** For an event delete: how many links went with it. */
+  cascadedLinks?: number;
+}
+
+/**
+ * One line for Version history, e.g. "Added event “Census of 1851”",
+ * "Moved “Battle of Hastings” to Oct 14, 1066", "Added link: “Census of 1851”
+ * → “Clerks' protest”", "Deleted event “X” and its 2 links".
+ */
+export function describeEntityWrite(
+  operation: EntityWriteOperation | 'delete',
+  type: EntityType,
+  context: EntityWriteContext = {}
+): string {
+  const verb = VERB[operation];
+
+  if (type === 'relationship') {
+    const cause = entityName('event', context.cause);
+    const effect = entityName('event', context.effect);
+    return cause && effect ? `${verb} link: ${cause} → ${effect}` : `${verb} a link`;
+  }
+
+  const current = context.data ?? context.previous;
+  const name = entityName(type, current);
+  if (!name) return `${verb} ${ARTICLE[type]}`;
+
+  if (operation === 'update' && context.data && context.previous) {
+    const before = context.previous;
+    const after = context.data;
+    if (type === 'event') {
+      const moved = !sameInstant(before.timestamp, after.timestamp);
+      const renamed = entityName(type, before) !== name;
+      const otherChange = before.actor !== after.actor || before.target !== after.target;
+      if (moved && !renamed && !otherChange) {
+        return `Moved ${name} to ${formatHistoricalDate(after.timestamp as string)}`;
+      }
+      if (renamed && !moved && !otherChange) {
+        return `Renamed event ${entityName(type, before)} to ${name}`;
+      }
+    }
+    if (type === 'arc' && entityName(type, before) !== name) {
+      return `Renamed arc ${entityName(type, before)} to ${name}`;
+    }
+  }
+
+  if (operation === 'delete' && type === 'event' && context.cascadedLinks) {
+    const links = context.cascadedLinks === 1 ? 'its link' : `its ${context.cascadedLinks} links`;
+    return `Deleted event ${name} and ${links}`;
+  }
+
+  return `${verb} ${NOUN[type]} ${name}`;
 }
 
 export class GraphWriteVersioningService {
@@ -178,11 +289,17 @@ export class GraphWriteVersioningService {
       }
     }
 
+    const previous = (await this.headEntities(graphId, type, [id]))[id];
+    const context: EntityWriteContext = { previous, cascadedLinks: deleted.length - 1 };
+    if (type === 'relationship' && previous) {
+      Object.assign(context, await this.linkEnds(graphId, previous));
+    }
+
     await this.commit(
       graphId,
       { added: [], modified: [], deleted },
       'delete',
-      `delete ${type} ${id}`
+      describeEntityWrite('delete', type, context)
     );
   }
 
@@ -212,7 +329,47 @@ export class GraphWriteVersioningService {
       deleted: [],
     };
 
-    await this.commit(graphId, changes, operation, `${operation} ${write.type} ${write.id}`);
+    const context: EntityWriteContext = { data: entity.data };
+    if (operation === 'update') {
+      context.previous = (await this.headEntities(graphId, write.type, [write.id]))[write.id];
+    }
+    if (write.type === 'relationship') {
+      Object.assign(context, await this.linkEnds(graphId, entity.data));
+    }
+
+    await this.commit(graphId, changes, operation, describeEntityWrite(operation, write.type, context));
+  }
+
+  /** A link's cause and effect events, as the head holds them. */
+  private async linkEnds(
+    graphId: string,
+    relationship: Record<string, unknown>
+  ): Promise<Pick<EntityWriteContext, 'cause' | 'effect'>> {
+    const causeId = relationship.cause_event_id;
+    const effectId = relationship.effect_event_id;
+    if (typeof causeId !== 'string' || typeof effectId !== 'string') return {};
+    const events = await this.headEntities(graphId, 'event', [causeId, effectId]);
+    return { cause: events[causeId], effect: events[effectId] };
+  }
+
+  /**
+   * Entities at the graph's head, for the summary only. A failed read must not
+   * fail the write it describes, so it yields nothing and the summary falls
+   * back to naming the kind of entity.
+   */
+  private async headEntities(
+    graphId: string,
+    type: EntityType,
+    ids: string[]
+  ): Promise<Record<string, Record<string, unknown>>> {
+    try {
+      return (await this.graphRepository.getHeadEntities?.(graphId, type, ids)) ?? {};
+    } catch (error) {
+      this.logger.warn(`Could not read ${type} names for a version summary in graph ${graphId}`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {};
+    }
   }
 
   /**

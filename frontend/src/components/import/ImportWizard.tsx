@@ -387,7 +387,7 @@ export function ImportWizard({
       <div className="flex min-h-screen items-center justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
         {/* Background overlay */}
         <div
-          className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+          className="fixed inset-0 bg-black/60 transition-opacity"
           onClick={onClose}
           aria-hidden="true"
         />
@@ -487,7 +487,7 @@ export function ImportWizard({
           {/* Error Banner - FIX #16: Add ARIA for alerts */}
           {state.error && (
             <div 
-              className="bg-red-50 border-l-4 border-red-400 p-4 mx-6 mt-4"
+              className="bg-red-50 border border-red-200 rounded-lg p-4 mx-6 mt-4"
               role="alert"
               aria-live="assertive"
             >

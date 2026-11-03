@@ -637,7 +637,7 @@ describe('Arc Creation and Editing', () => {
     it('should handle time range selection for arc creation', async () => {
       render(<Timeline {...timelineProps} />)
       
-      const svg = screen.getByRole('img', { name: /timeline with/i })
+      const svg = screen.getByRole('application', { name: /timeline with/i })
       
       // Simulate drag selection (this is complex with D3, so we'll test the handler directly)
       // In a real test, you'd need to simulate mouse events on the SVG

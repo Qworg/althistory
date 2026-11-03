@@ -4,6 +4,7 @@ import { axe } from 'vitest-axe'
 import { renderWithProviders } from '../../test/utils'
 import { ViewToolbar } from './ViewToolbar'
 import { useGlobalStore } from '@/stores/globalStore'
+import { SHORTCUTS, formatCombo } from '@/components/help/shortcuts'
 
 // Mock the global store
 vi.mock('@/stores/globalStore')
@@ -109,67 +110,108 @@ describe('ViewToolbar', () => {
   })
 
   describe('Causal graph view toolbar', () => {
-    it('renders causal graph-specific actions', () => {
+    // The canvas's layout panel is the one layout control and its Draw Link
+    // (D) the one way to link events, so the toolbar repeats neither.
+    it('carries no layout or link buttons of its own', () => {
       renderWithProviders(<ViewToolbar viewMode="causal" />)
-      
-      expect(screen.getByRole('button', { name: /force layout/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /hierarchical layout/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /circular layout/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /create link/i })).toBeInTheDocument()
-    })
 
-    it('disables current layout button', () => {
-      renderWithProviders(<ViewToolbar viewMode="causal" />)
-      
-      const forceLayoutButton = screen.getByRole('button', { name: /force layout/i })
-      expect(forceLayoutButton).toBeDisabled()
-    })
-
-    it('handles layout change', () => {
-      renderWithProviders(<ViewToolbar viewMode="causal" />)
-      
-      const hierarchicalButton = screen.getByRole('button', { name: /hierarchical layout/i })
-      fireEvent.click(hierarchicalButton)
-      
-      expect(mockStore.updateSessionData).toHaveBeenCalledWith({
-        viewportState: {
-          ...mockStore.sessionData.viewportState,
-          causalGraph: {
-            ...mockStore.sessionData.viewportState.causalGraph,
-            layout: 'breadthfirst'
-          }
-        }
-      })
-    })
-
-    it('disables create link when not exactly 2 events selected', () => {
-      renderWithProviders(<ViewToolbar viewMode="causal" />)
-      
-      const createLinkButton = screen.getByRole('button', { name: /create link/i })
-      expect(createLinkButton).toBeDisabled()
-    })
-
-    it('enables create link when exactly 2 events selected', () => {
-      const storeWithSelection = {
-        ...mockStore,
-        selectedEvents: ['event1', 'event2']
+      for (const name of [/force layout/i, /hierarchical layout/i, /circular layout/i, /create link/i]) {
+        expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
       }
-      mockUseGlobalStore.mockReturnValue(asStore(storeWithSelection))
-      
+      // The shared actions are still there.
+      expect(screen.getByRole('button', { name: 'Graph' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /hide filters/i })).toBeInTheDocument()
+    })
+
+    it('leaves the layout keys (1-3) and L to the canvas', () => {
       renderWithProviders(<ViewToolbar viewMode="causal" />)
-      
-      const createLinkButton = screen.getByRole('button', { name: /create link/i })
-      expect(createLinkButton).not.toBeDisabled()
+
+      for (const key of ['1', '2', '3', 'l']) {
+        const press = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+        document.dispatchEvent(press)
+        expect(press.defaultPrevented).toBe(false)
+      }
+      expect(mockStore.updateSessionData).not.toHaveBeenCalled()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
   })
 
   describe('Actor perspective view toolbar', () => {
-    it('renders actor perspective-specific actions', () => {
+    const actorStore = (layout: 'chronological' | 'thematic', showStats: boolean) => ({
+      ...mockStore,
+      sessionData: {
+        viewportState: {
+          ...mockStore.sessionData.viewportState,
+          actorPerspective: { layout, showStats },
+        },
+      },
+    })
+
+    it('shows the statistics toggle as a pressed toggle, and no layout buttons', () => {
+      mockUseGlobalStore.mockReturnValue(asStore(actorStore('chronological', true)))
       renderWithProviders(<ViewToolbar viewMode="actor-perspective" />)
-      
-      expect(screen.getByRole('button', { name: /chronological/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /thematic/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /show stats/i })).toBeInTheDocument()
+
+      const stats = screen.getByRole('button', { name: 'Statistics' })
+      expect(stats).toHaveAttribute('aria-pressed', 'true')
+      expect(stats).not.toBeDisabled()
+      // The layout is chosen in the view's own segmented control.
+      expect(screen.queryByRole('button', { name: /chronological/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /thematic/i })).not.toBeInTheDocument()
+    })
+
+    it('defaults the statistics to shown, as the view does', () => {
+      renderWithProviders(<ViewToolbar viewMode="actor-perspective" />)
+
+      expect(screen.getByRole('button', { name: 'Statistics' })).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    it('toggles the statistics in the shared session state', () => {
+      mockUseGlobalStore.mockReturnValue(asStore(actorStore('thematic', true)))
+      renderWithProviders(<ViewToolbar viewMode="actor-perspective" />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Statistics' }))
+
+      expect(mockStore.updateSessionData).toHaveBeenCalledWith({
+        viewportState: expect.objectContaining({
+          actorPerspective: { layout: 'thematic', showStats: false },
+        }),
+      })
+    })
+
+    it('keeps C, T and S bound to the same layout and statistics state', () => {
+      mockUseGlobalStore.mockReturnValue(asStore(actorStore('chronological', false)))
+      renderWithProviders(<ViewToolbar viewMode="actor-perspective" />)
+
+      fireEvent.keyDown(document, { key: 't' })
+      expect(mockStore.updateSessionData).toHaveBeenLastCalledWith({
+        viewportState: expect.objectContaining({
+          actorPerspective: { layout: 'thematic', showStats: false },
+        }),
+      })
+
+      fireEvent.keyDown(document, { key: 'c' })
+      expect(mockStore.updateSessionData).toHaveBeenLastCalledWith({
+        viewportState: expect.objectContaining({
+          actorPerspective: { layout: 'chronological', showStats: false },
+        }),
+      })
+
+      fireEvent.keyDown(document, { key: 's' })
+      expect(mockStore.updateSessionData).toHaveBeenLastCalledWith({
+        viewportState: expect.objectContaining({
+          actorPerspective: { layout: 'chronological', showStats: true },
+        }),
+      })
+    })
+
+    it('never renders an option as disabled because it is the active one', () => {
+      for (const viewMode of ['timeline', 'causal', 'actor-perspective'] as const) {
+        const { unmount } = renderWithProviders(<ViewToolbar viewMode={viewMode} />)
+        const toolbar = screen.getByRole('toolbar')
+        // Only the state-dependent clears could be disabled, and those are hidden instead.
+        expect(Array.from(toolbar.querySelectorAll('button:disabled'))).toEqual([])
+        unmount()
+      }
     })
   })
 
@@ -178,8 +220,10 @@ describe('ViewToolbar', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
       
       expect(screen.getByRole('button', { name: /hide filters/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /clear selection/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /clear filters/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Compare branches' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Ingest' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Graph' })).toHaveAttribute('aria-haspopup', 'menu')
     })
 
     it('toggles filter panel', () => {
@@ -207,11 +251,10 @@ describe('ViewToolbar', () => {
       expect(mockStore.clearSelection).toHaveBeenCalled()
     })
 
-    it('disables clear selection when no selection', () => {
+    it('hides clear selection when there is no selection', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
       
-      const clearSelectionButton = screen.getByRole('button', { name: /clear selection/i })
-      expect(clearSelectionButton).toBeDisabled()
+      expect(screen.queryByRole('button', { name: /clear selection/i })).not.toBeInTheDocument()
     })
 
     it('clears filters when enabled', () => {
@@ -233,11 +276,10 @@ describe('ViewToolbar', () => {
       expect(mockStore.clearFilters).toHaveBeenCalled()
     })
 
-    it('disables clear filters when no filters', () => {
+    it('hides clear filters when no filters are active', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
       
-      const clearFiltersButton = screen.getByRole('button', { name: /clear filters/i })
-      expect(clearFiltersButton).toBeDisabled()
+      expect(screen.queryByRole('button', { name: /clear filters/i })).not.toBeInTheDocument()
     })
 
     it('treats a causal weight range narrower than the default as filtering', () => {
@@ -259,11 +301,11 @@ describe('ViewToolbar', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
       // The wizard is not mounted until the reachable entry point is used.
-      expect(screen.queryByRole('dialog', { name: /ingest from web/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog', { name: /^ingest from/i })).not.toBeInTheDocument()
 
       fireEvent.click(screen.getByRole('button', { name: /^ingest$/i }))
 
-      expect(await screen.findByRole('dialog', { name: /ingest from web/i })).toBeInTheDocument()
+      expect(await screen.findByRole('dialog', { name: /^ingest from/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: 'Wikipedia' })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: 'Wikidata' })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: 'Text' })).toBeInTheDocument()
@@ -295,19 +337,82 @@ describe('ViewToolbar', () => {
       document.body.removeChild(input)
     })
 
-    it('handles Ctrl+F for filter toggle', async () => {
+    it('toggles filters on Shift+F without also firing the plain F (fit) shortcut', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
-      // Verify the filter toggle button exists and can be clicked directly
-      // Label is "Hide Filters" when filterPanelOpen is true
-      const filterButton = screen.getByRole('button', { name: /hide filters/i })
-      expect(filterButton).toBeInTheDocument()
+      fireEvent.keyDown(document, { key: 'F', shiftKey: true })
 
-      // Click the button directly (keyboard shortcuts tested via integration tests)
-      fireEvent.click(filterButton)
-
-      // The filter panel is initially open (true), so toggling should set it to false
+      // The filter panel starts open, so Shift+F closes it
       expect(mockStore.setFilterPanelOpen).toHaveBeenCalledWith(false)
+      // Fit to View writes a new fit trigger into the session; it must not run
+      expect(mockStore.updateSessionData).not.toHaveBeenCalled()
+    })
+
+    it('leaves Ctrl+C (copy) alone in the actor view instead of switching layout', () => {
+      renderWithProviders(<ViewToolbar viewMode="actor-perspective" />)
+
+      const copy = new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true })
+      document.dispatchEvent(copy)
+
+      expect(copy.defaultPrevented).toBe(false)
+      expect(mockStore.updateSessionData).not.toHaveBeenCalled()
+    })
+
+    it('leaves the browser its Ctrl combinations (find, reload, new window, history)', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+
+      for (const key of ['f', 'r', 'n', 'h']) {
+        const combo = new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true })
+        document.dispatchEvent(combo)
+        expect(combo.defaultPrevented).toBe(false)
+      }
+      expect(mockStore.setFilterPanelOpen).not.toHaveBeenCalled()
+      expect(mockStore.updateSessionData).not.toHaveBeenCalled()
+    })
+
+    it('advertises no Ctrl or ⌘ shortcut in any view (browser/OS-reserved territory)', () => {
+      for (const viewMode of ['timeline', 'causal', 'actor-perspective'] as const) {
+        const { unmount } = renderWithProviders(<ViewToolbar viewMode={viewMode} />)
+        const titles = Array.from(document.querySelectorAll('[title]')).map((el) => el.getAttribute('title') ?? '')
+        expect(titles.filter((t) => /\((?:Ctrl|Cmd|Meta|⌘)\b/.test(t))).toEqual([])
+        unmount()
+      }
+    })
+
+    it('opens the create-event form on E', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+      fireEvent.keyDown(document, { key: 'e' })
+
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    it('stands aside while a modal dialog is open (no F behind it, Escape does not clear the selection)', () => {
+      mockUseGlobalStore.mockReturnValue(asStore({ ...mockStore, selectedEvents: ['event1'] }))
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      const dialog = document.createElement('div')
+      dialog.setAttribute('role', 'dialog')
+      dialog.setAttribute('aria-modal', 'true')
+      const save = document.createElement('button')
+      dialog.appendChild(save)
+      document.body.appendChild(dialog)
+      save.focus()
+
+      fireEvent.keyDown(save, { key: 'f' })
+      fireEvent.keyDown(save, { key: 'Escape' })
+
+      expect(mockStore.updateSessionData).not.toHaveBeenCalled()
+      expect(mockStore.clearSelection).not.toHaveBeenCalled()
+      dialog.remove()
+    })
+
+    it('does not fire plain-key shortcuts while Meta is held', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+
+      fireEvent.keyDown(document, { key: 'f', metaKey: true })
+
+      expect(mockStore.updateSessionData).not.toHaveBeenCalled()
     })
 
     it('handles Escape for clear selection', () => {
@@ -322,6 +427,119 @@ describe('ViewToolbar', () => {
       fireEvent.keyDown(document, { key: 'Escape' })
       
       expect(mockStore.clearSelection).toHaveBeenCalled()
+    })
+  })
+
+  describe('Graph menu', () => {
+    it('gives Versions its own icon, not Copy history\'s clock', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      fireEvent.click(screen.getByRole('button', { name: 'Graph' }))
+
+      const iconOf = (name: string) => screen.getByRole('menuitem', { name }).querySelector('svg')?.innerHTML
+      expect(iconOf('Versions')).toBeTruthy()
+      expect(iconOf('Versions')).not.toBe(iconOf('Copy history'))
+    })
+
+    it('keeps every item label on one line', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      fireEvent.click(screen.getByRole('button', { name: 'Graph' }))
+
+      expect(screen.getByRole('menu')).toHaveClass('w-max')
+      expect(screen.getByText('Branch or copy…')).toHaveClass('whitespace-nowrap')
+    })
+
+    const graphActions = ['Branch or copy…', 'Copy progress', 'Copy history', 'Export', 'Versions']
+
+    it('collapses the graph-management actions behind a closed menu button', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+
+      const trigger = screen.getByRole('button', { name: 'Graph' })
+      expect(trigger).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+      for (const name of graphActions) {
+        expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+      }
+    })
+
+    it('opens a menu of the graph actions and focuses the first item', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+
+      const trigger = screen.getByRole('button', { name: 'Graph' })
+      fireEvent.click(trigger)
+
+      expect(trigger).toHaveAttribute('aria-expanded', 'true')
+      const menu = screen.getByRole('menu')
+      expect(trigger).toHaveAttribute('aria-controls', menu.id)
+      expect(screen.getAllByRole('menuitem').map(item => item.getAttribute('aria-label'))).toEqual(graphActions)
+      expect(screen.getByRole('menuitem', { name: 'Branch or copy…' })).toHaveFocus()
+    })
+
+    it('moves between items with the arrow keys, Home and End', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      fireEvent.click(screen.getByRole('button', { name: 'Graph' }))
+      const menu = screen.getByRole('menu')
+
+      fireEvent.keyDown(menu, { key: 'ArrowDown' })
+      expect(screen.getByRole('menuitem', { name: 'Copy progress' })).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'End' })
+      expect(screen.getByRole('menuitem', { name: 'Versions' })).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'ArrowDown' })
+      expect(screen.getByRole('menuitem', { name: 'Branch or copy…' })).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'ArrowUp' })
+      expect(screen.getByRole('menuitem', { name: 'Versions' })).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'Home' })
+      expect(screen.getByRole('menuitem', { name: 'Branch or copy…' })).toHaveFocus()
+    })
+
+    it('opens on ArrowUp with the last item focused', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Graph' }), { key: 'ArrowUp' })
+
+      expect(screen.getByRole('menuitem', { name: 'Versions' })).toHaveFocus()
+    })
+
+    it('closes on Escape, returns focus to the trigger, and does not clear the selection', () => {
+      mockUseGlobalStore.mockReturnValue(asStore({ ...mockStore, selectedEvents: ['event1'] }))
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      const trigger = screen.getByRole('button', { name: 'Graph' })
+      fireEvent.click(trigger)
+
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+      expect(trigger).toHaveAttribute('aria-expanded', 'false')
+      expect(trigger).toHaveFocus()
+      expect(mockStore.clearSelection).not.toHaveBeenCalled()
+    })
+
+    it('closes on a click outside', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      fireEvent.click(screen.getByRole('button', { name: 'Graph' }))
+      expect(screen.getByRole('menu')).toBeInTheDocument()
+
+      fireEvent.mouseDown(document.body)
+
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    })
+
+    it('runs the chosen action, closes, and returns focus to the trigger', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      const trigger = screen.getByRole('button', { name: 'Graph' })
+      fireEvent.click(trigger)
+
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Copy history' }))
+
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: 'Copy history' })).toBeInTheDocument()
+    })
+
+    it('keeps menu shortcuts working while the menu is closed', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+
+      fireEvent.keyDown(document, { key: 'H', shiftKey: true })
+
+      expect(screen.getByRole('dialog', { name: 'Copy history' })).toBeInTheDocument()
     })
   })
 
@@ -366,10 +584,68 @@ describe('ViewToolbar', () => {
     })
   })
 
+  // The Help dialog's shortcut list (components/help/shortcuts.ts) is the
+  // reference users read; every key a toolbar tooltip or Graph-menu keycap
+  // advertises must appear there, so the two cannot drift apart.
+  describe('Shortcut reference stays in step with the toolbar', () => {
+    const documented = new Set(SHORTCUTS.flatMap((s) => s.combos.map(formatCombo)))
+    // "(F)", "(Shift+F)", "(Escape)" -- not "(JSON/CSV)" or "(PoD explorer)".
+    const advertisedIn = (text: string) =>
+      [...text.matchAll(/\(([A-Za-z0-9]+(?:\+[A-Za-z0-9]+)*)\)/g)].map((m) => m[1]!)
+
+    it.each(['timeline', 'causal', 'actor-perspective'] as const)('%s view', (viewMode) => {
+      mockUseGlobalStore.mockReturnValue(asStore({ ...mockStore, selectedEvents: ['a'] }))
+      renderWithProviders(<ViewToolbar viewMode={viewMode} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Graph' }))
+
+      const advertised = [
+        ...Array.from(document.querySelectorAll('[title]')).flatMap((el) => advertisedIn(el.getAttribute('title') ?? '')),
+        ...screen.getAllByRole('menuitem').flatMap((item) => Array.from(item.querySelectorAll('kbd')).map((kbd) => kbd.textContent ?? '')),
+      ].filter(Boolean)
+
+      expect(advertised.length).toBeGreaterThan(0)
+      for (const combo of advertised) {
+        expect(documented, `${combo} is advertised in the toolbar but missing from the shortcut reference`).toContain(combo)
+      }
+    })
+  })
+
   describe('Streaming status integration', () => {
     it('renders streaming status badge in the toolbar', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
       expect(screen.getByRole('status', { name: /streaming/i })).toBeInTheDocument()
+    })
+  })
+
+  describe('Compact (phone) toolbar', () => {
+    it('keeps the view\'s primary actions and the filter controls, as 44px icon buttons', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" compact />)
+
+      const toolbar = screen.getByRole('toolbar', { name: 'View toolbar' })
+      for (const name of ['Fit to View', 'Create Event', 'Create Arc', 'Hide Filters']) {
+        const button = screen.getByRole('button', { name })
+        expect(button).toHaveClass('h-11', 'min-w-11')
+        // Icon only: no visible label to wrap the row.
+        expect(button.querySelector('span')).toBeNull()
+      }
+      expect(toolbar).not.toHaveClass('flex-wrap')
+    })
+
+    it('moves graph management and streaming off the toolbar', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" compact />)
+
+      for (const name of ['Graph', 'Compare branches', 'Import', 'Ingest']) {
+        expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+      }
+      expect(screen.queryByRole('status', { name: /streaming/i })).not.toBeInTheDocument()
+    })
+
+    it('keeps the graph shortcuts working without the menu', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" compact />)
+
+      fireEvent.keyDown(document, { key: 'H', shiftKey: true })
+
+      expect(screen.getByRole('dialog', { name: 'Copy history' })).toBeInTheDocument()
     })
   })
 })

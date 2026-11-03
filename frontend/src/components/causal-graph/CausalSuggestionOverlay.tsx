@@ -1,6 +1,20 @@
 import React, { useEffect, useCallback, useRef } from 'react'
 import { Core } from 'cytoscape'
 import { CausalSuggestion } from '@/types'
+import { readGraphCanvasTheme } from './causalGraphPresentation'
+
+/** Minimum time between restyles of the pulsing suggestion edges. */
+const PULSE_FRAME_MS = 250
+/** Length of one full pulse. */
+const PULSE_PERIOD_MS = 2400
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+}
 
 export interface CausalSuggestionOverlayProps {
   cytoscapeInstance: Core | null
@@ -34,17 +48,20 @@ export const CausalSuggestionOverlay: React.FC<CausalSuggestionOverlayProps> = (
 
   // Define suggestion edge styles
   const getSuggestionEdgeStyle = useCallback((confidence: number) => {
-    const opacity = Math.max(0.4, confidence)
+    // Kept opaque enough that the line still meets 3:1 against the canvas;
+    // width and the percentage label carry the confidence too.
+    const opacity = Math.max(0.85, confidence)
     const width = 2 + (confidence * 4) // 2-6px range
-    
-    // Color based on confidence
-    let color = '#9CA3AF' // gray-400 for low confidence
+
+    // Colour by confidence, from the graph palette (Cytoscape cannot read CSS variables)
+    const palette = readGraphCanvasTheme().colors
+    let color = palette.suggestionMinimal
     if (confidence >= 0.8) {
-      color = '#10B981' // green-500 for high confidence
+      color = palette.suggestionHigh
     } else if (confidence >= 0.6) {
-      color = '#F59E0B' // yellow-500 for medium confidence
+      color = palette.suggestionMedium
     } else if (confidence >= 0.4) {
-      color = '#EF4444' // red-500 for low-medium confidence
+      color = palette.suggestionLow
     }
 
     return {
@@ -116,14 +133,15 @@ export const CausalSuggestionOverlay: React.FC<CausalSuggestionOverlayProps> = (
 
       // Add confidence label if enabled
       if (showConfidenceLabels) {
+        const theme = readGraphCanvasTheme()
         edge.style({
           'label': `${(suggestion.confidence * 100).toFixed(0)}%`,
-          'font-size': '10px',
-          'color': '#6B7280',
-          'text-background-color': '#FFFFFF',
-          'text-background-opacity': 0.8,
+          'font-size': '11px',
+          'color': theme.inkSecondary,
+          'text-background-color': theme.surface,
+          'text-background-opacity': 0.9,
           'text-background-padding': '2px',
-          'text-border-color': '#D1D5DB',
+          'text-border-color': theme.line,
           'text-border-width': 1,
           'text-border-opacity': 0.5
         })
@@ -174,39 +192,59 @@ export const CausalSuggestionOverlay: React.FC<CausalSuggestionOverlayProps> = (
     suggestionEdgeIds.current.clear()
 
     // Stop animation
-    if (animationRef.current) {
-      clearInterval(animationRef.current)
+    if (animationRef.current !== null) {
+      cancelAnimationFrame(animationRef.current)
       animationRef.current = null
     }
   }, [cytoscapeInstance])
 
-  // Animate suggestion edges with pulsing effect
+  // Animate suggestion edges with a slow pulse. The animation is skipped for
+  // viewers who ask for reduced motion, runs on requestAnimationFrame (so it
+  // pauses in a background tab) at a coarse cadence rather than restyling
+  // every frame, and stops itself once there are no suggestion edges left.
   const animateSuggestionEdges = useCallback(() => {
-    if (!cytoscapeInstance || animationRef.current) return
+    if (!cytoscapeInstance || animationRef.current !== null) return
+    if (prefersReducedMotion()) return
+    if (suggestionEdgeIds.current.size === 0) return
+    if (typeof requestAnimationFrame !== 'function') return
 
-    let phase = 0
-    animationRef.current = setInterval(() => {
-      phase += 0.1
-      
-      suggestionEdgeIds.current.forEach(edgeId => {
-        const edge = cytoscapeInstance.getElementById(edgeId)
-        if (edge.length > 0) {
-          const data = edge.data() as SuggestionEdgeData
-          const baseOpacity = Math.max(0.4, data.confidence)
-          const pulseOpacity = baseOpacity + (Math.sin(phase) * 0.2)
-          
-          edge.style({
-            'opacity': Math.max(0.2, Math.min(1, pulseOpacity))
+    let lastFrame = -Infinity
+    const tick = (now: number) => {
+      if (suggestionEdgeIds.current.size === 0) {
+        animationRef.current = null
+        return
+      }
+      if (now - lastFrame >= PULSE_FRAME_MS) {
+        lastFrame = now
+        const phase = (now / PULSE_PERIOD_MS) * 2 * Math.PI
+        const restyle = () => {
+          suggestionEdgeIds.current.forEach(edgeId => {
+            const edge = cytoscapeInstance.getElementById(edgeId)
+            if (edge.length > 0) {
+              const data = edge.data() as SuggestionEdgeData
+              const baseOpacity = Math.max(0.4, data.confidence)
+              const pulseOpacity = baseOpacity + (Math.sin(phase) * 0.2)
+              edge.style({
+                'opacity': Math.max(0.2, Math.min(1, pulseOpacity))
+              })
+            }
           })
         }
-      })
-    }, 100)
+        if (typeof cytoscapeInstance.batch === 'function') {
+          cytoscapeInstance.batch(restyle)
+        } else {
+          restyle()
+        }
+      }
+      animationRef.current = requestAnimationFrame(tick)
+    }
+    animationRef.current = requestAnimationFrame(tick)
   }, [cytoscapeInstance])
 
   // Stop animation
   const stopAnimation = useCallback(() => {
-    if (animationRef.current) {
-      clearInterval(animationRef.current)
+    if (animationRef.current !== null) {
+      cancelAnimationFrame(animationRef.current)
       animationRef.current = null
     }
   }, [])
@@ -236,4 +274,4 @@ export const CausalSuggestionOverlay: React.FC<CausalSuggestionOverlayProps> = (
   return null
 }
 
-export default CausalSuggestionOverlay
+export default CausalSuggestionOverlay

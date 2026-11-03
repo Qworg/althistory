@@ -1,90 +1,87 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { BrowserRouter, MemoryRouter } from 'react-router'
+import { MemoryRouter } from 'react-router'
 import { Breadcrumb } from './Breadcrumb'
 
-const renderWithRouter = (component: React.ReactElement, initialEntries?: string[]) => {
-  if (initialEntries) {
-    return render(
-      <MemoryRouter initialEntries={initialEntries}>
-        {component}
-      </MemoryRouter>
-    )
-  }
-  return render(
-    <BrowserRouter>
-      {component}
-    </BrowserRouter>
+const renderAt = (path: string) =>
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <Breadcrumb />
+    </MemoryRouter>
   )
-}
 
 describe('Breadcrumb', () => {
-  it('does not render on home page', () => {
-    renderWithRouter(<Breadcrumb />, ['/'])
-    
-    expect(screen.queryByRole('navigation', { name: 'Breadcrumb' })).not.toBeInTheDocument()
+  it('has no Home crumb, since "/" is the timeline', () => {
+    renderAt('/timeline')
+
+    expect(screen.queryByText('Home')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
+  })
+
+  it('shows the timeline as the current page at "/"', () => {
+    renderAt('/')
+
+    const nav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+    expect(nav).toBeInTheDocument()
+    expect(screen.getByText('Timeline')).toHaveAttribute('aria-current', 'page')
+    expect(nav.querySelectorAll('a')).toHaveLength(0)
   })
 
   it('renders breadcrumb for timeline page', () => {
-    renderWithRouter(<Breadcrumb />, ['/timeline'])
-    
+    renderAt('/timeline')
+
     expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toBeInTheDocument()
-    expect(screen.getByText('Home')).toBeInTheDocument()
     expect(screen.getByText('Timeline')).toBeInTheDocument()
   })
 
   it('renders breadcrumb for causal graph page', () => {
-    renderWithRouter(<Breadcrumb />, ['/causal-graph'])
-    
-    expect(screen.getByText('Home')).toBeInTheDocument()
-    expect(screen.getByText('Causal Graph')).toBeInTheDocument()
+    renderAt('/causal-graph')
+
+    expect(screen.getByText('Causal Graph')).toHaveAttribute('aria-current', 'page')
   })
 
   it('renders breadcrumb for actor perspective page', () => {
-    renderWithRouter(<Breadcrumb />, ['/actor-perspective'])
-    
-    expect(screen.getByText('Home')).toBeInTheDocument()
-    expect(screen.getByText('Actor Perspective')).toBeInTheDocument()
-  })
+    renderAt('/actor-perspective')
 
-  it('makes home link clickable', () => {
-    renderWithRouter(<Breadcrumb />, ['/timeline'])
-    
-    const homeLink = screen.getByText('Home')
-    expect(homeLink.closest('a')).toHaveAttribute('href', '/')
+    expect(screen.getByText('Actor Perspective')).toHaveAttribute('aria-current', 'page')
   })
 
   it('shows current page as non-clickable text', () => {
-    renderWithRouter(<Breadcrumb />, ['/timeline'])
-    
+    renderAt('/timeline')
+
     const currentPage = screen.getByText('Timeline')
     expect(currentPage).toHaveAttribute('aria-current', 'page')
     expect(currentPage.closest('a')).toBeNull()
   })
 
-  it('includes proper separators between breadcrumb items', () => {
-    renderWithRouter(<Breadcrumb />, ['/timeline'])
-    
+  it('has no separator for a single crumb', () => {
+    renderAt('/timeline')
+
     const nav = screen.getByRole('navigation', { name: 'Breadcrumb' })
-    const separators = nav.querySelectorAll('svg[aria-hidden="true"]')
-    expect(separators).toHaveLength(1)
+    expect(nav.querySelectorAll('svg[aria-hidden="true"]')).toHaveLength(0)
+  })
+
+  it('links ancestors and separates crumbs on nested paths', () => {
+    renderAt('/graphs/branch-a')
+
+    const nav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+    expect(nav.querySelectorAll('li')).toHaveLength(2)
+    expect(nav.querySelectorAll('svg[aria-hidden="true"]')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: 'Graphs' })).toHaveAttribute('href', '/graphs')
+    expect(screen.getByText('Branch-a')).toHaveAttribute('aria-current', 'page')
   })
 
   it('has proper semantic structure', () => {
-    renderWithRouter(<Breadcrumb />, ['/timeline'])
-    
+    renderAt('/timeline')
+
     const nav = screen.getByRole('navigation', { name: 'Breadcrumb' })
-    const list = nav.querySelector('ol')
-    const items = nav.querySelectorAll('li')
-    
-    expect(list).toBeInTheDocument()
-    expect(items).toHaveLength(2) // Home + Timeline
+    expect(nav.querySelector('ol')).toBeInTheDocument()
+    expect(nav.querySelectorAll('li')).toHaveLength(1)
   })
 
   it('handles unknown routes gracefully', () => {
-    renderWithRouter(<Breadcrumb />, ['/unknown-route'])
-    
-    expect(screen.getByText('Home')).toBeInTheDocument()
+    renderAt('/unknown-route')
+
     expect(screen.getByText('Unknown-route')).toBeInTheDocument()
   })
 })

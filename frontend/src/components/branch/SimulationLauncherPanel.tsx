@@ -6,6 +6,8 @@ import {
   type SimulationRequestOptions,
   type SimulationResult,
 } from '@/types'
+import { formatHistoricalDate } from '@/utils/historicalTime'
+import { PRIMARY_BUTTON, FIELD, countNoun } from './branchUi'
 
 export interface SimulationLauncherPanelProps {
   /** Graph to evolve forward. The panel is inert without one. */
@@ -81,52 +83,46 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
 
   return (
     <div className="space-y-4" data-testid="simulation-launcher">
-      <div className="bg-white rounded-lg border border-indigo-100 shadow-xs p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-              <span>🔮</span> Autonomous Forward Simulation
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Evolve <span className="font-semibold">{graphName}</span> forward in discrete hops
-              under inferred historical pressures.
-            </p>
-          </div>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5">
-            Option 1
-          </span>
-        </div>
+      {/* Plain sections, not cards: this sits inside the comparison dialog. */}
+      <section aria-labelledby="simulation-heading" className="text-sm text-ink">
+        <h3 id="simulation-heading" className="font-display text-xl font-semibold">
+          Simulate forward
+        </h3>
+        <p className="text-ink-secondary mt-0.5">
+          Extend <span className="font-semibold text-ink">{graphName}</span> forward in steps,
+          driven by the pressures inferred from its history.
+        </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-          <label className="text-xs text-gray-600 flex flex-col gap-1">
-            <span className="font-semibold text-gray-700">Steps (1-10)</span>
+          <label className="text-sm text-ink-secondary flex flex-col gap-1">
+            <span className="font-semibold text-ink">Steps (1-10)</span>
             <input
               type="number"
               min={1}
               max={10}
               value={steps}
               onChange={e => setSteps(Number(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className={FIELD}
             />
           </label>
 
-          <label className="text-xs text-gray-600 flex flex-col gap-1">
-            <span className="font-semibold text-gray-700">Months per step</span>
+          <label className="text-sm text-ink-secondary flex flex-col gap-1">
+            <span className="font-semibold text-ink">Months per step</span>
             <input
               type="number"
               min={1}
               value={months}
               onChange={e => setMonths(Number(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className={FIELD}
             />
           </label>
 
-          <label className="text-xs text-gray-600 flex flex-col gap-1">
-            <span className="font-semibold text-gray-700">Domain</span>
+          <label className="text-sm text-ink-secondary flex flex-col gap-1">
+            <span className="font-semibold text-ink">Domain</span>
             <select
               value={domain}
               onChange={e => setDomain(e.target.value as DomainChoice)}
-              className="border border-gray-300 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className={FIELD}
             >
               <option value={AUTO_DOMAIN}>Auto (dominant pressure)</option>
               {SIMULATION_DOMAINS.map(option => (
@@ -137,8 +133,8 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
             </select>
           </label>
 
-          <label className="text-xs text-gray-600 flex flex-col gap-1">
-            <span className="font-semibold text-gray-700">
+          <label className="text-sm text-ink-secondary flex flex-col gap-1">
+            <span className="font-semibold text-ink">
               Aggressiveness: {aggressiveness.toFixed(2)}
             </span>
             <input
@@ -153,24 +149,24 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
           </label>
         </div>
 
-        <label className="text-xs text-gray-600 flex flex-col gap-1 mt-3">
-          <span className="font-semibold text-gray-700">Seed context (optional)</span>
+        <label className="text-sm text-ink-secondary flex flex-col gap-1 mt-3">
+          <span className="font-semibold text-ink">Seed context (optional)</span>
           <input
             type="text"
             value={seedContext}
             onChange={e => setSeedContext(e.target.value)}
             placeholder="e.g. A blockade of the eastern trade routes"
-            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className={FIELD}
           />
         </label>
 
         <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
-          <label className="flex items-center gap-2 text-xs text-gray-600">
+          <label className="flex items-center gap-2 text-sm text-ink-secondary">
             <input
               type="checkbox"
               checked={dryRun}
               onChange={e => setDryRun(e.target.checked)}
-              className="rounded border-gray-300"
+              className="rounded border-line"
             />
             Preview only (persist nothing)
           </label>
@@ -179,14 +175,14 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
             type="button"
             onClick={handleRun}
             disabled={!canRun}
-            className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors shadow-xs"
+            className={`${PRIMARY_BUTTON} w-full sm:w-auto`}
           >
-            {isRunning ? 'Simulating…' : 'Run Simulation'}
+            {isRunning ? 'Simulating…' : 'Run simulation'}
           </button>
         </div>
 
         {!graphId && (
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-3">
+          <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-md p-2 mt-3">
             Select a graph before running a simulation.
           </p>
         )}
@@ -194,53 +190,53 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
         {error && (
           <p
             role="alert"
-            className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 mt-3"
+            className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md p-2 mt-3"
           >
             {error}
           </p>
         )}
-      </div>
+      </section>
 
       {result && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-xs p-4">
+        <section aria-labelledby="simulation-result-heading" className="border-t border-line pt-4 text-sm text-ink">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h4 className="text-xs font-bold text-gray-900">
-              {result.dryRun ? 'Simulation Preview' : 'Simulated Milestones'} — {graphName}
+            <h4 id="simulation-result-heading" className="text-base font-semibold">
+              {result.dryRun ? 'Simulation preview' : 'Simulated events'} — {graphName}
             </h4>
-            <div className="flex items-center gap-2 text-[10px]">
-              <span className="px-2 py-0.5 rounded-full font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-ink-secondary">
+              <span className="px-2 py-0.5 rounded-full font-medium border border-line text-ink capitalize">
                 {result.domain}
               </span>
-              <span className="text-gray-500">
-                {result.steps} step(s) · {result.events.length} events ·{' '}
-                {result.relationships.length} causal links
+              <span>
+                {countNoun(result.steps, 'step')} · {countNoun(result.events.length, 'event')} ·{' '}
+                {countNoun(result.relationships.length, 'causal link')}
               </span>
             </div>
           </div>
+          {result.dryRun && (
+            <p className="text-xs text-ink-secondary mt-1">A preview: nothing was saved to the graph.</p>
+          )}
 
           {result.events.length === 0 ? (
-            <p className="text-xs text-gray-500 mt-3">The engine produced no milestones.</p>
+            <p className="text-ink-secondary mt-3">The simulation produced no events.</p>
           ) : (
-            <ol className="mt-3 space-y-2" data-testid="simulated-milestones">
+            <ol className="mt-3 divide-y divide-line border-y border-line" data-testid="simulated-milestones">
               {result.events.map(event => (
-                <li
-                  key={event.id}
-                  className="border border-gray-100 rounded p-3 bg-gray-50/60"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-semibold text-gray-500">
-                      {new Date(event.timestamp).toLocaleDateString()}
+                <li key={event.id} className="py-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-semibold text-ink-secondary font-mono-code">
+                      {formatHistoricalDate(event.timestamp)}
                     </span>
-                    <span className="text-[10px] text-gray-500">
+                    <span className="text-ink-secondary">
                       {event.actor} → {event.target}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-900 mt-1">{event.description}</p>
+                  <p className="text-ink mt-1">{event.description}</p>
                 </li>
               ))}
             </ol>
           )}
-        </div>
+        </section>
       )}
     </div>
   )

@@ -93,7 +93,7 @@ Nothing drains the queue while the device is offline.
 so no Vite plugin is required to ship it. Because it is copied verbatim it
 contains no build-time precache manifest, so at install it fetches
 `/index.html`, parses the asset URLs out of it, and precaches those alongside
-`/`, `/index.html` and `/vite.svg`. Without that step an offline reload would
+`/`, `/index.html` and `/favicon.svg`. Without that step an offline reload would
 have the document but none of the hashed bundles — a blank page. Static assets
 are also cached on first fetch. A navigation response is only written to the
 cache when `response.ok`, so a 404/500 page cannot replace the cached shell.
