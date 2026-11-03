@@ -93,8 +93,12 @@ async function snap(
 async function openTimeline(ctx: TourContext): Promise<void> {
   await ctx.page.goto(`${ctx.appUrl}/`)
   const total = scenario.events.length
-  // The counts line under the canvas: "19 events · 4 arcs · 24 links".
-  await ctx.page.getByText(`${total} events · ${scenario.arcs.length} arcs`, { exact: false }).first().waitFor()
+  // The counts line under the canvas: "19 events · 4 arcs · 24 links". The
+  // links load after the events and add the link band, so wait for them too.
+  await ctx.page
+    .getByText(`${total} events · ${scenario.arcs.length} arcs · ${scenario.links.length} links`, { exact: false })
+    .first()
+    .waitFor()
   await ctx.page.locator('g[data-timeline-mark="event"]').nth(total - 1).waitFor()
   // The pressure panel loads separately; the scenario's clusters always yield
   // an economic pressure, so its chip is the sign the panel has data (the
@@ -147,12 +151,18 @@ async function timeline(ctx: TourContext): Promise<Shot> {
   await hideFilters(page)
   const svg = page.locator('svg[data-timeline-canvas]').first()
   const mark = page.locator(`g[data-timeline-mark="event"][aria-label*="${FEATURED_EVENT}"]`).first()
-  const markRect = await rectOf(mark, 'the featured event mark')
-  const pointer = centre(markRect)
-  // Settle first: the hover is the point of this shot, so it is not blurred after.
+  // Settle first (the hover is the point of this shot, so it is not blurred
+  // after), and measure after: the causal links arrive after the events and
+  // grow the canvas, which moves the marks.
   await settle(page)
+  // The dot, not the whole mark: the group's box includes its label, whose
+  // row can sit well above the dot, so its centre missed the mark.
+  const markRect = await rectOf(mark.locator('.event-marker').first(), 'the featured event mark')
+  const pointer = centre(markRect)
   await page.mouse.move(pointer.x, pointer.y)
-  const tooltip = page.getByText(new RegExp(FEATURED_EVENT)).last()
+  // By role: the event's name now also appears in hidden text (the labels
+  // and the inspector's live region), so the last text match is not it.
+  const tooltip = page.getByRole('tooltip').filter({ hasText: new RegExp(FEATURED_EVENT) }).first()
   await tooltip.waitFor()
   return snap(
     ctx,

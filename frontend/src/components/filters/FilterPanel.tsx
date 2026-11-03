@@ -260,7 +260,9 @@ export function FilterPanel({
                 value={filters.dateRange?.start || ''}
                 onCommit={(value) => handleDateBoundChange('start', value)}
                 hintId={dateHintId}
-                placeholder="1843"
+                // A state, not an example: an example date in the empty field
+                // read as a range already set. The examples are in the hint.
+                placeholder="Any date"
               />
               <HistoricalDateInput
                 id="endDate"
@@ -269,7 +271,7 @@ export function FilterPanel({
                 value={filters.dateRange?.end || ''}
                 onCommit={(value) => handleDateBoundChange('end', value)}
                 hintId={dateHintId}
-                placeholder="1843-11-20"
+                placeholder="Any date"
               />
             </div>
             <p id={dateHintId} className="mt-1.5 text-xs text-ink-muted">
