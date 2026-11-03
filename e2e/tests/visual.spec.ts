@@ -43,16 +43,17 @@ test.describe('visual regression', () => {
     await installApiStub(page)
     await page.goto('/')
 
-    await expect(page.getByText('3 events, 1 arcs')).toBeVisible()
+    await expect(page.getByText('3 events · 1 arc')).toBeVisible()
     await expect(page.locator('g[data-timeline-mark="event"]')).toHaveCount(3)
 
-    // The filter panel is open by default and is a flex sibling of the main
-    // pane, so it narrows (and partly covers) the timeline. Hide it so the
-    // baseline shows the whole timeline rather than the panel over it.
-    await page.getByRole('button', { name: 'Hide Filters' }).click()
+    // An open filter panel is a flex sibling of the main pane, so it narrows
+    // (and partly covers) the timeline. It now starts closed; close it if a
+    // stored preference opened it, so the baseline shows the whole timeline.
+    const hideFilters = page.getByRole('button', { name: 'Hide Filters' })
+    if (await hideFilters.isVisible()) await hideFilters.click()
     await expect(page.getByRole('button', { name: 'Show Filters' })).toBeVisible()
 
-    const svg = page.locator('svg[role="img"]')
+    const svg = page.locator('svg[data-timeline-canvas]')
     await expect(svg).toBeVisible()
     await blurActiveElement(page)
 
@@ -62,14 +63,14 @@ test.describe('visual regression', () => {
   test('ingestion wizard review table @visual', async ({ page }) => {
     await installApiStub(page)
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: 'Timeline View' })).toBeVisible()
+    await expect(page.locator('svg[data-timeline-canvas]')).toBeVisible()
 
     await page.getByRole('button', { name: 'Ingest' }).click()
     const dialog = page.getByRole('dialog')
     await dialog
       .getByLabel(/Wikipedia URL/)
       .fill('https://en.wikipedia.org/wiki/Battle_of_Hastings')
-    await dialog.getByRole('button', { name: /Extract Entities/ }).click()
+    await dialog.getByRole('button', { name: /Extract events/ }).click()
     await expect(dialog.getByRole('heading', { name: 'Events (2/2 selected)' })).toBeVisible()
 
     await blurActiveElement(page)

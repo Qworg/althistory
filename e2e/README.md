@@ -13,7 +13,7 @@ Vitest setup.
 
 | Spec | Flow | Asserts |
 | --- | --- | --- |
-| `tests/smoke.spec.ts` | App boots and the timeline renders | The heading, the `N events, M arcs` count, and each stubbed event's rendered SVG mark (`g[data-timeline-mark="event"]`) with its description in the accessible label |
+| `tests/smoke.spec.ts` | App boots and the timeline renders | The canvas, the `N events · M arcs` count, and each stubbed event's rendered SVG mark (`g[data-timeline-mark="event"]`) with its description in the accessible label |
 | `tests/create-event.spec.ts` | Create an event through the real UI | The modal opens, the typed payload is POSTed, the modal closes, the event list refetches, and the new mark appears on the timeline |
 | `tests/ingestion.spec.ts` | Open the Req 19 ingestion wizard and reach the review table | The wizard opens from the toolbar, `POST /api/ingest/url` is sent, the editable review table renders the extraction, and approving imports the selection (`POST /api/ingest/jobs/:id/approve`) |
 | `tests/offline.spec.ts` | Go offline | The `offline-indicator` appears with `data-online="false"` while the browser is offline and disappears on reconnect |
@@ -29,7 +29,9 @@ followed by a refetch observes the write.
   `GET|PUT|DELETE /api/events/:id`, `GET /api/events/search`
 - `GET /api/arcs`, `POST /api/arcs`, `PUT|DELETE /api/arcs/:id`
 - `GET /api/graphs` (the header's graph selector fetches this on every page),
-  `GET /api/graphs/:id`
+  `GET /api/graphs/active` (the app reconciles its active graph with the
+  server's), `GET /api/graphs/:id`, `GET /api/graphs/:id/versions`
+- `GET /api/causal/relationships` (the timeline's link band and inspector)
 - `POST /api/ingest/url`, `POST /api/ingest/wikidata`, `POST /api/ingest/text`
 - `POST /api/ingest/jobs/:id/approve`, `DELETE /api/ingest/jobs/:id`
 
