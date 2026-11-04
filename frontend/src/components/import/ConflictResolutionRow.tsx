@@ -82,7 +82,7 @@ export function ConflictResolutionRow({
             onClick={() => onResolve('skip')}
             className={`px-3 py-1 text-sm rounded-md transition-colors ${
               resolution === 'skip'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-baseline text-on-accent'
                 : 'bg-subtle text-ink-secondary hover:bg-line'
             }`}
             title="Don't import this entity"
@@ -94,7 +94,7 @@ export function ConflictResolutionRow({
             onClick={() => onResolve('overwrite')}
             className={`px-3 py-1 text-sm rounded-md transition-colors ${
               resolution === 'overwrite'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-baseline text-on-accent'
                 : 'bg-subtle text-ink-secondary hover:bg-line'
             }`}
             title="Replace existing with imported"
@@ -106,7 +106,7 @@ export function ConflictResolutionRow({
             onClick={() => onResolve('rename')}
             className={`px-3 py-1 text-sm rounded-md transition-colors ${
               resolution === 'rename'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-baseline text-on-accent'
                 : 'bg-subtle text-ink-secondary hover:bg-line'
             }`}
             title="Import with a new generated ID"

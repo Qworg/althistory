@@ -100,7 +100,7 @@ export const BranchGraphModal = memo(function BranchGraphModal({
         type="button"
         onClick={handleCancel}
         disabled={isBranching}
-        className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded transition-colors disabled:opacity-50"
+        className="px-4 py-2 text-sm text-ink-secondary hover:bg-subtle rounded transition-colors disabled:opacity-50"
       >
         Cancel
       </button>
@@ -108,7 +108,7 @@ export const BranchGraphModal = memo(function BranchGraphModal({
         type="submit"
         form="branch-graph-form"
         disabled={isBranching || !branchName.trim()}
-        className="px-4 py-2 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+        className="px-4 py-2 text-sm bg-selected text-on-accent rounded hover:bg-selected/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
       >
         {isBranching ? (
           <>
@@ -146,18 +146,18 @@ export const BranchGraphModal = memo(function BranchGraphModal({
     >
       <form id="branch-graph-form" onSubmit={handleSubmit} className="space-y-4">
         {/* Source Graph Info */}
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-          <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Branching from</div>
+        <div className="bg-subtle border border-line rounded-lg p-4">
+          <div className="text-xs text-ink-muted uppercase tracking-wider mb-2">Branching from</div>
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-semibold text-gray-900">{sourceGraph.name}</div>
+              <div className="font-semibold text-ink">{sourceGraph.name}</div>
               {sourceGraph.description && (
-                <div className="text-sm text-gray-500 mt-1 line-clamp-1">{sourceGraph.description}</div>
+                <div className="text-sm text-ink-muted mt-1 line-clamp-1">{sourceGraph.description}</div>
               )}
             </div>
             <div className="text-right">
-              <div className="text-sm text-gray-600">Version {sourceGraph.version}</div>
-              <div className="text-xs text-gray-400">
+              <div className="text-sm text-ink-secondary">Version {sourceGraph.version}</div>
+              <div className="text-xs text-ink-muted">
                 {sourceGraph.metadata.eventCount} events, {sourceGraph.metadata.arcCount} arcs
               </div>
             </div>
@@ -166,7 +166,7 @@ export const BranchGraphModal = memo(function BranchGraphModal({
 
         {/* Branch Name Input */}
         <div>
-          <label htmlFor="branch-name" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="branch-name" className="block text-sm font-medium text-ink-secondary mb-1">
             Branch Name <span className="text-red-500">*</span>
           </label>
           <input
@@ -179,7 +179,7 @@ export const BranchGraphModal = memo(function BranchGraphModal({
             className={`
               w-full px-3 py-2 border rounded-lg text-sm
               focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent
-              ${touched.branchName && errors.branchName ? 'border-red-300 bg-red-50' : 'border-gray-300'}
+              ${touched.branchName && errors.branchName ? 'border-red-300 bg-red-50' : 'border-line'}
             `}
             disabled={isBranching}
             autoFocus
@@ -187,14 +187,14 @@ export const BranchGraphModal = memo(function BranchGraphModal({
           {touched.branchName && errors.branchName && (
             <p className="mt-1 text-xs text-red-600">{errors.branchName}</p>
           )}
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-ink-muted">
             Use letters, numbers, hyphens, or underscores only.
           </p>
         </div>
 
         {/* Description Input */}
         <div>
-          <label htmlFor="branch-description" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="branch-description" className="block text-sm font-medium text-ink-secondary mb-1">
             Description
           </label>
           <textarea
@@ -203,7 +203,7 @@ export const BranchGraphModal = memo(function BranchGraphModal({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Describe the purpose of this branch (optional)..."
             rows={2}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
+            className="w-full px-3 py-2 border border-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
             disabled={isBranching}
           />
         </div>

@@ -238,10 +238,10 @@ describe('shortcut registry', () => {
     }
   })
 
-  it('lists every Alt+n view switch the layout handles', () => {
+  it('lists every view switch the layout handles: Shift+n, with Alt+n as an alternative', () => {
     for (const config of VIEW_SHORTCUT_CONFIGS) {
       const entry = SHORTCUTS.find((s) => s.id === `view-${config.mode}`)
-      expect(entry?.combos.map(formatCombo)).toEqual([`Alt+${config.shortcut}`])
+      expect(entry?.combos.map(formatCombo)).toEqual([`Shift+${config.shortcut}`, `Alt+${config.shortcut}`])
     }
   })
 

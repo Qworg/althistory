@@ -29,7 +29,7 @@ Unlike static timeline drawing tools or freeform worldbuilding wikis, `althistor
 ## Operating Context
 
 - **Dual local and cloud execution:** Commonly run locally via `./start-local.sh` against a zero-dependency JSON store (`LOCAL_EXECUTION_ENABLED=true`, `http://localhost:5173` talking to `http://localhost:3000`), or deployed as a single-replica cloud container backed by Neo4j and Redis.
-- **Multi-view analytical workflow:** Users switch between **Timeline** (`/timeline`, `Alt+1`), **Causal Graph** (`/causal-graph`, `Alt+2`), and **Actor Perspective** (`/actor-perspective`, `Alt+3`) while scoping the active graph from the persistent header selector and narrowing visible entities with the right-hand filter panel (search text, date range, actors, confidence threshold).
+- **Multi-view analytical workflow:** Users switch between **Timeline** (`/timeline`, `Shift+1`), **Causal Graph** (`/causal-graph`, `Shift+2`), and **Actor Perspective** (`/actor-perspective`, `Shift+3`; `Alt+1`–`Alt+3` also work) while scoping the active graph from the persistent header selector and narrowing visible entities with the right-hand filter panel (search text, date range, actors, confidence threshold).
 - **Review-gated ingestion:** When extracting events from Wikipedia URLs, Wikidata queries, or pasted prose (via deterministic pattern matching or configured LLM modes), extracted events land in an editable review table with confidence scores so users can correct actors, dates, or descriptions before anything is written to the active graph.
 - **Side-by-side CLI/MCP use:** Users and connected coding/writing agents (Claude Desktop, Cursor, Antigravity) frequently mutate or query graphs via `./bin/althistory` while the web interface reflects changes via REST and WebSocket updates.
 
@@ -70,4 +70,4 @@ Unlike static timeline drawing tools or freeform worldbuilding wikis, `althistor
 
 - **Standard:** WCAG AA compliance across interactive views, forms, modals, and data visualizations (enforced in tests with `vitest-axe`).
 - **High-contrast mode:** Built-in user preference (`userPreferences.accessibility.highContrast`) synced to `document.documentElement.classList` (`.high-contrast`), which all surfaces and visual refinements must honor.
-- **Keyboard-first operation:** Global keyboard shortcuts for view switching (`Alt+1`, `Alt+2`, `Alt+3`), focus management across modals and main regions (`role="main"`, ` role="banner"`), and accessible tooltips/inspections for timeline and graph nodes.
+- **Keyboard-first operation:** Global keyboard shortcuts for view switching (`Shift+1`–`Shift+3`, with `Alt+1`–`Alt+3` as an alternative: Alt+digit switches browser tabs on Linux), focus management across modals and main regions (`role="main"`, ` role="banner"`), and accessible tooltips/inspections for timeline and graph nodes.

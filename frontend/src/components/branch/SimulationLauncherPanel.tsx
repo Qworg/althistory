@@ -114,12 +114,9 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
 
   return (
     <div className="space-y-4" data-testid="simulation-launcher">
-      {/* Plain sections, not cards: this sits inside the comparison dialog. */}
-      <section aria-labelledby="simulation-heading" className="text-sm text-ink">
-        <h3 id="simulation-heading" className="font-display text-xl font-semibold">
-          Simulate forward
-        </h3>
-        <p className="text-ink-secondary mt-0.5">
+      {/* Plain sections, not cards: this sits inside a drawer that titles it. */}
+      <section aria-label="Simulate forward" className="text-sm text-ink">
+        <p className="text-ink-secondary">
           Extend <span className="font-semibold text-ink">{graphName}</span> forward in steps,
           driven by the pressures inferred from its history.
         </p>
@@ -149,13 +146,13 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
           </label>
 
           <label className="text-sm text-ink-secondary flex flex-col gap-1">
-            <span className="font-semibold text-ink">Domain</span>
+            <span className="font-semibold text-ink">Driving pressure</span>
             <select
               value={domain}
               onChange={e => setDomain(e.target.value as DomainChoice)}
               className={FIELD}
             >
-              <option value={AUTO_DOMAIN}>Auto (dominant pressure)</option>
+              <option value={AUTO_DOMAIN}>The strongest one inferred</option>
               {SIMULATION_DOMAINS.map(option => (
                 <option key={option} value={option}>
                   {option}
@@ -164,32 +161,44 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
             </select>
           </label>
 
-          <label className="text-sm text-ink-secondary flex flex-col gap-1">
-            <span className="font-semibold text-ink">
-              Aggressiveness: {aggressiveness.toFixed(2)}
-            </span>
+          <div className="text-sm text-ink-secondary flex flex-col gap-1">
+            <label htmlFor="simulation-strength" className="font-semibold text-ink">
+              How strongly it follows through:{' '}
+              <span className="font-normal text-ink-secondary">
+                {aggressiveness < 0.34 ? 'cautious' : aggressiveness < 0.67 ? 'moderate' : 'bold'}{' '}
+                <span className="font-mono-code">{aggressiveness.toFixed(2)}</span>
+              </span>
+            </label>
             <input
+              id="simulation-strength"
               type="range"
               min={0}
               max={1}
               step={0.05}
               value={aggressiveness}
               onChange={e => setAggressiveness(Number(e.target.value))}
+              aria-describedby="simulation-strength-hint"
               className="mt-1.5"
             />
-          </label>
+            <span id="simulation-strength-hint" className="text-xs text-ink-muted">
+              Higher makes each step weigh more and link more firmly to what caused it.
+            </span>
+          </div>
         </div>
 
-        <label className="text-sm text-ink-secondary flex flex-col gap-1 mt-3">
-          <span className="font-semibold text-ink">Seed context (optional)</span>
+        <div className="text-sm text-ink-secondary flex flex-col gap-1 mt-3">
+          <label htmlFor="simulation-premise" className="font-semibold text-ink">Premise (optional)</label>
+          <span id="simulation-premise-hint" className="text-xs text-ink-muted">A what-if to steer the run; it is recorded on every simulated event.</span>
           <input
+            id="simulation-premise"
+            aria-describedby="simulation-premise-hint"
             type="text"
             value={seedContext}
             onChange={e => setSeedContext(e.target.value)}
             placeholder="e.g. A blockade of the eastern trade routes"
             className={FIELD}
           />
-        </label>
+        </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
           <p className="text-xs text-ink-secondary">

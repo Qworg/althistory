@@ -11,18 +11,21 @@ describe('StreamingStatusBadge', () => {
     // explanation of what streaming is lives in the tooltip.
     const badge = screen.getByRole('status', { name: 'Edits save as you go' })
     expect(badge).toHaveTextContent('Edits save as you go')
-    expect(badge.className).not.toMatch(/rose|red|amber/)
+    expect(badge.className).not.toMatch(/danger|warning|rose|red|amber/)
     expect(badge).toHaveAttribute('title', expect.stringMatching(/Every edit is saved as you make it/))
     // The media tour finds the last toolbar control by this exact name.
-    const connectButton = screen.getByRole('button', { name: 'Live link' })
+    const connectButton = screen.getByRole('button', { name: 'Live sync' })
 
     fireEvent.click(connectButton)
     expect(onConnect).toHaveBeenCalledTimes(1)
+    // The click event must not reach onConnect: connect(targetGraphId?) would
+    // take it for a graph id and the server rejects "[object Object]".
+    expect(onConnect).toHaveBeenCalledWith()
   })
 
   it('renders connecting state correctly', () => {
     render(<StreamingStatusBadge status="connecting" />)
-    expect(screen.getByText('Live link: connecting…')).toBeInTheDocument()
+    expect(screen.getByText('Live sync: connecting…')).toBeInTheDocument()
   })
 
   it('renders connected state with stats and disconnect action', () => {
@@ -35,8 +38,8 @@ describe('StreamingStatusBadge', () => {
       />
     )
 
-    expect(screen.getByText('Live link on')).toBeInTheDocument()
-    expect(screen.getByText('8/10')).toBeInTheDocument()
+    expect(screen.getByText('Live sync on')).toBeInTheDocument()
+    expect(screen.getByText('8 of 10 confirmed')).toBeInTheDocument()
 
     const disconnectBtn = screen.getByText('Turn off')
     fireEvent.click(disconnectBtn)
@@ -59,9 +62,15 @@ describe('StreamingStatusBadge', () => {
     expect(disconnect.className).not.toMatch(/hover:text-(?:slate|emerald)-900/)
   })
 
-  it('renders error state correctly', () => {
-    render(<StreamingStatusBadge status="error" error="Network refused" />)
-    expect(screen.getByText('Live link failed')).toBeInTheDocument()
-    expect(screen.getByText('Network refused')).toBeInTheDocument()
+  it('explains a failure in plain words, keeps server detail out of the badge, and offers Retry', () => {
+    const onConnect = vi.fn()
+    render(<StreamingStatusBadge status="error" error='Unsafe graph id: "[object Object]"' onConnect={onConnect} />)
+    const badge = screen.getByRole('status', { name: "Couldn't start live sync" })
+    expect(badge).not.toHaveTextContent('Unsafe graph id')
+    expect(badge).toHaveAttribute('title', expect.stringContaining('Unsafe graph id'))
+    expect(screen.getByRole('alert')).toHaveTextContent(/edits still save as you go/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onConnect).toHaveBeenCalledWith()
   })
 })

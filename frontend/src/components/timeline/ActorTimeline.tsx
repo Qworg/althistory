@@ -8,12 +8,13 @@ import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } f
 
 /** Two rows of 12px labels (the 12px floor); the pitch is the font plus leading. */
 const ACTOR_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: [-16, -30], fontSize: 12 }
+/** Rows under a mark, for a label with no room above it. */
+const ACTOR_LABEL_BELOW_CONFIG: LabelLayoutConfig = { rowOffsets: [24, 38], fontSize: 12 }
 /**
  * Arc names are drawn at 12px medium, which runs wider than the regular
  * weight the estimate assumes; measured at 13px so two neighbouring names do
  * not overprint ("The Calculating O… / Engines on the Wi…").
  */
-const ARC_NAME_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: ACTOR_LABEL_CONFIG.rowOffsets, fontSize: 13 }
 
 export interface ActorEventData extends Event {
   role: 'actor' | 'target'
@@ -46,11 +47,17 @@ const DEFAULT_MARGIN = { top: 20, right: 20, bottom: 60, left: 80 }
 const TICK_CHAR_PX = 6.6
 /** Clear space wanted between two upright tick labels. */
 const TICK_GAP_PX = 8
-/** Baseline of the first arc-label row, and the step to the next. */
+/** Baseline of the first arc row's name, and the step to the next row. */
 const ARC_LABEL_TOP = 15
-const ARC_LABEL_ROW_STEP = 14
-/** Arc names get at most two rows; the event labels own the space below. */
-const ARC_LABEL_MAX_ROWS = 2
+const ARC_LABEL_ROW_STEP = 24
+/** The arc lane takes at most this many rows; the event lanes own the space below. */
+const ARC_LABEL_MAX_ROWS = 3
+/** Height of an arc bar, which sits just under its name. */
+const ARC_BAR_HEIGHT = 6
+/** Least gap between two bars sharing a row. */
+const ARC_BAR_GAP_PX = 4
+/** A bar narrower than this is drawn without its name (it would be all ellipsis). */
+const ARC_MIN_LABEL_PX = 40
 
 /** Role colours: the data encoding of the chart, shared by marks and legend. */
 /** Role colours (index.css tokens). Shape carries the role too: filled acts, ring is acted on. */
@@ -225,30 +232,38 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     return widest + TICK_GAP_PX > narrowestGap
   }, [xTicks])
 
-  // Arc names go in the band's centre, placed by the same collision-free
-  // layout as the event labels: a name that would overprint another moves to
-  // the second row, and one that fits in neither is not drawn.
+  // Arcs as the main timeline draws them: bars in a lane at the top, packed
+  // into rows so overlapping periods sit one above the other, each named over
+  // its own bar (cut to the bar's width). Full-height bands overprinted each
+  // other's names in the middle of the chart.
   const arcLabels = useMemo(() => {
-    const items = arcs.flatMap(arc => {
+    const rows: number[] = []
+    const placed = new Map<string, { y: number; barY: number; text: string; startX: number; endX: number }>()
+    const ordered = [...arcs].sort((a, b) => a.start_time.localeCompare(b.start_time) || b.end_time.localeCompare(a.end_time))
+    for (const arc of ordered) {
       const startX = Math.min(innerWidth, Math.max(0, timeScale(new Date(arc.start_time))))
       const endX = Math.min(innerWidth, Math.max(0, timeScale(new Date(arc.end_time))))
-      if (endX - startX < 1) return []
-      return [{ id: arc.id, x: startX + (endX - startX) / 2, description: arc.name }]
-    })
-    const placements = layoutEventLabels(items, innerWidth, ARC_NAME_LABEL_CONFIG)
-    const rows = new Map<string, { y: number; anchor: EventLabelPlacement['anchor']; text: string }>()
-    placements.forEach((placement, id) => {
-      const row = Math.max(0, ARC_NAME_LABEL_CONFIG.rowOffsets.indexOf(placement.offset))
-      if (row >= ARC_LABEL_MAX_ROWS) return
-      rows.set(id, { y: ARC_LABEL_TOP + row * ARC_LABEL_ROW_STEP, anchor: placement.anchor, text: placement.text })
-    })
-    return rows
+      if (endX - startX < 1) continue
+      let row = rows.findIndex((end) => startX >= end + ARC_BAR_GAP_PX)
+      if (row === -1) {
+        if (rows.length >= ARC_LABEL_MAX_ROWS) continue
+        row = rows.length
+        rows.push(endX)
+      } else {
+        rows[row] = endX
+      }
+      const y = ARC_LABEL_TOP + row * ARC_LABEL_ROW_STEP
+      const width = endX - startX
+      const text = width >= ARC_MIN_LABEL_PX ? truncateToWidth(arc.name, width, 12) : ''
+      placed.set(arc.id, { y, barY: y + 4, text, startX, endX })
+    }
+    return placed
   }, [arcs, timeScale, innerWidth])
 
   // The lowest arc-label baseline: event labels of the top lane stop short of it.
   const arcLabelFloor = useMemo(() => {
     let floor = 0
-    arcLabels.forEach(({ y }) => { floor = Math.max(floor, y) })
+    arcLabels.forEach(({ barY }) => { floor = Math.max(floor, barY + ARC_BAR_HEIGHT) })
     return floor
   }, [arcLabels])
 
@@ -277,9 +292,28 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
         innerWidth,
         ACTOR_LABEL_CONFIG
       )
+      const unplaced = new Set(groupEvents.map(event => event.id))
       lane.forEach((placement, id) => {
-        if (-placement.offset <= maxRise) placements.set(id, placement)
+        if (-placement.offset <= maxRise) {
+          placements.set(id, placement)
+          unplaced.delete(id)
+        }
       })
+      // No room above (the arc lane is in the way, or the lane above): try
+      // under the mark, still inside this lane. Two of an actor's three
+      // marks were going unnamed.
+      if (unplaced.size > 0) {
+        const below = layoutEventLabels(
+          groupEvents
+            .filter(event => unplaced.has(event.id))
+            .map(event => ({ id: event.id, x: timeScale(new Date(event.timestamp)), description: event.description })),
+          innerWidth,
+          ACTOR_LABEL_BELOW_CONFIG
+        )
+        below.forEach((placement, id) => {
+          if (placement.offset <= laneGap - 10) placements.set(id, placement)
+        })
+      }
     }
     return placements
   }, [events.length, groups, layoutMode, innerHeight, innerWidth, timeScale, yScale, arcLabelFloor, state.selectedEventId])
@@ -361,10 +395,6 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
       .call(zoomRef.current.transform, d3.zoomIdentity)
   }, [])
 
-  // An arc usually starts before or ends after the visible range; clamp it to
-  // the plot area so the band does not spill over the axes and margins.
-  const clampX = useCallback((x: number) => Math.min(innerWidth, Math.max(0, x)), [innerWidth])
-
   const roleLabel = (role: 'actor' | 'target') => (role === 'actor' ? 'Actor' : 'Target')
 
   return (
@@ -372,37 +402,38 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
       {/* The legend sits above the chart: drawn over it, it covered the arc
           labels and the x-axis labels. (The layout is named by the view's own
           Layout control, so the chart does not repeat it.) */}
-      <div className="mb-2 flex items-center gap-4 pr-28 text-xs text-ink-secondary">
+      <div className="mb-2 flex items-center gap-4 text-xs text-ink-secondary">
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-1">
             <div className="w-3 h-3 bg-role-actor rounded-full" aria-hidden="true"></div>
-            <span>As Actor</span>
+            <span>As actor</span>
           </div>
           <div className="flex items-center space-x-1">
             <div className="w-3 h-3 border-2 border-role-target bg-card rounded-full" aria-hidden="true"></div>
-            <span>As Target</span>
+            <span>As target</span>
           </div>
           {layoutMode === 'thematic' && (
             <div className="flex items-center space-x-1">
-              <div className="w-4 h-0 border-t border-gray-400 border-dashed"></div>
+              <div className="w-4 h-0 border-t border-ink-muted border-dashed"></div>
               <span>Connections</span>
             </div>
           )}
         </div>
+        {/* Fit to View, in the legend row: drawn over the chart it overlapped
+              the frame's corner. React-rendered (it used to be appended by d3). */}
+        <button
+          type="button"
+          onClick={handleFitToView}
+          className="fit-to-view-button ml-auto flex items-center gap-1 rounded border border-line bg-card px-2 py-1 text-xs text-ink-secondary shadow-sm transition-colors hover:bg-subtle hover:text-ink"
+          title="Fit all events in view"
+        >
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+          </svg>
+          Fit to View
+        </button>
       </div>
 
-      {/* Fit to View: React-rendered (it used to be appended by d3). */}
-      <button
-        type="button"
-        onClick={handleFitToView}
-        className="fit-to-view-button absolute right-2.5 top-2.5 z-10 flex items-center gap-1 rounded border border-line bg-card px-2 py-1 text-xs text-ink-secondary shadow-sm transition-colors hover:bg-subtle hover:text-ink"
-        title="Fit all events in view"
-      >
-        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-        </svg>
-        Fit to View
-      </button>
 
       {/* The tooltip is positioned in this wrapper's coordinates. */}
       <div className="relative">
@@ -494,35 +525,33 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
               )}
             </g>
 
-            {/* Arc bands as background context */}
+            {/* The arc lane (see arcLabels) */}
             <g className="arcs-layer" pointerEvents="none">
               {arcs.map(arc => {
-                const startX = clampX(timeScale(new Date(arc.start_time)))
-                const endX = clampX(timeScale(new Date(arc.end_time)))
-                const label = arcLabels.get(arc.id)
+                const lane = arcLabels.get(arc.id)
+                if (!lane) return null
                 return (
                   <g key={arc.id} className="actor-arc">
                     <rect
-                      x={startX}
-                      y={0}
-                      width={Math.max(0, endX - startX)}
-                      height={innerHeight}
-                      fill="rgba(59, 130, 246, 0.05)"
-                      stroke="rgba(59, 130, 246, 0.2)"
+                      x={lane.startX}
+                      y={lane.barY}
+                      width={Math.max(0, lane.endX - lane.startX)}
+                      height={ARC_BAR_HEIGHT}
+                      rx={2}
+                      style={{ fill: 'var(--arc-fill)', stroke: 'var(--arc-stroke)' }}
                       strokeWidth={1}
-                      strokeDasharray="3,3"
                     />
-                    {label && (
+                    {lane.text && (
                       <text
                         className="actor-arc-label"
-                        x={startX + (endX - startX) / 2}
-                        y={label.y}
-                        textAnchor={label.anchor}
+                        x={lane.startX}
+                        y={lane.y}
+                        textAnchor="start"
                         fontSize={12}
                         fontWeight={500}
-                        style={{ fill: 'var(--text-muted)' }}
+                        style={{ fill: 'var(--text-secondary)' }}
                       >
-                        {label.text}
+                        {lane.text}
                       </text>
                     )}
                   </g>

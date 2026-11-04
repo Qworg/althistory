@@ -19,7 +19,10 @@ export interface StreamingStatusBadgeProps {
 }
 
 const OFF_HINT =
-  'Every edit is saved as you make it. A live link also sends each edit over an open connection and shows it confirmed as it lands: useful while an agent or the CLI edits the same graph.'
+  'Every edit is saved as you make it. Live sync also sends each edit over an open connection and shows it confirmed as it lands: useful while an agent or the CLI edits the same graph.'
+
+const ERROR_MESSAGE =
+  "Couldn't start live sync. Your edits still save as you go; retry when the server is reachable."
 
 const actionClass =
   'ml-0.5 rounded-sm text-xs font-medium underline underline-offset-2 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected transition-colors'
@@ -36,21 +39,21 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
     switch (status) {
       case 'connected':
         return {
-          bg: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-          dot: 'bg-emerald-500',
-          label: 'Live link on',
+          bg: 'bg-success/10 text-success border-success/30',
+          dot: 'bg-success',
+          label: 'Live sync on',
         }
       case 'connecting':
         return {
-          bg: 'bg-amber-50 text-amber-800 border-amber-200',
-          dot: 'bg-amber-500 animate-pulse',
-          label: 'Live link: connecting…',
+          bg: 'bg-warning/10 text-warning border-warning/30',
+          dot: 'bg-warning animate-pulse',
+          label: 'Live sync: connecting…',
         }
       case 'error':
         return {
-          bg: 'bg-rose-50 text-rose-800 border-rose-200',
-          dot: 'bg-rose-500',
-          label: 'Live link failed',
+          bg: 'bg-danger/10 text-danger border-danger/30',
+          dot: 'bg-danger',
+          label: "Couldn't start live sync",
         }
       case 'disconnected':
       default:
@@ -64,7 +67,12 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
 
   const config = getStatusConfig()
   const statsTitle = stats ? `${stats.acked} of ${stats.sent} edits confirmed${stats.failed ? `, ${stats.failed} failed` : ''}` : undefined
-  const title = error || statsTitle || (status === 'disconnected' ? OFF_HINT : undefined)
+  // The server's own wording stays out of the badge; it is kept in the tooltip
+  // for whoever is debugging the connection.
+  const title =
+    status === 'error'
+      ? `${ERROR_MESSAGE}${error ? ` (Details: ${error})` : ''}`
+      : statsTitle || (status === 'disconnected' ? OFF_HINT : undefined)
 
   return (
     <div
@@ -77,31 +85,39 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
       <span>{config.label}</span>
 
       {status === 'connected' && stats && (
-        <span className="font-mono-code text-xs text-emerald-800 border-l border-emerald-200 pl-1.5 ml-0.5">
-          {stats.acked}/{stats.sent}
+        <span className="font-mono-code text-xs text-success border-l border-success/30 pl-1.5 ml-0.5">
+          {/* Words, not "0/0": what the two numbers count. */}
+          {stats.sent === 0 ? 'no edits sent yet' : `${stats.acked} of ${stats.sent} confirmed`}
         </span>
       )}
 
       {stats && stats.failed > 0 && (
-        <span className="text-xs text-rose-700 font-semibold border-l border-rose-200 pl-1.5 ml-0.5" role="alert">
+        <span className="text-xs text-danger font-semibold border-l border-danger/30 pl-1.5 ml-0.5" role="alert">
           {stats.failed} failed
         </span>
       )}
 
-      {error && (
-        <span className="text-xs text-rose-800 border-l border-rose-200 pl-1.5 ml-0.5 truncate max-w-40" role="alert">
-          {error}
+      {status === 'error' && (
+        <span className="sr-only" role="alert">
+          {ERROR_MESSAGE}
         </span>
       )}
 
+      {/* The handler is wrapped so the click event never reaches onConnect as an argument. */}
       {status === 'disconnected' && onConnect && (
-        <button type="button" onClick={onConnect} className={actionClass}>
-          Live link
+        <button type="button" onClick={() => onConnect()} className={actionClass}>
+          Live sync
+        </button>
+      )}
+
+      {status === 'error' && onConnect && (
+        <button type="button" onClick={() => onConnect()} className={actionClass}>
+          Retry
         </button>
       )}
 
       {status === 'connected' && onDisconnect && (
-        <button type="button" onClick={onDisconnect} className={actionClass}>
+        <button type="button" onClick={() => onDisconnect()} className={actionClass}>
           Turn off
         </button>
       )}

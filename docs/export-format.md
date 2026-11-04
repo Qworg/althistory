@@ -85,7 +85,7 @@ present only when the graph has any.
 | `actor` | string | yes | Who acted. |
 | `target` | string | yes | Who or what was acted on. |
 | `timestamp` | string (ISO 8601) | yes | When. Comparisons are by instant. |
-| `metadata` | object? | no | Free-form. `arcId` records the arc the event belongs to — that is where the association lives, not in a column of its own. |
+| `metadata` | object? | no | Free-form. `arcId` records the arc the event belongs to — that is where the association lives, not in a column of its own. `datePrecision` (`"month"` or `"year"`) says the source stated only that much of the date: "March 1871" is stored as `1871-03-01` with `datePrecision: "month"`, and the UI shows it as "Mar 1871". Absent means a full date. |
 | `sourceRef` | string? | no | Where the event came from, when it was ingested. |
 
 ### `data.arcs[]`

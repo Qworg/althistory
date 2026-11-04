@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
+import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
 import { CausalGraphComponent } from '@/components/causal-graph'
 import { Event, CausalRelationship } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
@@ -133,6 +134,28 @@ export function CausalGraphView() {
     setSelectedRelationship(relationship)
     setSelectedEvent(null)
   }, [])
+
+  const filterPanelOpen = useGlobalStore((state) => state.uiState?.filterPanelOpen ?? false)
+
+  const clearSelection = useCallback(() => {
+    setSelectedEvent(null)
+    setSelectedRelationship(null)
+  }, [])
+
+  // Escape clears the selection, as on the timeline. The canvas handles its
+  // own Escape first (cancel a link being drawn, close a tool) and marks it
+  // handled; only a bare Escape reaches this.
+  const hasLocalSelection = selectedEvent !== null || selectedRelationship !== null
+  useEffect(() => {
+    if (!hasLocalSelection) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || shouldIgnoreAppShortcut(event)) return
+      setSelectedEvent(null)
+      setSelectedRelationship(null)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [hasLocalSelection])
 
   const handleInspectorEdit = useCallback((event: Event) => {
     setEditModal({ type: 'event', item: event })
@@ -276,11 +299,10 @@ export function CausalGraphView() {
           <div>
             {/* The breadcrumb and the navigation already name the view. */}
             <h2 className="sr-only">Causal Graph</h2>
+            {/* One line, for the input in use; the rest is in Help (?). */}
             <p className="text-xs text-ink-secondary">
-              Select a node to inspect it
-              {/* Hover and right-click need a mouse: not offered on a touch screen. */}
-              <span className="hidden [@media(pointer:fine)]:inline"> · Hover a link for its weight and type · Right-click to edit</span>
-              {' '}· Draw Link (D) links two selected events, or the cause and effect you click next
+              <span className="[@media(pointer:coarse)]:hidden">Click a node to inspect it · right-click it to edit · hover a link for its weight</span>
+              <span className="hidden [@media(pointer:coarse)]:inline">Tap a node to inspect it</span>
             </p>
           </div>
 
@@ -309,7 +331,13 @@ export function CausalGraphView() {
 
       {/* The graph, with the selected event's inspector beside it on a wide
           screen and under it on a narrow one. */}
-      <div className="flex-1 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      {/* The inspector takes a column only while an event is selected: empty,
+          its 20rem column was most of the reason the graph had ~40% of the
+          window. With nothing selected the hint bar above says what to do. */}
+      {/* The same placement as the timeline's: a rail beside the canvas from
+          xl, always there at that width (so selecting never resizes the
+          canvas), with the inspector in it once an event is selected. */}
+      <div className={`flex-1 grid grid-cols-1 gap-4 xl:items-start ${selectedEventNow || !filterPanelOpen ? 'xl:grid-cols-[minmax(0,1fr)_20rem]' : ''}`}>
       <div className="bg-card border border-line rounded-lg shadow-sm p-4 min-w-0">
         {loadFailure && !isLoading ? (
           <ViewLoadError
@@ -347,22 +375,39 @@ export function CausalGraphView() {
         )}
       </div>
 
-        <div className="bg-card border border-line rounded-lg shadow-sm p-4 lg:max-h-[calc(100dvh_-_12rem)] lg:overflow-y-auto">
-          <CausalEventInspector
-            event={selectedEventNow}
-            events={filteredEvents}
-            relationships={filteredRelationships}
-            onSelectEvent={handleNodeClick}
-            onEdit={handleInspectorEdit}
-            isLoading={relationshipsLoading}
-          />
-        </div>
+        {!selectedEventNow && !filterPanelOpen && (
+          <aside aria-label="Selection" className="hidden rounded-lg border border-dashed border-line p-5 text-sm text-ink-secondary xl:block">
+            <h3 className="font-display text-xl font-semibold text-ink">Nothing selected</h3>
+            <p className="mt-2">
+              Select an event to see what caused it and what it set in motion: its ripple stays lit on the graph
+              while the rest fades back.
+            </p>
+          </aside>
+        )}
+        {selectedEventNow && (
+          <div className="bg-card border border-line rounded-lg shadow-sm p-4 xl:sticky xl:top-[calc(var(--app-header-h,0px)+1.5rem)] xl:max-h-[calc(100dvh-var(--app-header-h,0px)-3rem)] xl:overflow-y-auto max-lg:fixed max-lg:inset-x-0 max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] max-lg:z-30 max-lg:max-h-[55dvh] max-lg:overflow-y-auto max-lg:rounded-b-none max-lg:shadow-xl">
+            <CausalEventInspector
+              event={selectedEventNow}
+              events={filteredEvents}
+              relationships={filteredRelationships}
+              onSelectEvent={handleNodeClick}
+              onEdit={handleInspectorEdit}
+              onClose={clearSelection}
+              isLoading={relationshipsLoading}
+            />
+          </div>
+        )}
       </div>
 
       {/* Context Menu */}
       {contextMenu && (
         <ContextMenu
           isOpen={true}
+          title={
+            contextMenu.type === 'event'
+              ? (contextMenu.item as Event).description
+              : 'The causal link'
+          }
           position={contextMenu.position}
           items={[
             { id: 'edit', label: 'Edit', onClick: handleEdit },

@@ -273,21 +273,21 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      expect(screen.getByRole('button', { name: /graphs/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /branches/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /graphs/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /branches/i })).toBeInTheDocument()
       // Version history is Graph › Versions, not a second copy here.
       expect(screen.queryByRole('button', { name: /^versions$/i })).not.toBeInTheDocument()
     })
 
-    it('should display active graph info in sidebar', () => {
+    it('names the open graph beside the tabs', () => {
       render(
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      expect(screen.getByText('Active Graph')).toBeInTheDocument()
+      expect(screen.getByText(/^Open:/)).toBeInTheDocument()
       // Main Timeline appears in both sidebar and graph list
       expect(screen.getAllByText('Main Timeline').length).toBeGreaterThanOrEqual(2)
-      expect(screen.getByText(/v3 · 150 events/)).toBeInTheDocument()
+      expect(screen.getByText(/^Open:/)).toHaveTextContent(/v3/)
     })
 
     it('should start on specified initial tab', () => {
@@ -295,8 +295,8 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="branches" />
       )
       
-      const branchesTab = screen.getByRole('button', { name: /branches/i })
-      expect(branchesTab).toHaveClass('bg-selected/10')
+      const branchesTab = screen.getByRole('tab', { name: /branches/i })
+      expect(branchesTab).toHaveAttribute('aria-selected', 'true')
     })
   })
 
@@ -327,8 +327,8 @@ describe('GraphManagerModal', () => {
       
       const graphCards = screen.getAllByText('Main Timeline')
       // Find the one in the graph list (inside the grid)
-      const graphCard = graphCards.find(el => el.closest('.grid'))?.closest('.p-4')
-      expect(graphCard).toHaveClass('border-selected')
+      const graphCard = graphCards.find(el => el.closest('[data-graph-row]'))?.closest('[data-graph-row]')
+      expect(graphCard).toHaveAttribute('aria-current', 'true')
     })
 
     it('should show branch name badge for branched graphs', () => {
@@ -346,7 +346,7 @@ describe('GraphManagerModal', () => {
 
       // Every graph is "active" unless archived, so the badge only says so
       // for the one that is open.
-      expect(screen.getAllByText('Open')).toHaveLength(1)
+      expect(screen.getAllByText('Open now')).toHaveLength(1)
       expect(screen.queryByText('active')).not.toBeInTheDocument()
     })
 
@@ -367,7 +367,7 @@ describe('GraphManagerModal', () => {
       )
       
       // Click on a non-active graph to select it
-      const graphCard = screen.getByText('Alternative Branch').closest('.p-4')
+      const graphCard = screen.getByText('Alternative Branch').closest('[data-graph-row]')
       await user.click(graphCard!)
       
       expect(screen.getByRole('button', { name: /Switch to Graph/i })).toBeInTheDocument()
@@ -382,7 +382,7 @@ describe('GraphManagerModal', () => {
       
       // Click on the active graph. The sidebar repeats its name, so pick the
       // occurrence that lives inside the graph list card.
-      const graphCard = screen.getAllByText('Main Timeline').find(el => el.closest('.p-4'))
+      const graphCard = screen.getAllByText('Main Timeline').find(el => el.closest('[data-graph-row]'))
       if (!graphCard) {
         throw new Error('Expected the active graph card to be rendered')
       }
@@ -397,7 +397,7 @@ describe('GraphManagerModal', () => {
       )
       
       // Select non-active graph
-      const graphCard = screen.getByText('Alternative Branch').closest('.p-4')
+      const graphCard = screen.getByText('Alternative Branch').closest('[data-graph-row]')
       await user.click(graphCard!)
       
       // Click Switch
@@ -415,7 +415,7 @@ describe('GraphManagerModal', () => {
       )
       
       // Select a graph
-      const graphCard = screen.getByText('Alternative Branch').closest('.p-4')
+      const graphCard = screen.getByText('Alternative Branch').closest('[data-graph-row]')
       await user.click(graphCard!)
       
       // Click Edit
@@ -432,7 +432,7 @@ describe('GraphManagerModal', () => {
       )
       
       // Select and edit
-      const graphCard = screen.getByText('Alternative Branch').closest('.p-4')
+      const graphCard = screen.getByText('Alternative Branch').closest('[data-graph-row]')
       await user.click(graphCard!)
       await user.click(screen.getByRole('button', { name: /Edit/i }))
       
@@ -448,7 +448,7 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      const graphCard = screen.getByText('Alternative Branch').closest('.p-4')
+      const graphCard = screen.getByText('Alternative Branch').closest('[data-graph-row]')
       await user.click(graphCard!)
       await user.click(screen.getByRole('button', { name: /Edit/i }))
       
@@ -464,7 +464,7 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      const graphCard = screen.getByText('Alternative Branch').closest('.p-4')
+      const graphCard = screen.getByText('Alternative Branch').closest('[data-graph-row]')
       await user.click(graphCard!)
       await user.click(screen.getByRole('button', { name: /Edit/i }))
       
@@ -479,7 +479,7 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      const graphCard = screen.getByText('Alternative Branch').closest('.p-4')
+      const graphCard = screen.getByText('Alternative Branch').closest('[data-graph-row]')
       await user.click(graphCard!)
       await user.click(screen.getByRole('button', { name: /Edit/i }))
       
@@ -502,7 +502,7 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      const graphCard = screen.getByText('Alternative Branch').closest('.p-4')
+      const graphCard = screen.getByText('Alternative Branch').closest('[data-graph-row]')
       await user.click(graphCard!)
       await user.click(screen.getByRole('button', { name: /Edit/i }))
       
@@ -523,7 +523,7 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      const graphCard = screen.getByText('Alternative Branch').closest('.p-4')
+      const graphCard = screen.getByText('Alternative Branch').closest('[data-graph-row]')
       await user.click(graphCard!)
       await user.click(screen.getByRole('button', { name: /Delete/i }))
       
@@ -536,14 +536,14 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      const graphCard = screen.getByText('Alternative Branch').closest('.p-4')
+      const graphCard = screen.getByText('Alternative Branch').closest('[data-graph-row]')
       await user.click(graphCard!)
       await user.click(screen.getByRole('button', { name: /Delete/i }))
       
       // Confirm delete - find the Delete button in the confirmation dialog
       const deleteButtons = screen.getAllByRole('button', { name: /Delete/i })
       const confirmDeleteButton = deleteButtons.find(btn => 
-        btn.classList.contains('bg-red-600')
+        btn.classList.contains('bg-danger')
       )
       await user.click(confirmDeleteButton!)
       
@@ -555,7 +555,7 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      const graphCard = screen.getByText('Alternative Branch').closest('.p-4')
+      const graphCard = screen.getByText('Alternative Branch').closest('[data-graph-row]')
       await user.click(graphCard!)
       await user.click(screen.getByRole('button', { name: /Delete/i }))
       
@@ -574,7 +574,7 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      const graphCard = screen.getByText('Alternative Branch').closest('.p-4')
+      const graphCard = screen.getByText('Alternative Branch').closest('[data-graph-row]')
       await user.click(graphCard!)
       await user.click(screen.getByRole('button', { name: /Delete/i }))
       
@@ -588,7 +588,7 @@ describe('GraphManagerModal', () => {
         <GraphManagerModal isOpen={true} onClose={mockOnClose} />
       )
       
-      await user.click(screen.getByRole('button', { name: /branches/i }))
+      await user.click(screen.getByRole('tab', { name: /branches/i }))
       
       expect(screen.getByText('Branches')).toBeInTheDocument()
     })

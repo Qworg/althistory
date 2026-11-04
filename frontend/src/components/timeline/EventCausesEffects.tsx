@@ -1,6 +1,6 @@
 import { ArrowLeftIcon, ArrowRightIcon } from '@heroicons/react/24/outline'
 import type { Event } from '@/types'
-import { formatHistoricalDate } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 import type { CausalNeighbour } from './eventInspectorUtils'
 
 export interface EventCausesEffectsProps {
@@ -57,7 +57,7 @@ function NeighbourList({
                   </span>
                 </span>
                 <span className="font-mono-code shrink-0 text-xs text-ink-muted">
-                  {formatHistoricalDate(event.timestamp)}
+                  {formatEventDate(event)}
                 </span>
               </button>
             </li>
@@ -78,7 +78,7 @@ export function EventCausesEffects({ causes, effects, onSelectEvent, isLoading =
     return <p className="text-sm text-ink-muted" role="status">Loading causal links…</p>
   }
   return (
-    <div className={`grid grid-cols-1 gap-x-8 gap-y-4 ${layout === 'columns' ? 'md:grid-cols-2' : ''}`}>
+    <div className={`grid grid-cols-1 gap-x-8 gap-y-4 ${layout === 'columns' ? '@md:grid-cols-2' : ''}`}>
       <NeighbourList
         label="Causes"
         items={causes}

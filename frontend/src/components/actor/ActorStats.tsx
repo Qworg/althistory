@@ -68,10 +68,16 @@ function activityRate(stats: ActorStatsData): { value: string; unit: string } | 
   const diffDays = Math.max(1, Math.floor((stats.timeSpan.end.getTime() - stats.timeSpan.start.getTime()) / DAY_MS))
   const daily = stats.eventCount / diffDays
 
-  if (diffDays > 366) return { value: formatRate(stats.eventCount / (diffDays / 365.25)), unit: 'per year' }
-  if (daily >= 1) return { value: formatRate(daily), unit: 'per day' }
-  if (daily * 7 >= 1) return { value: formatRate(daily * 7), unit: 'per week' }
-  return { value: formatRate(daily * 30.44), unit: 'per month' }
+  if (diffDays > 366) {
+    const yearly = stats.eventCount / (diffDays / 365.25)
+    // Under one a year, "0.2 events per year" makes the reader do the sum:
+    // say "1 event every 4 years" instead.
+    if (yearly < 1) return { value: '1', unit: `event every ${Math.round(1 / yearly)} years` }
+    return { value: formatRate(yearly), unit: 'events per year' }
+  }
+  if (daily >= 1) return { value: formatRate(daily), unit: 'events per day' }
+  if (daily * 7 >= 1) return { value: formatRate(daily * 7), unit: 'events per week' }
+  return { value: formatRate(daily * 30.44), unit: 'events per month' }
 }
 
 function average(count: number, over: number): string {
@@ -137,7 +143,7 @@ export function ActorStats({ actor, stats, className = '' }: ActorStatsProps) {
             {rate ? (
               <>
                 <span className="font-mono-code">{rate.value}</span>{' '}
-                <span className="text-sm font-normal text-ink-secondary">events {rate.unit}</span>
+                <span className="text-sm font-normal text-ink-secondary">{rate.unit}</span>
               </>
             ) : (
               <span className="text-sm font-normal text-ink-secondary">No events</span>
@@ -158,7 +164,7 @@ export function ActorStats({ actor, stats, className = '' }: ActorStatsProps) {
         <div data-role="actor">
           <h4 className="flex items-center gap-2 text-sm font-semibold text-ink-secondary">
             <span className={`h-2.5 w-2.5 rounded-full ${ROLE_DOT.actor}`} aria-hidden="true" />
-            As Actor
+            As actor
           </h4>
           <dl className="mt-2 space-y-1 text-sm">
             <div className="flex justify-between gap-4">
@@ -179,7 +185,7 @@ export function ActorStats({ actor, stats, className = '' }: ActorStatsProps) {
         <div data-role="target">
           <h4 className="flex items-center gap-2 text-sm font-semibold text-ink-secondary">
             <span className={`h-2.5 w-2.5 rounded-full ${ROLE_DOT.target}`} aria-hidden="true" />
-            As Target
+            As target
           </h4>
           <dl className="mt-2 space-y-1 text-sm">
             <div className="flex justify-between gap-4">

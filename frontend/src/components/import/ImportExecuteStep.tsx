@@ -97,7 +97,7 @@ export function ImportExecuteStep({
               </div>
               <div className="w-full bg-line rounded-full h-3 overflow-hidden" role="progressbar" aria-label="Import in progress">
                 <div
-                  className="bg-blue-500 h-3 rounded-full animate-pulse"
+                  className="bg-baseline h-3 rounded-full animate-pulse"
                   style={{ width: '100%' }}
                 />
               </div>
@@ -113,7 +113,7 @@ export function ImportExecuteStep({
               </div>
               <div className="w-full bg-line rounded-full h-3" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
                 <div
-                  className="bg-blue-500 h-3 rounded-full transition-all duration-300"
+                  className="bg-baseline h-3 rounded-full transition-all duration-300"
                   style={{ width: `${progress}%` }}
                 />
               </div>
@@ -126,7 +126,7 @@ export function ImportExecuteStep({
                   <button
                     type="button"
                     onClick={onCancel}
-                    className="inline-flex items-center px-3 py-1 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-card hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                    className="inline-flex items-center px-3 py-1 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-card hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-danger"
                   >
                     Cancel Import
                   </button>
@@ -272,7 +272,7 @@ export function ImportExecuteStep({
           type="button"
           onClick={onBack}
           disabled={isExecuting}
-          className="inline-flex items-center px-4 py-2 border border-line text-sm font-medium rounded-md text-ink-secondary bg-card hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          className="inline-flex items-center px-4 py-2 border border-line text-sm font-medium rounded-md text-ink-secondary bg-card hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-selected disabled:opacity-50"
         >
           {isSuccess || isFailed ? 'Start Over' : 'Back'}
         </button>
@@ -281,7 +281,7 @@ export function ImportExecuteStep({
           <button
             type="button"
             onClick={onExecute}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-on-accent bg-success hover:bg-success/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
           >
             Start Import
           </button>
@@ -291,7 +291,7 @@ export function ImportExecuteStep({
           <button
             type="button"
             onClick={onComplete}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-on-accent bg-baseline hover:bg-baseline/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-selected"
           >
             Done
           </button>
@@ -301,7 +301,7 @@ export function ImportExecuteStep({
           <button
             type="button"
             onClick={onExecute}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-on-accent bg-baseline hover:bg-baseline/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-selected"
           >
             Retry Import
           </button>

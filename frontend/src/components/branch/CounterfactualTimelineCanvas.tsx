@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useCallback, useRef, useLayoutEffect } from 'react'
+import { memo, useMemo, useState, useCallback, useRef, useLayoutEffect, useEffect } from 'react'
 import type React from 'react'
 import * as d3 from 'd3'
 import { Event, Arc } from '@/types'
@@ -26,6 +26,12 @@ export interface CounterfactualTimelineCanvasProps {
   readonly margin?: { top: number; right: number; bottom: number; left: number }
   readonly onEventSelect?: (event: Event, lane: 'baseline' | 'counterfactual') => void
   readonly className?: string
+  /**
+   * Open on the years from just before the point of divergence when it falls
+   * late in the history (the comparison modal does), instead of fitting all
+   * of it; "All history" still shows everything.
+   */
+  focusDivergence?: boolean
 }
 
 interface HoveredItem {
@@ -272,6 +278,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
   margin: marginProp,
   onEventSelect,
   className = '',
+  focusDivergence = false,
 }: CounterfactualTimelineCanvasProps) {
   const [zoomFactor, setZoomFactor] = useState(1)
   const [panOffset, setPanOffset] = useState(0)
@@ -371,6 +378,36 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
     setZoomFactor(1)
     setPanOffset(0)
   }, [])
+
+  // Open on what differs. Fitting the whole history gave a branch that splits
+  // late most of the lanes to years the two share, and stacked its own events
+  // at the divergence. When the split falls past the first third, the view
+  // starts a little before it (a quarter of what follows, as shared context);
+  // "All history" shows the rest.
+  const divergenceFocus = useMemo(() => {
+    const pod = metrics.pointOfDivergence
+    if (!focusDivergence || !pod) return null
+    const [start, end] = baseDomain
+    const total = end.getTime() - start.getTime()
+    const podMs = new Date(pod.timestamp).getTime()
+    if (!(total > 0) || (podMs - start.getTime()) / total < 0.35) return null
+    const from = Math.max(start.getTime(), podMs - (end.getTime() - podMs) * 0.25)
+    return { zoom: total / (end.getTime() - from), pan: from - start.getTime(), key: `${podMs}:${total}` }
+  }, [focusDivergence, metrics.pointOfDivergence, baseDomain])
+
+  const focusedFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (!divergenceFocus || focusedFor.current === divergenceFocus.key) return
+    focusedFor.current = divergenceFocus.key
+    setZoomFactor(divergenceFocus.zoom)
+    setPanOffset(divergenceFocus.pan)
+  }, [divergenceFocus])
+
+  const handleFocusDivergence = useCallback(() => {
+    if (!divergenceFocus) return
+    setZoomFactor(divergenceFocus.zoom)
+    setPanOffset(divergenceFocus.pan)
+  }, [divergenceFocus])
 
   const handlePanLeft = useCallback(() => {
     const span = currentDomain[1].getTime() - currentDomain[0].getTime()
@@ -549,8 +586,13 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
               <path strokeLinecap="round" d="M5 12h14" />
             </svg>
           </button>
-          <button type="button" onClick={handleResetZoom} className={`${CONTROL_BUTTON} text-xs font-medium`} title="Reset view">
-            Reset
+          {divergenceFocus && (
+            <button type="button" onClick={handleFocusDivergence} className={`${CONTROL_BUTTON} text-xs font-medium`} title="Show the years from just before the divergence">
+              From divergence
+            </button>
+          )}
+          <button type="button" onClick={handleResetZoom} className={`${CONTROL_BUTTON} text-xs font-medium`} title="Reset view: both histories from start to end">
+            All history
           </button>
         </div>
       </div>

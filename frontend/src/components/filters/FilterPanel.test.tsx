@@ -244,13 +244,9 @@ describe('FilterPanel', () => {
   it('handles causal weight range changes', () => {
     renderWithRouter(<FilterPanel {...mockProps} />)
     
-    const weightSliders = screen.getAllByRole('slider')
-    // The causal weight sliders should be the last two sliders (after confidence)
-    const minWeightSlider = weightSliders[weightSliders.length - 2]
-    
-    if (minWeightSlider) {
-      fireEvent.change(minWeightSlider, { target: { value: '0.2' } })
-    }
+    // One "at least this strong" slider for link strength.
+    const minWeightSlider = screen.getByRole('slider', { name: /Links at least this strong/ })
+    fireEvent.change(minWeightSlider, { target: { value: '0.2' } })
     
     expect(mockProps.onFiltersChange).toHaveBeenCalledWith({
       ...mockFilters,

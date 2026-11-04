@@ -251,14 +251,14 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
   }
 
   return (
-    <div className={`causal-path-explorer bg-white border border-gray-200 rounded-lg shadow-lg ${className}`}>
+    <div className={`causal-path-explorer bg-card border border-line rounded-lg shadow-lg ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+      <div className="flex items-center justify-between p-4 border-b border-line">
         <div className="flex items-center space-x-3">
-          <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
+          <div className="w-3 h-3 bg-baseline rounded-full animate-pulse"></div>
           <h3 className="font-display text-xl font-semibold text-ink">Causal Chain Explorer</h3>
           {isLoading && (
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-baseline"></div>
           )}
         </div>
         <button
@@ -274,8 +274,8 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
 
       {/* Path Selection */}
       {explorationState.availablePaths.length > 1 && (
-        <div className="p-4 border-b border-gray-200">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+        <div className="p-4 border-b border-line">
+          <label className="block text-sm font-medium text-ink-secondary mb-2">
             Available Paths ({explorationState.availablePaths.length})
           </label>
           <div className="space-y-2">
@@ -286,7 +286,7 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
                 className={`w-full text-left p-2 rounded-md border transition-colors ${
                   explorationState.currentPath === path
                     ? 'bg-blue-50 border-blue-200 text-blue-800'
-                    : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                    : 'bg-subtle border-line text-ink-secondary hover:bg-subtle'
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -294,15 +294,15 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
                     Path {index + 1}: {path.events.length} events
                   </span>
                   <div className="flex items-center space-x-2">
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-ink-muted">
                       Strength: {(path.totalWeight * 100).toFixed(1)}%
                     </span>
                     <div 
-                      className="w-12 h-2 bg-gray-200 rounded-full overflow-hidden"
+                      className="w-12 h-2 bg-line rounded-full overflow-hidden"
                       title={`Cumulative strength: ${(path.totalWeight * 100).toFixed(1)}%`}
                     >
                       <div 
-                        className="h-full bg-blue-500 transition-all duration-300"
+                        className="h-full bg-baseline transition-all duration-300"
                         style={{ width: `${Math.max(path.totalWeight * 100, 5)}%` }}
                       />
                     </div>
@@ -325,20 +325,20 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
               <button
                 onClick={previousStep}
                 disabled={explorationState.currentStepIndex === 0}
-                className="p-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-1 rounded-md border border-line text-ink-secondary hover:bg-subtle disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Previous step (←)"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-ink-secondary">
                 {explorationState.currentStepIndex + 1} / {currentSteps.length}
               </span>
               <button
                 onClick={nextStep}
                 disabled={explorationState.currentStepIndex === currentSteps.length - 1}
-                className="p-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-1 rounded-md border border-line text-ink-secondary hover:bg-subtle disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Next step (→)"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -358,17 +358,17 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
                     ? 'bg-blue-50 border-blue-200 shadow-sm'
                     : index < explorationState.currentStepIndex
                     ? 'bg-green-50 border-green-200'
-                    : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                    : 'bg-subtle border-line hover:bg-subtle'
                 }`}
                 onClick={() => navigateToStep(index)}
               >
                 {/* Step indicator */}
                 <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
                   index === explorationState.currentStepIndex
-                    ? 'bg-blue-500 text-white'
+                    ? 'bg-baseline text-on-accent'
                     : index < explorationState.currentStepIndex
-                    ? 'bg-green-500 text-white'
-                    : 'bg-gray-300 text-gray-600'
+                    ? 'bg-success text-on-accent'
+                    : 'bg-line text-ink-secondary'
                 }`}>
                   {index + 1}
                 </div>
@@ -377,40 +377,40 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
                 <div className="flex-grow min-w-0">
                   <div className="flex items-center justify-between">
                     <div className="truncate">
-                      <span className="font-medium text-gray-800">
+                      <span className="font-medium text-ink">
                         {eventsById.get(step.eventId)?.actor ?? step.eventId} →{' '}
                         {eventsById.get(step.eventId)?.target ?? 'Unknown'}
                       </span>
                     </div>
-                    <div className="flex items-center space-x-2 text-xs text-gray-500">
+                    <div className="flex items-center space-x-2 text-xs text-ink-muted">
                       <span>
                         {eventsById.get(step.eventId)?.timestamp
                           ? formatHistoricalDate(eventsById.get(step.eventId)!.timestamp)
                           : 'Unknown date'}
                       </span>
                       {step.relationship && (
-                        <span className="px-2 py-1 bg-gray-200 rounded-full">
+                        <span className="px-2 py-1 bg-line rounded-full">
                           W: {step.relationship.weight.toFixed(2)}
                         </span>
                       )}
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600 truncate mt-1">
+                  <p className="text-sm text-ink-secondary truncate mt-1">
                     {eventsById.get(step.eventId)?.description ?? step.eventId}
                   </p>
                   
                   {/* Relationship details */}
                   {step.relationship && (
-                    <div className="mt-2 p-2 bg-white rounded border border-gray-200">
+                    <div className="mt-2 p-2 bg-card rounded border border-line">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-gray-600">Causal Link:</span>
+                        <span className="text-ink-secondary">Causal Link:</span>
                         <div className="flex items-center space-x-2">
                           <span className="capitalize">{step.relationship.relationship_type}</span>
                           <div className="flex items-center space-x-1">
                             <span>Confidence: {(step.relationship.confidence * 100).toFixed(0)}%</span>
-                            <div className="w-8 h-1 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="w-8 h-1 bg-line rounded-full overflow-hidden">
                               <div 
-                                className="h-full bg-blue-500"
+                                className="h-full bg-baseline"
                                 style={{ width: `${step.relationship.confidence * 100}%` }}
                               />
                             </div>
@@ -418,7 +418,7 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
                         </div>
                       </div>
                       {step.relationship.evidence && (
-                        <p className="text-xs text-gray-600 mt-1 italic">
+                        <p className="text-xs text-ink-secondary mt-1 italic">
                           "{step.relationship.evidence}"
                         </p>
                       )}
@@ -427,14 +427,14 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
 
                   {/* Cumulative strength indicator */}
                   <div className="mt-2 flex items-center space-x-2">
-                    <span className="text-xs text-gray-500">Cumulative strength:</span>
-                    <div className="flex-grow h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <span className="text-xs text-ink-muted">Cumulative strength:</span>
+                    <div className="flex-grow h-2 bg-line rounded-full overflow-hidden">
                       <div 
                         className="h-full bg-gradient-to-r from-green-500 to-red-500 transition-all duration-300"
                         style={{ width: `${Math.max(step.cumulativeWeight * 100, 2)}%` }}
                       />
                     </div>
-                    <span className="text-xs font-medium text-gray-700">
+                    <span className="text-xs font-medium text-ink-secondary">
                       {(step.cumulativeWeight * 100).toFixed(1)}%
                     </span>
                   </div>
@@ -453,9 +453,9 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
           </div>
 
           {/* Path Summary */}
-          <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+          <div className="mt-4 p-3 bg-subtle rounded-lg">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-600">Path Summary:</span>
+              <span className="text-ink-secondary">Path Summary:</span>
               <div className="flex items-center space-x-4">
                 <span>
                   <span className="font-medium">{explorationState.currentPath.events.length}</span> events
@@ -474,8 +474,8 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
 
       {/* No paths found */}
       {!isLoading && explorationState.availablePaths.length === 0 && explorationState.isExploring && (
-        <div className="p-8 text-center text-gray-500">
-          <svg className="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="p-8 text-center text-ink-muted">
+          <svg className="w-12 h-12 mx-auto mb-4 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6-4h6m2 5.291A7.962 7.962 0 0112 15c-2.34 0-4.47.881-6.08 2.33" />
           </svg>
           <p className="text-lg font-medium mb-2">No causal chains found</p>
@@ -486,7 +486,7 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
       )}
 
       {/* Keyboard shortcuts help */}
-      <div className="px-4 py-2 border-t border-gray-200 bg-gray-50 text-xs text-gray-500">
+      <div className="px-4 py-2 border-t border-line bg-subtle text-xs text-ink-muted">
         <div className="flex items-center justify-between">
           <span>Keyboard shortcuts:</span>
           <div className="flex items-center space-x-4">

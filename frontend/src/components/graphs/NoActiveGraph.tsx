@@ -89,7 +89,7 @@ export const NoActiveGraph = memo(function NoActiveGraph() {
           <button
             type="submit"
             disabled={isCreating}
-            className="shrink-0 rounded-md bg-baseline px-3 py-1.5 text-sm font-medium text-white hover:bg-baseline/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-selected disabled:cursor-not-allowed disabled:opacity-60"
+            className="shrink-0 rounded-md bg-baseline px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-baseline/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-selected disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isCreating ? 'Creating…' : 'Create graph'}
           </button>

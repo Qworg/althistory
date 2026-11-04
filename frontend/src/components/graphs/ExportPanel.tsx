@@ -4,11 +4,11 @@
  * Panel for exporting graph data with filtering options and job management.
  */
 
-import React, { useState, useCallback, memo, useRef } from 'react'
+import { useState, useCallback, memo } from 'react'
 import { ExportHistoryList } from './ExportHistoryList'
 import { useExportManagement } from '@/hooks/useExport'
 import { useActiveGraphId, useActiveGraph } from '@/hooks/useGraphs'
-import { ExportFilters, AlthistoryExport } from '@/types'
+import { ExportFilters } from '@/types'
 
 interface ExportPanelProps {
   className?: string
@@ -30,8 +30,7 @@ export const ExportPanel = memo(function ExportPanel({
   const [includeProvenance, setIncludeProvenance] = useState(false)
   const [filters, setFilters] = useState<ExportFilters>({})
   const [showFilters, setShowFilters] = useState(false)
-  
-  const fileInputRef = useRef<HTMLInputElement>(null)
+
 
   const activeGraphId = useActiveGraphId()
   const { data: activeGraph } = useActiveGraph()
@@ -42,12 +41,10 @@ export const ExportPanel = memo(function ExportPanel({
     isCreating,
     isDownloading,
     isSyncExporting,
-    isValidating,
     createExport,
     syncExport,
     downloadExport,
     cancelExport,
-    validateExport,
     hasActiveJobs,
     completedJobs,
   } = useExportManagement(activeGraphId || undefined)
@@ -95,28 +92,6 @@ export const ExportPanel = memo(function ExportPanel({
     }
   }, [downloadExport, activeGraph])
 
-  const handleValidateFile = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    try {
-      const text = await file.text()
-      const data = JSON.parse(text) as AlthistoryExport
-      const result = await validateExport(data)
-      
-      alert(result.valid 
-        ? `Valid export file!${result.warnings.length > 0 ? `\n\nWarnings:\n${result.warnings.join('\n')}` : ''}`
-        : `Invalid export file:\n${result.errors.join('\n')}`
-      )
-    } catch (error) {
-      alert('Failed to parse file: ' + (error instanceof Error ? error.message : 'Unknown error'))
-    }
-    
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
-  }, [validateExport])
 
   const handleFilterChange = useCallback(<K extends keyof ExportFilters>(key: K, value: ExportFilters[K]) => {
     setFilters(prev => ({ ...prev, [key]: value }))
@@ -160,8 +135,8 @@ export const ExportPanel = memo(function ExportPanel({
         </div>
         <div className="flex items-center gap-2">
           {hasActiveJobs && (
-            <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded animate-pulse">
-              Exporting...
+            <span className="text-xs bg-blue-100 text-baseline px-2 py-0.5 rounded animate-pulse">
+              Preparing…
             </span>
           )}
           <svg 
@@ -182,7 +157,7 @@ export const ExportPanel = memo(function ExportPanel({
             <button
               onClick={handleQuickExport}
               disabled={isSyncExporting}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2 bg-baseline text-on-accent rounded-lg hover:bg-baseline/90 disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isSyncExporting ? (
                 <>
@@ -190,7 +165,7 @@ export const ExportPanel = memo(function ExportPanel({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  Exporting...
+                  Downloading…
                 </>
               ) : (
                 <>
@@ -205,7 +180,8 @@ export const ExportPanel = memo(function ExportPanel({
 
           {/* Export Options */}
           <div className="border border-line rounded-lg p-3 space-y-3">
-            <div className="text-sm font-medium text-ink-secondary">Export Options</div>
+            <h3 className="text-sm font-semibold text-ink">A custom export</h3>
+            <p className="-mt-2 text-xs text-ink-muted">Prepared in the background; the file appears under Recent exports when it is ready.</p>
             
             {/* Scope Selection */}
             <div className="flex gap-2">
@@ -220,9 +196,9 @@ export const ExportPanel = memo(function ExportPanel({
                 />
                 <div className={`
                   p-2 text-center border rounded cursor-pointer text-sm
-                  ${scope === 'full' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200' : 'border-line hover:bg-subtle'}
+                  ${scope === 'full' ? 'border-selected bg-selected/10 text-ink font-medium' : 'border-line text-ink-secondary hover:bg-subtle'}
                 `}>
-                  Full Export
+                  Everything
                 </div>
               </label>
               <label className="flex-1">
@@ -236,9 +212,9 @@ export const ExportPanel = memo(function ExportPanel({
                 />
                 <div className={`
                   p-2 text-center border rounded cursor-pointer text-sm
-                  ${scope === 'filtered' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200' : 'border-line hover:bg-subtle'}
+                  ${scope === 'filtered' ? 'border-selected bg-selected/10 text-ink font-medium' : 'border-line text-ink-secondary hover:bg-subtle'}
                 `}>
-                  Filtered
+                  Only some events
                 </div>
               </label>
             </div>
@@ -248,19 +224,19 @@ export const ExportPanel = memo(function ExportPanel({
               <div className="space-y-2 pt-2 border-t border-line">
                 <button
                   onClick={() => setShowFilters(!showFilters)}
-                  className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
+                  className="flex items-center gap-1 text-sm text-baseline hover:text-blue-700"
                 >
                   <svg className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
-                  Configure Filters
+                  Choose which events
                 </button>
                 
                 {showFilters && (
                   <div className="space-y-2 ml-5">
                     {/* Time Range */}
                     <div>
-                      <label className="text-xs text-ink-muted">Time Range</label>
+                      <label className="text-xs text-ink-muted">Between</label>
                       <div className="flex gap-2">
                         <input
                           type="date"
@@ -279,7 +255,7 @@ export const ExportPanel = memo(function ExportPanel({
 
                     {/* Actors */}
                     <div>
-                      <label className="text-xs text-ink-muted">Actors (comma-separated)</label>
+                      <label className="text-xs text-ink-muted">Actors, separated by commas</label>
                       <input
                         type="text"
                         value={filters.actors?.join(', ') || ''}
@@ -303,7 +279,7 @@ export const ExportPanel = memo(function ExportPanel({
                 onChange={(e) => setIncludeProvenance(e.target.checked)}
                 className="rounded"
               />
-              <span>Include provenance data</span>
+              <span>Include where each record came from (its source and how it was extracted)</span>
             </label>
 
             {/* Start Export Button */}
@@ -312,7 +288,7 @@ export const ExportPanel = memo(function ExportPanel({
               disabled={isCreating}
               className="w-full px-4 py-2 border border-line bg-card text-ink rounded-md hover:bg-subtle disabled:opacity-50 text-sm font-medium"
             >
-              {isCreating ? 'Starting Export...' : 'Start Export Job'}
+              {isCreating ? 'Preparing…' : 'Prepare export file'}
             </button>
           </div>
 
@@ -320,7 +296,7 @@ export const ExportPanel = memo(function ExportPanel({
           {activeJob && (activeJob.status === 'pending' || activeJob.status === 'processing') && (
             <div className="border border-line rounded-lg p-3 bg-blue-50">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-blue-700">Exporting...</span>
+                <span className="text-sm font-medium text-ink">Preparing the export…</span>
                 <button
                   onClick={() => cancelExport(activeJob.id)}
                   className="text-xs text-red-600 hover:text-red-700"
@@ -330,18 +306,18 @@ export const ExportPanel = memo(function ExportPanel({
               </div>
               <div className="h-2 bg-blue-200 rounded-full overflow-hidden">
                 <div 
-                  className="h-full bg-blue-600 transition-all duration-300"
+                  className="h-full bg-baseline transition-all duration-300"
                   style={{ width: `${activeJob.progress}%` }}
                 />
               </div>
-              <div className="text-xs text-blue-600 mt-1">{activeJob.progress}%</div>
+              <div className="text-xs text-baseline mt-1">{activeJob.progress}%</div>
             </div>
           )}
 
           {/* Completed Exports */}
           {completedJobs.length > 0 && (
             <div className="space-y-2">
-              <div className="text-sm font-medium text-ink-secondary">Recent Exports</div>
+              <div className="text-sm font-medium text-ink-secondary">Recent exports</div>
               <ExportHistoryList
                 jobs={completedJobs}
                 maxItems={3}
@@ -351,24 +327,12 @@ export const ExportPanel = memo(function ExportPanel({
             </div>
           )}
 
-          {/* Validate Import File */}
-          <div className="border-t border-line pt-4">
-            <div className="text-sm font-medium text-ink-secondary mb-2">Validate Import File</div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json"
-              onChange={handleValidateFile}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isValidating}
-              className="w-full px-4 py-2 border border-dashed border-line rounded text-sm text-ink-secondary hover:bg-subtle disabled:opacity-50"
-            >
-              {isValidating ? 'Validating...' : 'Select file to validate'}
-            </button>
-          </div>
+          {/* Checking a file before importing it is the import flow's first step
+              (Bring in history → Import an export file), which validates before
+              anything is written; a second validator here reported by alert(). */}
+          <p className="border-t border-line pt-4 text-xs text-ink-muted">
+            To check a file before importing it, use Bring in history → Import an export file: it validates the file before anything is written.
+          </p>
 
           {/* Stats */}
           {stats && stats.total > 0 && (

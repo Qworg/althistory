@@ -4,6 +4,7 @@ import { Arc, CausalRelationship, Event } from '@/types'
 import { useEvents } from '@/hooks/useAPI'
 import { formatHistoricalDateBound, parseHistoricalDate } from '@/components/filters/filterUtils'
 import { formatHistoricalDate } from '@/utils/historicalTime'
+import { Portal } from '@/components/ui/Portal'
 
 /** The fields checked on save, in the order they appear (and are focused). */
 const VALIDATED_FIELDS = ['description', 'actor', 'target', 'timestamp'] as const
@@ -78,7 +79,7 @@ function CausePicker({
           id="cause"
           value={causeId}
           onChange={(e) => onChange(e.target.value, causeType)}
-          className="mt-1 block w-full border border-line rounded-md shadow-sm px-3 py-2 bg-card text-ink focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="mt-1 block w-full border border-line rounded-md shadow-sm px-3 py-2 bg-card text-ink focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected"
         >
           <option value="">Nothing yet</option>
           {candidates.map((e) => (
@@ -97,7 +98,7 @@ function CausePicker({
           value={causeType}
           disabled={!causeId}
           onChange={(e) => onChange(causeId, e.target.value as CausalLinkType)}
-          className="mt-1 block w-full border border-line rounded-md shadow-sm px-3 py-2 bg-card text-ink focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60"
+          className="mt-1 block w-full border border-line rounded-md shadow-sm px-3 py-2 bg-card text-ink focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected disabled:opacity-60"
         >
           <option value="direct">Direct</option>
           <option value="indirect">Indirect</option>
@@ -399,350 +400,352 @@ export function EventDetailModal({
   }
 
   return (
-    <div
-      className={`fixed inset-0 z-50 overflow-y-auto ${className}`}
-      aria-labelledby="event-modal-title"
-      role="dialog"
-      aria-modal="true"
-    >
+    <Portal>
       <div
-        className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0"
-        onClick={handleBackdropClick}
+        className={`fixed inset-0 z-50 overflow-y-auto ${className}`}
+        aria-labelledby="event-modal-title"
+        role="dialog"
+        aria-modal="true"
       >
-        <div className="fixed inset-0 bg-black/60 transition-opacity" aria-hidden="true" />
+        <div
+          className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0"
+          onClick={handleBackdropClick}
+        >
+          <div className="fixed inset-0 bg-black/60 transition-opacity" aria-hidden="true" />
 
-        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">
-          &#8203;
-        </span>
+          <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">
+            &#8203;
+          </span>
 
-        <div className="relative z-10 inline-block align-bottom bg-card rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
-          {/* noValidate: the browser's own "Please fill out this field."
-              bubbles are replaced by the messages under each field. */}
-          <form onSubmit={handleSubmit} noValidate>
-            <div className="bg-card px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-              <div className="sm:flex sm:items-start">
-                <div className="w-full">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="font-display text-xl font-semibold text-ink" id="event-modal-title">
-                      {event ? 'Edit Event' : 'Create Event'}
-                    </h2>
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      className="rounded-md text-ink-muted hover:text-ink-secondary focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      aria-label="Close modal"
-                    >
-                      <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-
-                  {errors.submit && (
-                    <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded" role="alert">
-                      {errors.submit}
-                    </div>
-                  )}
-
-                  <div className="space-y-4">
-                    {/* Description */}
-                    <div>
-                      <label htmlFor="description" className="block text-sm font-medium text-ink-secondary">
-                        Description <span className="text-red-500">*</span>
-                      </label>
-                      <textarea
-                        id="description"
-                        rows={3}
-                        value={formData.description}
-                        onChange={(e) => handleInputChange('description', e.target.value)}
-                        aria-required="true"
-                        aria-invalid={!!errors.description}
-                        aria-describedby={errors.description ? 'description-error' : undefined}
-                        className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          errors.description ? 'border-red-300' : 'border-line'
-                        }`}
-                        placeholder="What happened?"
-                        required
-                      />
-                      {errors.description && (
-                        <p id="description-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.description}</p>
-                      )}
-                    </div>
-
-                    {/* Actor and Target */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label htmlFor="actor" className="block text-sm font-medium text-ink-secondary">
-                          Actor <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          id="actor"
-                          value={formData.actor}
-                          onChange={(e) => handleInputChange('actor', e.target.value)}
-                          list={hasQueryClient ? PARTY_SUGGESTIONS_ID : undefined}
-                          autoComplete="off"
-                          aria-required="true"
-                          aria-invalid={!!errors.actor}
-                          aria-describedby={errors.actor ? 'actor-error' : undefined}
-                          className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            errors.actor ? 'border-red-300' : 'border-line'
-                          }`}
-                          placeholder="Who acted"
-                          required
-                        />
-                        {errors.actor && (
-                          <p id="actor-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.actor}</p>
-                        )}
-                      </div>
-
-                      <div>
-                        <label htmlFor="target" className="block text-sm font-medium text-ink-secondary">
-                          Target <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          id="target"
-                          value={formData.target}
-                          onChange={(e) => handleInputChange('target', e.target.value)}
-                          list={hasQueryClient ? PARTY_SUGGESTIONS_ID : undefined}
-                          autoComplete="off"
-                          aria-required="true"
-                          aria-invalid={!!errors.target}
-                          aria-describedby={errors.target ? 'target-error' : undefined}
-                          className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            errors.target ? 'border-red-300' : 'border-line'
-                          }`}
-                          placeholder="Who or what was acted upon"
-                          required
-                        />
-                        {hasQueryClient && <PartySuggestions />}
-                        {errors.target && (
-                          <p id="target-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.target}</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Timestamp and Event Type */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label htmlFor="timestamp" className="block text-sm font-medium text-ink-secondary">
-                          Date <span className="font-normal text-ink-muted">(UTC)</span> <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          id="timestamp"
-                          inputMode="text"
-                          autoComplete="off"
-                          spellCheck={false}
-                          value={formData.timestamp}
-                          onChange={(e) => handleInputChange('timestamp', e.target.value)}
-                          aria-required="true"
-                          aria-invalid={!!errors.timestamp}
-                          aria-describedby={`timestamp-hint${errors.timestamp ? ' timestamp-error' : ''}`}
-                          className={`mt-1 block w-full font-mono-code border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            errors.timestamp ? 'border-red-300' : 'border-line'
-                          }`}
-                          required
-                        />
-                        <p id="timestamp-hint" className="mt-1 text-xs text-ink-muted">
-                          {(() => {
-                            const parsed = formData.timestamp.trim() ? fromDateField(formData.timestamp) : null
-                            return parsed?.ok
-                              ? `Reads as ${formatHistoricalDate(parsed.iso)}.`
-                              : 'Year first, as precise as you know: 1843, 1843-11 or 1843-11-20. Add BCE before 1 CE, and a time if it matters (1843-11-20 14:30).'
-                          })()}
-                        </p>
-                        {errors.timestamp && (
-                          <p id="timestamp-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.timestamp}</p>
-                        )}
-                      </div>
-
-                      <div>
-                        <label htmlFor="event_type" className="block text-sm font-medium text-ink-secondary">
-                          Event Type
-                        </label>
-                        <input
-                          type="text"
-                          id="event_type"
-                          value={formData.event_type}
-                          onChange={(e) => handleInputChange('event_type', e.target.value)}
-                          className="mt-1 block w-full border border-line rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                        <p className="mt-1 text-xs text-ink-muted">Optional, e.g. treaty, battle, invention.</p>
-                      </div>
-                    </div>
-
-                    {/* Confidence: optional, so a new event makes no claim it was not given */}
-                    <div>
-                      <label htmlFor="confidence" className="block text-sm font-medium text-ink-secondary">
-                        Confidence <span className="font-normal text-ink-muted">(optional, 0 to 1)</span>
-                      </label>
-                      <input
-                        type="number"
-                        id="confidence"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        inputMode="decimal"
-                        value={formData.confidence}
-                        onChange={(e) => handleInputChange('confidence', e.target.value)}
-                        aria-invalid={!!errors.confidence}
-                        aria-describedby={`confidence-hint${errors.confidence ? ' confidence-error' : ''}`}
-                        className="mt-1 block w-32 font-mono-code border border-line rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                      <p id="confidence-hint" className="mt-1 text-xs text-ink-muted">
-                        How sure the history is that this happened. Empty means not stated. The timeline draws
-                        an event below 0.75 as probable and below 0.4 as speculative.
-                      </p>
-                      {errors.confidence && (
-                        <p id="confidence-error" role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.confidence}</p>
-                      )}
-                    </div>
-
-                    {/* What caused it: a new event can be linked to its cause as it is made */}
-                    {!event && hasQueryClient && (
-                      <CausePicker
-                        causeId={formData.causeId}
-                        causeType={formData.causeType}
-                        timestampText={formData.timestamp}
-                        onChange={(causeId, causeType) => setFormData((prev) => ({ ...prev, causeId, causeType }))}
-                      />
-                    )}
-
-                    {/* Evidence */}
-                    <div>
-                      <label htmlFor="evidence" className="block text-sm font-medium text-ink-secondary">
-                        Evidence
-                      </label>
-                      <textarea
-                        id="evidence"
-                        rows={3}
-                        value={formData.evidence}
-                        onChange={(e) => handleInputChange('evidence', e.target.value)}
-                        className="mt-1 block w-full border border-line rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                      <p className="mt-1 text-xs text-ink-muted">Optional: the source or reasoning behind it.</p>
-                    </div>
-
-                    {/* Related Information */}
-                    {event && (relatedArcs.length > 0 || causalRelationships.length > 0) && (
-                      <div className="border-t border-line pt-4">
-                        <h3 className="text-base font-semibold text-ink mb-3">Related Information</h3>
-                        
-                        {relatedArcs.length > 0 && (
-                          <div className="mb-3">
-                            <h4 className="text-sm font-semibold text-ink-secondary mb-2">Related Arcs</h4>
-                            <div className="space-y-1">
-                              {relatedArcs.map((arc) => (
-                                <div key={arc.id} className="text-sm text-ink-secondary bg-subtle px-2 py-1 rounded">
-                                  {arc.name}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {causalRelationships.length > 0 && (
-                          <div>
-                            <h4 className="text-sm font-semibold text-ink-secondary mb-2">Causal Relationships</h4>
-                            <div className="space-y-1">
-                              {causalRelationships.map((rel) => (
-                                <div key={rel.id} className="text-sm text-ink-secondary bg-subtle px-2 py-1 rounded">
-                                  {rel.relationship_type} (Weight: {rel.weight})
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-subtle px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isLoading ? 'Saving…' : 'Save'}
-              </button>
-
-              <button
-                type="button"
-                onClick={onClose}
-                className="mt-3 w-full inline-flex justify-center rounded-md border border-line shadow-sm px-4 py-2 bg-card text-base font-medium text-ink-secondary hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-              >
-                Cancel
-              </button>
-
-              {event && (
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="mt-3 w-full inline-flex justify-center rounded-md border border-red-300 shadow-sm px-4 py-2 bg-card text-base font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:mt-0 sm:w-auto sm:text-sm"
-                >
-                  Delete
-                </button>
-              )}
-            </div>
-          </form>
-        </div>
-      </div>
-
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-60 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div className="fixed inset-0 bg-black/60 transition-opacity" />
-            <div className="relative z-10 inline-block align-bottom bg-card rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+          <div className="relative z-10 inline-block align-bottom bg-card rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
+            {/* noValidate: the browser's own "Please fill out this field."
+                bubbles are replaced by the messages under each field. */}
+            <form onSubmit={handleSubmit} noValidate>
               <div className="bg-card px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                 <div className="sm:flex sm:items-start">
-                  <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
-                    <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                    </svg>
-                  </div>
-                  <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
-                    <h2 className="font-display text-xl font-semibold text-ink">
-                      Delete Event
-                    </h2>
-                    <div className="mt-2">
-                      <p className="text-sm text-ink-secondary">
-                        “{event?.description}”
-                        {causalRelationships.length > 0
-                          ? ` and its ${causalRelationships.length} causal ${causalRelationships.length === 1 ? 'link' : 'links'} will be removed.`
-                          : ' will be removed.'}{' '}
-                        Version history can restore the graph to before the deletion.
-                      </p>
+                  <div className="w-full">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="font-display text-xl font-semibold text-ink" id="event-modal-title">
+                        {event ? 'Edit Event' : 'Create Event'}
+                      </h2>
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        className="rounded-md text-ink-muted hover:text-ink-secondary focus:outline-none focus:ring-2 focus:ring-selected"
+                        aria-label="Close modal"
+                      >
+                        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    {errors.submit && (
+                      <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded" role="alert">
+                        {errors.submit}
+                      </div>
+                    )}
+
+                    <div className="space-y-4">
+                      {/* Description */}
+                      <div>
+                        <label htmlFor="description" className="block text-sm font-medium text-ink-secondary">
+                          Description <span className="text-red-500">*</span>
+                        </label>
+                        <textarea
+                          id="description"
+                          rows={3}
+                          value={formData.description}
+                          onChange={(e) => handleInputChange('description', e.target.value)}
+                          aria-required="true"
+                          aria-invalid={!!errors.description}
+                          aria-describedby={errors.description ? 'description-error' : undefined}
+                          className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+                            errors.description ? 'border-red-300' : 'border-line'
+                          }`}
+                          placeholder="What happened?"
+                          required
+                        />
+                        {errors.description && (
+                          <p id="description-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.description}</p>
+                        )}
+                      </div>
+
+                      {/* Actor and Target */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label htmlFor="actor" className="block text-sm font-medium text-ink-secondary">
+                            Actor <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            id="actor"
+                            value={formData.actor}
+                            onChange={(e) => handleInputChange('actor', e.target.value)}
+                            list={hasQueryClient ? PARTY_SUGGESTIONS_ID : undefined}
+                            autoComplete="off"
+                            aria-required="true"
+                            aria-invalid={!!errors.actor}
+                            aria-describedby={errors.actor ? 'actor-error' : undefined}
+                            className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+                              errors.actor ? 'border-red-300' : 'border-line'
+                            }`}
+                            placeholder="Who acted"
+                            required
+                          />
+                          {errors.actor && (
+                            <p id="actor-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.actor}</p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label htmlFor="target" className="block text-sm font-medium text-ink-secondary">
+                            Target <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            id="target"
+                            value={formData.target}
+                            onChange={(e) => handleInputChange('target', e.target.value)}
+                            list={hasQueryClient ? PARTY_SUGGESTIONS_ID : undefined}
+                            autoComplete="off"
+                            aria-required="true"
+                            aria-invalid={!!errors.target}
+                            aria-describedby={errors.target ? 'target-error' : undefined}
+                            className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+                              errors.target ? 'border-red-300' : 'border-line'
+                            }`}
+                            placeholder="Who or what was acted upon"
+                            required
+                          />
+                          {hasQueryClient && <PartySuggestions />}
+                          {errors.target && (
+                            <p id="target-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.target}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Timestamp and Event Type */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label htmlFor="timestamp" className="block text-sm font-medium text-ink-secondary">
+                            Date <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            id="timestamp"
+                            inputMode="text"
+                            autoComplete="off"
+                            spellCheck={false}
+                            value={formData.timestamp}
+                            onChange={(e) => handleInputChange('timestamp', e.target.value)}
+                            aria-required="true"
+                            aria-invalid={!!errors.timestamp}
+                            aria-describedby={`timestamp-hint${errors.timestamp ? ' timestamp-error' : ''}`}
+                            className={`mt-1 block w-full font-mono-code border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+                              errors.timestamp ? 'border-red-300' : 'border-line'
+                            }`}
+                            required
+                          />
+                          <p id="timestamp-hint" className="mt-1 text-xs text-ink-muted">
+                            {(() => {
+                              const parsed = formData.timestamp.trim() ? fromDateField(formData.timestamp) : null
+                              return parsed?.ok
+                                ? `Reads as ${formatHistoricalDate(parsed.iso)}.`
+                                : 'Year first, as precise as you know: 1843, 1843-11 or 1843-11-20. Add BCE before 1 CE, and a time if it matters (1843-11-20 14:30).'
+                            })()}
+                          </p>
+                          {errors.timestamp && (
+                            <p id="timestamp-error" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.timestamp}</p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label htmlFor="event_type" className="block text-sm font-medium text-ink-secondary">
+                            Event Type
+                          </label>
+                          <input
+                            type="text"
+                            id="event_type"
+                            value={formData.event_type}
+                            onChange={(e) => handleInputChange('event_type', e.target.value)}
+                            className="mt-1 block w-full border border-line rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected"
+                          />
+                          <p className="mt-1 text-xs text-ink-muted">Optional, e.g. treaty, battle, invention.</p>
+                        </div>
+                      </div>
+
+                      {/* Confidence: optional, so a new event makes no claim it was not given */}
+                      <div>
+                        <label htmlFor="confidence" className="block text-sm font-medium text-ink-secondary">
+                          Confidence <span className="font-normal text-ink-muted">(optional, 0 to 1)</span>
+                        </label>
+                        <input
+                          type="number"
+                          id="confidence"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          inputMode="decimal"
+                          value={formData.confidence}
+                          onChange={(e) => handleInputChange('confidence', e.target.value)}
+                          aria-invalid={!!errors.confidence}
+                          aria-describedby={`confidence-hint${errors.confidence ? ' confidence-error' : ''}`}
+                          className="mt-1 block w-32 font-mono-code border border-line rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected"
+                        />
+                        <p id="confidence-hint" className="mt-1 text-xs text-ink-muted">
+                          How sure the history is that this happened. Empty means not stated. The timeline draws
+                          an event below 0.75 as probable and below 0.4 as speculative.
+                        </p>
+                        {errors.confidence && (
+                          <p id="confidence-error" role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">{errors.confidence}</p>
+                        )}
+                      </div>
+
+                      {/* What caused it: a new event can be linked to its cause as it is made */}
+                      {!event && hasQueryClient && (
+                        <CausePicker
+                          causeId={formData.causeId}
+                          causeType={formData.causeType}
+                          timestampText={formData.timestamp}
+                          onChange={(causeId, causeType) => setFormData((prev) => ({ ...prev, causeId, causeType }))}
+                        />
+                      )}
+
+                      {/* Evidence */}
+                      <div>
+                        <label htmlFor="evidence" className="block text-sm font-medium text-ink-secondary">
+                          Evidence
+                        </label>
+                        <textarea
+                          id="evidence"
+                          rows={3}
+                          value={formData.evidence}
+                          onChange={(e) => handleInputChange('evidence', e.target.value)}
+                          className="mt-1 block w-full border border-line rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected"
+                        />
+                        <p className="mt-1 text-xs text-ink-muted">Optional: the source or reasoning behind it.</p>
+                      </div>
+
+                      {/* Related Information */}
+                      {event && (relatedArcs.length > 0 || causalRelationships.length > 0) && (
+                        <div className="border-t border-line pt-4">
+                          <h3 className="text-base font-semibold text-ink mb-3">Related Information</h3>
+                        
+                          {relatedArcs.length > 0 && (
+                            <div className="mb-3">
+                              <h4 className="text-sm font-semibold text-ink-secondary mb-2">Related Arcs</h4>
+                              <div className="space-y-1">
+                                {relatedArcs.map((arc) => (
+                                  <div key={arc.id} className="text-sm text-ink-secondary bg-subtle px-2 py-1 rounded">
+                                    {arc.name}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {causalRelationships.length > 0 && (
+                            <div>
+                              <h4 className="text-sm font-semibold text-ink-secondary mb-2">Causal Relationships</h4>
+                              <div className="space-y-1">
+                                {causalRelationships.map((rel) => (
+                                  <div key={rel.id} className="text-sm text-ink-secondary bg-subtle px-2 py-1 rounded">
+                                    {rel.relationship_type} (Weight: {rel.weight})
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               </div>
+
               <div className="bg-subtle px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
                 <button
-                  type="button"
-                  onClick={handleDelete}
+                  type="submit"
                   disabled={isLoading}
-                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
+                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-baseline text-base font-medium text-on-accent hover:bg-baseline/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-selected sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isLoading ? 'Deleting…' : 'Delete event'}
+                  {isLoading ? 'Saving…' : 'Save'}
                 </button>
+
                 <button
                   type="button"
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="mt-3 w-full inline-flex justify-center rounded-md border border-line shadow-sm px-4 py-2 bg-card text-base font-medium text-ink-secondary hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                  onClick={onClose}
+                  className="mt-3 w-full inline-flex justify-center rounded-md border border-line shadow-sm px-4 py-2 bg-card text-base font-medium text-ink-secondary hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-selected sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
                 >
                   Cancel
                 </button>
+
+                {event && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="mt-3 w-full inline-flex justify-center rounded-md border border-red-300 shadow-sm px-4 py-2 bg-card text-base font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-danger sm:mt-0 sm:w-auto sm:text-sm"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+        </div>
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-60 overflow-y-auto">
+            <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+              <div className="fixed inset-0 bg-black/60 transition-opacity" />
+              <div className="relative z-10 inline-block align-bottom bg-card rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div className="bg-card px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                  <div className="sm:flex sm:items-start">
+                    <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                      <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                    </div>
+                    <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                      <h2 className="font-display text-xl font-semibold text-ink">
+                        Delete Event
+                      </h2>
+                      <div className="mt-2">
+                        <p className="text-sm text-ink-secondary">
+                          “{event?.description}”
+                          {causalRelationships.length > 0
+                            ? ` and its ${causalRelationships.length} causal ${causalRelationships.length === 1 ? 'link' : 'links'} will be removed.`
+                            : ' will be removed.'}{' '}
+                          Version history can restore the graph to before the deletion.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-subtle px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    disabled={isLoading}
+                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-danger text-base font-medium text-on-accent hover:bg-danger/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-danger sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
+                  >
+                    {isLoading ? 'Deleting…' : 'Delete event'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="mt-3 w-full inline-flex justify-center rounded-md border border-line shadow-sm px-4 py-2 bg-card text-base font-medium text-ink-secondary hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-selected sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </Portal>
   )
 }

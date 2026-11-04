@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { UseQueryResult } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { VersionHistoryPanel } from './VersionHistoryPanel'
 import {
@@ -9,6 +9,7 @@ import {
   useActiveGraphId,
   useActiveGraph,
   useGraphHeadVersion,
+  useSetVersionLabel,
 } from '@/hooks/useGraphs'
 import { useEvents, useArcs, useCausalRelationships } from '@/hooks/useAPI'
 import { GraphVersion, Graph, Event, CausalRelationship } from '@/types'
@@ -319,7 +320,7 @@ describe('VersionHistoryPanel', () => {
     it('marks the head row as current, even when the change counter differs', () => {
       render(<VersionHistoryPanel />)
 
-      const rows = screen.getAllByRole('listitem')
+      const rows = Array.from(document.querySelectorAll('li[data-version]'))
       expect(rows[0]).toHaveAttribute('aria-current', 'true')
       expect(rows[0]).toHaveClass('bg-selected/10')
       expect(rows[1]).not.toHaveAttribute('aria-current')
@@ -639,6 +640,40 @@ describe('VersionHistoryPanel', () => {
       render(<VersionHistoryPanel />)
 
       expect(screen.getByRole('button', { name: /Version history/i })).toHaveAttribute('aria-expanded', 'true')
+    })
+  })
+
+  describe('finding and naming versions', () => {
+    it('filters the list by what a version did', async () => {
+      const user = userEvent.setup()
+      render(<VersionHistoryPanel hideHeader />)
+      await user.type(screen.getByRole('searchbox', { name: 'Find a version' }), 'arc descriptions')
+      const rows = Array.from(document.querySelectorAll('li[data-version]'))
+      expect(rows.map((row) => row.getAttribute('data-version'))).toEqual(['2'])
+      await user.clear(screen.getByRole('searchbox', { name: 'Find a version' }))
+      await user.type(screen.getByRole('searchbox', { name: 'Find a version' }), 'zzz-nothing')
+      expect(screen.getByText(/No version matches/)).toBeInTheDocument()
+    })
+
+    it('names a version through the label route', async () => {
+      const mutateAsync = vi.fn().mockResolvedValue(undefined)
+      vi.mocked(useSetVersionLabel).mockReturnValue({ mutateAsync, isPending: false } as unknown as ReturnType<typeof useSetVersionLabel>)
+      const user = userEvent.setup()
+      render(<VersionHistoryPanel hideHeader />)
+      const row = document.querySelector('li[data-version="2"]') as HTMLElement
+      await user.click(within(row).getByRole('button', { name: 'Name…' }))
+      await user.type(within(row).getByRole('textbox', { name: 'Name version 2' }), 'Before the strike')
+      await user.click(within(row).getByRole('button', { name: 'Save name' }))
+      expect(mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ version: 2, label: 'Before the strike' }))
+    })
+
+    it('says in the restore confirmation what the restore changes', async () => {
+      const user = userEvent.setup()
+      render(<VersionHistoryPanel hideHeader />)
+      await user.click(screen.getByRole('button', { name: 'Restore version 2…' }))
+      const preview = screen.getByRole('list', { name: 'What the restore changes' })
+      // Version 3 added 5 events, 1 arc and 3 links: restoring 2 removes them.
+      expect(preview).toHaveTextContent(/Removes 5 events, 1 arc, 3 links/)
     })
   })
 })

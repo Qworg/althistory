@@ -20,7 +20,7 @@ test.describe('ingestion wizard', () => {
     await page.getByRole('button', { name: 'Bring in history' }).click()
     await page.getByRole('menuitem', { name: /^Extract from text or Wikipedia/ }).click()
     const dialog = page.getByRole('dialog')
-    await expect(dialog.getByRole('heading', { name: 'Ingest from Wikipedia' })).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: 'Bring in history' })).toBeVisible()
 
     await expect(dialog.getByRole('tab', { name: 'Wikipedia' })).toHaveAttribute(
       'aria-selected',

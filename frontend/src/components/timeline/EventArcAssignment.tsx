@@ -86,9 +86,9 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
       {/* Header */}
       <div className="mb-4">
         <h2 className="font-display text-xl font-semibold text-ink mb-2">Assign Event to Arc</h2>
-        <div className="bg-gray-50 rounded-md p-3">
-          <p className="text-sm font-medium text-gray-900">{event.description}</p>
-          <p className="text-xs text-gray-500 mt-1">
+        <div className="bg-subtle rounded-md p-3">
+          <p className="text-sm font-medium text-ink">{event.description}</p>
+          <p className="text-xs text-ink-muted mt-1">
             {event.actor} → {event.target} • <span className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</span>
           </p>
         </div>
@@ -103,7 +103,7 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
 
       {/* Arc Selection */}
       <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-ink-secondary mb-2">
           Select Arc
         </label>
         
@@ -118,7 +118,7 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
               onChange={() => setSelectedArcId(null)}
               className="mr-2"
             />
-            <span className="text-sm text-gray-700">No arc assignment (remove from current arc)</span>
+            <span className="text-sm text-ink-secondary">No arc assignment (remove from current arc)</span>
           </label>
         </div>
 
@@ -138,14 +138,14 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
                     className="mr-2 mt-1"
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">
+                    <p className="text-sm font-medium text-ink truncate">
                       {getArcHierarchyPath(arc)}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-ink-muted">
                       {formatTimeRange(arc)}
                     </p>
                     {arc.description && (
-                      <p className="text-xs text-gray-400 mt-1 truncate">
+                      <p className="text-xs text-ink-muted mt-1 truncate">
                         {arc.description}
                       </p>
                     )}
@@ -173,7 +173,7 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
                     className="mr-2 mt-1"
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-600 truncate">
+                    <p className="text-sm font-medium text-ink-secondary truncate">
                       {getArcHierarchyPath(arc)}
                     </p>
                     <p className="text-xs text-red-500">
@@ -189,7 +189,7 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
         {/* No arcs available */}
         {compatibleArcs.length === 0 && incompatibleArcs.length === 0 && (
           <div className="text-center py-4">
-            <p className="text-sm text-gray-500">No arcs available for assignment</p>
+            <p className="text-sm text-ink-muted">No arcs available for assignment</p>
           </div>
         )}
       </div>
@@ -209,14 +209,14 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
         <button
           onClick={handleAssign}
           disabled={isLoading}
-          className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex-1 bg-baseline text-on-accent px-4 py-2 rounded-md hover:bg-baseline/90 focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {isLoading ? 'Assigning...' : 'Assign'}
         </button>
         <button
           onClick={onCancel}
           disabled={isLoading}
-          className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-4 py-2 border border-line rounded-md text-ink-secondary hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           Cancel
         </button>

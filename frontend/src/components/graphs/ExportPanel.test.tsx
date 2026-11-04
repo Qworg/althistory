@@ -171,14 +171,14 @@ describe('ExportPanel', () => {
       expect(container.firstChild).toHaveClass('custom-class')
     })
 
-    it('should show "Exporting..." badge when jobs are active', () => {
+    it('should show "Preparing…" badge when jobs are active', () => {
       vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
         hasActiveJobs: true
       }))
       
       render(<ExportPanel />)
       
-      expect(screen.getByText('Exporting...')).toBeInTheDocument()
+      expect(screen.getByText('Preparing…')).toBeInTheDocument()
     })
   })
 
@@ -245,7 +245,7 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      expect(screen.getByText(/Exporting/i)).toBeInTheDocument()
+      expect(screen.getByText(/Downloading/i)).toBeInTheDocument()
     })
 
     it('should disable button during quick export', async () => {
@@ -257,7 +257,7 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      const quickExportButton = screen.getByRole('button', { name: /Exporting/i })
+      const quickExportButton = screen.getByRole('button', { name: /Downloading/i })
       expect(quickExportButton).toBeDisabled()
     })
 
@@ -294,13 +294,13 @@ describe('ExportPanel', () => {
     })
   })
 
-  describe('Export Options', () => {
+  describe('A custom export', () => {
     it('should display export options section', async () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      expect(screen.getByText('Export Options')).toBeInTheDocument()
+      expect(screen.getByText('A custom export')).toBeInTheDocument()
     })
 
     it('should have Full Export selected by default', async () => {
@@ -308,7 +308,7 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      const fullExportOption = screen.getByText('Full Export').closest('label')?.querySelector('input')
+      const fullExportOption = screen.getByText('Everything').closest('label')?.querySelector('input')
       expect(fullExportOption).toBeChecked()
     })
 
@@ -318,9 +318,9 @@ describe('ExportPanel', () => {
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
       // Click on Filtered option (the div acts as label)
-      await user.click(screen.getByText('Filtered'))
+      await user.click(screen.getByText('Only some events'))
       
-      const filteredOption = screen.getByText('Filtered').closest('label')?.querySelector('input')
+      const filteredOption = screen.getByText('Only some events').closest('label')?.querySelector('input')
       expect(filteredOption).toBeChecked()
     })
 
@@ -328,30 +328,30 @@ describe('ExportPanel', () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
-      await user.click(screen.getByText('Filtered'))
+      await user.click(screen.getByText('Only some events'))
       
-      expect(screen.getByText('Configure Filters')).toBeInTheDocument()
+      expect(screen.getByText('Choose which events')).toBeInTheDocument()
     })
 
     it('should toggle filter panel visibility', async () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
-      await user.click(screen.getByText('Filtered'))
+      await user.click(screen.getByText('Only some events'))
       
       // Expand filters
-      await user.click(screen.getByText('Configure Filters'))
+      await user.click(screen.getByText('Choose which events'))
       
-      expect(screen.getByText('Time Range')).toBeInTheDocument()
-      expect(screen.getByText('Actors (comma-separated)')).toBeInTheDocument()
+      expect(screen.getByText('Between')).toBeInTheDocument()
+      expect(screen.getByText('Actors, separated by commas')).toBeInTheDocument()
     })
 
     it('should allow setting time range filters', async () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
-      await user.click(screen.getByText('Filtered'))
-      await user.click(screen.getByText('Configure Filters'))
+      await user.click(screen.getByText('Only some events'))
+      await user.click(screen.getByText('Choose which events'))
       
       const dateInputs = screen.getAllByRole('textbox')
       // First two date inputs should be for time range (type="date" shows as textbox)
@@ -362,8 +362,8 @@ describe('ExportPanel', () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
-      await user.click(screen.getByText('Filtered'))
-      await user.click(screen.getByText('Configure Filters'))
+      await user.click(screen.getByText('Only some events'))
+      await user.click(screen.getByText('Choose which events'))
       
       const actorsInput = screen.getByPlaceholderText('e.g., Napoleon, Wellington')
       await user.type(actorsInput, 'Napoleon')
@@ -385,20 +385,20 @@ describe('ExportPanel', () => {
     })
   })
 
-  describe('Start Export Job', () => {
+  describe('Prepare export file', () => {
     it('should display Start Export Job button', async () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      expect(screen.getByRole('button', { name: /Start Export Job/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Prepare export file/i })).toBeInTheDocument()
     })
 
     it('should call createExport with full scope options', async () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
-      await user.click(screen.getByRole('button', { name: /Start Export Job/i }))
+      await user.click(screen.getByRole('button', { name: /Prepare export file/i }))
       
       await waitFor(() => {
         expect(mockExportManagement.createExport).toHaveBeenCalledWith({
@@ -413,13 +413,13 @@ describe('ExportPanel', () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
-      await user.click(screen.getByText('Filtered'))
-      await user.click(screen.getByText('Configure Filters'))
+      await user.click(screen.getByText('Only some events'))
+      await user.click(screen.getByText('Choose which events'))
       
       const actorsInput = screen.getByPlaceholderText('e.g., Napoleon, Wellington')
       await user.type(actorsInput, 'Napoleon')
       
-      await user.click(screen.getByRole('button', { name: /Start Export Job/i }))
+      await user.click(screen.getByRole('button', { name: /Prepare export file/i }))
       
       await waitFor(() => {
         expect(mockExportManagement.createExport).toHaveBeenCalledWith({
@@ -437,7 +437,7 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       await user.click(screen.getByRole('checkbox'))
-      await user.click(screen.getByRole('button', { name: /Start Export Job/i }))
+      await user.click(screen.getByRole('button', { name: /Prepare export file/i }))
       
       await waitFor(() => {
         expect(mockExportManagement.createExport).toHaveBeenCalledWith(
@@ -457,7 +457,7 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      expect(screen.getByText('Starting Export...')).toBeInTheDocument()
+      expect(screen.getByText('Preparing…')).toBeInTheDocument()
     })
 
     it('should disable button while creating export', async () => {
@@ -469,7 +469,7 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      const startButton = screen.getByRole('button', { name: /Starting Export/i })
+      const startButton = screen.getByRole('button', { name: /Preparing/i })
       expect(startButton).toBeDisabled()
     })
 
@@ -483,7 +483,7 @@ describe('ExportPanel', () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
-      await user.click(screen.getByRole('button', { name: /Start Export Job/i }))
+      await user.click(screen.getByRole('button', { name: /Prepare export file/i }))
       
       await waitFor(() => {
         expect(consoleSpy).toHaveBeenCalledWith('Export failed:', expect.any(Error))
@@ -503,7 +503,7 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      expect(screen.getByText('Exporting...')).toBeInTheDocument()
+      expect(screen.getByText('Preparing the export…')).toBeInTheDocument()
       expect(screen.getByText('45%')).toBeInTheDocument()
     })
 
@@ -570,7 +570,7 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      expect(screen.getByText('Recent Exports')).toBeInTheDocument()
+      expect(screen.getByText('Recent exports')).toBeInTheDocument()
     })
 
     it('should display completed export with download button', async () => {
@@ -666,83 +666,20 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      expect(screen.queryByText('Recent Exports')).not.toBeInTheDocument()
+      expect(screen.queryByText('Recent exports')).not.toBeInTheDocument()
     })
   })
 
-  describe('File Validation', () => {
-    it('should display validate import file section', async () => {
+  describe('Checking an import file', () => {
+    it('points to the import flow for checking a file, instead of validating here', async () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      expect(screen.getByText('Validate Import File')).toBeInTheDocument()
+      expect(screen.getByText(/Import an export file: it validates the file/)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /validate/i })).not.toBeInTheDocument()
     })
 
-    it('should display file input button', async () => {
-      render(<ExportPanel />)
-      
-      await user.click(screen.getByRole('button', { name: /Export/i }))
-      
-      expect(screen.getByRole('button', { name: /Select file to validate/i })).toBeInTheDocument()
-    })
-
-    it('should show loading state while validating', async () => {
-      vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
-        isValidating: true
-      }))
-      
-      render(<ExportPanel />)
-      
-      await user.click(screen.getByRole('button', { name: /Export/i }))
-      
-      expect(screen.getByText('Validating...')).toBeInTheDocument()
-    })
-
-    it('should disable button while validating', async () => {
-      vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement({
-        isValidating: true
-      }))
-      
-      render(<ExportPanel />)
-      
-      await user.click(screen.getByRole('button', { name: /Export/i }))
-      
-      const validateButton = screen.getByRole('button', { name: /Validating/i })
-      expect(validateButton).toBeDisabled()
-    })
-
-    it('should have file input for validation', async () => {
-      render(<ExportPanel />)
-      
-      await user.click(screen.getByRole('button', { name: /Export/i }))
-      
-      const fileInput = document.querySelector('input[type="file"]')
-      expect(fileInput).toBeInTheDocument()
-      expect(fileInput).toHaveAttribute('accept', '.json')
-    })
-
-    it('should have hidden file input', async () => {
-      render(<ExportPanel />)
-      
-      await user.click(screen.getByRole('button', { name: /Export/i }))
-      
-      const fileInput = document.querySelector('input[type="file"]')
-      expect(fileInput).toHaveClass('hidden')
-    })
-
-    it('should have button to trigger file input', async () => {
-      render(<ExportPanel />)
-      
-      await user.click(screen.getByRole('button', { name: /Export/i }))
-      
-      expect(screen.getByRole('button', { name: /Select file to validate/i })).toBeInTheDocument()
-    })
-
-    it('should have validateExport function available', () => {
-      // Verify the mock returns validateExport function
-      expect(mockExportManagement.validateExport).toBeDefined()
-    })
   })
 
   describe('Export Stats', () => {

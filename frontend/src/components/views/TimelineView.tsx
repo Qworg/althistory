@@ -31,11 +31,14 @@ import {
   findEscapedParentArc,
 } from './timelineInteractionUtils'
 import type { UpdateArcRequest } from '@/types'
-import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
 import { useEditHistory } from '@/hooks/useEditHistory'
+import { useUndoableEventDelete } from '@/hooks/useUndoableEventDelete'
+import { confidenceTier } from '@/components/timeline/confidenceTier'
 import { editShortcutLabels } from '@/utils/platform'
 import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
-import { useActiveGraphId } from '@/hooks/useGraphs'
+import { useActiveGraphId, useSwitchGraph } from '@/hooks/useGraphs'
+import { useBranchDivergences } from '@/hooks/useBranchDivergences'
 import { BranchFromEventDialog } from '@/components/graphs/BranchFromEventDialog'
 import { timelineContentHeight } from '@/components/timeline/timelineLayout'
 import { BranchComparisonModal } from '@/components/branch/BranchComparisonModal'
@@ -49,6 +52,7 @@ import {
   eventConfidence,
   eventSource,
 } from '@/components/timeline/eventInspectorUtils'
+import { Portal } from '@/components/ui/Portal'
 
 
 function describeError(error: unknown): string {
@@ -168,6 +172,21 @@ export function TimelineView() {
     [baselineGhost.ghost, activeFilters]
   )
   const [showBranchComparison, setShowBranchComparison] = useState(false)
+  // Whether the filter panel is open: with it open, the empty selection rail
+  // gives way (see reserveRail below).
+  const filterPanelOpen = useGlobalStore((state) => state.uiState?.filterPanelOpen ?? false)
+
+
+  // Where this history's own branches split off it: marked on the canvas and
+  // listed (with a way in) under it. Measured over the unfiltered events, like
+  // the ghost's divergence, so a filter cannot move a split.
+  const branchDivergences = useBranchDivergences(fetchedEvents)
+  const branchMarks = useMemo(
+    () =>
+      branchDivergences.flatMap(({ branch, label, date }) => (date ? [{ id: branch.id, label, date }] : [])),
+    [branchDivergences]
+  )
+  const { mutate: openGraph, isPending: isOpeningGraph } = useSwitchGraph()
 
   // The causal links, for the inspector's causes and effects.
   const { data: relationships = [], isLoading: relationshipsLoading } = useCausalRelationships()
@@ -206,6 +225,17 @@ export function TimelineView() {
     (state) => state.explorationState.highlightedEvidence
   )
 
+  // The pressure kinds drawn on the arc bars, for the legend's key.
+  const legendPressureTypes = useMemo(
+    () =>
+      visualConfig.showIndicators
+        ? (['economic', 'social', 'political', 'environmental'] as const).filter((type) =>
+            visiblePressures.some((pressure) => pressure.pressure_type === type)
+          )
+        : [],
+    [visiblePressures, visualConfig.showIndicators]
+  )
+
   const handlePressureEvidenceHighlight = useCallback((eventIds: Set<string>) => {
     usePressureStore.getState().setHighlightedEvidence(eventIds)
   }, [])
@@ -239,6 +269,15 @@ export function TimelineView() {
         weight: r.weight,
       }))
   }, [relationships, events])
+
+  // The link types and confidence tiers the canvas draws: the key lists only
+  // what is there.
+  const legendLinkTypes = useMemo(() => [...new Set(timelineLinks.map((link) => link.type))], [timelineLinks])
+  const legendTiers = useMemo(() => {
+    const present = new Set(events.map((event) => confidenceTier(eventConfidence(event))))
+    return (['firm', 'probable', 'speculative'] as const).filter((tier) => present.has(tier))
+  }, [events])
+
 
   const dynamicHeight = useMemo(
     () =>
@@ -502,6 +541,8 @@ export function TimelineView() {
   const activeGraphId = useActiveGraphId()
   const editHistory = useEditHistory({ resetKey: activeGraphId })
   const recordEdit = editHistory.record
+  // Deleting an event ends with "Deleted … · Undo" in the status line below.
+  const deleteEventUndoably = useUndoableEventDelete(recordEdit)
   // ⌘Z on Apple platforms, Ctrl+Z elsewhere (the handler accepts both).
   const editKeys = useMemo(() => editShortcutLabels(), [])
 
@@ -628,7 +669,7 @@ export function TimelineView() {
 
     try {
       if (deleteConfirm.type === 'event') {
-        await deleteEventMutation.mutateAsync(deleteConfirm.item.id)
+        await deleteEventUndoably(deleteConfirm.item as Event, relationships)
       } else {
         await deleteArcMutation.mutateAsync(deleteConfirm.item.id)
       }
@@ -645,7 +686,7 @@ export function TimelineView() {
         message: `Failed to delete ${deleteConfirm.type}: ${describeError(error)}`,
       })
     }
-  }, [deleteConfirm, deleteEventMutation, deleteArcMutation, selectedEvent, selectedArc, addError])
+  }, [deleteConfirm, deleteEventUndoably, relationships, deleteArcMutation, selectedEvent, selectedArc, addError])
 
   // Cancel delete
   const handleDeleteCancel = useCallback(() => {
@@ -675,7 +716,7 @@ export function TimelineView() {
   const handleEventDelete = useCallback(async () => {
     if (editModal?.type === 'event') {
       try {
-        await deleteEventMutation.mutateAsync(editModal.item.id)
+        await deleteEventUndoably(editModal.item as Event, relationships)
         setEditModal(null)
         if (selectedEvent?.id === editModal.item.id) {
           setSelectedEvent(null)
@@ -688,7 +729,7 @@ export function TimelineView() {
         throw error
       }
     }
-  }, [editModal, deleteEventMutation, selectedEvent, addError])
+  }, [editModal, deleteEventUndoably, relationships, selectedEvent, addError])
 
   // Save arc changes
   const handleArcSave = useCallback(async (updates: UpdateArcRequest) => {
@@ -800,8 +841,18 @@ export function TimelineView() {
       : (deleteConfirm.item as Arc).name
     : ''
 
+  const hasInspector = Boolean((inspectedEvent && inspector) || selectedArc)
+  // With the filter panel open as well, an empty rail squeezed the canvas to a
+  // third of the window: then the rail appears only for a selection.
+  const reserveRail = hasInspector || !filterPanelOpen
+
   return (
     <div className="space-y-6">
+      {/* One inspector placement for every lens: a rail beside the canvas from
+          xl (as in the causal graph). The rail is always there at that width,
+          so selecting an event never re-measures the canvas and moves its
+          labels; with nothing selected it says what selection does. */}
+      <div className={reserveRail ? 'xl:grid xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start xl:gap-6' : ''}>
       <div ref={containerRef} className="bg-card border border-line rounded-lg shadow-sm p-6">
         {/* The breadcrumb and the navigation already name the view, so its
             heading is for the document outline only, and the canvas starts
@@ -856,6 +907,7 @@ export function TimelineView() {
             events={events}
             arcs={arcs}
             ghost={ghost}
+            branchMarks={branchMarks}
             pressures={visiblePressures}
             showPressureIndicators={visualConfig.showIndicators}
             highlightedEventIds={highlightedEventIds}
@@ -885,7 +937,37 @@ export function TimelineView() {
           isTracing={Boolean(selectedEvent)}
           undoKey={editKeys.undo}
           truncatedAt={fetchedEvents.length >= EVENT_LIMIT ? EVENT_LIMIT : undefined}
+          pressureTypes={legendPressureTypes}
+          linkTypes={legendLinkTypes}
+          tiers={legendTiers}
         />
+        {branchDivergences.length > 0 && (
+          <div className="-mt-2 mb-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-ink-secondary">
+            <span className="text-ink-muted">Branches from this history</span>
+            <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5" aria-label="Branches from this history">
+              {branchDivergences.map(({ branch, label, date }) => (
+                <li key={branch.id} className="inline-flex items-center gap-1.5">
+                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" className="shrink-0">
+                    <path d="M6 1.5 L10.5 6 L6 10.5 L1.5 6 Z" fill="var(--surface-card)" stroke="var(--accent-divergence)" strokeWidth="1.75" />
+                  </svg>
+                  <span className="font-medium text-ink">{label}</span>
+                  <span className="font-mono-code text-ink-muted">
+                    {date ? `diverges ${formatHistoricalDate(date)}` : 'not diverged yet'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => openGraph(branch.id)}
+                    disabled={isOpeningGraph}
+                    className="rounded-sm font-medium text-baseline underline underline-offset-2 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected disabled:cursor-wait disabled:opacity-60"
+                    aria-label={`Open the branch ${branch.name}`}
+                  >
+                    Open
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         </>
         )}
 
@@ -921,181 +1003,6 @@ export function TimelineView() {
           </div>
         )}
 
-        {/* Selection inspector, immediately below the timeline so clicking a
-            mark reveals it in the primary viewport. A rule-separated section
-            of this card (the selection accent is its top rule), not a card
-            inside the card. For an event it answers *why* it is there: how
-            sure the record is, which period holds it, where it came from, and
-            its causes and effects, each of which selects that event. */}
-        {(inspectedEvent || selectedArc) && (
-          <section aria-label="Selection inspector" className="mb-4 border-t-2 border-selected/70 pt-4 text-ink">
-            {inspectedEvent && inspector && (
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="font-display text-xl font-semibold text-ink">Selected Event</h3>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEditModal({ type: 'event', item: inspectedEvent })}
-                      className="px-2.5 py-1 text-xs font-medium rounded-md border border-line bg-card text-ink-secondary hover:bg-subtle hover:text-ink"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAssignmentTarget(inspectedEvent)}
-                      className="px-2.5 py-1 text-xs font-medium rounded-md border border-line bg-card text-ink-secondary hover:bg-subtle hover:text-ink"
-                    >
-                      Assign to arc
-                    </button>
-                    {/* The product's core move: fork a what-if at this point of
-                        divergence. Amber is the divergence accent. */}
-                    <button
-                      type="button"
-                      onClick={() => setBranchFromEvent(inspectedEvent)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md border border-divergence/60 bg-card text-ink hover:bg-divergence/10"
-                    >
-                      <svg className="h-3.5 w-3.5 text-divergence" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                        <circle cx="6" cy="5" r="2" />
-                        <circle cx="6" cy="19" r="2" />
-                        <circle cx="18" cy="9" r="2" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 7v10M18 11c0 4-6 3-11.2 6.4" />
-                      </svg>
-                      Branch from this event
-                    </button>
-                  </div>
-                </div>
-                <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 text-sm">
-                  <div className="sm:col-span-2 lg:col-span-4">
-                    <dt className="text-xs font-medium text-ink-muted">Description</dt>
-                    <dd className="text-ink">{inspectedEvent.description}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-ink-muted">Actor</dt>
-                    <dd className="text-ink">{inspectedEvent.actor}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-ink-muted">Target</dt>
-                    <dd className="text-ink">{inspectedEvent.target}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-ink-muted">Timestamp</dt>
-                    <dd className="font-mono-code text-ink">{formatHistoricalTimestamp(inspectedEvent.timestamp)}</dd>
-                  </div>
-                  {inspector.confidence !== null && (
-                    <div>
-                      <dt className="text-xs font-medium text-ink-muted">Confidence</dt>
-                      <dd className="font-mono-code text-ink" title="0 (doubtful) to 1 (certain)">
-                        {inspector.confidence.toFixed(2)}
-                      </dd>
-                    </div>
-                  )}
-                  <div className="sm:col-span-2">
-                    <dt className="text-xs font-medium text-ink-muted">
-                      {inspector.arcs.arcs.length === 1 ? 'Arc' : 'Arcs'}
-                      {inspector.arcs.arcs.length > 0 && inspector.arcs.basis === 'date' && (
-                        <span className="font-normal"> (by date)</span>
-                      )}
-                    </dt>
-                    <dd className="text-ink">
-                      {inspector.arcs.arcs.length === 0 ? (
-                        <span className="text-ink-muted">In no arc</span>
-                      ) : (
-                        <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                          {inspector.arcs.arcs.map((arc, index) => (
-                            <span key={arc.id} className="inline-flex items-center gap-1.5">
-                              {index > 0 && (
-                                <svg className="h-3 w-3 text-ink-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                </svg>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleArcSelect(arc)}
-                                className="rounded-sm text-ink underline decoration-line underline-offset-2 hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-selected"
-                              >
-                                {arc.name}
-                              </button>
-                            </span>
-                          ))}
-                        </span>
-                      )}
-                    </dd>
-                  </div>
-                  {inspector.source && (
-                    <div className="sm:col-span-2">
-                      <dt className="text-xs font-medium text-ink-muted">Source</dt>
-                      <dd className="text-ink">
-                        {inspector.source.url ? (
-                          <a
-                            href={inspector.source.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="break-words underline decoration-line underline-offset-2 hover:decoration-ink"
-                          >
-                            {inspector.source.title}
-                          </a>
-                        ) : (
-                          inspector.source.title
-                        )}
-                        {inspector.source.origin && (
-                          <span className="block text-xs text-ink-muted">{inspector.source.origin}</span>
-                        )}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-                <EventCausesEffects
-                  causes={inspector.causes}
-                  effects={inspector.effects}
-                  onSelectEvent={handleEventSelect}
-                  isLoading={relationshipsLoading}
-                />
-                {rippleReach > inspector.effects.length && (
-                  <p className="text-sm text-ink-secondary" data-testid="ripple-reach">
-                    In all, it sets{' '}
-                    <span className="font-medium text-ink">
-                      {rippleReach} {rippleReach === 1 ? 'event' : 'events'}
-                    </span>{' '}
-                    in motion within {RIPPLE_DEPTH} steps, traced on the timeline above.
-                  </p>
-                )}
-              </div>
-            )}
-            {selectedArc && (
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <h3 className="font-display text-xl font-semibold text-ink">Selected Arc</h3>
-                  <button
-                    type="button"
-                    onClick={() => setEditModal({ type: 'arc', item: selectedArc })}
-                    className="px-2.5 py-1 text-xs font-medium rounded-md border border-line bg-card text-ink-secondary hover:bg-subtle hover:text-ink"
-                  >
-                    Edit
-                  </button>
-                </div>
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                  <div>
-                    <dt className="text-xs font-medium text-ink-muted">Name</dt>
-                    <dd className="text-ink">{selectedArc.name}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-ink-muted">Description</dt>
-                    <dd className="text-ink">{selectedArc.description}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-ink-muted">Start</dt>
-                    <dd className="font-mono-code text-ink">{formatHistoricalTimestamp(selectedArc.start_time)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-ink-muted">End</dt>
-                    <dd className="font-mono-code text-ink">{formatHistoricalTimestamp(selectedArc.end_time)}</dd>
-                  </div>
-                </dl>
-              </div>
-            )}
-          </section>
-        )}
 
         {/* The pressure exploration: the detail modal, the evidence highlighting
             and the confidence tracker all live inside it. A section of this
@@ -1111,10 +1018,212 @@ export function TimelineView() {
         />
       </div>
 
+      {/* The inspector: under the canvas below xl, a bottom sheet over the page
+          on a phone (so the traced ripple stays in view; it used to scroll the
+          page down to an inspector under the legend), a rail from xl. */}
+      {hasInspector ? (
+        <aside
+          aria-label="Selection"
+          className="@container mt-6 rounded-lg border border-line bg-card p-5 shadow-sm xl:sticky xl:top-[calc(var(--app-header-h,0px)+1.5rem)] xl:mt-0 xl:max-h-[calc(100dvh-var(--app-header-h,0px)-3rem)] xl:overflow-y-auto max-lg:fixed max-lg:inset-x-0 max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] max-lg:z-30 max-lg:mt-0 max-lg:max-h-[55dvh] max-lg:overflow-y-auto max-lg:rounded-b-none max-lg:shadow-xl"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedEvent(null)
+              setSelectedArc(null)
+            }}
+            aria-label="Close the inspector (Esc)"
+            title="Close (Esc)"
+            className="float-right -mr-1 -mt-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-muted hover:bg-subtle hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected lg:hidden"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+      <section aria-label="Selection inspector" className="text-ink">
+        {inspectedEvent && inspector && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-display text-xl font-semibold text-ink">Selected event</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditModal({ type: 'event', item: inspectedEvent })}
+                  className="px-2.5 py-1 text-xs font-medium rounded-md border border-line bg-card text-ink-secondary hover:bg-subtle hover:text-ink"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAssignmentTarget(inspectedEvent)}
+                  className="px-2.5 py-1 text-xs font-medium rounded-md border border-line bg-card text-ink-secondary hover:bg-subtle hover:text-ink"
+                >
+                  Assign to arc
+                </button>
+                {/* The product's core move: fork a what-if at this point of
+                    divergence. Amber is the divergence accent. */}
+                <button
+                  type="button"
+                  onClick={() => setBranchFromEvent(inspectedEvent)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md border border-divergence/60 bg-card text-ink hover:bg-divergence/10"
+                >
+                  <svg className="h-3.5 w-3.5 text-divergence" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                    <circle cx="6" cy="5" r="2" />
+                    <circle cx="6" cy="19" r="2" />
+                    <circle cx="18" cy="9" r="2" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 7v10M18 11c0 4-6 3-11.2 6.4" />
+                  </svg>
+                  Branch from this event
+                </button>
+              </div>
+            </div>
+            <dl className="grid grid-cols-1 @sm:grid-cols-2 @3xl:grid-cols-4 gap-x-6 gap-y-3 text-sm">
+              <div className="@sm:col-span-2 @3xl:col-span-4">
+                <dt className="text-xs font-medium text-ink-muted">Description</dt>
+                <dd className="text-ink">{inspectedEvent.description}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-ink-muted">Actor</dt>
+                <dd className="text-ink">{inspectedEvent.actor}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-ink-muted">Target</dt>
+                <dd className="text-ink">{inspectedEvent.target}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-ink-muted">Timestamp</dt>
+                <dd className="font-mono-code text-ink">{formatEventDate(inspectedEvent)}</dd>
+              </div>
+              {inspector.confidence !== null && (
+                <div>
+                  <dt className="text-xs font-medium text-ink-muted">Confidence</dt>
+                  <dd className="font-mono-code text-ink" title="0 (doubtful) to 1 (certain)">
+                    {inspector.confidence.toFixed(2)}
+                  </dd>
+                </div>
+              )}
+              <div className="@sm:col-span-2">
+                <dt className="text-xs font-medium text-ink-muted">
+                  {inspector.arcs.arcs.length === 1 ? 'Arc' : 'Arcs'}
+                  {inspector.arcs.arcs.length > 0 && inspector.arcs.basis === 'date' && (
+                    <span className="font-normal"> (by date)</span>
+                  )}
+                </dt>
+                <dd className="text-ink">
+                  {inspector.arcs.arcs.length === 0 ? (
+                    <span className="text-ink-muted">In no arc</span>
+                  ) : (
+                    <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                      {inspector.arcs.arcs.map((arc, index) => (
+                        <span key={arc.id} className="inline-flex items-center gap-1.5">
+                          {index > 0 && (
+                            <svg className="h-3 w-3 text-ink-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                            </svg>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleArcSelect(arc)}
+                            className="rounded-sm text-ink underline decoration-line underline-offset-2 hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-selected"
+                          >
+                            {arc.name}
+                          </button>
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </dd>
+              </div>
+              {inspector.source && (
+                <div className="@sm:col-span-2">
+                  <dt className="text-xs font-medium text-ink-muted">Source</dt>
+                  <dd className="text-ink">
+                    {inspector.source.url ? (
+                      <a
+                        href={inspector.source.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="break-words underline decoration-line underline-offset-2 hover:decoration-ink"
+                      >
+                        {inspector.source.title}
+                      </a>
+                    ) : (
+                      inspector.source.title
+                    )}
+                    {inspector.source.origin && (
+                      <span className="block text-xs text-ink-muted">{inspector.source.origin}</span>
+                    )}
+                  </dd>
+                </div>
+              )}
+            </dl>
+            <EventCausesEffects
+              causes={inspector.causes}
+              effects={inspector.effects}
+              onSelectEvent={handleEventSelect}
+              isLoading={relationshipsLoading}
+            />
+            {rippleReach > inspector.effects.length && (
+              <p className="text-sm text-ink-secondary" data-testid="ripple-reach">
+                In all, it sets{' '}
+                <span className="font-medium text-ink">
+                  {rippleReach} {rippleReach === 1 ? 'event' : 'events'}
+                </span>{' '}
+                in motion within {RIPPLE_DEPTH} steps, traced on the timeline above.
+              </p>
+            )}
+          </div>
+        )}
+        {selectedArc && (
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <h3 className="font-display text-xl font-semibold text-ink">Selected arc</h3>
+              <button
+                type="button"
+                onClick={() => setEditModal({ type: 'arc', item: selectedArc })}
+                className="px-2.5 py-1 text-xs font-medium rounded-md border border-line bg-card text-ink-secondary hover:bg-subtle hover:text-ink"
+              >
+                Edit
+              </button>
+            </div>
+            <dl className="grid grid-cols-1 @sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              <div>
+                <dt className="text-xs font-medium text-ink-muted">Name</dt>
+                <dd className="text-ink">{selectedArc.name}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-ink-muted">Description</dt>
+                <dd className="text-ink">{selectedArc.description}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-ink-muted">Start</dt>
+                <dd className="font-mono-code text-ink">{formatHistoricalTimestamp(selectedArc.start_time)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-ink-muted">End</dt>
+                <dd className="font-mono-code text-ink">{formatHistoricalTimestamp(selectedArc.end_time)}</dd>
+              </div>
+            </dl>
+          </div>
+        )}
+      </section>
+        </aside>
+      ) : (
+        <aside aria-label="Selection" className={`hidden rounded-lg border border-dashed border-line p-5 text-sm text-ink-secondary ${reserveRail ? 'xl:block' : ''}`}>
+          <h3 className="font-display text-xl font-semibold text-ink">Nothing selected</h3>
+          <p className="mt-2">
+            Select an event to see why it is there and to trace what it caused: its ripple stays lit on the
+            timeline while the rest fades back.
+          </p>
+        </aside>
+      )}
+      </div>
+
       {/* Context Menu */}
       {contextMenu && (
         <ContextMenu
           isOpen={true}
+          title={contextMenu.type === 'event' ? contextMenu.item.description : contextMenu.item.name}
           position={contextMenu.position}
           items={[
             { id: 'edit', label: 'Edit', onClick: handleEdit },
@@ -1145,7 +1254,9 @@ export function TimelineView() {
             (deleteConfirmLinks > 0
               ? `, with the ${deleteConfirmLinks} causal ${deleteConfirmLinks === 1 ? 'link' : 'links'} that join it to other events. `
               : '. ') +
-            `Its previous version stays in the graph's Version history, so it can be restored from Versions.`
+            (deleteConfirm.type === 'event'
+              ? `You can undo this straight afterwards, and the graph's Version history keeps the earlier version.`
+              : `Its previous version stays in the graph's Version history, so it can be restored from Versions.`)
           }
           confirmLabel={`Delete ${deleteConfirm.type}`}
           onConfirm={handleDeleteConfirm}
@@ -1159,23 +1270,25 @@ export function TimelineView() {
           The current arc is read from the event's metadata, so the modal
           opens on the assignment the event already has. */}
       {assignmentTarget && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
-          {/* EventArcAssignment draws its own surface; this is only the dialog. */}
-          <div role="dialog" aria-modal="true" aria-label="Assign Event to Arc" className="w-full max-w-md">
-            <EventArcAssignment
-              event={assignmentTarget}
-              availableArcs={fetchedArcs}
-              currentArcId={
-                typeof assignmentTarget.metadata?.arcId === 'string'
-                  ? assignmentTarget.metadata.arcId
-                  : null
-              }
-              onAssign={handleAssignToArc}
-              onCancel={() => setAssignmentTarget(null)}
-              className="w-full shadow-xl"
-            />
+        <Portal>
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
+            {/* EventArcAssignment draws its own surface; this is only the dialog. */}
+            <div role="dialog" aria-modal="true" aria-label="Assign Event to Arc" className="w-full max-w-md">
+              <EventArcAssignment
+                event={assignmentTarget}
+                availableArcs={fetchedArcs}
+                currentArcId={
+                  typeof assignmentTarget.metadata?.arcId === 'string'
+                    ? assignmentTarget.metadata.arcId
+                    : null
+                }
+                onAssign={handleAssignToArc}
+                onCancel={() => setAssignmentTarget(null)}
+                className="w-full shadow-xl"
+              />
+            </div>
           </div>
-        </div>
+        </Portal>
       )}
 
       {/* Event Edit Modal */}

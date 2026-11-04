@@ -62,8 +62,8 @@ describe('SimulationLauncherPanel', () => {
 
     fireEvent.change(screen.getByLabelText(/Steps/), { target: { value: '4' } })
     fireEvent.change(screen.getByLabelText(/Months per step/), { target: { value: '24' } })
-    fireEvent.change(screen.getByLabelText(/Domain/), { target: { value: 'military' } })
-    fireEvent.change(screen.getByLabelText(/Seed context/), { target: { value: 'A blockade' } })
+    fireEvent.change(screen.getByLabelText(/Driving pressure/), { target: { value: 'military' } })
+    fireEvent.change(screen.getByLabelText(/Premise/), { target: { value: 'A blockade' } })
 
     fireEvent.click(screen.getByRole('button', { name: /Preview simulation/ }))
 

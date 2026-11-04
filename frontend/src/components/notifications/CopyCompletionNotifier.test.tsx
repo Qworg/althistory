@@ -60,7 +60,7 @@ describe('CopyCompletionNotifier', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('Copy Completed Successfully')).toBeInTheDocument()
+      expect(screen.getByText('Copy finished')).toBeInTheDocument()
     })
     expect(screen.getByText(/Copy One/)).toBeInTheDocument()
   })
@@ -226,7 +226,7 @@ describe('CopyCompletionNotifier', () => {
 
     // A cancellation the user made is not a failure to report.
     await waitFor(() => {
-      expect(screen.queryByText('Copy Completed Successfully')).not.toBeInTheDocument()
+      expect(screen.queryByText('Copy finished')).not.toBeInTheDocument()
     })
   })
 })

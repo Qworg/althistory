@@ -118,7 +118,9 @@ export function useStreamingWrite(options: UseStreamingWriteOptions = {}) {
     setError(null)
 
     try {
-      const activeGraphId = targetGraphId || graphId
+      // Only a real id may override the hook's graph; anything else (an event
+      // object passed by a careless onClick) falls back to the active graph.
+      const activeGraphId = typeof targetGraphId === 'string' && targetGraphId ? targetGraphId : graphId
       const tokenResponse = await apiClient.stream.getToken(activeGraphId)
       if (!tokenResponse?.token) {
         throw new Error('Failed to obtain streaming authorization token')

@@ -132,7 +132,7 @@ describe('CounterfactualTimelineCanvas', () => {
     const zoomOutBtn = screen.getByTitle('Zoom out')
     const panLeftBtn = screen.getByTitle('Pan left')
     const panRightBtn = screen.getByTitle('Pan right')
-    const resetBtn = screen.getByTitle('Reset view')
+    const resetBtn = screen.getByTitle(/^Reset view/)
 
     fireEvent.click(zoomInBtn)
     fireEvent.click(zoomOutBtn)
@@ -255,7 +255,7 @@ describe('CounterfactualTimelineCanvas', () => {
     expect(screen.getByTestId('event-label-e1').closest('[aria-hidden="true"]')).not.toBeNull()
   })
 
-  it('truncates a long title so it does not collide with its neighbour', () => {
+  it('keeps a long title whole where its row has room, without colliding with its neighbour', () => {
     const crowded: Event[] = [
       { ...baselineEvents[0]!, id: 'a', description: 'An extremely long description of the first event' },
       { ...baselineEvents[0]!, id: 'b', description: 'Second', timestamp: '1940-05-09T00:05:00Z' },
@@ -269,7 +269,8 @@ describe('CounterfactualTimelineCanvas', () => {
         width={1020}
       />
     )
-    expect(screen.getByTestId('event-label-a').textContent).toMatch(/…$/)
+    // Labels shorten only as far as a collision needs; here the row is free.
+    expect(screen.getByTestId('event-label-a').textContent).toBe('An extremely long description of the first event')
     // Two marks minutes apart sit almost on top of each other: the second
     // title goes in the second row rather than over the first.
     const yA = screen.getByTestId('event-label-a').getAttribute('y')
@@ -421,6 +422,34 @@ describe('CounterfactualTimelineCanvas', () => {
           />
         )
       ).not.toThrow()
+    })
+  })
+
+  describe('focusing on the divergence', () => {
+    const at = (id: string, year: number, description = `Event ${id}`): Event => ({
+      id, description, actor: 'A', target: 'B',
+      timestamp: `${year}-01-01T00:00:00.000Z`, created_at: '', updated_at: '',
+    })
+    const shared = [at('s1', 1835), at('s2', 1840), at('s3', 1845), at('s4', 1850), at('s5', 1855)]
+    const baseline = [...shared, at('late', 1866)]
+    const branch = [...shared, at('ban', 1860, 'Parliament bans engines'), at('late', 1866)]
+
+    it('opens on the years from just before a late split, and can show all history', () => {
+      render(
+        <CounterfactualTimelineCanvas
+          focusDivergence
+          baselineName="Engine Age"
+          counterfactualName="Clerks Prevail"
+          baselineEvents={baseline}
+          counterfactualEvents={branch}
+          width={1020}
+        />
+      )
+      // Early shared events fall outside the focused window
+      expect(screen.queryByTestId('event-label-s1')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'All history' }))
+      expect(screen.getAllByTestId('event-label-s1').length).toBeGreaterThan(0)
+      expect(screen.getByRole('button', { name: 'From divergence' })).toBeInTheDocument()
     })
   })
 })

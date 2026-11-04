@@ -147,6 +147,25 @@ describe('Timeline keyboard composite', () => {
     expect(document.activeElement).toBe(mark('event:mid'))
   })
 
+  it('lets the first Escape on a mark clear an active selection, keeping focus on the mark', () => {
+    const onDocumentEscape = vi.fn()
+    const listener = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) onDocumentEscape()
+    }
+    document.addEventListener('keydown', listener)
+    try {
+      render(<Timeline events={events} arcs={arcs} width={800} selectedEventId="mid" />)
+      act(() => mark('event:mid').focus())
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+      // The view's document-level handler (clear selection) receives it...
+      expect(onDocumentEscape).toHaveBeenCalledTimes(1)
+      // ...and focus stays where the user is working.
+      expect(document.activeElement).toBe(mark('event:mid'))
+    } finally {
+      document.removeEventListener('keydown', listener)
+    }
+  })
+
   it('pans a focused mark into view when it is off screen', () => {
     const onTimeRangeChange = vi.fn()
     render(<Timeline events={events} arcs={[]} width={800} onTimeRangeChange={onTimeRangeChange} />)

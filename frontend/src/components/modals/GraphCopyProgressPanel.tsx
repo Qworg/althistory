@@ -129,7 +129,7 @@ export const GraphCopyProgressPanel: React.FC<GraphCopyProgressPanelProps> = ({
     <ModalBase
       isOpen={isOpen}
       onClose={onClose}
-      title="Copies"
+      title="Recent copies"
       size="3xl"
       footer={
         <div className="flex justify-end">

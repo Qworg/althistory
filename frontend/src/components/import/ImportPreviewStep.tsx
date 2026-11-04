@@ -89,7 +89,7 @@ export function ImportPreviewStep({
               value="create-new"
               checked={mode === 'create-new'}
               onChange={() => onModeChange('create-new')}
-              className="mt-1 h-4 w-4 text-baseline border-line focus:ring-blue-500"
+              className="mt-1 h-4 w-4 text-baseline border-line focus:ring-selected"
               disabled={isLoading}
             />
             <div>
@@ -109,7 +109,7 @@ export function ImportPreviewStep({
               value="merge"
               checked={mode === 'merge'}
               onChange={() => onModeChange('merge')}
-              className="mt-1 h-4 w-4 text-baseline border-line focus:ring-blue-500"
+              className="mt-1 h-4 w-4 text-baseline border-line focus:ring-selected"
               disabled={isLoading}
             />
             <div>
@@ -129,7 +129,7 @@ export function ImportPreviewStep({
               value="replace"
               checked={mode === 'replace'}
               onChange={() => onModeChange('replace')}
-              className="mt-1 h-4 w-4 text-baseline border-line focus:ring-blue-500"
+              className="mt-1 h-4 w-4 text-baseline border-line focus:ring-selected"
               disabled={isLoading}
             />
             <div>
@@ -226,7 +226,7 @@ export function ImportPreviewStep({
           type="button"
           onClick={onBack}
           disabled={isLoading}
-          className="inline-flex items-center px-4 py-2 border border-line text-sm font-medium rounded-md text-ink-secondary bg-card hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          className="inline-flex items-center px-4 py-2 border border-line text-sm font-medium rounded-md text-ink-secondary bg-card hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-selected disabled:opacity-50"
         >
           Back
         </button>
@@ -234,7 +234,7 @@ export function ImportPreviewStep({
           type="button"
           onClick={onContinue}
           disabled={isLoading}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-on-accent bg-baseline hover:bg-baseline/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-selected disabled:opacity-50"
         >
           {isLoading ? 'Loading...' : hasConflicts ? 'Resolve Conflicts' : 'Continue to Import'}
         </button>

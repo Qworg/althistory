@@ -143,7 +143,7 @@ export function ActiveFilters({
           {tag.removable && (
             <button
               onClick={() => handleRemoveFilter(tag)}
-              className="ml-2 inline-flex items-center justify-center w-4 h-4 rounded-full hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+              className="ml-2 inline-flex items-center justify-center w-4 h-4 rounded-full hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-1"
               aria-label={`Remove filter: ${tag.label}`}
             >
               <svg
@@ -167,7 +167,7 @@ export function ActiveFilters({
       {filterTags.length > 1 && (
         <button
           onClick={onClearAll}
-          className="text-sm text-ink-muted hover:text-ink underline focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
+          className="text-sm text-ink-muted hover:text-ink underline focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-1 rounded"
         >
           Clear all
         </button>

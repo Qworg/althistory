@@ -300,11 +300,11 @@ describe('ViewToolbar', () => {
       mockUseGlobalStore.mockReturnValue(asStore(storeWithFilters))
       
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
-      
-      const clearFiltersButton = screen.getByRole('button', { name: /clear filters/i })
-      expect(clearFiltersButton).not.toBeDisabled()
-      
-      fireEvent.click(clearFiltersButton)
+
+      // The filter chips under the header carry "Clear all"; the toolbar does
+      // not repeat it as a button, but Shift+R still clears.
+      expect(screen.queryByRole('button', { name: /clear filters/i })).not.toBeInTheDocument()
+      fireEvent.keyDown(document, { key: 'R', shiftKey: true })
       expect(mockStore.clearFilters).toHaveBeenCalled()
     })
 
@@ -326,19 +326,20 @@ describe('ViewToolbar', () => {
 
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
-      expect(screen.getByRole('button', { name: /clear filters/i })).not.toBeDisabled()
+      fireEvent.keyDown(document, { key: 'R', shiftKey: true })
+      expect(mockStore.clearFilters).toHaveBeenCalled()
     })
 
     it('opens the ingestion wizard from the Ingest action (Req 19)', async () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
       // The wizard is not mounted until the reachable entry point is used.
-      expect(screen.queryByRole('dialog', { name: /^ingest from/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog', { name: 'Bring in history' })).not.toBeInTheDocument()
 
       fireEvent.click(screen.getByRole('button', { name: 'Bring in history' }))
       fireEvent.click(screen.getByRole('menuitem', { name: /^extract from text/i }))
 
-      expect(await screen.findByRole('dialog', { name: /^ingest from/i })).toBeInTheDocument()
+      expect(await screen.findByRole('dialog', { name: 'Bring in history' })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: 'Wikipedia' })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: 'Wikidata' })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: 'Text' })).toBeInTheDocument()
@@ -470,7 +471,7 @@ describe('ViewToolbar', () => {
 
       const iconOf = (name: string) => screen.getByRole('menuitem', { name }).querySelector('svg')?.innerHTML
       expect(iconOf('Versions')).toBeTruthy()
-      expect(iconOf('Versions')).not.toBe(iconOf('Copies'))
+      expect(iconOf('Versions')).not.toBe(iconOf('Recent copies'))
     })
 
     it('keeps every item label on one line', () => {
@@ -481,7 +482,7 @@ describe('ViewToolbar', () => {
       expect(screen.getByText('Branch or copy…')).toHaveClass('whitespace-nowrap')
     })
 
-    const graphActions = ['Branch or copy…', 'Versions', 'Export', 'Copies']
+    const graphActions = ['Branch or copy…', 'Simulate forward…', 'Versions', 'Export', 'Recent copies']
 
     it('collapses the graph-management actions behind a closed menu button', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
@@ -513,13 +514,13 @@ describe('ViewToolbar', () => {
       const menu = screen.getByRole('menu')
 
       fireEvent.keyDown(menu, { key: 'ArrowDown' })
-      expect(screen.getByRole('menuitem', { name: 'Versions' })).toHaveFocus()
+      expect(screen.getByRole('menuitem', { name: 'Simulate forward…' })).toHaveFocus()
       fireEvent.keyDown(menu, { key: 'End' })
-      expect(screen.getByRole('menuitem', { name: 'Copies' })).toHaveFocus()
+      expect(screen.getByRole('menuitem', { name: 'Recent copies' })).toHaveFocus()
       fireEvent.keyDown(menu, { key: 'ArrowDown' })
       expect(screen.getByRole('menuitem', { name: 'Branch or copy…' })).toHaveFocus()
       fireEvent.keyDown(menu, { key: 'ArrowUp' })
-      expect(screen.getByRole('menuitem', { name: 'Copies' })).toHaveFocus()
+      expect(screen.getByRole('menuitem', { name: 'Recent copies' })).toHaveFocus()
       fireEvent.keyDown(menu, { key: 'Home' })
       expect(screen.getByRole('menuitem', { name: 'Branch or copy…' })).toHaveFocus()
     })
@@ -528,7 +529,7 @@ describe('ViewToolbar', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
       fireEvent.keyDown(screen.getByRole('button', { name: 'Graph' }), { key: 'ArrowUp' })
 
-      expect(screen.getByRole('menuitem', { name: 'Copies' })).toHaveFocus()
+      expect(screen.getByRole('menuitem', { name: 'Recent copies' })).toHaveFocus()
     })
 
     it('closes on Escape, returns focus to the trigger, and does not clear the selection', () => {
@@ -560,10 +561,10 @@ describe('ViewToolbar', () => {
       const trigger = screen.getByRole('button', { name: 'Graph' })
       fireEvent.click(trigger)
 
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Copies' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Recent copies' }))
 
       expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-      expect(screen.getByRole('dialog', { name: 'Copies' })).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: 'Recent copies' })).toBeInTheDocument()
     })
 
     it('keeps menu shortcuts working while the menu is closed', () => {
@@ -655,7 +656,7 @@ describe('ViewToolbar', () => {
   describe('Streaming status integration', () => {
     it('renders streaming status badge in the toolbar', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
-      expect(screen.getByRole('status', { name: /edits save as you go|live link/i })).toBeInTheDocument()
+      expect(screen.getByRole('status', { name: /edits save as you go|live sync/i })).toBeInTheDocument()
     })
   })
 
@@ -679,7 +680,7 @@ describe('ViewToolbar', () => {
       for (const name of ['Graph', 'Compare branches', 'Bring in history']) {
         expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
       }
-      expect(screen.queryByRole('status', { name: /edits save as you go|live link/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('status', { name: /edits save as you go|live sync/i })).not.toBeInTheDocument()
     })
 
     it('keeps the graph shortcuts working without the menu', () => {

@@ -3,6 +3,7 @@ import { CausalRelationship, Event, CausalRelationshipData } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { Portal } from '@/components/ui/Portal'
 
 export interface CausalRelationshipModalProps {
   relationship: CausalRelationship | null
@@ -248,213 +249,215 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
   if (!isOpen || (!relationship && !isCreateMode)) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div role="dialog" aria-modal="true" aria-label={isCreateMode ? 'Create Causal Relationship' : 'Edit Causal Relationship'} className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">
-            {isCreateMode ? 'Create Causal Relationship' : 'Edit Causal Relationship'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-            disabled={isLoading}
-            aria-label="Close modal"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-6 space-y-6">
-          {/* Event Information */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-900 mb-3">Relationship</h3>
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <div className="flex-1 bg-white rounded px-3 py-2 border">
-                  <div className="text-sm font-medium text-gray-900">
-                    {causeEvent ? `${causeEvent.actor} → ${causeEvent.target}` : 'Unknown Event'}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {causeEvent ? formatHistoricalTimestamp(causeEvent.timestamp) : 'N/A'}
-                  </div>
-                </div>
-                <div className="text-gray-400">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                  </svg>
-                </div>
-                <div className="flex-1 bg-white rounded px-3 py-2 border">
-                  <div className="text-sm font-medium text-gray-900">
-                    {effectEvent ? `${effectEvent.actor} → ${effectEvent.target}` : 'Unknown Event'}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {effectEvent ? formatHistoricalTimestamp(effectEvent.timestamp) : 'N/A'}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Form Fields */}
-          <div className="space-y-4">
-            {/* Weight */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Weight ({formData.weight.toFixed(2)})
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={formData.weight}
-                onChange={(e) => handleInputChange('weight', parseFloat(e.target.value))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                disabled={isLoading}
-              />
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>Weak (0.0)</span>
-                <span>Strong (1.0)</span>
-              </div>
-            </div>
-
-            {/* Confidence */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Confidence ({formData.confidence.toFixed(2)})
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={formData.confidence}
-                onChange={(e) => handleInputChange('confidence', parseFloat(e.target.value))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                disabled={isLoading}
-              />
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>Low (0.0)</span>
-                <span>High (1.0)</span>
-              </div>
-            </div>
-
-            {/* Relationship Type */}
-            <div>
-              <label htmlFor="relationship-type-select" className="block text-sm font-medium text-gray-700 mb-2">
-                Relationship Type
-              </label>
-              <select
-                id="relationship-type-select"
-                aria-label="Relationship Type"
-                value={formData.relationship_type}
-                onChange={(e) => handleInputChange('relationship_type', e.target.value as CausalRelationshipData['relationship_type'])}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                disabled={isLoading}
-              >
-                <option value="direct">Direct</option>
-                <option value="indirect">Indirect</option>
-                <option value="contributory">Contributory</option>
-              </select>
-            </div>
-
-            {/* Target Graph / Cross-Graph Reference */}
-            <div>
-              <label htmlFor="target-graph-select" className="block text-sm font-medium text-gray-700 mb-2">
-                Target Graph (Cross-Graph Reference)
-              </label>
-              <select
-                id="target-graph-select"
-                aria-label="Target Graph"
-                value={formData.effectGraphId || ''}
-                onChange={(e) => {
-                  const targetId = e.target.value
-                  if (targetId) {
-                    setFormData(prev => ({
-                      ...prev,
-                      effectGraphId: targetId,
-                      isCrossGraph: true
-                    }))
-                  } else {
-                    setFormData(prev => ({
-                      ...prev,
-                      effectGraphId: undefined,
-                      isCrossGraph: false
-                    }))
-                  }
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                disabled={isLoading}
-              >
-                <option value="">Current Graph (Local Link)</option>
-                {graphsList.map((graph) => (
-                  <option key={graph.id} value={graph.id}>
-                    {graph.name} (Cross-Graph)
-                  </option>
-                ))}
-              </select>
-              {formData.isCrossGraph && (
-                <div className="mt-2 flex items-center gap-2 p-2 bg-purple-50 border border-purple-200 rounded-md text-xs text-purple-700" role="status">
-                  <span className="font-semibold">⚡ Cross-Graph Reference:</span>
-                  <span>This link connects across timeline boundaries to target graph {formData.effectGraphId}.</span>
-                </div>
-              )}
-            </div>
-
-            {/* Evidence */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Evidence
-              </label>
-              <textarea
-                value={formData.evidence}
-                onChange={(e) => handleInputChange('evidence', e.target.value)}
-                rows={4}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Describe the evidence supporting this causal relationship..."
-                disabled={isLoading}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between p-6 border-t border-gray-200">
-          {!isCreateMode ? (
-            <button
-              onClick={handleDelete}
-              className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors"
-              disabled={isLoading}
-            >
-              Delete Relationship
-            </button>
-          ) : (
-            <div />
-          )}
-
-          <div className="flex space-x-3">
+    <Portal>
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div role="dialog" aria-modal="true" aria-label={isCreateMode ? 'Create Causal Relationship' : 'Edit Causal Relationship'} className="bg-card rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between p-6 border-b border-line">
+            <h2 className="text-xl font-semibold text-ink">
+              {isCreateMode ? 'Create Causal Relationship' : 'Edit Causal Relationship'}
+            </h2>
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+              className="text-ink-muted hover:text-ink-secondary transition-colors"
               disabled={isLoading}
+              aria-label="Close modal"
             >
-              Cancel
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
-            <button
-              onClick={handleSave}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={isLoading}
-            >
-              {isLoading ? (isCreateMode ? 'Creating...' : 'Saving...') : (isCreateMode ? 'Create Relationship' : 'Save Changes')}
-            </button>
+          </div>
+
+          {/* Content */}
+          <div className="p-6 space-y-6">
+            {/* Event Information */}
+            <div className="bg-subtle rounded-lg p-4">
+              <h3 className="text-sm font-medium text-ink mb-3">Relationship</h3>
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <div className="flex-1 bg-card rounded px-3 py-2 border">
+                    <div className="text-sm font-medium text-ink">
+                      {causeEvent ? `${causeEvent.actor} → ${causeEvent.target}` : 'Unknown Event'}
+                    </div>
+                    <div className="text-xs text-ink-muted">
+                      {causeEvent ? formatHistoricalTimestamp(causeEvent.timestamp) : 'N/A'}
+                    </div>
+                  </div>
+                  <div className="text-ink-muted">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 bg-card rounded px-3 py-2 border">
+                    <div className="text-sm font-medium text-ink">
+                      {effectEvent ? `${effectEvent.actor} → ${effectEvent.target}` : 'Unknown Event'}
+                    </div>
+                    <div className="text-xs text-ink-muted">
+                      {effectEvent ? formatHistoricalTimestamp(effectEvent.timestamp) : 'N/A'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Form Fields */}
+            <div className="space-y-4">
+              {/* Weight */}
+              <div>
+                <label className="block text-sm font-medium text-ink-secondary mb-2">
+                  Weight ({formData.weight.toFixed(2)})
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={formData.weight}
+                  onChange={(e) => handleInputChange('weight', parseFloat(e.target.value))}
+                  className="w-full h-2 bg-line rounded-lg appearance-none cursor-pointer"
+                  disabled={isLoading}
+                />
+                <div className="flex justify-between text-xs text-ink-muted mt-1">
+                  <span>Weak (0.0)</span>
+                  <span>Strong (1.0)</span>
+                </div>
+              </div>
+
+              {/* Confidence */}
+              <div>
+                <label className="block text-sm font-medium text-ink-secondary mb-2">
+                  Confidence ({formData.confidence.toFixed(2)})
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={formData.confidence}
+                  onChange={(e) => handleInputChange('confidence', parseFloat(e.target.value))}
+                  className="w-full h-2 bg-line rounded-lg appearance-none cursor-pointer"
+                  disabled={isLoading}
+                />
+                <div className="flex justify-between text-xs text-ink-muted mt-1">
+                  <span>Low (0.0)</span>
+                  <span>High (1.0)</span>
+                </div>
+              </div>
+
+              {/* Relationship Type */}
+              <div>
+                <label htmlFor="relationship-type-select" className="block text-sm font-medium text-ink-secondary mb-2">
+                  Relationship Type
+                </label>
+                <select
+                  id="relationship-type-select"
+                  aria-label="Relationship Type"
+                  value={formData.relationship_type}
+                  onChange={(e) => handleInputChange('relationship_type', e.target.value as CausalRelationshipData['relationship_type'])}
+                  className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent"
+                  disabled={isLoading}
+                >
+                  <option value="direct">Direct</option>
+                  <option value="indirect">Indirect</option>
+                  <option value="contributory">Contributory</option>
+                </select>
+              </div>
+
+              {/* Target Graph / Cross-Graph Reference */}
+              <div>
+                <label htmlFor="target-graph-select" className="block text-sm font-medium text-ink-secondary mb-2">
+                  Target Graph (Cross-Graph Reference)
+                </label>
+                <select
+                  id="target-graph-select"
+                  aria-label="Target Graph"
+                  value={formData.effectGraphId || ''}
+                  onChange={(e) => {
+                    const targetId = e.target.value
+                    if (targetId) {
+                      setFormData(prev => ({
+                        ...prev,
+                        effectGraphId: targetId,
+                        isCrossGraph: true
+                      }))
+                    } else {
+                      setFormData(prev => ({
+                        ...prev,
+                        effectGraphId: undefined,
+                        isCrossGraph: false
+                      }))
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent text-sm"
+                  disabled={isLoading}
+                >
+                  <option value="">Current Graph (Local Link)</option>
+                  {graphsList.map((graph) => (
+                    <option key={graph.id} value={graph.id}>
+                      {graph.name} (Cross-Graph)
+                    </option>
+                  ))}
+                </select>
+                {formData.isCrossGraph && (
+                  <div className="mt-2 flex items-center gap-2 p-2 bg-purple-50 border border-purple-200 rounded-md text-xs text-purple-700" role="status">
+                    <span className="font-semibold">⚡ Cross-Graph Reference:</span>
+                    <span>This link connects across timeline boundaries to target graph {formData.effectGraphId}.</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Evidence */}
+              <div>
+                <label className="block text-sm font-medium text-ink-secondary mb-2">
+                  Evidence
+                </label>
+                <textarea
+                  value={formData.evidence}
+                  onChange={(e) => handleInputChange('evidence', e.target.value)}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent"
+                  placeholder="Describe the evidence supporting this causal relationship..."
+                  disabled={isLoading}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between p-6 border-t border-line">
+            {!isCreateMode ? (
+              <button
+                onClick={handleDelete}
+                className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-danger focus:ring-offset-2 transition-colors"
+                disabled={isLoading}
+              >
+                Delete Relationship
+              </button>
+            ) : (
+              <div />
+            )}
+
+            <div className="flex space-x-3">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-ink-secondary bg-card border border-line rounded-md hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2 transition-colors"
+                disabled={isLoading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                className="px-4 py-2 text-sm font-medium text-on-accent bg-baseline border border-transparent rounded-md hover:bg-baseline/90 focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isLoading}
+              >
+                {isLoading ? (isCreateMode ? 'Creating...' : 'Saving...') : (isCreateMode ? 'Create Relationship' : 'Save Changes')}
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Portal>
   )
 }
 

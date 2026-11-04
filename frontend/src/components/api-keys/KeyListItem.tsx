@@ -33,7 +33,7 @@ export const KeyListItem = memo(function KeyListItem({
   const [showUsage, setShowUsage] = useState(false)
   const isExpired = apiKey.expiresAt && new Date(apiKey.expiresAt) < new Date()
   const statusColor = !apiKey.isActive
-    ? 'bg-gray-100 text-gray-600'
+    ? 'bg-subtle text-ink-secondary'
     : isExpired
       ? 'bg-red-100 text-red-600'
       : 'bg-green-100 text-green-600'
@@ -44,22 +44,22 @@ export const KeyListItem = memo(function KeyListItem({
       : 'Active'
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors">
+    <div className="border border-line rounded-lg p-4 hover:border-line transition-colors">
       <div className="flex justify-between items-start">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <h4 className="font-medium text-gray-900">{apiKey.name}</h4>
+            <h4 className="font-medium text-ink">{apiKey.name}</h4>
             <span className={`px-2 py-0.5 text-xs rounded-full ${statusColor}`}>
               {statusText}
             </span>
           </div>
-          <p className="text-sm font-mono text-gray-500">{apiKey.keyPrefix}...</p>
+          <p className="text-sm font-mono text-ink-muted">{apiKey.keyPrefix}...</p>
         </div>
 
         <div className="flex gap-2">
           <button
             onClick={() => setShowUsage((open) => !open)}
-            className="px-3 py-1 text-sm text-gray-600 hover:bg-gray-50 rounded-md transition-colors"
+            className="px-3 py-1 text-sm text-ink-secondary hover:bg-subtle rounded-md transition-colors"
             aria-expanded={showUsage}
           >
             {showUsage ? 'Hide usage' : 'Usage'}
@@ -85,12 +85,12 @@ export const KeyListItem = memo(function KeyListItem({
 
       <div className="mt-3 flex flex-wrap gap-1">
         {apiKey.permissions.slice(0, 5).map((perm) => (
-          <span key={perm} className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
+          <span key={perm} className="px-2 py-0.5 text-xs bg-subtle text-ink-secondary rounded">
             {PERMISSION_LABELS[perm]}
           </span>
         ))}
         {apiKey.permissions.length > 5 && (
-          <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
+          <span className="px-2 py-0.5 text-xs bg-subtle text-ink-secondary rounded">
             +{apiKey.permissions.length - 5} more
           </span>
         )}
@@ -98,7 +98,7 @@ export const KeyListItem = memo(function KeyListItem({
 
       {showUsage && <KeyUsagePanel keyId={apiKey.id} />}
 
-      <div className="mt-2 flex gap-4 text-xs text-gray-500">
+      <div className="mt-2 flex gap-4 text-xs text-ink-muted">
         <span>Created: {new Date(apiKey.createdAt).toLocaleDateString()}</span>
         {apiKey.lastUsedAt && (
           <span>Last used: {new Date(apiKey.lastUsedAt).toLocaleDateString()}</span>

@@ -11,6 +11,7 @@ import { HelpDialog } from '@/components/help/HelpDialog'
 import { useHelpShortcut } from '@/components/help/useHelpShortcut'
 import { useActiveGraphReconciler } from '@/hooks/useGraphs'
 import { NoActiveGraph } from '@/components/graphs/NoActiveGraph'
+import { ApiKeyRequired } from '@/components/graphs/ApiKeyRequired'
 
 interface MainLayoutProps {
   children: ReactNode
@@ -27,14 +28,14 @@ export function MainLayout({ children }: MainLayoutProps) {
   // Initialize view state management
   useViewStateManager()
 
-  // Register global keyboard shortcuts for view switching (Alt+1/2/3)
+  // Register global keyboard shortcuts for view switching (Shift+1/2/3, or Alt+1/2/3)
   useViewShortcuts()
 
   // `?` opens the help and reference dialog (mounted once, below)
   useHelpShortcut()
 
   // The header's active graph follows the server's, which scopes the data
-  const { noActiveGraph } = useActiveGraphReconciler()
+  const { noActiveGraph, accessProblem } = useActiveGraphReconciler()
 
   // Sync high contrast accessibility preference to the root document element
   useEffect(() => {
@@ -167,7 +168,11 @@ export function MainLayout({ children }: MainLayoutProps) {
         >
           <div className="h-full">
             <div className={`max-w-full mx-auto px-4 sm:px-6 lg:px-8 h-full ${isMobile ? 'py-4' : 'py-6'}`}>
-              {noActiveGraph ? (
+              {/* A refused key comes first: without access, "no graph" and the
+                  unscoped reads underneath would both be wrong. */}
+              {accessProblem ? (
+                <ApiKeyRequired problem={accessProblem} />
+              ) : noActiveGraph ? (
                 <NoActiveGraph />
               ) : (
                 <>

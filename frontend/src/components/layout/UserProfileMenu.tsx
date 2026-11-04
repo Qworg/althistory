@@ -151,7 +151,7 @@ export function UserProfileMenu({ variant = 'header', compact = false, touch = f
                   className={`
                     flex-1 px-3 py-2 text-sm rounded-md border transition-colors
                     ${layoutMode === 'sidebar'
-                      ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
+                      ? 'bg-blue-50 border-selected text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
                       : 'bg-card border-line text-ink-secondary hover:bg-subtle'
                     }
                   `}
@@ -164,7 +164,7 @@ export function UserProfileMenu({ variant = 'header', compact = false, touch = f
                   className={`
                     flex-1 px-3 py-2 text-sm rounded-md border transition-colors
                     ${layoutMode === 'topbar'
-                      ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
+                      ? 'bg-blue-50 border-selected text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
                       : 'bg-card border-line text-ink-secondary hover:bg-subtle'
                     }
                   `}
@@ -186,7 +186,7 @@ export function UserProfileMenu({ variant = 'header', compact = false, touch = f
                   className={`
                     flex-1 px-2 py-1.5 text-xs rounded-md border transition-colors
                     ${theme === 'light'
-                      ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
+                      ? 'bg-blue-50 border-selected text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
                       : 'bg-card border-line text-ink-secondary hover:bg-subtle'
                     }
                   `}
@@ -199,7 +199,7 @@ export function UserProfileMenu({ variant = 'header', compact = false, touch = f
                   className={`
                     flex-1 px-2 py-1.5 text-xs rounded-md border transition-colors
                     ${theme === 'dark'
-                      ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
+                      ? 'bg-blue-50 border-selected text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
                       : 'bg-card border-line text-ink-secondary hover:bg-subtle'
                     }
                   `}
@@ -212,7 +212,7 @@ export function UserProfileMenu({ variant = 'header', compact = false, touch = f
                   className={`
                     flex-1 px-2 py-1.5 text-xs rounded-md border transition-colors
                     ${theme === 'system'
-                      ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
+                      ? 'bg-blue-50 border-selected text-blue-700 dark:bg-blue-500/15 dark:border-blue-400 dark:text-blue-200'
                       : 'bg-card border-line text-ink-secondary hover:bg-subtle'
                     }
                   `}
@@ -228,22 +228,28 @@ export function UserProfileMenu({ variant = 'header', compact = false, touch = f
               <label className="block text-xs font-medium text-ink-muted uppercase tracking-wider mb-2">
                 Accessibility
               </label>
+              {/* A checkable menu item drawn as a switch: in a menu, an on/off
+                  setting is menuitemcheckbox + aria-checked, not a menuitem
+                  reading "OFF". */}
               <button
                 type="button"
                 onClick={handleToggleHighContrast}
-                aria-pressed={highContrast}
-                className={`
-                  w-full flex items-center justify-between px-3 py-2 text-xs rounded-md border transition-colors
-                  ${highContrast
-                    ? 'bg-indigo-50 border-indigo-600 text-indigo-900 font-semibold dark:bg-indigo-500/20 dark:border-indigo-300 dark:text-indigo-100'
-                    : 'bg-card border-line text-ink-secondary hover:bg-subtle'
-                  }
-                `}
-                role="menuitem"
+                role="menuitemcheckbox"
+                aria-checked={highContrast}
+                className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm rounded-md border border-line bg-card text-ink hover:bg-subtle transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
               >
-                <span>High Contrast Mode</span>
-                <span className="text-xs uppercase tracking-wide">
-                  {highContrast ? 'On' : 'Off'}
+                <span>High contrast</span>
+                <span
+                  aria-hidden="true"
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
+                    highContrast ? 'border-selected bg-selected' : 'border-ink-muted bg-subtle'
+                  }`}
+                >
+                  <span
+                    className={`absolute h-3.5 w-3.5 rounded-full transition-transform ${
+                      highContrast ? 'translate-x-[1.125rem] bg-on-accent' : 'translate-x-0.5 bg-ink-muted'
+                    }`}
+                  />
                 </span>
               </button>
             </div>

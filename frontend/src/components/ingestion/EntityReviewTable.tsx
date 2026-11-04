@@ -15,7 +15,7 @@
  */
 
 import { useState, useMemo, useId } from 'react'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatHistoricalDateAt, formatHistoricalTimestamp, type DatePrecision } from '@/utils/historicalTime'
 import type {
   Event,
   ExtractedArc,
@@ -34,6 +34,7 @@ import {
   type ReviewEventLookup,
 } from './reviewLabels'
 import { findDuplicateEvent, matchKnownName, type NameMatch } from './reviewMatching'
+import { PRESELECT_THRESHOLD, formatSpan, isOutsideSpan, type HistorySpan } from './reviewDefaults'
 
 export type ReviewEntity = ExtractedEvent | ExtractedArc | ExtractedRelationship
 export type ReviewEntityType = 'event' | 'arc' | 'relationship'
@@ -222,9 +223,11 @@ export interface EntityReviewTableProps {
    * like one it already has (see reviewMatching.ts).
    */
   graphContext?: { names: readonly string[]; events: readonly Event[] }
+  /** The span of the history rows would join; an event far outside it is flagged. */
+  historySpan?: HistorySpan | null
 }
 
-const DEFAULT_CONFIDENCE_THRESHOLD = '0.7'
+const DEFAULT_CONFIDENCE_THRESHOLD = String(PRESELECT_THRESHOLD)
 
 function confidenceBadgeClass(confidence: number): string {
   if (confidence >= 0.8) {
@@ -253,6 +256,7 @@ export function EntityReviewTable({
   issues = [],
   eventLookup,
   graphContext,
+  historySpan,
 }: EntityReviewTableProps) {
   const columns = useMemo(
     () =>
@@ -341,14 +345,14 @@ export function EntityReviewTable({
             value={thresholdInput}
             onChange={(event) => setThresholdInput(event.target.value)}
             aria-invalid={threshold === null}
-            className="font-mono-code w-16 rounded border border-line bg-card px-1.5 py-1 text-xs text-ink focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="font-mono-code w-16 rounded border border-line bg-card px-1.5 py-1 text-xs text-ink focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
           />
           <button
             type="button"
             disabled={threshold === null}
             onClick={() => threshold !== null && onSelectByConfidence(threshold)}
             title="Selects these rows and deselects the rest"
-            className="rounded-md border border-line bg-card px-2 py-1 font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-line bg-card px-2 py-1 font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-selected disabled:cursor-not-allowed disabled:opacity-50"
           >
             Select <span className="font-mono-code">{matchingCount}</span>
             <span className="sr-only">
@@ -380,7 +384,7 @@ export function EntityReviewTable({
                   aria-label={`Select all ${entityType} entities`}
                   checked={allSelected}
                   onChange={() => (allSelected ? onDeselectAll() : onSelectAll())}
-                  className="h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-500"
+                  className="h-4 w-4 rounded border-line text-baseline focus:ring-selected"
                 />
               </th>
               {columns.map((column) => (
@@ -399,7 +403,7 @@ export function EntityReviewTable({
                   <button
                     type="button"
                     onClick={() => handleSort(column.key)}
-                    className="inline-flex items-center gap-1 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    className="inline-flex items-center gap-1 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
                   >
                     <span>{column.label}</span>
                     {sortKey === column.key && (
@@ -436,7 +440,7 @@ export function EntityReviewTable({
                       aria-describedby={issuesId}
                       checked={entity.selected}
                       onChange={() => onToggleSelection(entity.tempId)}
-                      className="h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-500"
+                      className="h-4 w-4 rounded border-line text-baseline focus:ring-selected"
                     />
                   </td>
                   {columns.map((column, columnIndex) => {
@@ -444,7 +448,7 @@ export function EntityReviewTable({
                     const rawValue = column.value(entity)
                     const refTempId = column.eventRef?.(entity)
                     const fieldLabel = `${column.label} for ${entityType} ${entity.tempId}`
-                    const fieldClass = `block w-full min-w-0 rounded border bg-card px-2 py-1.5 text-sm text-ink placeholder:text-ink-muted focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                    const fieldClass = `block w-full min-w-0 rounded border bg-card px-2 py-1.5 text-sm text-ink placeholder:text-ink-muted focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected ${
                       hasError ? 'border-red-400' : 'border-line'
                     }`
                     return (
@@ -455,6 +459,7 @@ export function EntityReviewTable({
                             raw={String(rawValue)}
                             describedBy={issuesId}
                             invalid={hasError}
+                            precision={'datePrecision' in entity ? entity.datePrecision : undefined}
                             className={`${fieldClass} font-mono-code`}
                             onChange={(value) => onEdit(entity.tempId, edit(value))}
                           />
@@ -527,6 +532,12 @@ export function EntityReviewTable({
                           >
                             {String(rawValue)}
                           </span>
+                        )}
+                        {columnIndex === 0 && 'timestamp' in entity && historySpan && isOutsideSpan(String(entity.timestamp), historySpan) && (
+                          <p className="mt-1 text-xs text-warning" data-testid="outside-span">
+                            <span className="font-medium">Outside this history ({formatSpan(historySpan)}).</span>{' '}
+                            It starts unticked: tick it if it belongs.
+                          </p>
                         )}
                         {columnIndex === 0 && graphMatches.get(entity.tempId)?.duplicate && (
                           <p className="mt-1 text-xs text-amber-800 dark:text-amber-300" data-testid="possible-duplicate">
@@ -626,6 +637,8 @@ interface ReviewDateFieldProps {
   raw: string
   describedBy?: string
   invalid: boolean
+  /** How much of the extracted date the source stated (month: "March 1871"). */
+  precision?: DatePrecision
   className: string
   onChange: (value: string) => void
 }
@@ -636,7 +649,7 @@ interface ReviewDateFieldProps {
  * in words as the rest of the app writes it ("Feb 14, 1870"), or a note when
  * the importer could not read what was typed.
  */
-function ReviewDateField({ label, raw, describedBy, invalid, className, onChange }: ReviewDateFieldProps) {
+function ReviewDateField({ label, raw, describedBy, invalid, precision, className, onChange }: ReviewDateFieldProps) {
   const readingId = useId()
   // The reviewer's own text, so compaction never rewrites what they type. It
   // follows `raw` only when the value changes from outside this field.
@@ -669,7 +682,11 @@ function ReviewDateField({ label, raw, describedBy, invalid, className, onChange
         id={readingId}
         className={`mt-1 block text-xs ${readable ? 'text-ink-muted' : 'text-red-700 dark:text-red-300'}`}
       >
-        {readable ? formatHistoricalTimestamp(draft.trim()) : 'Not a date: use YYYY-MM-DD'}
+        {!readable
+          ? 'Not a date: use YYYY-MM-DD'
+          : precision && precision !== 'day' && draft === compactReviewDate(raw)
+            ? `${formatHistoricalDateAt(raw, precision)}: the text gives no ${precision === 'month' ? 'day' : 'month or day'}`
+            : formatHistoricalTimestamp(draft.trim())}
       </span>
     </>
   )

@@ -269,6 +269,11 @@ export class GraphRepository {
     return this.versionRepository.getVersionRef(graphId, version);
   }
 
+  /** Name a version (or clear its name with null). See VersionRef.label. */
+  async setVersionLabel(graphId: string, version: number, label: string | null): Promise<void> {
+    return this.versionRepository.setVersionLabel(graphId, version, label);
+  }
+
   /**
    * Get the latest version of a graph, or null when it has no versions.
    */

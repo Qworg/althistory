@@ -384,6 +384,12 @@ export interface VersionRef {
   mergeParent?: MergeParent;
   operation: VersionOperation;
   description?: string;
+  /**
+   * A name the author gave this version ("Before the clerks' strike"). Kept
+   * beside the version record (labels.json), not in it: records are
+   * content-addressed and never rewritten. Absent when unnamed.
+   */
+  label?: string;
   userId?: string;
   changes: {
     added: VersionChange[];

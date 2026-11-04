@@ -2,14 +2,13 @@ import React, { useState, useEffect, useMemo, useCallback, useId, useRef } from 
 import { Event, Arc, CausalRelationship } from '@/types'
 import { useGraphs, useActiveGraphId, useSwitchGraph } from '@/hooks/useGraphs'
 import { apiClient } from '@/services/api'
-import { analyzeEventDivergence, analyzeRelationshipDivergence } from '@/utils/divergenceAnalysis'
+import { analyzeEventDivergence, analyzeRelationshipDivergence, type EventComparisonItem } from '@/utils/divergenceAnalysis'
 import { ModalBase } from '@/components/modals/ModalBase'
+import { branchLabel } from '@/components/graphs/graphTree'
 import { CounterfactualTimelineCanvas } from './CounterfactualTimelineCanvas'
-import { SimulationLauncherPanel } from './SimulationLauncherPanel'
 import { BranchMergeModal } from './BranchMergeModal'
 import {
   SECONDARY_BUTTON,
-  QUIET_BUTTON,
   FIELD,
   FOOTER_ROW,
   FOOTER_ACTIONS,
@@ -38,7 +37,9 @@ export interface BranchComparisonModalProps {
   }
 }
 
-type ActiveTab = 'timeline' | 'causal' | 'diff' | 'summary' | 'simulate'
+// Read-only views. Simulating forward writes, so it lives in the Graph menu
+// with the branch, not in a dialog opened to compare.
+type ActiveTab = 'timeline' | 'causal' | 'diff' | 'summary'
 type DiffFilter = 'changes' | 'all' | 'divergent' | 'shared' | 'baseline_only' | 'modified'
 type DiffStatus = 'shared' | 'divergent_added' | 'baseline_only' | 'modified'
 
@@ -107,15 +108,6 @@ const TABS: ReadonlyArray<{ id: ActiveTab; label: string; icon: React.ReactNode 
       </svg>
     ),
   },
-  {
-    id: 'simulate',
-    label: 'Simulate forward',
-    icon: (
-      <svg {...ICON_PROPS}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-      </svg>
-    ),
-  },
 ]
 
 const STATUS_BADGES: Record<DiffStatus, { label: string; className: string }> = {
@@ -123,6 +115,40 @@ const STATUS_BADGES: Record<DiffStatus, { label: string; className: string }> = 
   divergent_added: { label: 'Added in branch', className: 'border-divergence/60 bg-divergence/15 text-ink' },
   modified: { label: 'Changed', className: 'border-divergence/60 bg-card text-ink' },
   baseline_only: { label: 'Only in baseline', className: 'border-line bg-subtle text-ink-secondary' },
+}
+
+const FIELD_NAMES: Record<string, string> = {
+  description: 'Reworded',
+  actor: 'Actor',
+  target: 'Target',
+  timestamp: 'Date',
+}
+
+/**
+ * What differs, without repeating the event (the Event column already names
+ * it): "Date: Mar 2, 1838 → Jun 1, 1840", "Actor: Peel → Wellington".
+ */
+function describeDifference(item: EventComparisonItem): string {
+  switch (item.status) {
+    case 'divergent_added':
+      return 'Happens only in the branch'
+    case 'baseline_only':
+      return 'Dropped by the branch'
+    case 'shared':
+      return 'Same in both'
+    case 'modified':
+      return (item.changes ?? [])
+        .map((change) => {
+          const name = FIELD_NAMES[change.field] ?? change.field
+          if (change.field === 'description') return name
+          const show = (value: unknown) =>
+            change.field === 'timestamp' && typeof value === 'string' ? formatHistoricalDate(value) : String(value)
+          return `${name}: ${show(change.baselineValue)} → ${show(change.counterfactualValue)}`
+        })
+        .join(' · ') || 'Changed'
+    default:
+      return item.diffSummary ?? ""
+  }
 }
 
 /** One figure in the at-a-glance strip; rules between them from md. */
@@ -218,6 +244,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
   const tabRefs = useRef<Partial<Record<ActiveTab, HTMLButtonElement | null>>>({})
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('timeline')
+  const [showNextSteps, setShowNextSteps] = useState(false)
   // Opens on what differs: the shared history would bury the few changes.
   const [diffFilter, setDiffFilter] = useState<DiffFilter>('changes')
 
@@ -289,6 +316,15 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
 
   const { items: eventDiffItems, metrics } = divergenceAnalysis
 
+  // What only the branch has, for the causal tab's diff colouring.
+  const branchAddedIds = useMemo(
+    () => [
+      ...eventDiffItems.filter(i => i.status === 'divergent_added').map(i => i.id),
+      ...relationshipDiff.filter(r => r.status === 'added').map(r => r.id),
+    ],
+    [eventDiffItems, relationshipDiff]
+  )
+
   // Names of selected graphs
   const resolvedBaselineName = useMemo(() => {
     if (originalGraphName) return originalGraphName
@@ -296,10 +332,24 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
     return found ? (found.branchName || found.name) : 'Baseline'
   }, [originalGraphName, graphList, baselineGraphId])
 
+  // A branch by its own name and what it branches from, as everywhere else:
+  // "Clerks Prevail (branch of The Engine Age)".
+  const optionLabel = useCallback(
+    (g: { id: string; name: string; parentGraphId?: string }) => {
+      const parent = g.parentGraphId ? graphList?.find(other => other.id === g.parentGraphId) ?? null : null
+      return parent ? `${branchLabel(g as Parameters<typeof branchLabel>[0], parent)} (branch of ${parent.name})` : g.name
+    },
+    [graphList]
+  )
+
   const resolvedCounterfactualName = useMemo(() => {
     if (copiedGraphName) return copiedGraphName
     const found = graphList?.find(g => g.id === counterfactualGraphId)
-    return found ? found.name : 'Branch'
+    if (!found) return 'Branch'
+    // Its own name, as in the graph selector ("Clerks Prevail", not
+    // "The Engine Age — Clerks Prevail"): the baseline is named beside it.
+    const parent = found.parentGraphId ? graphList?.find(g => g.id === found.parentGraphId) ?? null : null
+    return branchLabel(found, parent)
   }, [copiedGraphName, graphList, counterfactualGraphId])
 
   // Filtered event diff items
@@ -365,17 +415,11 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
   const tabId = (id: ActiveTab) => `${baseId}-tab-${id}`
   const newCausalLinks = relationshipDiff.filter(r => r.status === 'added').length
 
-  const footer = (
-    <div className={FOOTER_ROW}>
-      {counterfactualGraphId && (
-        <span className="text-sm text-ink-secondary truncate min-w-0">
-          Viewing branch {quoted(resolvedCounterfactualName)}
-        </span>
-      )}
-      <div className={FOOTER_ACTIONS}>
-        <button type="button" onClick={onClose} className={QUIET_BUTTON}>
-          Close
-        </button>
+  // Comparing is read-only; what you can do next is set apart on the left
+  // as "Next step", and on a phone folds into one disclosure so the chart
+  // keeps the screen.
+  const nextSteps = (canSwitch || canMerge) && (
+    <>
         {canSwitch && (
           <button
             type="button"
@@ -383,7 +427,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
             disabled={switchGraphMutation.isPending}
             className={SECONDARY_BUTTON}
           >
-            {switchGraphMutation.isPending ? 'Switching…' : 'Switch to this branch'}
+            {switchGraphMutation.isPending ? 'Opening…' : 'Open this branch'}
           </button>
         )}
         {/* Secondary, not primary: this dialog is opened to compare, and the
@@ -394,6 +438,40 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
             Merge into baseline…
           </button>
         )}
+    </>
+  )
+
+  const footer = (
+    <div className={FOOTER_ROW}>
+      {nextSteps && (
+        <div className="min-w-0">
+          <button
+            type="button"
+            onClick={() => setShowNextSteps(open => !open)}
+            aria-expanded={showNextSteps}
+            aria-controls={`${baseId}-next-steps`}
+            className="rounded-md px-1 py-2 text-sm font-medium text-ink-secondary hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected sm:hidden"
+          >
+            <span className="inline-flex items-center gap-1">
+              Next step: switch or merge
+              <svg className={`h-3.5 w-3.5 transition-transform ${showNextSteps ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </span>
+          </button>
+          <div
+            id={`${baseId}-next-steps`}
+            className={`${showNextSteps ? 'flex' : 'hidden'} mt-2 flex-col gap-2 sm:mt-0 sm:flex sm:flex-row sm:items-center`}
+          >
+            <span className="hidden text-xs font-medium text-ink-muted sm:inline">Next step</span>
+            {nextSteps}
+          </div>
+        </div>
+      )}
+      <div className={FOOTER_ACTIONS}>
+        <button type="button" onClick={onClose} className={SECONDARY_BUTTON}>
+          Close
+        </button>
       </div>
     </div>
   )
@@ -431,7 +509,9 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
           />
         ) : (
         <div className="space-y-4 text-sm text-ink">
-          <p className="text-ink-secondary">
+          {/* On a phone the intro and the figures fold away (one summary line
+              instead) so the comparison itself starts on screen. */}
+          <p className="text-ink-secondary max-sm:hidden">
             Baseline and counterfactual side by side, aligned at the point of divergence.
           </p>
 
@@ -451,7 +531,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
               >
                 {graphList.map(g => (
                   <option key={`base-opt-${g.id}`} value={g.id}>
-                    {g.name} {g.branchName ? `(${g.branchName})` : ''}
+                    {optionLabel(g)}
                   </option>
                 ))}
               </select>
@@ -470,7 +550,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
               >
                 {graphList.map(g => (
                   <option key={`cf-opt-${g.id}`} value={g.id}>
-                    {g.name} {g.branchName ? `(${g.branchName})` : ''}
+                    {optionLabel(g)}
                   </option>
                 ))}
               </select>
@@ -485,7 +565,12 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
 
           {/* At-a-glance figures: one rule-separated strip, two columns on a
               phone, four in a row from md */}
-          <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3 py-3 border-y border-line md:gap-x-0 md:divide-x md:divide-line">
+          <p className="sm:hidden border-y border-line py-2 text-xs text-ink-secondary">
+            {metrics.pointOfDivergence
+              ? <>Splits <span className="font-mono-code text-ink">{formatHistoricalDate(metrics.pointOfDivergence.timestamp)}</span> · {countNoun(metrics.divergentEventsCount, 'event')} added · {countNoun(newCausalLinks, 'new link')}</>
+              : 'No point of divergence: the graphs have the same events.'}
+          </p>
+          <dl className="max-sm:hidden grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3 py-3 border-y border-line md:gap-x-0 md:divide-x md:divide-line">
             <div className={STAT}>
               <dt className="text-xs text-ink-muted flex items-center gap-1.5">
                 <DivergenceDiamond />
@@ -513,10 +598,10 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
             <div className={STAT}>
               <dt className="text-xs text-ink-muted">Branch changes</dt>
               <dd className="mt-1 font-semibold">
-                <span className="font-mono-code">{metrics.divergentEventsCount}</span> added{' '}
-                <span className="text-ink-secondary font-normal">
-                  (<span className="font-mono-code">{metrics.divergenceRate}%</span>)
-                </span>
+                {/* A count, not a percentage: "2 added (9.5%)" dressed a small
+                    number up as a rate. */}
+                <span className="font-mono-code">{metrics.divergentEventsCount}</span>{' '}
+                {metrics.divergentEventsCount === 1 ? 'event' : 'events'} added
               </dd>
               <dd className="text-xs text-ink-secondary mt-0.5">
                 {metrics.modifiedEventsCount} changed · {metrics.baselineOnlyEventsCount} only in baseline
@@ -554,6 +639,9 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                   id={tabId(tab.id)}
                   aria-selected={selected}
                   aria-controls={panelId}
+                  // The dialog opens on the comparison, not on the Baseline
+                  // select (whose focus ring was the first thing on screen).
+                  data-autofocus={selected ? '' : undefined}
                   tabIndex={selected ? 0 : -1}
                   onClick={() => setActiveTab(tab.id)}
                   className={`shrink-0 whitespace-nowrap py-2.5 px-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
@@ -592,6 +680,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
               <>
                 {activeTab === 'timeline' && (
                   <CounterfactualTimelineCanvas
+                    focusDivergence
                     baselineName={resolvedBaselineName}
                     counterfactualName={resolvedCounterfactualName}
                     baselineEvents={baselineData.events}
@@ -607,11 +696,17 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                   <div className="h-[26rem] lg:h-full flex flex-col">
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                       <p className="text-sm font-semibold">
-                        Causal graph of {quoted(resolvedCounterfactualName)}
+                        What {quoted(resolvedCounterfactualName)} changes in the causal graph
                       </p>
-                      <span className="text-xs text-ink-secondary flex items-center gap-1.5">
-                        <DivergenceDiamond />
-                        Point of divergence
+                      {/* The point of divergence is in the graph's own legend
+                          below; here only what this tab adds. */}
+                      <span className="text-xs text-ink-secondary flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="flex items-center gap-1.5">
+                          <svg width="22" height="8" viewBox="0 0 22 8" aria-hidden="true">
+                            <line x1="1" y1="4" x2="21" y2="4" stroke="var(--accent-divergence)" strokeWidth="2.5" />
+                          </svg>
+                          Only in the branch ({branchAddedIds.length})
+                        </span>
                       </span>
                     </div>
                     <div className="flex-1 min-h-0 relative rounded-md bg-subtle">
@@ -622,6 +717,8 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                         events={counterfactualData.events}
                         causalRelationships={counterfactualData.relationships}
                         divergenceEventIds={podEventIds}
+                        branchAddedIds={branchAddedIds}
+                        canvasMinHeight={0}
                         className="h-full w-full"
                         showLayoutManager={true}
                         showOverview={false}
@@ -637,7 +734,20 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                 {activeTab === 'diff' && (
                   <div className="flex flex-col gap-3 lg:h-full">
                     <div role="group" aria-label="Show events" className="flex flex-wrap items-center gap-2">
-                      {(['changes', 'all', 'divergent', 'shared', 'baseline_only', 'modified'] as DiffFilter[]).map(filter => {
+                      {/* A filter with nothing in it is not offered ("Changed (0)"),
+                          unless it is the one showing. */}
+                      {(['changes', 'all', 'divergent', 'shared', 'baseline_only', 'modified'] as DiffFilter[])
+                        .filter(filter => {
+                          const count =
+                            filter === 'changes' ? eventDiffItems.filter(i => i.status !== 'shared').length
+                            : filter === 'all' ? eventDiffItems.length
+                            : filter === 'divergent' ? metrics.divergentEventsCount
+                            : filter === 'shared' ? metrics.sharedEventsCount
+                            : filter === 'baseline_only' ? metrics.baselineOnlyEventsCount
+                            : metrics.modifiedEventsCount
+                          return count > 0 || filter === diffFilter
+                        })
+                        .map(filter => {
                         const pressed = diffFilter === filter
                         return (
                           <button
@@ -702,7 +812,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                                     {event ? `${event.actor} → ${event.target}` : '—'}
                                   </td>
                                   <td className="px-3 py-2 text-ink-secondary">
-                                    {item.diffSummary}
+                                    {describeDifference(item)}
                                   </td>
                                 </tr>
                               )
@@ -715,62 +825,50 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                 )}
 
                 {activeTab === 'summary' && (
-                  <div className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 border-y border-line divide-y md:divide-y-0 md:divide-x divide-line">
-                      {([
-                        { role: 'Baseline', name: resolvedBaselineName, data: baselineData, swatch: 'bg-baseline' },
-                        { role: 'Branch', name: resolvedCounterfactualName, data: counterfactualData, swatch: 'bg-divergence' },
-                      ] as const).map(side => (
-                        <section key={side.role} className="py-4 md:px-4 md:first:pl-0 md:last:pr-0 min-w-0">
-                          <p className="text-xs text-ink-muted flex items-center gap-1.5">
-                            <span className={`w-2.5 h-2.5 rounded-full inline-block ${side.swatch}`} aria-hidden="true" />
-                            {side.role}
-                          </p>
-                          <h3 className="font-display text-xl font-semibold mt-0.5 break-words">{side.name}</h3>
-                          <dl className="mt-3 space-y-1.5">
-                            {[
-                              ['Events', side.data.events.length],
-                              ['Arcs', side.data.arcs.length],
-                              ['Causal links', side.data.relationships.length],
-                            ].map(([label, value]) => (
-                              <div key={label} className="flex justify-between">
-                                <dt className="text-ink-secondary">{label}</dt>
-                                <dd className="font-semibold font-mono-code">{value}</dd>
-                              </div>
-                            ))}
-                          </dl>
-                        </section>
-                      ))}
-                    </div>
-
-                    <section className="p-4 rounded-md bg-divergence/10">
-                      <h3 className="font-display text-xl font-semibold">Where the histories split</h3>
+                  // The story of the branch in words, not the header's figures
+                  // again: where it splits, then what it adds, changes and drops.
+                  <div className="space-y-5 text-sm">
+                    <p className="text-base text-ink [text-wrap:pretty]">
                       {metrics.pointOfDivergence ? (
-                        <p className="mt-1">
-                          The histories split on{' '}
-                          <strong className="font-mono-code">
-                            {formatHistoricalTimestamp(metrics.pointOfDivergence.timestamp)}
-                          </strong>
-                          . Before that, both share {countNoun(metrics.sharedEventsCount, 'event')} (
-                          {Math.round((metrics.sharedEventsCount / (metrics.totalBaselineEvents || 1)) * 100)}% of
-                          the baseline). After it, the branch adds{' '}
-                          {countNoun(metrics.divergentEventsCount, 'event')} of its own.
-                        </p>
+                        <>
+                          {quoted(resolvedCounterfactualName)} follows {quoted(resolvedBaselineName)} until{' '}
+                          <strong className="font-mono-code">{formatHistoricalDate(metrics.pointOfDivergence.timestamp)}</strong>
+                          {' '}({countNoun(metrics.sharedEventsCount, 'shared event')}), then goes its own way.
+                        </>
                       ) : (
-                        <p className="mt-1">
-                          These graphs have the same events, so there is no point of divergence.
-                        </p>
+                        'These graphs have the same events, so there is no point of divergence.'
                       )}
-                    </section>
+                    </p>
+                    {([
+                      ['What the branch adds', 'divergent_added'],
+                      ['What it changes', 'modified'],
+                      ['What it drops', 'baseline_only'],
+                    ] as const).map(([heading, status]) => {
+                      const items = eventDiffItems.filter(i => i.status === status)
+                      if (items.length === 0) return null
+                      return (
+                        <section key={status}>
+                          <h3 className="text-base font-semibold text-ink">{heading}</h3>
+                          <ol className="mt-2 space-y-1.5 border-l border-line pl-4">
+                            {items.map(item => {
+                              const event = item.counterfactualEvent || item.baselineEvent
+                              return (
+                                <li key={item.id} className="flex flex-wrap gap-x-3">
+                                  <span className="w-24 shrink-0 font-mono-code text-ink-muted">{formatHistoricalDate(item.timestamp)}</span>
+                                  <span className="min-w-0 flex-1 text-ink">
+                                    {event?.description ?? item.id}
+                                    {status === 'modified' && (
+                                      <span className="block text-xs text-ink-secondary">{describeDifference(item)}</span>
+                                    )}
+                                  </span>
+                                </li>
+                              )
+                            })}
+                          </ol>
+                        </section>
+                      )
+                    })}
                   </div>
-                )}
-
-                {activeTab === 'simulate' && (
-                  <SimulationLauncherPanel
-                    graphId={counterfactualGraphId}
-                    graphName={resolvedCounterfactualName}
-                    onSimulated={reload}
-                  />
                 )}
               </>
             )}

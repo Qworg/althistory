@@ -268,13 +268,13 @@ describe('CausalSuggestionManager', () => {
     expect(screen.getByText('90%')).toBeInTheDocument()
 
     // Find the confidence bar container (gray background) and verify the colored bar inside
-    const confidenceBars = document.querySelectorAll('.bg-gray-200.rounded-full.h-2')
+    const confidenceBars = document.querySelectorAll('.bg-line.rounded-full.h-2')
     expect(confidenceBars.length).toBeGreaterThan(0)
 
     // The inner bar should have high confidence styling (green)
     const innerBar = confidenceBars[0]?.querySelector('div')
     expect(innerBar).toBeInTheDocument()
-    expect(innerBar).toHaveClass('bg-green-500') // High confidence >= 0.8
+    expect(innerBar).toHaveClass('bg-success') // High confidence >= 0.8
   })
 
   it('should accept suggestion and create causal relationship', async () => {

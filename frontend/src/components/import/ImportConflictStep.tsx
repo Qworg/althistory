@@ -60,7 +60,7 @@ export function ImportConflictStep({
         <div className="w-full bg-line rounded-full h-2">
           <div
             className={`h-2 rounded-full transition-all ${
-              allErrorsResolved ? 'bg-green-500' : 'bg-blue-500'
+              allErrorsResolved ? 'bg-success' : 'bg-baseline'
             }`}
             style={{ width: `${progressPercent}%` }}
           />
@@ -144,7 +144,7 @@ export function ImportConflictStep({
           type="button"
           onClick={onBack}
           disabled={isLoading}
-          className="inline-flex items-center px-4 py-2 border border-line text-sm font-medium rounded-md text-ink-secondary bg-card hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          className="inline-flex items-center px-4 py-2 border border-line text-sm font-medium rounded-md text-ink-secondary bg-card hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-selected disabled:opacity-50"
         >
           Back
         </button>
@@ -152,7 +152,7 @@ export function ImportConflictStep({
           type="button"
           onClick={onContinue}
           disabled={!canContinue || isLoading}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-on-accent bg-baseline hover:bg-baseline/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-selected disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading ? 'Loading...' : 'Continue to Import'}
         </button>

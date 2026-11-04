@@ -71,9 +71,9 @@ describe('CausalGraphLayoutManager', () => {
     expect(screen.getByRole('heading', { level: 3, name: 'Graph Layout' })).toBeInTheDocument()
     const primary = screen.getByRole('group', { name: 'Layout' })
     expect(within(primary).getAllByRole('button').map(b => b.textContent)).toEqual([
-      'Time order9',
-      'Clusters1',
-      'Cause to effect6'
+      'Time order',
+      'Clusters',
+      'Cause to effect'
     ])
     // The panel is a section of the surface it sits on, not a card of its own.
     expect(primary.closest('.causal-graph-layout-manager')?.className).not.toMatch(/shadow|bg-white/)
@@ -204,11 +204,14 @@ describe('CausalGraphLayoutManager', () => {
     expect(screen.getByText(/linked events pull together/i)).toBeInTheDocument()
   })
 
-  it('shows each layout\'s keyboard shortcut', () => {
+  it('names the layout keys once, as keys, and on each option for assistive tech', () => {
     renderLayoutManager()
 
+    // A digit at the end of each option read as a count; the keys are said
+    // once, under the options.
     const forceDirectedButton = screen.getByRole('button', { name: /^clusters/i })
-    expect(within(forceDirectedButton).getByText('1')).toBeInTheDocument()
+    expect(within(forceDirectedButton).queryByText('1')).not.toBeInTheDocument()
+    expect(screen.getByText('Switch with the keys').parentElement).toHaveTextContent(/9.*1.*6/)
     expect(forceDirectedButton).toHaveAttribute('aria-keyshortcuts', '1')
     expect(screen.getByRole('button', { name: /cause to effect/i })).toHaveAttribute('aria-keyshortcuts', '6')
   })

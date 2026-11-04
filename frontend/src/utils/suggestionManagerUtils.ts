@@ -62,30 +62,32 @@ export interface ConfidenceStyle {
 /**
  * Get styling configuration for a confidence level
  */
+// Status tokens (index.css): the light pills these were (green-100 and
+// so on) stayed light in dark mode.
 export function getConfidenceStyle(confidence: number): ConfidenceStyle {
   const level = getConfidenceLevel(confidence)
 
   switch (level) {
     case 'high':
       return {
-        bgColor: 'bg-green-100',
-        textColor: 'text-green-800',
+        bgColor: 'bg-success/15',
+        textColor: 'text-success',
         label: 'High',
-        progressBarColor: 'bg-green-500'
+        progressBarColor: 'bg-success'
       }
     case 'medium':
       return {
-        bgColor: 'bg-yellow-100',
-        textColor: 'text-yellow-800',
+        bgColor: 'bg-warning/15',
+        textColor: 'text-warning',
         label: 'Medium',
-        progressBarColor: 'bg-yellow-500'
+        progressBarColor: 'bg-warning'
       }
     case 'low':
       return {
-        bgColor: 'bg-red-100',
-        textColor: 'text-red-800',
+        bgColor: 'bg-danger/10',
+        textColor: 'text-danger',
         label: 'Low',
-        progressBarColor: 'bg-red-500'
+        progressBarColor: 'bg-danger'
       }
   }
 }
@@ -247,13 +249,13 @@ export function getFeedbackRatingStyle(
 ): { bgColor: string; textColor: string } {
   switch (rating) {
     case 'helpful':
-      return { bgColor: 'bg-green-100', textColor: 'text-green-800' }
+      return { bgColor: 'bg-success/15', textColor: 'text-success' }
     case 'not_helpful':
-      return { bgColor: 'bg-yellow-100', textColor: 'text-yellow-800' }
+      return { bgColor: 'bg-danger/10', textColor: 'text-danger' }
     case 'needs_improvement':
-      return { bgColor: 'bg-orange-100', textColor: 'text-orange-800' }
+      return { bgColor: 'bg-warning/15', textColor: 'text-warning' }
     default:
-      return { bgColor: 'bg-gray-100', textColor: 'text-gray-800' }
+      return { bgColor: 'bg-subtle', textColor: 'text-ink-secondary' }
   }
 }
 

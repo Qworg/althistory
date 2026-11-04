@@ -99,7 +99,12 @@ export interface GraphPalette {
   /** The selected event. */
   selectedFill: string
   selectedBorder: string
-  /** The hovered event, and the events of a highlighted path. Rose, not amber: amber means divergence. */
+  /**
+   * The hovered event, and the events of a highlighted path: the node's own
+   * fill with the selection accent as its ring (and a halo, in the
+   * stylesheet), so hover stays on the token palette. It was an off-palette
+   * rose, a colour that meant nothing anywhere else.
+   */
   highlightedFill: string
   highlightedBorder: string
   /** The cause picked while drawing a link. */
@@ -157,8 +162,8 @@ const LIGHT_PALETTE: GraphPalette = {
   nodeBorder: '#1e3a8a',
   selectedFill: '#4f46e5',
   selectedBorder: '#312e81',
-  highlightedFill: '#be185d',
-  highlightedBorder: '#831843',
+  highlightedFill: '#2563eb',
+  highlightedBorder: '#4f46e5',
   linkSourceFill: '#7c3aed',
   linkSourceBorder: '#4c1d95',
   foreignFill: '#7c3aed',
@@ -172,7 +177,7 @@ const LIGHT_PALETTE: GraphPalette = {
   edgeContributory: '#5d697c',
   edgeCrossGraph: '#7c3aed',
   edgeSelected: '#4f46e5',
-  edgeHighlighted: '#be185d',
+  edgeHighlighted: '#4f46e5',
   pathCurrent: '#b91c1c',
   pathVisited: '#047857',
   pathUnvisited: '#6b7280',
@@ -187,8 +192,8 @@ const DARK_PALETTE: GraphPalette = {
   nodeBorder: '#93c5fd',
   selectedFill: '#818cf8',
   selectedBorder: '#e0e7ff',
-  highlightedFill: '#f472b6',
-  highlightedBorder: '#fce7f3',
+  highlightedFill: '#3b82f6',
+  highlightedBorder: '#818cf8',
   linkSourceFill: '#a78bfa',
   linkSourceBorder: '#ede9fe',
   foreignFill: '#a78bfa',
@@ -202,7 +207,7 @@ const DARK_PALETTE: GraphPalette = {
   edgeContributory: '#94a3b8',
   edgeCrossGraph: '#c4b5fd',
   edgeSelected: '#818cf8',
-  edgeHighlighted: '#f472b6',
+  edgeHighlighted: '#818cf8',
   pathCurrent: '#f87171',
   pathVisited: '#34d399',
   pathUnvisited: '#94a3b8',
@@ -217,8 +222,8 @@ const HIGH_CONTRAST_LIGHT_PALETTE: GraphPalette = {
   nodeBorder: '#000000',
   selectedFill: '#3730a3',
   selectedBorder: '#000000',
-  highlightedFill: '#9d174d',
-  highlightedBorder: '#000000',
+  highlightedFill: '#1e40af',
+  highlightedBorder: '#3730a3',
   linkSourceFill: '#5b21b6',
   linkSourceBorder: '#000000',
   foreignFill: '#5b21b6',
@@ -232,7 +237,7 @@ const HIGH_CONTRAST_LIGHT_PALETTE: GraphPalette = {
   edgeContributory: '#111827',
   edgeCrossGraph: '#5b21b6',
   edgeSelected: '#3730a3',
-  edgeHighlighted: '#9d174d',
+  edgeHighlighted: '#3730a3',
   pathCurrent: '#991b1b',
   pathVisited: '#065f46',
   pathUnvisited: '#374151',
@@ -247,8 +252,8 @@ const HIGH_CONTRAST_DARK_PALETTE: GraphPalette = {
   nodeBorder: '#ffffff',
   selectedFill: '#c7d2fe',
   selectedBorder: '#ffffff',
-  highlightedFill: '#f9a8d4',
-  highlightedBorder: '#ffffff',
+  highlightedFill: '#93c5fd',
+  highlightedBorder: '#c7d2fe',
   linkSourceFill: '#c4b5fd',
   linkSourceBorder: '#ffffff',
   foreignFill: '#c4b5fd',
@@ -262,7 +267,7 @@ const HIGH_CONTRAST_DARK_PALETTE: GraphPalette = {
   edgeContributory: '#e2e8f0',
   edgeCrossGraph: '#ddd6fe',
   edgeSelected: '#c7d2fe',
-  edgeHighlighted: '#f9a8d4',
+  edgeHighlighted: '#c7d2fe',
   pathCurrent: '#fca5a5',
   pathVisited: '#6ee7b7',
   pathUnvisited: '#cbd5e1',
@@ -414,19 +419,36 @@ export interface LabelBox {
  * counterpart of the timeline's eventLabelLayout: a hidden label's node still
  * has its tooltip, and hovering or selecting it reveals the label.
  */
-export function pickVisibleLabels(items: LabelBox[], gap = 2): Set<string> {
+export function pickVisibleLabels(
+  items: LabelBox[],
+  gap = 2,
+  /**
+   * Node bodies, by node id. A label drawn over another node hides that node,
+   * so it counts as a collision too; a label may of course cover its own node.
+   */
+  obstacles: Array<{ id: string; box: LabelBox['box'] }> = []
+): Set<string> {
   const ordered = [...items].sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))
   const kept: LabelBox['box'][] = []
+  const overlaps = (a: LabelBox['box'], b: LabelBox['box']) =>
+    a.x1 - gap < b.x2 && a.x2 + gap > b.x1 && a.y1 - gap < b.y2 && a.y2 + gap > b.y1
   const visible = new Set<string>()
+  // A node's body blocks lower-ranked labels only: the highest-ranked label in
+  // a crowded spot is still drawn, and the ones under it give way.
+  const labelled = new Set(items.map((item) => item.id))
+  const placed = new Set<string>()
   for (const item of ordered) {
+    placed.add(item.id)
     const { x1, y1, x2, y2 } = item.box
     if (!(x2 > x1 && y2 > y1)) {
       visible.add(item.id)
       continue
     }
-    const collides = kept.some(
-      (k) => x1 - gap < k.x2 && x2 + gap > k.x1 && y1 - gap < k.y2 && y2 + gap > k.y1
-    )
+    const collides =
+      kept.some((k) => overlaps(item.box, k)) ||
+      obstacles.some(
+        (o) => o.id !== item.id && (placed.has(o.id) || !labelled.has(o.id)) && overlaps(item.box, o.box)
+      )
     if (collides) continue
     kept.push(item.box)
     visible.add(item.id)

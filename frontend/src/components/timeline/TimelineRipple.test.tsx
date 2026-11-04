@@ -91,3 +91,20 @@ describe('Timeline causal links', () => {
     expect(Number(wash.getAttribute('width'))).toBeGreaterThan(0)
   })
 })
+
+describe('branch marks on the baseline', () => {
+  it('marks where each branch splits off, named, without the open branch’s full-height line', () => {
+    render(
+      <Timeline
+        events={events}
+        arcs={[]}
+        width={900}
+        branchMarks={[{ id: 'g2', label: 'Clerks Prevail', date: new Date('2024-06-15T00:00:00Z') }]}
+      />
+    )
+    const marks = document.querySelectorAll('.timeline-branch-mark')
+    expect(marks).toHaveLength(1)
+    expect(marks[0]).toHaveTextContent('Clerks Prevail')
+    expect(document.querySelector('[data-testid="timeline-divergence"]')).toBeNull()
+  })
+})

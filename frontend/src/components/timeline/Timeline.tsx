@@ -16,7 +16,7 @@ import {
   filterEventsInWindow,
   filterPressuresInWindow
 } from './timelineVirtualization'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
 import { layoutEventLabels, LABEL_FONT_SIZE, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
 import {
@@ -117,6 +117,13 @@ export interface TimelineProps {
    * selecting an event traces its ripple through them (see timelineLinks.ts).
    */
   links?: TimelineLink[]
+  /**
+   * Where the open graph's branches depart from it: an outlined amber diamond
+   * each, in the divergence band. Lighter than the open branch's own full-height
+   * divergence line, so "a what-if splits off here" and "you are in a what-if"
+   * stay distinct.
+   */
+  branchMarks?: Array<{ id: string; label: string; date: Date }>
   className?: string
 }
 
@@ -159,6 +166,11 @@ function resizedBounds(arc: Arc, edge: ArcResizeEdge, timestamp: Date): { start:
 }
 
 /** Pointer travel (px) required before a mousedown is treated as a drag rather than a click. */
+/** Below this canvas width the timeline opens zoomed in rather than fitted. */
+const NARROW_CANVAS_PX = 600
+/** The spacing per event that zoom aims for on a narrow canvas: a touch target. */
+const TOUCH_SPACING_PX = 44
+
 const DRAG_THRESHOLD_PX = 3
 
 /** Inline-style highlight applied to the mark being dragged (see beginDrag). */
@@ -241,6 +253,7 @@ const Timeline = memo(function Timeline({
   selectedEventId = null,
   showPressureIndicators = true,
   ghost,
+  branchMarks,
   links,
   className = '',
 }: TimelineProps) {
@@ -294,7 +307,9 @@ const Timeline = memo(function Timeline({
   const ghostEvents = ghost?.events
   const hasGhost = ghostEvents !== undefined
   const divergence = ghost?.divergence ?? null
-  const hasDivergence = divergence !== null
+  const hasBranchMarks = (branchMarks?.length ?? 0) > 0
+  // The band at the top holds the open branch's divergence and its branches' marks.
+  const hasDivergence = divergence !== null || hasBranchMarks
   // Only links between two events on this canvas can be drawn.
   const drawableLinks = useMemo(() => {
     if (!links || links.length === 0) return []
@@ -338,6 +353,10 @@ const Timeline = memo(function Timeline({
     1 // Always fit to view for original extent
   )
   const { eventY, axisY } = layout
+
+  // Narrow canvases open zoomed in (see the zoom effect); applied once per extent.
+  const narrowZoomAppliedRef = useRef<string | null>(null)
+  const domainEventCount = domainEvents.length
 
   // State for visible time range (for zoom/pan)
   const [visibleTimeRange, setVisibleTimeRange] = useState<TimeRange | null>(null)
@@ -410,6 +429,8 @@ const Timeline = memo(function Timeline({
   // components do not re-render on every Timeline update.
   const xScaleRef = useRef(xScale)
   xScaleRef.current = xScale
+  const selectedEventIdRef = useRef(selectedEventId)
+  selectedEventIdRef.current = selectedEventId
   const innerWidthRef = useRef(innerWidth)
   innerWidthRef.current = innerWidth
   const marginLeftRef = useRef(margin.left)
@@ -812,6 +833,32 @@ const Timeline = memo(function Timeline({
     setEventAssignmentModal({ isOpen: false, event: null, position: null })
   }, [])
 
+  // Keep the selected event on screen. Selecting one from the inspector, a
+  // list or the keyboard (or during the fit animation) could leave it outside
+  // the zoomed window; the window pans to centre it, keeping the zoom level.
+  useEffect(() => {
+    if (!selectedEventId || !svgRef.current || !zoomRef.current) return
+    const selected = events.find((ev) => ev.id === selectedEventId)
+    if (!selected) return
+    const t = new Date(selected.timestamp).getTime()
+    const start = currentRange.start.getTime()
+    const end = currentRange.end.getTime()
+    if (!Number.isFinite(t) || (t >= start && t <= end)) return
+    const fullStart = originalExtent.start.getTime()
+    const fullEnd = originalExtent.end.getTime()
+    const span = end - start
+    const from = Math.min(Math.max(t - span / 2, fullStart), Math.max(fullStart, fullEnd - span))
+    const base = d3.scaleTime().domain([originalExtent.start, originalExtent.end]).range([0, innerWidth])
+    const k = (fullEnd - fullStart) / span
+    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    d3.select(svgRef.current)
+      .transition()
+      .duration(reduce ? 0 : 300)
+      .call(zoomRef.current.transform, d3.zoomIdentity.translate(-base(new Date(from)) * k, 0).scale(k))
+    // Only on a new selection: panning away afterwards is the user's choice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEventId])
+
   // Reset zoom handler
   const handleResetZoom = useCallback(() => {
     setVisibleTimeRange(originalExtent)
@@ -874,18 +921,21 @@ const Timeline = memo(function Timeline({
     // Double-click is reserved for event creation, so drop d3's double-click zoom.
     svg.on('dblclick.zoom', null)
 
+    // A phone fitted the whole history into ~300px: nineteen marks in 230px,
+    // overlapping, too close to tap. On a narrow canvas open zoomed in to about
+    // a touch target per event, from the start of the history, once per
+    // extent; panning reaches the rest and Fit to View still shows it all.
+    const extentKey = `${originalExtent.start.getTime()}-${originalExtent.end.getTime()}`
+    if (innerWidth < NARROW_CANVAS_PX && narrowZoomAppliedRef.current !== extentKey) {
+      narrowZoomAppliedRef.current = extentKey
+      const k = Math.min(20, (domainEventCount * TOUCH_SPACING_PX) / innerWidth)
+      if (k > 1.2) svg.call(zoom.transform, d3.zoomIdentity.scale(k))
+    }
+
     return () => {
       svg.on('.zoom', null)
     }
-  }, [originalExtent, innerWidth, width, svgHeight])
-
-  // Check if zoomed (for showing reset button)
-  const isZoomed = useMemo(() => {
-    if (!visibleTimeRange) return false
-    const origRange = originalExtent.end.getTime() - originalExtent.start.getTime()
-    const visRange = visibleTimeRange.end.getTime() - visibleTimeRange.start.getTime()
-    return Math.abs(origRange - visRange) > 1000 // More than 1 second difference
-  }, [visibleTimeRange, originalExtent])
+  }, [originalExtent, innerWidth, width, svgHeight, domainEventCount])
 
   // Pan/zoom keys of the canvas (arrow keys and PageUp/PageDown pan, +/-
   // zoom, 0 resets). Returns whether the key was one of them.
@@ -1124,8 +1174,12 @@ const Timeline = memo(function Timeline({
         move('last')
         return
       case 'Escape':
-        // Back to the canvas, where the arrow keys pan. Stopped here so the
-        // view's document-level Escape (clear selection) does not also fire.
+        // With an event selected, Escape clears it first (the view's
+        // document-level handler does that), focus staying on the mark: the
+        // legend promises "Esc clears", and moving focus instead made it take
+        // two presses. With nothing selected, Escape steps back to the canvas,
+        // where the arrow keys pan; stopped so nothing else acts on it.
+        if (selectedEventIdRef.current) return
         event.preventDefault()
         event.stopPropagation()
         svgRef.current?.focus()
@@ -1307,6 +1361,59 @@ const Timeline = memo(function Timeline({
               )
             })()}
 
+            {/* Where this history's branches split off (see the branchMarks prop).
+                The marks are named in the legend below the canvas, which is
+                also where they can be opened, so here they are decoration. */}
+            {branchMarks && branchMarks.length > 0 && (() => {
+              const diamondY = DIVERGENCE_BAND_HEIGHT / 2
+              const taken: Array<[number, number]> = []
+              return (
+                <g className="timeline-branch-marks" data-testid="timeline-branch-marks" aria-hidden="true" pointerEvents="none">
+                  {[...branchMarks]
+                    .sort((a, b) => a.date.getTime() - b.date.getTime())
+                    .map((mark) => {
+                      const x = xScale(mark.date)
+                      if (x < -10 || x > innerWidth + 10) return null
+                      const anchorEnd = x > innerWidth * 0.7
+                      const textWidth = mark.label.length * LABEL_FONT_SIZE * 0.56
+                      const left = anchorEnd ? x - 10 - textWidth : x + 10
+                      const clear = !taken.some(([l, r]) => left < r + 8 && left + textWidth + 8 > l)
+                      if (clear) taken.push([left, left + textWidth])
+                      return (
+                        <g key={mark.id} className="timeline-branch-mark">
+                          <line
+                            x1={x}
+                            x2={x}
+                            y1={diamondY + 6}
+                            y2={eventY}
+                            style={{ stroke: 'var(--accent-divergence)' }}
+                            strokeOpacity={0.45}
+                            strokeWidth={1}
+                            strokeDasharray="1 3"
+                          />
+                          <path
+                            d={`M ${x} ${diamondY - 5} L ${x + 5} ${diamondY} L ${x} ${diamondY + 5} L ${x - 5} ${diamondY} Z`}
+                            style={{ fill: 'var(--surface-card)', stroke: 'var(--accent-divergence)' }}
+                            strokeWidth={1.75}
+                          />
+                          {clear && (
+                            <text
+                              x={anchorEnd ? x - 10 : x + 10}
+                              y={diamondY + 4}
+                              textAnchor={anchorEnd ? 'end' : 'start'}
+                              fontSize={LABEL_FONT_SIZE}
+                              style={{ fill: 'var(--text-secondary)' }}
+                            >
+                              {mark.label}
+                            </text>
+                          )}
+                        </g>
+                      )
+                    })}
+                </g>
+              )
+            })()}
+
             {/* Event line (baseline where events appear) */}
             <line
               x1={0}
@@ -1384,8 +1491,10 @@ const Timeline = memo(function Timeline({
                   if (Math.max(x1, x2) < -40 || Math.min(x1, x2) > innerWidth + 40) return null
                   const role = ripple.links.get(link.id)
                   const onRipple = role !== undefined
+                  // At rest a link is coloured by its type, as in the causal
+                  // graph; a trace recolours it by its role in the ripple.
                   const stroke = !isTracing
-                    ? 'var(--text-muted)'
+                    ? `var(--link-${link.type})`
                     : role === 'cause'
                       ? 'var(--text-primary)'
                       : onRipple
@@ -1654,7 +1763,10 @@ const Timeline = memo(function Timeline({
       {hovered && !dragPreview && (
         <div
           role="tooltip"
-          className="timeline-tooltip pointer-events-none absolute z-10 max-w-xs rounded bg-[#0f172a]/95 px-2 py-1 text-xs text-[#f8fafc] shadow ring-1 ring-white/10"
+          // The same readout as the causal graph's: a card on the theme's
+          // surfaces, not a fixed dark slab, so a hover looks the same in
+          // every lens and in both themes.
+          className="timeline-tooltip pointer-events-none absolute z-10 max-w-xs rounded-md border border-line bg-card px-3 py-2 text-xs text-ink shadow-lg"
           style={tooltipPlacement(
             hovered,
             margin,
@@ -1664,14 +1776,14 @@ const Timeline = memo(function Timeline({
         >
           {hovered.kind === 'event' ? (
             <>
-              <div className="font-semibold">{hovered.event.description}</div>
-              <div>{hovered.event.actor} → {hovered.event.target}</div>
-              <div>{formatHistoricalTimestamp(hovered.event.timestamp)}</div>
+              <div className="text-sm font-semibold">{hovered.event.description}</div>
+              <div className="mt-0.5 text-ink-secondary">{hovered.event.actor} → {hovered.event.target}</div>
+              <div className="font-mono-code text-ink-muted">{formatEventDate(hovered.event)}</div>
             </>
           ) : (
             <>
-              <div className="font-semibold">{hovered.arc.name}</div>
-              <div className="tabular-nums">
+              <div className="text-sm font-semibold">{hovered.arc.name}</div>
+              <div className="mt-0.5 font-mono-code text-ink-muted">
                 {formatHistoricalTimestamp(hovered.arc.start_time)} – {formatHistoricalTimestamp(hovered.arc.end_time)}
               </div>
               <div className="tabular-nums">
@@ -1684,19 +1796,9 @@ const Timeline = memo(function Timeline({
         </div>
       )}
 
-      {/* Fit to View button (shown when zoomed) */}
-      {isZoomed && (
-        <button
-          onClick={handleResetZoom}
-          className="absolute top-2 right-2 px-3 py-1 text-xs bg-card text-ink-secondary border border-line rounded shadow-sm hover:bg-subtle hover:text-ink transition-colors flex items-center gap-1"
-          title="Fit all events in view (F)"
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-          </svg>
-          Fit to View
-        </button>
-      )}
+      {/* No Fit to View chip inside the canvas: the toolbar's Fit to View (and
+          F) always does it, and the chip, wherever it went, covered something:
+          the arc lane at the top, an axis year at the bottom. */}
 
       {/* Event Arc Assignment Modal */}
       {eventAssignmentModal.isOpen && eventAssignmentModal.event && (

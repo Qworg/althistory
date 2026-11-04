@@ -27,6 +27,12 @@ export interface ExtractedEvent {
   actor: string;
   target: string;
   timestamp: string;
+  /**
+   * How much of `timestamp` the source actually stated. "In March 1871" is
+   * `month`: the timestamp is 1871-03-01 because a timestamp needs a day, but
+   * the day was never given. Absent means a full date (or unknown).
+   */
+  datePrecision?: 'day' | 'month' | 'year';
   confidence: number;
   source: ExtractionSource;
   /** Whether the reviewer has selected this entity for import. */
@@ -71,6 +77,8 @@ export interface ExtractionResult {
    * say what was left out instead of dropping it silently.
    */
   skippedSentences?: number;
+  /** The skipped sentences, up to 20, so a reviewer can see and date them. */
+  skippedSentenceTexts?: string[];
 }
 
 /** Optional hints that improve extraction accuracy (spec Req 9.4). */

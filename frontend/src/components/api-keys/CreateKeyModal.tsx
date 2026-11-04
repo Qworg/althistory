@@ -58,7 +58,7 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({ onCreate, isLoad
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-ink-secondary mb-1">
           Key Name *
         </label>
         <input
@@ -67,19 +67,19 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({ onCreate, isLoad
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g., Production API Key"
           required
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full px-3 py-2 border border-line rounded-md focus:ring-2 focus:ring-selected focus:border-selected"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-ink-secondary mb-2">
           Permissions
         </label>
         <div className="space-y-2">
           <select
             value={permissionPreset}
             onChange={(e) => setPermissionPreset(e.target.value as typeof permissionPreset)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-line rounded-md focus:ring-2 focus:ring-selected focus:border-selected"
           >
             <option value="readOnly">Read Only</option>
             <option value="readWrite">Read & Write</option>
@@ -88,14 +88,14 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({ onCreate, isLoad
           </select>
 
           {permissionPreset === 'custom' && (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-3 bg-gray-50 rounded-md">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-3 bg-subtle rounded-md">
               {Object.entries(PERMISSION_LABELS).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
                     checked={customPermissions.includes(key as Permission)}
                     onChange={() => togglePermission(key as Permission)}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="rounded border-line text-baseline focus:ring-selected"
                   />
                   {label}
                 </label>
@@ -106,7 +106,7 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({ onCreate, isLoad
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-ink-secondary mb-1">
           Expiration (optional)
         </label>
         <input
@@ -114,15 +114,15 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({ onCreate, isLoad
           value={expiresAt}
           onChange={(e) => setExpiresAt(e.target.value)}
           min={new Date().toISOString().slice(0, 16)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full px-3 py-2 border border-line rounded-md focus:ring-2 focus:ring-selected focus:border-selected"
         />
-        <p className="text-xs text-gray-500 mt-1">Leave empty for no expiration</p>
+        <p className="text-xs text-ink-muted mt-1">Leave empty for no expiration</p>
       </div>
 
       <button
         type="submit"
         disabled={!name || isLoading || (permissionPreset === 'custom' && customPermissions.length === 0)}
-        className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+        className="w-full px-4 py-2 bg-baseline text-on-accent rounded-md hover:bg-baseline/90 disabled:bg-ink-muted disabled:cursor-not-allowed transition-colors"
       >
         {isLoading ? 'Creating...' : 'Create API Key'}
       </button>

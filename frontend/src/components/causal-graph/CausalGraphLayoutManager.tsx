@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useState, useRef } from 'react'
 import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
+import { Keycap } from '@/components/help/Keycap'
 import type { Core, Layouts, NodeSingular } from 'cytoscape'
 import { useGlobalStore } from '@/stores/globalStore'
 import {
@@ -359,11 +360,7 @@ export function CausalGraphLayoutManager({
           {isActive && <span className="h-1.5 w-1.5 rounded-full bg-selected" />}
         </span>
         <span className="flex-1">{layout.label}</span>
-        {shortcut && (
-          <kbd className="font-mono-code text-xs font-normal text-ink-secondary" aria-hidden="true">
-            {shortcut}
-          </kbd>
-        )}
+
       </button>
     )
   }
@@ -394,6 +391,19 @@ export function CausalGraphLayoutManager({
       >
         {primaryLayouts.map(renderOption)}
       </div>
+      {/* The keys, said once as keys: a digit (even in a keycap) at the end
+          of each option read as a count of something. Each option's tooltip
+          still names its own key. */}
+      {primaryLayouts.some(layout => getShortcutForLayout(layout.name)) && (
+        <p className="flex flex-wrap items-center gap-1 text-xs text-ink-muted">
+          <span>Switch with the keys</span>
+          {primaryLayouts.map(layout => {
+            const key = getShortcutForLayout(layout.name)
+            return key ? <Keycap key={layout.name} keyName={key} className="font-normal text-ink-secondary" /> : null
+          })}
+          <span>, in this order.</span>
+        </p>
+      )}
 
       <button
         type="button"

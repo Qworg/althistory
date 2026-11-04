@@ -1,6 +1,6 @@
 import React, { memo, useCallback } from 'react'
 import { Event } from '@/types'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 import {
   truncateLabel,
   PRIORITY_LABEL_MAX_CHARS,
@@ -17,7 +17,12 @@ import { confidenceTier } from './confidenceTier'
  * Radius of the transparent hit area: a 24px target, twice the 12px dot, so
  * the mark is easy to click without the dot itself growing.
  */
-const HIT_RADIUS = 12
+// A 24px hit area for a mouse; 44px (WCAG 2.5.5, Apple HIG) where the
+// primary pointer is a finger.
+const HIT_RADIUS =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches
+    ? 22
+    : 12
 
 export interface TimelineEventProps {
   event: Event
@@ -178,7 +183,7 @@ export const TimelineEvent = memo(function TimelineEvent({
       transform={`translate(${x}, ${y})`}
       tabIndex={isTabStop ? 0 : -1}
       role="button"
-      aria-label={`Event: ${event.description} by ${event.actor} targeting ${event.target} at ${formatHistoricalTimestamp(event.timestamp)}${confidence !== null ? `, confidence ${confidence.toFixed(2)}` : ''}${reach > 0 ? `, sets ${reach} ${reach === 1 ? 'event' : 'events'} in motion` : ''}${isBranchOwn ? ' (this branch only)' : ''}`}
+      aria-label={`Event: ${event.description} by ${event.actor} targeting ${event.target} at ${formatEventDate(event)}${confidence !== null ? `, confidence ${confidence.toFixed(2)}` : ''}${reach > 0 ? `, sets ${reach} ${reach === 1 ? 'event' : 'events'} in motion` : ''}${isBranchOwn ? ' (this branch only)' : ''}`}
       // The whole group takes the click, so the stem and label (which sit
       // over and around the dot) never swallow it.
       onClick={handleClick}

@@ -75,7 +75,10 @@ export function NotificationCenter() {
     <div
       aria-live="polite"
       aria-label="Notifications"
-      className="pointer-events-none fixed top-4 right-4 z-50 flex w-full max-w-md flex-col gap-2"
+      // Bottom right, not top right: up there a notice covered the header's
+      // graph selector, often the very control it was about. On a phone it
+      // sits above the bottom navigation bar.
+      className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-full max-w-md flex-col gap-2 max-lg:inset-x-4 max-lg:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] max-lg:w-auto"
     >
       {loadingOperations.size > 0 && (
         <div
@@ -83,7 +86,7 @@ export function NotificationCenter() {
           className="pointer-events-auto flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 shadow-lg"
         >
           <svg
-            className="h-4 w-4 flex-shrink-0 animate-spin text-blue-600"
+            className="h-4 w-4 flex-shrink-0 animate-spin text-baseline"
             fill="none"
             viewBox="0 0 24 24"
             aria-hidden="true"

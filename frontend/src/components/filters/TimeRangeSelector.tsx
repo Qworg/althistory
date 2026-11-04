@@ -163,7 +163,7 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
             </div>
             <button
               onClick={handleClear}
-              className="text-blue-600 hover:text-blue-800 text-sm underline"
+              className="text-baseline hover:text-blue-800 text-sm underline"
               disabled={disabled}
             >
               Clear

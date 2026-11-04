@@ -52,7 +52,7 @@ export function EmptyGraphState({ kind, onClearFilters, noun = 'events' }: Empty
         <button
           type="button"
           onClick={() => openToolbarTool('ingest')}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="rounded-md bg-baseline px-4 py-2 text-sm font-medium text-on-accent hover:bg-baseline/90"
         >
           Extract from text or Wikipedia
         </button>

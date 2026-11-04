@@ -42,12 +42,12 @@ const UsageRow: React.FC<WindowRow> = ({ label, limit, window }) => {
     ? 'bg-red-500'
     : nearlySpent
       ? 'bg-amber-500'
-      : 'bg-blue-500'
+      : 'bg-baseline'
 
   return (
     <div className="flex items-center gap-3">
-      <span className="w-14 shrink-0 text-xs text-gray-500">{label}</span>
-      <div className="h-2 flex-1 rounded-full bg-gray-100 overflow-hidden">
+      <span className="w-14 shrink-0 text-xs text-ink-muted">{label}</span>
+      <div className="h-2 flex-1 rounded-full bg-subtle overflow-hidden">
         <div
           className={`h-full ${barColor}`}
           style={{ width: `${Math.round(ratio * 100)}%` }}
@@ -58,7 +58,7 @@ const UsageRow: React.FC<WindowRow> = ({ label, limit, window }) => {
           aria-valuemax={limit}
         />
       </div>
-      <span className="w-24 shrink-0 text-right text-xs text-gray-600 tabular-nums">
+      <span className="w-24 shrink-0 text-right text-xs text-ink-secondary tabular-nums">
         {window.count} / {limit}
       </span>
     </div>

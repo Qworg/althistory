@@ -33,6 +33,10 @@
   --color-ink-placeholder: var(--text-placeholder);
   --color-role-actor: var(--role-actor);
   --color-role-target: var(--role-target);
+  --color-on-accent: var(--text-on-accent);
+  --color-success: var(--status-success);
+  --color-warning: var(--status-warning);
+  --color-danger: var(--status-danger);
 }
 
 /*
@@ -96,6 +100,19 @@
   --role-target: #0f766e;
   /* Opacity of the divergence amber over the branch's after-split region. */
   --divergence-wash: 0.06;
+  /* Text on a filled accent (bg-baseline / bg-selected buttons). White in the
+     light theme; dark ink in the dark one, where the accents are light enough
+     that white measured 2.5:1 on baseline and 3.0:1 on selected. */
+  --text-on-accent: #ffffff;
+  /* Causal links by type, shared by the timeline and the causal graph's
+     palette (causalGraphPresentation.ts): direct, indirect, contributory. */
+  --link-direct: var(--accent-baseline);
+  --link-indirect: var(--role-target);
+  --link-contributory: var(--text-muted);
+  /* Status ink, for text and marks; tint a surface with bg-danger/10 etc. */
+  --status-success: #047857;
+  --status-warning: #92400e;
+  --status-danger: #b91c1c;
 
   /* Timeline arc bars: periods are tints of the baseline ink, so the event
      marks (the full-strength baseline) and the causal links lead, and an
@@ -196,19 +213,27 @@ body {
   }
 }
 
-/* Focus styles for accessibility */
-*:focus {
-  outline: 2px solid var(--accent-selected);
-  outline-offset: 2px;
-}
+/*
+ * Focus styles for accessibility. In the base layer, so a control that draws
+ * its own indicator (`focus:outline-none focus-visible:ring-2 …`) shows that
+ * one alone: unlayered, these outranked the utilities and such controls drew
+ * two rings, the outline outside the ring. A control that turns the outline
+ * off must draw something else; src/styles/focusIndicators.test.ts checks.
+ */
+@layer base {
+  *:focus {
+    outline: 2px solid var(--accent-selected);
+    outline-offset: 2px;
+  }
 
-*:focus:not(:focus-visible) {
-  outline: none;
-}
+  *:focus:not(:focus-visible) {
+    outline: none;
+  }
 
-*:focus-visible {
-  outline: 2px solid var(--accent-selected);
-  outline-offset: 2px;
+  *:focus-visible {
+    outline: 2px solid var(--accent-selected);
+    outline-offset: 2px;
+  }
 }
 
 /* Dark theme overrides — "Cartographic Dark" */
@@ -230,6 +255,10 @@ html.dark {
   --arc-stroke: color-mix(in srgb, var(--accent-baseline) 70%, var(--surface-card));
   --divergence-wash: 0.045;
   --arc-grip: #cbd5e1;
+  --text-on-accent: #0f172a;
+  --status-success: #34d399;
+  --status-warning: #fbbf24;
+  --status-danger: #f87171;
 
   /*
    * Safety net for components still written against the raw neutral scale
@@ -345,6 +374,16 @@ html.high-contrast.dark {
 
 html.high-contrast svg text {
   font-weight: 600;
+}
+
+/*
+ * A ripple trace dims the marks outside the selected event's reach to 0.28
+ * (a presentation attribute on the mark's group, which any CSS rule outranks).
+ * That left their labels faint even here; high contrast keeps the dimming as a
+ * step back, not a fade-out: black at 0.6 on the card measures about 4.7:1.
+ */
+html.high-contrast [data-timeline-mark][data-dimmed='true'] {
+  opacity: 0.6;
 }
 
 html.high-contrast:not(.dark) svg text {

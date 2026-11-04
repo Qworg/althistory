@@ -193,7 +193,6 @@ describe('BranchComparisonModal', () => {
       'Causal graph',
       'Differences',
       'Summary',
-      'Simulate forward',
     ])
 
     const timelineTab = screen.getByRole('tab', { name: 'Timeline' })
@@ -215,12 +214,13 @@ describe('BranchComparisonModal', () => {
 
     // Left from the first tab wraps to the last.
     fireEvent.keyDown(timelineTab, { key: 'ArrowLeft' })
-    const simulateTab = screen.getByRole('tab', { name: 'Simulate forward' })
-    expect(simulateTab).toHaveAttribute('aria-selected', 'true')
-    expect(simulateTab).toHaveFocus()
-    expect(screen.getByTestId('simulation-launcher')).toBeInTheDocument()
+    const summaryTab = screen.getByRole('tab', { name: 'Summary' })
+    expect(summaryTab).toHaveAttribute('aria-selected', 'true')
+    expect(summaryTab).toHaveFocus()
 
-    fireEvent.keyDown(simulateTab, { key: 'ArrowLeft' })
+    fireEvent.keyDown(summaryTab, { key: 'ArrowLeft' })
+    expect(screen.getByRole('tab', { name: 'Differences' })).toHaveFocus()
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Differences' }), { key: 'ArrowRight' })
     expect(screen.getByRole('tab', { name: 'Summary' })).toHaveFocus()
     expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', screen.getByRole('tab', { name: 'Summary' }).id)
 
@@ -229,9 +229,9 @@ describe('BranchComparisonModal', () => {
     expect(timelineTab).toHaveAttribute('aria-selected', 'true')
 
     fireEvent.keyDown(timelineTab, { key: 'End' })
-    expect(simulateTab).toHaveFocus()
+    expect(screen.getByRole('tab', { name: 'Summary' })).toHaveFocus()
 
-    fireEvent.keyDown(simulateTab, { key: 'ArrowRight' })
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Summary' }), { key: 'ArrowRight' })
     expect(timelineTab).toHaveFocus()
   })
 
@@ -250,10 +250,11 @@ describe('BranchComparisonModal', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
 
-    expect(screen.getByRole('heading', { name: 'Where the histories split' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Prime Timeline' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Halifax Branch' })).toBeInTheDocument()
-    expect(screen.getAllByText('Events')).toHaveLength(2)
+    // The summary tells the branch's story rather than repeating the header:
+    // where it splits, then what it adds.
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveTextContent(/follows .*Prime Timeline.* until/)
+    expect(screen.getByRole('heading', { name: 'What the branch adds' })).toBeInTheDocument()
   })
 
   it('filters events in the Differences tab', () => {
@@ -295,7 +296,8 @@ describe('BranchComparisonModal', () => {
     const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))
     const first = focusables[0]!
     const last = focusables[focusables.length - 1]!
-    expect(last).toHaveTextContent('Merge into baseline…')
+    // Close comes last: the commit actions sit before it, as the next step.
+    expect(last).toHaveTextContent('Close')
 
     last.focus()
     fireEvent.keyDown(last, { key: 'Tab' })
@@ -311,7 +313,7 @@ describe('BranchComparisonModal', () => {
     // A filled merge button in a dialog opened to compare drew the curious
     // click to the riskiest action; the merge step confirms on its own.
     const merge = screen.getByRole('button', { name: 'Merge into baseline…' })
-    const switchButton = screen.getByRole('button', { name: 'Switch to this branch' })
+    const switchButton = screen.getByRole('button', { name: 'Open this branch' })
     expect(merge.className).not.toContain('bg-baseline')
     expect(merge.className).toContain('border-line')
     expect(switchButton.className).not.toContain('bg-baseline')
@@ -373,13 +375,13 @@ describe('BranchComparisonModal', () => {
     expect(outerClose).not.toHaveBeenCalled()
   })
 
-  it('exposes the forward simulation launcher on its own tab', () => {
-    renderWithProviders(<BranchComparisonModal {...defaultProps} />)
+  it('only compares: no simulation inside, and the commit actions set apart as the next step', () => {
+    renderWithProviders(<BranchComparisonModal {...mergeableProps} />)
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Simulate forward' }))
-
-    expect(screen.getByTestId('simulation-launcher')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Preview simulation/ })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /Simulate/ })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('simulation-launcher')).not.toBeInTheDocument()
+    const nextSteps = screen.getByText('Next step', { selector: 'span' }).parentElement!
+    expect(within(nextSteps).getByRole('button', { name: /Merge into baseline/ })).toBeInTheDocument()
   })
 
   it('embeds the causal graph as a read-only preview, without editing tools', () => {
@@ -394,12 +396,14 @@ describe('BranchComparisonModal', () => {
       showSuggestionManager: false,
       divergenceEventIds: ['cf_pod'],
     })
+    // A diff: what only the branch has is passed for the amber marking.
+    expect(causalGraph.props?.branchAddedIds).toEqual(expect.arrayContaining(['cf_pod']))
   })
 
   it('keeps one tab panel height across every view, scrolling inside it', () => {
     renderWithProviders(<BranchComparisonModal {...defaultProps} />)
 
-    const heights = ['Timeline', 'Causal graph', 'Differences', 'Summary', 'Simulate forward'].map(name => {
+    const heights = ['Timeline', 'Causal graph', 'Differences', 'Summary'].map(name => {
       fireEvent.click(screen.getByRole('tab', { name }))
       return screen.getByRole('tabpanel').className
     })

@@ -40,7 +40,7 @@
 import { DataSource } from '../ExportService';
 import { HttpClient, JsonValue, parseJsonBody } from './http';
 import { newTempId } from './ids';
-import { extractCapitalizedEntities, extractDates, splitSentences } from './text-patterns';
+import { extractCapitalizedEntities, extractDates, shapedConfidence, splitSentences } from './text-patterns';
 import {
   ExtractedEvent,
   ExtractionContext,
@@ -612,7 +612,8 @@ export class WikipediaExtractor implements Extractor<WikipediaExtractionInput> {
           actor,
           target,
           timestamp: date.iso,
-          confidence: Math.min(0.95, Number((baseConfidence + 0.05).toFixed(2))),
+          datePrecision: date.precision,
+          confidence: shapedConfidence(Math.min(0.95, Number((baseConfidence + 0.05).toFixed(2))), sentence, target),
           source: { type: 'wikipedia', url: articleUrl, articleTitle: page.title, extractedAt },
           selected: true,
           edited: false,
@@ -650,6 +651,7 @@ export class WikipediaExtractor implements Extractor<WikipediaExtractionInput> {
           actor: page.title,
           target,
           timestamp: date.iso,
+          datePrecision: date.precision,
           confidence: 0.85,
           source: { type: 'wikipedia', url: articleUrl, articleTitle: page.title, extractedAt },
           selected: true,
@@ -685,7 +687,12 @@ export class WikipediaExtractor implements Extractor<WikipediaExtractionInput> {
         actor,
         target,
         timestamp: date.iso,
-        confidence: patternConfidence(date.precision, actor.length > 0, target.length > 0),
+        datePrecision: date.precision,
+        confidence: shapedConfidence(
+          patternConfidence(date.precision, actor.length > 0, target.length > 0),
+          sentence,
+          target
+        ),
         source: { type: 'wikipedia', url: articleUrl, articleTitle: page.title, extractedAt },
         selected: true,
         edited: false,

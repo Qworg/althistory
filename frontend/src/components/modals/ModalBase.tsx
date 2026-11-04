@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useCallback, useRef } from 'react'
 import { useStackedDialogKeys } from './useStackedDialogKeys'
+import { Portal } from '@/components/ui/Portal'
 
 const FOCUSABLE_SELECTOR =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -18,13 +19,19 @@ function useFocusTrap(isOpen: boolean) {
     // Store the previously focused element
     previouslyFocusedRef.current = document.activeElement as HTMLElement
 
-    // Focus the container or first focusable element
+    // Focus where the dialog's work starts: an element marked
+    // [data-autofocus], else the first control that is not the header's close
+    // button (landing on × made "close" the first thing a keyboard user could
+    // do), else the close button, else the container.
     const container = containerRef.current
     if (container) {
-      const focusableElements = container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
-      const firstElement = focusableElements[0]
-      if (firstElement) {
-        firstElement.focus()
+      const focusable = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+      const target =
+        container.querySelector<HTMLElement>('[data-autofocus]') ??
+        focusable.find((element) => !element.hasAttribute('data-modal-close')) ??
+        focusable[0]
+      if (target) {
+        target.focus()
       } else {
         container.focus()
       }
@@ -135,57 +142,60 @@ export const ModalBase: React.FC<ModalBaseProps> = ({
   if (!isOpen) return null
 
   return (
+    <Portal>
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      className={`fixed inset-0 z-50 flex items-stretch justify-center lg:items-center lg:overflow-y-auto ${className}`}
-    >
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/50 transition-opacity"
-        onClick={handleBackdropClick}
-        aria-hidden="true"
-      />
-
-      {/* Content */}
-      <div
-        ref={focusTrapRef}
-        className={`relative flex flex-col w-full h-dvh bg-card text-ink shadow-xl lg:h-auto lg:rounded-lg lg:border lg:border-line lg:mx-4 lg:my-8 ${sizeClasses[size]}`}
-        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className={`fixed inset-0 z-50 flex items-stretch justify-center lg:items-center lg:overflow-y-auto ${className}`}
       >
-        {/* Header (stays put: only the body scrolls) */}
-        <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-2 lg:p-4 border-b border-line">
-          <h2 id={titleId} className="font-display text-xl leading-tight font-semibold text-ink">
-            {title}
-          </h2>
-          {showCloseButton && (
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={closeLabel}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center lg:h-auto lg:w-auto lg:p-2 hover:bg-subtle rounded-md transition-colors text-ink-muted hover:text-ink"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+        {/* Backdrop */}
+        <div
+          className="fixed inset-0 bg-black/50 transition-opacity"
+          onClick={handleBackdropClick}
+          aria-hidden="true"
+        />
+
+        {/* Content */}
+        <div
+          ref={focusTrapRef}
+          className={`relative flex flex-col w-full h-dvh bg-card text-ink shadow-xl lg:h-auto lg:rounded-lg lg:border lg:border-line lg:mx-4 lg:my-8 ${sizeClasses[size]}`}
+          style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        >
+          {/* Header (stays put: only the body scrolls) */}
+          <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-2 lg:p-4 border-b border-line">
+            <h2 id={titleId} className="font-display text-xl leading-tight font-semibold text-ink">
+              {title}
+            </h2>
+            {showCloseButton && (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label={closeLabel}
+                data-modal-close
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center lg:h-auto lg:w-auto lg:p-2 hover:bg-subtle rounded-md transition-colors text-ink-muted hover:text-ink"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 lg:flex-none lg:max-h-[calc(100vh-200px)]">
+            {children}
+          </div>
+
+          {/* Footer (stays put on a phone, in thumb reach) */}
+          {footer && (
+            <div className="shrink-0 border-t border-line p-4 bg-subtle lg:rounded-b-lg">
+              {footer}
+            </div>
           )}
         </div>
-
-        {/* Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 lg:flex-none lg:max-h-[calc(100vh-200px)]">
-          {children}
-        </div>
-
-        {/* Footer (stays put on a phone, in thumb reach) */}
-        {footer && (
-          <div className="shrink-0 border-t border-line p-4 bg-subtle lg:rounded-b-lg">
-            {footer}
-          </div>
-        )}
       </div>
-    </div>
+  </Portal>
   )
 }
 
@@ -238,45 +248,47 @@ export const PanelBase: React.FC<PanelBaseProps> = ({
   const positionClasses = position === 'left' ? 'left-0' : 'right-0'
 
   return (
-    <div
-      ref={focusTrapRef}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      className={`fixed inset-y-0 ${positionClasses} max-w-full bg-card text-ink shadow-xl border-l border-line transform transition-transform duration-300 ease-in-out z-50 ${className}`}
-      style={{ width }}
-    >
-      <div className="flex flex-col h-full">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-line">
-          <h2 id={titleId} className="font-display text-xl leading-tight font-semibold text-ink">
-            {title}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close panel"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center lg:h-auto lg:w-auto lg:p-2 hover:bg-subtle rounded-md transition-colors text-ink-muted hover:text-ink"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {children}
-        </div>
-
-        {/* Footer */}
-        {footer && (
-          <div className="border-t border-line p-4">
-            {footer}
+    <Portal>
+      <div
+        ref={focusTrapRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className={`fixed inset-y-0 ${positionClasses} max-w-full bg-card text-ink shadow-xl border-l border-line transform transition-transform duration-300 ease-in-out z-50 ${className}`}
+        style={{ width }}
+      >
+        <div className="flex flex-col h-full">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 border-b border-line">
+            <h2 id={titleId} className="font-display text-xl leading-tight font-semibold text-ink">
+              {title}
+            </h2>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close panel"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center lg:h-auto lg:w-auto lg:p-2 hover:bg-subtle rounded-md transition-colors text-ink-muted hover:text-ink"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
-        )}
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-4">
+            {children}
+          </div>
+
+          {/* Footer */}
+          {footer && (
+            <div className="border-t border-line p-4">
+              {footer}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </Portal>
   )
 }
 

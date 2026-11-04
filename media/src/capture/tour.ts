@@ -137,7 +137,7 @@ async function overview(ctx: TourContext): Promise<Shot> {
     // The toolbar is several button groups; its extent is first to last control.
     toolbar: union(
       await rectOf(page.getByRole('button', { name: 'Fit to View' }).first(), 'the first toolbar button'),
-      await rectOf(page.getByRole('button', { name: 'Live link' }).first(), 'the last toolbar control')
+      await rectOf(page.getByRole('button', { name: 'Live sync' }).first(), 'the last toolbar control')
     ),
     graphSelector: await rectOf(page.getByRole('button', { name: new RegExp(scenario.graph.name) }).first(), 'the graph selector'),
     timeline: await rectOf(page.locator('svg[data-timeline-canvas]').first(), 'the timeline'),
@@ -200,6 +200,9 @@ async function causalGraph(ctx: TourContext): Promise<Shot> {
   await page.goto(`${ctx.appUrl}/causal-graph`)
   await page.getByText(`${scenario.links.length} links`).first().waitFor()
   await hideFilters(page)
+  // The layout choices open over the canvas from the Layout button; it stays
+  // open for the shot so the video can point at them.
+  await page.getByRole('button', { name: 'Layout', exact: true }).click()
   const directed = page.getByRole('button', { name: /Cause to effect/ })
   await directed.click()
   // The layout animates; let it finish before fitting, or Fit frames the
@@ -209,7 +212,7 @@ async function causalGraph(ctx: TourContext): Promise<Shot> {
   await page.waitForTimeout(1000)
   // The graph canvas is taller than a 900px window, so this shot is the whole
   // page: the video pans down it and the README crops to the graph.
-  const canvas = page.locator('.__________cytoscape_container.min-h-\\[400px\\]').first()
+  const canvas = page.locator('.__________cytoscape_container[role="application"]').first()
   await page.mouse.move(0, 0)
   return snap(
     ctx,

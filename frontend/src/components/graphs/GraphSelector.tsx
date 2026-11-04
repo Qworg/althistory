@@ -5,8 +5,10 @@
  * and accessing graph management features.
  */
 
-import React, { useState, useCallback, memo, useRef, useEffect, useMemo } from 'react'
+import React, { useState, useCallback, memo, useRef, useEffect, useMemo, useId, type ReactNode } from 'react'
+import { useStackedDialogKeys } from '@/components/modals/useStackedDialogKeys'
 import {
+  useApiAccess,
   useGraphManagement,
   useGraphHeadVersion,
 } from '@/hooks/useGraphs'
@@ -33,14 +35,67 @@ function utcYear(value: string): string {
   return Number.isNaN(year) ? '?' : String(year)
 }
 
+/**
+ * The selector's panel as a bottom sheet, for phones: a modal dialog like the
+ * toolbar's More sheet (Escape and the backdrop close it, Tab stays inside,
+ * focus returns to the selector button).
+ */
+function GraphSheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const titleId = useId()
+  const panelRef = useRef<HTMLDivElement>(null)
+  useStackedDialogKeys(panelRef, true, onClose)
+
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null
+    const first =
+      panelRef.current?.querySelector<HTMLElement>('[aria-current="true"]') ??
+      panelRef.current?.querySelector<HTMLElement>('button')
+    first?.focus()
+    return () => {
+      if (opener && typeof opener.focus === 'function' && opener.isConnected) opener.focus()
+    }
+  }, [])
+
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="fixed inset-0 z-50">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden="true" />
+      <div
+        ref={panelRef}
+        className="absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col overflow-y-auto overscroll-contain rounded-t-xl border-t border-line bg-card text-ink shadow-xl"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
+        <div className="flex items-center justify-between border-b border-line px-4 py-1">
+          <h2 id={titleId} className="font-display text-lg font-semibold text-ink">
+            Graphs
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-md text-ink-muted hover:bg-subtle hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 interface GraphSelectorProps {
   onOpenManager?: () => void
   className?: string
+  /** Open as a bottom sheet (phones) rather than a panel under the button. */
+  sheet?: boolean
 }
 
 export const GraphSelector = memo(function GraphSelector({ 
   onOpenManager,
-  className = '' 
+  className = '',
+  sheet = false,
 }: GraphSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
@@ -61,10 +116,14 @@ export const GraphSelector = memo(function GraphSelector({
     isSwitching,
   } = useGraphManagement()
   const headVersion = useGraphHeadVersion(activeGraphId, activeGraph?.version)
+  const accessProblem = useApiAccess()
 
   // Close dropdown on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
+      // The sheet is portaled out of this component's DOM and has its own
+      // backdrop to close it; a press inside it is not "outside".
+      if (sheet) return
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false)
         setIsCreating(false)
@@ -72,7 +131,7 @@ export const GraphSelector = memo(function GraphSelector({
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  }, [sheet])
 
   // Focus input when creating
   useEffect(() => {
@@ -80,6 +139,11 @@ export const GraphSelector = memo(function GraphSelector({
       inputRef.current.focus()
     }
   }, [isCreating])
+
+  const closePanel = useCallback(() => {
+    setIsOpen(false)
+    setIsCreating(false)
+  }, [])
 
   const handleToggle = useCallback(() => {
     setIsOpen(prev => !prev)
@@ -139,64 +203,17 @@ export const GraphSelector = memo(function GraphSelector({
 
   // While the graph list loads there is already an active graph; inviting the
   // user to "Select Graph" then contradicted the timeline beneath it.
-  const displayName = activeGraph?.name || (isLoading ? 'Loading graph…' : 'Select a graph')
-  const isDisabled = isLoading || isSwitching
+  // Refused access is not "no graphs": the list is unreadable, so the
+  // selector says what is missing and stays shut (the view takes the key).
+  const displayName = accessProblem
+    ? accessProblem === 'forbidden'
+      ? 'Key can’t read graphs'
+      : 'API key needed'
+    : activeGraph?.name || (isLoading ? 'Loading graph…' : 'Select a graph')
+  const isDisabled = isLoading || isSwitching || Boolean(accessProblem)
 
-  return (
-    <div ref={dropdownRef} className={`relative ${className}`}>
-      {/* Main Button */}
-      <button
-        onClick={handleToggle}
-        disabled={isDisabled}
-        className={`
-          flex items-center gap-2 px-3 py-2 rounded-lg border border-line
-          ${isDisabled 
-            ? 'bg-subtle text-ink-muted cursor-not-allowed'
-            : 'bg-card hover:bg-subtle text-ink cursor-pointer'}
-          transition-colors min-w-[200px]
-        `}
-        aria-haspopup="listbox"
-        aria-expanded={isOpen}
-      >
-        {/* Graph Icon: the fork glyph when the active graph is a branch */}
-        {activeIsBranch ? (
-          <ForkGlyph className="w-5 h-5" />
-        ) : (
-          <svg className="w-5 h-5 text-ink-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-              d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" 
-            />
-          </svg>
-        )}
-
-        {/* Graph Name */}
-        <span className="flex-1 text-left truncate font-medium">
-          {isSwitching ? 'Switching...' : displayName}
-        </span>
-
-        {/* Version Badge: the Version history number, the one merge and
-            restore speak in (see useGraphHeadVersion) */}
-        {activeGraph && headVersion !== null && (
-          <span
-            className="font-mono-code text-xs text-ink-muted bg-subtle px-1.5 py-0.5 rounded"
-            title={`Version ${headVersion} in Version history`}
-          >
-            v{headVersion}
-          </span>
-        )}
-
-        {/* Chevron */}
-        <svg 
-          className={`w-4 h-4 text-ink-muted transition-transform ${isOpen ? 'rotate-180' : ''}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {/* Dropdown Menu */}
-      {isOpen && (
-        <div className="absolute top-full right-0 mt-1 w-80 max-w-[calc(100vw-2rem)] bg-card text-ink border border-line rounded-lg shadow-lg z-50">
+  const panelBody = (
+    <>
           {/* Filter Tabs */}
           <div className="flex border-b border-line">
             {(['active', 'archived', 'all'] as const).map(status => (
@@ -206,7 +223,7 @@ export const GraphSelector = memo(function GraphSelector({
                 className={`
                   flex-1 px-3 py-2 text-sm font-medium capitalize
                   ${filter === status 
-                    ? 'text-blue-600 border-b-2 border-blue-600' 
+                    ? 'text-baseline border-b-2 border-baseline' 
                     : 'text-ink-muted hover:text-ink'}
                 `}
               >
@@ -328,12 +345,12 @@ export const GraphSelector = memo(function GraphSelector({
                   onChange={(e) => setNewGraphName(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Graph name..."
-                  className="flex-1 px-3 py-2 border border-line bg-card text-ink rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex-1 px-3 py-2 border border-line bg-card text-ink rounded text-sm focus:outline-none focus:ring-2 focus:ring-selected"
                 />
                 <button
                   onClick={handleCreate}
                   disabled={!newGraphName.trim() || isCreatingGraph}
-                  className="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-3 py-2 bg-baseline text-on-accent rounded text-sm hover:bg-baseline/90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isCreatingGraph ? '...' : 'Create'}
                 </button>
@@ -351,14 +368,14 @@ export const GraphSelector = memo(function GraphSelector({
               <div className="flex gap-2">
                 <button
                   onClick={handleStartCreate}
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-baseline hover:bg-blue-50 rounded transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
                   New Graph
                 </button>
-                
+          
                 {onOpenManager && (
                   <button
                     onClick={() => {
@@ -379,7 +396,71 @@ export const GraphSelector = memo(function GraphSelector({
               </div>
             )}
           </div>
+    </>
+  )
+
+  return (
+    <div ref={dropdownRef} className={`relative ${className}`}>
+      {/* Main Button */}
+      <button
+        onClick={handleToggle}
+        disabled={isDisabled}
+        className={`
+          flex items-center gap-2 px-3 py-2 rounded-lg border border-line
+          ${isDisabled 
+            ? 'bg-subtle text-ink-muted cursor-not-allowed'
+            : 'bg-card hover:bg-subtle text-ink cursor-pointer'}
+          transition-colors min-w-[200px]
+        `}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+      >
+        {/* Graph Icon: the fork glyph when the active graph is a branch */}
+        {activeIsBranch ? (
+          <ForkGlyph className="w-5 h-5" />
+        ) : (
+          <svg className="w-5 h-5 text-ink-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+              d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" 
+            />
+          </svg>
+        )}
+
+        {/* Graph Name */}
+        <span className="flex-1 text-left truncate font-medium">
+          {isSwitching ? 'Switching...' : displayName}
+        </span>
+
+        {/* Version Badge: the Version history number, the one merge and
+            restore speak in (see useGraphHeadVersion) */}
+        {activeGraph && headVersion !== null && (
+          <span
+            className="font-mono-code text-xs text-ink-muted bg-subtle px-1.5 py-0.5 rounded"
+            title={`Version ${headVersion} in Version history`}
+          >
+            v{headVersion}
+          </span>
+        )}
+
+        {/* Chevron */}
+        <svg 
+          className={`w-4 h-4 text-ink-muted transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Dropdown Menu: a panel under the button on desktop; on a phone a
+          bottom sheet, because a 20rem panel anchored to the button's right
+          edge started off the left of a 390px screen. */}
+      {isOpen && !sheet && (
+        <div className="absolute top-full right-0 mt-1 w-80 max-w-[calc(100vw-2rem)] bg-card text-ink border border-line rounded-lg shadow-lg z-50">
+          {panelBody}
         </div>
+      )}
+      {isOpen && sheet && (
+        <GraphSheet onClose={closePanel}>{panelBody}</GraphSheet>
       )}
     </div>
   )

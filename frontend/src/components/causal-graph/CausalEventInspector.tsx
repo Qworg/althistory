@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react'
 import type { CausalRelationship, Event } from '@/types'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 import { EventCausesEffects } from '@/components/timeline/EventCausesEffects'
 import { causesAndEffects, eventConfidence } from '@/components/timeline/eventInspectorUtils'
 import { computeRipple, RIPPLE_DEPTH } from '@/components/timeline/timelineLinks'
@@ -11,6 +11,8 @@ export interface CausalEventInspectorProps {
   relationships: readonly CausalRelationship[]
   onSelectEvent: (event: Event) => void
   onEdit: (event: Event) => void
+  /** Clear the selection (closes the inspector beside the graph). */
+  onClose?: () => void
   isLoading?: boolean
 }
 
@@ -26,6 +28,7 @@ export const CausalEventInspector = memo(function CausalEventInspector({
   relationships,
   onSelectEvent,
   onEdit,
+  onClose,
   isLoading = false,
 }: CausalEventInspectorProps) {
   const neighbours = useMemo(
@@ -61,13 +64,28 @@ export const CausalEventInspector = memo(function CausalEventInspector({
     <aside aria-label="Selected event" className="space-y-4 text-sm text-ink" data-testid="causal-inspector">
       <div className="flex items-start justify-between gap-3">
         <h3 className="font-display text-xl font-semibold text-ink">Selected event</h3>
-        <button
-          type="button"
-          onClick={() => onEdit(event)}
-          className="shrink-0 rounded-md border border-line bg-card px-2.5 py-1 text-xs font-medium text-ink-secondary hover:bg-subtle hover:text-ink"
-        >
-          Edit
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onEdit(event)}
+            className="rounded-md border border-line bg-card px-2.5 py-1 text-xs font-medium text-ink-secondary hover:bg-subtle hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+          >
+            Edit
+          </button>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close the inspector (Esc)"
+              title="Close (Esc)"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-ink-muted hover:bg-subtle hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
       <dl className="space-y-3">
         <div>
@@ -83,7 +101,7 @@ export const CausalEventInspector = memo(function CausalEventInspector({
         <div className="flex gap-6">
           <div>
             <dt className="text-xs font-medium text-ink-muted">Date</dt>
-            <dd className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</dd>
+            <dd className="font-mono-code">{formatEventDate(event)}</dd>
           </div>
           {confidence !== null && (
             <div>

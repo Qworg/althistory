@@ -103,14 +103,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <button
               type="button"
               onClick={this.handleReload}
-              className="inline-flex items-center rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              className="inline-flex items-center rounded-md bg-danger px-3 py-2 text-sm font-medium text-on-accent hover:bg-danger/90 focus:outline-none focus:ring-2 focus:ring-danger focus:ring-offset-2"
             >
               Reload page
             </button>
             <button
               type="button"
               onClick={this.handleRetry}
-              className="inline-flex items-center rounded-md border border-line bg-card px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-subtle hover:text-ink focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              className="inline-flex items-center rounded-md border border-line bg-card px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-subtle hover:text-ink focus:outline-none focus:ring-2 focus:ring-danger focus:ring-offset-2"
             >
               Try again
             </button>

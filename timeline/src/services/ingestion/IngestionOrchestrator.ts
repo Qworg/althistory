@@ -396,6 +396,9 @@ function mergeEvent(event: ExtractedEvent, edit: ExtractedEdit | undefined): Ext
     actor: typeof edit.actor === 'string' ? edit.actor : event.actor,
     target: typeof edit.target === 'string' ? edit.target : event.target,
     timestamp: typeof edit.timestamp === 'string' ? edit.timestamp : event.timestamp,
+    // A reviewer who types a date has stated it in full.
+    datePrecision:
+      typeof edit.timestamp === 'string' && edit.timestamp !== event.timestamp ? undefined : event.datePrecision,
     confidence: typeof edit.confidence === 'number' ? edit.confidence : event.confidence,
     selected: typeof edit.selected === 'boolean' ? edit.selected : event.selected,
     edited: true,
@@ -520,6 +523,7 @@ export function toAlthistoryExport(
     timestamp: event.timestamp,
     metadata: {
       confidence: event.confidence,
+      ...(event.datePrecision && event.datePrecision !== 'day' ? { datePrecision: event.datePrecision } : {}),
       extractionSource: event.source.type,
       aiGenerated: event.source.type === 'llm',
       sourceUrl: event.source.url,

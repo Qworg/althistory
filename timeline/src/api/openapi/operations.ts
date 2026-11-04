@@ -164,6 +164,14 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     auth: 'required',
     query: [...LIMIT_OFFSET],
   },
+  'PUT /api/graphs/:id/versions/:version/label': {
+    summary: 'Name a version, so it can be found again; an empty label clears the name.',
+    request: 'VersionLabelRequest',
+    requestRequired: true,
+    response: 'GraphVersion',
+    auth: 'required',
+    responses: { 404: 'The graph or the version does not exist.' },
+  },
   'POST /api/graphs/:id/rollback/:version': {
     summary: 'Roll a graph back to an earlier version.',
     response: 'Graph',
