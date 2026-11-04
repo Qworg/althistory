@@ -198,7 +198,7 @@ async function pressures(ctx: TourContext): Promise<Shot> {
 async function causalGraph(ctx: TourContext): Promise<Shot> {
   const { page } = ctx
   await page.goto(`${ctx.appUrl}/causal-graph`)
-  await page.getByText(`${scenario.links.length} relationships`).waitFor()
+  await page.getByText(`${scenario.links.length} links`).first().waitFor()
   await hideFilters(page)
   const directed = page.getByRole('button', { name: /Cause to effect/ })
   await directed.click()
@@ -218,7 +218,7 @@ async function causalGraph(ctx: TourContext): Promise<Shot> {
       graph: await rectOf(canvas, 'the causal graph canvas'),
       layouts: await rectOf(page.locator('section.causal-graph-layout-manager').first(), 'the layout panel'),
       directed: await rectOf(directed, 'the Cause to effect button'),
-      counts: await rectOf(page.getByText(`${scenario.links.length} relationships`), 'the relationship count'),
+      counts: await rectOf(page.getByText(`${scenario.links.length} links`).first(), 'the relationship count'),
     },
     centre(await rectOf(directed, 'the Cause to effect button')),
     { fullPage: true }
