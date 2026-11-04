@@ -153,7 +153,10 @@ export function MainLayout({ children }: MainLayoutProps) {
 
       <Header isMobile={isMobile} layoutMode={layoutMode} />
 
-      <div className="flex flex-1 overflow-hidden">
+      {/* overflow-clip, not overflow-hidden: a hidden overflow makes this row
+          a scroll container, and the sidebar would stick inside it instead
+          of under the header. */}
+      <div className="flex flex-1 overflow-clip">
         {showSidebar && <Sidebar />}
 
         <main

@@ -19,7 +19,7 @@ export interface StreamingStatusBadgeProps {
 }
 
 const OFF_HINT =
-  'Edits save normally. Turn live saving on to send each edit over a live connection and see it confirmed as it lands.'
+  'Every edit is saved as you make it. A live link also sends each edit over an open connection and shows it confirmed as it lands: useful while an agent or the CLI edits the same graph.'
 
 const actionClass =
   'ml-0.5 rounded-sm text-xs font-medium underline underline-offset-2 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected transition-colors'
@@ -38,26 +38,26 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
         return {
           bg: 'bg-emerald-50 text-emerald-800 border-emerald-200',
           dot: 'bg-emerald-500',
-          label: 'Live saving on',
+          label: 'Live link on',
         }
       case 'connecting':
         return {
           bg: 'bg-amber-50 text-amber-800 border-amber-200',
           dot: 'bg-amber-500 animate-pulse',
-          label: 'Live saving: connecting…',
+          label: 'Live link: connecting…',
         }
       case 'error':
         return {
           bg: 'bg-rose-50 text-rose-800 border-rose-200',
           dot: 'bg-rose-500',
-          label: 'Live saving failed',
+          label: 'Live link failed',
         }
       case 'disconnected':
       default:
         return {
           bg: 'bg-subtle text-ink-secondary border-line',
           dot: 'border border-ink-muted',
-          label: 'Live saving off',
+          label: 'Edits save as you go',
         }
     }
   }
@@ -96,7 +96,7 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
 
       {status === 'disconnected' && onConnect && (
         <button type="button" onClick={onConnect} className={actionClass}>
-          Turn on
+          Live link
         </button>
       )}
 

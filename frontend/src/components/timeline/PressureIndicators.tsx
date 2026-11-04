@@ -17,6 +17,24 @@ import { formatHistoricalRange } from '@/utils/historicalTime'
 // pressure bar sits on the arc's lower edge, inside the arc's own lane.
 import { ARC_BAR_HEIGHT } from './timelineLayout'
 
+/** A pressure type's mark: circle (economic), square (social), triangle (political). */
+function PressureTypeMark({ type, cx, cy, color }: { type: string; cx: number; cy: number; color: string }) {
+  const common = {
+    className: 'pressure-type-indicator',
+    'data-pressure-type': type,
+    fill: color,
+    stroke: 'var(--surface-card)',
+    strokeWidth: 1,
+  }
+  if (type === 'social') {
+    return <rect {...common} x={cx - 3.25} y={cy - 3.25} width={6.5} height={6.5} />
+  }
+  if (type === 'political') {
+    return <path {...common} d={`M ${cx} ${cy - 4} L ${cx + 4} ${cy + 3} L ${cx - 4} ${cy + 3} Z`} />
+  }
+  return <circle {...common} cx={cx} cy={cy} r={3.5} />
+}
+
 export interface PressureIndicatorsProps {
   pressures: PressureWithContext[]
   arcs: Arc[]
@@ -226,14 +244,14 @@ export const PressureIndicators: React.FC<PressureIndicatorsProps> = ({
               rx={2}
               style={{ transition: 'opacity 150ms ease, stroke-width 150ms ease' }}
             />
-            <circle
-              className="pressure-type-indicator"
+            {/* The type's mark is a shape as well as a colour, so economic,
+                social and political pressures read apart without colour:
+                circle, square, triangle. */}
+            <PressureTypeMark
+              type={d.pressure.pressure_type}
               cx={d.x + 6}
               cy={d.y + d.height / 2}
-              r={3}
-              fill={d.color}
-              stroke="var(--surface-card)"
-              strokeWidth={1}
+              color={d.color}
             />
             <rect
               className="confidence-indicator"

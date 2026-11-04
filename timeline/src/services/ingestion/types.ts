@@ -65,6 +65,12 @@ export interface ExtractionResult {
   relationships: ExtractedRelationship[];
   sources: DataSource[];
   overallConfidence: number;
+  /**
+   * Text extraction by pattern: sentences of the input that held no date the
+   * patterns recognise, and so produced no event. Reported so the review can
+   * say what was left out instead of dropping it silently.
+   */
+  skippedSentences?: number;
 }
 
 /** Optional hints that improve extraction accuracy (spec Req 9.4). */

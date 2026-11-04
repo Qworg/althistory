@@ -64,7 +64,7 @@ describe('Sidebar', () => {
   it('renders user profile menu', () => {
     renderWithProviders(<Sidebar />)
 
-    expect(screen.getByLabelText('User menu')).toBeInTheDocument()
+    expect(screen.getByLabelText('Settings')).toBeInTheDocument()
   })
 
   describe('collapsing to an icon rail', () => {
@@ -94,7 +94,7 @@ describe('Sidebar', () => {
         expect(link).toHaveAttribute('title', name)
       }
       expect(screen.getByTestId('sidebar-icon-causal-graph').querySelector('svg')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'User menu' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
 
       const toggle = screen.getByRole('button', { name: 'Expand sidebar' })
       expect(toggle).toHaveAttribute('aria-expanded', 'false')

@@ -154,7 +154,7 @@ describe('ExportPanel', () => {
       
       render(<ExportPanel />)
       
-      expect(screen.getByText('Select a graph to export')).toBeInTheDocument()
+      expect(screen.getByText('Choose a graph from the header to export it.')).toBeInTheDocument()
     })
   })
 
@@ -187,7 +187,7 @@ describe('ExportPanel', () => {
       render(<ExportPanel />)
       
       // Content should not be visible
-      expect(screen.queryByText('Quick Export')).not.toBeInTheDocument()
+      expect(screen.queryByText('Download the whole graph (.json)')).not.toBeInTheDocument()
     })
 
     it('should expand when header is clicked', async () => {
@@ -195,7 +195,7 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      expect(screen.getByText('Quick Export')).toBeInTheDocument()
+      expect(screen.getByText('Download the whole graph (.json)')).toBeInTheDocument()
     })
 
     it('should collapse when header is clicked again', async () => {
@@ -205,11 +205,11 @@ describe('ExportPanel', () => {
       
       // Expand
       await user.click(header)
-      expect(screen.getByText('Quick Export')).toBeInTheDocument()
+      expect(screen.getByText('Download the whole graph (.json)')).toBeInTheDocument()
       
       // Collapse
       await user.click(header)
-      expect(screen.queryByText('Quick Export')).not.toBeInTheDocument()
+      expect(screen.queryByText('Download the whole graph (.json)')).not.toBeInTheDocument()
     })
   })
 
@@ -219,14 +219,14 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      expect(screen.getByRole('button', { name: /Quick Export/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Download the whole graph/i })).toBeInTheDocument()
     })
 
     it('should call syncExport when Quick Export is clicked', async () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
-      await user.click(screen.getByRole('button', { name: /Quick Export/i }))
+      await user.click(screen.getByRole('button', { name: /Download the whole graph/i }))
       
       await waitFor(() => {
         expect(mockExportManagement.syncExport).toHaveBeenCalledWith({
@@ -266,7 +266,7 @@ describe('ExportPanel', () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
-      await user.click(screen.getByRole('button', { name: /Quick Export/i }))
+      await user.click(screen.getByRole('button', { name: /Download the whole graph/i }))
       
       await waitFor(() => {
         expect(mockExportManagement.syncExport).toHaveBeenCalled()
@@ -284,7 +284,7 @@ describe('ExportPanel', () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
-      await user.click(screen.getByRole('button', { name: /Quick Export/i }))
+      await user.click(screen.getByRole('button', { name: /Download the whole graph/i }))
       
       await waitFor(() => {
         expect(consoleSpy).toHaveBeenCalledWith('Quick export failed:', expect.any(Error))
@@ -579,7 +579,7 @@ describe('ExportPanel', () => {
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
       expect(screen.getByText(/Export job2/i)).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^Download$/i })).toBeInTheDocument()
     })
 
     it('should display export completion timestamp', async () => {
@@ -596,7 +596,7 @@ describe('ExportPanel', () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
-      await user.click(screen.getByRole('button', { name: /Download/i }))
+      await user.click(screen.getByRole('button', { name: /^Download$/i }))
       
       await waitFor(() => {
         expect(mockExportManagement.downloadExport).toHaveBeenCalledWith(
@@ -615,7 +615,7 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      const downloadButton = screen.getByRole('button', { name: /Download/i })
+      const downloadButton = screen.getByRole('button', { name: /^Downloading/i })
       expect(downloadButton).toBeDisabled()
     })
 
@@ -629,7 +629,7 @@ describe('ExportPanel', () => {
       render(<ExportPanel />)
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
-      await user.click(screen.getByRole('button', { name: /Download/i }))
+      await user.click(screen.getByRole('button', { name: /^Download$/i }))
       
       await waitFor(() => {
         expect(consoleSpy).toHaveBeenCalledWith('Download failed:', expect.any(Error))
@@ -653,7 +653,7 @@ describe('ExportPanel', () => {
       
       await user.click(screen.getByRole('button', { name: /Export/i }))
       
-      const downloadButtons = screen.getAllByRole('button', { name: /Download/i })
+      const downloadButtons = screen.getAllByRole('button', { name: /^Download$/i })
       expect(downloadButtons.length).toBe(3)
     })
 

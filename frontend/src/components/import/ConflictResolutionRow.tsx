@@ -40,18 +40,18 @@ export function ConflictResolutionRow({
           >
             {conflict.severity}
           </span>
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-subtle text-ink">
             {conflict.entityType}
           </span>
           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
             {conflict.type}
           </span>
         </div>
-        <span className="text-xs text-gray-500 font-mono">{conflict.entityId}</span>
+        <span className="text-xs text-ink-muted font-mono">{conflict.entityId}</span>
       </div>
 
       {/* Message */}
-      <p className="text-sm text-gray-700">{conflict.message}</p>
+      <p className="text-sm text-ink-secondary">{conflict.message}</p>
 
       {/* Entity Comparison (for duplicate-id conflicts) */}
       {conflict.existingEntity && (
@@ -75,7 +75,7 @@ export function ConflictResolutionRow({
 
       {/* Resolution Options */}
       <div className="flex items-center space-x-4 pt-2 border-t">
-        <span className="text-sm text-gray-500">Resolution:</span>
+        <span className="text-sm text-ink-muted">Resolution:</span>
         <div className="flex space-x-2">
           <button
             type="button"
@@ -83,7 +83,7 @@ export function ConflictResolutionRow({
             className={`px-3 py-1 text-sm rounded-md transition-colors ${
               resolution === 'skip'
                 ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                : 'bg-subtle text-ink-secondary hover:bg-line'
             }`}
             title="Don't import this entity"
           >
@@ -95,7 +95,7 @@ export function ConflictResolutionRow({
             className={`px-3 py-1 text-sm rounded-md transition-colors ${
               resolution === 'overwrite'
                 ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                : 'bg-subtle text-ink-secondary hover:bg-line'
             }`}
             title="Replace existing with imported"
           >
@@ -107,7 +107,7 @@ export function ConflictResolutionRow({
             className={`px-3 py-1 text-sm rounded-md transition-colors ${
               resolution === 'rename'
                 ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                : 'bg-subtle text-ink-secondary hover:bg-line'
             }`}
             title="Import with a new generated ID"
           >
@@ -115,7 +115,7 @@ export function ConflictResolutionRow({
           </button>
         </div>
         {conflict.suggestedResolution && (
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-ink-muted">
             (suggested: {conflict.suggestedResolution})
           </span>
         )}

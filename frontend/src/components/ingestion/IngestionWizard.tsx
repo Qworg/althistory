@@ -20,6 +20,7 @@ import { EntityReviewTable } from './EntityReviewTable'
 import { buildEventLookup, entityLabel, reviewRowId } from './reviewLabels'
 import { knownNames } from './reviewMatching'
 import { useEvents } from '@/hooks/useEvents'
+import { useActiveGraph } from '@/hooks/useGraphs'
 import { WikipediaIngestTab } from './WikipediaIngestTab'
 import { WikidataIngestTab } from './WikidataIngestTab'
 import { TextIngestTab } from './TextIngestTab'
@@ -119,6 +120,8 @@ export function IngestionWizard({
   // and events against. The wizard imports into the active graph, which is
   // the one these unscoped requests read.
   const { data: graphEvents } = useEvents({ limit: 1000 })
+  // Named on the commit button, so where the events go is never a guess.
+  const { data: activeGraph } = useActiveGraph()
   const graphContext = useMemo(
     () => (graphEvents && graphEvents.length > 0 ? { names: knownNames(graphEvents), events: graphEvents } : undefined),
     [graphEvents]
@@ -446,7 +449,11 @@ export function IngestionWizard({
             disabled={approveIngestion.isPending || selectedCount === 0}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
           >
-            {approveIngestion.isPending ? 'Importing…' : `Import selected (${selectedCount})`}
+            {approveIngestion.isPending
+              ? 'Adding…'
+              : activeGraph?.name
+                ? `Add ${selectedCount} to ${activeGraph.name}`
+                : `Import selected (${selectedCount})`}
           </button>
         </div>
       </div>
@@ -610,6 +617,14 @@ export function IngestionWizard({
 
       {step === 'review' && extraction && (
         <div>
+          {(extraction.skippedSentences ?? 0) > 0 && (
+            <p className="mb-4 text-sm text-ink-secondary" role="status">
+              {extraction.skippedSentences === 1
+                ? '1 sentence had no date the reader recognises, so it is not in the list below.'
+                : `${extraction.skippedSentences} sentences had no date the reader recognises, so they are not in the list below.`}{' '}
+              Add a date to a sentence (“In 1862, …”) to bring it in.
+            </p>
+          )}
           {issues.length > 0 && (
             <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40" role="status">
               <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">

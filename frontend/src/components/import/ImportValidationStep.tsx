@@ -64,8 +64,8 @@ export function ImportValidationStep({
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h3 className="text-lg font-medium text-gray-900">Validation Results</h3>
-        <p className="mt-1 text-sm text-gray-500">
+        <h3 className="text-lg font-medium text-ink">Validation Results</h3>
+        <p className="mt-1 text-sm text-ink-muted">
           {valid
             ? 'Your import file passed validation'
             : 'There are issues with your import file'}
@@ -112,31 +112,31 @@ export function ImportValidationStep({
       </div>
 
       {/* Summary */}
-      <div className="bg-gray-50 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-gray-900 mb-3">Import Summary</h4>
+      <div className="bg-subtle rounded-lg p-4">
+        <h4 className="text-sm font-medium text-ink mb-3">Import Summary</h4>
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div>
-            <dt className="text-sm text-gray-500">Events</dt>
-            <dd className="text-2xl font-semibold text-gray-900">{summary.eventCount}</dd>
+            <dt className="text-sm text-ink-muted">Events</dt>
+            <dd className="text-2xl font-semibold text-ink">{summary.eventCount}</dd>
           </div>
           <div>
-            <dt className="text-sm text-gray-500">Arcs</dt>
-            <dd className="text-2xl font-semibold text-gray-900">{summary.arcCount}</dd>
+            <dt className="text-sm text-ink-muted">Arcs</dt>
+            <dd className="text-2xl font-semibold text-ink">{summary.arcCount}</dd>
           </div>
           <div>
-            <dt className="text-sm text-gray-500">Relationships</dt>
-            <dd className="text-2xl font-semibold text-gray-900">{summary.relationshipCount}</dd>
+            <dt className="text-sm text-ink-muted">Relationships</dt>
+            <dd className="text-2xl font-semibold text-ink">{summary.relationshipCount}</dd>
           </div>
           <div>
-            <dt className="text-sm text-gray-500">Pressures</dt>
-            <dd className="text-2xl font-semibold text-gray-900">{summary.pressureCount}</dd>
+            <dt className="text-sm text-ink-muted">Pressures</dt>
+            <dd className="text-2xl font-semibold text-ink">{summary.pressureCount}</dd>
           </div>
         </dl>
         
         {summary.temporalRange && (
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <dt className="text-sm text-gray-500">Time Range</dt>
-            <dd className="text-sm text-gray-900">
+          <div className="mt-4 pt-4 border-t border-line">
+            <dt className="text-sm text-ink-muted">Time Range</dt>
+            <dd className="text-sm text-ink">
               {formatHistoricalDate(summary.temporalRange.start)} -{' '}
               {formatHistoricalDate(summary.temporalRange.end)}
             </dd>
@@ -145,8 +145,8 @@ export function ImportValidationStep({
         
         {summary.actors.length > 0 && (
           <div className="mt-2">
-            <dt className="text-sm text-gray-500">Actors ({summary.actors.length})</dt>
-            <dd className="text-sm text-gray-900 truncate">
+            <dt className="text-sm text-ink-muted">Actors ({summary.actors.length})</dt>
+            <dd className="text-sm text-ink truncate">
               {summary.actors.slice(0, 5).join(', ')}
               {summary.actors.length > 5 && ` and ${summary.actors.length - 5} more`}
             </dd>
@@ -183,12 +183,12 @@ export function ImportValidationStep({
       )}
 
       {/* Actions */}
-      <div className="flex justify-between pt-4 border-t border-gray-200">
+      <div className="flex justify-between pt-4 border-t border-line">
         <button
           type="button"
           onClick={onBack}
           disabled={isLoading}
-          className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          className="inline-flex items-center px-4 py-2 border border-line text-sm font-medium rounded-md text-ink-secondary bg-card hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
         >
           Back
         </button>

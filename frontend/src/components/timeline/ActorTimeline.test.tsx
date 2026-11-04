@@ -391,7 +391,7 @@ describe('ActorTimeline', () => {
         />
       )
       const labels = Array.from(container.querySelectorAll('.actor-event-label')).map((t) => t.textContent)
-      expect(labels).toEqual(['Declaration of In…', 'Treaty with Spain'])
+      expect(labels).toEqual(['Declaration of…', 'Treaty with Spain'])
       // The role is the lane, the colour and the accessible name.
       const marks = Array.from(container.querySelectorAll('.actor-event'))
       for (const mark of marks) {
@@ -438,7 +438,7 @@ describe('ActorTimeline', () => {
       const mark = container.querySelector('.actor-event[data-event-id="e1"]')!
       const marker = () => mark.querySelector('.event-marker')!
 
-      expect(marker().getAttribute('fill')).toBe('#3b82f6')
+      expect(marker().getAttribute('fill')).toBe('var(--role-actor)')
       fireEvent.click(mark)
       expect(onEventSelect).toHaveBeenCalledWith(twoEvents[0])
       expect(marker().getAttribute('fill')).toBe('var(--accent-selected)')
@@ -446,7 +446,7 @@ describe('ActorTimeline', () => {
 
       // A second click deselects.
       fireEvent.click(mark)
-      expect(marker().getAttribute('fill')).toBe('#3b82f6')
+      expect(marker().getAttribute('fill')).toBe('var(--role-actor)')
     })
   })
 })

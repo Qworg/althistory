@@ -80,7 +80,7 @@ describe('ActorStats', () => {
       expect(heading.tagName).toBe('H3')
       expect(screen.getByRole('region', { name: 'Statistics for Alice' })).toContainElement(heading)
       const subheadings = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent)
-      expect(subheadings).toEqual(['As Actor', 'As Target', 'Activity Distribution'])
+      expect(subheadings).toEqual(['As Actor', 'As Target', 'Activity distribution'])
     })
 
     it('is one flat surface: no tiles, panels or icon chips', () => {
@@ -247,9 +247,10 @@ describe('ActorStats', () => {
     it('displays activity distribution when both roles have events', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithTimeSpan} />)
       
-      expect(screen.getByText('Activity Distribution')).toBeInTheDocument()
-      expect(screen.getByText('Actor (60.0%)')).toBeInTheDocument()
-      expect(screen.getByText('Target (40.0%)')).toBeInTheDocument()
+      expect(screen.getByText('Activity distribution')).toBeInTheDocument()
+      // Ten events: counts, not percentages.
+      expect(screen.getByText('Actor (6 of 10)')).toBeInTheDocument()
+      expect(screen.getByText('Target (4 of 10)')).toBeInTheDocument()
     })
 
     it('does not display activity distribution when only actor role has events', () => {
@@ -269,7 +270,7 @@ describe('ActorStats', () => {
       
       renderWithProviders(<ActorStats actor="Alice" stats={onlyActorStats} />)
       
-      expect(screen.queryByText('Activity Distribution')).not.toBeInTheDocument()
+      expect(screen.queryByText('Activity distribution')).not.toBeInTheDocument()
     })
 
     it('does not display activity distribution when only target role has events', () => {
@@ -289,7 +290,7 @@ describe('ActorStats', () => {
       
       renderWithProviders(<ActorStats actor="Alice" stats={onlyTargetStats} />)
       
-      expect(screen.queryByText('Activity Distribution')).not.toBeInTheDocument()
+      expect(screen.queryByText('Activity distribution')).not.toBeInTheDocument()
     })
 
     it('calculates percentages correctly', () => {
@@ -309,8 +310,9 @@ describe('ActorStats', () => {
       
       renderWithProviders(<ActorStats actor="Alice" stats={unevenStats} />)
       
-      expect(screen.getByText('Actor (71.4%)')).toBeInTheDocument()
-      expect(screen.getByText('Target (28.6%)')).toBeInTheDocument()
+      // Seven events: counts, not a percentage to a tenth of a point.
+      expect(screen.getByText('Actor (5 of 7)')).toBeInTheDocument()
+      expect(screen.getByText('Target (2 of 7)')).toBeInTheDocument()
     })
   })
 
@@ -319,10 +321,10 @@ describe('ActorStats', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithTimeSpan} />)
 
       // The role colours are the actor timeline's: they carry meaning here.
-      const distributionSection = screen.getByText('Activity Distribution').closest('[data-stat]')
+      const distributionSection = screen.getByText('Activity distribution').closest('[data-stat]')
       
       // Check for colored elements (divs with background colors)
-      const coloredElements = distributionSection?.querySelectorAll('[class*="bg-blue"], [class*="bg-green"]')
+      const coloredElements = distributionSection?.querySelectorAll('[class*="bg-role-actor"], [class*="bg-role-target"]')
       expect(coloredElements?.length).toBeGreaterThan(0)
     })
   })

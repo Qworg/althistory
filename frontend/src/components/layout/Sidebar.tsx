@@ -68,7 +68,9 @@ export function Sidebar() {
       aria-label="Sidebar navigation"
       data-collapsed={collapsed || undefined}
     >
-      <div className="flex flex-col h-full">
+      {/* Sticky under the header: when the view grows past the screen the
+          page scrolls, and the navigation used to scroll away with it. */}
+      <div className="sticky top-[var(--app-header-h,7rem)] flex flex-col h-[calc(100dvh-var(--app-header-h,7rem))]">
         {/* The links name the views; the heading keeps the outline intact for
             screen readers without a second visible label. */}
         <h2 className="sr-only">Views</h2>

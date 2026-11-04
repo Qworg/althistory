@@ -27,7 +27,7 @@ function CountSummary({ title, counts }: { title: string; counts: EntityCounts }
 
   return (
     <div className="flex justify-between items-center py-2">
-      <span className="text-sm text-gray-600">{title}</span>
+      <span className="text-sm text-ink-secondary">{title}</span>
       <div className="flex space-x-3 text-sm">
         {counts.events > 0 && (
           <span>
@@ -72,13 +72,13 @@ export function ImportExecuteStep({
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h3 className="text-lg font-medium text-gray-900">
+        <h3 className="text-lg font-medium text-ink">
           {!hasStarted && 'Ready to Import'}
           {isExecuting && 'Importing...'}
           {isSuccess && 'Import Complete'}
           {isFailed && 'Import Failed'}
         </h3>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-ink-muted">
           {!hasStarted && 'Click the button below to start the import process'}
           {isExecuting && 'Please wait while your data is being imported'}
           {isSuccess && 'Your data has been successfully imported'}
@@ -92,32 +92,32 @@ export function ImportExecuteStep({
           {/* FIX #8: Handle indeterminate progress (-1) for sync imports */}
           {progress === -1 ? (
             <>
-              <div className="flex justify-between text-sm text-gray-600">
+              <div className="flex justify-between text-sm text-ink-secondary">
                 <span>Processing...</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden" role="progressbar" aria-label="Import in progress">
+              <div className="w-full bg-line rounded-full h-3 overflow-hidden" role="progressbar" aria-label="Import in progress">
                 <div
                   className="bg-blue-500 h-3 rounded-full animate-pulse"
                   style={{ width: '100%' }}
                 />
               </div>
-              <p className="text-sm text-gray-500 text-center">
+              <p className="text-sm text-ink-muted text-center">
                 Importing data...
               </p>
             </>
           ) : (
             <>
-              <div className="flex justify-between text-sm text-gray-600">
+              <div className="flex justify-between text-sm text-ink-secondary">
                 <span>Progress</span>
                 <span>{progress}%</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-3" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+              <div className="w-full bg-line rounded-full h-3" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
                 <div
                   className="bg-blue-500 h-3 rounded-full transition-all duration-300"
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <p className="text-sm text-gray-500 text-center">
+              <p className="text-sm text-ink-muted text-center">
                 {isCancelling ? 'Cancelling import...' : 'Processing entities...'}
               </p>
               {/* FIX #17: Cancel button for async imports */}
@@ -126,7 +126,7 @@ export function ImportExecuteStep({
                   <button
                     type="button"
                     onClick={onCancel}
-                    className="inline-flex items-center px-3 py-1 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                    className="inline-flex items-center px-3 py-1 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-card hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                   >
                     Cancel Import
                   </button>
@@ -168,9 +168,9 @@ export function ImportExecuteStep({
           </div>
 
           {/* Import Summary */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h4 className="text-sm font-medium text-gray-900 mb-3">Import Summary</h4>
-            <div className="divide-y divide-gray-200">
+          <div className="bg-subtle rounded-lg p-4">
+            <h4 className="text-sm font-medium text-ink mb-3">Import Summary</h4>
+            <div className="divide-y divide-line">
               <CountSummary title="Imported" counts={result.imported} />
               <CountSummary title="Skipped" counts={result.skipped} />
               {result.deleted && <CountSummary title="Deleted" counts={result.deleted} />}
@@ -267,12 +267,12 @@ export function ImportExecuteStep({
       )}
 
       {/* Actions */}
-      <div className="flex justify-between pt-4 border-t border-gray-200">
+      <div className="flex justify-between pt-4 border-t border-line">
         <button
           type="button"
           onClick={onBack}
           disabled={isExecuting}
-          className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          className="inline-flex items-center px-4 py-2 border border-line text-sm font-medium rounded-md text-ink-secondary bg-card hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
         >
           {isSuccess || isFailed ? 'Start Over' : 'Back'}
         </button>

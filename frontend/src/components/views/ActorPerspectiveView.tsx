@@ -2,7 +2,11 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { ActorTimeline } from '@/components/timeline/ActorTimeline'
 import { ActorSelector } from '@/components/actor/ActorSelector'
 import { ActorStats } from '@/components/actor/ActorStats'
-import { useEvents } from '@/hooks/useEvents'
+import { useEvents, VIEW_EVENT_LIMIT } from '@/hooks/useEvents'
+import { ViewLoadError, SlowLoadNotice } from './ViewLoadState'
+import { useSlowLoading } from '@/hooks/useSlowLoading'
+import { EmptyGraphState } from './EmptyGraphState'
+import { eventYear } from '@/components/causal-graph/causalGraphPresentation'
 import { useArcs } from '@/hooks/useArcs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
@@ -29,9 +33,24 @@ export interface ActorStats {
   }
 }
 
+/** How many actors the opening list shows; the picker holds the rest. */
+const ACTOR_INDEX_LIMIT = 12
+
 export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewProps) {
-  const { data: fetchedEvents = [], isLoading: eventsLoading } = useEvents()
-  const { data: fetchedArcs = [], isLoading: arcsLoading } = useArcs()
+  const eventsQuery = useEvents({ limit: VIEW_EVENT_LIMIT })
+  const arcsQuery = useArcs()
+  const { data: fetchedEvents = [], isLoading: eventsLoading } = eventsQuery
+  const { data: fetchedArcs = [], isLoading: arcsLoading } = arcsQuery
+  const loadFailure = eventsQuery.isError
+    ? { what: 'this graph’s events', error: eventsQuery.error }
+    : arcsQuery.isError
+    ? { what: 'this graph’s arcs', error: arcsQuery.error }
+    : null
+  const retryLoad = () => {
+    void eventsQuery.refetch()
+    void arcsQuery.refetch()
+  }
+  const loadIsSlow = useSlowLoading(eventsLoading || arcsLoading)
   const { activeFilters, sessionData, updateSessionData } = useGlobalStore()
 
   // Apply the global filters client-side (see filterUtils for why). The actor
@@ -97,6 +116,31 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
       actorSet.add(event.target)
     })
     return Array.from(actorSet).sort()
+  }, [fetchedEvents])
+
+  // Every actor (or target) with how many events involve it and the years
+  // they span, most involved first: what the view lists before one is chosen.
+  const actorIndex = useMemo(() => {
+    const byName = new Map<string, { count: number; first: number; last: number }>()
+    for (const event of fetchedEvents) {
+      const time = new Date(event.timestamp).getTime()
+      for (const name of new Set([event.actor, event.target])) {
+        if (!name) continue
+        const entry = byName.get(name)
+        if (entry) {
+          entry.count += 1
+          entry.first = Math.min(entry.first, time)
+          entry.last = Math.max(entry.last, time)
+        } else {
+          byName.set(name, { count: 1, first: time, last: time })
+        }
+      }
+    }
+    return Array.from(byName, ([name, { count, first, last }]) => {
+      const from = eventYear(new Date(first))
+      const to = eventYear(new Date(last))
+      return { name, count, span: from === to ? from : `${from}–${to}` }
+    }).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
   }, [fetchedEvents])
 
   // Filter events for selected actor
@@ -214,15 +258,32 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
     }
   }, [updateSessionData, sessionData, showStats])
 
-  if (eventsLoading || arcsLoading) {
+  if (loadFailure && !eventsLoading && !arcsLoading) {
     return (
       <div className={`space-y-6 ${className}`}>
         <div className="bg-card border border-line rounded-lg shadow-sm p-6">
+          <ViewLoadError
+            what={loadFailure.what}
+            error={loadFailure.error}
+            onRetry={retryLoad}
+            isRetrying={eventsQuery.isFetching || arcsQuery.isFetching}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  if (eventsLoading || arcsLoading) {
+    return (
+      <div className={`space-y-6 ${className}`}>
+        <div className="bg-card border border-line rounded-lg shadow-sm p-6" aria-busy="true">
+          <span className="sr-only">Loading actors</span>
           <div className="animate-pulse">
             <div className="h-8 bg-subtle rounded w-1/3 mb-4"></div>
             <div className="h-12 bg-subtle rounded mb-4"></div>
             <div className="h-96 bg-subtle rounded"></div>
           </div>
+          {loadIsSlow && <SlowLoadNotice onRetry={retryLoad} />}
         </div>
       </div>
     )
@@ -384,20 +445,41 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
         </div>
       )}
 
-      {/* No actor selected state */}
+      {/* No actor selected: the actors themselves, most involved first, so
+          the view opens on something to choose rather than an instruction. */}
       {!selectedActor && (
-        <div className="bg-card border border-line rounded-lg shadow-sm p-6">
-          <div className="text-center py-12">
-            <div className="text-ink-muted mb-4">
-              <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-            </div>
-            <h3 className="font-display text-xl font-semibold text-ink mb-2">Select an Actor</h3>
-            <p className="text-ink-secondary">
-              Choose an actor from the dropdown above to view their timeline perspective.
-            </p>
-          </div>
+        <div className="bg-card border border-line rounded-lg shadow-sm p-4 sm:p-6">
+          {actorIndex.length === 0 ? (
+            <EmptyGraphState kind="empty" />
+          ) : (
+            <>
+              <h3 className="font-display text-xl font-semibold text-ink">Actors in this graph</h3>
+              <p className="mt-1 text-sm text-ink-secondary">
+                Most involved first. Choose one to see its history from its side.
+              </p>
+              <ul className="mt-4 grid gap-x-6 sm:grid-cols-2 xl:grid-cols-3" aria-label="Actors, most involved first">
+                {actorIndex.slice(0, ACTOR_INDEX_LIMIT).map(entry => (
+                  <li key={entry.name} className="border-b border-line last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0">
+                    <button
+                      type="button"
+                      onClick={() => handleActorSelect(entry.name)}
+                      className="group flex w-full items-baseline justify-between gap-3 py-2.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-selected rounded-sm"
+                    >
+                      <span className="min-w-0 truncate font-medium text-ink group-hover:text-baseline">{entry.name}</span>
+                      <span className="shrink-0 font-mono-code text-xs text-ink-muted">
+                        {entry.count} {entry.count === 1 ? 'event' : 'events'} · {entry.span}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {actorIndex.length > ACTOR_INDEX_LIMIT && (
+                <p className="mt-3 text-sm text-ink-muted">
+                  And {actorIndex.length - ACTOR_INDEX_LIMIT} more in the actor picker above.
+                </p>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

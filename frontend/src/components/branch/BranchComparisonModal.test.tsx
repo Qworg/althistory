@@ -305,12 +305,15 @@ describe('BranchComparisonModal', () => {
     expect(last).toHaveFocus()
   })
 
-  it('has one primary footer action: merge is primary, switching is secondary', () => {
+  it('offers merge and switch as equal secondary actions: comparing is the task here', () => {
     renderWithProviders(<BranchComparisonModal {...mergeableProps} />)
 
+    // A filled merge button in a dialog opened to compare drew the curious
+    // click to the riskiest action; the merge step confirms on its own.
     const merge = screen.getByRole('button', { name: 'Merge into baseline…' })
     const switchButton = screen.getByRole('button', { name: 'Switch to this branch' })
-    expect(merge.className).toContain('bg-baseline')
+    expect(merge.className).not.toContain('bg-baseline')
+    expect(merge.className).toContain('border-line')
     expect(switchButton.className).not.toContain('bg-baseline')
     expect(switchButton.className).toContain('border-line')
   })

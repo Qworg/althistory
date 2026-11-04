@@ -21,12 +21,15 @@ interface GraphCopyProgressPanelProps {
   onClose: () => void
   /** Called with the copy's graph id: a copy's id is the graph it created. */
   onSwitchToGraph?: (graphId: string) => void
+  /** Opens the full, searchable list of every copy (Copy history). */
+  onShowAll?: () => void
 }
 
 export const GraphCopyProgressPanel: React.FC<GraphCopyProgressPanelProps> = ({
   isOpen,
   onClose,
-  onSwitchToGraph
+  onSwitchToGraph,
+  onShowAll
 }) => {
   const {
     copyState,
@@ -126,7 +129,7 @@ export const GraphCopyProgressPanel: React.FC<GraphCopyProgressPanelProps> = ({
     <ModalBase
       isOpen={isOpen}
       onClose={onClose}
-      title="Copy progress"
+      title="Copies"
       size="3xl"
       footer={
         <div className="flex justify-end">
@@ -159,13 +162,24 @@ export const GraphCopyProgressPanel: React.FC<GraphCopyProgressPanelProps> = ({
             <h3 className="font-display text-xl font-semibold text-ink">
               Recent <span className="font-mono-code text-base text-ink-muted">({copyState.completedOperations.length})</span>
             </h3>
-            <button
-              type="button"
-              onClick={clearCompletedOperations}
-              className="text-sm text-ink-secondary hover:text-ink underline underline-offset-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
-            >
-              Clear list
-            </button>
+            <div className="flex items-center gap-4">
+              {onShowAll && (
+                <button
+                  type="button"
+                  onClick={onShowAll}
+                  className="text-sm font-medium text-baseline underline underline-offset-2 hover:no-underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+                >
+                  All copies…
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={clearCompletedOperations}
+                className="text-sm text-ink-secondary hover:text-ink underline underline-offset-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+              >
+                Clear list
+              </button>
+            </div>
           </div>
           <ul className="space-y-3">
             {copyState.completedOperations.slice(-5).map(operation => renderOperation(operation, false))}

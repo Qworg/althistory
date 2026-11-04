@@ -127,10 +127,11 @@ describe('ViewToolbar graph data operation entry points', () => {
     const user = userEvent.setup()
     renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
-    await user.click(screen.getByRole('button', { name: 'Import' }))
+    await user.click(screen.getByRole('button', { name: 'Bring in history' }))
+    await user.click(screen.getByRole('menuitem', { name: /^import an export file/i }))
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('Import Data')).toBeInTheDocument()
+    expect(within(dialog).getByText('Import an export file')).toBeInTheDocument()
   })
 
   it('opens the export panel and its primary export action (Req 5)', async () => {
@@ -140,12 +141,11 @@ describe('ViewToolbar graph data operation entry points', () => {
     await chooseGraphMenuItem(user, 'Export')
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('Export Graph')).toBeInTheDocument()
+    expect(within(dialog).getByText('Export graph')).toBeInTheDocument()
 
-    // The panel starts collapsed; expanding it reveals the export affordances.
-    await user.click(within(dialog).getByRole('button', { name: /export/i }))
+    // The drawer is the disclosure: its export action is there at once.
     expect(
-      await within(dialog).findByRole('button', { name: /quick export/i })
+      within(dialog).getByRole('button', { name: /download the whole graph/i })
     ).toBeInTheDocument()
   })
 
@@ -164,8 +164,10 @@ describe('ViewToolbar graph data operation entry points', () => {
     const user = userEvent.setup()
     renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
-    await chooseGraphMenuItem(user, 'Copy history')
-    const dialog = await screen.findByRole('dialog')
+    // Graph › Copies, then its link to the full list.
+    await chooseGraphMenuItem(user, 'Copies')
+    await user.click(await screen.findByRole('button', { name: 'All copies…' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Copy history' })
     await user.click(within(dialog).getByRole('button', { name: 'Open' }))
 
     expect(graphSpies.switchGraph).toHaveBeenCalledWith('graph-copy-1')
@@ -175,8 +177,10 @@ describe('ViewToolbar graph data operation entry points', () => {
     const user = userEvent.setup()
     renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
-    await chooseGraphMenuItem(user, 'Copy history')
-    const dialog = await screen.findByRole('dialog')
+    // Graph › Copies, then its link to the full list.
+    await chooseGraphMenuItem(user, 'Copies')
+    await user.click(await screen.findByRole('button', { name: 'All copies…' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Copy history' })
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }))
 
     // Deleting a copy deletes a graph, so it asks first.

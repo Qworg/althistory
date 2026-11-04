@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { UseMutationResult } from '@tanstack/react-query'
 import { ImportWizard } from './ImportWizard'
@@ -215,13 +215,13 @@ describe('ImportWizard', () => {
     it('should not render when isOpen is false', () => {
       renderComponent({ isOpen: false })
       
-      expect(screen.queryByText('Import Data')).not.toBeInTheDocument()
+      expect(screen.queryByText('Import an export file')).not.toBeInTheDocument()
     })
 
     it('should render when isOpen is true', () => {
       renderComponent()
       
-      expect(screen.getByText('Import Data')).toBeInTheDocument()
+      expect(screen.getByText('Import an export file')).toBeInTheDocument()
     })
   })
 
@@ -229,14 +229,14 @@ describe('ImportWizard', () => {
     it('should render modal header with title', () => {
       renderComponent()
       
-      expect(screen.getByText('Import Data')).toBeInTheDocument()
+      expect(screen.getByText('Import an export file')).toBeInTheDocument()
     })
 
     it('should render close button', () => {
       renderComponent()
       
       // Close button should be in the header with aria-label
-      const closeButton = screen.getByRole('button', { name: /close import wizard/i })
+      const closeButton = screen.getByRole('button', { name: /close import/i })
       expect(closeButton).toBeInTheDocument()
     })
 
@@ -244,24 +244,18 @@ describe('ImportWizard', () => {
       renderComponent()
       
       // Find the close button (it's in the header with the X icon)
-      const header = screen.getByText('Import Data').closest('div')
-      const closeButton = header?.querySelector('button')
-      
-      if (closeButton) {
-        await user.click(closeButton)
-        expect(mockOnClose).toHaveBeenCalled()
-      }
+      await user.click(screen.getByRole('button', { name: /close import/i }))
+      expect(mockOnClose).toHaveBeenCalled()
     })
 
     it('should call onClose when clicking overlay', async () => {
       renderComponent()
       
-      // Click the background overlay
-      const overlay = document.querySelector('.bg-gray-500.bg-opacity-75')
-      if (overlay) {
-        await user.click(overlay)
-        expect(mockOnClose).toHaveBeenCalled()
-      }
+      // Click the backdrop (ModalBase's, behind the panel)
+      const overlay = document.querySelector('[role="dialog"] > [aria-hidden="true"]')
+      expect(overlay).not.toBeNull()
+      await user.click(overlay as Element)
+      expect(mockOnClose).toHaveBeenCalled()
     })
   })
 
@@ -278,8 +272,24 @@ describe('ImportWizard', () => {
     it('should highlight upload step as active initially', () => {
       renderComponent()
       
-      const uploadLabel = screen.getByText('Upload')
-      expect(uploadLabel).toHaveClass('text-blue-600')
+      const steps = screen.getByRole('list', { name: 'Import steps' })
+      const current = steps.querySelector('[aria-current="step"]')
+      expect(current).toHaveTextContent('Upload')
+    })
+
+    it('numbers only the steps the import will pass through', () => {
+      renderComponent()
+
+      // No conflicts yet, so four steps numbered 1-4: never "Step 5" after "Step 3".
+      const steps = within(screen.getByRole('list', { name: 'Import steps' })).getAllByRole('listitem')
+      expect(steps).toHaveLength(4)
+      expect(steps[3]).toHaveTextContent('Step 4 of 4: Import')
+    })
+
+    it('names the graph the import writes into', () => {
+      renderComponent({ targetGraphName: 'The Engine Age' })
+      expect(screen.getByText('The Engine Age')).toBeInTheDocument()
+      expect(screen.getByText(/Imports into/)).toBeInTheDocument()
     })
   })
 
@@ -287,8 +297,7 @@ describe('ImportWizard', () => {
     it('should show upload step content initially', () => {
       renderComponent()
       
-      expect(screen.getByText('Upload Import File')).toBeInTheDocument()
-      expect(screen.getByText(/Upload an Althistory export file/)).toBeInTheDocument()
+      expect(screen.getByText(/Choose an althistory export file/)).toBeInTheDocument()
     })
 
     it('should show loading state when validating', () => {
@@ -301,7 +310,7 @@ describe('ImportWizard', () => {
 
       renderComponent()
 
-      expect(screen.getByRole('button', { name: 'Processing...' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Checking…' })).toBeInTheDocument()
     })
   })
 
@@ -320,7 +329,7 @@ describe('ImportWizard', () => {
     it('should render upload step initially', () => {
       renderComponent()
       
-      expect(screen.getByText('Upload Import File')).toBeInTheDocument()
+      expect(screen.getByText(/Choose an althistory export file/)).toBeInTheDocument()
     })
   })
 
@@ -329,7 +338,7 @@ describe('ImportWizard', () => {
       renderComponent({ targetGraphId: 'target-graph-123' })
       
       // Component should render without errors
-      expect(screen.getByText('Import Data')).toBeInTheDocument()
+      expect(screen.getByText('Import an export file')).toBeInTheDocument()
     })
   })
 
@@ -338,7 +347,7 @@ describe('ImportWizard', () => {
       renderComponent({ onImportComplete: mockOnImportComplete })
       
       // Component should render without errors
-      expect(screen.getByText('Import Data')).toBeInTheDocument()
+      expect(screen.getByText('Import an export file')).toBeInTheDocument()
     })
   })
 })

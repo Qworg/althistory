@@ -43,21 +43,21 @@ export function ImportConflictStep({
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h3 className="text-lg font-medium text-gray-900">Resolve Conflicts</h3>
-        <p className="mt-1 text-sm text-gray-500">
+        <h3 className="text-lg font-medium text-ink">Resolve Conflicts</h3>
+        <p className="mt-1 text-sm text-ink-muted">
           {conflicts.length} conflict(s) found. Resolve errors to continue.
         </p>
       </div>
 
       {/* Progress */}
-      <div className="bg-gray-50 rounded-lg p-4">
+      <div className="bg-subtle rounded-lg p-4">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-gray-700">Resolution Progress</span>
-          <span className="text-sm text-gray-500">
+          <span className="text-sm font-medium text-ink-secondary">Resolution Progress</span>
+          <span className="text-sm text-ink-muted">
             {resolvedCount} / {conflicts.length} resolved
           </span>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-2">
+        <div className="w-full bg-line rounded-full h-2">
           <div
             className={`h-2 rounded-full transition-all ${
               allErrorsResolved ? 'bg-green-500' : 'bg-blue-500'
@@ -73,27 +73,27 @@ export function ImportConflictStep({
       </div>
 
       {/* Bulk Actions */}
-      <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
-        <span className="text-sm text-gray-600">Apply to all conflicts:</span>
+      <div className="flex items-center justify-between bg-subtle rounded-lg p-3">
+        <span className="text-sm text-ink-secondary">Apply to all conflicts:</span>
         <div className="flex space-x-2">
           <button
             type="button"
             onClick={() => onResolveAll('skip')}
-            className="px-3 py-1 text-sm bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-md transition-colors"
+            className="px-3 py-1 text-sm bg-subtle text-ink-secondary hover:bg-line rounded-md transition-colors"
           >
             Skip All
           </button>
           <button
             type="button"
             onClick={() => onResolveAll('overwrite')}
-            className="px-3 py-1 text-sm bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-md transition-colors"
+            className="px-3 py-1 text-sm bg-subtle text-ink-secondary hover:bg-line rounded-md transition-colors"
           >
             Overwrite All
           </button>
           <button
             type="button"
             onClick={() => onResolveAll('rename')}
-            className="px-3 py-1 text-sm bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-md transition-colors"
+            className="px-3 py-1 text-sm bg-subtle text-ink-secondary hover:bg-line rounded-md transition-colors"
           >
             Rename All
           </button>
@@ -139,12 +139,12 @@ export function ImportConflictStep({
       )}
 
       {/* Actions */}
-      <div className="flex justify-between pt-4 border-t border-gray-200">
+      <div className="flex justify-between pt-4 border-t border-line">
         <button
           type="button"
           onClick={onBack}
           disabled={isLoading}
-          className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          className="inline-flex items-center px-4 py-2 border border-line text-sm font-medium rounded-md text-ink-secondary bg-card hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
         >
           Back
         </button>

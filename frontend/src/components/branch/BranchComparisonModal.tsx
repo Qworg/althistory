@@ -8,7 +8,6 @@ import { CounterfactualTimelineCanvas } from './CounterfactualTimelineCanvas'
 import { SimulationLauncherPanel } from './SimulationLauncherPanel'
 import { BranchMergeModal } from './BranchMergeModal'
 import {
-  PRIMARY_BUTTON,
   SECONDARY_BUTTON,
   QUIET_BUTTON,
   FIELD,
@@ -387,8 +386,11 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
             {switchGraphMutation.isPending ? 'Switching…' : 'Switch to this branch'}
           </button>
         )}
+        {/* Secondary, not primary: this dialog is opened to compare, and the
+            filled button is where a curious click lands. The merge step that
+            follows carries its own confirmation. */}
         {canMerge && (
-          <button ref={mergeOpenerRef} type="button" onClick={() => setStep('merge')} className={PRIMARY_BUTTON}>
+          <button ref={mergeOpenerRef} type="button" onClick={() => setStep('merge')} className={SECONDARY_BUTTON}>
             Merge into baseline…
           </button>
         )}

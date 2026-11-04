@@ -53,7 +53,8 @@ const ARC_LABEL_ROW_STEP = 14
 const ARC_LABEL_MAX_ROWS = 2
 
 /** Role colours: the data encoding of the chart, shared by marks and legend. */
-const ROLE_COLOR = { actor: '#3b82f6', target: '#10b981' } as const
+/** Role colours (index.css tokens). Shape carries the role too: filled acts, ring is acted on. */
+const ROLE_COLOR = { actor: 'var(--role-actor)', target: 'var(--role-target)' } as const
 /** Lighter role colours for text on the (always dark) tooltip surface. */
 const ROLE_TOOLTIP_COLOR = { actor: '#60a5fa', target: '#34d399' } as const
 
@@ -374,11 +375,11 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
       <div className="mb-2 flex items-center gap-4 pr-28 text-xs text-ink-secondary">
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-1">
-            <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+            <div className="w-3 h-3 bg-role-actor rounded-full" aria-hidden="true"></div>
             <span>As Actor</span>
           </div>
           <div className="flex items-center space-x-1">
-            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+            <div className="w-3 h-3 border-2 border-role-target bg-card rounded-full" aria-hidden="true"></div>
             <span>As Target</span>
           </div>
           {layoutMode === 'thematic' && (
@@ -608,11 +609,13 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                           />
                           <circle
                             className="event-marker"
+                            data-role={event.role}
                             r={isSelected ? (isHovered ? 10 : 8) : (isHovered ? 8 : 6)}
                             // Selected is the indigo selection accent (not danger red).
-                            fill={isSelected ? 'var(--accent-selected)' : roleColor}
-                            stroke="var(--surface-card)"
-                            strokeWidth={2}
+                            // A target mark is a ring, so the role reads without colour.
+                            fill={isSelected ? 'var(--accent-selected)' : event.role === 'target' ? 'var(--surface-card)' : roleColor}
+                            stroke={isSelected || event.role === 'actor' ? 'var(--surface-card)' : roleColor}
+                            strokeWidth={event.role === 'target' && !isSelected ? 2.5 : 2}
                             style={{
                               filter: isSelected
                                 ? 'drop-shadow(0 0 6px rgba(79, 70, 229, 0.5))'

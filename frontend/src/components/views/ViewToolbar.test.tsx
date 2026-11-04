@@ -83,9 +83,10 @@ describe('ViewToolbar', () => {
       const create = screen.getByRole('button', { name: /create event/i })
       expect(create).toBeDisabled()
       expect(create).toHaveAttribute('title', expect.stringMatching(/choose a graph first/i))
-      expect(screen.getByRole('button', { name: /^ingest$/i })).toBeDisabled()
+      fireEvent.click(screen.getByRole('button', { name: 'Bring in history' }))
+      expect(screen.getByRole('menuitem', { name: /^extract from text/i })).toHaveAttribute('aria-disabled', 'true')
       // Import can create a graph of its own
-      expect(screen.getByRole('button', { name: /^import$/i })).toBeEnabled()
+      expect(screen.getByRole('menuitem', { name: /^import an export file/i })).not.toHaveAttribute('aria-disabled')
     })
   })
 
@@ -237,9 +238,24 @@ describe('ViewToolbar', () => {
       
       expect(screen.getByRole('button', { name: /hide filters/i })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Compare branches' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Ingest' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Bring in history' })).toHaveAttribute('aria-haspopup', 'menu')
       expect(screen.getByRole('button', { name: 'Graph' })).toHaveAttribute('aria-haspopup', 'menu')
+    })
+
+    it('has one primary action: Create Event', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      expect(screen.getByRole('button', { name: 'Create Event' })).toHaveClass('text-baseline')
+      expect(screen.getByRole('button', { name: 'Create Arc' })).not.toHaveClass('text-baseline')
+      expect(screen.getByRole('button', { name: 'Compare branches' })).not.toHaveClass('bg-amber-50/80')
+    })
+
+    it('puts extraction first, then export files, under Bring in history', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+      fireEvent.click(screen.getByRole('button', { name: 'Bring in history' }))
+      expect(screen.getAllByRole('menuitem').map(item => item.getAttribute('aria-label'))).toEqual([
+        'Extract from text or Wikipedia…',
+        'Import an export file…',
+      ])
     })
 
     it('toggles filter panel', () => {
@@ -319,7 +335,8 @@ describe('ViewToolbar', () => {
       // The wizard is not mounted until the reachable entry point is used.
       expect(screen.queryByRole('dialog', { name: /^ingest from/i })).not.toBeInTheDocument()
 
-      fireEvent.click(screen.getByRole('button', { name: /^ingest$/i }))
+      fireEvent.click(screen.getByRole('button', { name: 'Bring in history' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: /^extract from text/i }))
 
       expect(await screen.findByRole('dialog', { name: /^ingest from/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: 'Wikipedia' })).toBeInTheDocument()
@@ -447,13 +464,13 @@ describe('ViewToolbar', () => {
   })
 
   describe('Graph menu', () => {
-    it('gives Versions its own icon, not Copy history\'s clock', () => {
+    it('gives Versions its own icon, not the copies\' one', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
       fireEvent.click(screen.getByRole('button', { name: 'Graph' }))
 
       const iconOf = (name: string) => screen.getByRole('menuitem', { name }).querySelector('svg')?.innerHTML
       expect(iconOf('Versions')).toBeTruthy()
-      expect(iconOf('Versions')).not.toBe(iconOf('Copy history'))
+      expect(iconOf('Versions')).not.toBe(iconOf('Copies'))
     })
 
     it('keeps every item label on one line', () => {
@@ -464,7 +481,7 @@ describe('ViewToolbar', () => {
       expect(screen.getByText('Branch or copy…')).toHaveClass('whitespace-nowrap')
     })
 
-    const graphActions = ['Branch or copy…', 'Copy progress', 'Copy history', 'Export', 'Versions']
+    const graphActions = ['Branch or copy…', 'Versions', 'Export', 'Copies']
 
     it('collapses the graph-management actions behind a closed menu button', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
@@ -496,13 +513,13 @@ describe('ViewToolbar', () => {
       const menu = screen.getByRole('menu')
 
       fireEvent.keyDown(menu, { key: 'ArrowDown' })
-      expect(screen.getByRole('menuitem', { name: 'Copy progress' })).toHaveFocus()
-      fireEvent.keyDown(menu, { key: 'End' })
       expect(screen.getByRole('menuitem', { name: 'Versions' })).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'End' })
+      expect(screen.getByRole('menuitem', { name: 'Copies' })).toHaveFocus()
       fireEvent.keyDown(menu, { key: 'ArrowDown' })
       expect(screen.getByRole('menuitem', { name: 'Branch or copy…' })).toHaveFocus()
       fireEvent.keyDown(menu, { key: 'ArrowUp' })
-      expect(screen.getByRole('menuitem', { name: 'Versions' })).toHaveFocus()
+      expect(screen.getByRole('menuitem', { name: 'Copies' })).toHaveFocus()
       fireEvent.keyDown(menu, { key: 'Home' })
       expect(screen.getByRole('menuitem', { name: 'Branch or copy…' })).toHaveFocus()
     })
@@ -511,7 +528,7 @@ describe('ViewToolbar', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
       fireEvent.keyDown(screen.getByRole('button', { name: 'Graph' }), { key: 'ArrowUp' })
 
-      expect(screen.getByRole('menuitem', { name: 'Versions' })).toHaveFocus()
+      expect(screen.getByRole('menuitem', { name: 'Copies' })).toHaveFocus()
     })
 
     it('closes on Escape, returns focus to the trigger, and does not clear the selection', () => {
@@ -543,19 +560,28 @@ describe('ViewToolbar', () => {
       const trigger = screen.getByRole('button', { name: 'Graph' })
       fireEvent.click(trigger)
 
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Copy history' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Copies' }))
 
       expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-      expect(screen.getByRole('dialog', { name: 'Copy history' })).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: 'Copies' })).toBeInTheDocument()
     })
 
     it('keeps menu shortcuts working while the menu is closed', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
       expect(screen.queryByRole('menu')).not.toBeInTheDocument()
 
-      fireEvent.keyDown(document, { key: 'H', shiftKey: true })
+      fireEvent.keyDown(document, { key: 'B', shiftKey: true })
 
-      expect(screen.getByRole('dialog', { name: 'Copy history' })).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: /branch or copy/i })).toBeInTheDocument()
+    })
+
+    it('leaves Shift+S and Shift+H free: the copy-job panels are a menu away', () => {
+      renderWithProviders(<ViewToolbar viewMode="timeline" />)
+
+      fireEvent.keyDown(document, { key: 'H', shiftKey: true })
+      fireEvent.keyDown(document, { key: 'S', shiftKey: true })
+
+      expect(screen.queryByRole('dialog', { name: /^cop(ies|y history)$/i })).not.toBeInTheDocument()
     })
   })
 
@@ -629,7 +655,7 @@ describe('ViewToolbar', () => {
   describe('Streaming status integration', () => {
     it('renders streaming status badge in the toolbar', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
-      expect(screen.getByRole('status', { name: /live saving/i })).toBeInTheDocument()
+      expect(screen.getByRole('status', { name: /edits save as you go|live link/i })).toBeInTheDocument()
     })
   })
 
@@ -650,18 +676,18 @@ describe('ViewToolbar', () => {
     it('moves graph management and streaming off the toolbar', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" compact />)
 
-      for (const name of ['Graph', 'Compare branches', 'Import', 'Ingest']) {
+      for (const name of ['Graph', 'Compare branches', 'Bring in history']) {
         expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
       }
-      expect(screen.queryByRole('status', { name: /live saving/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('status', { name: /edits save as you go|live link/i })).not.toBeInTheDocument()
     })
 
     it('keeps the graph shortcuts working without the menu', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" compact />)
 
-      fireEvent.keyDown(document, { key: 'H', shiftKey: true })
+      fireEvent.keyDown(document, { key: 'B', shiftKey: true })
 
-      expect(screen.getByRole('dialog', { name: 'Copy history' })).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: /branch or copy/i })).toBeInTheDocument()
     })
   })
 })

@@ -13,10 +13,11 @@ import {
 import { PanelBase } from '@/components/modals/ModalBase'
 import { ExportPanel, VersionHistoryPanel } from '@/components/graphs'
 import { ImportWizard } from '@/components/import'
+import { OPEN_TOOLBAR_TOOL_EVENT, type ToolbarTool } from './toolbarTools'
 import { IngestionWizard } from '@/components/ingestion'
 import { useCreateArc } from '@/hooks/useAPI'
 import { useCreateEventWithCause } from '@/hooks/useCreateEventWithCause'
-import { useActiveGraphId, useSwitchGraph, useDeleteGraph } from '@/hooks/useGraphs'
+import { useActiveGraphId, useActiveGraph, useSwitchGraph, useDeleteGraph } from '@/hooks/useGraphs'
 import { StreamingStatusBadge } from '@/components/streaming/StreamingStatusBadge'
 import { useStreamingWrite } from '@/hooks/useStreamingWrite'
 import { MoreSheet } from '@/components/layout/MoreSheet'
@@ -70,13 +71,25 @@ const NEEDS_GRAPH_ACTION_IDS = new Set([
 const GRAPH_MENU_ACTION_IDS = new Set([
   'copy-graph',
   'copy-progress',
-  'copy-history',
   'export-data',
   'version-history'
 ])
 
+/**
+ * The Graph menu's order: branching and its safety net first, copies last.
+ * Copies is one item: its panel shows running and recent copies and opens the
+ * full Copy history, which used to be a second menu item of its own.
+ */
+const GRAPH_MENU_ORDER = ['copy-graph', 'version-history', 'export-data', 'copy-progress']
+
 /** Graph-level actions shown beside the Graph menu on desktop. */
-const GRAPH_TOOL_ACTION_IDS = new Set(['branch-divergence', 'import-data', 'ingest-data'])
+const GRAPH_TOOL_ACTION_IDS = new Set(['branch-divergence'])
+
+/**
+ * Ways of bringing history into the graph, under one "Bring in history" menu:
+ * extraction (Ingest) first, as the usual way in, then an export file.
+ */
+const BRING_IN_ACTION_IDS = ['ingest-data', 'import-data'] as const
 
 /** Shown only when they would do something (their shortcuts still apply). */
 const CONDITIONAL_ACTION_IDS = new Set(['clear-selection', 'clear-filters'])
@@ -131,6 +144,7 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
   // Graph-level operations (copy switching/deletion and the import/export tools)
   // all act on the active graph, so they share the same hooks as GraphSelector.
   const activeGraphId = useActiveGraphId()
+  const { data: activeGraph } = useActiveGraph()
   const switchGraphMutation = useSwitchGraph()
   const deleteGraphMutation = useDeleteGraph()
 
@@ -302,27 +316,14 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
       },
       {
         id: 'copy-progress',
-        label: 'Copy progress',
+        label: 'Copies',
         icon: (
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
         ),
         onClick: () => setShowProgressPanel(true),
-        tooltip: 'Show copies in progress (Shift+S)',
-        shortcut: 'Shift+S'
-      },
-      {
-        id: 'copy-history',
-        label: 'Copy history',
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        ),
-        onClick: () => setShowHistoryPanel(true),
-        tooltip: 'Show copy history (Shift+H)',
-        shortcut: 'Shift+H'
+        tooltip: 'Copies running and recent, with the full list a click away'
       },
       {
         id: 'branch-divergence',
@@ -337,25 +338,25 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
       },
       {
         id: 'import-data',
-        label: 'Import',
+        label: 'Import an export file…',
         icon: (
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
         ),
         onClick: () => setShowImportWizard(true),
-        tooltip: 'Import graph archive (JSON/CSV)'
+        tooltip: 'Load an althistory export file (.json) into this graph'
       },
       {
         id: 'ingest-data',
-        label: 'Ingest',
+        label: 'Extract from text or Wikipedia…',
         icon: (
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
           </svg>
         ),
         onClick: () => setShowIngestionWizard(true),
-        tooltip: 'Extract historical events from Wikipedia, Wikidata, or text'
+        tooltip: 'Pull dated events out of pasted text, a Wikipedia article or a Wikidata query, and review them before they are added'
       },
       {
         id: 'export-data',
@@ -450,12 +451,19 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
 
   const viewSpecificActions = requireGraph(getViewSpecificActions()).filter(action => !action.hidden)
   const commonActions = requireGraph(getCommonActions())
-  const graphMenuActions = commonActions.filter(action => GRAPH_MENU_ACTION_IDS.has(action.id))
+  const graphMenuActions = commonActions
+    .filter(action => GRAPH_MENU_ACTION_IDS.has(action.id))
+    .sort((a, b) => GRAPH_MENU_ORDER.indexOf(a.id) - GRAPH_MENU_ORDER.indexOf(b.id))
   const graphToolActions = commonActions.filter(action => GRAPH_TOOL_ACTION_IDS.has(action.id))
+  const bringInActions = BRING_IN_ACTION_IDS
+    .map(id => commonActions.find(action => action.id === id))
+    .filter((action): action is ToolbarAction => action !== undefined)
+  const BRING_IN = new Set<string>(BRING_IN_ACTION_IDS)
   // Filters and the conditional clears: on the toolbar at every width.
   const viewStateActions = commonActions.filter(action =>
     !GRAPH_MENU_ACTION_IDS.has(action.id) &&
     !GRAPH_TOOL_ACTION_IDS.has(action.id) &&
+    !BRING_IN.has(action.id) &&
     !(CONDITIONAL_ACTION_IDS.has(action.id) && action.disabled)
   )
 
@@ -466,6 +474,18 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
     () => requireGraph([...getViewSpecificActions(), ...getCommonActions()]),
     [getViewSpecificActions, getCommonActions, requireGraph]
   )
+
+  // Empty views ask for these dialogs (see toolbarTools.ts).
+  React.useEffect(() => {
+    const handleOpenTool = (event: Event) => {
+      const tool = (event as CustomEvent<ToolbarTool>).detail
+      if (tool === 'create-event') setShowCreateEventModal(true)
+      else if (tool === 'ingest') setShowIngestionWizard(true)
+      else if (tool === 'import') setShowImportWizard(true)
+    }
+    window.addEventListener(OPEN_TOOLBAR_TOOL_EVENT, handleOpenTool)
+    return () => window.removeEventListener(OPEN_TOOLBAR_TOOL_EVENT, handleOpenTool)
+  }, [])
 
   // Handle keyboard shortcuts
   React.useEffect(() => {
@@ -529,7 +549,8 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
   )
 
   const renderButton = (action: ToolbarAction) => {
-    const isPrimaryCreate = action.id === 'create-event' || action.id === 'create-arc'
+    // One primary action per toolbar: adding an event is what the timeline is for.
+    const isPrimaryCreate = action.id === 'create-event'
     const isDivergenceExplorer = action.id === 'branch-divergence'
     const isActiveFilterToggle = action.id === 'toggle-filters' && uiState.filterPanelOpen
     const isSelected = action.pressed === true || isActiveFilterToggle
@@ -551,9 +572,7 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
             ? 'text-ink-muted opacity-60 cursor-not-allowed'
             : isPrimaryCreate
               ? 'bg-baseline/10 text-baseline border border-baseline/25 hover:bg-baseline/15'
-              : isDivergenceExplorer
-                ? 'bg-amber-50/80 text-amber-900 border border-amber-200/80 hover:bg-amber-100'
-                : isSelected
+              : isSelected
                   ? 'bg-subtle text-ink border border-line'
                   : 'text-ink-secondary hover:text-ink hover:bg-subtle border border-transparent'
           }
@@ -561,7 +580,9 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
         title={action.tooltip}
         aria-label={action.label}
       >
-        {action.icon}
+        {/* Compare branches keeps the divergence amber in its icon only: a
+            tinted button beside the primary one made two calls to action. */}
+        {isDivergenceExplorer ? <span className="text-divergence">{action.icon}</span> : action.icon}
         {!compact && <span className={`ml-1 hidden ${labelClass}`}>{action.label}</span>}
       </button>
     )
@@ -593,6 +614,14 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
           <div className="flex flex-wrap items-center gap-1">
             {graphMenuActions.length > 0 && <GraphMenu actions={graphMenuActions} />}
             {graphToolActions.map(renderButton)}
+            {bringInActions.length > 0 && (
+              <GraphMenu
+                actions={bringInActions}
+                label="Bring in history"
+                title="Extract events from text or Wikipedia, or import an export file"
+                icon={BRING_IN_ICON}
+              />
+            )}
           </div>
           {divider}
 
@@ -624,7 +653,7 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
             },
             {
               label: 'Bring in history',
-              items: graphToolActions.filter(a => a.id !== 'branch-divergence').map(action => ({
+              items: bringInActions.map(action => ({
                 id: action.id,
                 label: action.label,
                 icon: action.icon,
@@ -652,6 +681,10 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
       <GraphCopyProgressPanel
         isOpen={showProgressPanel}
         onClose={() => setShowProgressPanel(false)}
+        onShowAll={() => {
+          setShowProgressPanel(false)
+          setShowHistoryPanel(true)
+        }}
         onSwitchToGraph={(graphName) => {
           handleSwitchToGraph(graphName)
           setShowProgressPanel(false)
@@ -696,6 +729,7 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
           isOpen
           onClose={() => setShowImportWizard(false)}
           targetGraphId={activeGraphId ?? undefined}
+          targetGraphName={activeGraph?.name}
         />
       )}
 
@@ -712,10 +746,10 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
       <PanelBase
         isOpen={showExportPanel}
         onClose={() => setShowExportPanel(false)}
-        title="Export Graph"
+        title="Export graph"
         width="28rem"
       >
-        <ExportPanel />
+        <ExportPanel collapsible={false} />
       </PanelBase>
 
       {/* Version History Panel (Req 17.5). The panel titles it, so the
@@ -763,7 +797,25 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
 
 interface GraphMenuProps {
   actions: ToolbarAction[]
+  /** The trigger's text and the menu's accessible name. */
+  label?: string
+  /** The trigger's tooltip. */
+  title?: string
+  /** The trigger's icon (a 16px stroke icon). */
+  icon?: React.ReactNode
 }
+
+const BRING_IN_ICON = (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+  </svg>
+)
+
+const DATABASE_ICON = (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+  </svg>
+)
 
 /**
  * The "Graph" disclosure menu: copy, copy status/history, export, versions.
@@ -772,7 +824,12 @@ interface GraphMenuProps {
  * Home and End move between items; Escape closes it and returns focus to the
  * trigger, as does choosing an item; Tab or a click outside closes it.
  */
-function GraphMenu({ actions }: GraphMenuProps) {
+function GraphMenu({
+  actions,
+  label = 'Graph',
+  title = 'Branch, copy, export and version this graph',
+  icon = DATABASE_ICON,
+}: GraphMenuProps) {
   const [open, setOpen] = useState(false)
   const [initialFocus, setInitialFocus] = useState<'first' | 'last'>('first')
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -879,7 +936,7 @@ function GraphMenu({ actions }: GraphMenuProps) {
         aria-controls={open ? menuId : undefined}
         onClick={() => (open ? closeMenu(false) : openMenu('first'))}
         onKeyDown={handleTriggerKeyDown}
-        title="Branch, copy, export and version this graph"
+        title={title}
         className={`
           inline-flex items-center px-2 py-1 rounded-md text-xs sm:text-sm font-medium
           transition-all duration-200 ease-in-out
@@ -887,10 +944,8 @@ function GraphMenu({ actions }: GraphMenuProps) {
           ${open ? 'bg-subtle text-ink' : 'text-ink-secondary hover:text-ink hover:bg-subtle'}
         `}
       >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
-        </svg>
-        <span className="ml-1">Graph</span>
+        {icon}
+        <span className="ml-1">{label}</span>
         <svg
           className={`w-3 h-3 ml-0.5 transition-transform ${open ? 'rotate-180' : ''}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"
@@ -904,7 +959,7 @@ function GraphMenu({ actions }: GraphMenuProps) {
           ref={menuRef}
           id={menuId}
           role="menu"
-          aria-label="Graph"
+          aria-label={label}
           onKeyDown={handleMenuKeyDown}
           className="absolute left-0 top-full mt-1 z-40 w-max min-w-[14rem] py-1 bg-card border border-line rounded-md shadow-lg"
         >

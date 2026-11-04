@@ -3,6 +3,10 @@ import { CausalGraphComponent } from '@/components/causal-graph'
 import { Event, CausalRelationship } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { filterCausalRelationships, filterEvents } from '@/components/filters/filterUtils'
+import { VIEW_EVENT_LIMIT } from '@/hooks/useEvents'
+import { ViewLoadError, SlowLoadNotice } from './ViewLoadState'
+import { useSlowLoading } from '@/hooks/useSlowLoading'
+import { EmptyGraphState } from './EmptyGraphState'
 import { useEvents, useCausalRelationships, useDeleteCausalLink, useUpdateCausalLink, useDeleteEvent, useUpdateEvent } from '@/hooks/useAPI'
 import { ContextMenu, ConfirmDialog } from '@/components/ui'
 import { EventDetailModal, CausalRelationshipModal } from '@/components/modals'
@@ -75,10 +79,23 @@ export function CausalGraphView() {
   const [editModal, setEditModal] = useState<EditModalState>(null)
 
   // Fetch events and causal relationships
-  const { data: fetchedEvents = [], isLoading: eventsLoading } = useEvents()
-  const { data: fetchedRelationships = [], isLoading: relationshipsLoading } = useCausalRelationships()
+  const eventsQuery = useEvents({ limit: VIEW_EVENT_LIMIT })
+  const relationshipsQuery = useCausalRelationships()
+  const { data: fetchedEvents = [], isLoading: eventsLoading } = eventsQuery
+  const { data: fetchedRelationships = [], isLoading: relationshipsLoading } = relationshipsQuery
+  // A failed request must not read as an empty graph (see ViewLoadError).
+  const loadFailure = eventsQuery.isError
+    ? { what: 'this graph’s events', error: eventsQuery.error }
+    : relationshipsQuery.isError
+    ? { what: 'this graph’s causal links', error: relationshipsQuery.error }
+    : null
+  const retryLoad = () => {
+    void eventsQuery.refetch()
+    void relationshipsQuery.refetch()
+  }
 
   const activeFilters = useGlobalStore(state => state.activeFilters)
+  const clearFilters = useGlobalStore(state => state.clearFilters)
 
   // Apply the global filters client-side (see filterUtils for why).
   const filteredEvents = useMemo(
@@ -91,6 +108,7 @@ export function CausalGraphView() {
   )
 
   const isLoading = eventsLoading || relationshipsLoading
+  const loadIsSlow = useSlowLoading(isLoading)
 
   // The selected event as the graph holds it now (an edit shows at once), or
   // none once a filter has hidden it.
@@ -267,10 +285,11 @@ export function CausalGraphView() {
           </div>
 
           {/* Statistics */}
-          <div className="font-mono-code flex flex-wrap items-center gap-3 sm:gap-6 text-xs text-ink-muted">
-            <span>{filteredEvents.length} events</span>
-            <span>{filteredRelationships.length} relationships</span>
-          </div>
+          <p className="font-mono-code shrink-0 whitespace-nowrap text-xs text-ink-muted">
+            {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'} ·{' '}
+            {isLoading ? '…' : filteredRelationships.length}{' '}
+            {filteredRelationships.length === 1 ? 'link' : 'links'}
+          </p>
         </div>
 
         {/* A selected link (a selected event is described in the inspector) */}
@@ -292,19 +311,27 @@ export function CausalGraphView() {
           screen and under it on a narrow one. */}
       <div className="flex-1 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <div className="bg-card border border-line rounded-lg shadow-sm p-4 min-w-0">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full min-h-[400px]">
+        {loadFailure && !isLoading ? (
+          <ViewLoadError
+            what={loadFailure.what}
+            error={loadFailure.error}
+            onRetry={retryLoad}
+            isRetrying={eventsQuery.isFetching || relationshipsQuery.isFetching}
+          />
+        ) : isLoading ? (
+          <div className="flex items-center justify-center h-full min-h-[400px]" aria-busy="true">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-baseline mx-auto mb-4" aria-hidden="true"></div>
-              <p className="text-ink-secondary">Loading graph data...</p>
+              <p className="text-ink-secondary">Loading the causal graph…</p>
+              {loadIsSlow && <SlowLoadNotice onRetry={retryLoad} />}
             </div>
           </div>
         ) : filteredEvents.length === 0 ? (
           <div className="flex items-center justify-center h-full min-h-[400px]">
-            <div className="text-center">
-              <p className="text-ink-secondary mb-2">No events to display</p>
-              <p className="text-sm text-ink-secondary">Create events in the Timeline view first</p>
-            </div>
+            <EmptyGraphState
+              kind={fetchedEvents.length === 0 ? 'empty' : 'filtered'}
+              onClearFilters={clearFilters}
+            />
           </div>
         ) : (
           <CausalGraphComponent

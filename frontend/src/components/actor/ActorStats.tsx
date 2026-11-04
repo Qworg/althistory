@@ -79,7 +79,19 @@ function average(count: number, over: number): string {
 }
 
 /** Role colours, matching the actor timeline's marks and legend. */
-const ROLE_DOT = { actor: 'bg-blue-500', target: 'bg-green-500' } as const
+/** Role marks, matching the actor timeline: a filled dot acts, a ring is acted on. */
+const ROLE_DOT = {
+  actor: 'bg-role-actor',
+  target: 'border-2 border-role-target',
+} as const
+/** The distribution bar's fills (a bar segment cannot be a ring). */
+const ROLE_FILL = { actor: 'bg-role-actor', target: 'bg-role-target' } as const
+
+/** "2 of 3" for a handful of events (a percentage of three is false precision), else a whole percent. */
+function share(count: number, total: number): string {
+  if (total < 20) return `${count} of ${total}`
+  return `${Math.round((count / total) * 100)}%`
+}
 
 /**
  * The actor's statistics: one flat section inside the view's card -- headline
@@ -96,7 +108,7 @@ export function ActorStats({ actor, stats, className = '' }: ActorStatsProps) {
 
   return (
     <section aria-labelledby={headingId} className={`actor-stats ${className}`}>
-      <h3 id={headingId} className="font-display text-xl font-semibold text-ink">
+      <h3 id={headingId} className="font-display text-2xl font-semibold text-ink text-balance">
         Statistics for {actor}
       </h3>
 
@@ -104,12 +116,12 @@ export function ActorStats({ actor, stats, className = '' }: ActorStatsProps) {
       <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-4 border-y border-line py-4 md:grid-cols-4">
         <div data-stat="total">
           <dt className="text-xs font-medium text-ink-muted">Total Events</dt>
-          <dd className="mt-1 font-mono-code text-lg font-semibold text-ink">{stats.eventCount}</dd>
+          <dd className="mt-1 font-mono-code text-base font-semibold text-ink">{stats.eventCount}</dd>
         </div>
 
         <div data-stat="span">
           <dt className="text-xs font-medium text-ink-muted">Time Span</dt>
-          <dd className="mt-1 text-lg font-semibold text-ink">
+          <dd className="mt-1 text-base font-semibold text-ink">
             {stats.timeSpan ? formatDuration(stats.timeSpan.start, stats.timeSpan.end) : 'N/A'}
           </dd>
           {stats.timeSpan && (
@@ -121,7 +133,7 @@ export function ActorStats({ actor, stats, className = '' }: ActorStatsProps) {
 
         <div data-stat="rate">
           <dt className="text-xs font-medium text-ink-muted">Activity</dt>
-          <dd className="mt-1 text-lg font-semibold text-ink">
+          <dd className="mt-1 text-base font-semibold text-ink">
             {rate ? (
               <>
                 <span className="font-mono-code">{rate.value}</span>{' '}
@@ -135,7 +147,7 @@ export function ActorStats({ actor, stats, className = '' }: ActorStatsProps) {
 
         <div data-stat="roles">
           <dt className="text-xs font-medium text-ink-muted">Actor / Target</dt>
-          <dd className="mt-1 font-mono-code text-lg font-semibold text-ink">
+          <dd className="mt-1 font-mono-code text-base font-semibold text-ink">
             {asActor} / {asTarget}
           </dd>
         </div>
@@ -144,7 +156,7 @@ export function ActorStats({ actor, stats, className = '' }: ActorStatsProps) {
       {/* The two roles */}
       <div className="grid grid-cols-1 gap-x-8 gap-y-4 py-4 md:grid-cols-2">
         <div data-role="actor">
-          <h4 className="flex items-center gap-2 text-base font-semibold text-ink">
+          <h4 className="flex items-center gap-2 text-sm font-semibold text-ink-secondary">
             <span className={`h-2.5 w-2.5 rounded-full ${ROLE_DOT.actor}`} aria-hidden="true" />
             As Actor
           </h4>
@@ -165,7 +177,7 @@ export function ActorStats({ actor, stats, className = '' }: ActorStatsProps) {
         </div>
 
         <div data-role="target">
-          <h4 className="flex items-center gap-2 text-base font-semibold text-ink">
+          <h4 className="flex items-center gap-2 text-sm font-semibold text-ink-secondary">
             <span className={`h-2.5 w-2.5 rounded-full ${ROLE_DOT.target}`} aria-hidden="true" />
             As Target
           </h4>
@@ -189,25 +201,25 @@ export function ActorStats({ actor, stats, className = '' }: ActorStatsProps) {
       {/* The split between the roles, in the timeline's role colours */}
       {asActor > 0 && asTarget > 0 && (
         <div className="border-t border-line pt-4" data-stat="distribution">
-          <h4 className="text-base font-semibold text-ink">Activity Distribution</h4>
+          <h4 className="text-sm font-semibold text-ink-secondary">Activity distribution</h4>
           <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-subtle" aria-hidden="true">
             <div
-              className={`${ROLE_DOT.actor} transition-all duration-300`}
+              className={`${ROLE_FILL.actor} transition-all duration-300`}
               style={{ width: `${actorShare}%` }}
             />
             <div
-              className={`${ROLE_DOT.target} transition-all duration-300`}
+              className={`${ROLE_FILL.target} transition-all duration-300`}
               style={{ width: `${targetShare}%` }}
             />
           </div>
           <div className="mt-2 flex justify-between text-xs text-ink-secondary">
             <span className="flex items-center gap-1">
               <span className={`h-2 w-2 rounded-full ${ROLE_DOT.actor}`} aria-hidden="true" />
-              Actor ({actorShare.toFixed(1)}%)
+              Actor ({share(asActor, stats.eventCount)})
             </span>
             <span className="flex items-center gap-1">
               <span className={`h-2 w-2 rounded-full ${ROLE_DOT.target}`} aria-hidden="true" />
-              Target ({targetShare.toFixed(1)}%)
+              Target ({share(asTarget, stats.eventCount)})
             </span>
           </div>
         </div>

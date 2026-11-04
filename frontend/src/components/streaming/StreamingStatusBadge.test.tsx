@@ -9,12 +9,12 @@ describe('StreamingStatusBadge', () => {
 
     // "Off" is a resting state, not a fault: neutral wording, and the
     // explanation of what streaming is lives in the tooltip.
-    const badge = screen.getByRole('status', { name: 'Live saving off' })
-    expect(badge).toHaveTextContent('Live saving off')
+    const badge = screen.getByRole('status', { name: 'Edits save as you go' })
+    expect(badge).toHaveTextContent('Edits save as you go')
     expect(badge.className).not.toMatch(/rose|red|amber/)
-    expect(badge).toHaveAttribute('title', expect.stringMatching(/Edits save normally/))
+    expect(badge).toHaveAttribute('title', expect.stringMatching(/Every edit is saved as you make it/))
     // The media tour finds the last toolbar control by this exact name.
-    const connectButton = screen.getByRole('button', { name: 'Turn on' })
+    const connectButton = screen.getByRole('button', { name: 'Live link' })
 
     fireEvent.click(connectButton)
     expect(onConnect).toHaveBeenCalledTimes(1)
@@ -22,7 +22,7 @@ describe('StreamingStatusBadge', () => {
 
   it('renders connecting state correctly', () => {
     render(<StreamingStatusBadge status="connecting" />)
-    expect(screen.getByText('Live saving: connecting…')).toBeInTheDocument()
+    expect(screen.getByText('Live link: connecting…')).toBeInTheDocument()
   })
 
   it('renders connected state with stats and disconnect action', () => {
@@ -35,7 +35,7 @@ describe('StreamingStatusBadge', () => {
       />
     )
 
-    expect(screen.getByText('Live saving on')).toBeInTheDocument()
+    expect(screen.getByText('Live link on')).toBeInTheDocument()
     expect(screen.getByText('8/10')).toBeInTheDocument()
 
     const disconnectBtn = screen.getByText('Turn off')
@@ -61,7 +61,7 @@ describe('StreamingStatusBadge', () => {
 
   it('renders error state correctly', () => {
     render(<StreamingStatusBadge status="error" error="Network refused" />)
-    expect(screen.getByText('Live saving failed')).toBeInTheDocument()
+    expect(screen.getByText('Live link failed')).toBeInTheDocument()
     expect(screen.getByText('Network refused')).toBeInTheDocument()
   })
 })

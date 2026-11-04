@@ -93,15 +93,19 @@ export function UserProfileMenu({ variant = 'header', compact = false, touch = f
         `}
         aria-expanded={isOpen}
         aria-haspopup="true"
-        aria-label="User menu"
-        title={isRail ? 'User menu' : undefined}
+        aria-label="Settings"
+        title={isRail ? 'Settings' : undefined}
       >
-        {/* User icon */}
-        <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        {/* Sliders: this menu holds preferences, and there is no account to
+            show (it was labelled "User" over a person icon, with no user). */}
+        <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h9m4 0h3M4 12h3m4 0h9M4 18h11m4 0h1" />
+          <circle cx="15" cy="6" r="2" />
+          <circle cx="9" cy="12" r="2" />
+          <circle cx="17" cy="18" r="2" />
         </svg>
         {isSidebarVariant && !isRail && (
-          <span className="flex-1 min-w-0 truncate text-sm font-medium">User</span>
+          <span className="flex-1 min-w-0 truncate text-sm font-medium">Settings</span>
         )}
         {isSidebarVariant && !isRail && (
           <svg
@@ -130,8 +134,8 @@ export function UserProfileMenu({ variant = 'header', compact = false, touch = f
         >
           {/* User header */}
           <div className="px-4 py-3 border-b border-line bg-subtle">
-            <p className="text-sm font-medium text-ink">User</p>
-            <p className="text-xs text-ink-muted">Manage your preferences</p>
+            <p className="text-sm font-medium text-ink">Settings</p>
+            <p className="text-xs text-ink-muted">Theme, layout and contrast, saved in this browser</p>
           </div>
 
           {/* Settings sections */}

@@ -214,11 +214,16 @@ describe('ActorPerspectiveView', () => {
       expect(screen.getByTestId('actor-select')).toBeInTheDocument()
     })
 
-    it('shows empty state when no actor is selected', () => {
+    it('lists the actors, most involved first, when none is selected', () => {
       renderWithQueryClient(<ActorPerspectiveView />)
-      
-      expect(screen.getByText('Select an Actor')).toBeInTheDocument()
-      expect(screen.getByText('Choose an actor from the dropdown above to view their timeline perspective.')).toBeInTheDocument()
+
+      expect(screen.getByText('Actors in this graph')).toBeInTheDocument()
+      const list = screen.getByRole('list', { name: /actors, most involved first/i })
+      const counts = within(list)
+        .getAllByRole('button')
+        .map(button => Number(button.textContent?.match(/(\d+) events?/)?.[1]))
+      expect(counts.length).toBeGreaterThan(0)
+      expect([...counts].sort((a, b) => b - a)).toEqual(counts)
     })
 
     it('displays loading state correctly', () => {
@@ -309,8 +314,8 @@ describe('ActorPerspectiveView', () => {
       fireEvent.change(select, { target: { value: 'NonExistentActor' } })
       
       await waitFor(() => {
-        // When no events, it shows the "Select an Actor" state since no actors are available
-        expect(screen.getByText('Select an Actor')).toBeInTheDocument()
+        // With no events there are no actors: the view says how to bring history in.
+        expect(screen.getByText('This graph has no history yet')).toBeInTheDocument()
       })
     })
 
@@ -534,7 +539,7 @@ describe('ActorPerspectiveView', () => {
 
       renderWithQueryClient(<ActorPerspectiveView />)
       
-      expect(screen.getByText('Select an Actor')).toBeInTheDocument()
+      expect(screen.getByText('This graph has no history yet')).toBeInTheDocument()
     })
 
     it('handles undefined events gracefully', () => {
@@ -546,7 +551,7 @@ describe('ActorPerspectiveView', () => {
 
       renderWithQueryClient(<ActorPerspectiveView />)
       
-      expect(screen.getByText('Select an Actor')).toBeInTheDocument()
+      expect(screen.getByText('This graph has no history yet')).toBeInTheDocument()
     })
   })
 })

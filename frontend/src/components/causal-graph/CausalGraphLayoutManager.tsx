@@ -426,7 +426,7 @@ export function CausalGraphLayoutManager({
 
       {/* What the current layout does (it may be one of the hidden ones) */}
       {activeConfig && (
-        <p className="mt-3 text-xs text-ink-secondary">
+        <p className="mt-3 text-xs text-ink-secondary text-pretty">
           <span className="font-semibold text-ink">{activeConfig.label}:</span>{' '}
           {activeConfig.description}
         </p>
