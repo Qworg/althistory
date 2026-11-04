@@ -76,8 +76,8 @@ export function buildCausalGraphStylesheet(theme: GraphCanvasTheme): StylesheetS
         'text-background-opacity': 0.9,
         'text-background-padding': '2px',
         'text-background-shape': 'roundrectangle',
-        'width': 'mapData(weight, 0, 1, 30, 60)',
-        'height': 'mapData(weight, 0, 1, 30, 60)',
+        'width': 'mapData(weight, 0, 1, 22, 56)',
+        'height': 'mapData(weight, 0, 1, 22, 56)',
         'overlay-padding': '6px',
         'z-index': 10
       }

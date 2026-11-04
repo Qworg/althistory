@@ -263,7 +263,8 @@ export type LayoutMode = 'sidebar' | 'topbar'
 export interface ErrorState {
   id: string
   message: string
-  type: 'network' | 'validation' | 'visualization' | 'general'
+  /** `info` is a notice, not a failure: the app changed something the user should know about. */
+  type: 'network' | 'validation' | 'visualization' | 'general' | 'info'
   timestamp: Date
 }
 
@@ -842,6 +843,8 @@ export interface ExtractionResult {
   relationships: ExtractedRelationship[]
   sources: IngestionSourceRecord[]
   overallConfidence: number
+  /** Pattern text extraction: sentences with no recognised date, left out. */
+  skippedSentences?: number
 }
 
 export interface IngestionValidationIssue {

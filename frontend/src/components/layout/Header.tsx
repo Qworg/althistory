@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Navigation } from './Navigation'
 import { Breadcrumb } from './Breadcrumb'
 import { ViewToolbar } from '@/components/views/ViewToolbar'
@@ -15,6 +15,21 @@ interface HeaderProps {
 
 export function Header({ isMobile, layoutMode }: HeaderProps) {
   const { viewMode } = useGlobalStore()
+  // The header's height, published for the sticky sidebar beneath it (the
+  // toolbar row wraps, so the height is measured, not assumed).
+  const headerRef = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    const header = headerRef.current
+    if (!header) return
+    const publish = () =>
+      document.documentElement.style.setProperty('--app-header-h', `${header.offsetHeight}px`)
+    publish()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(publish)
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [])
+  const sidebarCollapsed = useGlobalStore((state) => state.uiState.sidebarCollapsed)
   const [isGraphManagerOpen, setIsGraphManagerOpen] = useState(false)
 
   // Show view switcher in header only in topbar mode on desktop
@@ -26,7 +41,7 @@ export function Header({ isMobile, layoutMode }: HeaderProps) {
   const showUserProfile = isMobile || layoutMode === 'topbar'
 
   return (
-    <header className="bg-card shadow-sm border-b border-line sticky top-0 z-40" role="banner">
+    <header ref={headerRef} className="bg-card shadow-sm border-b border-line sticky top-0 z-40" role="banner">
       <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
         <div className={`flex justify-between items-center gap-2 lg:gap-4 ${isMobile ? 'h-14' : 'h-16'}`}>
           {/* Left section: Title and breadcrumb */}
@@ -51,7 +66,10 @@ export function Header({ isMobile, layoutMode }: HeaderProps) {
               </h1>
             </div>
 
-            {!isMobile && (
+            {/* The view's name, only where nothing else on screen says it: a
+                labelled sidebar or the top navigation already marks the open
+                view, and repeating it beside the wordmark was noise. */}
+            {!isMobile && !showViewSwitcher && sidebarCollapsed && (
               <div className="hidden md:block">
                 <Breadcrumb />
               </div>

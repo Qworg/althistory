@@ -31,6 +31,8 @@
   --color-divergence: var(--accent-divergence);
   --color-selected: var(--accent-selected);
   --color-ink-placeholder: var(--text-placeholder);
+  --color-role-actor: var(--role-actor);
+  --color-role-target: var(--role-target);
 }
 
 /*
@@ -88,6 +90,10 @@
      3:1 non-text minimum for the divergence line, diamond and fork marks. */
   --accent-divergence: #b86304;
   --accent-selected: #4f46e5;
+  /* Actor Perspective: the chosen actor acting (baseline blue) and being
+     acted on (a teal far enough from the blue to tell apart). */
+  --role-actor: var(--accent-baseline);
+  --role-target: #0f766e;
   /* Opacity of the divergence amber over the branch's after-split region. */
   --divergence-wash: 0.06;
 
@@ -218,6 +224,7 @@ html.dark {
   --accent-baseline: #60a5fa;
   --accent-divergence: #f59e0b;
   --accent-selected: #818cf8;
+  --role-target: #2dd4bf;
   --arc-fill: color-mix(in srgb, var(--accent-baseline) 30%, var(--surface-card));
   --arc-fill-selected: color-mix(in srgb, var(--accent-baseline) 52%, var(--surface-card));
   --arc-stroke: color-mix(in srgb, var(--accent-baseline) 70%, var(--surface-card));
@@ -314,6 +321,26 @@ html.high-contrast:not(.dark) :is(.border-gray-100, .border-gray-200, .border-gr
 
 html.high-contrast.dark :is(.border-gray-100, .border-gray-200, .border-gray-300, .border-slate-200) {
   border-color: #e2e8f0 !important;
+}
+
+/*
+ * The timeline's resting links and arc fills are drawn faint on purpose (the
+ * weave behind the marks). High contrast asks for the opposite: the links at
+ * near-full strength while nothing is traced (a trace still dims the links
+ * off its ripple), and arcs with a fill and edge that hold against the card.
+ */
+html.high-contrast .timeline-links:not(:has([data-ripple])) .timeline-link {
+  stroke-opacity: 0.85;
+}
+
+html.high-contrast:not(.dark) {
+  --arc-fill: color-mix(in srgb, var(--accent-baseline) 26%, var(--surface-card));
+  --arc-stroke: var(--accent-baseline);
+}
+
+html.high-contrast.dark {
+  --arc-fill: color-mix(in srgb, var(--accent-baseline) 42%, var(--surface-card));
+  --arc-stroke: var(--accent-baseline);
 }
 
 html.high-contrast svg text {

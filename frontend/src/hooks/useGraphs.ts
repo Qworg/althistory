@@ -87,9 +87,20 @@ export function useActiveGraphReconciler() {
   useEffect(() => {
     if (!isSuccess) return
     const serverId = serverActive?.id ?? null
-    if (serverId === localStorage.getItem('active_graph_id')) return
+    const localId = localStorage.getItem('active_graph_id')
+    if (serverId === localId) return
     if (serverActive) queryClient.setQueryData(graphKeys.detail(serverActive.id), serverActive)
     adoptActiveGraph(serverId)
+    // Say so when this replaces a graph the user had open: silently showing
+    // a different history invites edits to the wrong one.
+    if (localId) {
+      useGlobalStore.getState().addError({
+        type: 'info',
+        message: serverActive
+          ? `The graph this browser last had open is no longer the active one. Showing ${serverActive.name ?? 'the active graph'} instead.`
+          : 'The graph this browser last had open is no longer available. Choose a graph from the header to continue.',
+      })
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataUpdatedAt])
 

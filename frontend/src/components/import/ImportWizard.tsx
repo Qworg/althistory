@@ -1,12 +1,10 @@
 /**
  * ImportWizard Component
  * 
- * Main container for the 5-step import wizard:
- * 1. Upload - File upload or JSON paste
- * 2. Validate - Format validation
- * 3. Preview - Show what will change
- * 4. Conflicts - Resolve any conflicts
- * 5. Execute - Run the import
+ * Imports an althistory export file in up to five steps:
+ * Upload, Validate, Preview, Conflicts (only when the preview finds some),
+ * and Import. Built on ModalBase like every other dialog, so it shares its
+ * focus handling, Escape behaviour, phone sheet and theme tokens.
  */
 
 import { useReducer, useCallback, useState, useEffect, useRef } from 'react'
@@ -23,6 +21,8 @@ import { ImportPreviewStep } from './ImportPreviewStep'
 import { ImportConflictStep } from './ImportConflictStep'
 import { ImportExecuteStep } from './ImportExecuteStep'
 import { AlthistoryExport, ImportMode, ConflictResolution, ImportResult, ExecuteImportResponse, SyncImportResponse } from '@/types'
+import { apiClient } from '@/services/api'
+import { ModalBase } from '@/components/modals/ModalBase'
 
 /** FIX #19: Default polling interval for async imports (500ms) */
 export const DEFAULT_POLLING_INTERVAL_MS = 500
@@ -34,6 +34,8 @@ export interface ImportWizardProps {
   targetGraphId?: string
   /** FIX #19: Polling interval in ms for async import status checks (default: 500) */
   pollingIntervalMs?: number
+  /** Name of the graph the import writes into, shown so the destination is never a guess. */
+  targetGraphName?: string
 }
 
 type WizardStep = 'upload' | 'validate' | 'preview' | 'conflicts' | 'execute' | 'complete'
@@ -55,6 +57,7 @@ export function ImportWizard({
   onImportComplete,
   targetGraphId,
   pollingIntervalMs = DEFAULT_POLLING_INTERVAL_MS,
+  targetGraphName,
 }: ImportWizardProps) {
   const [state, dispatch] = useReducer(importReducer, {
     ...initialImportState,
@@ -257,7 +260,9 @@ export function ImportWizard({
           }
           
           try {
-            const job = await fetch(`/api/import/jobs/${jobId}`).then(r => r.json())
+            // Through the API client, so the request carries the API key and
+            // base URL like every other call (a bare fetch did neither).
+            const job = await apiClient.import.getJob(jobId)
             
             // FIX #2: Double-check mounted state after async operation
             if (!isMountedRef.current) return
@@ -363,7 +368,7 @@ export function ImportWizard({
     
     setIsCancelling(true)
     try {
-      await fetch(`/api/import/jobs/${currentJobId}/cancel`, { method: 'POST' })
+      await apiClient.import.cancelJob(currentJobId)
       // The polling will detect the cancelled status and update UI
     } catch (error) {
       console.error('Failed to cancel import:', error)
@@ -371,198 +376,144 @@ export function ImportWizard({
     }
   }, [currentJobId])
 
-  if (!isOpen) return null
-
-  const currentStepIndex = STEP_ORDER.indexOf(state.step)
   const hasConflicts = (state.preview?.conflicts?.length ?? 0) > 0
+  // The steps the user will actually pass through: Conflicts only when the
+  // preview found some. Numbering runs over these, so it never skips a number.
+  const visibleSteps = STEP_ORDER.filter(
+    (step) => step !== 'conflicts' || hasConflicts || state.step === 'conflicts'
+  )
+  const currentStepIndex = visibleSteps.indexOf(state.step)
+  // While an import is running, a stray Escape or backdrop click must not
+  // close the wizard and orphan the job.
+  const isBusy =
+    executeMutation.isPending || (currentJobId !== null && !state.result && !state.error)
 
   return (
-    // FIX #16: Add ARIA attributes for accessibility
-    <div 
-      className="fixed inset-0 z-50 overflow-y-auto"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="import-wizard-title"
+    <ModalBase
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Import an export file"
+      size="2xl"
+      closeOnEscape={!isBusy}
+      closeOnBackdrop={!isBusy}
+      closeLabel="Close import"
     >
-      <div className="flex min-h-screen items-center justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-        {/* Background overlay */}
-        <div
-          className="fixed inset-0 bg-black/60 transition-opacity"
-          onClick={onClose}
-          aria-hidden="true"
-        />
+      <div className="space-y-5">
+        {targetGraphName && (
+          <p className="text-sm text-ink-secondary">
+            Imports into <span className="font-medium text-ink">{targetGraphName}</span>
+          </p>
+        )}
 
-        {/* Modal panel */}
-        <div 
-          className="inline-block transform overflow-hidden rounded-lg bg-white text-left align-bottom shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-2xl sm:align-middle"
-          role="document"
-        >
-          {/* Header */}
-          <div className="border-b border-gray-200 px-6 py-4">
-            <div className="flex items-center justify-between">
-              <h2 id="import-wizard-title" className="text-xl font-semibold text-gray-900">Import Data</h2>
-              <button
-                type="button"
-                onClick={onClose}
-                className="text-gray-400 hover:text-gray-500"
-                aria-label="Close import wizard"
+        <ol aria-label="Import steps" className="flex flex-wrap items-center gap-x-2 gap-y-2">
+          {visibleSteps.map((step, index) => {
+            const isActive = index === currentStepIndex
+            const isCompleted = currentStepIndex > index || (step === 'execute' && Boolean(state.result))
+            const stepStatus = isCompleted ? 'done' : isActive ? 'current' : 'to do'
+
+            return (
+              <li
+                key={step}
+                className="flex items-center gap-2"
+                aria-current={isActive ? 'step' : undefined}
               >
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </div>
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-medium font-mono-code ${
+                    isActive
+                      ? 'bg-ink text-card'
+                      : isCompleted
+                      ? 'border border-line bg-subtle text-ink-secondary'
+                      : 'border border-line text-ink-muted'
+                  }`}
+                  aria-hidden="true"
+                >
+                  {isCompleted ? (
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    index + 1
+                  )}
+                </span>
+                <span className={`text-sm ${isActive ? 'font-medium text-ink' : 'text-ink-muted'}`}>
+                  <span className="sr-only">{`Step ${index + 1} of ${visibleSteps.length}: `}</span>
+                  <span>{STEP_LABELS[step]}</span>
+                  <span className="sr-only">{` (${stepStatus})`}</span>
+                </span>
+                {index < visibleSteps.length - 1 && (
+                  <span className="h-px w-6 bg-line" aria-hidden="true" />
+                )}
+              </li>
+            )
+          })}
+        </ol>
 
-            {/* Step indicators - FIX #16: Add ARIA for progress */}
-            <nav aria-label="Import progress" className="mt-4 flex items-center justify-between">
-              {STEP_ORDER.map((step, index) => {
-                // Skip conflicts step if no conflicts
-                if (step === 'conflicts' && !hasConflicts && state.step !== 'conflicts') {
-                  return null
-                }
-
-                const isActive = index === currentStepIndex
-                const isCompleted = index < currentStepIndex
-                // Note: isDisabled would be: index > currentStepIndex
-                const stepStatus = isCompleted ? 'completed' : isActive ? 'current' : 'upcoming'
-
-                return (
-                  <div 
-                    key={step} 
-                    className="flex items-center"
-                    aria-current={isActive ? 'step' : undefined}
-                  >
-                    <div
-                      className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium ${
-                        isActive
-                          ? 'bg-blue-600 text-white'
-                          : isCompleted
-                          ? 'bg-green-500 text-white'
-                          : 'bg-gray-200 text-gray-500'
-                      }`}
-                      aria-label={`Step ${index + 1}: ${STEP_LABELS[step]} - ${stepStatus}`}
-                    >
-                      {isCompleted ? (
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                          <path
-                            fillRule="evenodd"
-                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      ) : (
-                        index + 1
-                      )}
-                    </div>
-                    <span
-                      className={`ml-2 text-sm ${
-                        isActive
-                          ? 'text-blue-600 font-medium'
-                          : isCompleted
-                          ? 'text-green-600'
-                          : 'text-gray-500'
-                      }`}
-                    >
-                      {STEP_LABELS[step]}
-                    </span>
-                    {index < STEP_ORDER.length - 1 && (
-                      <div
-                        className={`w-8 h-0.5 mx-2 ${
-                          isCompleted ? 'bg-green-500' : 'bg-gray-200'
-                        }`}
-                        aria-hidden="true"
-                      />
-                    )}
-                  </div>
-                )
-              })}
-            </nav>
+        {state.error && (
+          <div
+            role="alert"
+            className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+          >
+            {state.error}
           </div>
+        )}
 
-          {/* Error Banner - FIX #16: Add ARIA for alerts */}
-          {state.error && (
-            <div 
-              className="bg-red-50 border border-red-200 rounded-lg p-4 mx-6 mt-4"
-              role="alert"
-              aria-live="assertive"
-            >
-              <div className="flex">
-                <svg className="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                <p className="ml-3 text-sm text-red-700">{state.error}</p>
-              </div>
-            </div>
+        <div>
+          {state.step === 'upload' && (
+            <ImportUploadStep
+              onUpload={handleUpload}
+              onError={handleError}
+              isLoading={validateMutation.isPending}
+            />
           )}
 
-          {/* Content */}
-          <div className="px-6 py-6">
-            {state.step === 'upload' && (
-              <ImportUploadStep
-                onUpload={handleUpload}
-                onError={handleError}
-                isLoading={validateMutation.isPending}
-              />
-            )}
+          {state.step === 'validate' && state.validation && (
+            <ImportValidationStep
+              validation={state.validation}
+              onContinue={handleValidationContinue}
+              onBack={handleBack}
+              isLoading={previewMutation.isPending}
+            />
+          )}
 
-            {state.step === 'validate' && state.validation && (
-              <ImportValidationStep
-                validation={state.validation}
-                onContinue={handleValidationContinue}
-                onBack={handleBack}
-                isLoading={previewMutation.isPending}
-              />
-            )}
+          {state.step === 'preview' && state.preview && (
+            <ImportPreviewStep
+              preview={state.preview}
+              mode={state.mode}
+              onModeChange={handleModeChange}
+              onContinue={handlePreviewContinue}
+              onBack={handleBack}
+              hasConflicts={hasConflicts}
+              isLoading={previewMutation.isPending}
+            />
+          )}
 
-            {state.step === 'preview' && state.preview && (
-              <ImportPreviewStep
-                preview={state.preview}
-                mode={state.mode}
-                onModeChange={handleModeChange}
-                onContinue={handlePreviewContinue}
-                onBack={handleBack}
-                hasConflicts={hasConflicts}
-                isLoading={previewMutation.isPending}
-              />
-            )}
+          {state.step === 'conflicts' && state.preview && (
+            <ImportConflictStep
+              conflicts={state.preview.conflicts}
+              resolutions={state.resolutions}
+              onResolve={handleResolve}
+              onResolveAll={handleResolveAll}
+              onContinue={handleConflictsContinue}
+              onBack={handleBack}
+            />
+          )}
 
-            {state.step === 'conflicts' && state.preview && (
-              <ImportConflictStep
-                conflicts={state.preview.conflicts}
-                resolutions={state.resolutions}
-                onResolve={handleResolve}
-                onResolveAll={handleResolveAll}
-                onContinue={handleConflictsContinue}
-                onBack={handleBack}
-              />
-            )}
-
-            {state.step === 'execute' && (
-              <ImportExecuteStep
-                isExecuting={executeMutation.isPending || (currentJobId !== null && !state.result && !state.error)}
-                progress={executeProgress}
-                result={state.result}
-                error={state.error}
-                onExecute={handleExecute}
-                onBack={handleBack}
-                onComplete={handleComplete}
-                onCancel={currentJobId ? handleCancel : undefined}
-                isCancelling={isCancelling}
-              />
-            )}
-          </div>
+          {state.step === 'execute' && (
+            <ImportExecuteStep
+              isExecuting={isBusy}
+              progress={executeProgress}
+              result={state.result}
+              error={state.error}
+              onExecute={handleExecute}
+              onBack={handleBack}
+              onComplete={handleComplete}
+              onCancel={currentJobId ? handleCancel : undefined}
+              isCancelling={isCancelling}
+            />
+          )}
         </div>
       </div>
-    </div>
+    </ModalBase>
   )
 }
 

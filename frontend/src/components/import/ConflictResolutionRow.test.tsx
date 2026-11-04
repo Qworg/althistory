@@ -228,7 +228,7 @@ describe('ConflictResolutionRow', () => {
       )
 
       const overwriteButton = screen.getByRole('button', { name: 'Overwrite' })
-      expect(overwriteButton).toHaveClass('bg-gray-100')
+      expect(overwriteButton).toHaveClass('bg-subtle')
     })
   })
 })

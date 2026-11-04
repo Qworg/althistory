@@ -4,10 +4,18 @@ import { tooltipPlacement } from './tooltipPlacement'
 const margin = { left: 56, top: 16 }
 
 describe('tooltipPlacement', () => {
-  it('opens an event tooltip above its mark, so it never covers the time axis below', () => {
+  it('opens an event tooltip above its mark when the time axis is just below', () => {
     const style = tooltipPlacement({ kind: 'event', x: 100, y: 200 }, margin, 1000)
     expect(style.transform).toBe('translateY(-100%)')
     expect(style.top).toBe(16 + 200 - 14)
+  })
+
+  it('opens an event tooltip below its mark, over the link band, so it leaves the labels above readable', () => {
+    const style = tooltipPlacement({ kind: 'event', x: 100, y: 200 }, margin, 1000, 140)
+    expect(style.transform).toBeUndefined()
+    expect(style.top).toBe(16 + 200 + 14)
+    // Too little room under the mark: back above it.
+    expect(tooltipPlacement({ kind: 'event', x: 100, y: 200 }, margin, 1000, 40).transform).toBe('translateY(-100%)')
   })
 
   it('opens an arc tooltip below the arc bar (arcs sit at the top of the plot)', () => {

@@ -17,7 +17,8 @@ test.describe('ingestion wizard', () => {
     await page.goto('/')
     await expect(page.getByText('3 events · 1 arc')).toBeVisible()
 
-    await page.getByRole('button', { name: 'Ingest' }).click()
+    await page.getByRole('button', { name: 'Bring in history' }).click()
+    await page.getByRole('menuitem', { name: /^Extract from text or Wikipedia/ }).click()
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByRole('heading', { name: 'Ingest from Wikipedia' })).toBeVisible()
 
@@ -42,7 +43,7 @@ test.describe('ingestion wizard', () => {
     expect(state.ingestedVia).toEqual(['/ingest/url'])
 
     // Complete the import; the approve payload must carry the selection.
-    await dialog.getByRole('button', { name: /Import selected \(3\)/ }).click()
+    await dialog.getByRole('button', { name: /^(Add 3 to |Import selected \(3\))/ }).click()
     await expect(dialog.getByRole('heading', { name: 'Import complete' })).toBeVisible()
     await expect(
       dialog.getByText('Imported 2 events, 1 arcs and 0 relationships.'),

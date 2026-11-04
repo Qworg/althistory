@@ -7,11 +7,10 @@
 import { useState, useCallback, memo } from 'react'
 import { 
   useGraphManagement, 
-  useGraphVersions,
   useGraphBranches,
   useGraphHeadVersion,
 } from '@/hooks/useGraphs'
-import { Graph, GraphStatus, GraphVersion, CreateGraphRequest } from '@/types'
+import { Graph, GraphStatus, CreateGraphRequest } from '@/types'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { BranchComparisonModal } from '@/components/branch/BranchComparisonModal'
 import { CreateGraphModal } from './CreateGraphModal'
@@ -19,10 +18,15 @@ import { CreateGraphModal } from './CreateGraphModal'
 interface GraphManagerModalProps {
   isOpen: boolean
   onClose: () => void
-  initialTab?: 'graphs' | 'branches' | 'versions'
+  initialTab?: 'graphs' | 'branches'
 }
 
-type Tab = 'graphs' | 'branches' | 'versions'
+/**
+ * Graphs and branches. Version history is not a tab here: it is Graph ›
+ * Versions, one panel with the restore confirmation and its outcome. A second,
+ * simpler copy here restored on a browser confirm() and drifted from it.
+ */
+type Tab = 'graphs' | 'branches'
 
 export const GraphManagerModal = memo(function GraphManagerModal({ 
   isOpen, 
@@ -49,18 +53,12 @@ export const GraphManagerModal = memo(function GraphManagerModal({
     deleteGraph,
     branchGraph,
     switchGraph,
-    rollbackGraph,
     isCreating,
     isDeleting,
     isBranching,
-    isRollingBack,
   } = useGraphManagement()
   // Version-history numbers (Graph.version is an internal change counter)
   const headVersion = useGraphHeadVersion(activeGraph?.id, activeGraph?.version)
-
-  const { data: versions, isLoading: isLoadingVersions } = useGraphVersions(
-    activeTab === 'versions' ? activeGraphId : null
-  )
 
   const { data: branches, isLoading: isLoadingBranches } = useGraphBranches(
     activeTab === 'branches' ? activeGraphId : null
@@ -121,15 +119,6 @@ export const GraphManagerModal = memo(function GraphManagerModal({
     }
   }, [activeGraphId, branchName, branchDescription, branchGraph])
 
-  const handleRollback = useCallback(async (version: number) => {
-    if (!activeGraphId) return
-    // A restore commits a NEW version with the old content, so it is itself
-    // undoable from Version history: the confirmation says so, not the reverse.
-    if (window.confirm(`Restore version ${version}? The graph returns to how it was then, saved as a new version; the current state stays in Version history.`)) {
-      await rollbackGraph(activeGraphId, version)
-    }
-  }, [activeGraphId, rollbackGraph])
-
   const handleSwitchAndClose = useCallback((graphId: string) => {
     switchGraph(graphId)
     onClose()
@@ -146,7 +135,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
         {/* Sidebar Navigation */}
         <div className="w-48 border-r border-line bg-subtle flex flex-col">
           <nav className="flex-1 p-2">
-            {(['graphs', 'branches', 'versions'] as Tab[]).map(tab => (
+            {(['graphs', 'branches'] as Tab[]).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -210,15 +199,6 @@ export const GraphManagerModal = memo(function GraphManagerModal({
               />
             )}
 
-            {activeTab === 'versions' && (
-              <VersionsTab
-                versions={versions || []}
-                isLoading={isLoadingVersions}
-                currentVersion={headVersion ?? undefined}
-                onRollback={handleRollback}
-                isRollingBack={isRollingBack}
-              />
-            )}
           </div>
         </div>
       </div>
@@ -575,112 +555,6 @@ const BranchesTab = memo(function BranchesTab({
                     </button>
                   )}
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-})
-
-interface VersionsTabProps {
-  versions: GraphVersion[]
-  isLoading: boolean
-  currentVersion?: number
-  onRollback: (version: number) => void
-  isRollingBack: boolean
-}
-
-const VersionsTab = memo(function VersionsTab({
-  versions,
-  isLoading,
-  currentVersion,
-  onRollback,
-  isRollingBack,
-}: VersionsTabProps) {
-  if (isLoading) {
-    return <div className="text-center py-8 text-ink-muted">Loading version history...</div>
-  }
-
-  return (
-    <div className="space-y-4">
-      <h3 className="font-display text-xl font-semibold text-ink">Version history</h3>
-
-      {versions.length === 0 ? (
-        <div className="text-center py-8 text-ink-muted">
-          No version history available.
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {versions.map((version) => (
-            <div
-              key={version.commitHash}
-              className={`
-                p-4 border rounded-lg
-                ${version.version === currentVersion ? 'border-selected bg-selected/10' : 'border-line'}
-              `}
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold">v{version.version}</span>
-                    {version.version === currentVersion && (
-                      <span className="text-xs bg-selected/10 text-ink px-1.5 py-0.5 rounded">
-                        Current
-                      </span>
-                    )}
-                    {version.operation && (
-                      <span className="text-xs bg-subtle text-ink-secondary px-1.5 py-0.5 rounded capitalize">
-                        {version.operation}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-sm text-ink-secondary mt-1">{version.message}</div>
-                  <div className="text-xs text-ink-muted mt-2">
-                    {new Date(version.timestamp).toLocaleString()}
-                    {version.author && ` by ${version.author}`}
-                  </div>
-                </div>
-                
-                {version.version !== currentVersion && (
-                  <button
-                    onClick={() => onRollback(version.version)}
-                    disabled={isRollingBack}
-                    className="px-3 py-1 text-sm border border-orange-200 text-orange-600 rounded hover:bg-orange-50 disabled:opacity-50"
-                  >
-                    {isRollingBack ? 'Rolling back...' : 'Rollback'}
-                  </button>
-                )}
-              </div>
-
-              {/* Change summary */}
-              <div className="flex flex-wrap gap-2 mt-3 text-xs">
-                {version.changes.eventsAdded > 0 && (
-                  <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
-                    +{version.changes.eventsAdded} events
-                  </span>
-                )}
-                {version.changes.eventsModified > 0 && (
-                  <span className="bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">
-                    ~{version.changes.eventsModified} events
-                  </span>
-                )}
-                {version.changes.eventsDeleted > 0 && (
-                  <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
-                    -{version.changes.eventsDeleted} events
-                  </span>
-                )}
-                {version.changes.arcsAdded > 0 && (
-                  <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
-                    +{version.changes.arcsAdded} arcs
-                  </span>
-                )}
-                {version.changes.relationshipsAdded > 0 && (
-                  <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
-                    +{version.changes.relationshipsAdded} relationships
-                  </span>
-                )}
               </div>
             </div>
           ))}

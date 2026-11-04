@@ -9,7 +9,7 @@ import {
   filtersEqual,
   toPanelFilters
 } from './filterUtils'
-import { useEvents } from '@/hooks/useEvents'
+import { useEvents, VIEW_EVENT_LIMIT } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
 import { useGlobalStore } from '@/stores/globalStore'
 
@@ -35,7 +35,7 @@ export function FilterPanelContainer() {
     setFilterPanelOpen
   } = useGlobalStore()
 
-  const { data: events = [] } = useEvents()
+  const { data: events = [] } = useEvents({ limit: VIEW_EVENT_LIMIT })
   const { data: arcs = [] } = useArcs()
 
   const panelFilters = useMemo(

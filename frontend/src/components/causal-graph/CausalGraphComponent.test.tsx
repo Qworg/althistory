@@ -300,7 +300,7 @@ describe('CausalGraphComponent', () => {
       expect(divergence?.color).toBeUndefined()
     })
 
-    it('labels each node with its event description, shortened to fit', async () => {
+    it('labels each node with its year over its event description, shortened to fit', async () => {
       const mockState = getMockStoreState()
       mockState.events = [
         { ...mockEvents[0]!, description: 'Babbage completes the Analytical Engine in London' },
@@ -313,9 +313,9 @@ describe('CausalGraphComponent', () => {
       await waitFor(() => {
         expect(mockCy.add).toHaveBeenCalledWith(
           expect.arrayContaining([
-            expect.objectContaining({ data: expect.objectContaining({ id: '1', label: 'Babbage completes the Analy…' }) }),
+            expect.objectContaining({ data: expect.objectContaining({ id: '1', label: '2023\nBabbage completes the Analy…' }) }),
             // No description: the actor pair is all there is to say.
-            expect.objectContaining({ data: expect.objectContaining({ id: '2', label: 'Actor 2 → Target 2' }) })
+            expect.objectContaining({ data: expect.objectContaining({ id: '2', label: '2023\nActor 2 → Target 2' }) })
           ])
         )
       })
@@ -659,14 +659,14 @@ describe('CausalGraphComponent', () => {
                 id: '1',
                 event: mockEvents[0],
                 // Labelled with what happened, not with the actor pair.
-                label: 'Event 1'
+                label: '2023\nEvent 1'
               })
             }),
             expect.objectContaining({
               data: expect.objectContaining({
                 id: '2',
                 event: mockEvents[1],
-                label: 'Event 2'
+                label: '2023\nEvent 2'
               })
             }),
             expect.objectContaining({

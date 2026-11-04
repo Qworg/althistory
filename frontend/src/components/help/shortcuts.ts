@@ -169,18 +169,6 @@ export const SHORTCUTS: readonly Shortcut[] = [
     combos: [['Shift', 'B']],
     description: 'Branch the graph (a linked what-if fork) or make a plain copy',
   },
-  {
-    id: 'copy-progress',
-    scope: 'global',
-    combos: [['Shift', 'S']],
-    description: 'Show copies in progress',
-  },
-  {
-    id: 'copy-history',
-    scope: 'global',
-    combos: [['Shift', 'H']],
-    description: 'Show copy history',
-  },
 
   // ── Timeline view ─────────────────────────────────────────────────────
   {

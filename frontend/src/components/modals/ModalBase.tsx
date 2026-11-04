@@ -81,6 +81,8 @@ export interface ModalBaseProps {
   footer?: React.ReactNode
   /** Whether to show the close button in the header */
   showCloseButton?: boolean
+  /** Accessible name of the header's close button */
+  closeLabel?: string
 }
 
 /**
@@ -101,7 +103,8 @@ export const ModalBase: React.FC<ModalBaseProps> = ({
   closeOnBackdrop = true,
   className = '',
   footer,
-  showCloseButton = true
+  showCloseButton = true,
+  closeLabel = 'Close modal'
 }) => {
   const titleId = useId()
   const focusTrapRef = useFocusTrap(isOpen)
@@ -160,7 +163,7 @@ export const ModalBase: React.FC<ModalBaseProps> = ({
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close modal"
+              aria-label={closeLabel}
               className="inline-flex h-11 w-11 shrink-0 items-center justify-center lg:h-auto lg:w-auto lg:p-2 hover:bg-subtle rounded-md transition-colors text-ink-muted hover:text-ink"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

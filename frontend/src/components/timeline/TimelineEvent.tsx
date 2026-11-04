@@ -47,6 +47,13 @@ export interface TimelineEventProps {
    * with the arrow keys; standalone, the mark is tabbable on its own.
    */
   isTabStop?: boolean
+  /** How many events this one sets in motion (within the ripple's depth). */
+  reach?: number
+  /**
+   * Radius of the mark at rest, from its reach (timelineLinks.reachRadius).
+   * Omitted on a timeline without causal links: every mark the same size.
+   */
+  baseRadius?: number
   /**
    * Where to draw the event's label, decided by Timeline's collision-free
    * layout (see eventLabelLayout.ts). `null` means no room: the mark is
@@ -92,6 +99,8 @@ export const TimelineEvent = memo(function TimelineEvent({
   isDimmed = false,
   isBranchOwn = false,
   isTabStop = true,
+  reach = 0,
+  baseRadius = 6,
   label,
   onClick,
   onContextMenu,
@@ -154,7 +163,7 @@ export const TimelineEvent = memo(function TimelineEvent({
     : isBranchOwn
       ? 'var(--accent-divergence)'
       : 'var(--accent-baseline)'
-  const markRadius = isHighlighted ? 9 : isSelected ? 8 : 6
+  const markRadius = baseRadius + (isHighlighted ? 3 : isSelected ? 2 : 0)
 
   return (
     <g
@@ -169,7 +178,7 @@ export const TimelineEvent = memo(function TimelineEvent({
       transform={`translate(${x}, ${y})`}
       tabIndex={isTabStop ? 0 : -1}
       role="button"
-      aria-label={`Event: ${event.description} by ${event.actor} targeting ${event.target} at ${formatHistoricalTimestamp(event.timestamp)}${confidence !== null ? `, confidence ${confidence.toFixed(2)}` : ''}${isBranchOwn ? ' (this branch only)' : ''}`}
+      aria-label={`Event: ${event.description} by ${event.actor} targeting ${event.target} at ${formatHistoricalTimestamp(event.timestamp)}${confidence !== null ? `, confidence ${confidence.toFixed(2)}` : ''}${reach > 0 ? `, sets ${reach} ${reach === 1 ? 'event' : 'events'} in motion` : ''}${isBranchOwn ? ' (this branch only)' : ''}`}
       // The whole group takes the click, so the stem and label (which sit
       // over and around the dot) never swallow it.
       onClick={handleClick}
@@ -182,8 +191,8 @@ export const TimelineEvent = memo(function TimelineEvent({
       onKeyDown={handleKeyDown}
       style={{ cursor: 'grab', outline: 'none' }}
     >
-      {/* Transparent 24px hit area, under everything else. */}
-      <circle className="event-hit-area" r={HIT_RADIUS} fill="transparent" pointerEvents="all" />
+      {/* Transparent hit area (at least 24px), under everything else. */}
+      <circle className="event-hit-area" r={Math.max(HIT_RADIUS, markRadius + 3)} fill="transparent" pointerEvents="all" />
       {/* The stem is drawn before the dot so the dot covers its top end. */}
       <line
         className="event-stem"
@@ -200,7 +209,7 @@ export const TimelineEvent = memo(function TimelineEvent({
           matches :focus-visible (keyboard focus, not a mouse click). */}
       <circle
         className="event-focus-ring opacity-0 group-focus-visible:opacity-100"
-        r={15}
+        r={markRadius + 7}
         fill="none"
         stroke="var(--accent-selected)"
         strokeWidth={2}
@@ -233,7 +242,7 @@ export const TimelineEvent = memo(function TimelineEvent({
       {isSelected && (
         <circle
           className="event-selected-ring"
-          r={13}
+          r={markRadius + 5}
           fill="none"
           stroke="var(--accent-selected)"
           strokeWidth={1.75}
@@ -257,9 +266,9 @@ export const TimelineEvent = memo(function TimelineEvent({
                 : 'var(--text-secondary)'
           }
           // A card-coloured halo keeps the label legible where it crosses an
-          // arc's dashed edge or another mark's stem.
+          // arc's dashed edge, another mark's stem, or a leader passing behind.
           stroke="var(--surface-card)"
-          strokeWidth={3}
+          strokeWidth={4}
           strokeLinejoin="round"
           paintOrder="stroke"
           pointerEvents="none"

@@ -1,6 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import {
   eventNodeLabel,
+  eventNodeCanvasLabel,
+  eventYear,
+  hoverReadoutPlacement,
   describeEvent,
   formatActorTarget,
   truncateLabel,
@@ -174,5 +177,33 @@ describe('pickVisibleLabels', () => {
       { id: 'a', priority: 1, box: box(5, 0) },
     ]
     expect([...pickVisibleLabels(items)]).toEqual(['a'])
+  })
+})
+
+describe('eventYear and the canvas label', () => {
+  it('puts the year over the description', () => {
+    expect(eventNodeCanvasLabel({ description: 'Clerks strike', actor: 'a', target: 'b', timestamp: '1862-03-01T00:00:00Z' })).toBe(
+      '1862\nClerks strike'
+    )
+  })
+
+  it('writes years before 1 CE as BCE', () => {
+    expect(eventYear('-000043-03-15T00:00:00Z')).toBe('44 BCE')
+    expect(eventYear('0000-06-01T00:00:00Z')).toBe('1 BCE')
+  })
+})
+
+describe('hoverReadoutPlacement', () => {
+  const canvas = { width: 800, height: 600 }
+
+  it('puts the readout in the corner diagonally opposite the hovered point', () => {
+    // Top-left node: readout bottom-right.
+    expect(hoverReadoutPlacement({ x: 100, y: 100 }, canvas)).toEqual({ right: 12, top: 588, transform: 'translateY(-100%)' })
+    // Bottom-right node: readout top-left.
+    expect(hoverReadoutPlacement({ x: 700, y: 500 }, canvas)).toEqual({ left: 12, top: 12 })
+  })
+
+  it('keeps a top-right readout clear of the canvas tool buttons', () => {
+    expect(hoverReadoutPlacement({ x: 100, y: 500 }, canvas)).toEqual({ right: 12, top: 56 })
   })
 })

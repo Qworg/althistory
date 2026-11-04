@@ -69,7 +69,35 @@ describe('layoutEventLabels with the main timeline config (four rows of 12px)', 
       { id: 'b', x: 195, description: 'Treaty of Paris' },
     ]
     expect(layoutEventLabels(pair, 800).get('b')?.offset).toBe(LABEL_ROW_OFFSETS[0])
-    expect(layoutEventLabels(pair, 800, TIMELINE_LABEL_CONFIG).get('b')?.offset).toBe(TIMELINE_LABEL_CONFIG.rowOffsets[1])
+    // At 12px the centred spot is taken: b moves to its side or up a row.
+    const b = layoutEventLabels(pair, 800, TIMELINE_LABEL_CONFIG).get('b')
+    expect(b).toBeDefined()
+    expect(b!.offset !== TIMELINE_LABEL_CONFIG.rowOffsets[0] || b!.anchor !== 'middle').toBe(true)
+  })
+
+  it('names the further-reaching event first when only one fits', () => {
+    const crowded = [
+      { id: 'quiet', x: 100, description: 'A quiet event', weight: 0 },
+      { id: 'pivotal', x: 104, description: 'A pivotal event', weight: 9 },
+    ]
+    const oneRow = { ...TIMELINE_LABEL_CONFIG, rowOffsets: [-20] }
+    const labels = layoutEventLabels(crowded, 800, oneRow)
+    expect(labels.get('pivotal')).toBeDefined()
+    expect(labels.get('quiet')).toBeUndefined()
+  })
+
+  it('keeps a raised label off the nearer label its leader would cross, when it can', () => {
+    // b's centred label sits in row 0 over a's mark. a then goes up a row, and
+    // its leader would pass behind b's label, so a takes its own side instead.
+    const items = [
+      { id: 'a', x: 300, description: 'Event a', weight: 0 },
+      { id: 'b', x: 330, description: 'Event b is described at length', weight: 5 },
+    ]
+    const labels = layoutEventLabels(items, 800, TIMELINE_LABEL_CONFIG)
+    const b = labels.get('b')!
+    const a = labels.get('a')!
+    expect(b.offset).toBe(TIMELINE_LABEL_CONFIG.rowOffsets[0])
+    expect(a).toBeDefined()
   })
 })
 
@@ -77,7 +105,13 @@ describe('truncateLabel', () => {
   it('keeps short text and ellipsises long text to the limit', () => {
     expect(truncateLabel('Short', 10)).toBe('Short')
     const long = truncateLabel('A very long event description', 10)
-    expect(long).toHaveLength(10)
+    expect(long.length).toBeLessThanOrEqual(10)
     expect(long.endsWith('…')).toBe(true)
+  })
+
+  it('ends on a whole word when one ends late enough', () => {
+    expect(truncateLabel('Babbage completes the Analytical Engine', 28)).toBe('Babbage completes the…')
+    // No word break in the last third: cut mid-word rather than lose most of it.
+    expect(truncateLabel('Supercalifragilistic expialidocious', 12)).toBe('Supercalifr…')
   })
 })

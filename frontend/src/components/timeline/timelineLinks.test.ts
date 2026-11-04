@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import { computeRipple, linkPath, linkStrokeWidth, RIPPLE_DEPTH, type TimelineLink } from './timelineLinks'
+import {
+  computeRipple,
+  computeReach,
+  reachRadius,
+  restingLinkOpacity,
+  MARK_RADIUS_MIN,
+  MARK_RADIUS_MAX,
+  linkPath,
+  linkStrokeWidth,
+  RIPPLE_DEPTH,
+  type TimelineLink,
+} from './timelineLinks'
 
 const link = (id: string, causeId: string, effectId: string): TimelineLink => ({
   id,
@@ -69,5 +80,27 @@ describe('linkStrokeWidth', () => {
   it('grows with weight and tolerates a missing one', () => {
     expect(linkStrokeWidth(1)).toBeGreaterThan(linkStrokeWidth(0))
     expect(linkStrokeWidth(Number.NaN)).toBe(linkStrokeWidth(0.5))
+  })
+})
+
+describe('computeReach', () => {
+  it('counts what each event sets in motion, the way the ripple does', () => {
+    // a → b → c → d → e: a reaches b, c, d (three steps), not e.
+    const links = [link('1', 'a', 'b'), link('2', 'b', 'c'), link('3', 'c', 'd'), link('4', 'd', 'e')]
+    const reach = computeReach(links)
+    expect(reach.get('a')).toBe(3)
+    expect(reach.get('d')).toBe(1)
+    expect(reach.has('e')).toBe(false)
+  })
+
+  it('sizes marks from small (no reach) to the largest (most reach)', () => {
+    expect(reachRadius(0, 10)).toBe(MARK_RADIUS_MIN)
+    expect(reachRadius(10, 10)).toBe(MARK_RADIUS_MAX)
+    expect(reachRadius(3, 10)).toBeGreaterThan(MARK_RADIUS_MIN)
+    expect(reachRadius(3, 10)).toBeLessThan(reachRadius(6, 10))
+  })
+
+  it('draws links out of far-reaching events darker at rest', () => {
+    expect(restingLinkOpacity(10, 10)).toBeGreaterThan(restingLinkOpacity(1, 10))
   })
 })

@@ -72,15 +72,15 @@ export function ImportPreviewStep({
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h3 className="text-lg font-medium text-gray-900">Import Preview</h3>
-        <p className="mt-1 text-sm text-gray-500">
+        <h3 className="text-lg font-medium text-ink">Import Preview</h3>
+        <p className="mt-1 text-sm text-ink-muted">
           Review what changes will be made to your graph
         </p>
       </div>
 
       {/* Import Mode Selection */}
-      <div className="bg-gray-50 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-gray-900 mb-3">Import Mode</h4>
+      <div className="bg-subtle rounded-lg p-4">
+        <h4 className="text-sm font-medium text-ink mb-3">Import Mode</h4>
         <div className="space-y-3">
           <label className="flex items-start space-x-3 cursor-pointer">
             <input
@@ -89,14 +89,14 @@ export function ImportPreviewStep({
               value="create-new"
               checked={mode === 'create-new'}
               onChange={() => onModeChange('create-new')}
-              className="mt-1 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+              className="mt-1 h-4 w-4 text-baseline border-line focus:ring-blue-500"
               disabled={isLoading}
             />
             <div>
-              <span className="block text-sm font-medium text-gray-900">
+              <span className="block text-sm font-medium text-ink">
                 Create New Graph
               </span>
-              <span className="block text-sm text-gray-500">
+              <span className="block text-sm text-ink-muted">
                 Import into a brand new graph (no conflicts possible)
               </span>
             </div>
@@ -109,14 +109,14 @@ export function ImportPreviewStep({
               value="merge"
               checked={mode === 'merge'}
               onChange={() => onModeChange('merge')}
-              className="mt-1 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+              className="mt-1 h-4 w-4 text-baseline border-line focus:ring-blue-500"
               disabled={isLoading}
             />
             <div>
-              <span className="block text-sm font-medium text-gray-900">
+              <span className="block text-sm font-medium text-ink">
                 Merge into Current Graph
               </span>
-              <span className="block text-sm text-gray-500">
+              <span className="block text-sm text-ink-muted">
                 Add new entities, skip existing ones with same IDs
               </span>
             </div>
@@ -129,14 +129,14 @@ export function ImportPreviewStep({
               value="replace"
               checked={mode === 'replace'}
               onChange={() => onModeChange('replace')}
-              className="mt-1 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+              className="mt-1 h-4 w-4 text-baseline border-line focus:ring-blue-500"
               disabled={isLoading}
             />
             <div>
-              <span className="block text-sm font-medium text-gray-900">
+              <span className="block text-sm font-medium text-ink">
                 Replace Current Graph
               </span>
-              <span className="block text-sm text-gray-500">
+              <span className="block text-sm text-ink-muted">
                 Replace existing entities with imported data
               </span>
             </div>
@@ -167,7 +167,7 @@ export function ImportPreviewStep({
       {toCreate.events + toCreate.arcs + toCreate.relationships + toCreate.pressures === 0 &&
         toUpdate.events + toUpdate.arcs + toUpdate.relationships + toUpdate.pressures === 0 &&
         toDelete.events + toDelete.arcs + toDelete.relationships + toDelete.pressures === 0 && (
-          <div className="bg-gray-50 rounded-lg p-4 text-center text-gray-500">
+          <div className="bg-subtle rounded-lg p-4 text-center text-ink-muted">
             No changes will be made with current settings
           </div>
         )}
@@ -221,12 +221,12 @@ export function ImportPreviewStep({
       )}
 
       {/* Actions */}
-      <div className="flex justify-between pt-4 border-t border-gray-200">
+      <div className="flex justify-between pt-4 border-t border-line">
         <button
           type="button"
           onClick={onBack}
           disabled={isLoading}
-          className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          className="inline-flex items-center px-4 py-2 border border-line text-sm font-medium rounded-md text-ink-secondary bg-card hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
         >
           Back
         </button>

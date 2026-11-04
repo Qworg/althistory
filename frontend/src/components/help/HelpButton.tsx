@@ -12,12 +12,12 @@ export function HelpButton({ touch = false }: { touch?: boolean }) {
     <button
       type="button"
       onClick={() => openHelp()}
-      aria-label="Help and keyboard shortcuts"
+      aria-label="Help: keyboard shortcuts and glossary"
       aria-haspopup="dialog"
       aria-expanded={isOpen}
       aria-keyshortcuts="Shift+?"
       title="Help and keyboard shortcuts (?)"
-      className={`${touch ? 'inline-flex h-11 w-11 shrink-0 items-center justify-center' : 'p-2'} rounded-md text-ink-muted hover:text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-selected`}
+      className={`${touch ? 'inline-flex h-11 w-11 shrink-0 items-center justify-center' : 'inline-flex items-center gap-1.5 px-2 py-1.5'} rounded-md text-ink-muted hover:text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-selected`}
     >
       <svg
         className="h-5 w-5"
@@ -31,6 +31,8 @@ export function HelpButton({ touch = false }: { touch?: boolean }) {
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.1 9a3 3 0 015.8 1c0 2-3 3-3 3" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 17h.01" />
       </svg>
+      {/* Named on screen where there is room: a bare "?" was easy to miss. */}
+      {!touch && <span className="text-sm font-medium">Help</span>}
     </button>
   )
 }

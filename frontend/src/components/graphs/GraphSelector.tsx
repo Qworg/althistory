@@ -196,7 +196,7 @@ export const GraphSelector = memo(function GraphSelector({
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 w-80 max-w-[calc(100vw-2rem)] bg-card text-ink border border-line rounded-lg shadow-lg z-50">
+        <div className="absolute top-full right-0 mt-1 w-80 max-w-[calc(100vw-2rem)] bg-card text-ink border border-line rounded-lg shadow-lg z-50">
           {/* Filter Tabs */}
           <div className="flex border-b border-line">
             {(['active', 'archived', 'all'] as const).map(status => (

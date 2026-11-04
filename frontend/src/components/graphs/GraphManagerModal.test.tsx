@@ -275,7 +275,8 @@ describe('GraphManagerModal', () => {
       
       expect(screen.getByRole('button', { name: /graphs/i })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /branches/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /versions/i })).toBeInTheDocument()
+      // Version history is Graph › Versions, not a second copy here.
+      expect(screen.queryByRole('button', { name: /^versions$/i })).not.toBeInTheDocument()
     })
 
     it('should display active graph info in sidebar', () => {
@@ -291,11 +292,11 @@ describe('GraphManagerModal', () => {
 
     it('should start on specified initial tab', () => {
       render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
+        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="branches" />
       )
       
-      const versionsTab = screen.getByRole('button', { name: /versions/i })
-      expect(versionsTab).toHaveClass('bg-selected/10')
+      const branchesTab = screen.getByRole('button', { name: /branches/i })
+      expect(branchesTab).toHaveClass('bg-selected/10')
     })
   })
 
@@ -696,146 +697,6 @@ describe('GraphManagerModal', () => {
       await user.click(lastOf(screen.getAllByRole('button', { name: /Cancel/i }), 'a cancel button'))
       
       expect(screen.queryByLabelText('Branch name')).not.toBeInTheDocument()
-    })
-  })
-
-  describe('Versions Tab', () => {
-    it('should switch to versions tab when clicked', async () => {
-      render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} />
-      )
-      
-      await user.click(screen.getByRole('button', { name: /versions/i }))
-      
-      expect(screen.getByRole('heading', { name: 'Version history' })).toBeInTheDocument()
-    })
-
-    it('should show loading state while loading versions', async () => {
-      vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({ loading: true }))
-      
-      render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
-      )
-      
-      expect(screen.getByText('Loading version history...')).toBeInTheDocument()
-    })
-
-    it('should show empty state when no versions exist', async () => {
-      vi.mocked(useGraphVersions).mockReturnValue(createMockQueryResult({ data: [] }))
-      
-      render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
-      )
-      
-      expect(screen.getByText('No version history available.')).toBeInTheDocument()
-    })
-
-    it('should display version list with commit messages', async () => {
-      render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
-      )
-      
-      expect(screen.getByText('v3')).toBeInTheDocument()
-      expect(screen.getByText('Added new events for February')).toBeInTheDocument()
-      expect(screen.getByText('v2')).toBeInTheDocument()
-      expect(screen.getByText('Initial import')).toBeInTheDocument()
-    })
-
-    it('should show Current badge for current version', async () => {
-      render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
-      )
-      
-      expect(screen.getByText('Current')).toBeInTheDocument()
-    })
-
-    it('should show change summary for versions', async () => {
-      render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
-      )
-      
-      expect(screen.getByText('+5 events')).toBeInTheDocument()
-      expect(screen.getByText('+1 arcs')).toBeInTheDocument()
-    })
-
-    it('should show Rollback button for non-current versions', async () => {
-      render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
-      )
-      
-      const rollbackButtons = screen.getAllByRole('button', { name: /Rollback/i })
-      expect(rollbackButtons.length).toBe(1) // Only for version 2
-    })
-
-    it('should not show Rollback button for current version', async () => {
-      render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
-      )
-      
-      // v3 is current, should not have rollback button
-      const v3Section = screen.getByText('v3').closest('.p-4')
-      expect(v3Section?.querySelector('button[class*="border-orange"]')).not.toBeInTheDocument()
-    })
-  })
-
-  describe('Rollback Functionality', () => {
-    it('should call rollbackGraph when Rollback is clicked and confirmed', async () => {
-      // Mock window.confirm
-      const originalConfirm = window.confirm
-      window.confirm = vi.fn(() => true)
-      
-      render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
-      )
-      
-      const rollbackButton = screen.getByRole('button', { name: /Rollback/i })
-      await user.click(rollbackButton)
-      
-      expect(window.confirm).toHaveBeenCalled()
-      expect(mockGraphManagement.rollbackGraph).toHaveBeenCalledWith('graph1', 2)
-      
-      window.confirm = originalConfirm
-    })
-
-    it('should not rollback when confirmation is cancelled', async () => {
-      const originalConfirm = window.confirm
-      window.confirm = vi.fn(() => false)
-      
-      render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
-      )
-      
-      const rollbackButton = screen.getByRole('button', { name: /Rollback/i })
-      await user.click(rollbackButton)
-      
-      expect(mockGraphManagement.rollbackGraph).not.toHaveBeenCalled()
-      
-      window.confirm = originalConfirm
-    })
-
-    it('should show loading state while rolling back', async () => {
-      vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
-        isRollingBack: true
-      }))
-      
-      render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
-      )
-      
-      expect(screen.getByText('Rolling back...')).toBeInTheDocument()
-    })
-
-    it('should disable rollback buttons while rolling back', async () => {
-      vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({
-        isRollingBack: true
-      }))
-      
-      render(
-        <GraphManagerModal isOpen={true} onClose={mockOnClose} initialTab="versions" />
-      )
-      
-      const rollbackButton = screen.getByRole('button', { name: /Rolling back/i })
-      expect(rollbackButton).toBeDisabled()
     })
   })
 

@@ -23,11 +23,15 @@ import {
   ARC_BAR_HEIGHT,
   DEFAULT_TIMELINE_MARGIN,
   DIVERGENCE_BAND_HEIGHT,
+  EVENT_STEM_LENGTH,
   arcRowY,
   computeTimelineLayout,
 } from './timelineLayout'
 import {
   computeRipple,
+  computeReach,
+  reachRadius,
+  restingLinkOpacity,
   linkPath,
   linkStrokeWidth,
   LINK_DASH,
@@ -310,6 +314,10 @@ const Timeline = memo(function Timeline({
     [maxArcLevel, hasGhost, hasDivergence, hasLinks, margin]
   )
   const ripple = useMemo(() => computeRipple(selectedEventId, drawableLinks), [selectedEventId, drawableLinks])
+  // What each event sets in motion, shown at rest as mark size and link
+  // weight, so the consequential events stand out before anything is clicked.
+  const reach = useMemo(() => computeReach(drawableLinks), [drawableLinks])
+  const maxReach = useMemo(() => Math.max(0, ...reach.values()), [reach])
   const isTracing = selectedEventId !== null && ripple.links.size > 0
   const svgHeight = Math.max(height ?? 0, layout.height)
 
@@ -444,6 +452,14 @@ const Timeline = memo(function Timeline({
   const arcTop = layout.arcTop
   const yScale = useCallback((level: number) => arcRowY(level, arcTop), [arcTop])
 
+  // A mark's radius at rest. On a narrow canvas the marks sit close, so the
+  // whole reach scale shrinks rather than letting the large marks overlap.
+  const markScale = innerWidth < 640 ? 0.7 : 1
+  const markBaseRadius = useCallback(
+    (id: string) => (hasLinks ? reachRadius(reach.get(id) ?? 0, maxReach) * markScale : 6 * markScale),
+    [hasLinks, reach, maxReach, markScale]
+  )
+
   // Which visible events get a label, and where. The selected and highlighted
   // events are placed first so they are always named; the rest are labelled
   // only where there is room (see eventLabelLayout.ts).
@@ -460,11 +476,12 @@ const Timeline = memo(function Timeline({
             (highlightedEventIds?.has(ev.id) ?? false) ||
             ripple.causes.has(ev.id) ||
             ripple.effects.has(ev.id),
+          weight: reach.get(ev.id) ?? 0,
         })),
         innerWidth,
         TIMELINE_LABEL_CONFIG
       ),
-    [visibleEvents, xScale, innerWidth, selectedEventId, highlightedEventIds, ripple]
+    [visibleEvents, xScale, innerWidth, selectedEventId, highlightedEventIds, ripple, reach]
   )
 
   // ── Branch baseline (ghost) ──────────────────────────────────────────────
@@ -1375,7 +1392,7 @@ const Timeline = memo(function Timeline({
                         ? 'var(--accent-selected)'
                         : 'var(--text-muted)'
                   const opacity = !isTracing
-                    ? 0.34
+                    ? restingLinkOpacity(reach.get(link.causeId) ?? 0, maxReach)
                     : role === 'cause'
                       ? 0.85
                       : typeof role === 'number'
@@ -1424,6 +1441,36 @@ const Timeline = memo(function Timeline({
               )
             })}
 
+            {/* Label leaders: a hairline from each label above the first row
+                down to its mark. One layer under every mark and label, so a
+                label's halo knocks out any leader that passes behind it. */}
+            <g className="timeline-label-leaders" aria-hidden="true" pointerEvents="none">
+              {visibleEvents.map(ev => {
+                const placement = eventLabels.get(ev.id)
+                const firstRow = TIMELINE_LABEL_CONFIG.rowOffsets[0] ?? -20
+                if (!placement || placement.offset >= firstRow) return null
+                const base = markBaseRadius(ev.id)
+                const radius =
+                  base + ((highlightedEventIds?.has(ev.id) ?? false) ? 3 : selectedEventId === ev.id ? 2 : 0)
+                const x = xScale(new Date(ev.timestamp))
+                const dimmed =
+                  isTracing && ev.id !== selectedEventId && !ripple.causes.has(ev.id) && !ripple.effects.has(ev.id)
+                return (
+                  <line
+                    key={ev.id}
+                    className="event-label-leader"
+                    x1={x}
+                    x2={x}
+                    y1={eventY + placement.offset + 4}
+                    y2={eventY - radius - 2}
+                    stroke="var(--text-muted)"
+                    strokeOpacity={dimmed ? 0.12 : 0.45}
+                    strokeWidth={1}
+                  />
+                )
+              })}
+            </g>
+
             {/* Events - using memoized TimelineEvent component */}
             {visibleEvents.map(ev => {
               const x = xScale(new Date(ev.timestamp))
@@ -1442,6 +1489,8 @@ const Timeline = memo(function Timeline({
                     !ripple.effects.has(ev.id)
                   }
                   isBranchOwn={branchOwnIds?.has(ev.id) ?? false}
+                  reach={reach.get(ev.id) ?? 0}
+                  baseRadius={markBaseRadius(ev.id)}
                   isTabStop={tabStopKey === eventMarkKey(ev.id)}
                   label={eventLabels.get(ev.id) ?? null}
                   onClick={handleEventClick}
@@ -1606,7 +1655,12 @@ const Timeline = memo(function Timeline({
         <div
           role="tooltip"
           className="timeline-tooltip pointer-events-none absolute z-10 max-w-xs rounded bg-[#0f172a]/95 px-2 py-1 text-xs text-[#f8fafc] shadow ring-1 ring-white/10"
-          style={tooltipPlacement(hovered, margin, width)}
+          style={tooltipPlacement(
+            hovered,
+            margin,
+            width,
+            layout.linkBand ? EVENT_STEM_LENGTH + layout.linkBand.height : 0
+          )}
         >
           {hovered.kind === 'event' ? (
             <>

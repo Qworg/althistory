@@ -65,7 +65,8 @@ test.describe('visual regression', () => {
     await page.goto('/')
     await expect(page.locator('svg[data-timeline-canvas]')).toBeVisible()
 
-    await page.getByRole('button', { name: 'Ingest' }).click()
+    await page.getByRole('button', { name: 'Bring in history' }).click()
+    await page.getByRole('menuitem', { name: /^Extract from text or Wikipedia/ }).click()
     const dialog = page.getByRole('dialog')
     await dialog
       .getByLabel(/Wikipedia URL/)

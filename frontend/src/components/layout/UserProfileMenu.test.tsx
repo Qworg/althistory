@@ -20,7 +20,7 @@ describe('UserProfileMenu API key entry point', () => {
     const user = userEvent.setup()
     renderWithProviders(<UserProfileMenu />)
 
-    await user.click(screen.getByRole('button', { name: /user menu/i }))
+    await user.click(screen.getByRole('button', { name: /^settings$/i }))
 
     const apiKeysItem = await screen.findByRole('menuitem', { name: 'API Keys' })
     await user.click(apiKeysItem)
@@ -38,7 +38,7 @@ describe('UserProfileMenu help entry point', () => {
     const user = userEvent.setup()
     renderWithProviders(<UserProfileMenu />)
 
-    await user.click(screen.getByRole('button', { name: /user menu/i }))
+    await user.click(screen.getByRole('button', { name: /^settings$/i }))
     await user.click(await screen.findByRole('menuitem', { name: /Help & keyboard shortcuts/ }))
 
     expect(useHelpStore.getState().isOpen).toBe(true)

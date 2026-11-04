@@ -58,6 +58,8 @@ export interface TimelineLegendProps {
   isTracing: boolean
   /** The platform's undo shortcut, as shown to the user. */
   undoKey: string
+  /** Set when the graph holds more events than the view fetched: the cap. */
+  truncatedAt?: number
 }
 
 /**
@@ -65,7 +67,7 @@ export interface TimelineLegendProps {
  * mean, then the gestures. One quiet line under the canvas, so the canvas is
  * the first thing in the card and the key is where the eye goes next.
  */
-export const TimelineLegend = memo(function TimelineLegend({ counts, hasLinks, isTracing, undoKey }: TimelineLegendProps) {
+export const TimelineLegend = memo(function TimelineLegend({ counts, hasLinks, isTracing, undoKey, truncatedAt }: TimelineLegendProps) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-ink-muted" data-testid="timeline-legend">
       {hasLinks && (
@@ -92,6 +94,7 @@ export const TimelineLegend = memo(function TimelineLegend({ counts, hasLinks, i
           <ConfidenceSwatch tier="speculative" />
           speculative
         </li>
+        {hasLinks && <li>larger = sets more in motion</li>}
       </ul>
       {hasLinks && (
         <p className="text-ink-secondary">
@@ -104,6 +107,12 @@ export const TimelineLegend = memo(function TimelineLegend({ counts, hasLinks, i
         {plural(counts.events, 'event', 'events')} · {plural(counts.arcs, 'arc', 'arcs')}
         {counts.links > 0 && ` · ${plural(counts.links, 'link', 'links')}`}
       </p>
+      {truncatedAt !== undefined && (
+        <p role="status" className="w-full text-ink-secondary">
+          Showing {truncatedAt.toLocaleString()} events. The graph holds more than the timeline
+          draws at once; the CLI and export include all of them.
+        </p>
+      )}
       <p className="hidden w-full [@media(pointer:fine)]:block">
         Double-click to add an event · Drag to retime (Esc cancels, {undoKey} undoes) · Right-click for actions
       </p>

@@ -96,7 +96,7 @@ describe('Help & reference', () => {
       fireEvent.click(within(getHelpDialog()).getByRole('button', { name: 'Close modal' }))
       expect(queryHelpDialog()).not.toBeInTheDocument()
 
-      fireEvent.click(screen.getByRole('button', { name: 'Help and keyboard shortcuts' }))
+      fireEvent.click(screen.getByRole('button', { name: /^Help: keyboard shortcuts/ }))
       expect(getHelpDialog()).toBeInTheDocument()
       // Mounted once, not once per entry point.
       expect(screen.getAllByRole('dialog', { name: 'Help & reference' })).toHaveLength(1)

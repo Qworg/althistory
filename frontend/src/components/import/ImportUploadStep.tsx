@@ -54,23 +54,28 @@ export function ImportUploadStep({
         
         // Basic structure check
         if (!parsed || typeof parsed !== 'object') {
-          onError('Invalid JSON: must be an object')
+          onError('This isn’t an althistory export: the file holds no JSON object.')
+          return
+        }
+
+        if (parsed.version === undefined) {
+          onError('This isn’t an althistory export: it has no "version" field. Export a graph from althistory (Graph › Export) and import that file.')
           return
         }
 
         if (parsed.version !== '1.0') {
-          onError(`Unsupported version: ${parsed.version}. Expected '1.0'`)
+          onError(`This export is format version ${parsed.version}; this version of althistory reads version 1.0.`)
           return
         }
 
         if (!parsed.metadata || !parsed.data) {
-          onError('Invalid format: missing metadata or data section')
+          onError('This export is incomplete: it has no "metadata" or no "data" section.')
           return
         }
 
         onUpload(parsed as AlthistoryExport)
       } catch (err) {
-        onError(`Failed to parse ${source}: ${err instanceof Error ? err.message : 'Invalid JSON'}`)
+        onError(`${source} isn’t valid JSON (${err instanceof Error ? err.message : 'it could not be read'}). Check that the whole file was pasted.`)
       }
     },
     [onUpload, onError]
@@ -124,7 +129,7 @@ export function ImportUploadStep({
       if (!file) return
 
       if (!file.name.endsWith('.json')) {
-        onError('Please upload a JSON file')
+        onError('Only .json files can be imported. Choose an althistory export file.')
         return
       }
 
@@ -152,7 +157,7 @@ export function ImportUploadStep({
       onError('Please enter JSON data')
       return
     }
-    parseAndValidate(jsonInput, 'pasted JSON')
+    parseAndValidate(jsonInput, 'The pasted text')
   }, [jsonInput, parseAndValidate, onError])
 
   const handleBrowseClick = useCallback(() => {
@@ -161,19 +166,17 @@ export function ImportUploadStep({
 
   return (
     <div className="space-y-6">
-      <div className="text-center">
-        <h3 className="text-lg font-medium text-gray-900">Upload Import File</h3>
-        <p className="mt-1 text-sm text-gray-500">
-          Upload an Althistory export file (.json) or paste the JSON content below
-        </p>
-      </div>
+      {/* The dialog's title already names the task; one line on what to bring. */}
+      <p className="text-sm text-ink-secondary">
+        Choose an althistory export file (.json), or paste its contents below.
+      </p>
 
       {/* File Drop Zone */}
       <div
         className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
           dragActive
-            ? 'border-blue-500 bg-blue-50'
-            : 'border-gray-300 hover:border-gray-400'
+            ? 'border-baseline bg-blue-50'
+            : 'border-line hover:border-ink-muted'
         } ${isLoading ? 'opacity-50 pointer-events-none' : ''}`}
         onDragEnter={handleDrag}
         onDragLeave={handleDrag}
@@ -190,7 +193,7 @@ export function ImportUploadStep({
         />
         
         <svg
-          className="mx-auto h-12 w-12 text-gray-400"
+          className="mx-auto h-12 w-12 text-ink-muted"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -205,23 +208,23 @@ export function ImportUploadStep({
         
         <div className="mt-4">
           {fileName ? (
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-ink-secondary">
               Selected: <span className="font-medium">{fileName}</span>
             </p>
           ) : (
             <>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-ink-secondary">
                 <button
                   type="button"
                   onClick={handleBrowseClick}
-                  className="text-blue-600 hover:text-blue-500 font-medium"
+                  className="text-baseline hover:underline font-medium"
                   disabled={isLoading}
                 >
                   Click to browse
                 </button>
                 {' or drag and drop'}
               </p>
-              <p className="text-xs text-gray-500 mt-1">JSON files only</p>
+              <p className="text-xs text-ink-muted mt-1">JSON files only</p>
             </>
           )}
         </div>
@@ -230,24 +233,24 @@ export function ImportUploadStep({
       {/* Divider */}
       <div className="relative">
         <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-gray-300" />
+          <div className="w-full border-t border-line" />
         </div>
         <div className="relative flex justify-center text-sm">
-          <span className="px-2 bg-white text-gray-500">Or paste JSON</span>
+          <span className="px-2 bg-card text-ink-muted">or paste it</span>
         </div>
       </div>
 
       {/* JSON Text Area */}
       <div>
-        <label htmlFor="json-input" className="block text-sm font-medium text-gray-700">
-          JSON Content
+        <label htmlFor="json-input" className="block text-sm font-medium text-ink-secondary">
+          Export file contents
         </label>
         <textarea
           id="json-input"
-          rows={10}
+          rows={6}
           value={jsonInput}
           onChange={(e) => setJsonInput(e.target.value)}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 font-mono text-sm"
+          className="mt-1 block w-full rounded-md border border-line bg-card px-3 py-2 text-ink placeholder:text-ink-placeholder font-mono-code text-sm"
           placeholder='{"version": "1.0", "metadata": {...}, "data": {...}}'
           disabled={isLoading}
         />
@@ -258,7 +261,7 @@ export function ImportUploadStep({
             disabled={!jsonInput.trim() || isLoading}
             className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'Processing...' : 'Parse JSON'}
+            {isLoading ? 'Checking…' : 'Check pasted file'}
           </button>
         </div>
       </div>

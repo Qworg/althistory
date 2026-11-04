@@ -137,7 +137,7 @@ async function overview(ctx: TourContext): Promise<Shot> {
     // The toolbar is several button groups; its extent is first to last control.
     toolbar: union(
       await rectOf(page.getByRole('button', { name: 'Fit to View' }).first(), 'the first toolbar button'),
-      await rectOf(page.getByRole('button', { name: 'Turn on' }).first(), 'the last toolbar control')
+      await rectOf(page.getByRole('button', { name: 'Live link' }).first(), 'the last toolbar control')
     ),
     graphSelector: await rectOf(page.getByRole('button', { name: new RegExp(scenario.graph.name) }).first(), 'the graph selector'),
     timeline: await rectOf(page.locator('svg[data-timeline-canvas]').first(), 'the timeline'),
@@ -198,7 +198,7 @@ async function pressures(ctx: TourContext): Promise<Shot> {
 async function causalGraph(ctx: TourContext): Promise<Shot> {
   const { page } = ctx
   await page.goto(`${ctx.appUrl}/causal-graph`)
-  await page.getByText(`${scenario.links.length} relationships`).waitFor()
+  await page.getByText(`${scenario.links.length} links`).first().waitFor()
   await hideFilters(page)
   const directed = page.getByRole('button', { name: /Cause to effect/ })
   await directed.click()
@@ -218,7 +218,7 @@ async function causalGraph(ctx: TourContext): Promise<Shot> {
       graph: await rectOf(canvas, 'the causal graph canvas'),
       layouts: await rectOf(page.locator('section.causal-graph-layout-manager').first(), 'the layout panel'),
       directed: await rectOf(directed, 'the Cause to effect button'),
-      counts: await rectOf(page.getByText(`${scenario.links.length} relationships`), 'the relationship count'),
+      counts: await rectOf(page.getByText(`${scenario.links.length} links`).first(), 'the relationship count'),
     },
     centre(await rectOf(directed, 'the Cause to effect button')),
     { fullPage: true }
@@ -246,7 +246,9 @@ async function actorPerspective(ctx: TourContext): Promise<Shot> {
 async function ingest(ctx: TourContext): Promise<Shot[]> {
   const { page } = ctx
   await openTimeline(ctx)
-  const ingestButton = page.getByRole('button', { name: 'Ingest', exact: true })
+  // Ingest lives in the toolbar's "Bring in history" menu.
+  await page.getByRole('button', { name: 'Bring in history', exact: true }).click()
+  const ingestButton = page.getByRole('menuitem', { name: /^Extract from text or Wikipedia/ })
   await ingestButton.click()
   const dialog = page.getByRole('dialog')
   // `role=dialog` is the full-screen overlay; the visible panel is its child.

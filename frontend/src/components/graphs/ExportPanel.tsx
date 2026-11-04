@@ -12,12 +12,20 @@ import { ExportFilters, AlthistoryExport } from '@/types'
 
 interface ExportPanelProps {
   className?: string
+  /**
+   * Whether the panel folds behind an "Export" header. Off in the Export
+   * drawer, where the drawer is already the disclosure: a collapsed accordion
+   * as a drawer's only content was a second click for nothing.
+   */
+  collapsible?: boolean
 }
 
 export const ExportPanel = memo(function ExportPanel({
   className = '',
+  collapsible = true,
 }: ExportPanelProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [isExpandedState, setIsExpanded] = useState(false)
+  const isExpanded = !collapsible || isExpandedState
   const [scope, setScope] = useState<'full' | 'filtered'>('full')
   const [includeProvenance, setIncludeProvenance] = useState(false)
   const [filters, setFilters] = useState<ExportFilters>({})
@@ -128,15 +136,16 @@ export const ExportPanel = memo(function ExportPanel({
 
   if (!activeGraphId) {
     return (
-      <div className={`bg-white border rounded-lg p-4 ${className}`}>
-        <div className="text-ink-muted text-sm">Select a graph to export</div>
+      <div className={`p-4 ${className}`}>
+        <div className="text-ink-muted text-sm">Choose a graph from the header to export it.</div>
       </div>
     )
   }
 
   return (
-    <div className={`bg-white border rounded-lg overflow-hidden ${className}`}>
+    <div className={collapsible ? `bg-card border border-line rounded-lg overflow-hidden ${className}` : className}>
       {/* Header */}
+      {collapsible && (
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full px-4 py-3 flex items-center justify-between bg-subtle hover:bg-subtle transition-colors"
@@ -163,10 +172,11 @@ export const ExportPanel = memo(function ExportPanel({
           </svg>
         </div>
       </button>
+      )}
 
       {/* Content */}
       {isExpanded && (
-        <div className="p-4 space-y-4">
+        <div className={collapsible ? 'p-4 space-y-4' : 'space-y-4'}>
           {/* Quick Export */}
           <div className="flex gap-2">
             <button
@@ -187,7 +197,7 @@ export const ExportPanel = memo(function ExportPanel({
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
-                  Quick Export
+                  Download the whole graph (.json)
                 </>
               )}
             </button>
@@ -300,7 +310,7 @@ export const ExportPanel = memo(function ExportPanel({
             <button
               onClick={handleExport}
               disabled={isCreating}
-              className="w-full px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium"
+              className="w-full px-4 py-2 border border-line bg-card text-ink rounded-md hover:bg-subtle disabled:opacity-50 text-sm font-medium"
             >
               {isCreating ? 'Starting Export...' : 'Start Export Job'}
             </button>
@@ -361,7 +371,7 @@ export const ExportPanel = memo(function ExportPanel({
           </div>
 
           {/* Stats */}
-          {stats && (
+          {stats && stats.total > 0 && (
             <div className="text-xs text-ink-muted pt-2 border-t border-line">
               {stats.total} total exports - {stats.completed} completed
             </div>

@@ -12,6 +12,13 @@ import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/services/api'
 import { EventFilters } from '@/types'
 
+/**
+ * How many events a view asks for: the API's maximum. Without an explicit
+ * limit the API returns fifty, so a view that omitted it silently drew part of
+ * a larger graph (the causal graph, the actor list, the filter panel's actors).
+ */
+export const VIEW_EVENT_LIMIT = 1000
+
 export function useEvents(filters?: EventFilters) {
   return useQuery({
     queryKey: ['events', filters],

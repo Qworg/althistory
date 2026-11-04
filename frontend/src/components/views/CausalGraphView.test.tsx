@@ -111,7 +111,7 @@ describe('CausalGraphView', () => {
 
     renderWithClient(<CausalGraphView />)
 
-    expect(screen.getByText('Loading graph data...')).toBeInTheDocument()
+    expect(screen.getByText('Loading the causal graph…')).toBeInTheDocument()
   })
 
   it('renders empty state when there are no events without retaining ghost state', () => {
@@ -126,10 +126,9 @@ describe('CausalGraphView', () => {
 
     renderWithClient(<CausalGraphView />)
 
-    expect(screen.getByText('No events to display')).toBeInTheDocument()
+    expect(screen.getByText('This graph has no history yet')).toBeInTheDocument()
     expect(screen.queryByTestId('causal-graph-component')).not.toBeInTheDocument()
-    expect(screen.getByText('0 events')).toBeInTheDocument()
-    expect(screen.getByText('0 relationships')).toBeInTheDocument()
+    expect(screen.getByText('0 events · 0 links')).toBeInTheDocument()
   })
 
   it('passes filtered events and relationships directly to CausalGraphComponent', () => {
@@ -147,8 +146,7 @@ describe('CausalGraphView', () => {
     expect(screen.getByTestId('causal-graph-component')).toBeInTheDocument()
     expect(screen.getByTestId('rendered-events-count')).toHaveTextContent('2')
     expect(screen.getByTestId('rendered-rel-count')).toHaveTextContent('1')
-    expect(screen.getByText('2 events')).toBeInTheDocument()
-    expect(screen.getByText('1 relationships')).toBeInTheDocument()
+    expect(screen.getByText('2 events · 1 link')).toBeInTheDocument()
   })
 
   it('forwards selected event id as focusEventId to CausalGraphComponent', () => {

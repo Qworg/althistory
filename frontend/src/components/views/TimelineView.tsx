@@ -4,7 +4,10 @@ import { PressureExploration } from '@/components/timeline/PressureExploration'
 import { usePressures } from '@/hooks/usePressures'
 import { usePressureStore } from '@/stores/pressureStore'
 import { PressureWithContext } from '@/types/pressure'
-import { useEvents } from '@/hooks/useEvents'
+import { ViewLoadError, SlowLoadNotice } from './ViewLoadState'
+import { useSlowLoading } from '@/hooks/useSlowLoading'
+import { EmptyGraphState } from './EmptyGraphState'
+import { useEvents, VIEW_EVENT_LIMIT as EVENT_LIMIT } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
 import {
   useDeleteEvent,
@@ -80,9 +83,22 @@ export function TimelineView() {
   // them), and the evidence of a pressure is joined against the events the
   // view holds. With the default fifty, the evidence of a larger graph was
   // dropped: the panel said "no evidence events" while the modal counted them.
-  const { data: fetchedEvents = [], isLoading: eventsLoading } = useEvents({ limit: 1000 })
-  const { data: fetchedArcs = [], isLoading: arcsLoading } = useArcs()
-  const { sessionData, activeFilters, addError } = useGlobalStore()
+  const eventsQuery = useEvents({ limit: EVENT_LIMIT })
+  const arcsQuery = useArcs()
+  const { data: fetchedEvents = [], isLoading: eventsLoading } = eventsQuery
+  const { data: fetchedArcs = [], isLoading: arcsLoading } = arcsQuery
+  // A failed request must not render as an empty history (see ViewLoadError).
+  const loadFailure = eventsQuery.isError
+    ? { what: 'this graph’s events', error: eventsQuery.error }
+    : arcsQuery.isError
+    ? { what: 'this graph’s arcs', error: arcsQuery.error }
+    : null
+  const retryLoad = () => {
+    void eventsQuery.refetch()
+    void arcsQuery.refetch()
+  }
+  const loadIsSlow = useSlowLoading(eventsLoading || arcsLoading)
+  const { sessionData, activeFilters, addError, clearFilters } = useGlobalStore()
 
   // The backend event/arc routes do not accept the UI's filter vocabulary (see
   // filterUtils), so the active filters are applied to the fetched collections.
@@ -740,14 +756,31 @@ export function TimelineView() {
     }
   }, [editModal, fetchedEvents, fetchedArcs])
 
-  if (eventsLoading || arcsLoading) {
+  if (loadFailure && !eventsLoading && !arcsLoading) {
     return (
       <div className="space-y-6">
         <div className="bg-card border border-line rounded-lg shadow-sm p-6">
+          <ViewLoadError
+            what={loadFailure.what}
+            error={loadFailure.error}
+            onRetry={retryLoad}
+            isRetrying={eventsQuery.isFetching || arcsQuery.isFetching}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  if (eventsLoading || arcsLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-card border border-line rounded-lg shadow-sm p-6" aria-busy="true">
+          <span className="sr-only">Loading the timeline</span>
           <div className="animate-pulse">
             <div className="h-8 bg-subtle rounded w-1/4 mb-4"></div>
             <div className="h-96 bg-subtle rounded"></div>
           </div>
+          {loadIsSlow && <SlowLoadNotice onRetry={retryLoad} />}
         </div>
       </div>
     )
@@ -812,6 +845,12 @@ export function TimelineView() {
           </div>}
         </div>
 
+        {fetchedEvents.length === 0 && fetchedArcs.length === 0 ? (
+          <EmptyGraphState kind="empty" />
+        ) : events.length === 0 && arcs.length === 0 && filtersActive ? (
+          <EmptyGraphState kind="filtered" onClearFilters={clearFilters} />
+        ) : (
+        <>
         <div className="mb-2">
           <Timeline
             events={events}
@@ -845,7 +884,10 @@ export function TimelineView() {
           hasLinks={timelineLinks.length > 0}
           isTracing={Boolean(selectedEvent)}
           undoKey={editKeys.undo}
+          truncatedAt={fetchedEvents.length >= EVENT_LIMIT ? EVENT_LIMIT : undefined}
         />
+        </>
+        )}
 
         {/* Last direct edit, with undo/redo. role="status" so the outcome of a
             drag, an undo or a redo is announced, not only drawn. */}

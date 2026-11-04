@@ -28,6 +28,7 @@ vi.mock('@/hooks/useGraphs', () => {
 
   return {
     useActiveGraphId: () => 'graph-1',
+    useActiveGraph: () => ({ data: activeGraph }),
     useGraphs: () => ({ data: { graphs: [activeGraph], total: 1 }, isLoading: false }),
     useSwitchGraph: () => ({ mutate: switchGraph, isPending: false }),
     useDeleteGraph: () => ({ mutate: vi.fn(), isPending: false }),

@@ -109,3 +109,46 @@ export function linkPath(x1: number, x2: number, top: number, depth: number, plo
   const y = top + sag / 0.75
   return `M ${x1} ${top} C ${x1} ${y}, ${x2} ${y}, ${x2} ${top}`
 }
+
+/**
+ * How many events each event sets in motion: the size of its forward ripple
+ * (within RIPPLE_DEPTH steps, the same count the inspector reports). Events
+ * that cause nothing are absent.
+ *
+ * This is what the canvas shows at rest. Chronology alone gives every event
+ * the same weight; reach is what makes a point of divergence look like one.
+ */
+export function computeReach(links: readonly TimelineLink[]): Map<string, number> {
+  const reach = new Map<string, number>()
+  const causes = new Set(links.map((link) => link.causeId))
+  for (const id of causes) {
+    const size = computeRipple(id, links).effects.size
+    if (size > 0) reach.set(id, size)
+  }
+  return reach
+}
+
+/** Base radius of an event mark that sets nothing in motion. */
+export const MARK_RADIUS_MIN = 4.5
+/** Base radius of the event with the greatest reach. */
+export const MARK_RADIUS_MAX = 11
+
+/**
+ * A mark's base radius from its reach. The exponent sits between a radius
+ * scale (1) and an area scale (0.5): area-true sizing left a reach of 3 and a
+ * reach of 11 too close to tell apart at these sizes. Marks with no reach
+ * stay small.
+ */
+export function reachRadius(reach: number, maxReach: number): number {
+  if (reach <= 0 || maxReach <= 0) return MARK_RADIUS_MIN
+  return MARK_RADIUS_MIN + 1.5 + (MARK_RADIUS_MAX - MARK_RADIUS_MIN - 1.5) * Math.pow(reach / maxReach, 0.75)
+}
+
+/**
+ * A link's opacity with nothing selected: links out of far-reaching events
+ * read darker, so the chains that carry the history show before any click.
+ */
+export function restingLinkOpacity(causeReach: number, maxReach: number): number {
+  if (maxReach <= 0) return 0.34
+  return 0.2 + 0.42 * Math.sqrt(Math.max(0, causeReach) / maxReach)
+}

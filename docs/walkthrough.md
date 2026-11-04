@@ -74,16 +74,18 @@ of time.
 
 ![The ingestion wizard with pasted text](images/ingestion-text.png)
 
-**Ingest** extracts events from a Wikipedia article, a Wikidata query, or
-pasted text. Without a language model configured, a deterministic pattern
+**Bring in history › Extract from text or Wikipedia…** in the toolbar
+extracts events from a Wikipedia article, a Wikidata query, or pasted text. Without a language model configured, a deterministic pattern
 reader does the extraction. With one configured, the model reads the text as
 well; [`ingestion.md`](ingestion.md) describes the modes and what they cost.
 
 ![The review table: three extracted events, each editable, with a confidence score](images/ingestion-review.png)
 
 Nothing is written straight away. The extraction lands in a **review table**:
-correct an actor, fix a date, untick a row you do not want, then
-*Import selected*.
+correct an actor, fix a date, untick a row you do not want, then add them
+with the button that names the graph they go into (*Add 3 to The Engine Age*).
+Sentences with no date the reader recognises are counted above the table
+rather than dropped silently.
 
 ## 7. Graphs and branches
 

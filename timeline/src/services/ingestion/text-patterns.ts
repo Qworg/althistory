@@ -122,6 +122,26 @@ export function splitSentences(text: string): string[] {
     .filter((sentence) => sentence.length > 0);
 }
 
+/**
+ * The sentence without a leading date clause: "On 14 February 1870, the
+ * clerks struck" becomes "The clerks struck". The event already carries the
+ * date as its timestamp; repeated at the head of the description it pushes the
+ * part that says what happened out of every truncated label. A date that is
+ * not at the start, or a remainder too short to stand alone, is left as is.
+ */
+export function stripLeadingDate(sentence: string, rawDate: string): string {
+  const escaped = rawDate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const lead = new RegExp(
+    `^(?:(?:on|in|by|during|from|around|about|circa|c\\.|early|late|mid)(?:\\s+|-))?(?:the\\s+)?${escaped}\\s*,?\\s*(?=[A-Za-z])`,
+    'i'
+  );
+  const match = sentence.match(lead);
+  if (!match) return sentence;
+  const rest = sentence.slice(match[0].length).trim();
+  if (rest.length < 12) return sentence;
+  return rest.charAt(0).toUpperCase() + rest.slice(1);
+}
+
 // Words that begin a sentence or are too generic to be an actor.
 const ENTITY_STOPWORDS = new Set([
   'The', 'A', 'An', 'In', 'On', 'At', 'By', 'During', 'After', 'Before', 'From',

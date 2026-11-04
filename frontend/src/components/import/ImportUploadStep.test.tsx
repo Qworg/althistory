@@ -97,8 +97,7 @@ describe('ImportUploadStep', () => {
     it('should render upload instructions', () => {
       renderComponent()
       
-      expect(screen.getByText('Upload Import File')).toBeInTheDocument()
-      expect(screen.getByText(/Upload an Althistory export file/)).toBeInTheDocument()
+      expect(screen.getByText(/Choose an althistory export file/)).toBeInTheDocument()
     })
 
     it('should render file drop zone', () => {
@@ -112,37 +111,37 @@ describe('ImportUploadStep', () => {
     it('should render JSON textarea', () => {
       renderComponent()
       
-      expect(screen.getByLabelText('JSON Content')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Parse JSON' })).toBeInTheDocument()
+      expect(screen.getByLabelText('Export file contents')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Check pasted file' })).toBeInTheDocument()
     })
 
-    it('should disable Parse JSON button when textarea is empty', () => {
+    it('should disable check button when textarea is empty', () => {
       renderComponent()
       
-      const parseButton = screen.getByRole('button', { name: 'Parse JSON' })
+      const parseButton = screen.getByRole('button', { name: 'Check pasted file' })
       expect(parseButton).toBeDisabled()
     })
   })
 
   describe('JSON Paste Input', () => {
-    it('should enable Parse JSON button when textarea has content', async () => {
+    it('should enable check button when textarea has content', async () => {
       renderComponent()
       
-      const textarea = screen.getByLabelText('JSON Content')
+      const textarea = screen.getByLabelText('Export file contents')
       // Use fireEvent for faster and more reliable input
       fireEvent.change(textarea, { target: { value: '{"test": true}' } })
       
-      const parseButton = screen.getByRole('button', { name: 'Parse JSON' })
+      const parseButton = screen.getByRole('button', { name: 'Check pasted file' })
       expect(parseButton).not.toBeDisabled()
     })
 
     it('should call onUpload with valid JSON', async () => {
       renderComponent()
       
-      const textarea = screen.getByLabelText('JSON Content')
+      const textarea = screen.getByLabelText('Export file contents')
       fireEvent.change(textarea, { target: { value: JSON.stringify(validExportData) } })
       
-      const parseButton = screen.getByRole('button', { name: 'Parse JSON' })
+      const parseButton = screen.getByRole('button', { name: 'Check pasted file' })
       await user.click(parseButton)
       
       expect(mockOnUpload).toHaveBeenCalledWith(validExportData)
@@ -152,10 +151,10 @@ describe('ImportUploadStep', () => {
     it('should call onError with invalid JSON syntax', async () => {
       renderComponent()
       
-      const textarea = screen.getByLabelText('JSON Content')
+      const textarea = screen.getByLabelText('Export file contents')
       fireEvent.change(textarea, { target: { value: '{invalid json' } })
       
-      const parseButton = screen.getByRole('button', { name: 'Parse JSON' })
+      const parseButton = screen.getByRole('button', { name: 'Check pasted file' })
       await user.click(parseButton)
       
       expect(mockOnError).toHaveBeenCalled()
@@ -165,61 +164,61 @@ describe('ImportUploadStep', () => {
     it('should call onError when JSON is not an object', async () => {
       renderComponent()
       
-      const textarea = screen.getByLabelText('JSON Content')
+      const textarea = screen.getByLabelText('Export file contents')
       fireEvent.change(textarea, { target: { value: '"just a string"' } })
       
-      const parseButton = screen.getByRole('button', { name: 'Parse JSON' })
+      const parseButton = screen.getByRole('button', { name: 'Check pasted file' })
       await user.click(parseButton)
       
-      expect(mockOnError).toHaveBeenCalledWith('Invalid JSON: must be an object')
+      expect(mockOnError).toHaveBeenCalledWith('This isn’t an althistory export: the file holds no JSON object.')
     })
 
     it('should call onError when version is incorrect', async () => {
       renderComponent()
       
       const invalidData = { ...validExportData, version: '2.0' }
-      const textarea = screen.getByLabelText('JSON Content')
+      const textarea = screen.getByLabelText('Export file contents')
       fireEvent.change(textarea, { target: { value: JSON.stringify(invalidData) } })
       
-      const parseButton = screen.getByRole('button', { name: 'Parse JSON' })
+      const parseButton = screen.getByRole('button', { name: 'Check pasted file' })
       await user.click(parseButton)
       
-      expect(mockOnError).toHaveBeenCalledWith("Unsupported version: 2.0. Expected '1.0'")
+      expect(mockOnError).toHaveBeenCalledWith('This export is format version 2.0; this version of althistory reads version 1.0.')
     })
 
     it('should call onError when metadata is missing', async () => {
       renderComponent()
       
       const invalidData = { version: '1.0', data: {} }
-      const textarea = screen.getByLabelText('JSON Content')
+      const textarea = screen.getByLabelText('Export file contents')
       fireEvent.change(textarea, { target: { value: JSON.stringify(invalidData) } })
       
-      const parseButton = screen.getByRole('button', { name: 'Parse JSON' })
+      const parseButton = screen.getByRole('button', { name: 'Check pasted file' })
       await user.click(parseButton)
       
-      expect(mockOnError).toHaveBeenCalledWith('Invalid format: missing metadata or data section')
+      expect(mockOnError).toHaveBeenCalledWith('This export is incomplete: it has no "metadata" or no "data" section.')
     })
 
     it('should call onError when data is missing', async () => {
       renderComponent()
       
       const invalidData = { version: '1.0', metadata: {} }
-      const textarea = screen.getByLabelText('JSON Content')
+      const textarea = screen.getByLabelText('Export file contents')
       fireEvent.change(textarea, { target: { value: JSON.stringify(invalidData) } })
       
-      const parseButton = screen.getByRole('button', { name: 'Parse JSON' })
+      const parseButton = screen.getByRole('button', { name: 'Check pasted file' })
       await user.click(parseButton)
       
-      expect(mockOnError).toHaveBeenCalledWith('Invalid format: missing metadata or data section')
+      expect(mockOnError).toHaveBeenCalledWith('This export is incomplete: it has no "metadata" or no "data" section.')
     })
 
     it('should disable button when input is only whitespace', () => {
       renderComponent()
       
-      const textarea = screen.getByLabelText('JSON Content')
+      const textarea = screen.getByLabelText('Export file contents')
       fireEvent.change(textarea, { target: { value: '   ' } }) // whitespace only
       
-      const parseButton = screen.getByRole('button', { name: 'Parse JSON' })
+      const parseButton = screen.getByRole('button', { name: 'Check pasted file' })
       // Button should be disabled because trimmed value is empty
       expect(parseButton).toBeDisabled()
     })
@@ -277,7 +276,7 @@ describe('ImportUploadStep', () => {
       
       fireEvent.dragEnter(dropZone!)
       
-      expect(dropZone).toHaveClass('border-blue-500')
+      expect(dropZone).toHaveClass('border-baseline')
       expect(dropZone).toHaveClass('bg-blue-50')
     })
 
@@ -290,7 +289,7 @@ describe('ImportUploadStep', () => {
       fireEvent.dragEnter(dropZone!)
       fireEvent.dragLeave(dropZone!)
       
-      expect(dropZone).toHaveClass('border-gray-300')
+      expect(dropZone).toHaveClass('border-line')
     })
 
     it('should reject non-JSON files on drop', async () => {
@@ -305,7 +304,7 @@ describe('ImportUploadStep', () => {
         dataTransfer: { files: [file] },
       })
       
-      expect(mockOnError).toHaveBeenCalledWith('Please upload a JSON file')
+      expect(mockOnError).toHaveBeenCalledWith('Only .json files can be imported. Choose an althistory export file.')
     })
 
     it('should process JSON file on drop', async () => {
@@ -338,7 +337,7 @@ describe('ImportUploadStep', () => {
       renderComponent({ isLoading: true })
       
       const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
-      const textarea = screen.getByLabelText('JSON Content')
+      const textarea = screen.getByLabelText('Export file contents')
       const browseButton = screen.getByText('Click to browse')
       
       expect(fileInput).toBeDisabled()
@@ -349,7 +348,7 @@ describe('ImportUploadStep', () => {
     it('should show processing text on button when loading', () => {
       renderComponent({ isLoading: true })
       
-      expect(screen.getByRole('button', { name: 'Processing...' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Checking…' })).toBeInTheDocument()
     })
 
     it('should apply opacity to drop zone when loading', () => {

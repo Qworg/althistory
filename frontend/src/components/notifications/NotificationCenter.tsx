@@ -30,6 +30,11 @@ const STYLES: Record<ErrorType, NotificationStyle> = {
     container: 'bg-card border-line text-ink',
     icon: 'text-ink-secondary',
   },
+  info: {
+    label: 'Notice',
+    container: 'bg-card border-line text-ink',
+    icon: 'text-baseline',
+  },
 }
 
 function errorIcon(className: string) {
@@ -95,7 +100,7 @@ export function NotificationCenter() {
         return (
           <div
             key={error.id}
-            role="alert"
+            role={error.type === 'info' ? 'status' : 'alert'}
             data-testid={`notification-${error.type}`}
             className={`pointer-events-auto flex items-start gap-3 rounded-lg border px-4 py-3 shadow-lg ${style.container}`}
           >

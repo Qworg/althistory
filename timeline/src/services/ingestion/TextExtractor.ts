@@ -32,6 +32,7 @@ import {
   extractCapitalizedEntities,
   extractDates,
   splitSentences,
+  stripLeadingDate,
 } from './text-patterns';
 import {
   ExtractedEvent,
@@ -137,10 +138,14 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
     const extractedAt = this.now().toISOString();
     const events: ExtractedEvent[] = [];
     const seen = new Set<string>();
+    let skippedSentences = 0;
 
     for (const sentence of splitSentences(text)) {
       const dates = extractDates(sentence);
-      if (dates.length === 0) continue;
+      if (dates.length === 0) {
+        skippedSentences += 1;
+        continue;
+      }
 
       const entities = extractCapitalizedEntities(sentence);
       const defaultActor = context?.defaultActors?.[0];
@@ -159,7 +164,9 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
 
         events.push({
           tempId: newTempId('text'),
-          description: sentence,
+          // One date: drop it from the head of the description (the event
+          // carries it). With several, the sentence says which is which.
+          description: dates.length === 1 ? stripLeadingDate(sentence, date.raw) : sentence,
           actor,
           target,
           timestamp: date.iso,
@@ -171,7 +178,7 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
       }
     }
 
-    return this.toResult(events, 'text', []);
+    return { ...this.toResult(events, 'text', []), skippedSentences };
   }
 
   private toResult(

@@ -49,19 +49,19 @@ describe('Header', () => {
   it('hides user menu in sidebar mode on desktop', () => {
     renderWithProviders(<Header isMobile={false} layoutMode="sidebar" />)
 
-    expect(screen.queryByLabelText('User menu')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Settings')).not.toBeInTheDocument()
   })
 
   it('shows user menu in topbar mode on desktop', () => {
     renderWithProviders(<Header isMobile={false} layoutMode="topbar" />)
 
-    expect(screen.getByLabelText('User menu')).toBeInTheDocument()
+    expect(screen.getByLabelText('Settings')).toBeInTheDocument()
   })
 
   it('shows user menu on mobile regardless of layout mode', () => {
     renderWithProviders(<Header isMobile={true} layoutMode="sidebar" />)
 
-    expect(screen.getByLabelText('User menu')).toBeInTheDocument()
+    expect(screen.getByLabelText('Settings')).toBeInTheDocument()
   })
 
   it('shows the help button in every layout', () => {
@@ -71,7 +71,7 @@ describe('Header', () => {
       { isMobile: true, layoutMode: 'sidebar' as const },
     ]) {
       const { unmount } = renderWithProviders(<Header {...props} />)
-      const button = screen.getByRole('button', { name: 'Help and keyboard shortcuts' })
+      const button = screen.getByRole('button', { name: /^Help: keyboard shortcuts/ })
       expect(button).toHaveAttribute('aria-haspopup', 'dialog')
       unmount()
     }
@@ -116,8 +116,8 @@ describe('Header', () => {
     it('gives help and the user menu 44px targets that do not shrink away', () => {
       renderWithProviders(<Header isMobile={true} layoutMode="sidebar" />)
 
-      expect(screen.getByRole('button', { name: 'Help and keyboard shortcuts' })).toHaveClass('h-11', 'w-11', 'shrink-0')
-      expect(screen.getByRole('button', { name: 'User menu' })).toHaveClass('h-11', 'w-11')
+      expect(screen.getByRole('button', { name: /^Help: keyboard shortcuts/ })).toHaveClass('h-11', 'w-11', 'shrink-0')
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('h-11', 'w-11')
     })
 
     it('uses the compact toolbar, with no breadcrumb (the bottom bar names the view)', () => {

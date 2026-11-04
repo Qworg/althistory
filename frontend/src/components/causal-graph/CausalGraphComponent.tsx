@@ -15,7 +15,7 @@ import {
 } from '@/utils/layoutManagerUtils'
 import { isCausalOrderValid, isTemporalInversion } from '@/utils/causalOrder'
 import CausalPathHighlighter from './CausalPathHighlighter'
-import { computeRipple } from '@/components/timeline/timelineLinks'
+import { computeRipple, computeReach } from '@/components/timeline/timelineLinks'
 import CausalChainNavigationControls from './CausalChainNavigationControls'
 import CausalSuggestionManager from './CausalSuggestionManager'
 import CausalSuggestionOverlay from './CausalSuggestionOverlay'
@@ -28,6 +28,8 @@ import { CausalRelationshipModal } from '@/components/modals/CausalRelationshipM
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 import {
   eventNodeLabel,
+  eventNodeCanvasLabel,
+  hoverReadoutPlacement,
   formatActorTarget,
   describeEvent,
   readGraphCanvasTheme,
@@ -81,11 +83,17 @@ export interface CausalGraphComponentProps {
   readOnly?: boolean
 }
 
+/** Past this many events or links the graph needs its level-of-detail controls. */
+export const PERFORMANCE_PANEL_THRESHOLD = 500
+
 export interface CausalNodeData {
   id: string
   event: Event
   label: string
+  /** 0–1: the node's reach relative to the graph's furthest-reaching event. Drawn as size. */
   weight: number
+  /** How many events this one sets in motion (the timeline's reach). */
+  reach?: number
   isSelected: boolean
   isHighlighted: boolean
   isForeign?: boolean
@@ -502,7 +510,8 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           const bb = node.boundingBox({ includeNodes: false, includeEdges: false, includeLabels: true })
           boxes.push({
             id: node.id(),
-            priority: (node.selected() ? 10_000 : 0) + node.degree(false),
+            // Selected first, then the further-reaching events keep their names.
+            priority: (node.selected() ? 10_000 : 0) + (Number(node.data('reach')) || 0) * 10 + node.degree(false),
             box: { x1: bb.x1, y1: bb.y1, x2: bb.x2, y2: bb.y2 }
           })
         })
@@ -570,11 +579,24 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   // graph rebuilds when selecting link source (which causes spurious background taps)
   const transformDataForCytoscape = useCallback(() => {
     const eventMap = new Map(events.map(event => [event.id, event]))
+    // Size by reach, as the timeline does, so the same events stand out in
+    // both lenses before anything is selected.
+    const reach = computeReach(
+      causalRelationships.map(r => ({
+        id: r.id,
+        causeId: r.cause_event_id,
+        effectId: r.effect_event_id,
+        type: r.relationship_type,
+        weight: r.weight,
+      }))
+    )
+    const maxReach = Math.max(0, ...reach.values())
     const nodes: CausalNodeData[] = events.map(event => ({
       id: event.id,
       event,
-      label: eventNodeLabel(event),
-      weight: 0.5, // Default weight, could be calculated based on relationships
+      label: eventNodeCanvasLabel(event),
+      reach: reach.get(event.id) ?? 0,
+      weight: maxReach > 0 ? Math.pow((reach.get(event.id) ?? 0) / maxReach, 0.75) : 0.5,
       isSelected: selectedEvents.includes(event.id),
       isHighlighted: false, // Highlighting handled separately via useEffect
       isDivergencePoint: Boolean(divergenceEventIds && divergenceEventIds.includes(event.id))
@@ -1168,19 +1190,27 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     }
   }, [events, selectedEvents, setSelectedEvents, onNodeClick])
 
+  // The canvas's size, for placing the hover readout (see hoverReadoutPlacement).
+  const canvasSize = () => ({
+    width: containerRef.current?.clientWidth ?? 0,
+    height: containerRef.current?.clientHeight ?? 0,
+  })
+
   return (
-    <div className={`causal-graph-container relative flex flex-col lg:flex-row ${className}`}>
-      {/* Mobile toggle button */}
+    <div className={`causal-graph-container relative flex flex-col min-[1440px]:flex-row ${className}`}>
+      {/* Below 1440px the controls fold away behind this toggle: beside the
+          inspector, a 16rem rail left the graph itself about 300px wide. */}
       <button
+        type="button"
         onClick={() => setShowMobileSidebar(!showMobileSidebar)}
-        className="lg:hidden flex items-center justify-center gap-2 mb-2 px-3 py-2 bg-card rounded-lg shadow-sm border border-line text-sm font-medium text-ink-secondary hover:bg-subtle"
+        className="min-[1440px]:hidden self-start flex items-center justify-center gap-2 mb-2 px-3 py-1.5 bg-card rounded-md border border-line text-sm font-medium text-ink-secondary hover:bg-subtle hover:text-ink"
         aria-expanded={showMobileSidebar}
         aria-controls="graph-sidebar"
       >
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
         </svg>
-        {showMobileSidebar ? 'Hide Controls' : 'Show Controls'}
+        {showMobileSidebar ? 'Hide layout and overview' : 'Layout and overview'}
       </button>
 
       {/* Left column of controls - hidden on mobile unless toggled. Its
@@ -1188,8 +1218,8 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           rules, rather than each in a card of its own. */}
       <div
         id="graph-sidebar"
-        className={`flex-col divide-y divide-line [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0 lg:w-64 lg:pr-4 lg:mr-4 lg:border-r lg:border-line lg:flex-shrink-0 ${
-          showMobileSidebar ? 'flex mb-4' : 'hidden lg:flex'
+        className={`flex-col divide-y divide-line [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0 min-[1440px]:w-64 min-[1440px]:pr-4 min-[1440px]:mr-4 min-[1440px]:border-r min-[1440px]:border-line min-[1440px]:flex-shrink-0 ${
+          showMobileSidebar ? 'flex mb-4 pb-4 border-b border-line min-[1440px]:pb-0 min-[1440px]:border-b-0' : 'hidden min-[1440px]:flex'
         }`}
       >
         {/* Layout Manager */}
@@ -1215,8 +1245,12 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           />
         )}
 
-        {/* Performance Manager */}
-        {showPerformanceManager && (
+        {/* Performance Manager. Its level-of-detail switches act only past
+            PERFORMANCE_PANEL_THRESHOLD events or links, so below that it had
+            nothing to offer and only took room from the graph. */}
+        {showPerformanceManager &&
+          (events.length > PERFORMANCE_PANEL_THRESHOLD ||
+            causalRelationships.length > PERFORMANCE_PANEL_THRESHOLD) && (
           <CausalGraphPerformanceManager
             cytoscapeInstance={cyRef.current}
             events={events}
@@ -1224,7 +1258,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
             enableOptimizations={enablePerformanceOptimizations}
             maxNodes={1000}
             maxEdges={2000}
-            levelOfDetailThreshold={500}
+            levelOfDetailThreshold={PERFORMANCE_PANEL_THRESHOLD}
           />
         )}
       </div>
@@ -1392,11 +1426,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
             id={nodeTooltipId}
             role="tooltip"
             className="absolute z-50 bg-card border border-line rounded-lg shadow-lg p-3 text-sm text-ink max-w-xs pointer-events-none"
-            style={{
-              left: nodeTooltipPosition.x + 10,
-              top: nodeTooltipPosition.y - 10,
-              transform: 'translate(0, -100%)'
-            }}
+            style={hoverReadoutPlacement(nodeTooltipPosition, canvasSize())}
           >
             <p className="font-semibold text-ink leading-snug">
               {hoveredNode.description || formatActorTarget(hoveredNode)}
@@ -1434,11 +1464,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         {hoveredRelationship && tooltipPosition && (
           <div
             className="absolute z-50 bg-card border border-line rounded-lg shadow-lg p-3 text-sm text-ink max-w-xs pointer-events-none"
-            style={{
-              left: tooltipPosition.x + 10,
-              top: tooltipPosition.y - 10,
-              transform: 'translate(0, -100%)'
-            }}
+            style={hoverReadoutPlacement(tooltipPosition, canvasSize())}
           >
             <div className="font-semibold text-ink mb-2">Causal Relationship</div>
             {Boolean(hoveredRelationship.isCrossGraph || hoveredRelationship.effectGraphId || hoveredRelationship.causeGraphId) && (

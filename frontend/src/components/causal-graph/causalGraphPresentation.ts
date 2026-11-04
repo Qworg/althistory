@@ -43,6 +43,26 @@ export function eventNodeLabel(event: Pick<Event, 'description' | 'actor' | 'tar
   return truncateLabel(description || formatActorTarget(event))
 }
 
+/** The year an event falls in, in UTC, with BCE for years before 1 CE. */
+export function eventYear(timestamp: string | Date): string {
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return ''
+  const year = date.getUTCFullYear()
+  // Astronomical year 0 is 1 BCE, -1 is 2 BCE, and so on.
+  return year <= 0 ? `${1 - year} BCE` : String(year)
+}
+
+/**
+ * The label drawn on the canvas: the year over the description. The graph is
+ * laid out by cause, not by date, so without the year a node gave no hint of
+ * when it happened and every reading of the graph needed a hover.
+ */
+export function eventNodeCanvasLabel(event: Pick<Event, 'description' | 'actor' | 'target' | 'timestamp'>): string {
+  const year = eventYear(event.timestamp)
+  const label = eventNodeLabel(event)
+  return year ? `${year}\n${label}` : label
+}
+
 /**
  * One sentence that says everything the node stands for: what happened, who
  * acted on whom, and when (in UTC, as all historical dates are).
@@ -79,7 +99,7 @@ export interface GraphPalette {
   /** The selected event. */
   selectedFill: string
   selectedBorder: string
-  /** The hovered event, and the events of a highlighted path. */
+  /** The hovered event, and the events of a highlighted path. Rose, not amber: amber means divergence. */
   highlightedFill: string
   highlightedBorder: string
   /** The cause picked while drawing a link. */
@@ -137,8 +157,8 @@ const LIGHT_PALETTE: GraphPalette = {
   nodeBorder: '#1e3a8a',
   selectedFill: '#4f46e5',
   selectedBorder: '#312e81',
-  highlightedFill: '#b45309',
-  highlightedBorder: '#78350f',
+  highlightedFill: '#be185d',
+  highlightedBorder: '#831843',
   linkSourceFill: '#7c3aed',
   linkSourceBorder: '#4c1d95',
   foreignFill: '#7c3aed',
@@ -152,7 +172,7 @@ const LIGHT_PALETTE: GraphPalette = {
   edgeContributory: '#5d697c',
   edgeCrossGraph: '#7c3aed',
   edgeSelected: '#4f46e5',
-  edgeHighlighted: '#b45309',
+  edgeHighlighted: '#be185d',
   pathCurrent: '#b91c1c',
   pathVisited: '#047857',
   pathUnvisited: '#6b7280',
@@ -167,8 +187,8 @@ const DARK_PALETTE: GraphPalette = {
   nodeBorder: '#93c5fd',
   selectedFill: '#818cf8',
   selectedBorder: '#e0e7ff',
-  highlightedFill: '#fbbf24',
-  highlightedBorder: '#fef3c7',
+  highlightedFill: '#f472b6',
+  highlightedBorder: '#fce7f3',
   linkSourceFill: '#a78bfa',
   linkSourceBorder: '#ede9fe',
   foreignFill: '#a78bfa',
@@ -182,7 +202,7 @@ const DARK_PALETTE: GraphPalette = {
   edgeContributory: '#94a3b8',
   edgeCrossGraph: '#c4b5fd',
   edgeSelected: '#818cf8',
-  edgeHighlighted: '#fbbf24',
+  edgeHighlighted: '#f472b6',
   pathCurrent: '#f87171',
   pathVisited: '#34d399',
   pathUnvisited: '#94a3b8',
@@ -197,7 +217,7 @@ const HIGH_CONTRAST_LIGHT_PALETTE: GraphPalette = {
   nodeBorder: '#000000',
   selectedFill: '#3730a3',
   selectedBorder: '#000000',
-  highlightedFill: '#92400e',
+  highlightedFill: '#9d174d',
   highlightedBorder: '#000000',
   linkSourceFill: '#5b21b6',
   linkSourceBorder: '#000000',
@@ -212,7 +232,7 @@ const HIGH_CONTRAST_LIGHT_PALETTE: GraphPalette = {
   edgeContributory: '#111827',
   edgeCrossGraph: '#5b21b6',
   edgeSelected: '#3730a3',
-  edgeHighlighted: '#92400e',
+  edgeHighlighted: '#9d174d',
   pathCurrent: '#991b1b',
   pathVisited: '#065f46',
   pathUnvisited: '#374151',
@@ -227,7 +247,7 @@ const HIGH_CONTRAST_DARK_PALETTE: GraphPalette = {
   nodeBorder: '#ffffff',
   selectedFill: '#c7d2fe',
   selectedBorder: '#ffffff',
-  highlightedFill: '#fcd34d',
+  highlightedFill: '#f9a8d4',
   highlightedBorder: '#ffffff',
   linkSourceFill: '#c4b5fd',
   linkSourceBorder: '#ffffff',
@@ -242,7 +262,7 @@ const HIGH_CONTRAST_DARK_PALETTE: GraphPalette = {
   edgeContributory: '#e2e8f0',
   edgeCrossGraph: '#ddd6fe',
   edgeSelected: '#c7d2fe',
-  edgeHighlighted: '#fcd34d',
+  edgeHighlighted: '#f9a8d4',
   pathCurrent: '#fca5a5',
   pathVisited: '#6ee7b7',
   pathUnvisited: '#cbd5e1',
@@ -412,4 +432,32 @@ export function pickVisibleLabels(items: LabelBox[], gap = 2): Set<string> {
     visible.add(item.id)
   }
   return visible
+}
+
+/** Inset of the hover readout from the canvas edge (px). */
+const READOUT_INSET = 12
+/** Clearance under the canvas's top-right tool buttons (px). */
+const READOUT_TOOLBAR_CLEARANCE = 56
+
+/**
+ * Where a hover readout sits on the causal canvas: in the corner diagonally
+ * opposite the hovered node or link.
+ *
+ * Opened beside the pointer, the readout covered the labels of the
+ * neighbouring nodes, which are what one reads while hovering. A node can be
+ * anywhere on a free-form graph, so there is no side of it that is reliably
+ * clear; the far corner is. The hovered element stays highlighted on the
+ * canvas, so the readout and its node read as one.
+ */
+export function hoverReadoutPlacement(
+  point: { x: number; y: number },
+  canvas: { width: number; height: number }
+): { left?: number; right?: number; top: number; transform?: string } {
+  const onLeft = point.x < canvas.width / 2
+  const onTop = point.y < canvas.height / 2
+  const horizontal = onLeft ? { right: READOUT_INSET } : { left: READOUT_INSET }
+  if (onTop) {
+    return { ...horizontal, top: canvas.height - READOUT_INSET, transform: 'translateY(-100%)' }
+  }
+  return { ...horizontal, top: onLeft ? READOUT_TOOLBAR_CLEARANCE : READOUT_INSET }
 }
