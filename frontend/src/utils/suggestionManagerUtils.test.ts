@@ -106,26 +106,26 @@ describe('Suggestion Manager Utils', () => {
   describe('getConfidenceStyle', () => {
     it('returns green style for high confidence', () => {
       const style = getConfidenceStyle(0.9)
-      expect(style.bgColor).toBe('bg-green-100')
-      expect(style.textColor).toBe('text-green-800')
+      expect(style.bgColor).toBe('bg-success/15')
+      expect(style.textColor).toBe('text-success')
       expect(style.label).toBe('High')
-      expect(style.progressBarColor).toBe('bg-green-500')
+      expect(style.progressBarColor).toBe('bg-success')
     })
 
     it('returns yellow style for medium confidence', () => {
       const style = getConfidenceStyle(0.6)
-      expect(style.bgColor).toBe('bg-yellow-100')
-      expect(style.textColor).toBe('text-yellow-800')
+      expect(style.bgColor).toBe('bg-warning/15')
+      expect(style.textColor).toBe('text-warning')
       expect(style.label).toBe('Medium')
-      expect(style.progressBarColor).toBe('bg-yellow-500')
+      expect(style.progressBarColor).toBe('bg-warning')
     })
 
     it('returns red style for low confidence', () => {
       const style = getConfidenceStyle(0.3)
-      expect(style.bgColor).toBe('bg-red-100')
-      expect(style.textColor).toBe('text-red-800')
+      expect(style.bgColor).toBe('bg-danger/10')
+      expect(style.textColor).toBe('text-danger')
       expect(style.label).toBe('Low')
-      expect(style.progressBarColor).toBe('bg-red-500')
+      expect(style.progressBarColor).toBe('bg-danger')
     })
 
     it('handles boundary values correctly', () => {
@@ -347,20 +347,20 @@ describe('Suggestion Manager Utils', () => {
   describe('getFeedbackRatingStyle', () => {
     it('returns correct style for helpful', () => {
       const style = getFeedbackRatingStyle('helpful')
-      expect(style.bgColor).toBe('bg-green-100')
-      expect(style.textColor).toBe('text-green-800')
+      expect(style.bgColor).toBe('bg-success/15')
+      expect(style.textColor).toBe('text-success')
     })
 
     it('returns correct style for not_helpful', () => {
       const style = getFeedbackRatingStyle('not_helpful')
-      expect(style.bgColor).toBe('bg-yellow-100')
-      expect(style.textColor).toBe('text-yellow-800')
+      expect(style.bgColor).toBe('bg-danger/10')
+      expect(style.textColor).toBe('text-danger')
     })
 
     it('returns correct style for needs_improvement', () => {
       const style = getFeedbackRatingStyle('needs_improvement')
-      expect(style.bgColor).toBe('bg-orange-100')
-      expect(style.textColor).toBe('text-orange-800')
+      expect(style.bgColor).toBe('bg-warning/15')
+      expect(style.textColor).toBe('text-warning')
     })
   })
 

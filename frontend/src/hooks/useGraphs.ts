@@ -6,7 +6,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
-import { apiClient } from '@/services/api'
+import { apiClient, apiAccessProblem, type ApiAccessProblem } from '@/services/api'
 import { useGlobalStore } from '@/stores/globalStore'
 import { usePressureStore } from '@/stores/pressureStore'
 import {
@@ -73,13 +73,28 @@ function adoptActiveGraph(graphId: string | null) {
  *
  * Mount once, at the layout.
  */
-export function useActiveGraphReconciler() {
-  const queryClient = useQueryClient()
-  const { data: serverActive, isSuccess, dataUpdatedAt } = useQuery({
+/** The server's active graph. Auth refusals are not retried: they won't change. */
+function useServerActiveGraph() {
+  return useQuery({
     queryKey: graphKeys.active(),
     queryFn: () => apiClient.graphs.getActive(),
     staleTime: 30000,
+    retry: (failureCount, error) => apiAccessProblem(error) === null && failureCount < 3,
   })
+}
+
+/**
+ * Whether the server refuses this browser (no key, a refused key, or a key
+ * without permission). Shares the active-graph query, so it costs no request.
+ */
+export function useApiAccess(): ApiAccessProblem | null {
+  const { error } = useServerActiveGraph()
+  return error ? apiAccessProblem(error) : null
+}
+
+export function useActiveGraphReconciler() {
+  const queryClient = useQueryClient()
+  const { data: serverActive, isSuccess, dataUpdatedAt, error } = useServerActiveGraph()
 
   // Keyed on the server's answer arriving, not on the local id: a switch made
   // in this tab updates both sides itself (see useSwitchGraph), and reacting
@@ -96,16 +111,23 @@ export function useActiveGraphReconciler() {
     if (localId) {
       useGlobalStore.getState().addError({
         type: 'info',
+        // The active graph lives on the server, so a switch made in another
+        // tab, the CLI or an agent changes it here too: say that, not only
+        // that the graph changed.
         message: serverActive
-          ? `The graph this browser last had open is no longer the active one. Showing ${serverActive.name ?? 'the active graph'} instead.`
-          : 'The graph this browser last had open is no longer available. Choose a graph from the header to continue.',
+          ? `Now showing ${serverActive.name ?? 'the active graph'}: the active graph was changed outside this browser (another tab, the CLI or an agent). The graph menu switches back.`
+          : 'The graph this browser last had open is no longer available. Choose a graph from the graph menu to continue.',
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataUpdatedAt])
 
-  /** True once the server has answered and no graph is active on either side. */
-  return { noActiveGraph: isSuccess && !serverActive?.id }
+  return {
+    /** True once the server has answered and no graph is active on either side. */
+    noActiveGraph: isSuccess && !serverActive?.id,
+    /** Set when the server refuses this browser; the view needs a key, not a graph. */
+    accessProblem: error ? apiAccessProblem(error) : null,
+  }
 }
 
 /**
@@ -290,6 +312,18 @@ export function useInvalidateGraphData() {
     queryClient.invalidateQueries({ queryKey: ['arcs'] })
     queryClient.invalidateQueries({ queryKey: ['causal'] })
   }, [queryClient])
+}
+
+/** Name a version, or clear its name with an empty label. */
+export function useSetVersionLabel() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, version, label }: { id: string; version: number; label: string }) =>
+      apiClient.graphs.setVersionLabel(id, version, label),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: graphKeys.versions(id) })
+    },
+  })
 }
 
 export function useRollbackGraph() {

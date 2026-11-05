@@ -72,8 +72,8 @@ export function ActorSelector({
         <button
           type="button"
           onClick={handleToggleDropdown}
-          className={`relative w-full bg-card border border-gray-300 rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${
-            isOpen ? 'ring-1 ring-blue-500 border-blue-500' : ''
+          className={`relative w-full bg-card border border-line rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-pointer focus:outline-none focus:ring-1 focus:ring-selected focus:border-selected sm:text-sm ${
+            isOpen ? 'ring-1 ring-selected border-selected' : ''
           }`}
           aria-haspopup="listbox"
           aria-expanded={isOpen}
@@ -98,14 +98,14 @@ export function ActorSelector({
                 }
               }}
             >
-              <XMarkIcon className="h-4 w-4 text-gray-400" />
+              <XMarkIcon className="h-4 w-4 text-ink-muted" />
             </span>
           )}
           
           {/* Dropdown arrow */}
           <span className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
             <ChevronDownIcon 
-              className={`h-5 w-5 text-gray-400 transition-transform duration-200 ${
+              className={`h-5 w-5 text-ink-muted transition-transform duration-200 ${
                 isOpen ? 'transform rotate-180' : ''
               }`} 
             />
@@ -114,12 +114,12 @@ export function ActorSelector({
 
         {/* Dropdown menu */}
         {isOpen && (
-          <div className="absolute z-10 mt-1 w-full bg-card shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
+          <div className="absolute z-10 mt-1 w-full bg-card shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black/5 overflow-auto sm:text-sm">
             {/* Search input */}
             <div className="sticky top-0 bg-card px-3 py-2 border-b border-line">
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <MagnifyingGlassIcon className="h-4 w-4 text-gray-400" />
+                  <MagnifyingGlassIcon className="h-4 w-4 text-ink-muted" />
                 </div>
                 <input
                   type="text"
@@ -141,7 +141,7 @@ export function ActorSelector({
                     key={actor}
                     type="button"
                     onClick={() => handleActorSelect(actor)}
-                    className={`w-full text-left px-3 py-2 hover:bg-gray-100 focus:bg-gray-100 focus:outline-none ${
+                    className={`w-full text-left px-3 py-2 hover:bg-subtle focus:bg-subtle focus:outline-none ${
                       actor === selectedActor ? 'bg-blue-50 text-blue-900' : 'text-ink'
                     }`}
                     role="option"
@@ -149,7 +149,7 @@ export function ActorSelector({
                   >
                     <span className="block truncate">{actor}</span>
                     {actor === selectedActor && (
-                      <span className="absolute inset-y-0 right-0 flex items-center pr-4 text-blue-600">
+                      <span className="absolute inset-y-0 right-0 flex items-center pr-4 text-baseline">
                         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                         </svg>

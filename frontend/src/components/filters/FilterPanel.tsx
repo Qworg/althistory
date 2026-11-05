@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { HistoricalDateInput } from './HistoricalDateInput'
 import { parseHistoricalDate } from './filterUtils'
@@ -48,6 +48,9 @@ const DEFAULT_FILTERS: FilterState = {
   searchQuery: ''
 }
 
+/** Actors and targets listed before "Show all". */
+const LIST_PREVIEW = 8
+
 export function FilterPanel({
   filters,
   onFiltersChange,
@@ -58,6 +61,7 @@ export function FilterPanel({
   onClose,
   className = ''
 }: FilterPanelProps) {
+  const [showAll, setShowAll] = useState({ actors: false, targets: false })
   const [searchParams, setSearchParams] = useSearchParams()
   const dateHintId = useId()
 
@@ -214,7 +218,7 @@ export function FilterPanel({
               <button
                 type="button"
                 onClick={onClose}
-                className="p-1 rounded-md text-ink-muted hover:text-ink hover:bg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="p-1 rounded-md text-ink-muted hover:text-ink hover:bg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
                 aria-label="Close filter panel"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
@@ -241,7 +245,7 @@ export function FilterPanel({
                 value={filters.searchQuery}
                 onChange={(e) => handleFilterChange('searchQuery', e.target.value)}
                 placeholder="Search events, arcs, or descriptions..."
-                className="w-full px-3 py-2 border border-line rounded-md bg-card text-ink shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-line rounded-md bg-card text-ink shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected"
               />
             </div>
           )}
@@ -290,8 +294,10 @@ export function FilterPanel({
               <label className="block text-sm font-medium text-ink-secondary mb-2">
                 Actors ({filters.actors.length} selected)
               </label>
-              <div className="max-h-32 overflow-y-auto border border-line rounded-md">
-                {availableActors.map((actor) => (
+              {/* No scroll box inside the scrolling panel: the first
+                  {LIST_PREVIEW} and "Show all". */}
+              <div className="border border-line rounded-md">
+                {(showAll.actors ? availableActors : availableActors.slice(0, LIST_PREVIEW)).map((actor) => (
                   <label
                     key={actor}
                     className="flex items-center px-3 py-2 hover:bg-subtle cursor-pointer"
@@ -300,12 +306,21 @@ export function FilterPanel({
                       type="checkbox"
                       checked={filters.actors.includes(actor)}
                       onChange={(e) => handleMultiSelectChange('actors', actor, e.target.checked)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-line rounded"
+                      className="h-4 w-4 text-baseline focus:ring-selected border-line rounded"
                     />
                     <span className="ml-2 text-sm text-ink-secondary">{actor}</span>
                   </label>
                 ))}
               </div>
+              {availableActors.length > LIST_PREVIEW && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll((prev) => ({ ...prev, actors: !prev.actors }))}
+                  className="mt-1 text-xs font-medium text-baseline hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected rounded-sm"
+                >
+                  {showAll.actors ? 'Show fewer' : `Show all ${availableActors.length}`}
+                </button>
+              )}
             </div>
           )}
 
@@ -315,8 +330,10 @@ export function FilterPanel({
               <label className="block text-sm font-medium text-ink-secondary mb-2">
                 Targets ({filters.targets.length} selected)
               </label>
-              <div className="max-h-32 overflow-y-auto border border-line rounded-md">
-                {availableTargets.map((target) => (
+              {/* No scroll box inside the scrolling panel: the first
+                  {LIST_PREVIEW} and "Show all". */}
+              <div className="border border-line rounded-md">
+                {(showAll.targets ? availableTargets : availableTargets.slice(0, LIST_PREVIEW)).map((target) => (
                   <label
                     key={target}
                     className="flex items-center px-3 py-2 hover:bg-subtle cursor-pointer"
@@ -325,12 +342,21 @@ export function FilterPanel({
                       type="checkbox"
                       checked={filters.targets.includes(target)}
                       onChange={(e) => handleMultiSelectChange('targets', target, e.target.checked)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-line rounded"
+                      className="h-4 w-4 text-baseline focus:ring-selected border-line rounded"
                     />
                     <span className="ml-2 text-sm text-ink-secondary">{target}</span>
                   </label>
                 ))}
               </div>
+              {availableTargets.length > LIST_PREVIEW && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll((prev) => ({ ...prev, targets: !prev.targets }))}
+                  className="mt-1 text-xs font-medium text-baseline hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected rounded-sm"
+                >
+                  {showAll.targets ? 'Show fewer' : `Show all ${availableTargets.length}`}
+                </button>
+              )}
             </div>
           )}
 
@@ -355,42 +381,32 @@ export function FilterPanel({
             </div>
           </div>
 
-          {/* Causal Weight Range */}
+          {/* Link strength: one "at least this strong" slider, in the words
+              the legend uses ("thicker = stronger"). Two stacked sliders for a
+              minimum and a maximum asked for a choice no one makes: hiding
+              the strongest links. A maximum set elsewhere still applies. */}
           <div>
-            <label className="block text-sm font-medium text-ink-secondary mb-2 tabular-nums">
-              Causal Weight Range: {filters.causalWeightRange[0].toFixed(2)} - {filters.causalWeightRange[1].toFixed(2)}
+            <label htmlFor="link-strength" className="block text-sm font-medium text-ink-secondary tabular-nums">
+              Links at least this strong: <span className="font-mono-code">{filters.causalWeightRange[0].toFixed(2)}</span>
             </label>
-            <div className="space-y-2">
-              <input
-                type="range"
-                aria-label="Minimum causal weight"
-                min="0"
-                max="1"
-                step="0.01"
-                value={filters.causalWeightRange[0]}
-                onChange={(e) => handleFilterChange('causalWeightRange', [
-                  parseFloat(e.target.value),
-                  filters.causalWeightRange[1]
-                ])}
-                className="w-full h-2 bg-subtle rounded-lg appearance-none cursor-pointer slider"
-              />
-              <input
-                type="range"
-                aria-label="Maximum causal weight"
-                min="0"
-                max="1"
-                step="0.01"
-                value={filters.causalWeightRange[1]}
-                onChange={(e) => handleFilterChange('causalWeightRange', [
-                  filters.causalWeightRange[0],
-                  parseFloat(e.target.value)
-                ])}
-                className="w-full h-2 bg-subtle rounded-lg appearance-none cursor-pointer slider"
-              />
-            </div>
+            <p id="link-strength-hint" className="mb-2 text-xs text-ink-muted">How strongly a cause influences its effect, from 0 (negligible) to 1 (decisive).</p>
+            <input
+              id="link-strength"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              aria-describedby="link-strength-hint"
+              value={filters.causalWeightRange[0]}
+              onChange={(e) => handleFilterChange('causalWeightRange', [
+                parseFloat(e.target.value),
+                filters.causalWeightRange[1]
+              ])}
+              className="w-full h-2 bg-subtle rounded-lg appearance-none cursor-pointer slider"
+            />
             <div className="flex justify-between text-xs text-ink-muted mt-1 tabular-nums">
-              <span>Min: 0.00</span>
-              <span>Max: 1.00</span>
+              <span>all links</span>
+              <span>only decisive</span>
             </div>
           </div>
         </div>

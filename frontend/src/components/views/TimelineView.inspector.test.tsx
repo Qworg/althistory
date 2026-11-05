@@ -225,7 +225,7 @@ describe('TimelineView: the selected event and why it is there', () => {
     renderView()
     select(wire)
     await user.click(screen.getByRole('button', { name: 'Engines on the Wire' }))
-    expect(screen.getByRole('heading', { name: 'Selected Arc' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Selected arc' })).toBeInTheDocument()
   })
 
   it('omits what the record does not say, and marks arcs found by date', () => {
@@ -240,13 +240,14 @@ describe('TimelineView: the selected event and why it is there', () => {
     expect(within(inspector).getByText('No recorded causes.')).toBeInTheDocument()
   })
 
-  it('is a rule-separated section of the view, not a card inside the card', () => {
-    renderView()
+  it('sits beside the canvas card, not inside it, so selecting never re-measures the canvas', () => {
+    const { container } = renderView()
     select(wire)
     const inspector = screen.getByRole('region', { name: 'Selection inspector' })
-    expect(inspector).toHaveClass('border-t-2')
-    expect(inspector).not.toHaveClass('bg-subtle')
-    expect(inspector).not.toHaveClass('rounded-lg')
+    // Not a card nested inside the timeline's card: its own surface beside it.
+    const timelineCard = container.querySelector('h2.sr-only')!.closest('.rounded-lg')!
+    expect(timelineCard.contains(inspector)).toBe(false)
+    expect(inspector.closest('aside')).toHaveAttribute('aria-label', 'Selection')
     // The actions stay.
     for (const name of ['Edit', 'Assign to arc', 'Branch from this event']) {
       expect(within(inspector).getByRole('button', { name })).toBeInTheDocument()
@@ -263,7 +264,7 @@ describe('TimelineView: the selected event and why it is there', () => {
 
     const dialog = screen.getByRole('dialog', { name: "Delete “Lloyd's adopts engine tables”?" })
     expect(dialog).toHaveTextContent(/Version history/)
-    expect(dialog).toHaveTextContent(/restored from Versions/)
+    expect(dialog).toHaveTextContent(/undo this straight afterwards/)
     expect(dialog).not.toHaveTextContent(/cannot be undone/i)
     expect(within(dialog).getByRole('button', { name: 'Delete event' })).toBeInTheDocument()
   })

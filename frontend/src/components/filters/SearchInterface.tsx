@@ -218,7 +218,7 @@ export function SearchInterface({
           onBlur={handleInputBlur}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="w-full pl-10 pr-10 py-2 border border-line rounded-md bg-card text-ink shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full pl-10 pr-10 py-2 border border-line rounded-md bg-card text-ink shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected"
           aria-label="Search"
           aria-expanded={isOpen}
           aria-haspopup="listbox"
@@ -318,14 +318,8 @@ export function SearchInterface({
         </div>
       )}
 
-      {/* No results message */}
-      {isOpen && showSuggestions && debouncedValue && filteredSuggestions.length === 0 && !isLoading && (
-        <div className="absolute z-50 w-full mt-1 bg-card border border-line rounded-md shadow-lg">
-          <div className="px-4 py-3 text-sm text-ink-muted text-center">
-            No results found for "{debouncedValue}"
-          </div>
-        </div>
-      )}
+      {/* No "No results" popover: it covered the panel below it, and the
+          view's own empty state already says so (with a way out). */}
     </div>
   )
 }

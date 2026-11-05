@@ -297,8 +297,10 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
           <div>
             {/* The breadcrumb and the navigation already name the view. */}
             <h2 className="sr-only">Actor Perspective</h2>
+            {/* One line, for the input in use; the keys are in Help (?). */}
             <p className="text-xs text-ink-muted">
-              Pick an actor · Click a mark, or Tab to it and press Enter, to inspect it · C and T switch the layout, S the statistics
+              Pick an actor, then select a mark to inspect it
+              <span className="[@media(pointer:coarse)]:hidden"> · C and T switch the layout, S the statistics</span>
             </p>
           </div>
           
@@ -349,16 +351,6 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
           className="mb-6"
         />
 
-        {/* Actor statistics */}
-        {selectedActor && showStats && (
-          <div className="transition-all duration-300 ease-in-out">
-            <ActorStats
-              actor={selectedActor}
-              stats={actorStats}
-              className="mb-6"
-            />
-          </div>
-        )}
       </div>
 
       {/* Actor timeline visualization */}
@@ -368,8 +360,15 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
             <h3 className="font-display text-xl font-semibold text-ink">
               Timeline for {selectedActor}
             </h3>
+            {/* The figures that matter at a glance, in one line; the full
+                statistics follow the timeline (the actor's history comes first). */}
             <div className="font-mono-code text-xs text-ink-muted">
-              {actorEvents.length} events across {relevantArcs.length} arcs
+              {actorEvents.length} {actorEvents.length === 1 ? 'event' : 'events'} · {actorStats.relationshipMetrics.asActor} as actor ·{' '}
+              {actorStats.relationshipMetrics.asTarget} as target
+              {actorStats.timeSpan && (
+                <> · {actorStats.timeSpan.start.getUTCFullYear()}–{actorStats.timeSpan.end.getUTCFullYear()}</>
+              )}
+              {' '}· {relevantArcs.length} {relevantArcs.length === 1 ? 'arc' : 'arcs'}
             </div>
           </div>
 
@@ -392,7 +391,7 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
               aria-label="Selected event"
               className="mt-6 p-4 bg-subtle text-ink border border-selected/35 rounded-lg"
             >
-              <h4 className="text-base font-semibold text-ink mb-2">Selected Event</h4>
+              <h4 className="text-base font-semibold text-ink mb-2">Selected event</h4>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                 <div className="sm:col-span-2">
                   <dt className="text-xs font-medium text-ink-muted">Description</dt>
@@ -425,6 +424,13 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
               </dl>
             </section>
           )}
+        </div>
+      )}
+
+      {/* Actor statistics, after the actor's timeline (S shows or hides them) */}
+      {selectedActor && showStats && (
+        <div className="bg-card border border-line rounded-lg shadow-sm p-4 sm:p-6">
+          <ActorStats actor={selectedActor} stats={actorStats} />
         </div>
       )}
 

@@ -150,6 +150,30 @@ export interface IncrementalValidationResponse {
   errors?: ImportError[]
 }
 
+/** Set when the server refused a key this browser sent; cleared by `storeApiKey`. */
+let keyWasRejected = false
+
+/**
+ * How the server is refusing this browser, or null when it is not:
+ * `missing` (no key, 401), `rejected` (a stored key was refused, 401), or
+ * `forbidden` (the key lacks the permission, 403).
+ */
+export type ApiAccessProblem = 'missing' | 'rejected' | 'forbidden'
+
+export function apiAccessProblem(error: unknown): ApiAccessProblem | null {
+  const status =
+    error instanceof APIError ? error.status : axios.isAxiosError(error) ? error.response?.status : undefined
+  if (status === 403) return 'forbidden'
+  if (status === 401) return keyWasRejected ? 'rejected' : 'missing'
+  return null
+}
+
+/** Store a key for this browser; the next request sends it. */
+export function storeApiKey(key: string): void {
+  keyWasRejected = false
+  localStorage.setItem('api_key', key)
+}
+
 // Custom error class for API errors
 export class APIError extends Error {
   constructor(
@@ -222,7 +246,11 @@ class APIClient {
             (error: AxiosError) => {
                 // Handle common errors
                 if (error.response?.status === 401) {
-                    // Clear invalid credentials
+                    // Clear invalid credentials, but remember that a key was
+                    // refused so the UI can say "rejected" rather than "missing".
+                    if (localStorage.getItem('api_key') || localStorage.getItem('auth_token')) {
+                        keyWasRejected = true
+                    }
                     localStorage.removeItem('auth_token')
                     localStorage.removeItem('api_key')
                 }
@@ -805,6 +833,15 @@ class APIClient {
                 const response: AxiosResponse<{ success: boolean; data: ServerVersionRef[] }> =
                     await this.client.get(`/graphs/${id}/versions`, { params: { limit } })
                 return response.data.data.map(withChangedEntities)
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        /** Name a version (an empty label clears the name). */
+        setVersionLabel: async (id: string, version: number, label: string): Promise<void> => {
+            try {
+                await this.client.put(`/graphs/${id}/versions/${version}/label`, { label })
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }

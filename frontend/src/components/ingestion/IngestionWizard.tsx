@@ -17,6 +17,9 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { EntityReviewTable } from './EntityReviewTable'
+import { describeIngestError, type IngestErrorView, type IngestSource } from './ingestErrors'
+import { applyReviewDefaults, historySpan } from './reviewDefaults'
+import { SkippedSentences } from './SkippedSentences'
 import { buildEventLookup, entityLabel, reviewRowId } from './reviewLabels'
 import { knownNames } from './reviewMatching'
 import { useEvents } from '@/hooks/useEvents'
@@ -71,10 +74,10 @@ function focusReviewRow(entityType: IngestionValidationIssue['entityType'], temp
   target?.focus({ preventScroll: true })
 }
 
-const SOURCE_TABS: Array<{ id: SourceTab; label: string; title: string }> = [
-  { id: 'wikipedia', label: 'Wikipedia', title: 'Ingest from Wikipedia' },
-  { id: 'wikidata', label: 'Wikidata', title: 'Ingest from Wikidata' },
-  { id: 'text', label: 'Text', title: 'Ingest from text' },
+const SOURCE_TABS: Array<{ id: SourceTab; label: string }> = [
+  { id: 'wikipedia', label: 'Wikipedia' },
+  { id: 'wikidata', label: 'Wikidata' },
+  { id: 'text', label: 'Text' },
 ]
 
 /** The id of each source tab's form, which the footer's "Extract events" submits. */
@@ -126,13 +129,19 @@ export function IngestionWizard({
     () => (graphEvents && graphEvents.length > 0 ? { names: knownNames(graphEvents), events: graphEvents } : undefined),
     [graphEvents]
   )
+  // The span of the history the rows would join: rows dated well outside it
+  // start unticked and say so (see reviewDefaults).
+  const span = useMemo(() => historySpan(graphEvents), [graphEvents])
+  // The last text extraction, so skipped sentences can be dated and the
+  // passage extracted again (see SkippedSentences).
+  const [lastTextRequest, setLastTextRequest] = useState<TextIngestRequest | null>(null)
   const [activeTab, setActiveTab] = useState<SourceTab>('wikipedia')
   const [jobId, setJobId] = useState<string | null>(null)
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null)
   const [issues, setIssues] = useState<IngestionValidationIssue[]>([])
   const [edits, setEdits] = useState<Record<string, ExtractedEdit>>({})
   const [result, setResult] = useState<ImportResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<IngestErrorView | null>(null)
   const [confirmingDiscard, setConfirmingDiscard] = useState(false)
   const [canSubmitSource, setCanSubmitSource] = useState<Record<SourceTab, boolean>>({
     wikipedia: false,
@@ -170,20 +179,22 @@ export function IngestionWizard({
 
   const startReview = useCallback((response: IngestResponse) => {
     setJobId(response.jobId)
-    setExtraction(response.extraction)
+    // Extractors mark every row selected; the review starts from what
+    // deserves to be ticked instead (see reviewDefaults).
+    setExtraction(applyReviewDefaults(response.extraction, span))
     setIssues(response.validationIssues)
     setEdits({})
     setError(null)
     setStep('review')
-  }, [])
+  }, [span])
 
   const runExtraction = useCallback(
-    async (run: () => Promise<IngestResponse>, fallbackMessage: string) => {
+    async (run: () => Promise<IngestResponse>, source: IngestSource) => {
       setError(null)
       try {
         startReview(await run())
       } catch (err) {
-        setError(err instanceof Error ? err.message : fallbackMessage)
+        setError(describeIngestError(err, source))
       }
     },
     [startReview]
@@ -191,21 +202,22 @@ export function IngestionWizard({
 
   const handleWikipediaSubmit = useCallback(
     (request: WikipediaIngestRequest) => {
-      void runExtraction(() => ingestWikipedia.mutateAsync(request), 'Wikipedia extraction failed')
+      void runExtraction(() => ingestWikipedia.mutateAsync(request), 'wikipedia')
     },
     [ingestWikipedia, runExtraction]
   )
 
   const handleWikidataSubmit = useCallback(
     (request: WikidataIngestRequest) => {
-      void runExtraction(() => ingestWikidata.mutateAsync(request), 'Wikidata extraction failed')
+      void runExtraction(() => ingestWikidata.mutateAsync(request), 'wikidata')
     },
     [ingestWikidata, runExtraction]
   )
 
   const handleTextSubmit = useCallback(
     (request: TextIngestRequest) => {
-      void runExtraction(() => ingestText.mutateAsync(request), 'Text extraction failed')
+      setLastTextRequest(request)
+      void runExtraction(() => ingestText.mutateAsync(request), 'text')
     },
     [ingestText, runExtraction]
   )
@@ -334,7 +346,7 @@ export function IngestionWizard({
   const handleApprove = useCallback(async () => {
     if (!jobId || !extraction) return
     if (selectedCount === 0) {
-      setError('Select at least one entity to import')
+      setError({ message: 'Select at least one row to import.', offerText: false })
       return
     }
 
@@ -368,7 +380,7 @@ export function IngestionWizard({
       setStep('complete')
       onIngestComplete?.(importResult)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed')
+      setError(describeIngestError(err, 'import'))
     }
   }, [
     jobId,
@@ -431,7 +443,7 @@ export function IngestionWizard({
         <button
           type="button"
           onClick={() => setStep('source')}
-          className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2"
         >
           Back
         </button>
@@ -439,7 +451,7 @@ export function IngestionWizard({
           <button
             type="button"
             onClick={handleDiscard}
-            className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2"
           >
             Discard
           </button>
@@ -447,7 +459,7 @@ export function IngestionWizard({
             type="button"
             onClick={handleApprove}
             disabled={approveIngestion.isPending || selectedCount === 0}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
+            className="rounded-md bg-baseline px-4 py-2 text-sm font-medium text-on-accent hover:bg-baseline/90 focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-line"
           >
             {approveIngestion.isPending
               ? 'Adding…'
@@ -462,7 +474,7 @@ export function IngestionWizard({
         <button
           type="button"
           onClick={handleClose}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          className="rounded-md bg-baseline px-4 py-2 text-sm font-medium text-on-accent hover:bg-baseline/90 focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2"
         >
           Close
         </button>
@@ -472,7 +484,7 @@ export function IngestionWizard({
         <button
           type="button"
           onClick={requestClose}
-          className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2"
         >
           Cancel
         </button>
@@ -480,14 +492,16 @@ export function IngestionWizard({
           type="submit"
           form={sourceFormId(activeTab)}
           disabled={isSubmitting || !canSubmitSource[activeTab]}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md bg-baseline px-4 py-2 text-sm font-medium text-on-accent hover:bg-baseline/90 focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSubmitting ? 'Extracting…' : 'Extract events'}
         </button>
       </div>
     )
 
-  const activeTitle = SOURCE_TABS.find((tab) => tab.id === activeTab)?.title ?? 'Bring in history'
+  // One title whatever the tab: the selected tab already names the source, and
+  // a dialog that renamed itself on every tab click read as a new dialog.
+  const activeTitle = 'Bring in history'
 
   return (
     <>
@@ -514,11 +528,11 @@ export function IngestionWizard({
               >
                 <span
                   aria-hidden="true"
-                  className={`font-mono-code inline-flex h-5 w-5 items-center justify-center rounded-full border text-[0.6875rem] ${
+                  className={`font-mono-code inline-flex h-5 w-5 items-center justify-center rounded-full border text-xs ${
                     isCurrent
-                      ? 'border-blue-600 bg-blue-600 text-white'
+                      ? 'border-baseline bg-baseline text-on-accent'
                       : isDone
-                        ? 'border-blue-600 text-blue-700 dark:text-blue-300'
+                        ? 'border-baseline text-baseline'
                         : 'border-line text-ink-muted'
                   }`}
                 >
@@ -560,9 +574,9 @@ export function IngestionWizard({
                 aria-controls={`ingest-panel-${tab.id}`}
                 tabIndex={activeTab === tab.id ? 0 : -1}
                 onClick={() => setActiveTab(tab.id)}
-                className={`rounded-t-md px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                className={`rounded-t-md px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-selected ${
                   activeTab === tab.id
-                    ? 'border-b-2 border-blue-600 text-blue-700'
+                    ? 'border-b-2 border-baseline text-blue-700'
                     : 'text-ink-secondary hover:text-ink'
                 }`}
               >
@@ -618,12 +632,17 @@ export function IngestionWizard({
       {step === 'review' && extraction && (
         <div>
           {(extraction.skippedSentences ?? 0) > 0 && (
-            <p className="mb-4 text-sm text-ink-secondary" role="status">
-              {extraction.skippedSentences === 1
-                ? '1 sentence had no date the reader recognises, so it is not in the list below.'
-                : `${extraction.skippedSentences} sentences had no date the reader recognises, so they are not in the list below.`}{' '}
-              Add a date to a sentence (“In 1862, …”) to bring it in.
-            </p>
+            <SkippedSentences
+              count={extraction.skippedSentences ?? 0}
+              sentences={extraction.skippedSentenceTexts ?? []}
+              hasEdits={hasEdits}
+              canReextract={Boolean(lastTextRequest)}
+              isExtracting={ingestText.isPending}
+              onReextract={(text) => {
+                if (!lastTextRequest) return
+                handleTextSubmit({ ...lastTextRequest, text: text(lastTextRequest.text) })
+              }}
+            />
           )}
           {issues.length > 0 && (
             <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40" role="status">
@@ -636,7 +655,7 @@ export function IngestionWizard({
                     <button
                       type="button"
                       onClick={() => focusReviewRow(issue.entityType, issue.entityTempId)}
-                      className="text-left underline decoration-amber-400 underline-offset-2 hover:decoration-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                      className="text-left underline decoration-amber-400 underline-offset-2 hover:decoration-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
                     >
                       <span className="font-medium">
                         {issue.severity === 'error' ? 'Error' : 'Warning'} ·{' '}
@@ -661,6 +680,7 @@ export function IngestionWizard({
                 entities={extraction.events}
                 issues={issues}
                 graphContext={graphContext}
+                historySpan={span}
                 onToggleSelection={(tempId) => handleToggleSelection('events', tempId)}
                 onEdit={handleEdit}
                 onSelectAll={() => handleSetAllSelected('events', true)}
@@ -730,8 +750,32 @@ export function IngestionWizard({
       )}
 
       {error && (
-        <div role="alert" className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
+        <div role="alert" className="mt-4 rounded-md border border-danger/30 bg-danger/10 p-3 text-sm text-ink">
+          <p>{error.message}</p>
+          {(error.offerText || error.detail) && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+              {error.offerText && step === 'source' && activeTab !== 'text' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('text')
+                    setError(null)
+                  }}
+                  className="rounded-md border border-line bg-card px-2.5 py-1 text-xs font-medium text-ink hover:bg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+                >
+                  Switch to Text
+                </button>
+              )}
+              {error.detail && (
+                <details className="text-xs text-ink-secondary">
+                  <summary className="cursor-pointer select-none rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-selected">
+                    Details
+                  </summary>
+                  <p className="mt-1 font-mono-code break-words">{error.detail}</p>
+                </details>
+              )}
+            </div>
+          )}
         </div>
       )}
     </ModalBase>
@@ -750,16 +794,17 @@ export function IngestionWizard({
               type="button"
               onClick={() => setConfirmingDiscard(false)}
               aria-describedby={discardMessageId}
-              className="rounded-md border border-line bg-card px-3 py-2 text-sm font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              className="rounded-md border border-line bg-card px-3 py-2 text-sm font-medium text-ink hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2"
             >
               Keep reviewing
             </button>
             <button
               type="button"
               onClick={() => void handleDiscard()}
-              className="rounded-md bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-800 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              className="rounded-md bg-danger px-3 py-2 text-sm font-medium text-on-accent hover:bg-danger/90 focus:outline-none focus:ring-2 focus:ring-danger focus:ring-offset-2"
             >
-              Discard
+              {/* Not a second bare "Discard": the footer's shows behind this question. */}
+              Discard review
             </button>
           </div>
         }

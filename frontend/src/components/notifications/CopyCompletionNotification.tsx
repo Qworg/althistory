@@ -71,7 +71,7 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
       return {
         bgColor: 'bg-blue-50',
         borderColor: 'border-blue-200',
-        iconColor: 'text-blue-600',
+        iconColor: 'text-baseline',
         titleColor: 'text-blue-800',
         hoverTitleColor: 'hover:text-blue-800',
         textColor: 'text-blue-700'
@@ -103,11 +103,11 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
 
   const getTitle = () => {
     if (operation.status === 'completed') {
-      return 'Copy Completed Successfully'
+      return 'Copy finished'
     } else if (operation.status === 'failed') {
-      return 'Copy Failed'
+      return 'Copy failed'
     } else {
-      return 'Copy progress'
+      return 'Copying…'
     }
   }
 
@@ -136,9 +136,9 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
     `}>
       {/* Progress bar */}
       {autoHideDelay > 0 && (
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gray-200 rounded-t-lg overflow-hidden">
+        <div className="absolute top-0 left-0 right-0 h-1 bg-line rounded-t-lg overflow-hidden">
           <div 
-            className="h-full bg-gray-400 transition-all duration-100 ease-linear"
+            className="h-full bg-ink-muted transition-all duration-100 ease-linear"
             style={{ width: `${progress}%` }}
           />
         </div>

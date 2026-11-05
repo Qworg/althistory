@@ -53,6 +53,23 @@ function renderPressureTypeIcon(type: string, className = 'w-4 h-4'): React.Reac
  * modal is outside the collapsible region, so clicking an indicator on the
  * timeline opens it whether the section is open or not.
  */
+/**
+ * Why the pressure was inferred, in the history's own terms. The inference
+ * engine's description ("Economic pressure detected in cluster from Jun 1,
+ * 1847 to Jun 18, 1847") restated the row's type and dates; naming the events
+ * it rests on says why, and saves hunting for them on the timeline.
+ */
+function pressureReason(pressure: { description: string; evidenceEvents: Array<{ description: string }> }): string {
+  const generic = /pressure detected in cluster/i.test(pressure.description)
+  const names = pressure.evidenceEvents.map((event) => `“${event.description}”`)
+  if (!generic || names.length === 0) return pressure.description
+  const shown = names.slice(0, 3)
+  const more = names.length - shown.length
+  const list =
+    shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(', ')}${shown.length > 2 ? ',' : ''} and ${shown[shown.length - 1]}`
+  return `Inferred from ${list}${more > 0 ? `, and ${more} more` : ''}.`
+}
+
 export const PressureExploration: React.FC<PressureExplorationProps> = ({
   arcs = [],
   events = [],
@@ -307,7 +324,7 @@ export const PressureExploration: React.FC<PressureExplorationProps> = ({
                           )}
                         </span>
                         <span className="mt-1 block text-sm leading-relaxed text-ink-secondary">
-                          {pressure.description}
+                          {pressureReason(pressure)}
                         </span>
                       </span>
                     </button>

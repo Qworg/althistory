@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatHistoricalDate, formatHistoricalRange, formatHistoricalTimestamp } from './historicalTime'
+import { formatEventDate, formatHistoricalDate, formatHistoricalRange, formatHistoricalTimestamp } from './historicalTime'
 
 describe('historical time formatting', () => {
   it('shows a stored date (UTC midnight) as the date alone', () => {
@@ -25,5 +25,20 @@ describe('historical time formatting', () => {
 
   it('says so for an invalid date rather than printing NaN', () => {
     expect(formatHistoricalTimestamp('not a date', 'en-US')).toBe('Invalid date')
+  })
+})
+
+describe('event dates at the precision their source gave', () => {
+  const at = (datePrecision?: string) => ({ timestamp: '1871-03-01T00:00:00.000Z', metadata: datePrecision ? { datePrecision } : {} })
+
+  it('does not invent a day for "March 1871", or a month for "1871"', () => {
+    expect(formatEventDate(at('month'), 'en-US')).toBe('Mar 1871')
+    expect(formatEventDate(at('year'), 'en-US')).toBe('1871')
+  })
+
+  it('shows a full date when the precision is a day or unrecorded', () => {
+    expect(formatEventDate(at('day'), 'en-US')).toBe('Mar 1, 1871')
+    expect(formatEventDate(at(), 'en-US')).toBe('Mar 1, 1871')
+    expect(formatEventDate(at('fortnight'), 'en-US')).toBe('Mar 1, 1871')
   })
 })

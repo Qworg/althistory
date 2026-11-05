@@ -114,7 +114,7 @@ const LAYOUT_ACTION_DESCRIPTIONS: Record<string, string> = {
 const viewSwitchShortcuts: Shortcut[] = VIEW_SHORTCUT_CONFIGS.map((config) => ({
   id: `view-${config.mode}`,
   scope: 'global',
-  combos: [['Alt', config.shortcut]],
+  combos: [['Shift', config.shortcut], ['Alt', config.shortcut]],
   description: `Switch to the ${VIEW_LABELS[config.mode]} view`,
 }))
 

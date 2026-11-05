@@ -109,3 +109,35 @@ describe('accent token contrast (WCAG 1.4.11, 3:1 for graphics)', () => {
     }
   }
 })
+
+// Filled accent buttons (bg-baseline / bg-selected) carry text-on-accent, which
+// is body-size text: 4.5:1. White on the dark theme's light accents measured
+// 2.5:1 (baseline) and 3.0:1 (selected), which is why the token exists.
+describe('text on a filled accent (WCAG AA, 4.5:1)', () => {
+  for (const [theme, tokens] of Object.entries(themes)) {
+    for (const accent of ['--accent-baseline', '--accent-selected'] as const) {
+      it(`${theme}: --text-on-accent on ${accent}`, () => {
+        const ratio = contrast(resolve(tokens, '--text-on-accent'), resolve(tokens, accent))
+        expect(ratio, `${resolve(tokens, '--text-on-accent')} on ${resolve(tokens, accent)}`).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
+
+  it('measures the dark-theme failure it replaced', () => {
+    expect(contrast('#ffffff', '#60a5fa')).toBeLessThan(3)
+  })
+})
+
+// Status ink (success / warning / danger) is used for message text.
+describe('status ink contrast (WCAG AA, 4.5:1)', () => {
+  for (const [theme, tokens] of Object.entries(themes)) {
+    for (const status of ['--status-success', '--status-warning', '--status-danger'] as const) {
+      for (const surface of SURFACES) {
+        it(`${theme}: ${status} on ${surface}`, () => {
+          const ratio = contrast(resolve(tokens, status), resolve(tokens, surface))
+          expect(ratio, `${resolve(tokens, status)} on ${resolve(tokens, surface)}`).toBeGreaterThanOrEqual(4.5)
+        })
+      }
+    }
+  }
+})

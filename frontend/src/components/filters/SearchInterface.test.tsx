@@ -181,16 +181,15 @@ describe('SearchInterface', () => {
     expect(loadingSpinner).toBeInTheDocument()
   })
 
-  it('shows no results message when no suggestions match', async () => {
+  it('shows no popover when no suggestions match (the view empty state says so)', async () => {
     render(<SearchInterface {...mockProps} value="nonexistent" />)
-    
+
     const input = screen.getByRole('combobox')
     fireEvent.focus(input)
-    
-    // Wait for debounce to complete
-    await waitFor(() => {
-      expect(screen.getByText(/No results found/)).toBeInTheDocument()
-    }, { timeout: 1500 })
+
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(screen.queryByText(/No results found/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 
   it('displays correct icons for different suggestion types', async () => {

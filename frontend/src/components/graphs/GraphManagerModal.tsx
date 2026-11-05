@@ -14,6 +14,8 @@ import { Graph, GraphStatus, CreateGraphRequest } from '@/types'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { BranchComparisonModal } from '@/components/branch/BranchComparisonModal'
 import { CreateGraphModal } from './CreateGraphModal'
+import { Portal } from '@/components/ui/Portal'
+import { branchLabel } from './graphTree'
 
 interface GraphManagerModalProps {
   isOpen: boolean
@@ -131,45 +133,37 @@ export const GraphManagerModal = memo(function GraphManagerModal({
       title="Graph Manager"
       size="4xl"
     >
-      <div className="flex h-[600px]">
-        {/* Sidebar Navigation */}
-        <div className="w-48 border-r border-line bg-subtle flex flex-col">
-          <nav className="flex-1 p-2">
-            {(['graphs', 'branches'] as Tab[]).map(tab => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`
-                  w-full px-3 py-2 rounded text-left text-sm font-medium capitalize
-                  ${activeTab === tab 
-                    ? 'bg-selected/10 text-ink' 
-                    : 'text-ink-secondary hover:bg-card hover:text-ink'}
-                  transition-colors
-                `}
-              >
-                {tab}
-              </button>
-            ))}
-          </nav>
-
-          {/* Current Graph Info */}
+      {/* Two tabs across the top. As a 12rem column of their own (with a
+          repeat of the open graph under them) they left that column mostly
+          empty and took the width the lists needed. */}
+      <div className="flex max-h-[70vh] min-h-[24rem] flex-col">
+        <div role="tablist" aria-label="Graph Manager sections" className="flex gap-1 border-b border-line">
+          {(['graphs', 'branches'] as Tab[]).map(tab => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
+              onClick={() => setActiveTab(tab)}
+              className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium capitalize transition-colors ${
+                activeTab === tab ? 'border-selected text-ink' : 'border-transparent text-ink-secondary hover:text-ink'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
           {activeGraph && (
-            <div className="p-3 border-t border-line bg-card">
-              <div className="text-xs text-ink-muted mb-1">Active Graph</div>
-              <div className="font-medium text-sm text-ink truncate">
-                {activeGraph.name}
-              </div>
-              <div className="text-xs text-ink-muted mt-1 font-mono-code">
-                {headVersion !== null ? `v${headVersion} · ` : ''}{activeGraph.metadata.eventCount} events
-              </div>
-            </div>
+            <span className="ml-auto self-center truncate pl-4 text-xs text-ink-muted">
+              Open: <span className="font-medium text-ink-secondary">{activeGraph.name}</span>
+              {headVersion !== null && <span className="font-mono-code"> · v{headVersion}</span>}
+            </span>
           )}
         </div>
 
         {/* Main Content */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Tab Content */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto pt-4">
             {activeTab === 'graphs' && (
               <GraphsTab
                 graphs={graphs}
@@ -190,6 +184,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
 
             {activeTab === 'branches' && (
               <BranchesTab
+                parent={activeGraph ?? null}
                 branches={branches || []}
                 activeGraphId={activeGraphId}
                 isLoading={isLoadingBranches}
@@ -205,85 +200,89 @@ export const GraphManagerModal = memo(function GraphManagerModal({
 
       {/* Branch Dialog */}
       {showBranchDialog && (
+        <Portal>
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div role="dialog" aria-modal="true" aria-labelledby="graph-manager-branch-title" className="bg-card text-ink border border-line rounded-lg p-6 w-[28rem] max-w-[calc(100vw-2rem)] shadow-xl">
-            <h2 id="graph-manager-branch-title" className="font-display text-xl font-semibold text-ink mb-2">Create branch</h2>
-            <p className="text-sm text-ink-secondary mb-4">
-              The branch starts as a full copy of {activeGraph?.name ?? 'the active graph'}, which stays as it is.
-              Switch to the branch to explore the what-if.
-            </p>
-            <label htmlFor="graph-manager-branch-name" className="block text-sm font-medium text-ink mb-1">
-              Branch name
-            </label>
-            <input
-              id="graph-manager-branch-name"
-              type="text"
-              value={branchName}
-              onChange={(e) => setBranchName(e.target.value)}
-              placeholder="e.g. Clerks Prevail"
-              maxLength={255}
-              className="w-full px-3 py-2 border border-line bg-card text-ink rounded mb-3 text-sm focus:outline-none focus:ring-2 focus:ring-selected"
-              autoFocus
-            />
-            <label htmlFor="graph-manager-branch-description" className="block text-sm font-medium text-ink mb-1">
-              Description <span className="font-normal text-ink-muted">(optional)</span>
-            </label>
-            <textarea
-              id="graph-manager-branch-description"
-              value={branchDescription}
-              onChange={(e) => setBranchDescription(e.target.value)}
-              rows={2}
-              className="w-full px-3 py-2 border border-line bg-card text-ink rounded mb-4 text-sm focus:outline-none focus:ring-2 focus:ring-selected"
-            />
-            {branchError && (
-              <p role="alert" className="mb-4 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-800 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-200">
-                Couldn't create the branch: {branchError}
+            <div role="dialog" aria-modal="true" aria-labelledby="graph-manager-branch-title" className="bg-card text-ink border border-line rounded-lg p-6 w-[28rem] max-w-[calc(100vw-2rem)] shadow-xl">
+              <h2 id="graph-manager-branch-title" className="font-display text-xl font-semibold text-ink mb-2">Create branch</h2>
+              <p className="text-sm text-ink-secondary mb-4">
+                The branch starts as a full copy of {activeGraph?.name ?? 'the active graph'}, which stays as it is.
+                Switch to the branch to explore the what-if.
               </p>
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowBranchDialog(false)}
-                className="px-4 py-2 text-sm text-ink-secondary hover:bg-subtle hover:text-ink rounded"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleBranchGraph}
-                disabled={!branchName.trim() || isBranching}
-                className="px-4 py-2 text-sm bg-baseline text-white rounded hover:bg-baseline/90 disabled:opacity-50"
-              >
-                {isBranching ? 'Creating branch…' : 'Create branch'}
-              </button>
+              <label htmlFor="graph-manager-branch-name" className="block text-sm font-medium text-ink mb-1">
+                Branch name
+              </label>
+              <input
+                id="graph-manager-branch-name"
+                type="text"
+                value={branchName}
+                onChange={(e) => setBranchName(e.target.value)}
+                placeholder="e.g. Clerks Prevail"
+                maxLength={255}
+                className="w-full px-3 py-2 border border-line bg-card text-ink rounded mb-3 text-sm focus:outline-none focus:ring-2 focus:ring-selected"
+                autoFocus
+              />
+              <label htmlFor="graph-manager-branch-description" className="block text-sm font-medium text-ink mb-1">
+                Description <span className="font-normal text-ink-muted">(optional)</span>
+              </label>
+              <textarea
+                id="graph-manager-branch-description"
+                value={branchDescription}
+                onChange={(e) => setBranchDescription(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 border border-line bg-card text-ink rounded mb-4 text-sm focus:outline-none focus:ring-2 focus:ring-selected"
+              />
+              {branchError && (
+                <p role="alert" className="mb-4 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-800 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-200">
+                  Couldn't create the branch: {branchError}
+                </p>
+              )}
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowBranchDialog(false)}
+                  className="px-4 py-2 text-sm text-ink-secondary hover:bg-subtle hover:text-ink rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleBranchGraph}
+                  disabled={!branchName.trim() || isBranching}
+                  className="px-4 py-2 text-sm bg-baseline text-on-accent rounded hover:bg-baseline/90 disabled:opacity-50"
+                >
+                  {isBranching ? 'Creating branch…' : 'Create branch'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+      </Portal>
       )}
 
       {/* Delete Confirmation Dialog */}
       {showDeleteDialog && selectedGraph && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div role="dialog" aria-modal="true" aria-labelledby="graph-manager-delete-title" className="bg-card text-ink border border-line rounded-lg p-6 w-96 max-w-[calc(100vw-2rem)] shadow-xl">
-            <h2 id="graph-manager-delete-title" className="font-display text-xl font-semibold mb-2 text-red-700 dark:text-red-300">Delete graph</h2>
-            <p className="text-sm text-ink-secondary mb-4">
-              Are you sure you want to delete "{selectedGraph.name}"? This action cannot be undone.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowDeleteDialog(false)}
-                className="px-4 py-2 text-sm text-ink-secondary hover:bg-subtle hover:text-ink rounded"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteGraph}
-                disabled={isDeleting}
-                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-              >
-                {isDeleting ? 'Deleting...' : 'Delete'}
-              </button>
+        <Portal>
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div role="dialog" aria-modal="true" aria-labelledby="graph-manager-delete-title" className="bg-card text-ink border border-line rounded-lg p-6 w-96 max-w-[calc(100vw-2rem)] shadow-xl">
+              <h2 id="graph-manager-delete-title" className="font-display text-xl font-semibold mb-2 text-red-700 dark:text-red-300">Delete graph</h2>
+              <p className="text-sm text-ink-secondary mb-4">
+                Are you sure you want to delete "{selectedGraph.name}"? This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowDeleteDialog(false)}
+                  className="px-4 py-2 text-sm text-ink-secondary hover:bg-subtle hover:text-ink rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteGraph}
+                  disabled={isDeleting}
+                  className="px-4 py-2 bg-danger text-on-accent rounded hover:bg-danger/90 disabled:opacity-50"
+                >
+                  {isDeleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </Portal>
       )}
 
       {/* Branch Divergence / Comparison Explorer */}
@@ -349,7 +348,7 @@ const GraphsTab = memo(function GraphsTab({
         <div className="flex items-center gap-2">
           <button
             onClick={onCreate}
-            className="px-3 py-1.5 text-sm bg-baseline text-white rounded hover:bg-baseline/90"
+            className="px-3 py-1.5 text-sm bg-baseline text-on-accent rounded hover:bg-baseline/90"
           >
             New Graph
           </button>
@@ -363,15 +362,19 @@ const GraphsTab = memo(function GraphsTab({
         </div>
       </div>
 
-      <div className="grid gap-3">
+      {/* Rows divided by rules, not a card per graph: inside the dialog's
+          own panel that was a card in a card (in a card, for the Open pill). */}
+      <div className="divide-y divide-line border-y border-line">
         {graphs.map(graph => (
           <div
             key={graph.id}
+            data-graph-row
+            aria-current={graph.id === activeGraphId ? 'true' : undefined}
             onClick={() => onSelect(graph)}
             className={`
-              p-4 border rounded-lg cursor-pointer transition-all
-              ${graph.id === activeGraphId ? 'border-selected bg-selected/10' : 'border-line hover:border-ink-muted'}
-              ${selectedGraph?.id === graph.id ? 'ring-2 ring-selected' : ''}
+              px-3 py-4 cursor-pointer transition-colors
+              ${graph.id === activeGraphId ? 'bg-selected/10' : 'hover:bg-subtle'}
+              ${selectedGraph?.id === graph.id ? 'ring-2 ring-inset ring-selected' : ''}
             `}
           >
             {editingGraph?.id === graph.id ? (
@@ -401,7 +404,7 @@ const GraphsTab = memo(function GraphsTab({
                 <div className="flex gap-2">
                   <button
                     onClick={onSaveEdit}
-                    className="px-3 py-1 bg-baseline text-white rounded text-sm hover:bg-baseline/90"
+                    className="px-3 py-1 bg-baseline text-on-accent rounded text-sm hover:bg-baseline/90"
                   >
                     Save
                   </button>
@@ -418,14 +421,26 @@ const GraphsTab = memo(function GraphsTab({
               <>
                 <div className="flex items-start justify-between">
                   <div>
+                    {/* A branch by its own name, as in the graph selector, with
+                        the history it branches from under it: the same branch
+                        was "Clerks Prevail" in one place and "The Engine Age —
+                        Clerks Prevail" in another. */}
                     <h4 className="text-base font-semibold text-ink">
-                      {graph.name}
-                      {graph.branchName && (
+                      {(() => {
+                        const parent = graph.parentGraphId ? graphs.find(g => g.id === graph.parentGraphId) ?? null : null
+                        return branchLabel(graph, parent)
+                      })()}
+                      {graph.branchName && graph.branchName !== branchLabel(graph, graphs.find(g => g.id === graph.parentGraphId) ?? null) && (
                         <span className="ml-2 text-xs text-ink-secondary border border-divergence/50 px-1.5 py-0.5 rounded">
                           {graph.branchName}
                         </span>
                       )}
                     </h4>
+                    {graph.parentGraphId && (
+                      <p className="mt-0.5 text-xs text-ink-secondary">
+                        Branch of {graphs.find(g => g.id === graph.parentGraphId)?.name ?? 'another graph'}
+                      </p>
+                    )}
                     {graph.description && (
                       <p className="text-sm text-ink-muted mt-1">{graph.description}</p>
                     )}
@@ -433,8 +448,11 @@ const GraphsTab = memo(function GraphsTab({
                   {/* "Active" is the default status of every graph, so it says
                       nothing; the badge marks the exceptions and the open one. */}
                   {graph.id === activeGraphId ? (
-                    <span className="shrink-0 rounded border border-selected/30 px-2 py-0.5 text-xs font-medium text-selected">
-                      Open
+                    // A status, not an action: a dot and "Open now", so it does
+                    // not read as a button beside the real ones.
+                    <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-ink-secondary">
+                      <span className="h-2 w-2 rounded-full bg-selected" aria-hidden="true" />
+                      Open now
                     </span>
                   ) : graph.status !== 'active' ? (
                     <span className="shrink-0 rounded bg-subtle px-2 py-0.5 text-xs capitalize text-ink-secondary">
@@ -454,7 +472,7 @@ const GraphsTab = memo(function GraphsTab({
                     {graph.id !== activeGraphId && (
                       <button
                         onClick={() => onSwitch(graph.id)}
-                        className="px-3 py-1 bg-baseline text-white rounded text-sm hover:bg-baseline/90"
+                        className="px-3 py-1 bg-baseline text-on-accent rounded text-sm hover:bg-baseline/90"
                       >
                         Switch to Graph
                       </button>
@@ -483,6 +501,8 @@ const GraphsTab = memo(function GraphsTab({
 })
 
 interface BranchesTabProps {
+  /** The graph these branch from, for their short names. */
+  parent: Graph | null
   branches: Graph[]
   activeGraphId: string | null
   isLoading: boolean
@@ -492,6 +512,7 @@ interface BranchesTabProps {
 }
 
 const BranchesTab = memo(function BranchesTab({
+  parent,
   branches,
   activeGraphId,
   isLoading,
@@ -520,19 +541,21 @@ const BranchesTab = memo(function BranchesTab({
           No branches yet. Create a branch to explore alternative timelines.
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div className="divide-y divide-line border-y border-line">
           {branches.map(branch => (
             <div
               key={branch.id}
+              data-graph-row
+              aria-current={branch.id === activeGraphId ? 'true' : undefined}
               className={`
-                p-4 border rounded-lg
-                ${branch.id === activeGraphId ? 'border-selected bg-selected/10' : 'border-line'}
+                px-3 py-4
+                ${branch.id === activeGraphId ? 'bg-selected/10' : ''}
               `}
             >
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-base font-semibold text-ink">
-                    {branch.name}
+                    {branchLabel(branch, parent)}
                   </h4>
                   <div className="text-sm text-ink-muted mt-1">
                     {branch.metadata.eventCount} events <GraphHeadVersion graph={branch} prefix=" · " />
@@ -549,7 +572,7 @@ const BranchesTab = memo(function BranchesTab({
                   {branch.id !== activeGraphId && (
                     <button
                       onClick={() => onSwitch(branch.id)}
-                      className="px-3 py-1 bg-baseline text-white rounded text-sm hover:bg-baseline/90"
+                      className="px-3 py-1 bg-baseline text-on-accent rounded text-sm hover:bg-baseline/90"
                     >
                       Switch
                     </button>

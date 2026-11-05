@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Arc, Event, UpdateArcRequest, CreateArcRequest } from '@/types'
 import { formatDuration } from '../timeline/arcHierarchyUtils'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { Portal } from '@/components/ui/Portal'
 
 // Helper to convert an ISO instant to a datetime-local value (YYYY-MM-DDTHH:mm), in UTC
 const isoToDatetimeLocal = (isoString: string): string => {
@@ -217,226 +218,228 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
   const duration = arc ? formatDuration(new Date(arc.start_time), new Date(arc.end_time)) : null
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="arc-panel-title"
-      className={`fixed inset-y-0 right-0 w-96 bg-white shadow-xl border-l border-gray-200 transform transition-transform duration-300 ease-in-out z-50 ${className}`}
-    >
-      <div className="flex flex-col h-full">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h2 id="arc-panel-title" className="font-display text-xl font-semibold text-ink">
-            {isCreateMode ? 'Create Arc' : 'Arc Details'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-md transition-colors"
-            aria-label="Close panel"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {/* General Error */}
-          {errors.general && (
-            <div className="bg-red-50 border border-red-200 rounded-md p-3" role="alert">
-              <p className="text-sm text-red-600">{errors.general}</p>
-            </div>
-          )}
-
-          {/* Basic Information */}
-          <div className="space-y-4">
-            <h3 className="text-base font-semibold text-ink">Basic Information</h3>
-            
-            <div>
-              <label htmlFor="arc-name" className="block text-sm font-medium text-gray-700 mb-1">
-                Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                id="arc-name"
-                type="text"
-                value={formData.name || ''}
-                onChange={(e) => handleInputChange('name', e.target.value)}
-                aria-required="true"
-                aria-invalid={!!errors.name}
-                aria-describedby={errors.name ? 'arc-name-error' : undefined}
-                className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                  errors.name ? 'border-red-300' : 'border-gray-300'
-                }`}
-                placeholder="Enter arc name"
-              />
-              {errors.name && <p id="arc-name-error" role="alert" className="mt-1 text-sm text-red-600">{errors.name}</p>}
-            </div>
-
-            <div>
-              <label htmlFor="arc-description" className="block text-sm font-medium text-gray-700 mb-1">
-                Description <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                id="arc-description"
-                value={formData.description || ''}
-                onChange={(e) => handleInputChange('description', e.target.value)}
-                rows={3}
-                aria-required="true"
-                aria-invalid={!!errors.description}
-                aria-describedby={errors.description ? 'arc-description-error' : undefined}
-                className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                  errors.description ? 'border-red-300' : 'border-gray-300'
-                }`}
-                placeholder="Enter arc description"
-              />
-              {errors.description && <p id="arc-description-error" role="alert" className="mt-1 text-sm text-red-600">{errors.description}</p>}
-            </div>
-          </div>
-
-          {/* Time Range */}
-          <div className="space-y-4">
-            <h3 className="text-base font-semibold text-ink">Time Range</h3>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="arc-start-time" className="block text-sm font-medium text-gray-700 mb-1">
-                  Start Time <span className="font-normal text-ink-muted">(UTC)</span> <span className="text-red-500">*</span>
-                </label>
-                <input
-                  id="arc-start-time"
-                  type="datetime-local"
-                  value={formData.start_time || ''}
-                  onChange={(e) => handleInputChange('start_time', e.target.value)}
-                  aria-required="true"
-                  aria-invalid={!!errors.start_time}
-                  aria-describedby={errors.start_time ? 'arc-start-time-error' : undefined}
-                  className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                    errors.start_time ? 'border-red-300' : 'border-gray-300'
-                  }`}
-                />
-                {errors.start_time && <p id="arc-start-time-error" role="alert" className="mt-1 text-sm text-red-600">{errors.start_time}</p>}
-              </div>
-
-              <div>
-                <label htmlFor="arc-end-time" className="block text-sm font-medium text-gray-700 mb-1">
-                  End Time <span className="font-normal text-ink-muted">(UTC)</span> <span className="text-red-500">*</span>
-                </label>
-                <input
-                  id="arc-end-time"
-                  type="datetime-local"
-                  value={formData.end_time || ''}
-                  onChange={(e) => handleInputChange('end_time', e.target.value)}
-                  aria-required="true"
-                  aria-invalid={!!errors.end_time}
-                  aria-describedby={errors.end_time ? 'arc-end-time-error' : undefined}
-                  className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                    errors.end_time ? 'border-red-300' : 'border-gray-300'
-                  }`}
-                />
-                {errors.end_time && <p id="arc-end-time-error" role="alert" className="mt-1 text-sm text-red-600">{errors.end_time}</p>}
-              </div>
-            </div>
-
-            {errors.time_range && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3" role="alert">
-                <p className="text-sm text-yellow-600">{errors.time_range}</p>
-              </div>
-            )}
-
-            {duration && (
-              <div className="text-sm text-gray-500">
-                Duration: {duration}
-              </div>
-            )}
-          </div>
-
-          {/* Hierarchy Information - only show in edit mode */}
-          {!isCreateMode && (
-            <div className="space-y-4">
-              <h3 className="text-base font-semibold text-ink">Hierarchy</h3>
-
-              {parentArc && (
-                <div className="bg-gray-50 rounded-md p-3">
-                  <p className="text-sm text-gray-600">
-                    <span className="font-medium">Parent Arc:</span> {parentArc.name}
-                  </p>
-                </div>
-              )}
-
-              {childArcs.length > 0 && (
-                <div className="bg-gray-50 rounded-md p-3">
-                  <p className="text-sm text-gray-600 mb-2">
-                    <span className="font-medium">Child Arcs ({childArcs.length}):</span>
-                  </p>
-                  <ul className="space-y-1">
-                    {childArcs.map(child => (
-                      <li key={child.id} className="text-sm text-gray-500 pl-2">
-                        • {child.name}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Contained Events - only show in edit mode */}
-          {!isCreateMode && (
-            <div className="space-y-4">
-              <h3 className="text-base font-semibold text-ink">
-                Contained Events ({containedEvents.length})
-              </h3>
-
-              {containedEvents.length > 0 ? (
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {containedEvents.map(event => (
-                    <div key={event.id} className="bg-gray-50 rounded-md p-3">
-                      <p className="text-sm font-medium text-gray-900">{event.description}</p>
-                      <p className="text-xs text-gray-500">
-                        {event.actor} → {event.target} • <span className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</span>
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-500 italic">No events contained in this arc</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="border-t border-gray-200 p-4 space-y-3">
-          <div className="flex space-x-3">
-            <button
-              onClick={handleSave}
-              disabled={isLoading}
-              className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isLoading ? (isCreateMode ? 'Creating...' : 'Saving...') : (isCreateMode ? 'Create Arc' : 'Save Changes')}
-            </button>
+    <Portal>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="arc-panel-title"
+        className={`fixed inset-y-0 right-0 w-96 bg-card shadow-xl border-l border-line transform transition-transform duration-300 ease-in-out z-50 ${className}`}
+      >
+        <div className="flex flex-col h-full">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 border-b border-line">
+            <h2 id="arc-panel-title" className="font-display text-xl font-semibold text-ink">
+              {isCreateMode ? 'Create Arc' : 'Arc Details'}
+            </h2>
             <button
               onClick={onClose}
-              disabled={isLoading}
-              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="p-2 hover:bg-subtle rounded-md transition-colors"
+              aria-label="Close panel"
             >
-              Cancel
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
 
-          {!isCreateMode && onDelete && (
-            <button
-              onClick={handleDelete}
-              disabled={isLoading}
-              className="w-full bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isLoading ? 'Deleting...' : 'Delete Arc'}
-            </button>
-          )}
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            {/* General Error */}
+            {errors.general && (
+              <div className="bg-red-50 border border-red-200 rounded-md p-3" role="alert">
+                <p className="text-sm text-red-600">{errors.general}</p>
+              </div>
+            )}
+
+            {/* Basic Information */}
+            <div className="space-y-4">
+              <h3 className="text-base font-semibold text-ink">Basic Information</h3>
+            
+              <div>
+                <label htmlFor="arc-name" className="block text-sm font-medium text-ink-secondary mb-1">
+                  Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="arc-name"
+                  type="text"
+                  value={formData.name || ''}
+                  onChange={(e) => handleInputChange('name', e.target.value)}
+                  aria-required="true"
+                  aria-invalid={!!errors.name}
+                  aria-describedby={errors.name ? 'arc-name-error' : undefined}
+                  className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+                    errors.name ? 'border-red-300' : 'border-line'
+                  }`}
+                  placeholder="Enter arc name"
+                />
+                {errors.name && <p id="arc-name-error" role="alert" className="mt-1 text-sm text-red-600">{errors.name}</p>}
+              </div>
+
+              <div>
+                <label htmlFor="arc-description" className="block text-sm font-medium text-ink-secondary mb-1">
+                  Description <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  id="arc-description"
+                  value={formData.description || ''}
+                  onChange={(e) => handleInputChange('description', e.target.value)}
+                  rows={3}
+                  aria-required="true"
+                  aria-invalid={!!errors.description}
+                  aria-describedby={errors.description ? 'arc-description-error' : undefined}
+                  className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+                    errors.description ? 'border-red-300' : 'border-line'
+                  }`}
+                  placeholder="Enter arc description"
+                />
+                {errors.description && <p id="arc-description-error" role="alert" className="mt-1 text-sm text-red-600">{errors.description}</p>}
+              </div>
+            </div>
+
+            {/* Time Range */}
+            <div className="space-y-4">
+              <h3 className="text-base font-semibold text-ink">Time Range</h3>
+            
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="arc-start-time" className="block text-sm font-medium text-ink-secondary mb-1">
+                    Start Time <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="arc-start-time"
+                    type="datetime-local"
+                    value={formData.start_time || ''}
+                    onChange={(e) => handleInputChange('start_time', e.target.value)}
+                    aria-required="true"
+                    aria-invalid={!!errors.start_time}
+                    aria-describedby={errors.start_time ? 'arc-start-time-error' : undefined}
+                    className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+                      errors.start_time ? 'border-red-300' : 'border-line'
+                    }`}
+                  />
+                  {errors.start_time && <p id="arc-start-time-error" role="alert" className="mt-1 text-sm text-red-600">{errors.start_time}</p>}
+                </div>
+
+                <div>
+                  <label htmlFor="arc-end-time" className="block text-sm font-medium text-ink-secondary mb-1">
+                    End Time <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="arc-end-time"
+                    type="datetime-local"
+                    value={formData.end_time || ''}
+                    onChange={(e) => handleInputChange('end_time', e.target.value)}
+                    aria-required="true"
+                    aria-invalid={!!errors.end_time}
+                    aria-describedby={errors.end_time ? 'arc-end-time-error' : undefined}
+                    className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+                      errors.end_time ? 'border-red-300' : 'border-line'
+                    }`}
+                  />
+                  {errors.end_time && <p id="arc-end-time-error" role="alert" className="mt-1 text-sm text-red-600">{errors.end_time}</p>}
+                </div>
+              </div>
+
+              {errors.time_range && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3" role="alert">
+                  <p className="text-sm text-yellow-600">{errors.time_range}</p>
+                </div>
+              )}
+
+              {duration && (
+                <div className="text-sm text-ink-muted">
+                  Duration: {duration}
+                </div>
+              )}
+            </div>
+
+            {/* Hierarchy Information - only show in edit mode */}
+            {!isCreateMode && (
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold text-ink">Hierarchy</h3>
+
+                {parentArc && (
+                  <div className="bg-subtle rounded-md p-3">
+                    <p className="text-sm text-ink-secondary">
+                      <span className="font-medium">Parent Arc:</span> {parentArc.name}
+                    </p>
+                  </div>
+                )}
+
+                {childArcs.length > 0 && (
+                  <div className="bg-subtle rounded-md p-3">
+                    <p className="text-sm text-ink-secondary mb-2">
+                      <span className="font-medium">Child Arcs ({childArcs.length}):</span>
+                    </p>
+                    <ul className="space-y-1">
+                      {childArcs.map(child => (
+                        <li key={child.id} className="text-sm text-ink-muted pl-2">
+                          • {child.name}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Contained Events - only show in edit mode */}
+            {!isCreateMode && (
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold text-ink">
+                  Contained Events ({containedEvents.length})
+                </h3>
+
+                {containedEvents.length > 0 ? (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {containedEvents.map(event => (
+                      <div key={event.id} className="bg-subtle rounded-md p-3">
+                        <p className="text-sm font-medium text-ink">{event.description}</p>
+                        <p className="text-xs text-ink-muted">
+                          {event.actor} → {event.target} • <span className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</span>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-ink-muted italic">No events contained in this arc</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="border-t border-line p-4 space-y-3">
+            <div className="flex space-x-3">
+              <button
+                onClick={handleSave}
+                disabled={isLoading}
+                className="flex-1 bg-baseline text-on-accent px-4 py-2 rounded-md hover:bg-baseline/90 focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isLoading ? (isCreateMode ? 'Creating...' : 'Saving...') : (isCreateMode ? 'Create Arc' : 'Save Changes')}
+              </button>
+              <button
+                onClick={onClose}
+                disabled={isLoading}
+                className="px-4 py-2 border border-line rounded-md text-ink-secondary hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {!isCreateMode && onDelete && (
+              <button
+                onClick={handleDelete}
+                disabled={isLoading}
+                className="w-full bg-danger text-on-accent px-4 py-2 rounded-md hover:bg-danger/90 focus:outline-none focus:ring-2 focus:ring-danger focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isLoading ? 'Deleting...' : 'Delete Arc'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </Portal>
   )
 }
 

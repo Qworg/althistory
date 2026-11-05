@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { TimeRange, CreateArcRequest, Event, Arc } from '@/types'
 import { useCreateArc } from '@/hooks/useAPI'
 import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { Portal } from '@/components/ui/Portal'
 
 // Helper to convert an ISO instant to a datetime-local value (YYYY-MM-DDTHH:mm), in UTC
 const isoToDatetimeLocal = (isoString: string): string => {
@@ -226,205 +227,207 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
   const duration = formatDuration(new Date(datetimeLocalToIso(formData.start_time)), new Date(datetimeLocalToIso(formData.end_time)))
 
   return (
-    <div className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 ${className}`}>
-      <div role="dialog" aria-modal="true" aria-label="Create New Arc" className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="font-display text-xl font-semibold text-ink">Create New Arc</h2>
-          <button
-            onClick={handleCancel}
-            className="p-2 hover:bg-gray-100 rounded-md transition-colors"
-            aria-label="Close modal"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Content */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* General Error */}
-          {errors.general && (
-            <div className="bg-red-50 border border-red-200 rounded-md p-3">
-              <p className="text-sm text-red-600">{errors.general}</p>
-            </div>
-          )}
-
-          {/* Time Range Info */}
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-            <h3 className="text-base font-semibold text-blue-900 mb-2">Selected Time Range</h3>
-            <div className="text-sm text-blue-700 space-y-1">
-              <div>Start: <span className="font-mono-code">{formatHistoricalTimestamp(datetimeLocalToIso(formData.start_time))}</span></div>
-              <div>End: <span className="font-mono-code">{formatHistoricalTimestamp(datetimeLocalToIso(formData.end_time))}</span></div>
-              <div>Duration: {duration}</div>
-              {containedEvents.length > 0 && (
-                <div>Contains {containedEvents.length} event{containedEvents.length !== 1 ? 's' : ''}</div>
-              )}
-            </div>
+    <Portal>
+      <div className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 ${className}`}>
+        <div role="dialog" aria-modal="true" aria-label="Create New Arc" className="bg-card rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between p-6 border-b border-line">
+            <h2 className="font-display text-xl font-semibold text-ink">Create New Arc</h2>
+            <button
+              onClick={handleCancel}
+              className="p-2 hover:bg-subtle rounded-md transition-colors"
+              aria-label="Close modal"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
 
-          {/* Basic Information */}
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="arc-name" className="block text-sm font-medium text-gray-700 mb-1">
-                Name *
-              </label>
-              <input
-                id="arc-name"
-                type="text"
-                value={formData.name}
-                onChange={(e) => handleInputChange('name', e.target.value)}
-                className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                  errors.name ? 'border-red-300' : 'border-gray-300'
-                }`}
-                placeholder="Enter arc name"
-                required
-              />
-              {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
-            </div>
-
-            <div>
-              <label htmlFor="arc-description" className="block text-sm font-medium text-gray-700 mb-1">
-                Description *
-              </label>
-              <textarea
-                id="arc-description"
-                value={formData.description}
-                onChange={(e) => handleInputChange('description', e.target.value)}
-                rows={3}
-                className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                  errors.description ? 'border-red-300' : 'border-gray-300'
-                }`}
-                placeholder="Enter arc description"
-                required
-              />
-              {errors.description && <p className="mt-1 text-sm text-red-600">{errors.description}</p>}
-            </div>
-          </div>
-
-          {/* Time Range Adjustment */}
-          <div className="space-y-4">
-            <h3 className="text-base font-semibold text-ink">Time Range</h3>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="arc-start-time" className="block text-sm font-medium text-gray-700 mb-1">
-                  Start Time <span className="font-normal text-ink-muted">(UTC)</span>
-                </label>
-                <input
-                  id="arc-start-time"
-                  type="datetime-local"
-                  value={formData.start_time}
-                  onChange={(e) => handleInputChange('start_time', e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                    errors.start_time ? 'border-red-300' : 'border-gray-300'
-                  }`}
-                  required
-                />
-                {errors.start_time && <p className="mt-1 text-sm text-red-600">{errors.start_time}</p>}
-              </div>
-
-              <div>
-                <label htmlFor="arc-end-time" className="block text-sm font-medium text-gray-700 mb-1">
-                  End Time <span className="font-normal text-ink-muted">(UTC)</span>
-                </label>
-                <input
-                  id="arc-end-time"
-                  type="datetime-local"
-                  value={formData.end_time}
-                  onChange={(e) => handleInputChange('end_time', e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                    errors.end_time ? 'border-red-300' : 'border-gray-300'
-                  }`}
-                  required
-                />
-                {errors.end_time && <p className="mt-1 text-sm text-red-600">{errors.end_time}</p>}
-              </div>
-            </div>
-
-            {errors.time_range && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
-                <p className="text-sm text-yellow-600">{errors.time_range}</p>
+          {/* Content */}
+          <form onSubmit={handleSubmit} className="p-6 space-y-6">
+            {/* General Error */}
+            {errors.general && (
+              <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                <p className="text-sm text-red-600">{errors.general}</p>
               </div>
             )}
-          </div>
 
-          {/* Parent Arc Selection */}
-          {parentArcs.length > 0 && (
+            {/* Time Range Info */}
+            <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+              <h3 className="text-base font-semibold text-blue-900 mb-2">Selected Time Range</h3>
+              <div className="text-sm text-blue-700 space-y-1">
+                <div>Start: <span className="font-mono-code">{formatHistoricalTimestamp(datetimeLocalToIso(formData.start_time))}</span></div>
+                <div>End: <span className="font-mono-code">{formatHistoricalTimestamp(datetimeLocalToIso(formData.end_time))}</span></div>
+                <div>Duration: {duration}</div>
+                {containedEvents.length > 0 && (
+                  <div>Contains {containedEvents.length} event{containedEvents.length !== 1 ? 's' : ''}</div>
+                )}
+              </div>
+            </div>
+
+            {/* Basic Information */}
             <div className="space-y-4">
-              <h3 className="text-base font-semibold text-ink">Hierarchy (Optional)</h3>
-              
               <div>
-                <label htmlFor="parent-arc" className="block text-sm font-medium text-gray-700 mb-1">
-                  Parent Arc
+                <label htmlFor="arc-name" className="block text-sm font-medium text-ink-secondary mb-1">
+                  Name *
                 </label>
-                <select
-                  id="parent-arc"
-                  value={selectedParentId || ''}
-                  onChange={(e) => {
-                    const value = e.target.value || null
-                    setSelectedParentId(value)
-                    setFormData(prev => ({
-                      ...prev,
-                      parent_arc_id: value,
-                      level: calculateLevel(value)
-                    }))
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">No parent (top-level arc)</option>
-                  {parentArcs.map(arc => (
-                    <option key={arc.id} value={arc.id}>
-                      {arc.name} ({formatHistoricalDate(arc.start_time)} - {formatHistoricalDate(arc.end_time)})
-                    </option>
-                  ))}
-                </select>
+                <input
+                  id="arc-name"
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => handleInputChange('name', e.target.value)}
+                  className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+                    errors.name ? 'border-red-300' : 'border-line'
+                  }`}
+                  placeholder="Enter arc name"
+                  required
+                />
+                {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
+              </div>
+
+              <div>
+                <label htmlFor="arc-description" className="block text-sm font-medium text-ink-secondary mb-1">
+                  Description *
+                </label>
+                <textarea
+                  id="arc-description"
+                  value={formData.description}
+                  onChange={(e) => handleInputChange('description', e.target.value)}
+                  rows={3}
+                  className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+                    errors.description ? 'border-red-300' : 'border-line'
+                  }`}
+                  placeholder="Enter arc description"
+                  required
+                />
+                {errors.description && <p className="mt-1 text-sm text-red-600">{errors.description}</p>}
               </div>
             </div>
-          )}
 
-          {/* Contained Events Preview */}
-          {containedEvents.length > 0 && (
+            {/* Time Range Adjustment */}
             <div className="space-y-4">
-              <h3 className="text-base font-semibold text-ink">
-                Events to be contained ({containedEvents.length})
-              </h3>
-              
-              <div className="max-h-32 overflow-y-auto space-y-2">
-                {containedEvents.map(event => (
-                  <div key={event.id} className="bg-gray-50 rounded-md p-2">
-                    <p className="text-sm font-medium text-gray-900">{event.description}</p>
-                    <p className="text-xs text-gray-500">
-                      {event.actor} → {event.target} • <span className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</span>
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+              <h3 className="text-base font-semibold text-ink">Time Range</h3>
+            
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="arc-start-time" className="block text-sm font-medium text-ink-secondary mb-1">
+                    Start Time
+                  </label>
+                  <input
+                    id="arc-start-time"
+                    type="datetime-local"
+                    value={formData.start_time}
+                    onChange={(e) => handleInputChange('start_time', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+                      errors.start_time ? 'border-red-300' : 'border-line'
+                    }`}
+                    required
+                  />
+                  {errors.start_time && <p className="mt-1 text-sm text-red-600">{errors.start_time}</p>}
+                </div>
 
-          {/* Actions */}
-          <div className="flex space-x-3 pt-4 border-t border-gray-200">
-            <button
-              type="submit"
-              disabled={createArcMutation.isPending}
-              className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {createArcMutation.isPending ? 'Creating...' : 'Create Arc'}
-            </button>
-            <button
-              type="button"
-              onClick={handleCancel}
-              disabled={createArcMutation.isPending}
-              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
+                <div>
+                  <label htmlFor="arc-end-time" className="block text-sm font-medium text-ink-secondary mb-1">
+                    End Time
+                  </label>
+                  <input
+                    id="arc-end-time"
+                    type="datetime-local"
+                    value={formData.end_time}
+                    onChange={(e) => handleInputChange('end_time', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+                      errors.end_time ? 'border-red-300' : 'border-line'
+                    }`}
+                    required
+                  />
+                  {errors.end_time && <p className="mt-1 text-sm text-red-600">{errors.end_time}</p>}
+                </div>
+              </div>
+
+              {errors.time_range && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                  <p className="text-sm text-yellow-600">{errors.time_range}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Parent Arc Selection */}
+            {parentArcs.length > 0 && (
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold text-ink">Hierarchy (Optional)</h3>
+              
+                <div>
+                  <label htmlFor="parent-arc" className="block text-sm font-medium text-ink-secondary mb-1">
+                    Parent Arc
+                  </label>
+                  <select
+                    id="parent-arc"
+                    value={selectedParentId || ''}
+                    onChange={(e) => {
+                      const value = e.target.value || null
+                      setSelectedParentId(value)
+                      setFormData(prev => ({
+                        ...prev,
+                        parent_arc_id: value,
+                        level: calculateLevel(value)
+                      }))
+                    }}
+                    className="w-full px-3 py-2 border border-line rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected"
+                  >
+                    <option value="">No parent (top-level arc)</option>
+                    {parentArcs.map(arc => (
+                      <option key={arc.id} value={arc.id}>
+                        {arc.name} ({formatHistoricalDate(arc.start_time)} - {formatHistoricalDate(arc.end_time)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Contained Events Preview */}
+            {containedEvents.length > 0 && (
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold text-ink">
+                  Events to be contained ({containedEvents.length})
+                </h3>
+              
+                <div className="max-h-32 overflow-y-auto space-y-2">
+                  {containedEvents.map(event => (
+                    <div key={event.id} className="bg-subtle rounded-md p-2">
+                      <p className="text-sm font-medium text-ink">{event.description}</p>
+                      <p className="text-xs text-ink-muted">
+                        {event.actor} → {event.target} • <span className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</span>
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex space-x-3 pt-4 border-t border-line">
+              <button
+                type="submit"
+                disabled={createArcMutation.isPending}
+                className="flex-1 bg-baseline text-on-accent px-4 py-2 rounded-md hover:bg-baseline/90 focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {createArcMutation.isPending ? 'Creating...' : 'Create Arc'}
+              </button>
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={createArcMutation.isPending}
+                className="px-4 py-2 border border-line rounded-md text-ink-secondary hover:bg-subtle focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+    </Portal>
   )
 }
 

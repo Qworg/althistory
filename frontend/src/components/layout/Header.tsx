@@ -6,6 +6,7 @@ import { UserProfileMenu } from './UserProfileMenu'
 import { GraphSelector, GraphManagerModal } from '@/components/graphs'
 import { HelpButton } from '@/components/help/HelpButton'
 import { useGlobalStore } from '@/stores/globalStore'
+import { useApiAccess } from '@/hooks/useGraphs'
 import { LayoutMode } from '@/types'
 
 interface HeaderProps {
@@ -31,6 +32,7 @@ export function Header({ isMobile, layoutMode }: HeaderProps) {
   }, [])
   const sidebarCollapsed = useGlobalStore((state) => state.uiState.sidebarCollapsed)
   const [isGraphManagerOpen, setIsGraphManagerOpen] = useState(false)
+  const accessProblem = useApiAccess()
 
   // Show view switcher in header only in topbar mode on desktop
   const showViewSwitcher = !isMobile && layoutMode === 'topbar'
@@ -83,6 +85,7 @@ export function Header({ isMobile, layoutMode }: HeaderProps) {
             {/* Req 17.1: the active graph is always switchable from the header. */}
             <GraphSelector
               onOpenManager={() => setIsGraphManagerOpen(true)}
+              sheet={isMobile}
               className={isMobile ? 'min-w-0 flex-1 [&>button]:w-full [&>button]:min-h-11' : ''}
             />
 
@@ -97,9 +100,14 @@ export function Header({ isMobile, layoutMode }: HeaderProps) {
         {/* View-specific toolbar. On a phone it keeps the view's primary
             actions; the rest is in the bottom bar's More sheet. (The bottom
             bar also says which view is open, so there is no breadcrumb.) */}
-        <div className={`border-t border-line ${isMobile ? 'py-1' : 'py-2'}`}>
-          <ViewToolbar viewMode={viewMode} compact={isMobile} className="justify-center" />
-        </div>
+        {/* Without access every toolbar action would fail; the view explains why. */}
+        {!accessProblem && (
+          <div className={`border-t border-line ${isMobile ? 'py-1' : 'py-2'}`}>
+            {/* Left-aligned: centred, the row re-centred (and every button moved)
+            whenever a conditional action such as Clear Selection appeared. */}
+            <ViewToolbar viewMode={viewMode} compact={isMobile} className={isMobile ? 'justify-center' : 'justify-start'} />
+          </div>
+        )}
       </div>
 
       {/* Req 17.2-17.5: full graph management, opened from the selector. */}

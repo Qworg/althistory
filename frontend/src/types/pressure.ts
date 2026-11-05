@@ -33,10 +33,13 @@ export interface PressureColorScheme {
 }
 
 // Default color schemes
+// Each hue is at least 3:1 on the card surface in both themes (WCAG 1.4.11:
+// these are marks, not text). Amber is reserved for divergence, so social
+// pressure, which was amber-500, is rose; emerald-500 measured 2.5:1 on white.
 export const DEFAULT_PRESSURE_COLORS: PressureColorScheme = {
-  economic: '#10b981', // emerald-500
-  social: '#f59e0b',   // amber-500
-  environmental: '#06b6d4', // cyan-500
+  economic: '#059669', // emerald-600
+  social: '#e11d48',   // rose-600
+  environmental: '#0891b2', // cyan-600
   political: '#8b5cf6'  // violet-500
 }
 

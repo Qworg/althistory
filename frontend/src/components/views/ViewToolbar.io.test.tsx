@@ -39,6 +39,7 @@ vi.mock('@/hooks/useGraphs', () => {
     useGraphVersions: () => ({ data: [], isLoading: false, error: null }),
     useGraphHeadVersion: () => null,
     useRollbackGraph: () => ({ mutateAsync: vi.fn(), isPending: false }),
+    useSetVersionLabel: () => ({ mutateAsync: vi.fn(), isPending: false }),
     useSwitchGraph: () => ({ mutate: graphSpies.switchGraph, isPending: false }),
     useDeleteGraph: () => ({ mutate: graphSpies.deleteGraph, isPending: false }),
     useBranchGraph: () => ({ mutateAsync: graphSpies.branchGraph, isPending: false }),
@@ -165,7 +166,7 @@ describe('ViewToolbar graph data operation entry points', () => {
     renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
     // Graph › Copies, then its link to the full list.
-    await chooseGraphMenuItem(user, 'Copies')
+    await chooseGraphMenuItem(user, 'Recent copies')
     await user.click(await screen.findByRole('button', { name: 'All copies…' }))
     const dialog = await screen.findByRole('dialog', { name: 'Copy history' })
     await user.click(within(dialog).getByRole('button', { name: 'Open' }))
@@ -178,7 +179,7 @@ describe('ViewToolbar graph data operation entry points', () => {
     renderWithProviders(<ViewToolbar viewMode="timeline" />)
 
     // Graph › Copies, then its link to the full list.
-    await chooseGraphMenuItem(user, 'Copies')
+    await chooseGraphMenuItem(user, 'Recent copies')
     await user.click(await screen.findByRole('button', { name: 'All copies…' }))
     const dialog = await screen.findByRole('dialog', { name: 'Copy history' })
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }))

@@ -58,6 +58,7 @@ vi.mock('@/hooks/useGraphs', () => {
     }),
     useGraphVersions: () => ({ data: [], isLoading: false }),
     useGraphHeadVersion: () => 3,
+    useApiAccess: () => null,
     useGraphBranches: () => ({ data: [], isLoading: false }),
   }
 })

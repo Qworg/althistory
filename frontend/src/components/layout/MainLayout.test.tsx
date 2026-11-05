@@ -166,7 +166,7 @@ describe('MainLayout', () => {
       for (const name of ['Graph', 'Compare branches', 'Import', 'Ingest']) {
         expect(within(toolbar).queryByRole('button', { name })).not.toBeInTheDocument()
       }
-      expect(within(header).queryByRole('status', { name: /edits save as you go|live link/i })).not.toBeInTheDocument()
+      expect(within(header).queryByRole('status', { name: /edits save as you go|live sync/i })).not.toBeInTheDocument()
 
       // They are in the bottom bar's More sheet.
       const more = within(screen.getByRole('navigation', { name: 'Mobile navigation' })).getByRole('button', { name: 'More' })
@@ -174,15 +174,15 @@ describe('MainLayout', () => {
       await user.click(more)
       const sheet = screen.getByRole('dialog', { name: 'More' })
       expect(more).toHaveAttribute('aria-expanded', 'true')
-      for (const name of ['Branch or copy…', 'Copies', 'Export', 'Versions', 'Compare branches', 'Import an export file', 'Extract from text or Wikipedia']) {
+      for (const name of ['Branch or copy…', 'Recent copies', 'Export', 'Versions', 'Compare branches', 'Import an export file', 'Extract from text or Wikipedia']) {
         expect(within(sheet).getByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument()
       }
-      expect(within(sheet).getByRole('status', { name: /edits save as you go|live link/i })).toBeInTheDocument()
+      expect(within(sheet).getByRole('status', { name: /edits save as you go|live sync/i })).toBeInTheDocument()
 
       // Choosing an item closes the sheet and opens the tool.
-      await user.click(within(sheet).getByRole('button', { name: /^Copies/ }))
+      await user.click(within(sheet).getByRole('button', { name: /^Recent copies/ }))
       expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument()
-      expect(screen.getByRole('dialog', { name: 'Copies' })).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: 'Recent copies' })).toBeInTheDocument()
     })
 
     it('closes the More sheet on Escape and returns focus to the More button', async () => {

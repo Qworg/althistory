@@ -240,6 +240,27 @@ export class GraphService {
   }
 
   /**
+   * Name a version, so a writer can find it again ("Before the strike"), or
+   * clear its name with an empty label. At most 80 characters.
+   */
+  async setVersionLabel(graphId: string, version: number, label: string): Promise<VersionRef> {
+    const graph = await this.graphRepository.findById(graphId);
+    if (!graph) {
+      throw new NotFoundError('Graph not found', 'Graph', graphId);
+    }
+    const target = await this.graphRepository.getVersion(graphId, version);
+    if (!target) {
+      throw new NotFoundError('Version not found', 'Version', version.toString());
+    }
+    const trimmed = label.trim();
+    if (trimmed.length > 80) {
+      throw new ValidationError('A version name is at most 80 characters', 'label', label);
+    }
+    await this.graphRepository.setVersionLabel(graphId, version, trimmed || null);
+    return trimmed ? { ...target, label: trimmed } : target;
+  }
+
+  /**
    * Rollback a graph to a specific version
    */
   async rollbackGraph(

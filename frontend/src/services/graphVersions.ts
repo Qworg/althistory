@@ -11,6 +11,7 @@ export interface ServerVersionRef {
   parentVersion?: number | null
   operation?: string
   description?: string
+  label?: string
   userId?: string
   changes?: {
     added?: Array<{ type: string; id: string }>
@@ -41,6 +42,7 @@ export function toGraphVersion(ref: ServerVersionRef): GraphVersion {
     commitHash: ref.treeHash ?? '',
     timestamp: ref.timestamp,
     message: ref.description ?? '',
+    ...(ref.label ? { label: ref.label } : {}),
     operation: ref.operation,
     author: ref.userId,
     changes: {

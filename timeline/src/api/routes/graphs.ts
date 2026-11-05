@@ -460,6 +460,26 @@ graphRoutes.get('/:id/versions', ...readGraphAuth, async (req: RequestWithContai
 });
 
 /**
+ * PUT /graphs/:id/versions/:version/label - Name a version (an empty label clears it)
+ */
+graphRoutes.put('/:id/versions/:version/label', ...writeGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {
+  try {
+    const version = parseInt(req.params.version, 10);
+    if (isNaN(version) || version < 0) {
+      throw new ValidationError('Version must be a non-negative integer', 'version', req.params.version);
+    }
+    const label = req.body?.label;
+    if (typeof label !== 'string') {
+      throw new ValidationError('label must be a string (empty to clear the name)', 'label', label);
+    }
+    const versionRef = await req.container.graphService.setVersionLabel(req.params.id, version, label);
+    res.json({ success: true, data: versionRef, requestId: req.requestId });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * POST /graphs/:id/rollback/:version - Rollback to a specific version
  */
 graphRoutes.post('/:id/rollback/:version', ...writeGraphAuth, async (req: RequestWithContainer, res: Response, next: NextFunction) => {

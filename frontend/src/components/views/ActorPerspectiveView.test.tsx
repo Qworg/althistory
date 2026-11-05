@@ -337,7 +337,7 @@ describe('ActorPerspectiveView', () => {
       await waitFor(() => {
         expect(screen.getByTestId('timeline-actor')).toHaveTextContent('Bob')
         // Should have cleared event selection
-        expect(screen.queryByText('Selected Event')).not.toBeInTheDocument()
+        expect(screen.queryByText('Selected event')).not.toBeInTheDocument()
       })
     })
 
@@ -430,7 +430,7 @@ describe('ActorPerspectiveView', () => {
         const eventButton = screen.getByTestId('timeline-event-1')
         fireEvent.click(eventButton)
         
-        expect(screen.getByText('Selected Event')).toBeInTheDocument()
+        expect(screen.getByText('Selected event')).toBeInTheDocument()
         expect(screen.getByText('Event 1')).toBeInTheDocument()
         // Use more specific queries to avoid multiple matches
         expect(screen.getByText('Description')).toBeInTheDocument()
@@ -466,7 +466,7 @@ describe('ActorPerspectiveView', () => {
       
       await waitFor(() => {
         // Should show count of relevant arcs
-        expect(screen.getByText(/across \d+ arcs/)).toBeInTheDocument()
+        expect(screen.getByText(/· \d+ arcs?$/)).toBeInTheDocument()
       })
     })
   })
@@ -495,7 +495,7 @@ describe('ActorPerspectiveView', () => {
       const title = screen.getByRole('heading', { level: 2, name: 'Actor Perspective' })
       expect(title).toHaveClass('sr-only')
       expect(screen.getByRole('heading', { level: 3, name: 'Timeline for Alice' })).toBeInTheDocument()
-      const selected = screen.getByRole('heading', { level: 4, name: 'Selected Event' })
+      const selected = screen.getByRole('heading', { level: 4, name: 'Selected event' })
       expect(selected).toHaveClass('text-base', 'font-semibold')
 
       const levels = screen.getAllByRole('heading').map((h) => Number(h.tagName.slice(1)))

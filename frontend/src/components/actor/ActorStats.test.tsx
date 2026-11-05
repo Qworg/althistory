@@ -80,7 +80,7 @@ describe('ActorStats', () => {
       expect(heading.tagName).toBe('H3')
       expect(screen.getByRole('region', { name: 'Statistics for Alice' })).toContainElement(heading)
       const subheadings = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent)
-      expect(subheadings).toEqual(['As Actor', 'As Target', 'Activity distribution'])
+      expect(subheadings).toEqual(['As actor', 'As target', 'Activity distribution'])
     })
 
     it('is one flat surface: no tiles, panels or icon chips', () => {
@@ -208,25 +208,25 @@ describe('ActorStats', () => {
   })
 
   describe('Relationship Details', () => {
-    it('displays "As Actor" section correctly', () => {
+    it('displays "As actor" section correctly', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithTimeSpan} />)
       
-      expect(screen.getByText('As Actor')).toBeInTheDocument()
+      expect(screen.getByText('As actor')).toBeInTheDocument()
       
       // Check events count
-      const asActorSection = screen.getByText('As Actor').closest('[data-role]')
+      const asActorSection = screen.getByText('As actor').closest('[data-role]')
       expect(asActorSection).toHaveTextContent('Events6')
       expect(asActorSection).toHaveTextContent('Unique targets3')
       expect(asActorSection).toHaveTextContent('Average per target2.0')
     })
 
-    it('displays "As Target" section correctly', () => {
+    it('displays "As target" section correctly', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithTimeSpan} />)
       
-      expect(screen.getByText('As Target')).toBeInTheDocument()
+      expect(screen.getByText('As target')).toBeInTheDocument()
       
       // Check events count
-      const asTargetSection = screen.getByText('As Target').closest('[data-role]')
+      const asTargetSection = screen.getByText('As target').closest('[data-role]')
       expect(asTargetSection).toHaveTextContent('Events4')
       expect(asTargetSection).toHaveTextContent('Unique actors2')
       expect(asTargetSection).toHaveTextContent('Average per actor2.0')
@@ -235,10 +235,10 @@ describe('ActorStats', () => {
     it('handles division by zero in averages', () => {
       renderWithProviders(<ActorStats actor="Alice" stats={mockStatsWithoutTimeSpan} />)
       
-      const asActorSection = screen.getByText('As Actor').closest('[data-role]')
+      const asActorSection = screen.getByText('As actor').closest('[data-role]')
       expect(asActorSection).toHaveTextContent('Average per target0')
 
-      const asTargetSection = screen.getByText('As Target').closest('[data-role]')
+      const asTargetSection = screen.getByText('As target').closest('[data-role]')
       expect(asTargetSection).toHaveTextContent('Average per actor0')
     })
   })

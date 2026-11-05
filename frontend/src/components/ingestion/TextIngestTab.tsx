@@ -74,7 +74,7 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
           value={text}
           onChange={(event) => setText(event.target.value)}
           placeholder="For example: The Battle of Hastings was fought on 14 October 1066…"
-          className="mt-1 block w-full rounded-md border border-line px-3 py-2 bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="mt-1 block w-full rounded-md border border-line px-3 py-2 bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
         />
       </div>
 
@@ -89,7 +89,7 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
             value={defaultActors}
             onChange={(event) => setDefaultActors(event.target.value)}
             placeholder="e.g. Normans, Anglo-Saxons"
-            className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
           />
         </div>
         <div>
@@ -102,7 +102,7 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
             value={startDate}
             onChange={(event) => setStartDate(event.target.value)}
             placeholder="e.g. 1066-01-01"
-            className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
           />
         </div>
         <div>
@@ -115,7 +115,7 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
             value={endDate}
             onChange={(event) => setEndDate(event.target.value)}
             placeholder="e.g. 1066-12-31"
-            className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
           />
         </div>
         <div>
@@ -128,7 +128,7 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
             value={locale}
             onChange={(event) => setLocale(event.target.value)}
             placeholder="e.g. en"
-            className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
           />
         </div>
       </div>
@@ -138,7 +138,7 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
           type="checkbox"
           checked={useLLM}
           onChange={(event) => setUseLLM(event.target.checked)}
-          className="h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-500"
+          className="h-4 w-4 rounded border-line text-baseline focus:ring-selected"
         />
         Use LLM extraction
       </label>

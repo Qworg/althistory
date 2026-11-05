@@ -347,6 +347,8 @@ export interface GraphVersion {
   commitHash: string
   timestamp: string
   message: string
+  /** A name the author gave this version ("Before the strike"), if any. */
+  label?: string
   operation?: string
   author?: string
   changes: {
@@ -797,6 +799,8 @@ export interface ExtractedEvent {
   actor: string
   target: string
   timestamp: string
+  /** How much of the date the source stated; absent means a full date. */
+  datePrecision?: 'day' | 'month' | 'year'
   confidence: number
   source: ExtractionSource
   selected: boolean
@@ -845,6 +849,8 @@ export interface ExtractionResult {
   overallConfidence: number
   /** Pattern text extraction: sentences with no recognised date, left out. */
   skippedSentences?: number
+  /** The skipped sentences themselves (up to 20), to show and date them. */
+  skippedSentenceTexts?: string[]
 }
 
 export interface IngestionValidationIssue {

@@ -98,7 +98,7 @@ export const CreateGraphModal = memo(function CreateGraphModal({
         type="button"
         onClick={handleCancel}
         disabled={isCreating}
-        className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded transition-colors disabled:opacity-50"
+        className="px-4 py-2 text-sm text-ink-secondary hover:bg-subtle rounded transition-colors disabled:opacity-50"
       >
         Cancel
       </button>
@@ -106,7 +106,7 @@ export const CreateGraphModal = memo(function CreateGraphModal({
         type="submit"
         form="create-graph-form"
         disabled={isCreating || !name.trim()}
-        className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+        className="px-4 py-2 text-sm bg-baseline text-on-accent rounded hover:bg-baseline/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
       >
         {isCreating ? (
           <>
@@ -134,7 +134,7 @@ export const CreateGraphModal = memo(function CreateGraphModal({
       <form id="create-graph-form" onSubmit={handleSubmit} className="space-y-4">
         {/* Name Input */}
         <div>
-          <label htmlFor="graph-name" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="graph-name" className="block text-sm font-medium text-ink-secondary mb-1">
             Name <span className="text-red-500">*</span>
           </label>
           <input
@@ -146,8 +146,8 @@ export const CreateGraphModal = memo(function CreateGraphModal({
             placeholder="Enter graph name..."
             className={`
               w-full px-3 py-2 border rounded-lg text-sm
-              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-              ${touched.name && errors.name ? 'border-red-300 bg-red-50' : 'border-gray-300'}
+              focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent
+              ${touched.name && errors.name ? 'border-red-300 bg-red-50' : 'border-line'}
             `}
             disabled={isCreating}
             autoFocus
@@ -159,7 +159,7 @@ export const CreateGraphModal = memo(function CreateGraphModal({
 
         {/* Description Input */}
         <div>
-          <label htmlFor="graph-description" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="graph-description" className="block text-sm font-medium text-ink-secondary mb-1">
             Description
           </label>
           <textarea
@@ -168,10 +168,10 @@ export const CreateGraphModal = memo(function CreateGraphModal({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Enter a description (optional)..."
             rows={3}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+            className="w-full px-3 py-2 border border-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent resize-none"
             disabled={isCreating}
           />
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-ink-muted">
             Briefly describe the purpose or content of this graph.
           </p>
         </div>
@@ -186,7 +186,7 @@ export const CreateGraphModal = memo(function CreateGraphModal({
             </svg>
             <div className="text-sm text-blue-700">
               <p className="font-medium">Creating a new graph</p>
-              <p className="text-blue-600 mt-1">
+              <p className="text-baseline mt-1">
                 This will create an empty graph. You can add events, arcs, and relationships after creation.
               </p>
             </div>

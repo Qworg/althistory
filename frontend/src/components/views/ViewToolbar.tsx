@@ -19,6 +19,7 @@ import { useCreateArc } from '@/hooks/useAPI'
 import { useCreateEventWithCause } from '@/hooks/useCreateEventWithCause'
 import { useActiveGraphId, useActiveGraph, useSwitchGraph, useDeleteGraph } from '@/hooks/useGraphs'
 import { StreamingStatusBadge } from '@/components/streaming/StreamingStatusBadge'
+import { SimulationLauncherPanel } from '@/components/branch/SimulationLauncherPanel'
 import { useStreamingWrite } from '@/hooks/useStreamingWrite'
 import { MoreSheet } from '@/components/layout/MoreSheet'
 import { useMoreSheetStore } from '@/components/layout/moreSheetStore'
@@ -65,11 +66,13 @@ const NEEDS_GRAPH_ACTION_IDS = new Set([
   'branch-divergence',
   'copy-graph',
   'export-data',
-  'version-history'
+  'version-history',
+  'simulate-forward'
 ])
 
 const GRAPH_MENU_ACTION_IDS = new Set([
   'copy-graph',
+  'simulate-forward',
   'copy-progress',
   'export-data',
   'version-history'
@@ -80,7 +83,7 @@ const GRAPH_MENU_ACTION_IDS = new Set([
  * Copies is one item: its panel shows running and recent copies and opens the
  * full Copy history, which used to be a second menu item of its own.
  */
-const GRAPH_MENU_ORDER = ['copy-graph', 'version-history', 'export-data', 'copy-progress']
+const GRAPH_MENU_ORDER = ['copy-graph', 'simulate-forward', 'version-history', 'export-data', 'copy-progress']
 
 /** Graph-level actions shown beside the Graph menu on desktop. */
 const GRAPH_TOOL_ACTION_IDS = new Set(['branch-divergence'])
@@ -121,6 +124,7 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
   const [showIngestionWizard, setShowIngestionWizard] = useState(false)
   const [showExportPanel, setShowExportPanel] = useState(false)
   const [showVersionHistory, setShowVersionHistory] = useState(false)
+  const [showSimulation, setShowSimulation] = useState(false)
   const [comparisonData, setComparisonData] = useState<{
     originalName: string
     copiedName: string
@@ -216,9 +220,13 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
       {
         id: 'create-arc',
         label: 'Create Arc',
+        // A period bar with its end ticks, as an arc is drawn on the timeline
+        // (it was a document, which on the phone's icon-only toolbar read as
+        // "notes" or "export").
         icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10M20 7v10" />
+            <rect x="6.5" y="10" width="11" height="4" rx="1.5" />
           </svg>
         ),
         onClick: () => {
@@ -266,7 +274,7 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
         ),
         onClick: () => writeActorState({ showStats: !currentShowStats }),
         pressed: currentShowStats,
-        tooltip: 'Show or hide actor statistics (S)',
+        tooltip: 'Show or hide actor statistics, once an actor is picked (S)',
         shortcut: 'S'
       },
       {
@@ -316,7 +324,8 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
       },
       {
         id: 'copy-progress',
-        label: 'Copies',
+        // "Copies" beside "Branch or copy…" read as a second way to copy.
+        label: 'Recent copies',
         icon: (
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -368,6 +377,19 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
         ),
         onClick: () => setShowExportPanel(true),
         tooltip: 'Export active graph archive'
+      },
+      {
+        // Writes (it extends the graph), so it is here with the graph, not
+        // in the comparison dialog, which only compares.
+        id: 'simulate-forward',
+        label: 'Simulate forward…',
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        ),
+        onClick: () => setShowSimulation(true),
+        tooltip: 'Extend this graph forward in steps, driven by its inferred pressures; preview before keeping'
       },
       {
         id: 'version-history',
@@ -460,10 +482,15 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
     .filter((action): action is ToolbarAction => action !== undefined)
   const BRING_IN = new Set<string>(BRING_IN_ACTION_IDS)
   // Filters and the conditional clears: on the toolbar at every width.
+  // Clearing filters is not drawn here: the filter chips under the header
+  // carry "Clear all" whenever a filter is on, and a second button for it
+  // (plus the panel's, the chips' ×s and the empty state's) was one too many.
+  // Shift+R still clears them (the shortcut effect reads every action).
   const viewStateActions = commonActions.filter(action =>
     !GRAPH_MENU_ACTION_IDS.has(action.id) &&
     !GRAPH_TOOL_ACTION_IDS.has(action.id) &&
     !BRING_IN.has(action.id) &&
+    action.id !== 'clear-filters' &&
     !(CONDITIONAL_ACTION_IDS.has(action.id) && action.disabled)
   )
 
@@ -752,6 +779,19 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
         <ExportPanel collapsible={false} />
       </PanelBase>
 
+      {/* Simulate forward, for the open graph (moved out of Compare branches). */}
+      <PanelBase
+        isOpen={showSimulation}
+        onClose={() => setShowSimulation(false)}
+        title="Simulate forward"
+        width="34rem"
+      >
+        <SimulationLauncherPanel
+          graphId={activeGraphId ?? ''}
+          graphName={activeGraph?.name ?? 'this graph'}
+        />
+      </PanelBase>
+
       {/* Version History Panel (Req 17.5). The panel titles it, so the
           component's own header is hidden. */}
       <PanelBase
@@ -760,7 +800,7 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
         title="Version history"
         width="28rem"
       >
-        <VersionHistoryPanel hideHeader />
+        <VersionHistoryPanel hideHeader maxVersions={100} />
       </PanelBase>
 
       {/* Create Event Modal */}

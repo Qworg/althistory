@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { GraphSelector } from './GraphSelector'
-import { useGraphManagement, useGraphHeadVersion } from '@/hooks/useGraphs'
+import { useApiAccess, useGraphManagement, useGraphHeadVersion } from '@/hooks/useGraphs'
 import { Graph } from '@/types'
 import { formatHistoricalRange } from '@/utils/historicalTime'
 
@@ -117,6 +117,7 @@ describe('GraphSelector', () => {
     vi.mocked(useGraphManagement).mockReturnValue(mockGraphManagement)
     // Version history head for the active graph (not Graph.version)
     vi.mocked(useGraphHeadVersion).mockReturnValue(3)
+    vi.mocked(useApiAccess).mockReturnValue(null)
   })
 
   afterEach(() => {

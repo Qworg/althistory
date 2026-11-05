@@ -78,7 +78,7 @@ export function WikidataIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitC
           id="ingest-wikidata-query-type"
           value={queryType}
           onChange={(event) => setQueryType(event.target.value as WikidataQueryType)}
-          className="mt-1 block w-full rounded-md border border-line px-3 py-2 bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="mt-1 block w-full rounded-md border border-line px-3 py-2 bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
         >
           <option value="historical-events">Historical events</option>
           <option value="person-timeline">Person timeline</option>
@@ -98,7 +98,7 @@ export function WikidataIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitC
               value={subjectId}
               onChange={(event) => setSubjectId(event.target.value)}
               placeholder="e.g. Q83224 (optional)"
-              className="mt-1 block w-full rounded-md border border-line px-3 py-2 text-sm bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="mt-1 block w-full rounded-md border border-line px-3 py-2 text-sm bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
             />
           </div>
           <div>
@@ -111,7 +111,7 @@ export function WikidataIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitC
               value={startTime}
               onChange={(event) => setStartTime(event.target.value)}
               placeholder="e.g. 1066-01-01"
-              className="mt-1 block w-full rounded-md border border-line px-3 py-2 text-sm bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="mt-1 block w-full rounded-md border border-line px-3 py-2 text-sm bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
             />
           </div>
           <div>
@@ -124,7 +124,7 @@ export function WikidataIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitC
               value={endTime}
               onChange={(event) => setEndTime(event.target.value)}
               placeholder="e.g. 1066-12-31"
-              className="mt-1 block w-full rounded-md border border-line px-3 py-2 text-sm bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="mt-1 block w-full rounded-md border border-line px-3 py-2 text-sm bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
             />
           </div>
         </div>
@@ -142,7 +142,7 @@ export function WikidataIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitC
             value={personId}
             onChange={(event) => setPersonId(event.target.value)}
             placeholder="e.g. Q42"
-            className="mt-1 block w-full rounded-md border border-line px-3 py-2 bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="mt-1 block w-full rounded-md border border-line px-3 py-2 bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
           />
         </div>
       )}
@@ -157,7 +157,7 @@ export function WikidataIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitC
             rows={6}
             value={customQuery}
             onChange={(event) => setCustomQuery(event.target.value)}
-            className="mt-1 block w-full rounded-md border border-line px-3 py-2 font-mono-code text-sm bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="mt-1 block w-full rounded-md border border-line px-3 py-2 font-mono-code text-sm bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
           />
         </div>
       )}
@@ -172,7 +172,7 @@ export function WikidataIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitC
           min={1}
           value={limit}
           onChange={(event) => setLimit(Number(event.target.value))}
-          className="mt-1 block w-32 rounded-md border border-line px-3 py-2 bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="mt-1 block w-32 rounded-md border border-line px-3 py-2 bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
         />
       </div>
 

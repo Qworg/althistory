@@ -239,8 +239,10 @@ describe('IngestionWizard', () => {
     renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
     await extractFromText(user)
 
+    // A row starts ticked only at the preselect threshold (0.7): evt-2 (0.6)
+    // waits for the reviewer.
     expect(screen.getByLabelText('Select event evt-1')).toBeChecked()
-    expect(screen.getByLabelText('Select event evt-2')).toBeChecked()
+    expect(screen.getByLabelText('Select event evt-2')).not.toBeChecked()
     expect(screen.getByLabelText('Select arc arc-1')).toBeChecked()
 
     const description = screen.getByLabelText('Description for event evt-1')
@@ -280,8 +282,8 @@ describe('IngestionWizard', () => {
     renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
     await extractFromText(user)
 
-    // Both events start checked; untick the second one.
-    await user.click(screen.getByLabelText('Select event evt-2'))
+    // evt-2 (0.6) starts unticked and stays so: only evt-1 is approved.
+    expect(screen.getByLabelText('Select event evt-2')).not.toBeChecked()
 
     await user.click(screen.getByRole('button', { name: /Import selected/ }))
     await waitFor(() => expect(mockedApprove).toHaveBeenCalledTimes(1))
@@ -305,8 +307,8 @@ describe('IngestionWizard', () => {
     // enabled while `approvedEventIds` will be empty. The backend maps an empty
     // array to "unspecified" and falls back to each event's stored `selected`
     // flag, so the request must also carry `selected: false` for both events.
+    // evt-2 starts unticked (below the preselect threshold); untick evt-1.
     await user.click(screen.getByLabelText('Select event evt-1'))
-    await user.click(screen.getByLabelText('Select event evt-2'))
 
     await user.click(screen.getByRole('button', { name: /Import selected/ }))
     await waitFor(() => expect(mockedApprove).toHaveBeenCalledTimes(1))
@@ -368,7 +370,7 @@ describe('IngestionWizard', () => {
 
     // Confirming discards the job and closes.
     await user.click(screen.getByRole('button', { name: 'Close modal' }))
-    await user.click(within(screen.getByRole('dialog', { name: 'Discard this review?' })).getByRole('button', { name: 'Discard' }))
+    await user.click(within(screen.getByRole('dialog', { name: 'Discard this review?' })).getByRole('button', { name: 'Discard review' }))
     await waitFor(() => expect(mockedDeleteJob).toHaveBeenCalledWith('job-1'))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
@@ -384,15 +386,16 @@ describe('IngestionWizard', () => {
     expect(screen.queryByRole('dialog', { name: 'Discard this review?' })).not.toBeInTheDocument()
   })
 
-  it('is titled by its source and puts "Extract events" in the footer', async () => {
+  it('keeps one title across sources (the tab names the source) and puts "Extract events" in the footer', async () => {
     const user = userEvent.setup()
     renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
 
-    expect(screen.getByRole('dialog', { name: 'Ingest from Wikipedia' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Bring in history' })).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: 'Wikidata' }))
-    expect(screen.getByRole('dialog', { name: 'Ingest from Wikidata' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Bring in history' })).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: 'Text' }))
-    expect(screen.getByRole('dialog', { name: 'Ingest from text' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Bring in history' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Text' })).toHaveAttribute('aria-selected', 'true')
 
     // One primary action, outside the tab panel, enabled once there is text.
     const extract = screen.getByRole('button', { name: 'Extract events' })

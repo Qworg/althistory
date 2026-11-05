@@ -33,6 +33,7 @@ import {
   extractDates,
   splitSentences,
   stripLeadingDate,
+  shapedConfidence,
 } from './text-patterns';
 import {
   ExtractedEvent,
@@ -139,11 +140,15 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
     const events: ExtractedEvent[] = [];
     const seen = new Set<string>();
     let skippedSentences = 0;
+    // The sentences themselves (up to a page of them), so the review can show
+    // what was left out and let the reviewer date it, not only count it.
+    const skippedSentenceTexts: string[] = [];
 
     for (const sentence of splitSentences(text)) {
       const dates = extractDates(sentence);
       if (dates.length === 0) {
         skippedSentences += 1;
+        if (skippedSentenceTexts.length < 20 && sentence.trim()) skippedSentenceTexts.push(sentence.trim());
         continue;
       }
 
@@ -170,7 +175,12 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
           actor,
           target,
           timestamp: date.iso,
-          confidence: patternConfidence(date.precision, actor.length > 0, target.length > 0),
+          datePrecision: date.precision,
+          confidence: shapedConfidence(
+            patternConfidence(date.precision, actor.length > 0, target.length > 0),
+            sentence,
+            target
+          ),
           source: { type: 'text', extractedAt },
           selected,
           edited: false,
@@ -178,7 +188,7 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
       }
     }
 
-    return { ...this.toResult(events, 'text', []), skippedSentences };
+    return { ...this.toResult(events, 'text', []), skippedSentences, skippedSentenceTexts };
   }
 
   private toResult(

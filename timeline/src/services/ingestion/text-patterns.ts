@@ -99,6 +99,15 @@ export function extractDates(text: string): DateMatch[] {
     push({ raw: m[0], index: m.index ?? 0, iso: toIso(year, 1, 1), precision: 'year', rank: 1 });
   }
 
+  // A bare year after a temporal preposition: "In 1862 Parliament repealed…",
+  // "…was founded in 1852." Without the preposition a four-digit number is
+  // too often a count or an address to read as a year.
+  for (const m of text.matchAll(/\b(?:[Ii]n|[Bb]y|[Dd]uring|[Ss]ince|[Uu]ntil|[Ff]rom)\s+(1\d{3}|20\d{2})\b(?!\s*(?:AD|CE)\b)/g)) {
+    const year = parseInt(m[1], 10);
+    const offset = m[0].indexOf(m[1]);
+    push({ raw: m[1], index: (m.index ?? 0) + offset, iso: toIso(year, 1, 1), precision: 'year', rank: 1 });
+  }
+
   const accepted: RawMatch[] = [];
   for (const match of matches.sort((a, b) => a.index - b.index || b.rank - a.rank)) {
     const end = match.index + match.raw.length;
@@ -160,17 +169,42 @@ const MONTH_WORDS = new Set([
  * Very small proper-noun detector: runs of capitalised words, optionally
  * joined by `of`. Not a real NER model, and it does not resolve coreference.
  */
+/**
+ * How much less to trust a pattern match because of the sentence's shape,
+ * not its date: a pipe-delimited table row ("Zuse Z3 | May 1941 | Binary"),
+ * a fragment too short to state an event, or a target that begins with a
+ * function word ("of May") are what the patterns get wrong. Reviewers sort
+ * and preselect by confidence, so these must not tie with real sentences.
+ */
+export function shapePenalty(sentence: string, target: string): number {
+  let penalty = 0;
+  if ((sentence.match(/\|/g) ?? []).length >= 2) penalty += 0.4;
+  const words = sentence.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 5) penalty += 0.2;
+  if (/^(?:of|in|on|at|by|to|for|from|the|a|an)\b/i.test(target.trim())) penalty += 0.2;
+  return penalty;
+}
+
+/** A confidence lowered by the sentence's shape (see shapePenalty), never below 0.1. */
+export function shapedConfidence(confidence: number, sentence: string, target: string): number {
+  return Math.max(0.1, Number((confidence - shapePenalty(sentence, target)).toFixed(2)));
+}
+
 export function extractCapitalizedEntities(text: string): string[] {
   const entities: string[] = [];
   const seen = new Set<string>();
-  for (const m of text.matchAll(/\b([A-Z][a-z]+(?:\s+(?:of|the|de|von|van)?\s*[A-Z][a-z]+)*)\b/g)) {
+  // A possessive stays part of a name ("Clerks' Union", "Lloyd's Register"):
+  // splitting at the apostrophe made "Clerks" the actor and "Union" the target.
+  for (const m of text.matchAll(/\b([A-Z][a-z]+(?:['\u2019]s?)?(?:\s+(?:of|the|de|von|van)?\s*[A-Z][a-z]+(?:['\u2019]s?)?)*)/g)) {
     // A leading sentence word can be captured as part of the phrase
     // ("The Treaty of Paris"); drop leading stopwords rather than the whole.
     const words = m[1].trim().split(/\s+/);
     while (words.length > 0 && ENTITY_STOPWORDS.has(words[0])) {
       words.shift();
     }
-    const value = words.join(' ');
+    // A lone possessive names its owner: "Babbage's" is Babbage.
+    let value = words.join(' ').replace(/['\u2019]$/, '');
+    if (words.length === 1) value = value.replace(/['\u2019]s$/, '');
     if (value.length < 3) continue;
     if (MONTH_WORDS.has(value.toLowerCase())) continue;
     if (seen.has(value)) continue;

@@ -137,6 +137,17 @@ describe('nodeLabelSizing', () => {
 })
 
 describe('pickVisibleLabels', () => {
+  it('hides a label that would cover another node, but not one over its own node', () => {
+    const label = (id: string, x1: number) => ({ id, priority: 1, box: { x1, y1: 0, x2: x1 + 50, y2: 10 } })
+    const body = (id: string, x1: number) => ({ id, box: { x1, y1: 0, x2: x1 + 10, y2: 10 } })
+    // c ranks above b (it has a label of its own, placed first)
+    const c = { id: 'c', priority: 5, box: { x1: 400, y1: 0, x2: 450, y2: 10 } }
+    const visible = pickVisibleLabels([label('a', 0), label('b', 200), c], 0, [body('a', 0), body('c', 220)])
+    expect(visible.has('a')).toBe(true) // over its own node only
+    expect(visible.has('b')).toBe(false) // would cover node c, which outranks it
+    expect(visible.has('c')).toBe(true)
+  })
+
   const box = (x: number, y: number, w = 40, h = 14) => ({ x1: x, y1: y, x2: x + w, y2: y + h })
 
   it('keeps every label that has room', () => {

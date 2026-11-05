@@ -214,8 +214,8 @@ describe('ConflictResolutionRow', () => {
       )
 
       const skipButton = screen.getByRole('button', { name: 'Skip' })
-      expect(skipButton).toHaveClass('bg-blue-600')
-      expect(skipButton).toHaveClass('text-white')
+      expect(skipButton).toHaveClass('bg-baseline')
+      expect(skipButton).toHaveClass('text-on-accent')
     })
 
     it('should not highlight unselected resolution buttons', () => {

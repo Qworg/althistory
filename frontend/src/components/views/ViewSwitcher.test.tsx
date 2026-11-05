@@ -165,10 +165,10 @@ describe('ViewSwitcher', () => {
     
     // Verify keyboard shortcut hints are present in the component
     const timelineTab = screen.getByRole('tab', { name: /timeline/i })
-    expect(timelineTab).toHaveAttribute('title', expect.stringContaining('Alt+1'))
+    expect(timelineTab).toHaveAttribute('title', expect.stringContaining('Shift+1'))
     
     const causalTab = screen.getByRole('tab', { name: /causal/i })
-    expect(causalTab).toHaveAttribute('title', expect.stringContaining('Alt+2'))
+    expect(causalTab).toHaveAttribute('title', expect.stringContaining('Shift+2'))
   })
 
   it('ignores keyboard shortcuts when input is focused', () => {
@@ -193,7 +193,7 @@ describe('ViewSwitcher', () => {
     fireEvent.mouseEnter(timelineButton)
     
     await waitFor(() => {
-      expect(screen.getByText('Alt+1')).toBeInTheDocument()
+      expect(screen.getByText('Shift+1')).toBeInTheDocument()
     })
   })
 
@@ -233,6 +233,6 @@ describe('ViewSwitcher', () => {
     renderViewSwitcher()
     
     const timelineButton = screen.getByRole('tab', { name: /timeline/i })
-    expect(timelineButton).toHaveAttribute('title', 'Chronological view of events and arcs (Alt+1)')
+    expect(timelineButton).toHaveAttribute('title', 'Chronological view of events and arcs (Shift+1)')
   })
 })

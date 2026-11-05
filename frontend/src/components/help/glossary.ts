@@ -24,7 +24,7 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     id: 'event',
     term: 'Event',
     definition:
-      'A dated occurrence: a description, a timestamp and a confidence score, optionally naming an actor and a target.',
+      'A dated occurrence: a description, a timestamp, a confidence score, and who acted (the actor) on whom (the target).',
   },
   {
     id: 'arc',

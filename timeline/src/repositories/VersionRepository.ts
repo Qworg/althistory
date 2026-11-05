@@ -339,11 +339,13 @@ export class VersionRepository {
       const total = versionNumbers.length;
       const paginated = versionNumbers.slice(offset, offset + limit);
 
+      const labels = await this.getVersionLabels(graphId);
       const versions: VersionRef[] = [];
       for (const vNum of paginated) {
         const vRef = await this.getVersionRef(graphId, vNum);
         if (vRef) {
-          versions.push(vRef);
+          const label = labels[String(vNum)];
+          versions.push(label ? { ...vRef, label } : vRef);
         }
       }
 
@@ -669,6 +671,31 @@ export class VersionRepository {
   async deleteGraph(graphId: string): Promise<void> {
     const graphDir = this.getGraphDir(graphId);
     await fs.promises.rm(graphDir, { recursive: true, force: true });
+  }
+
+  /**
+   * The names authors gave versions, by version number. Stored in
+   * labels.json beside the version records, which are never rewritten.
+   */
+  async getVersionLabels(graphId: string): Promise<Record<string, string>> {
+    try {
+      const content = await fs.promises.readFile(path.join(this.getGraphDir(graphId), 'labels.json'), 'utf-8');
+      const parsed = JSON.parse(content) as unknown;
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Name a version, or clear its name with null. */
+  async setVersionLabel(graphId: string, version: number, label: string | null): Promise<void> {
+    const labels = await this.getVersionLabels(graphId);
+    if (label) labels[String(version)] = label;
+    else delete labels[String(version)];
+    const target = path.join(this.getGraphDir(graphId), 'labels.json');
+    const temp = `${target}.${process.pid}.tmp`;
+    await fs.promises.writeFile(temp, JSON.stringify(labels), 'utf-8');
+    await fs.promises.rename(temp, target);
   }
 
   // Private helper methods

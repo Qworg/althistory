@@ -76,7 +76,9 @@ describe('historical dates in the arc and event dialogs', () => {
     expectUtcDate(screen.getByText('Babbage completes the Engine').parentElement!)
     expect(screen.getByLabelText(/start time/i)).toHaveValue('1840-01-01T00:00')
     expect(screen.getByLabelText(/end time/i)).toHaveValue('1850-01-01T00:00')
-    expect(screen.getByText('Time Range').parentElement).toHaveTextContent('(UTC)')
+    // Historical dates carry no time-zone label (they are not wall-clock times);
+    // they are still shown and saved unshifted, as asserted below.
+    expect(screen.getByText('Time Range').parentElement).not.toHaveTextContent('(UTC)')
   })
 
   it('ArcDetailPanel judges contained events against the UTC range it shows', async () => {
@@ -157,7 +159,7 @@ describe('historical dates in the arc and event dialogs', () => {
 
     const field = screen.getByLabelText(/^date/i)
     expect(field).toHaveValue('1843-11-20')
-    expect(field.closest('div')?.parentElement).toHaveTextContent('(UTC)')
+    expect(field.closest('div')?.parentElement).not.toHaveTextContent('(UTC)')
 
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
     await waitFor(() =>

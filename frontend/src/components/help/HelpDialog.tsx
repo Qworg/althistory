@@ -4,33 +4,17 @@ import { useHelpStore, type HelpTab } from './helpStore'
 import {
   SHORTCUT_SCOPES,
   formatCombo,
-  keyDisplay,
   shortcutsForScope,
   type KeyCombo,
   type Shortcut,
 } from './shortcuts'
 import { GLOSSARY, filterGlossary } from './glossary'
+import { Keycap } from './Keycap'
 
 const TABS: ReadonlyArray<{ id: HelpTab; label: string }> = [
   { id: 'shortcuts', label: 'Keyboard shortcuts' },
   { id: 'glossary', label: 'Glossary' },
 ]
-
-function Keycap({ keyName }: { keyName: string }) {
-  const { label, spoken } = keyDisplay(keyName)
-  return (
-    <kbd className="font-mono-code inline-flex min-w-[1.75rem] items-center justify-center rounded border border-line border-b-2 bg-subtle px-1.5 py-0.5 text-xs text-ink">
-      {label === spoken ? (
-        label
-      ) : (
-        <>
-          <span aria-hidden="true">{label}</span>
-          <span className="sr-only">{spoken}</span>
-        </>
-      )}
-    </kbd>
-  )
-}
 
 function Combo({ combo }: { combo: KeyCombo }) {
   return (
@@ -220,7 +204,7 @@ export function HelpDialog() {
                 tabIndex={selected ? 0 : -1}
                 onClick={() => setTab(t.id)}
                 onKeyDown={handleTabKeyDown}
-                className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-selected ${
+                className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
                   selected
                     ? 'border-selected text-ink'
                     : 'border-transparent text-ink-secondary hover:text-ink'

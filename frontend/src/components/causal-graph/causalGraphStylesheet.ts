@@ -115,6 +115,17 @@ export function buildCausalGraphStylesheet(theme: GraphCanvasTheme): StylesheetS
       }
     },
 
+    // Only in the branch (the comparison's causal diff): the divergence amber,
+    // and a dashed ring so it reads without the colour too.
+    {
+      selector: 'node.branch-added',
+      style: {
+        'border-color': c.divergenceFill,
+        'border-width': 4,
+        'border-style': 'dashed'
+      }
+    },
+
     // Selected node (the indigo selection accent, distinct from danger red);
     // its thicker border also marks it without relying on colour
     {
@@ -133,7 +144,24 @@ export function buildCausalGraphStylesheet(theme: GraphCanvasTheme): StylesheetS
         'background-color': c.highlightedFill,
         'border-color': c.highlightedBorder,
         'border-width': 4,
+        // A halo as well as the colour, so a hover reads without telling
+        // rose from blue (the selection ring is the border alone).
+        'overlay-color': c.highlightedFill,
+        'overlay-padding': 6,
+        'overlay-opacity': 0.18,
         'z-index': 20
+      }
+    },
+
+    // Hovering the selected node keeps it the selection colour (indigo, as on
+    // the timeline) and only adds the halo: a click left the pointer on the
+    // node, so the selection used to read as rose, a different state.
+    {
+      selector: 'node.highlighted:selected',
+      style: {
+        'background-color': c.selectedFill,
+        'border-color': c.selectedBorder,
+        'overlay-color': c.selectedFill
       }
     },
 
@@ -214,6 +242,17 @@ export function buildCausalGraphStylesheet(theme: GraphCanvasTheme): StylesheetS
       }
     },
     ...typeRules,
+
+    // A link only the branch has (the comparison's causal diff): after the
+    // base and type rules so its amber wins; selection and hover still follow.
+    {
+      selector: 'edge.branch-added',
+      style: {
+        'line-color': c.divergenceFill,
+        'target-arrow-color': c.divergenceFill,
+        'z-index': 15
+      }
+    },
 
     // A link to or from another graph keeps its type's line style, takes the
     // cross-graph colour, and is labelled with the other graph

@@ -77,7 +77,7 @@ export const GraphCard = memo(function GraphCard({
       onClick={handleClick}
       className={`
         p-4 border rounded-lg cursor-pointer transition-all
-        ${isActive ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'}
+        ${isActive ? 'border-selected bg-blue-50 ring-2 ring-blue-200' : 'border-line hover:border-line hover:shadow-sm'}
         ${className}
       `}
       role="button"
@@ -93,7 +93,7 @@ export const GraphCard = memo(function GraphCard({
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-gray-900 truncate">
+            <h3 className="font-semibold text-ink truncate">
               {graph.name}
             </h3>
             {graph.branchName && (
@@ -103,7 +103,7 @@ export const GraphCard = memo(function GraphCard({
             )}
           </div>
           {graph.description && (
-            <p className="text-sm text-gray-500 mt-1 line-clamp-2">
+            <p className="text-sm text-ink-muted mt-1 line-clamp-2">
               {graph.description}
             </p>
           )}
@@ -114,7 +114,7 @@ export const GraphCard = memo(function GraphCard({
       </div>
 
       {/* Stats Row */}
-      <div className="flex items-center gap-4 mt-3 text-sm text-gray-500">
+      <div className="flex items-center gap-4 mt-3 text-sm text-ink-muted">
         <span className="flex items-center gap-1">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -131,27 +131,27 @@ export const GraphCard = memo(function GraphCard({
           </svg>
           {graph.metadata.arcCount} arcs
         </span>
-        <span className="text-gray-400">v{graph.version}</span>
+        <span className="text-ink-muted">v{graph.version}</span>
       </div>
 
       {/* Time Range (if available) */}
       {graph.metadata.timeRange && (
-        <div className="mt-2 text-xs text-gray-400">
+        <div className="mt-2 text-xs text-ink-muted">
           {new Date(graph.metadata.timeRange.start).getFullYear()} - {new Date(graph.metadata.timeRange.end).getFullYear()}
         </div>
       )}
 
       {/* Last Updated */}
-      <div className="mt-3 text-xs text-gray-400">
+      <div className="mt-3 text-xs text-ink-muted">
         Updated {formatDate(graph.updatedAt)}
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100">
+      <div className="flex items-center gap-2 mt-4 pt-3 border-t border-line">
         {onEdit && (
           <button
             onClick={handleEdit}
-            className="px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+            className="px-3 py-1.5 text-sm border border-line rounded hover:bg-subtle transition-colors"
             aria-label={`Edit ${graph.name}`}
           >
             Edit

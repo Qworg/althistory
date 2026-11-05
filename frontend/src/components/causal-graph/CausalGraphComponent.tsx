@@ -49,6 +49,12 @@ export interface CausalGraphComponentProps {
    * height so the canvas neither collapses nor runs off the screen.
    */
   canvasClassName?: string
+  /**
+   * The canvas's least height (px). 400 by default; an embedding that sizes
+   * the canvas itself (the comparison's tab) passes less, or the canvas ran
+   * past its box and the fit put the lowest events below the visible edge.
+   */
+  canvasMinHeight?: number
   focusEventId?: string
   maxDepth?: number
   events?: Event[]
@@ -76,6 +82,12 @@ export interface CausalGraphComponentProps {
   onLayoutChange?: (layoutName: string) => void
   divergenceEventIds?: string[]
   /**
+   * Events and links (by id) that only the branch has, drawn in the
+   * divergence amber: the comparison's causal tab is a diff, not a picture
+   * of the branch alone.
+   */
+  branchAddedIds?: string[]
+  /**
    * View-only graph (e.g. the Compare dialog): hides Draw Link, Explore
    * Paths and Suggest Links, ignores the D shortcut, and opens no edit
    * affordance (no right-click edit, no relationship form).
@@ -85,6 +97,8 @@ export interface CausalGraphComponentProps {
 
 /** Past this many events or links the graph needs its level-of-detail controls. */
 export const PERFORMANCE_PANEL_THRESHOLD = 500
+/** Events at which the overview map starts to earn its place beside the canvas. */
+export const OVERVIEW_THRESHOLD = 40
 
 export interface CausalNodeData {
   id: string
@@ -118,6 +132,7 @@ export interface CausalEdgeData {
 export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   className = '',
   canvasClassName = 'h-full',
+  canvasMinHeight = 400,
   focusEventId,
   maxDepth = 3,
   events: propEvents,
@@ -144,6 +159,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   enablePerformanceOptimizations = true,
   onLayoutChange,
   divergenceEventIds,
+  branchAddedIds,
   readOnly = false
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -171,6 +187,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   const [hoveredNode, setHoveredNode] = useState<Event | null>(null)
   const [nodeTooltipPosition, setNodeTooltipPosition] = useState<{ x: number; y: number } | null>(null)
 
+  const toolHintId = useId()
   // The event the Explore Paths / Suggest Links tools act on: the node tapped
   // (or keyboard-selected) last, else the focused event.
   const [toolTargetId, setToolTargetId] = useState<string | null>(null)
@@ -503,19 +520,28 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         // Then hide labels that would overprint a more important one (see
         // pickVisibleLabels). Boxes are read after the sizing above applies.
         const boxes: LabelBox[] = []
+        const bodies: Array<{ id: string; box: LabelBox['box'] }> = []
         const measured: NodeSingular[] = []
         cy.nodes().forEach(node => {
           if (typeof node.boundingBox !== 'function') return
           measured.push(node)
           const bb = node.boundingBox({ includeNodes: false, includeEdges: false, includeLabels: true })
+          const body = node.boundingBox({ includeNodes: true, includeEdges: false, includeLabels: false })
           boxes.push({
             id: node.id(),
-            // Selected first, then the further-reaching events keep their names.
-            priority: (node.selected() ? 10_000 : 0) + (Number(node.data('reach')) || 0) * 10 + node.degree(false),
+            // Selected first, then the traced ripple, then the further-reaching
+            // events keep their names.
+            priority:
+              (node.selected() ? 10_000 : 0) +
+              (node.hasClass?.('ripple') ? 5_000 : 0) +
+              (node.hasClass?.('ripple-faded') ? -5_000 : 0) +
+              (Number(node.data('reach')) || 0) * 10 +
+              node.degree(false),
             box: { x1: bb.x1, y1: bb.y1, x2: bb.x2, y2: bb.y2 }
           })
+          if (body && Number.isFinite(body.x1)) bodies.push({ id: node.id(), box: { x1: body.x1, y1: body.y1, x2: body.x2, y2: body.y2 } })
         })
-        const visible = pickVisibleLabels(boxes, 3 / (zoom > 0 ? zoom : 1))
+        const visible = pickVisibleLabels(boxes, 3 / (zoom > 0 ? zoom : 1), bodies)
         cy.batch(() => {
           measured.forEach(node => {
             if (visible.has(node.id())) node.removeClass('label-culled')
@@ -716,6 +742,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       if (node.isDivergencePoint || (divergenceEventIds && divergenceEventIds.includes(node.id))) {
         classes.push('divergence-point')
       }
+      if (branchAddedIds?.includes(node.id)) classes.push('branch-added')
       return {
         data: node,
         classes: classes.length > 0 ? classes.join(' ') : undefined,
@@ -724,10 +751,12 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     })
 
     // Add edges
-    const cyEdges = edges.map(edge => ({
-      data: edge,
-      classes: edge.isCrossGraph ? 'cross-graph' : undefined
-    }))
+    const cyEdges = edges.map(edge => {
+      const classes = [edge.isCrossGraph ? 'cross-graph' : '', branchAddedIds?.includes(edge.id) ? 'branch-added' : '']
+        .filter(Boolean)
+        .join(' ')
+      return { data: edge, classes: classes || undefined }
+    })
 
     cyRef.current.add([...cyNodes, ...cyEdges])
 
@@ -751,7 +780,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         node.select()
       }
     })
-  }, [isInitialized, transformDataForCytoscape, armBackgroundTapGuard, divergenceEventIds]) // Removed sessionData dependency to break update cycle
+  }, [isInitialized, transformDataForCytoscape, armBackgroundTapGuard, divergenceEventIds, branchAddedIds]) // Removed sessionData dependency to break update cycle
 
   // Focus on specific event
   const focusOnEvent = useCallback((eventId: string) => {
@@ -1051,6 +1080,11 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       // suggestion tools, which the user opens explicitly.
       focusOnEvent(focusEventId)
       setToolTargetId(focusEventId)
+    } else if (!focusEventId && isInitialized) {
+      // The view cleared its selection (Escape, a delete): drop the canvas's
+      // selection ring too, so the two agree.
+      cyRef.current?.$('node:selected').unselect()
+      setToolTargetId(null)
     }
   }, [focusEventId, focusOnEvent, isInitialized])
 
@@ -1143,6 +1177,40 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
 
   // State for mobile sidebar visibility
   const [showMobileSidebar, setShowMobileSidebar] = useState(false)
+  const layoutTriggerRef = useRef<HTMLButtonElement>(null)
+  const layoutPanelRef = useRef<HTMLDivElement>(null)
+
+  // The Layout panel behaves as a popover: focus moves into it when it opens
+  // (to the chosen layout), Escape anywhere closes it and returns focus to
+  // its button, and a press outside it closes it. It stayed open over a
+  // quarter of the graph through canvas clicks and node selections.
+  useEffect(() => {
+    if (!showMobileSidebar) return
+    const panel = layoutPanelRef.current
+    const first =
+      panel?.querySelector<HTMLElement>('[aria-pressed="true"], [aria-checked="true"]') ??
+      panel?.querySelector<HTMLElement>('button:not([disabled])') ??
+      panel
+    first?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      event.preventDefault()
+      setShowMobileSidebar(false)
+      layoutTriggerRef.current?.focus()
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (target && (panel?.contains(target) || layoutTriggerRef.current?.contains(target))) return
+      setShowMobileSidebar(false)
+    }
+    // Capture, so this runs before the canvas's own Escape and taps.
+    document.addEventListener('keydown', onKeyDown, true)
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+    }
+  }, [showMobileSidebar])
 
   const nodeTooltipId = useId()
 
@@ -1197,29 +1265,36 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   })
 
   return (
-    <div className={`causal-graph-container relative flex flex-col min-[1440px]:flex-row ${className}`}>
-      {/* Below 1440px the controls fold away behind this toggle: beside the
-          inspector, a 16rem rail left the graph itself about 300px wide. */}
+    <div className={`causal-graph-container relative flex flex-col ${className}`}>
+      {/* The layout and overview controls open over the canvas from this
+          button at every width. As a column of their own they took ~270px,
+          and beside the inspector left the graph about 40% of the window. The
+          panel stays mounted while closed so its layout keys (9, 1, 6) work. */}
       <button
+        ref={layoutTriggerRef}
         type="button"
         onClick={() => setShowMobileSidebar(!showMobileSidebar)}
-        className="min-[1440px]:hidden self-start flex items-center justify-center gap-2 mb-2 px-3 py-1.5 bg-card rounded-md border border-line text-sm font-medium text-ink-secondary hover:bg-subtle hover:text-ink"
+        className="self-start flex items-center justify-center gap-2 mb-2 px-3 py-1.5 bg-card rounded-md border border-line text-sm font-medium text-ink-secondary hover:bg-subtle hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
         aria-expanded={showMobileSidebar}
         aria-controls="graph-sidebar"
       >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
         </svg>
-        {showMobileSidebar ? 'Hide layout and overview' : 'Layout and overview'}
+        Layout
+        <svg className={`w-3.5 h-3.5 transition-transform ${showMobileSidebar ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
       </button>
 
-      {/* Left column of controls - hidden on mobile unless toggled. Its
-          sections sit directly on the surface the graph is on, divided by
-          rules, rather than each in a card of its own. */}
       <div
+        ref={layoutPanelRef}
+        tabIndex={-1}
         id="graph-sidebar"
-        className={`flex-col divide-y divide-line [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0 min-[1440px]:w-64 min-[1440px]:pr-4 min-[1440px]:mr-4 min-[1440px]:border-r min-[1440px]:border-line min-[1440px]:flex-shrink-0 ${
-          showMobileSidebar ? 'flex mb-4 pb-4 border-b border-line min-[1440px]:pb-0 min-[1440px]:border-b-0' : 'hidden min-[1440px]:flex'
+        role="group"
+        aria-label="Graph layout"
+        className={`absolute left-0 top-11 z-30 w-[min(20rem,calc(100%-1rem))] max-h-[min(36rem,calc(100%-3rem))] overflow-y-auto rounded-lg border border-line bg-card p-4 shadow-lg flex-col divide-y divide-line [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0 ${
+          showMobileSidebar ? 'flex' : 'hidden'
         }`}
       >
         {/* Layout Manager */}
@@ -1234,8 +1309,10 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           />
         )}
 
-        {/* Overview */}
-        {showOverview && (
+        {/* Overview. A small graph fits the canvas whole (and F refits it),
+            so below OVERVIEW_THRESHOLD events a map of it only repeated the
+            canvas beside it and took width the graph needed. */}
+        {showOverview && events.length >= OVERVIEW_THRESHOLD && (
           <CausalGraphOverview
             mainCytoscapeInstance={cyRef.current}
             events={events}
@@ -1263,8 +1340,10 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         )}
       </div>
 
-      {/* Main graph area */}
-      <div className="flex-1 relative">
+      {/* Main graph area. min-h-0: a flex item's minimum height is its
+          content's, and the canvas sizes itself from this box, so without it
+          the two grew each other (the comparison's preview reached 3700px). */}
+      <div className="flex-1 min-h-0 relative">
         <div
           ref={containerRef}
           tabIndex={0}
@@ -1272,8 +1351,8 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           aria-label={`Causal graph with ${events.length} events and ${causalRelationships.length} causal relationships`}
           aria-describedby={hoveredNode ? nodeTooltipId : undefined}
           onKeyDown={handleGraphKeyDown}
-          className={`w-full ${canvasClassName} min-h-[400px] bg-canvas rounded-lg border border-line focus:outline-none focus:ring-2 focus:ring-selected`}
-          style={{ minHeight: '400px' }}
+          className={`w-full ${canvasClassName} bg-canvas rounded-lg border border-line focus:outline-none focus:ring-2 focus:ring-selected`}
+          style={{ minHeight: `${canvasMinHeight}px` }}
         />
 
         {/* The canvas draws nodes, not DOM: announce the event the keyboard
@@ -1403,11 +1482,11 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
                       strokeDasharray={line.dash ? line.dash.map(n => n * 0.6).join(' ') : undefined}
                     />
                   </svg>
-                  <span>{line.label} ({line.pattern})</span>
+                  <span>{line.label.toLowerCase()} ({line.pattern})</span>
                 </li>
               )
             })}
-            <li>Thicker = more weight</li>
+            <li>thicker = stronger</li>
             {divergenceEventIds && divergenceEventIds.length > 0 && (
               <li className="flex items-center gap-1.5">
                 <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className="flex-shrink-0">
@@ -1508,11 +1587,21 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Said on screen, not only in a tooltip: the two tools act on a
+              selected event, and without one they look switched off. */}
+          {!readOnly && !toolTargetEvent && (enablePathExploration || enableSuggestions) && (
+            // Plain text, not a pill: as a rounded chip beside the buttons it
+            // read as one more button.
+            <span id={toolHintId} className="self-center px-1 text-xs italic text-ink-muted">
+              Select an event to use these
+            </span>
+          )}
           {!readOnly && enablePathExploration && (
             <CanvasToolButton
               label="Explore Paths"
               pressed={activeTool === 'paths'}
               unavailableReason={toolTargetEvent ? null : 'Select an event on the graph to explore the causal paths leading from it'}
+              describedBy={toolTargetEvent ? undefined : toolHintId}
               title={toolTargetEvent
                 ? `Explore the causal paths leading from “${eventNodeLabel(toolTargetEvent)}”`
                 : ''}
@@ -1524,6 +1613,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
               label="Suggest Links"
               pressed={activeTool === 'suggestions'}
               unavailableReason={toolTargetEvent ? null : 'Select an event on the graph to see suggested causal links for it'}
+              describedBy={toolTargetEvent ? undefined : toolHintId}
               title={toolTargetEvent
                 ? `Suggest causal links for “${eventNodeLabel(toolTargetEvent)}”`
                 : ''}
@@ -1623,6 +1713,8 @@ interface CanvasToolButtonProps {
   exposePressed?: boolean
   /** Why the tool cannot be used now, or null when it can. */
   unavailableReason: string | null
+  /** An on-screen note that explains why the tool is unavailable. */
+  describedBy?: string
   title: string
   onClick: () => void
 }
@@ -1632,13 +1724,14 @@ interface CanvasToolButtonProps {
  * its explanatory title (a `disabled` button shows no tooltip in most
  * browsers), and is marked `aria-disabled`.
  */
-function CanvasToolButton({ label, pressed, exposePressed = true, unavailableReason, title, onClick }: CanvasToolButtonProps) {
+function CanvasToolButton({ label, pressed, exposePressed = true, unavailableReason, describedBy, title, onClick }: CanvasToolButtonProps) {
   const unavailable = unavailableReason !== null
   return (
     <button
       type="button"
       aria-pressed={exposePressed ? pressed : undefined}
       aria-disabled={unavailable || undefined}
+      aria-describedby={describedBy}
       title={unavailableReason ?? title}
       onClick={(e) => {
         e.stopPropagation()
@@ -1648,7 +1741,7 @@ function CanvasToolButton({ label, pressed, exposePressed = true, unavailableRea
         unavailable
           ? 'bg-card text-ink-muted border-line opacity-60 cursor-not-allowed'
           : pressed
-            ? 'bg-selected text-white border-selected'
+            ? 'bg-selected text-on-accent border-selected'
             : 'bg-card text-ink-secondary border-line hover:bg-subtle hover:text-ink'
       }`}
     >

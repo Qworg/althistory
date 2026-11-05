@@ -72,7 +72,7 @@ test.describe('visual regression', () => {
       .getByLabel(/Wikipedia URL/)
       .fill('https://en.wikipedia.org/wiki/Battle_of_Hastings')
     await dialog.getByRole('button', { name: /Extract events/ }).click()
-    await expect(dialog.getByRole('heading', { name: 'Events (2/2 selected)' })).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: 'Events (1/2 selected)' })).toBeVisible()
 
     await blurActiveElement(page)
     await expect(dialog).toHaveScreenshot('ingestion-review.png')

@@ -106,17 +106,17 @@ export const ApiKeyDashboard: React.FC<ApiKeyDashboardProps> = ({ isOpen, onClos
           </div>
 
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">API Key</label>
+            <label className="block text-sm font-medium text-ink-secondary">API Key</label>
             <div className="flex gap-2">
               <input
                 type="text"
                 readOnly
                 value={newKeyResponse.key}
-                className="flex-1 px-3 py-2 bg-gray-100 border border-gray-300 rounded-md font-mono text-sm"
+                className="flex-1 px-3 py-2 bg-subtle border border-line rounded-md font-mono text-sm"
               />
               <button
                 onClick={handleCopyKey}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                className="px-4 py-2 bg-baseline text-on-accent rounded-md hover:bg-baseline/90 transition-colors"
               >
                 {copiedKey ? 'Copied!' : 'Copy'}
               </button>
@@ -125,11 +125,11 @@ export const ApiKeyDashboard: React.FC<ApiKeyDashboardProps> = ({ isOpen, onClos
 
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-gray-500">Name:</span>
+              <span className="text-ink-muted">Name:</span>
               <span className="ml-2 font-medium">{newKeyResponse.name}</span>
             </div>
             <div>
-              <span className="text-gray-500">Prefix:</span>
+              <span className="text-ink-muted">Prefix:</span>
               <span className="ml-2 font-mono">{newKeyResponse.keyPrefix}</span>
             </div>
           </div>
@@ -137,7 +137,7 @@ export const ApiKeyDashboard: React.FC<ApiKeyDashboardProps> = ({ isOpen, onClos
           <div className="flex justify-end pt-4">
             <button
               onClick={handleCloseNewKey}
-              className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors"
+              className="px-4 py-2 bg-line text-ink rounded-md hover:bg-line transition-colors"
             >
               Done
             </button>
@@ -160,14 +160,14 @@ export const ApiKeyDashboard: React.FC<ApiKeyDashboardProps> = ({ isOpen, onClos
             {view === 'create' ? (
               <button
                 onClick={() => setView('list')}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                className="px-4 py-2 text-ink-secondary hover:text-ink"
               >
                 Cancel
               </button>
             ) : (
               <button
                 onClick={() => setView('create')}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                className="px-4 py-2 bg-baseline text-on-accent rounded-md hover:bg-baseline/90 transition-colors"
               >
                 Create New Key
               </button>
@@ -218,7 +218,7 @@ const KeyList: React.FC<KeyListProps> = ({
   if (isLoading) {
     return (
       <div className="flex justify-center items-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-baseline"></div>
       </div>
     )
   }
@@ -227,7 +227,7 @@ const KeyList: React.FC<KeyListProps> = ({
     return (
       <div className="text-center py-12">
         <p className="text-red-600">Failed to load API keys</p>
-        <p className="text-sm text-gray-500 mt-1">{error.message}</p>
+        <p className="text-sm text-ink-muted mt-1">{error.message}</p>
       </div>
     )
   }
@@ -235,11 +235,11 @@ const KeyList: React.FC<KeyListProps> = ({
   if (keys.length === 0) {
     return (
       <div className="text-center py-12">
-        <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-12 h-12 text-ink-muted mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
         </svg>
-        <p className="text-gray-600">No API keys yet</p>
-        <p className="text-sm text-gray-500 mt-1">Create your first API key to get started</p>
+        <p className="text-ink-secondary">No API keys yet</p>
+        <p className="text-sm text-ink-muted mt-1">Create your first API key to get started</p>
       </div>
     )
   }

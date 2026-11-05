@@ -74,9 +74,15 @@ export function useViewShortcuts() {
         return
       }
 
-      // Check for Alt + number shortcuts
-      if (event.altKey && !event.ctrlKey && !event.shiftKey) {
-        const config = VIEW_SHORTCUT_CONFIGS.find((c) => c.shortcut === event.key)
+      // Shift+1/2/3, by physical key (Shift+1 types "!", so event.key will
+      // not do); Alt+1/2/3 is kept as an alternative. Alt+digit alone was the
+      // only way, and in Chrome and Firefox on Linux it switches browser tabs.
+      if (event.ctrlKey || event.metaKey) return
+      const digit = /^Digit(\d)$/.exec(event.code ?? '')?.[1] ?? (/^\d$/.test(event.key) ? event.key : null)
+      const viaShift = event.shiftKey && !event.altKey
+      const viaAlt = event.altKey && !event.shiftKey
+      if (digit && (viaShift || viaAlt)) {
+        const config = VIEW_SHORTCUT_CONFIGS.find((c) => c.shortcut === digit)
         if (config) {
           event.preventDefault()
           handleViewSwitch(config.mode, config.path)

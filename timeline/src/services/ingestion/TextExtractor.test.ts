@@ -119,6 +119,15 @@ describe('TextExtractor (pattern-based)', () => {
     expect(result.events).toHaveLength(1);
     expect(result.events[0]).toMatchObject({ actor: 'Paris', target: 'Paris', selected: true });
   });
+
+  it('records how much of the date the text stated, so a month is not read as its first day', async () => {
+    const extractor = new TextExtractor();
+    const result = await extractor.extract({
+      text: 'In March 1871 the Admiralty adopted the engine. Parliament debated the engine in 1872 AD. On 3 May 1873 the clerks struck.',
+    });
+    const byYear = Object.fromEntries(result.events.map((event) => [event.timestamp.slice(0, 4), event.datePrecision]));
+    expect(byYear).toEqual({ '1871': 'month', '1872': 'year', '1873': 'day' });
+  });
 });
 
 describe('TextExtractor (LLM-assisted)', () => {

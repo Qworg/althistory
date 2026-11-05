@@ -364,4 +364,17 @@ describe('toAlthistoryExport', () => {
     const error = service.validateChecksum({ metadata, data: exported.data });
     expect(error).toBeNull();
   });
+
+  it('keeps a partial date partial in the stored metadata, and only then', () => {
+    const extraction = makeExtraction();
+    const [first] = extraction.events;
+    extraction.events = [
+      { ...first!, tempId: 'month', datePrecision: 'month' },
+      { ...first!, tempId: 'day', datePrecision: 'day' },
+    ];
+    const exported = toAlthistoryExport(extraction, { graphId: 'g', graphName: 'T', now: () => new Date(0) });
+    const [month, day] = exported.data.events;
+    expect(month?.metadata).toMatchObject({ datePrecision: 'month' });
+    expect(day?.metadata).not.toHaveProperty('datePrecision');
+  });
 });

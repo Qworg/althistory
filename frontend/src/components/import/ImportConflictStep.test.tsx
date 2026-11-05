@@ -168,7 +168,7 @@ describe('ImportConflictStep', () => {
       
       // The skip button should have the selected style (bg-blue-600)
       const skipButtons = screen.getAllByRole('button', { name: 'Skip' })
-      const selectedButton = skipButtons.find(btn => btn.className.includes('bg-blue-600'))
+      const selectedButton = skipButtons.find(btn => btn.className.includes('bg-baseline'))
       expect(selectedButton).toBeTruthy()
     })
   })

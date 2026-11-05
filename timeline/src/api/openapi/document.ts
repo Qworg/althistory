@@ -147,10 +147,18 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       parentVersion: { type: 'integer', nullable: true },
       operation: { type: 'string' },
       description: { type: 'string' },
+      label: { type: 'string', description: 'A name the author gave this version.' },
       timestamp: { type: 'string', format: 'date-time' },
       userId: { type: 'string' },
     },
     required: ['version', 'operation', 'timestamp'],
+  },
+  VersionLabelRequest: {
+    type: 'object',
+    properties: {
+      label: { type: 'string', maxLength: 80, description: 'The name; empty clears it.' },
+    },
+    required: ['label'],
   },
   GraphData: {
     type: 'object',

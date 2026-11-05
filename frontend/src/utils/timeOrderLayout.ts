@@ -59,6 +59,47 @@ export function timeOrderPositions(
   return positions
 }
 
+/** The least zoom at which a node label still reads once the canvas fits the graph. */
+const LEGIBLE_ZOOM = 0.6
+
+/**
+ * Positions whose overall shape matches the canvas they will be fitted into.
+ *
+ * A fixed span ignored the canvas: on a wide one the stacked rows made the
+ * graph taller than the canvas allowed, so the fit used the middle ~40% of the
+ * width; on a phone the strip was wider than the screen and shrank to a clump.
+ * The span is moved toward the canvas's aspect ratio (a wider span packs fewer
+ * rows, a narrower one more) and capped so the fit never zooms labels below
+ * legibility.
+ */
+export function timeOrderPositionsForViewport(
+  nodes: readonly TimedNode[],
+  viewport: { width: number; height: number } | null,
+  { minGap = 150, rowPitch = 96 }: Omit<TimeOrderOptions, 'width'> = {}
+): Map<string, { x: number; y: number }> {
+  let positions = timeOrderPositions(nodes, { minGap, rowPitch })
+  if (!viewport || viewport.width <= 0 || viewport.height <= 0 || nodes.length < 3) return positions
+  const aspect = viewport.width / viewport.height
+  const maxSpan = Math.max(minGap * 2, viewport.width / LEGIBLE_ZOOM)
+  const extentOf = (map: Map<string, { x: number; y: number }>) => {
+    const points = [...map.values()]
+    const xs = points.map((p) => p.x)
+    const ys = points.map((p) => p.y)
+    // A row's label sits under its node: count one pitch for it.
+    return { width: Math.max(...xs) - Math.min(...xs) + minGap, height: Math.max(...ys) - Math.min(...ys) + rowPitch }
+  }
+  let span = extentOf(positions).width - minGap
+  for (let step = 0; step < 6; step++) {
+    const { height } = extentOf(positions)
+    // The geometric mean converges without overshooting into the other extreme.
+    const next = Math.min(maxSpan, Math.max(minGap * 2, Math.sqrt(span * aspect * height)))
+    if (Math.abs(next - span) / span < 0.05) break
+    span = next
+    positions = timeOrderPositions(nodes, { width: span, minGap, rowPitch })
+  }
+  return positions
+}
+
 /** One computation per layout run, shared by the per-node `positions` calls. */
 const cache = new WeakMap<Core, { signature: string; positions: Map<string, { x: number; y: number }> }>()
 
@@ -72,10 +113,11 @@ export function timeOrderNodePosition(node: NodeSingular): { x: number; y: numbe
   const cy = node.cy()
   const nodes = cy.nodes()
   const timedNodes = nodes.map((n) => ({ id: n.id(), time: nodeTime(n) }))
-  const signature = timedNodes.map((n) => `${n.id}@${n.time}`).join('|')
+  const viewport = { width: Math.round(cy.width()), height: Math.round(cy.height()) }
+  const signature = `${viewport.width}x${viewport.height}:` + timedNodes.map((n) => `${n.id}@${n.time}`).join('|')
   let entry = cache.get(cy)
   if (!entry || entry.signature !== signature) {
-    entry = { signature, positions: timeOrderPositions(timedNodes) }
+    entry = { signature, positions: timeOrderPositionsForViewport(timedNodes, viewport) }
     cache.set(cy, entry)
   }
   return entry.positions.get(node.id()) ?? { x: 0, y: 0 }

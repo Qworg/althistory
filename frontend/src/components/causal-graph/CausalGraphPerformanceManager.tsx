@@ -379,9 +379,9 @@ export function CausalGraphPerformanceManager({
   // is no status to report (0 FPS used to read as "poor").
   const performanceStatus: { label: string; dot: string } | null =
     metrics.fps <= 0 ? null
-      : metrics.fps < 30 ? { label: 'Poor', dot: 'bg-red-600' }
+      : metrics.fps < 30 ? { label: 'Poor', dot: 'bg-danger' }
         : metrics.fps < 50 ? { label: 'Fair', dot: 'bg-divergence' }
-          : { label: 'Good', dot: 'bg-green-600' }
+          : { label: 'Good', dot: 'bg-success' }
 
   const metricRows: Array<[string, string]> = [
     ['Nodes', metrics.nodeCount.toLocaleString()],

@@ -70,7 +70,7 @@ export function WikipediaIngestTab({ onSubmit, isSubmitting, formId, onCanSubmit
           onChange={(event) => setUrl(event.target.value)}
           placeholder="e.g. https://en.wikipedia.org/wiki/Battle_of_Hastings"
           aria-invalid={urlInvalid}
-          className="mt-1 block w-full rounded-md border border-line px-3 py-2 bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="mt-1 block w-full rounded-md border border-line px-3 py-2 bg-card text-ink placeholder:text-ink-muted shadow-sm focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
         />
         {urlInvalid && (
           <p className="mt-1 text-xs text-red-700 dark:text-red-300" role="alert">
@@ -85,7 +85,7 @@ export function WikipediaIngestTab({ onSubmit, isSubmitting, formId, onCanSubmit
             type="checkbox"
             checked={followLinks}
             onChange={(event) => setFollowLinks(event.target.checked)}
-            className="h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-500"
+            className="h-4 w-4 rounded border-line text-baseline focus:ring-selected"
           />
           Follow links
         </label>
@@ -103,7 +103,7 @@ export function WikipediaIngestTab({ onSubmit, isSubmitting, formId, onCanSubmit
                 max={3}
                 value={linkDepth}
                 onChange={(event) => setLinkDepth(Number(event.target.value))}
-                className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
               />
             </div>
             <div>
@@ -116,7 +116,7 @@ export function WikipediaIngestTab({ onSubmit, isSubmitting, formId, onCanSubmit
                 value={linkFilter}
                 onChange={(event) => setLinkFilter(event.target.value)}
                 placeholder="e.g. Battle.*"
-                className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
               />
             </div>
             <div>
@@ -129,7 +129,7 @@ export function WikipediaIngestTab({ onSubmit, isSubmitting, formId, onCanSubmit
                 min={1}
                 value={maxPages}
                 onChange={(event) => setMaxPages(Number(event.target.value))}
-                className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
               />
             </div>
           </div>

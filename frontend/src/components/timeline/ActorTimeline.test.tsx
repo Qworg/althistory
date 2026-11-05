@@ -152,7 +152,7 @@ describe('ActorTimeline', () => {
   it('does not repeat the layout name over the chart (the view\'s Layout control names it)', () => {
     render(<ActorTimeline actor="U.S." layoutMode="chronological" events={twoEvents} arcs={[]} />)
     expect(screen.queryByText(/Chronological Layout/i)).not.toBeInTheDocument()
-    expect(screen.getByText('As Actor')).toBeInTheDocument()
+    expect(screen.getAllByText('As actor').length).toBeGreaterThan(0)
   })
 
   describe('axis tick labels', () => {
@@ -403,9 +403,10 @@ describe('ActorTimeline', () => {
     })
 
     it('places labels without overprinting, dropping those that do not fit', () => {
-      // More events on the same day in one lane than there are label rows:
-      // one per row is named, the rest keep their tooltip and accessible name.
-      const ids = Array.from({ length: LABEL_ROW_OFFSETS.length + 2 }, (_, i) => `e${i + 1}`)
+      // More events on the same day in one lane than there are label rows (two
+      // above the marks, two below): one per row is named, the rest keep their
+      // tooltip and accessible name.
+      const ids = Array.from({ length: LABEL_ROW_OFFSETS.length * 2 + 2 }, (_, i) => `e${i + 1}`)
       const sameDay = ids.map((id) => actorEvent(id, 'actor', 'Britain'))
       const { container } = render(
         <ActorTimeline actor="U.S." layoutMode="chronological" events={sameDay} arcs={[]} />
@@ -417,16 +418,16 @@ describe('ActorTimeline', () => {
     })
 
     it('names the selected mark first and in the selection colour', () => {
-      const sameDay = ['e1', 'e2', 'e3', 'e4'].map((id) => actorEvent(id, 'actor', 'Britain'))
+      const sameDay = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6'].map((id) => actorEvent(id, 'actor', 'Britain'))
       const { container } = render(
         <ActorTimeline actor="U.S." layoutMode="chronological" events={sameDay} arcs={[]} />
       )
-      const mark = container.querySelector('.actor-event[data-event-id="e4"]')!
+      const mark = container.querySelector('.actor-event[data-event-id="e6"]')!
       expect(mark.querySelector('.actor-event-label')).toBeNull()
 
       fireEvent.click(mark)
       const label = mark.querySelector('.actor-event-label')
-      expect(label).toHaveTextContent('Event e4')
+      expect(label).toHaveTextContent('Event e6')
       expect(label?.getAttribute('fill')).toBe('var(--accent-selected)')
     })
 

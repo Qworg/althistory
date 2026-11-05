@@ -124,7 +124,7 @@ export function ViewSwitcher({
     }
   }, [currentViewMode, navigate, saveCurrentViewState, sessionData])
 
-  // Note: Keyboard shortcuts (Alt+1/2/3) are handled globally by useViewShortcuts hook in MainLayout
+  // Note: Keyboard shortcuts (Shift+1/2/3, or Alt+1/2/3) are handled globally by useViewShortcuts hook in MainLayout
 
   const containerClasses = orientation === 'horizontal' 
     ? 'flex items-center space-x-1' 
@@ -142,7 +142,7 @@ export function ViewSwitcher({
             className={`
               group relative inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium
               transition-all duration-200 ease-in-out
-              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+              focus:outline-none focus:ring-2 focus:ring-selected focus:ring-offset-2
               ${isActive
                 ? 'bg-blue-100 text-blue-700 shadow-sm dark:bg-blue-500/15 dark:text-blue-200'
                 : 'text-ink-secondary hover:text-ink hover:bg-subtle'
@@ -152,7 +152,7 @@ export function ViewSwitcher({
             role="tab"
             aria-selected={isActive}
             aria-controls={`${config.mode}-panel`}
-            title={`${config.description} (Alt+${config.shortcut})`}
+            title={`${config.description} (Shift+${config.shortcut})`}
           >
             <span aria-hidden="true" className={`${showLabels && orientation === 'horizontal' ? 'mr-2' : ''}`}>
               {config.icon}
@@ -171,14 +171,14 @@ export function ViewSwitcher({
                 transition-opacity duration-200
                 ${orientation === 'horizontal' ? 'ml-2' : ''}
               `}>
-                Alt+{config.shortcut}
+                Shift+{config.shortcut}
               </span>
             )}
 
             {/* Active indicator */}
             {isActive && (
               <div className={`
-                absolute bg-blue-500 rounded-full transition-all duration-200
+                absolute bg-baseline rounded-full transition-all duration-200
                 ${orientation === 'horizontal' 
                   ? 'bottom-0 left-1/2 transform -translate-x-1/2 w-1 h-1' 
                   : 'left-0 top-1/2 transform -translate-y-1/2 w-1 h-4'

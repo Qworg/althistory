@@ -24,7 +24,7 @@ export const KeyUsagePanel: React.FC<KeyUsagePanelProps> = ({ keyId }) => {
 
   if (isLoading) {
     return (
-      <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-500">
+      <div className="mt-3 pt-3 border-t border-line text-xs text-ink-muted">
         Loading usage...
       </div>
     )
@@ -43,7 +43,7 @@ export const KeyUsagePanel: React.FC<KeyUsagePanelProps> = ({ keyId }) => {
     }
 
     return (
-      <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-red-600">
+      <div className="mt-3 pt-3 border-t border-line text-xs text-red-600">
         Could not load the usage of this key.
       </div>
     )
@@ -52,7 +52,7 @@ export const KeyUsagePanel: React.FC<KeyUsagePanelProps> = ({ keyId }) => {
   if (!data) return null
 
   return (
-    <div className="mt-3 pt-3 border-t border-gray-100">
+    <div className="mt-3 pt-3 border-t border-line">
       <KeyUsageStats
         keyId={data.keyId}
         rateLimit={data.rateLimit}

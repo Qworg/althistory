@@ -20,7 +20,7 @@ test.describe('ingestion wizard', () => {
     await page.getByRole('button', { name: 'Bring in history' }).click()
     await page.getByRole('menuitem', { name: /^Extract from text or Wikipedia/ }).click()
     const dialog = page.getByRole('dialog')
-    await expect(dialog.getByRole('heading', { name: 'Ingest from Wikipedia' })).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: 'Bring in history' })).toBeVisible()
 
     await expect(dialog.getByRole('tab', { name: 'Wikipedia' })).toHaveAttribute(
       'aria-selected',
@@ -32,17 +32,23 @@ test.describe('ingestion wizard', () => {
       .fill('https://en.wikipedia.org/wiki/Battle_of_Hastings')
     await dialog.getByRole('button', { name: /Extract events/ }).click()
 
-    // Review step: the extraction is rendered as an editable table.
-    await expect(dialog.getByRole('heading', { name: 'Events (2/2 selected)' })).toBeVisible()
+    // Review step: the extraction is rendered as an editable table. A row
+    // starts ticked only at confidence >= 0.7, so evt-2 (0.6) waits for the
+    // reviewer; the arc (0.7) is in.
+    await expect(dialog.getByRole('heading', { name: 'Events (1/2 selected)' })).toBeVisible()
     await expect(dialog.getByRole('heading', { name: 'Arcs (1/1 selected)' })).toBeVisible()
     await expect(dialog.getByLabel('Select event evt-1')).toBeChecked()
+    await expect(dialog.getByLabel('Select event evt-2')).not.toBeChecked()
     await expect(dialog.getByLabel('Description for event evt-1')).toHaveValue('Battle of Hastings')
     await expect(dialog.getByLabel('Actor for event evt-1')).toHaveValue('Harold Godwinson')
     await expect(dialog.getByText('1 validation issue')).toBeVisible()
 
     expect(state.ingestedVia).toEqual(['/ingest/url'])
 
-    // Complete the import; the approve payload must carry the selection.
+    // Bring the low-confidence row in, then complete the import; the approve
+    // payload must carry the selection.
+    await dialog.getByLabel('Select event evt-2').check()
+    await expect(dialog.getByRole('heading', { name: 'Events (2/2 selected)' })).toBeVisible()
     await dialog.getByRole('button', { name: /^(Add 3 to |Import selected \(3\))/ }).click()
     await expect(dialog.getByRole('heading', { name: 'Import complete' })).toBeVisible()
     await expect(

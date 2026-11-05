@@ -115,3 +115,22 @@ describe('truncateLabel', () => {
     expect(truncateLabel('Supercalifragilistic expialidocious', 12)).toBe('Supercalifr…')
   })
 })
+
+describe('progressive shortening on the main timeline', () => {
+  const long = 'Babbage completes the Analytical Engine in 1843'
+
+  it('names an event in full where its row has room', () => {
+    const placements = layoutEventLabels([{ id: 'a', x: 400, description: long }], 800, TIMELINE_LABEL_CONFIG)
+    expect(placements.get('a')?.text).toBe(truncateLabel(long, 44))
+    expect(placements.get('a')?.text.length).toBeGreaterThan(28)
+  })
+
+  it('shortens a label only as far as it must to share the rows with its neighbours', () => {
+    // Nine events 40px apart: the full names cannot all fit, so some shorten.
+    const items = Array.from({ length: 9 }, (_, i) => ({ id: `e${i}`, x: 200 + i * 40, description: long }))
+    const placements = layoutEventLabels(items, 800, TIMELINE_LABEL_CONFIG)
+    const lengths = [...placements.values()].map((p) => p.text.length)
+    expect(Math.min(...lengths)).toBeLessThan(Math.max(...lengths))
+    expect(placements.size).toBeGreaterThan(3)
+  })
+})

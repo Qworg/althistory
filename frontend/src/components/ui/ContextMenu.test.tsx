@@ -46,7 +46,7 @@ describe('ContextMenu', () => {
     it('applies danger styling to danger items', () => {
       render(<ContextMenu {...defaultProps} />)
       const deleteButton = screen.getByText('Delete')
-      expect(deleteButton).toHaveClass('text-red-700')
+      expect(deleteButton).toHaveClass('text-danger')
     })
 
     it('renders disabled items with disabled styling', () => {
@@ -270,5 +270,22 @@ describe('ContextMenu', () => {
       fireEvent.keyDown(document, { key: 'Escape' })
       expect(defaultProps.onClose).not.toHaveBeenCalled()
     })
+  })
+
+  it('stays inside the viewport on its very first open near the right edge', () => {
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 180, height: 120, x: 0, y: 0, top: 0, left: 0, right: 180, bottom: 120, toJSON: () => ({}),
+    } as DOMRect)
+    render(<ContextMenu {...defaultProps} position={{ x: window.innerWidth - 20, y: window.innerHeight - 10 }} />)
+    const menu = screen.getByRole('menu')
+    expect(menu.style.left).toBe(`${window.innerWidth - 180 - 8}px`)
+    expect(menu.style.top).toBe(`${window.innerHeight - 120 - 8}px`)
+    rect.mockRestore()
+  })
+
+  it('sets a destructive item apart from the ones above it', () => {
+    render(<ContextMenu {...defaultProps} />)
+    const separator = screen.getByRole('separator')
+    expect(separator.nextElementSibling).toHaveTextContent('Delete')
   })
 })

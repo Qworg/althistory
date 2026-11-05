@@ -39,8 +39,8 @@ const statusConfig: Record<ExportJobStatus, {
         />
       </svg>
     ),
-    bg: 'bg-gray-100',
-    text: 'text-gray-600',
+    bg: 'bg-subtle',
+    text: 'text-ink-secondary',
     label: 'Pending',
   },
   processing: {
@@ -51,7 +51,7 @@ const statusConfig: Record<ExportJobStatus, {
       </svg>
     ),
     bg: 'bg-blue-100',
-    text: 'text-blue-600',
+    text: 'text-baseline',
     label: 'Processing',
   },
   completed: {
@@ -82,8 +82,8 @@ const statusConfig: Record<ExportJobStatus, {
         />
       </svg>
     ),
-    bg: 'bg-gray-100',
-    text: 'text-gray-500',
+    bg: 'bg-subtle',
+    text: 'text-ink-muted',
     label: 'Cancelled',
   },
 }
@@ -123,14 +123,14 @@ export const ExportHistoryList = memo(function ExportHistoryList({
 
   if (displayedJobs.length === 0) {
     return (
-      <div className={`text-center py-8 text-gray-500 ${className}`}>
-        <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className={`text-center py-8 text-ink-muted ${className}`}>
+        <svg className="w-12 h-12 mx-auto mb-3 text-ink-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" 
           />
         </svg>
         <p className="text-sm">No export history</p>
-        <p className="text-xs text-gray-400 mt-1">Export jobs will appear here</p>
+        <p className="text-xs text-ink-muted mt-1">Export jobs will appear here</p>
       </div>
     )
   }
@@ -146,7 +146,7 @@ export const ExportHistoryList = memo(function ExportHistoryList({
             key={job.id}
             className={`
               border rounded-lg p-3 transition-all
-              ${isActive ? 'border-blue-200 bg-blue-50' : 'border-gray-200'}
+              ${isActive ? 'border-blue-200 bg-blue-50' : 'border-line'}
             `}
           >
             {/* Header Row */}
@@ -159,10 +159,10 @@ export const ExportHistoryList = memo(function ExportHistoryList({
                 
                 {/* Job ID and Date */}
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-gray-900 truncate">
+                  <div className="text-sm font-medium text-ink truncate">
                     Export {job.id.slice(-8)}
                   </div>
-                  <div className="text-xs text-gray-400">
+                  <div className="text-xs text-ink-muted">
                     {job.completedAt ? new Date(job.completedAt).toLocaleString() : formatDate(job.createdAt)}
                   </div>
                 </div>
@@ -177,13 +177,13 @@ export const ExportHistoryList = memo(function ExportHistoryList({
             {/* Progress Bar (for pending/processing) */}
             {isActive && (
               <div className="mt-3">
-                <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                <div className="flex items-center justify-between text-xs text-ink-muted mb-1">
                   <span>Progress</span>
                   <span>{job.progress}%</span>
                 </div>
-                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-2 bg-line rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-blue-600 transition-all duration-300"
+                    className="h-full bg-baseline transition-all duration-300"
                     style={{ width: `${job.progress}%` }}
                   />
                 </div>
@@ -199,7 +199,7 @@ export const ExportHistoryList = memo(function ExportHistoryList({
 
             {/* Result Summary (for completed jobs) */}
             {job.status === 'completed' && job.result?.summary && (
-              <div className="mt-2 text-xs text-gray-500">
+              <div className="mt-2 text-xs text-ink-muted">
                 {Object.entries(job.result.summary).slice(0, 3).map(([key, value]) => (
                   <span key={key} className="mr-3">
                     {key}: {String(value)}
@@ -216,7 +216,7 @@ export const ExportHistoryList = memo(function ExportHistoryList({
             )}
 
             {/* Action Buttons */}
-            <div className="flex items-center gap-2 mt-3 pt-2 border-t border-gray-100">
+            <div className="flex items-center gap-2 mt-3 pt-2 border-t border-line">
               {/* Download button for completed jobs */}
               {job.status === 'completed' && onDownload && (
                 <button
@@ -262,7 +262,7 @@ export const ExportHistoryList = memo(function ExportHistoryList({
               {!isActive && onDelete && (
                 <button
                   onClick={() => handleDelete(job.id)}
-                  className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+                  className="px-3 py-1.5 text-xs text-ink-muted border border-line rounded hover:bg-subtle transition-colors"
                 >
                   Delete
                 </button>
@@ -274,7 +274,7 @@ export const ExportHistoryList = memo(function ExportHistoryList({
 
       {/* Show "more" indicator */}
       {maxItems && jobs.length > maxItems && (
-        <div className="text-center text-xs text-gray-400 py-2">
+        <div className="text-center text-xs text-ink-muted py-2">
           +{jobs.length - maxItems} more exports
         </div>
       )}

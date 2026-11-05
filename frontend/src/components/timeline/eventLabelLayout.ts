@@ -46,6 +46,11 @@ export interface LabelLayoutConfig {
   fontSize: number
   /** Longest unprioritised label, in characters (default LABEL_MAX_CHARS). */
   maxChars?: number
+  /**
+   * Where a row has room, a label may run to this many characters before it
+   * is shortened to `maxChars` (and then to LABEL_MAX_CHARS) to fit.
+   */
+  fullChars?: number
 }
 
 /**
@@ -57,6 +62,7 @@ export const TIMELINE_LABEL_CONFIG: LabelLayoutConfig = {
   rowOffsets: [-20, -34, -48, -62],
   fontSize: LABEL_FONT_SIZE,
   maxChars: 28,
+  fullChars: 44,
 }
 
 /** Baseline offsets of the default layout's two rows (ActorTimeline's 10px labels). */
@@ -74,6 +80,8 @@ const LEADER_GAP_PX = 3
 const EDGE_INSET_PX = 2
 
 export const PRIORITY_LABEL_MAX_CHARS = 32
+/** A selected or highlighted event's label where its row has room for more. */
+export const PRIORITY_LABEL_FULL_CHARS = 60
 export const LABEL_MAX_CHARS = 18
 
 /**
@@ -183,11 +191,25 @@ export function layoutEventLabels(
     return false
   }
 
-  const place = (item: EventLabelInput, maxChars: number, rowIndices: number[]) => {
-    const text = truncateLabel(item.description, maxChars)
-    const width = estimateWidth(text, fontSize)
-    if (width > innerWidth) return
-    if (!tryPlace(item, text, width, rowIndices, true)) tryPlace(item, text, width, rowIndices, false)
+  /**
+   * Place the longest version of the label that fits: the whole description
+   * (up to `longest` characters) where its row has room, shortened step by
+   * step only where it would collide. Cutting every label to one length
+   * truncated names that had the space to be read in full.
+   */
+  const place = (item: EventLabelInput, lengths: readonly number[], rowIndices: number[]) => {
+    let lastText = ''
+    for (const maxChars of lengths) {
+      const text = truncateLabel(item.description, maxChars)
+      if (text === lastText) continue
+      lastText = text
+      const width = estimateWidth(text, fontSize)
+      if (width > innerWidth) continue
+      if (tryPlace(item, text, width, rowIndices, true)) return
+    }
+    // Nothing fits cleanly: the shortest version, allowed across a leader.
+    const width = estimateWidth(lastText, fontSize)
+    if (width <= innerWidth) tryPlace(item, lastText, width, rowIndices, false)
   }
 
   const allRows = rowOffsets.map((_, i) => i)
@@ -195,7 +217,7 @@ export function layoutEventLabels(
   // Priority labels claim space first. The first goes in row 0 unconditionally
   // in practice (the rows are empty); later ones take whichever row is free.
   for (const item of inView.filter((i) => i.priority)) {
-    place(item, PRIORITY_LABEL_MAX_CHARS, allRows)
+    place(item, [PRIORITY_LABEL_FULL_CHARS, PRIORITY_LABEL_MAX_CHARS], allRows)
   }
 
   // Further-reaching events first; equal weight (or none) left to right, which
@@ -203,8 +225,12 @@ export function layoutEventLabels(
   const rest = inView
     .filter((i) => !i.priority)
     .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0) || a.x - b.x)
+  const restLengths = [config.fullChars, config.maxChars ?? LABEL_MAX_CHARS, LABEL_MAX_CHARS]
+    .filter((n): n is number => n !== undefined)
+    .filter((n, i, all) => all.indexOf(n) === i)
+    .sort((a, b) => b - a)
   for (const item of rest) {
-    place(item, config.maxChars ?? LABEL_MAX_CHARS, allRows)
+    place(item, restLengths, allRows)
   }
 
   return placements

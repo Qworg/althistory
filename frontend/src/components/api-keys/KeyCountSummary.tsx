@@ -17,7 +17,7 @@ export const KeyCountSummary: React.FC<KeyCountSummaryProps> = ({ stats }) => {
   if (!stats) return null
 
   return (
-    <div className="text-sm text-gray-600">
+    <div className="text-sm text-ink-secondary">
       {stats.active} active / {stats.total} total keys
     </div>
   )

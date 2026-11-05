@@ -44,7 +44,7 @@ export function MobileBottomBar() {
             className={({ isActive }) =>
               `${itemClass} ${
                 isActive
-                  ? 'text-blue-700 dark:text-blue-300 border-t-2 border-blue-600 dark:border-blue-400 -mt-[2px]'
+                  ? 'text-blue-700 dark:text-blue-300 border-t-2 border-baseline dark:border-blue-400 -mt-[2px]'
                   : 'text-ink-muted hover:text-ink'
               }`
             }

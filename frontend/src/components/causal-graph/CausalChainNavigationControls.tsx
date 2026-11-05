@@ -87,14 +87,14 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
   }
 
   return (
-    <div className={`causal-chain-navigation bg-white border border-gray-200 rounded-lg shadow-lg ${className}`}>
+    <div className={`causal-chain-navigation bg-card border border-line rounded-lg shadow-lg ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+      <div className="flex items-center justify-between p-4 border-b border-line">
         <div className="flex items-center space-x-3">
-          <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
+          <div className="w-3 h-3 bg-baseline rounded-full animate-pulse"></div>
           <h3 className="font-display text-xl font-semibold text-ink">Chain Navigation</h3>
           {autoAdvance && (
-            <div className="flex items-center space-x-1 text-sm text-blue-600">
+            <div className="flex items-center space-x-1 text-sm text-baseline">
               <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
@@ -126,29 +126,29 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
 
       {/* Path Selection */}
       {hasMultiplePaths && (
-        <div className="p-4 border-b border-gray-200">
+        <div className="p-4 border-b border-line">
           <div className="flex items-center justify-between mb-3">
-            <label className="text-sm font-medium text-gray-700">
+            <label className="text-sm font-medium text-ink-secondary">
               Path Selection ({availablePaths.length} paths)
             </label>
             <div className="flex items-center space-x-2">
               <button
                 onClick={onPreviousPath}
                 disabled={currentPathIndex === 0}
-                className="p-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-1 rounded-md border border-line text-ink-secondary hover:bg-subtle disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Previous path"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <span className="text-sm text-gray-600 min-w-[60px] text-center">
+              <span className="text-sm text-ink-secondary min-w-[60px] text-center">
                 {currentPathIndex + 1} / {availablePaths.length}
               </span>
               <button
                 onClick={onNextPath}
                 disabled={currentPathIndex === availablePaths.length - 1}
-                className="p-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-1 rounded-md border border-line text-ink-secondary hover:bg-subtle disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Next path"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -159,16 +159,16 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
           </div>
 
           {/* Path progress bar */}
-          <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+          <div className="w-full bg-line rounded-full h-2 mb-2">
             <div 
-              className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+              className="bg-baseline h-2 rounded-full transition-all duration-300"
               style={{ width: `${pathProgress}%` }}
             />
           </div>
 
           {/* Current path info */}
           {currentPath && (
-            <div className="text-sm text-gray-600">
+            <div className="text-sm text-ink-secondary">
               <div className="flex items-center justify-between">
                 <span>
                   {currentPath.events.length} events, {currentPath.relationships.length} links
@@ -184,29 +184,29 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
 
       {/* Step Navigation */}
       {hasMultipleSteps && (
-        <div className="p-4 border-b border-gray-200">
+        <div className="p-4 border-b border-line">
           <div className="flex items-center justify-between mb-3">
-            <label className="text-sm font-medium text-gray-700">
+            <label className="text-sm font-medium text-ink-secondary">
               Step Navigation ({currentPath.events.length} steps)
             </label>
             <div className="flex items-center space-x-2">
               <button
                 onClick={onPreviousStep}
                 disabled={currentStepIndex === 0}
-                className="p-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-1 rounded-md border border-line text-ink-secondary hover:bg-subtle disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Previous step (←)"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <span className="text-sm text-gray-600 min-w-[60px] text-center">
+              <span className="text-sm text-ink-secondary min-w-[60px] text-center">
                 {currentStepIndex + 1} / {currentPath.events.length}
               </span>
               <button
                 onClick={onNextStep}
                 disabled={currentStepIndex === currentPath.events.length - 1}
-                className="p-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-1 rounded-md border border-line text-ink-secondary hover:bg-subtle disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Next step (→)"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -217,9 +217,9 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
           </div>
 
           {/* Step progress bar */}
-          <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
+          <div className="w-full bg-line rounded-full h-2 mb-3">
             <div 
-              className="bg-green-500 h-2 rounded-full transition-all duration-300"
+              className="bg-success h-2 rounded-full transition-all duration-300"
               style={{ width: `${stepProgress}%` }}
             />
           </div>
@@ -232,10 +232,10 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
                 onClick={() => onStepNavigate(index)}
                 className={`flex-shrink-0 w-8 h-8 rounded-full text-xs font-medium transition-all ${
                   index === currentStepIndex
-                    ? 'bg-green-500 text-white shadow-md'
+                    ? 'bg-success text-on-accent shadow-md'
                     : index < currentStepIndex
                     ? 'bg-green-200 text-green-800 hover:bg-green-300'
-                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                    : 'bg-line text-ink-secondary hover:bg-line'
                 }`}
                 title={
                   eventAt(currentPath, index)
@@ -251,17 +251,17 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
       )}
 
       {/* Auto-advance Controls */}
-      <div className="p-4 border-b border-gray-200">
+      <div className="p-4 border-b border-line">
         <div className="flex items-center justify-between mb-3">
-          <label className="text-sm font-medium text-gray-700">Auto-advance</label>
+          <label className="text-sm font-medium text-ink-secondary">Auto-advance</label>
           <button
             onClick={onToggleAutoAdvance}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              autoAdvance ? 'bg-blue-600' : 'bg-gray-200'
+              autoAdvance ? 'bg-baseline' : 'bg-line'
             }`}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              className={`inline-block h-4 w-4 transform rounded-full bg-card transition-transform ${
                 autoAdvance ? 'translate-x-6' : 'translate-x-1'
               }`}
             />
@@ -271,7 +271,7 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
         {autoAdvance && (
           <div className="space-y-2">
             <div className="flex items-center space-x-2">
-              <label className="text-xs text-gray-600 min-w-[60px]">Interval:</label>
+              <label className="text-xs text-ink-secondary min-w-[60px]">Interval:</label>
               <input
                 type="number"
                 min="500"
@@ -279,9 +279,9 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
                 step="100"
                 value={intervalInput}
                 onChange={(e) => handleIntervalChange(e.target.value)}
-                className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-2 py-1 text-xs border border-line rounded-md focus:outline-none focus:ring-2 focus:ring-selected"
               />
-              <span className="text-xs text-gray-500">ms</span>
+              <span className="text-xs text-ink-muted">ms</span>
             </div>
             <div className="flex space-x-1">
               {[500, 1000, 2000, 3000].map(interval => (
@@ -294,7 +294,7 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
                   className={`px-2 py-1 text-xs rounded-md border transition-colors ${
                     autoAdvanceInterval === interval
                       ? 'bg-blue-100 border-blue-300 text-blue-800'
-                      : 'bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200'
+                      : 'bg-subtle border-line text-ink-secondary hover:bg-line'
                   }`}
                 >
                   {interval < 1000 ? `${interval}ms` : `${interval / 1000}s`}
@@ -307,30 +307,30 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
 
       {/* Advanced Controls */}
       {showAdvancedControls && (
-        <div className="p-4 border-b border-gray-200 bg-gray-50">
+        <div className="p-4 border-b border-line bg-subtle">
           <h4 className="text-base font-semibold text-ink mb-3">Advanced Controls</h4>
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => onStepNavigate(0)}
-              className="px-3 py-2 text-xs bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              className="px-3 py-2 text-xs bg-card border border-line rounded-md hover:bg-subtle transition-colors"
             >
               First Step
             </button>
             <button
               onClick={() => currentPath && onStepNavigate(currentPath.events.length - 1)}
-              className="px-3 py-2 text-xs bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              className="px-3 py-2 text-xs bg-card border border-line rounded-md hover:bg-subtle transition-colors"
             >
               Last Step
             </button>
             <button
               onClick={() => onPathSelect(0)}
-              className="px-3 py-2 text-xs bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              className="px-3 py-2 text-xs bg-card border border-line rounded-md hover:bg-subtle transition-colors"
             >
               First Path
             </button>
             <button
               onClick={() => onPathSelect(availablePaths.length - 1)}
-              className="px-3 py-2 text-xs bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              className="px-3 py-2 text-xs bg-card border border-line rounded-md hover:bg-subtle transition-colors"
             >
               Last Path
             </button>
@@ -342,27 +342,27 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
       {currentPath && (
         <div className="p-4">
           <h4 className="text-base font-semibold text-ink mb-2">Current Step</h4>
-          <div className="bg-gray-50 rounded-lg p-3">
+          <div className="bg-subtle rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
-              <span className="font-medium text-gray-800">
+              <span className="font-medium text-ink">
                 {eventAt(currentPath, currentStepIndex)?.actor ?? 'Unknown'} →{' '}
                 {eventAt(currentPath, currentStepIndex)?.target ?? 'Unknown'}
               </span>
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-ink-muted">
                 {eventAt(currentPath, currentStepIndex)?.timestamp
                   ? formatHistoricalDate(eventAt(currentPath, currentStepIndex)!.timestamp)
                   : 'Unknown date'
                 }
               </span>
             </div>
-            <p className="text-sm text-gray-600 mb-2">
+            <p className="text-sm text-ink-secondary mb-2">
               {eventAt(currentPath, currentStepIndex)?.description ?? currentPath.events[currentStepIndex]}
             </p>
             
             {/* Relationship info for current step */}
             {currentStepIndex > 0 && currentPath.relationships[currentStepIndex - 1] && (
-              <div className="mt-2 pt-2 border-t border-gray-200">
-                <div className="text-xs text-gray-600 mb-1">Causal Link:</div>
+              <div className="mt-2 pt-2 border-t border-line">
+                <div className="text-xs text-ink-secondary mb-1">Causal Link:</div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="capitalize">
                     {currentPath.relationships[currentStepIndex - 1]?.relationship_type}
@@ -379,7 +379,7 @@ export const CausalChainNavigationControls: React.FC<CausalChainNavigationContro
       )}
 
       {/* Keyboard shortcuts */}
-      <div className="px-4 py-2 border-t border-gray-200 bg-gray-50 text-xs text-gray-500">
+      <div className="px-4 py-2 border-t border-line bg-subtle text-xs text-ink-muted">
         <div className="flex items-center justify-between">
           <span>Keyboard shortcuts:</span>
           <div className="flex items-center space-x-4">

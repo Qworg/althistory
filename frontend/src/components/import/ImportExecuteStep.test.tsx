@@ -153,7 +153,7 @@ describe('ImportExecuteStep', () => {
     it('should update progress bar width', () => {
       const { container } = renderComponent({ isExecuting: true, progress: 60 })
       
-      const progressBar = container.querySelector('.bg-blue-500')
+      const progressBar = container.querySelector('.bg-baseline')
       expect(progressBar).toHaveStyle({ width: '60%' })
     })
 

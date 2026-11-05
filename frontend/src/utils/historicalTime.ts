@@ -60,6 +60,34 @@ export function formatHistoricalTimestamp(value: DateInput, locale?: string): st
   return `${formatHistoricalDate(date, locale)}, ${time} UTC`
 }
 
+/**
+ * How much of a date its source stated. A timestamp needs a day, so "March
+ * 1871" is stored as 1871-03-01 with `datePrecision: 'month'` in the event's
+ * metadata; showing it as "Mar 1, 1871" would invent the day.
+ */
+export type DatePrecision = 'day' | 'month' | 'year'
+
+export function datePrecisionOf(metadata: Record<string, unknown> | undefined): DatePrecision {
+  const value = metadata?.datePrecision
+  return value === 'month' || value === 'year' ? value : 'day'
+}
+
+/** "Nov 20, 1843", "Mar 1871" or "1871", by how much of the date is known. */
+export function formatHistoricalDateAt(value: DateInput, precision: DatePrecision, locale?: string): string {
+  if (precision === 'day') return formatHistoricalTimestamp(value, locale)
+  const date = toDate(value)
+  if (Number.isNaN(date.getTime())) return 'Invalid date'
+  return date.toLocaleDateString(
+    locale,
+    precision === 'month' ? { timeZone: 'UTC', year: 'numeric', month: 'short' } : { timeZone: 'UTC', year: 'numeric' }
+  )
+}
+
+/** An event's date, at the precision its source gave. */
+export function formatEventDate(event: { timestamp: string; metadata?: Record<string, unknown> }, locale?: string): string {
+  return formatHistoricalDateAt(event.timestamp, datePrecisionOf(event.metadata), locale)
+}
+
 /** "Nov 20, 1843 – Jan 9, 1868". */
 export function formatHistoricalRange(start: DateInput, end: DateInput, locale?: string): string {
   return `${formatHistoricalDate(start, locale)} – ${formatHistoricalDate(end, locale)}`

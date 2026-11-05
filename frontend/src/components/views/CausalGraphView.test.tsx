@@ -166,6 +166,20 @@ describe('CausalGraphView', () => {
     expect(screen.getByTestId('focus-event-id')).toHaveTextContent('e1')
   })
 
+  it('clears the selection on Escape, as the timeline does', () => {
+    mockUseEvents.mockReturnValue({ data: sampleEvents, isLoading: false } as unknown as ReturnType<typeof useEvents>)
+    mockUseCausalRelationships.mockReturnValue({
+      data: sampleRelationships,
+      isLoading: false,
+    } as unknown as ReturnType<typeof useCausalRelationships>)
+
+    renderWithClient(<CausalGraphView />)
+    fireEvent.click(screen.getByTestId('select-first-event'))
+    expect(screen.getByTestId('focus-event-id')).toHaveTextContent('e1')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByTestId('focus-event-id')).toHaveTextContent('')
+  })
+
   it('titles the view on the shared scale and names the selected event by what happened', () => {
     mockUseEvents.mockReturnValue({
       data: sampleEvents,
@@ -182,12 +196,15 @@ describe('CausalGraphView', () => {
     const title = screen.getByRole('heading', { level: 2, name: 'Causal Graph' })
     expect(title).toHaveClass('sr-only')
 
-    // The inspector beside the graph describes the selection
-    const inspector = screen.getByTestId('causal-inspector')
-    expect(inspector).toHaveTextContent(/Select an event on the graph/)
+    // The inspector takes room only once something is selected, then
+    // describes it, and closes again from its own button.
+    expect(screen.queryByTestId('causal-inspector')).not.toBeInTheDocument()
     fireEvent.click(screen.getByTestId('select-first-event'))
+    const inspector = screen.getByTestId('causal-inspector')
     expect(within(inspector).getByText('Event One')).toBeInTheDocument()
     expect(within(inspector).getByText(/Actor A → Target B/)).toBeInTheDocument()
+    fireEvent.click(within(inspector).getByRole('button', { name: /Close the inspector/ }))
+    expect(screen.queryByTestId('causal-inspector')).not.toBeInTheDocument()
   })
 
   describe('delete confirmation', () => {
@@ -223,10 +240,12 @@ describe('CausalGraphView', () => {
     })
   })
 
-  it('says how Draw Link works in the cue line', () => {
+  it('keeps the cue line to one line per input (Draw Link explains itself on its button)', () => {
     mockUseEvents.mockReturnValue({ data: sampleEvents, isLoading: false } as unknown as ReturnType<typeof useEvents>)
     mockUseCausalRelationships.mockReturnValue({ data: [], isLoading: false } as unknown as ReturnType<typeof useCausalRelationships>)
     renderWithClient(<CausalGraphView />)
-    expect(screen.getByText(/Draw Link \(D\) links two selected events, or the cause and effect you click next/)).toBeInTheDocument()
+    expect(screen.getByText(/Click a node to inspect it/)).toBeInTheDocument()
+    expect(screen.getByText('Tap a node to inspect it')).toBeInTheDocument()
+    expect(screen.queryByText(/Draw Link \(D\) links two selected events/)).not.toBeInTheDocument()
   })
 })

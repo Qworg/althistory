@@ -1107,10 +1107,10 @@ describe('CausalGraphComponent', () => {
     it('keeps a legend that names each type by its line style', () => {
       render(<CausalGraphComponent />)
       const legend = screen.getByRole('note', { name: 'Legend' })
-      expect(legend).toHaveTextContent('Direct (solid)')
-      expect(legend).toHaveTextContent('Indirect (dashed)')
-      expect(legend).toHaveTextContent('Contributory (dotted)')
-      expect(legend).toHaveTextContent('Thicker = more weight')
+      expect(legend).toHaveTextContent('direct (solid)')
+      expect(legend).toHaveTextContent('indirect (dashed)')
+      expect(legend).toHaveTextContent('contributory (dotted)')
+      expect(legend).toHaveTextContent('thicker = stronger')
       expect(legend).not.toHaveTextContent('Point of divergence')
     })
 
@@ -1174,6 +1174,26 @@ describe('CausalGraphComponent', () => {
       mockCy._mockData.nodes.forEach((node, i) => {
         expect(node.position).toEqual(i % 2 ? { x: 200, y: 200 } : { x: 0, y: 0 })
       })
+    })
+  })
+
+  describe('the Layout popover', () => {
+    it('takes focus when it opens, and closes on Escape or a press outside it', async () => {
+      render(<CausalGraphComponent />)
+      const trigger = screen.getByRole('button', { name: /^Layout/ })
+      const panel = document.getElementById('graph-sidebar')!
+
+      fireEvent.click(trigger)
+      expect(panel.className).toMatch(/\bflex\b/)
+      await waitFor(() => expect(panel.contains(document.activeElement)).toBe(true))
+
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(panel.className).toMatch(/\bhidden\b/)
+      expect(trigger).toHaveFocus()
+
+      fireEvent.click(trigger)
+      fireEvent.pointerDown(document.body)
+      expect(panel.className).toMatch(/\bhidden\b/)
     })
   })
 })
