@@ -85,6 +85,48 @@ describe('ApiKeyRepository', () => {
       consoleSpy.mockRestore();
     });
 
+    it('registers the env admin key even when another admin key is already stored', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      // First run: no env key, so an admin key is auto-generated and stored.
+      await repository.initialize();
+      expect((await repository.findAll({ hasPermission: 'admin' })).length).toBe(1);
+
+      // Second run against the same store, now with an env key configured.
+      const envKey = 'ak_envconfigured_admin_key_abcdef';
+      process.env.TEST_ADMIN_API_KEY = envKey;
+      const second = new ApiKeyRepository(config);
+      await second.initialize();
+
+      const validated = await second.validateKey(envKey);
+      expect(validated?.hasPermission('admin')).toBe(true);
+      expect((await second.findAll({ hasPermission: 'admin' })).length).toBe(2);
+
+      // Third run: already registered, so nothing new is added.
+      const third = new ApiKeyRepository(config);
+      await third.initialize();
+      expect((await third.findAll({ hasPermission: 'admin' })).length).toBe(2);
+
+      consoleSpy.mockRestore();
+    });
+
+    it('does not re-register a revoked env admin key', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const envKey = 'ak_revokedenv_admin_key_abcdef';
+      process.env.TEST_ADMIN_API_KEY = envKey;
+      await repository.initialize();
+      // Keep another live admin key so the store still "has admin".
+      await repository.create({ name: 'other admin', permissions: ['admin'] });
+      const stored = await repository.validateKey(envKey);
+      await repository.revoke(stored!.id);
+
+      const next = new ApiKeyRepository(config);
+      await next.initialize();
+      expect(await next.validateKey(envKey)).toBeNull();
+
+      consoleSpy.mockRestore();
+    });
+
     it('should not re-initialize if already initialized', async () => {
       await repository.initialize();
       const keys1 = await repository.findAll();

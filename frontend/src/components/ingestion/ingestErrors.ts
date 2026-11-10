@@ -47,6 +47,13 @@ export function describeIngestError(error: unknown, source: IngestSource): Inges
   if (status === 429) {
     return { message: 'Too many requests in a short time. Wait a minute, then try again.', detail, offerText: false }
   }
+  if (status === 503 && remote) {
+    return {
+      message: `${remote} is limiting how fast pages can be fetched. Wait a minute and try again, or lower the page count.`,
+      detail,
+      offerText: false,
+    }
+  }
   if (status === 404 && remote) {
     return {
       message: `${remote} has nothing at that address. Check the URL or title, or paste the text into the Text tab.`,

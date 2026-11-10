@@ -175,6 +175,9 @@ export function storeApiKey(key: string): void {
 }
 
 // Custom error class for API errors
+/** Client-side budget for a synchronous extraction; see `ingest` below. */
+const INGEST_REQUEST_TIMEOUT_MS = 310_000
+
 export class APIError extends Error {
   constructor(
     message: string,
@@ -1147,11 +1150,16 @@ class APIClient {
     // Web ingestion operations (Req 19). Extraction is synchronous: each POST
     // runs the extractor and resolves the review preview directly, so the
     // wizard works from the response instead of polling a job.
+    //
+    // A crawl of up to 50 Wikipedia pages, paced to Wikimedia's rate limit,
+    // takes far longer than the client's 10 s default, so extraction calls get
+    // the server's own ingest budget (INGEST_TIMEOUT_MS, 5 min) plus a margin,
+    // letting the server's answer arrive before the client gives up.
     ingest = {
         text: async (data: TextIngestRequest): Promise<IngestResponse> => {
             try {
                 const response: AxiosResponse<IngestResponse> =
-                    await this.client.post('/ingest/text', data)
+                    await this.client.post('/ingest/text', data, { timeout: INGEST_REQUEST_TIMEOUT_MS })
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -1161,7 +1169,7 @@ class APIClient {
         url: async (data: WikipediaIngestRequest): Promise<IngestResponse> => {
             try {
                 const response: AxiosResponse<IngestResponse> =
-                    await this.client.post('/ingest/url', data)
+                    await this.client.post('/ingest/url', data, { timeout: INGEST_REQUEST_TIMEOUT_MS })
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -1171,7 +1179,7 @@ class APIClient {
         wikidata: async (data: WikidataIngestRequest): Promise<IngestResponse> => {
             try {
                 const response: AxiosResponse<IngestResponse> =
-                    await this.client.post('/ingest/wikidata', data)
+                    await this.client.post('/ingest/wikidata', data, { timeout: INGEST_REQUEST_TIMEOUT_MS })
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)

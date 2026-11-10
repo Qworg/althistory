@@ -16,6 +16,13 @@ describe('describeIngestError', () => {
     expect(describeIngestError(new APIError('Not found', 404), 'wikipedia').message).toMatch(/nothing at that address/)
   })
 
+  it('says Wikipedia is rate-limiting, rather than that the fetch broke', () => {
+    const view = describeIngestError(new APIError('Wikipedia is limiting how fast…', 503), 'wikipedia')
+    expect(view.message).toMatch(/Wikipedia is limiting/)
+    expect(view.message).toMatch(/lower the page count/)
+    expect(view.offerText).toBe(false)
+  })
+
   it('keeps a validation message, which names the field', () => {
     const view = describeIngestError(new APIError('text must not be empty', 400), 'text')
     expect(view.message).toBe('text must not be empty')

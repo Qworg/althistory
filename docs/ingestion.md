@@ -102,6 +102,20 @@ All routes are under `/api/ingest` and require the `ingest` permission.
 | `POST /api/ingest/jobs/:id/approve` | Commit the reviewed extraction to a graph. |
 | `DELETE /api/ingest/jobs/:id` | Discard it. |
 
+### Fetching from Wikipedia and Wikidata
+
+Wikimedia rate-limits by client: a request identified only by its IP gets 10
+a minute, a bot with a User-Agent that names a contact gets 200
+([Rate limits](https://www.mediawiki.org/wiki/Wikimedia_APIs/Rate_limits)).
+The server sends `AlthistoryBot/1.0 (https://github.com/Qworg/althistory)`,
+plus `WIKIMEDIA_CONTACT` if you set it, starts at most one request every
+400 ms across all ingestions, and on a 429 or 503 waits out `Retry-After` (or
+5 s, 10 s, 20 s without one) before retrying, up to three times. A 50-page
+crawl therefore takes upwards of 20 s; ingest routes get a 5-minute budget
+(`INGEST_TIMEOUT_MS`). If Wikimedia is still refusing after the retries, the
+route answers **503** with `details.retryAfterSeconds` when Wikimedia gave one;
+a missing page is **404**.
+
 ### The review step
 
 Unlike the CLI, the API does **not** write on extraction. It answers with an

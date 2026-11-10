@@ -38,7 +38,7 @@
  */
 
 import { DataSource } from '../ExportService';
-import { HttpClient, JsonValue, parseJsonBody } from './http';
+import { HttpClient, JsonValue, parseJsonBody, wikimediaUserAgent } from './http';
 import { newTempId } from './ids';
 import { extractCapitalizedEntities, extractDates, shapedConfidence, splitSentences } from './text-patterns';
 import {
@@ -563,7 +563,7 @@ export class WikipediaExtractor implements Extractor<WikipediaExtractionInput> {
       `&page=${encodeURIComponent(title)}&format=json&formatversion=2&redirects=1`;
     const response = await this.httpClient.request({
       url: apiUrl,
-      headers: { 'User-Agent': 'AlthistoryIngestion/1.0 (local research tool)' },
+      headers: { 'User-Agent': wikimediaUserAgent() },
     });
     const payload = parseJsonBody(response.body, 'Wikipedia API');
     return parseWikipediaPagePayload(payload, title);

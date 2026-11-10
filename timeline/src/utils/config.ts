@@ -101,6 +101,12 @@ export interface AppConfig {
   database: DatabaseConfig;
   performance: {
     queryTimeoutMs: number;
+    /**
+     * Request budget for `/api/ingest`, which fetches up to 50 pages at a
+     * pace Wikimedia accepts and may wait out a Retry-After: far beyond the
+     * query budget.
+     */
+    ingestTimeoutMs?: number;
     maxQueryResults: number;
     cacheExpirationMs: number;
   };
@@ -198,6 +204,7 @@ export function loadConfig(): AppConfig {
       },
       performance: {
         queryTimeoutMs: parseInt(process.env.QUERY_TIMEOUT_MS || '2000', 10),
+        ingestTimeoutMs: parseInt(process.env.INGEST_TIMEOUT_MS || '300000', 10),
         maxQueryResults: parseInt(process.env.MAX_QUERY_RESULTS || '10000', 10),
         cacheExpirationMs: parseInt(process.env.CACHE_EXPIRATION_MS || '300000', 10), // 5 minutes
       },

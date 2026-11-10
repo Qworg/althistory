@@ -305,12 +305,37 @@ export class ApiKeyRepository {
    * Ensure an admin key exists (create from env var or auto-generate)
    */
   private async ensureAdminKey(): Promise<void> {
+    const envAdminKey = process.env[this.adminKeyEnvVar]?.trim();
+
+    // An env-provided key is registered whenever the store does not know it,
+    // even if some other admin key already exists: otherwise a store left
+    // over from an earlier run (with its own auto-generated key) silently
+    // ignores the key the operator - or start-local.sh - configured, and
+    // every client sending it gets 401.
+    if (envAdminKey && (await this.hasAdminKey())) {
+      const prefix = envAdminKey.substring(0, KEY_PREFIX_LENGTH + 3).padEnd(KEY_PREFIX_LENGTH + 3, '_');
+      const existing = await this.findByPrefix(prefix);
+      if (existing) {
+        // Already registered (possibly revoked - a revoked key stays revoked),
+        // or a different key shares its prefix; never clobber either.
+        if (!(await bcrypt.compare(envAdminKey, existing.keyHash))) {
+          console.warn(
+            `⚠️  ${this.adminKeyEnvVar} shares its prefix with a different stored key; not registering it`
+          );
+        }
+        return;
+      }
+      await this.createWithRawKey(envAdminKey, {
+        name: 'Admin Key (from env)',
+        permissions: PERMISSION_GROUPS.admin,
+      });
+      console.log(`🔑 Admin API key loaded from ${this.adminKeyEnvVar} environment variable`);
+      return;
+    }
+
     const hasAdmin = await this.hasAdminKey();
     if (hasAdmin) return;
 
-    // Check for admin key in environment variable
-    const envAdminKey = process.env[this.adminKeyEnvVar];
-    
     if (envAdminKey) {
       // Create admin key with provided key
       await this.createWithRawKey(envAdminKey, {
