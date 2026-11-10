@@ -90,3 +90,8 @@ screen. Fix the step, don't add a sleep.
   (`frontend/src/demo/recording.json`). Re-record after changing the
   scenario, so the demo shows the same history as the pictures; see
   `frontend/src/demo/README.md`.
+- **The social preview card.** `npm run social` renders
+  `docs/images/social-preview.png` (1280×640) from `site/src/social.html`,
+  which carries the landing page's forking timeline. The site uses it as its
+  `og:image`; GitHub's repository preview has no API, so after regenerating,
+  upload it again in Settings → General → Social preview.

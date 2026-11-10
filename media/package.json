@@ -10,7 +10,8 @@
     "video": "tsx src/generate.ts --video-only",
     "typecheck": "tsc --noEmit",
     "install-browsers": "playwright install chromium",
-    "demo:record": "tsx src/demo/record.ts"
+    "demo:record": "tsx src/demo/record.ts",
+    "social": "tsx src/social.ts"
   },
   "devDependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
