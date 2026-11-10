@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!--
+    The 1280×640 social preview card (GitHub's repository preview and the
+    site's og:image). Not linked from anywhere: `npm run social` in media/
+    screenshots it into docs/images/social-preview.png.
+  -->
+  <meta name="viewport" content="width=1280">
+  <meta name="robots" content="noindex">
+  <title>althistory social card</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,400&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    html, body { margin: 0; width: 1280px; height: 640px; overflow: hidden; }
+    .card {
+      width: 1280px; height: 640px;
+      display: grid; grid-template-rows: auto auto 1fr;
+      padding: 48px 56px 0;
+    }
+    .card .brand { font-size: 1.6rem; }
+    .card .brand img { width: 34px; height: 34px; }
+    .card-head { display: flex; justify-content: space-between; align-items: center; }
+    .card-url { font-family: var(--mono); font-size: 1.05rem; color: var(--cy-ink-2); }
+    .card h1 { font-size: 5.1rem; line-height: 0.98; margin-top: 30px; }
+    .card-lede { position: absolute; right: 56px; top: 134px; width: 470px; margin: 0; font-size: 1.3rem; line-height: 1.5; color: var(--cy-ink-2); }
+    /* The timeline without its period bars: the fork is the point. */
+    .card-timeline { overflow: hidden; margin: 0 -24px; }
+    .card-timeline .hero-timeline { min-width: 0; width: 1216px; margin-top: -82px; }
+  </style>
+</head>
+<body>
+  <div class="hero card">
+    <div class="card-head">
+      <span class="brand"><img src="favicon.svg" alt=""><span>althistory</span></span>
+      <span class="card-url">qworg.github.io/althistory</span>
+    </div>
+    <h1>Make <em>what&nbsp;if</em><br>into <em class="amber">how&nbsp;so</em>.</h1>
+    <p class="card-lede">A workbench for real and invented histories: events, periods and the causes that link them, with branches you can follow.</p>
+    <div class="card-timeline">
+      <!-- hero:timeline -->
+    </div>
+  </div>
+</body>
+</html>

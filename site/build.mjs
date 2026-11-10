@@ -12,7 +12,8 @@
  *   shows the same pictures as the README and never keeps its own copies;
  * - draws the hero's forking timeline from `media/src/seed/scenario.ts`, the
  *   history those pictures are taken from, and puts it in place of the
- *   `<!-- hero:timeline -->` marker in `index.html`;
+ *   `<!-- hero:timeline -->` marker in `index.html` and in `social.html`, the
+ *   1280×640 social preview card (`npm run social` in media/ screenshots it);
  * - with `--demo <dir>`, copies the in-browser demo (frontend
  *   `npm run build:demo`, output `frontend/dist-demo`) to `demo/`. Without it
  *   the page's "Try it" links have nothing to open, so CI always passes it.
@@ -47,11 +48,14 @@ if (demo) {
   console.warn('no --demo given: the page links to demo/, which this build does not include')
 }
 
-const indexPath = join(out, 'index.html')
+// The page and the social card (social.html) both carry the timeline.
 const marker = '<!-- hero:timeline -->'
-const html = readFileSync(indexPath, 'utf8')
-if (!html.includes(marker)) throw new Error(`index.html has no ${marker} marker`)
-writeFileSync(indexPath, html.replace(marker, heroTimeline(scenario)))
+for (const page of ['index.html', 'social.html']) {
+  const pagePath = join(out, page)
+  const html = readFileSync(pagePath, 'utf8')
+  if (!html.includes(marker)) throw new Error(`${page} has no ${marker} marker`)
+  writeFileSync(pagePath, html.replace(marker, heroTimeline(scenario)))
+}
 
 console.log(`site built in ${out}`)
 
