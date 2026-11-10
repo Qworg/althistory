@@ -98,6 +98,7 @@ vi.mock('@/api/middleware', async () => {
 
 // Imported after the mock so the route file picks up the stubbed middleware.
 import { createIngestRouter } from '@/api/routes/ingest';
+import { HttpRequestError } from '@/services/ingestion/http';
 import { apiRouter } from '@/api/routes';
 import { errorHandler } from '@/api/middleware';
 
@@ -384,5 +385,55 @@ describe('Ingestion routes', () => {
     // would fall through to the not-found handler instead.
     const response = await request(mounted).get('/api/ingest/jobs/nope');
     expect(response.status).toBe(401);
+  });
+});
+
+describe('Ingestion routes: upstream failures', () => {
+  function appWhoseWikipediaFails(error: Error): express.Application {
+    const extraction = makeExtraction();
+    const orchestrator = new IngestionOrchestrator({
+      extractors: {
+        wikipedia: { sourceType: 'wikipedia', extract: vi.fn().mockRejectedValue(error) } as Extractor<WikipediaExtractionInput>,
+        wikidata: { sourceType: 'wikidata', extract: vi.fn().mockResolvedValue(extraction) } as Extractor<WikidataExtractionInput>,
+        text: { sourceType: 'text', extract: vi.fn().mockResolvedValue(extraction) } as Extractor<TextExtractionInput>,
+      },
+      importExecutor: makeImportExecutor(),
+      idFactory: () => 'job-1',
+    });
+    const app = express();
+    app.use(express.json());
+    app.use('/api/ingest', createIngestRouter({ dataDir: '/tmp/unused', orchestrator }));
+    app.use(errorHandler);
+    return app;
+  }
+
+  it('answers a Wikipedia rate limit with 503 and a message that says so, not 500', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const app = appWhoseWikipediaFails(
+      new HttpRequestError(429, 'https://en.wikipedia.org/w/api.php', 'HTTP 429', { 'retry-after': '30' })
+    );
+
+    const response = await request(app)
+      .post('/api/ingest/url')
+      .set('X-API-Key', INGEST_KEY)
+      .send({ url: 'https://en.wikipedia.org/wiki/Battle_of_Hastings' });
+
+    expect(response.status).toBe(503);
+    expect(response.body.error.message).toContain('Wikipedia is limiting');
+    expect(response.body.error.details).toMatchObject({ service: 'Wikipedia', upstreamStatus: 429, retryAfterSeconds: 30 });
+    consoleSpy.mockRestore();
+  });
+
+  it('answers a missing Wikipedia page with 404', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const app = appWhoseWikipediaFails(new HttpRequestError(404, 'https://en.wikipedia.org/w/api.php'));
+
+    const response = await request(app)
+      .post('/api/ingest/url')
+      .set('X-API-Key', INGEST_KEY)
+      .send({ url: 'https://en.wikipedia.org/wiki/No_such_page' });
+
+    expect(response.status).toBe(404);
+    consoleSpy.mockRestore();
   });
 });

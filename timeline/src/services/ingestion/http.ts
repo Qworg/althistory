@@ -38,12 +38,136 @@ export interface HttpClient {
 export class HttpRequestError extends Error {
   readonly status: number;
   readonly url: string;
+  /** Lower-cased response headers, when the request got a response. */
+  readonly headers: Record<string, string>;
 
-  constructor(status: number, url: string, message?: string) {
+  constructor(status: number, url: string, message?: string, headers: Record<string, string> = {}) {
     super(message ?? `HTTP ${status} for ${url}`);
     this.name = 'HttpRequestError';
     this.status = status;
     this.url = url;
+    this.headers = headers;
+  }
+}
+
+/** Whether an upstream refused for load (429) or was overloaded (503). */
+export function isRateLimited(error: HttpRequestError): boolean {
+  return error.status === 429 || error.status === 503;
+}
+
+/**
+ * Parse a `Retry-After` header (delta-seconds or an HTTP-date) into
+ * milliseconds from `nowMs`. Returns undefined when absent or unparseable.
+ */
+export function parseRetryAfterMs(value: string | undefined, nowMs: number): number | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1000;
+  const date = Date.parse(trimmed);
+  if (Number.isNaN(date)) return undefined;
+  return Math.max(0, date - nowMs);
+}
+
+/**
+ * The User-Agent every Wikimedia request sends.
+ *
+ * Wikimedia's 2026 rate limits give a request with nothing identifying it but
+ * its IP 10 requests a minute, and an unauthenticated bot with a compliant
+ * User-Agent 200 (https://www.mediawiki.org/wiki/Wikimedia_APIs/Rate_limits).
+ * Compliant means `<name>/<version> (<contact>)`, the contact being a website,
+ * email or wiki user (Wikimedia Foundation User-Agent Policy). The old
+ * `AlthistoryIngestion/1.0 (local research tool)` carried no contact, so a
+ * 50-page crawl hit 429 after about ten pages.
+ *
+ * The project URL is always the contact; `WIKIMEDIA_CONTACT` (an email or
+ * `User:Name`) adds the operator's own, which Wikimedia prefers.
+ */
+export function wikimediaUserAgent(
+  contact: string | undefined = process.env.WIKIMEDIA_CONTACT
+): string {
+  // Header values cannot carry control characters, and parentheses or
+  // semicolons would break the contact list's syntax.
+  const extra = Array.from(contact ?? '')
+    .filter((ch) => ch.charCodeAt(0) >= 0x20 && ch.charCodeAt(0) !== 0x7f && !'();'.includes(ch))
+    .join('')
+    .trim();
+  const contacts = ['https://github.com/Qworg/althistory', ...(extra ? [extra] : [])].join('; ');
+  return `AlthistoryBot/1.0 (${contacts})`;
+}
+
+export interface PoliteHttpClientOptions {
+  /** Minimum gap between the starts of two requests. */
+  minIntervalMs?: number;
+  /** How many times a 429/503 is retried before it is thrown. */
+  maxRetries?: number;
+  /** First backoff when the response has no Retry-After; doubles each retry. */
+  baseRetryDelayMs?: number;
+  /** A requested wait longer than this is not waited out: the error is thrown. */
+  maxRetryDelayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+/**
+ * Paces requests to a shared upstream and retries the ones it refuses for
+ * load, honouring `Retry-After` (Wikimedia's rate-limit guidance: respect it,
+ * and without it wait at least five seconds or back off exponentially).
+ *
+ * One instance is shared by every request in the process, so its pacing holds
+ * across concurrent ingestions, and a backoff delays everyone queued behind it
+ * rather than letting them run into the same 429.
+ */
+export class PoliteHttpClient implements HttpClient {
+  private readonly minIntervalMs: number;
+  private readonly maxRetries: number;
+  private readonly baseRetryDelayMs: number;
+  private readonly maxRetryDelayMs: number;
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly now: () => number;
+  /** The earliest time the next request may start. */
+  private nextSlotMs = 0;
+
+  constructor(
+    private readonly inner: HttpClient,
+    options: PoliteHttpClientOptions = {}
+  ) {
+    // 400 ms is 150 requests a minute: under the 200 a compliant client gets.
+    this.minIntervalMs = options.minIntervalMs ?? 400;
+    this.maxRetries = options.maxRetries ?? 3;
+    this.baseRetryDelayMs = options.baseRetryDelayMs ?? 5000;
+    this.maxRetryDelayMs = options.maxRetryDelayMs ?? 60000;
+    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.now = options.now ?? (() => Date.now());
+  }
+
+  async request(request: HttpRequest): Promise<HttpResponse> {
+    for (let attempt = 0; ; attempt++) {
+      await this.waitForSlot();
+      try {
+        return await this.inner.request(request);
+      } catch (error) {
+        if (
+          !(error instanceof HttpRequestError) ||
+          !isRateLimited(error) ||
+          attempt >= this.maxRetries
+        ) {
+          throw error;
+        }
+        const delayMs =
+          parseRetryAfterMs(error.headers['retry-after'], this.now()) ??
+          this.baseRetryDelayMs * 2 ** attempt;
+        if (delayMs > this.maxRetryDelayMs) throw error;
+        this.nextSlotMs = Math.max(this.nextSlotMs, this.now() + delayMs);
+      }
+    }
+  }
+
+  /** Reserve the next start time synchronously, then wait for it. */
+  private async waitForSlot(): Promise<void> {
+    const now = this.now();
+    const slot = Math.max(now, this.nextSlotMs);
+    this.nextSlotMs = slot + this.minIntervalMs;
+    if (slot > now) await this.sleep(slot - now);
   }
 }
 
@@ -169,7 +293,8 @@ export class FetchHttpClient implements HttpClient {
           throw new HttpRequestError(
             response.status,
             currentUrl,
-            `HTTP ${response.status}: ${responseBody.slice(0, 500)}`
+            `HTTP ${response.status}: ${responseBody.slice(0, 500)}`,
+            headers
           );
         }
 

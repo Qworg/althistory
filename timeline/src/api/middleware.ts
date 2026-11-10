@@ -254,6 +254,14 @@ export function errorHandler(
 
   console.error('Request error:', JSON.stringify(errorLog, null, 2));
 
+  // A response already went out (the request timed out, or a handler failed
+  // after it had answered); sending another throws "Cannot set headers after
+  // they are sent". The error is logged above; there is nothing left to tell
+  // this client.
+  if (res.headersSent) {
+    return;
+  }
+
   const errorResponse = ErrorHandler.formatErrorResponse(error);
 
   // body-parser (behind express.json / express.urlencoded) reports a malformed
@@ -351,12 +359,20 @@ export function requestLogger(req: RequestWithContainer, res: Response, next: Ne
 }
 
 /**
- * Request timeout middleware with enhanced logging
+ * Request timeout middleware with enhanced logging.
+ *
+ * `overrides` maps a path prefix to its own budget. The default budget is
+ * sized for queries (2 s); a Wikipedia crawl takes tens of seconds, and under
+ * the default it was answered 408 while the crawl went on in the background.
  */
-export function requestTimeout(timeoutMs: number = 30000) {
+export function requestTimeout(timeoutMs: number = 30000, overrides: Record<string, number> = {}) {
+  const prefixes = Object.entries(overrides);
   return (req: RequestWithContainer, res: Response, next: NextFunction): void => {
     const requestId = req.requestId || 'unknown';
-    
+    const path = req.originalUrl.split('?')[0];
+    const budgetMs =
+      prefixes.find(([prefix]) => path === prefix || path.startsWith(`${prefix}/`))?.[1] ?? timeoutMs;
+
     const timeout = setTimeout(() => {
       if (!res.headersSent) {
         const timeoutLog = {
@@ -365,7 +381,7 @@ export function requestTimeout(timeoutMs: number = 30000) {
           request: {
             method: req.method,
             path: req.path,
-            timeout: timeoutMs
+            timeout: budgetMs
           },
           level: 'warn',
           type: 'request_timeout'
@@ -376,18 +392,18 @@ export function requestTimeout(timeoutMs: number = 30000) {
         res.status(408).json({
           error: {
             message: 'Request timeout',
-            timeout: timeoutMs,
+            timeout: budgetMs,
             timestamp: new Date().toISOString(),
             path: req.path,
             requestId
           }
         });
       }
-    }, timeoutMs);
+    }, budgetMs);
 
-    res.on('finish', () => {
-      clearTimeout(timeout);
-    });
+    const clear = (): void => clearTimeout(timeout);
+    res.on('finish', clear);
+    res.on('close', clear);
 
     next();
   };

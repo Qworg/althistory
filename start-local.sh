@@ -188,6 +188,9 @@ echo -e "  ${BLUE}Local Access:${NC}"
 echo -e "    Frontend App: http://localhost:5173"
 echo -e "    Backend API:  http://localhost:3000"
 echo ""
+echo -e "  ${BLUE}Admin API key:${NC} ADMIN_API_KEY in timeline/.env.local"
+echo -e "    Show it: ${BLUE}grep ^ADMIN_API_KEY= timeline/.env.local | cut -d= -f2-${NC}"
+echo ""
 
 if [ "$ENABLE_TAILSCALE" = true ]; then
     echo -e "  ${GREEN}Tailscale Network Access:${NC}"

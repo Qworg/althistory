@@ -8,7 +8,15 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { FetchHttpClient, HttpRequestError } from './http';
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpRequestError,
+  HttpResponse,
+  PoliteHttpClient,
+  parseRetryAfterMs,
+  wikimediaUserAgent,
+} from './http';
 
 describe('FetchHttpClient request path', () => {
   afterEach(() => {
@@ -222,3 +230,152 @@ describe('FetchHttpClient request path', () => {
   });
 });
 
+
+describe('FetchHttpClient error headers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('carries the response headers on an HttpRequestError, so Retry-After can be read', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        text: async () => 'You are making too many requests',
+        headers: new Headers({ 'Retry-After': '7' }),
+      })
+    );
+
+    const error = await new FetchHttpClient(1000)
+      .request({ url: 'https://en.wikipedia.org/w/api.php?page=X' })
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(HttpRequestError);
+    expect((error as HttpRequestError).status).toBe(429);
+    expect((error as HttpRequestError).headers['retry-after']).toBe('7');
+  });
+});
+
+describe('wikimediaUserAgent', () => {
+  it('names the client and gives a contact, as the Wikimedia User-Agent policy requires', () => {
+    expect(wikimediaUserAgent(undefined)).toBe('AlthistoryBot/1.0 (https://github.com/Qworg/althistory)');
+  });
+
+  it("adds the operator's contact, stripped of anything that would break the header", () => {
+    expect(wikimediaUserAgent('ops@example.org')).toBe(
+      'AlthistoryBot/1.0 (https://github.com/Qworg/althistory; ops@example.org)'
+    );
+    expect(wikimediaUserAgent('a(b);c\r\nX-Evil: 1')).toBe(
+      'AlthistoryBot/1.0 (https://github.com/Qworg/althistory; abcX-Evil: 1)'
+    );
+  });
+});
+
+describe('parseRetryAfterMs', () => {
+  it('reads delta-seconds and HTTP-dates, and ignores junk', () => {
+    const now = Date.parse('2026-11-05T00:00:00Z');
+    expect(parseRetryAfterMs('12', now)).toBe(12000);
+    expect(parseRetryAfterMs('Thu, 05 Nov 2026 00:00:30 GMT', now)).toBe(30000);
+    expect(parseRetryAfterMs('soon', now)).toBeUndefined();
+    expect(parseRetryAfterMs(undefined, now)).toBeUndefined();
+  });
+});
+
+describe('PoliteHttpClient', () => {
+  /** A fake clock whose sleep advances time instead of waiting. */
+  function fakeClock() {
+    let now = 1_000_000;
+    const sleeps: number[] = [];
+    return {
+      now: () => now,
+      sleep: async (ms: number) => {
+        sleeps.push(ms);
+        now += ms;
+      },
+      sleeps,
+    };
+  }
+  const ok: HttpResponse = { status: 200, body: '{}', headers: {} };
+  const tooMany = (headers: Record<string, string> = {}) =>
+    new HttpRequestError(429, 'https://en.wikipedia.org/w/api.php', 'HTTP 429', headers);
+
+  it('spaces consecutive requests by the minimum interval', async () => {
+    const clock = fakeClock();
+    const inner: HttpClient = { request: vi.fn().mockResolvedValue(ok) };
+    const client = new PoliteHttpClient(inner, { minIntervalMs: 400, ...clock });
+
+    await client.request({ url: 'a' });
+    await client.request({ url: 'b' });
+    await client.request({ url: 'c' });
+
+    expect(inner.request).toHaveBeenCalledTimes(3);
+    expect(clock.sleeps).toEqual([400, 400]);
+  });
+
+  it('spaces concurrent callers too, since the slot is reserved before waiting', async () => {
+    vi.useFakeTimers();
+    try {
+      const starts: number[] = [];
+      const inner: HttpClient = {
+        request: vi.fn(async () => {
+          starts.push(Date.now());
+          return ok;
+        }),
+      };
+      // Real sleep and clock, both driven by the fake timers.
+      const client = new PoliteHttpClient(inner, { minIntervalMs: 400 });
+
+      const all = Promise.all([client.request({ url: 'a' }), client.request({ url: 'b' }), client.request({ url: 'c' })]);
+      await vi.advanceTimersByTimeAsync(1000);
+      await all;
+
+      expect(starts.map((t) => t - starts[0])).toEqual([0, 400, 800]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits out Retry-After on a 429 and then succeeds', async () => {
+    const clock = fakeClock();
+    const inner: HttpClient = {
+      request: vi.fn().mockRejectedValueOnce(tooMany({ 'retry-after': '3' })).mockResolvedValue(ok),
+    };
+    const client = new PoliteHttpClient(inner, { minIntervalMs: 0, ...clock });
+
+    await expect(client.request({ url: 'a' })).resolves.toBe(ok);
+    expect(inner.request).toHaveBeenCalledTimes(2);
+    expect(clock.sleeps).toEqual([3000]);
+  });
+
+  it('backs off exponentially from five seconds when there is no Retry-After, then gives up', async () => {
+    const clock = fakeClock();
+    const inner: HttpClient = { request: vi.fn().mockRejectedValue(tooMany()) };
+    const client = new PoliteHttpClient(inner, { minIntervalMs: 0, maxRetries: 3, ...clock });
+
+    await expect(client.request({ url: 'a' })).rejects.toBeInstanceOf(HttpRequestError);
+    expect(inner.request).toHaveBeenCalledTimes(4);
+    expect(clock.sleeps).toEqual([5000, 10000, 20000]);
+  });
+
+  it('retries a 503 but not other failures', async () => {
+    const clock = fakeClock();
+    const unavailable = new HttpRequestError(503, 'u', 'HTTP 503');
+    const retried: HttpClient = { request: vi.fn().mockRejectedValueOnce(unavailable).mockResolvedValue(ok) };
+    await expect(new PoliteHttpClient(retried, { minIntervalMs: 0, ...clock }).request({ url: 'a' })).resolves.toBe(ok);
+
+    const notFound: HttpClient = { request: vi.fn().mockRejectedValue(new HttpRequestError(404, 'u')) };
+    await expect(new PoliteHttpClient(notFound, { minIntervalMs: 0, ...clock }).request({ url: 'a' })).rejects.toThrow();
+    expect(notFound.request).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not sit out a Retry-After longer than its ceiling', async () => {
+    const clock = fakeClock();
+    const inner: HttpClient = { request: vi.fn().mockRejectedValue(tooMany({ 'retry-after': '3600' })) };
+    const client = new PoliteHttpClient(inner, { minIntervalMs: 0, maxRetryDelayMs: 60000, ...clock });
+
+    await expect(client.request({ url: 'a' })).rejects.toBeInstanceOf(HttpRequestError);
+    expect(inner.request).toHaveBeenCalledTimes(1);
+    expect(clock.sleeps).toEqual([]);
+  });
+});

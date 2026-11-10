@@ -84,6 +84,26 @@ export class NotFoundError extends AppError {
 }
 
 /**
+ * An upstream service (Wikipedia, Wikidata) refused or failed a request the
+ * server made on the caller's behalf. 503 when it is limiting load, so the
+ * client knows to wait rather than to fix its request; 502 otherwise.
+ */
+export class UpstreamServiceError extends AppError {
+  readonly isOperational = true;
+
+  constructor(
+    message: string,
+    public readonly statusCode: 502 | 503,
+    public readonly service: string,
+    public readonly upstreamStatus: number,
+    public readonly retryAfterSeconds?: number,
+    cause?: Error
+  ) {
+    super(message, cause);
+  }
+}
+
+/**
  * Database operation error
  */
 export class DatabaseError extends AppError {
@@ -366,6 +386,10 @@ export class ErrorHandler {
     } else if (error instanceof NotFoundError) {
       details.resourceType = error.resourceType;
       details.resourceId = error.resourceId;
+    } else if (error instanceof UpstreamServiceError) {
+      details.service = error.service;
+      details.upstreamStatus = error.upstreamStatus;
+      details.retryAfterSeconds = error.retryAfterSeconds;
     } else if (error instanceof DatabaseError) {
       details.operation = error.operation;
     } else if (error instanceof PerformanceError) {

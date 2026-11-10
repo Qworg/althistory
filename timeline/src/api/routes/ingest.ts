@@ -34,10 +34,17 @@ import {
   requireGraphId,
   asyncHandler,
 } from '../middleware';
-import { ValidationError, NotFoundError } from '../../utils/errors';
+import { ValidationError, NotFoundError, UpstreamServiceError } from '../../utils/errors';
 import { ImportService } from '../../services/ImportService';
 import type { HeadReplacedHook } from '../../services/LiveStoreSyncService';
-import { FetchHttpClient, HttpClient } from '../../services/ingestion/http';
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpRequestError,
+  PoliteHttpClient,
+  isRateLimited,
+  parseRetryAfterMs,
+} from '../../services/ingestion/http';
 import { TextExtractor } from '../../services/ingestion/TextExtractor';
 import { WikipediaExtractor } from '../../services/ingestion/WikipediaExtractor';
 import { WikidataExtractor } from '../../services/ingestion/WikidataExtractor';
@@ -177,6 +184,43 @@ function parseApproveRequest(value: unknown): ApproveIngestionRequest {
 }
 
 /**
+ * Run an extraction that fetches from `service`, turning the upstream's HTTP
+ * failures into errors the client can act on. Unmapped, a Wikipedia 429 left
+ * the error handler as "500 Internal server error", which reads as a bug here
+ * rather than "Wikipedia asked us to slow down".
+ */
+async function withUpstreamErrors<T>(service: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!(error instanceof HttpRequestError)) throw error;
+    if (error.status === 404) {
+      throw new NotFoundError(`${service} has no page at that address`, 'page', error.url);
+    }
+    if (isRateLimited(error)) {
+      const retryAfterMs = parseRetryAfterMs(error.headers['retry-after'], Date.now());
+      throw new UpstreamServiceError(
+        `${service} is limiting how fast this server may fetch from it, and was still ` +
+          'refusing after retries. Wait a minute and try again, or fetch fewer pages.',
+        503,
+        service,
+        error.status,
+        retryAfterMs === undefined ? undefined : Math.ceil(retryAfterMs / 1000),
+        error
+      );
+    }
+    throw new UpstreamServiceError(
+      `${service} returned HTTP ${error.status}`,
+      502,
+      service,
+      error.status,
+      undefined,
+      error
+    );
+  }
+}
+
+/**
  * Build the ingest router. `config.orchestrator` short-circuits all wiring
  * (used by route tests); otherwise the factory constructs the concrete
  * extractors and a dedicated `ImportService` over `config.dataDir`.
@@ -188,7 +232,9 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
   if (config.orchestrator) {
     orchestrator = config.orchestrator;
   } else {
-    const httpClient = config.httpClient ?? new FetchHttpClient();
+    // One paced client for the whole router, so its spacing and backoff hold
+    // across concurrent ingestions, not just within one crawl.
+    const httpClient = config.httpClient ?? new PoliteHttpClient(new FetchHttpClient());
     const llmClient =
       config.llmClient !== undefined
         ? config.llmClient
@@ -250,13 +296,16 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
       if (body.strategy !== undefined && body.strategy !== 'wikipedia' && body.strategy !== 'auto') {
         throw new ValidationError('strategy must be "wikipedia" or "auto"', 'strategy');
       }
-      const preview = await orchestrator.ingest(
-        {
-          source: 'wikipedia',
-          wikipedia: { url: body.url, options: parseWikipediaOptions(body.options) },
-        },
-        parseExtractionContext(body.context),
-        ownerKeyId(req)
+      const url = body.url;
+      const preview = await withUpstreamErrors('Wikipedia', () =>
+        orchestrator.ingest(
+          {
+            source: 'wikipedia',
+            wikipedia: { url, options: parseWikipediaOptions(body.options) },
+          },
+          parseExtractionContext(body.context),
+          ownerKeyId(req)
+        )
       );
       res.status(200).json({ ...preview, estimatedPages: preview.extraction.sources.length });
     })
@@ -280,10 +329,12 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
         customQuery: typeof body.customQuery === 'string' ? body.customQuery : undefined,
         limit: typeof body.limit === 'number' ? body.limit : undefined,
       };
-      const preview = await orchestrator.ingest(
-        { source: 'wikidata', wikidata: input },
-        parseExtractionContext(body.context),
-        ownerKeyId(req)
+      const preview = await withUpstreamErrors('Wikidata', () =>
+        orchestrator.ingest(
+          { source: 'wikidata', wikidata: input },
+          parseExtractionContext(body.context),
+          ownerKeyId(req)
+        )
       );
       res.status(200).json(preview);
     })

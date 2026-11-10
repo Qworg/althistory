@@ -30,7 +30,7 @@ import { WikidataExtractor } from '@/services/ingestion/WikidataExtractor';
 import { WebDocumentExtractor, isWikipediaUrl } from '@/services/ingestion/WebDocumentExtractor';
 import { PublicWebHttpClient } from '@/services/ingestion/publicWebHttp';
 import { mergeExtractionResults } from '@/services/ingestion/mergeExtractions';
-import { FetchHttpClient, HttpClient } from '@/services/ingestion/http';
+import { FetchHttpClient, PoliteHttpClient, HttpClient } from '@/services/ingestion/http';
 import { createLLMClient } from '@/services/llm';
 import { clusterEventsIntoArcs } from '../generator/arcClustering';
 import { TimelineGenerator } from '../generator/TimelineGenerator';
@@ -910,7 +910,7 @@ export class DirectEngine implements IEngine {
     );
     const llmClient = createLLMClient({ provider: options.provider, model: options.model, temperature: options.temperature });
     const extractionResult = isWikipediaUrl(url)
-      ? await new WikipediaExtractor({ httpClient: this.httpClient ?? new FetchHttpClient() }).extract({
+      ? await new WikipediaExtractor({ httpClient: this.httpClient ?? new PoliteHttpClient(new FetchHttpClient()) }).extract({
           url,
           options: {
             followLinks: options.followLinks,
@@ -933,7 +933,7 @@ export class DirectEngine implements IEngine {
       'Wikidata Ingestion',
       options.dryRun
     );
-    const extractor = new WikidataExtractor({ httpClient: this.httpClient ?? new FetchHttpClient() });
+    const extractor = new WikidataExtractor({ httpClient: this.httpClient ?? new PoliteHttpClient(new FetchHttpClient()) });
     const queryType = options.sparql
       ? 'custom'
       : options.preset === 'person-timeline'

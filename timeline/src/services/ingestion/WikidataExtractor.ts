@@ -26,7 +26,7 @@
  */
 
 import { DataSource } from '../ExportService';
-import { HttpClient, JsonValue, parseJsonBody } from './http';
+import { HttpClient, JsonValue, parseJsonBody, wikimediaUserAgent } from './http';
 import { newTempId } from './ids';
 import {
   ExtractedEvent,
@@ -227,7 +227,7 @@ export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         Accept: 'application/sparql-results+json',
-        'User-Agent': 'AlthistoryIngestion/1.0 (local research tool)',
+        'User-Agent': wikimediaUserAgent(),
       },
       body: `query=${encodeURIComponent(query)}`,
     });

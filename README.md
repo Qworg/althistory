@@ -173,13 +173,15 @@ Frequently used variables; the full set with defaults and validation lives in
 | `LOCAL_EXECUTION_ENABLED` | `false` | Use the local JSON store instead of Neo4j/Redis |
 | `HOST` | `127.0.0.1` in local mode, else `0.0.0.0` | Interface the API listens on. `TAILSCALE=true` (set by `--tailscale`) also selects `0.0.0.0` |
 | `API_AUTH_REQUIRED` | `true`; `false` in local mode | Whether the entity routes (`/api/events`, `/api/arcs`, …) need an API key |
-| `ADMIN_API_KEY` | generated | Admin key created on first start. The API refuses to start on a `CHANGE_ME…` placeholder, as it does for `NEO4J_PASSWORD` and `REDIS_PASSWORD` |
+| `ADMIN_API_KEY` | generated | Admin key, registered on any start where the key store does not already hold it. The API refuses to start on a `CHANGE_ME…` placeholder, as it does for `NEO4J_PASSWORD` and `REDIS_PASSWORD` |
 | `TRUST_PROXY` | `false` | Express `trust proxy` (`1` = one reverse-proxy hop). Set only when every request comes through that proxy; the compose stack sets `1` |
 | `LOCAL_DATA_DIR` | `./data` | Where local graphs, versions, jobs and exports live |
 | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD` | — | Cloud-mode graph store |
 | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | `localhost:6379` | Cloud-mode cache and rate-limit snapshot |
 | `CLOUD_SINGLE_REPLICA_STATE` | — | **Required in cloud mode.** Confirms the deployment is one replica with a persistent volume; the API refuses to start without it |
 | `LOCAL_MAX_MEMORY_MB` | `512` | Local store memory ceiling (minimum 64) |
+| `WIKIMEDIA_CONTACT` | — | Your email or `User:Name`, added to the User-Agent sent to Wikipedia and Wikidata (Wikimedia asks for a contact) |
+| `INGEST_TIMEOUT_MS` | `300000` | Request budget for `/api/ingest`; everything else keeps `QUERY_TIMEOUT_MS` (2 s) |
 | `LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD` | `10000` | Entity count above which an export becomes an async job |
 
 ## API description

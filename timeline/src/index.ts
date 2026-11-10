@@ -249,7 +249,11 @@ class Application {
     // Custom middleware (order matters!)
     this.app.use(injectContainer); // Must be first to inject container
     this.app.use(requestLogger);
-    this.app.use(requestTimeout(this.config.performance.queryTimeoutMs));
+    this.app.use(
+      requestTimeout(this.config.performance.queryTimeoutMs, {
+        '/api/ingest': this.config.performance.ingestTimeoutMs ?? 300000,
+      })
+    );
     this.app.use(validateJsonRequest);
     
     // Rate limiting (can be enabled per environment)

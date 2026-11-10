@@ -93,7 +93,8 @@ full list. The values that matter most:
 - `API_AUTH_REQUIRED` — whether `/api/events`, `/api/arcs`, `/api/causal`,
   `/api/temporal` and `/api/inference` require an API key. Defaults to `true`;
   the compose file sets it explicitly. Do not turn it off on a reachable host.
-- `ADMIN_API_KEY` — a key the API trusts as `admin` on first start. Leave it
+- `ADMIN_API_KEY` — a key the API trusts as `admin`, registered on any start
+  where the key store does not already hold it (a revoked one stays revoked). Leave it
   blank and the API generates one, printing it in the log and writing it to
   `/data/keys/admin-key.txt` (mode 0600) inside the `api` container:
   `docker compose exec api cat /data/keys/admin-key.txt`. Either way, use that
