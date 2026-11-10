@@ -5,6 +5,8 @@ a versioned, multi-graph timeline backend with a React interface and an
 agent-first CLI / MCP server for exploring events, arcs, causal chains, and
 counterfactual branches.
 
+**[qworg.github.io/althistory](https://qworg.github.io/althistory/)**: the project page.
+
 ![The timeline view: arcs as nested periods above the events, with a tooltip on one event](docs/images/timeline.png)
 
 https://github.com/user-attachments/assets/f83f1c6f-eca4-468e-9eba-96d43a8c9c88
