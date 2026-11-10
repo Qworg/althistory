@@ -141,7 +141,7 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .bar a:not(.brand):hover { color: var(--cy-ink); }
 .bar .bar-gh { border: 1px solid rgb(182 197 221 / 0.45); border-radius: 999px; padding: 5px 14px; }
 @media (max-width: 640px) {
-  .bar li:nth-child(-n + 2) { display: none; }
+  .bar li:nth-child(n + 2):nth-child(-n + 3) { display: none; }
 }
 
 .hero-copy {
@@ -166,6 +166,8 @@ p { margin: 0 0 1em; text-wrap: pretty; }
   color: var(--cy-ink-2);
 }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.actions-note { margin: 14px 0 0; font-size: 0.88rem; color: var(--cy-ink-2); max-width: 34em; }
+.hero-figure figcaption a { color: var(--cy-ink); }
 @media (max-width: 900px) {
   .hero-copy { grid-template-columns: 1fr; }
 }

@@ -1,0 +1,4556 @@
+{
+ "scenario": "The Engine Age",
+ "mainGraphId": "graph_engine_age",
+ "branchGraphId": "graph_clerks_prevail",
+ "entities": {
+  "graph_engine_age": {
+   "events": [
+    {
+     "id": "event_design",
+     "description": "Babbage completes the full design of the Analytical Engine",
+     "actor": "Charles Babbage",
+     "target": "Analytical Engine",
+     "timestamp": "1834-12-15T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_build",
+      "significance": 0.7
+     }
+    },
+    {
+     "id": "event_peel",
+     "description": "Prime Minister Peel reverses course and funds construction",
+     "actor": "Robert Peel",
+     "target": "Charles Babbage",
+     "timestamp": "1838-03-02T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_build",
+      "significance": 0.9
+     }
+    },
+    {
+     "id": "event_clement",
+     "description": "Joseph Clement standardises the engine’s gears and screw threads",
+     "actor": "Joseph Clement",
+     "target": "Analytical Engine",
+     "timestamp": "1839-09-10T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_build",
+      "significance": 0.6
+     }
+    },
+    {
+     "id": "event_noteg",
+     "description": "Ada Lovelace publishes Note G, the first program",
+     "actor": "Ada Lovelace",
+     "target": "Analytical Engine",
+     "timestamp": "1843-09-01T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_build",
+      "significance": 0.95
+     }
+    },
+    {
+     "id": "event_firstrun",
+     "description": "The Engine computes Bernoulli numbers before the Royal Society",
+     "actor": "Charles Babbage",
+     "target": "Royal Society",
+     "timestamp": "1843-11-20T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_build",
+      "significance": 1
+     }
+    },
+    {
+     "id": "event_admiralty",
+     "description": "The Admiralty orders engines to compute navigation tables",
+     "actor": "British Admiralty",
+     "target": "Analytical Engine",
+     "timestamp": "1845-04-14T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_offices",
+      "significance": 0.8
+     }
+    },
+    {
+     "id": "event_lloyds",
+     "description": "Lloyd’s opens an actuarial engine room for the insurance market",
+     "actor": "Lloyd’s of London",
+     "target": "Analytical Engine",
+     "timestamp": "1847-06-01T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_offices",
+      "significance": 0.6
+     }
+    },
+    {
+     "id": "event_bank",
+     "description": "The Bank of England moves its ledgers onto engines",
+     "actor": "Bank of England",
+     "target": "Analytical Engine",
+     "timestamp": "1847-06-18T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_offices",
+      "significance": 0.65
+     }
+    },
+    {
+     "id": "event_school",
+     "description": "Lovelace founds the School of Engine Programming in London",
+     "actor": "Ada Lovelace",
+     "target": "School of Engine Programming",
+     "timestamp": "1848-10-05T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_offices",
+      "significance": 0.75
+     }
+    },
+    {
+     "id": "event_census",
+     "description": "The 1851 census is tabulated entirely by engine",
+     "actor": "General Register Office",
+     "target": "Census of 1851",
+     "timestamp": "1851-05-30T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_telegraph",
+      "significance": 0.85
+     }
+    },
+    {
+     "id": "event_exhibition",
+     "description": "The Great Exhibition’s centrepiece is a working engine hall",
+     "actor": "Prince Albert",
+     "target": "Great Exhibition",
+     "timestamp": "1851-07-01T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_telegraph",
+      "significance": 0.7
+     }
+    },
+    {
+     "id": "event_wire",
+     "description": "Engines in London and Manchester exchange results by telegraph",
+     "actor": "Electric Telegraph Company",
+     "target": "Analytical Engine",
+     "timestamp": "1853-02-11T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_telegraph",
+      "significance": 0.85
+     }
+    },
+    {
+     "id": "event_prussia",
+     "description": "Prussia buys three engines for its General Staff",
+     "actor": "Prussian General Staff",
+     "target": "Analytical Engine",
+     "timestamp": "1855-08-20T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_telegraph",
+      "significance": 0.7
+     }
+    },
+    {
+     "id": "event_clerks",
+     "description": "Ten thousand clerks protest at Westminster against the engines",
+     "actor": "Clerks’ Union",
+     "target": "Parliament",
+     "timestamp": "1859-03-17T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_reaction",
+      "significance": 0.8
+     }
+    },
+    {
+     "id": "event_manchester",
+     "description": "Manchester clerks hold a demonstration in solidarity",
+     "actor": "Clerks’ Union",
+     "target": "Manchester Exchange",
+     "timestamp": "1859-03-29T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_reaction",
+      "significance": 0.5
+     }
+    },
+    {
+     "id": "event_debate",
+     "description": "Parliament debates engine licensing legislation",
+     "actor": "Parliament",
+     "target": "Analytical Engine",
+     "timestamp": "1860-06-05T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_reaction",
+      "significance": 0.6
+     }
+    },
+    {
+     "id": "event_act",
+     "description": "Parliament passes the Engine Licensing Act",
+     "actor": "Parliament",
+     "target": "Clerks’ Union",
+     "timestamp": "1860-06-28T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_reaction",
+      "significance": 0.75
+     }
+    },
+    {
+     "id": "event_moltke",
+     "description": "Moltke uses engine-planned railway timetables to mobilise",
+     "actor": "Prussian General Staff",
+     "target": "Austrian Empire",
+     "timestamp": "1866-06-16T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_reaction",
+      "significance": 0.85
+     }
+    },
+    {
+     "id": "event_race",
+     "description": "Britain and Prussia begin an engine arms race",
+     "actor": "British Admiralty",
+     "target": "Prussian General Staff",
+     "timestamp": "1868-01-09T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_reaction",
+      "significance": 0.8
+     }
+    }
+   ],
+   "arcs": [
+    {
+     "id": "arc_build",
+     "name": "Building the Engine",
+     "description": "Babbage, Lovelace and Clement turn the design into working brass.",
+     "start_time": "1834-01-01T00:00:00.000Z",
+     "end_time": "1844-06-30T00:00:00.000Z",
+     "level": 1,
+     "metadata": {}
+    },
+    {
+     "id": "arc_offices",
+     "name": "The Calculating Offices",
+     "description": "Engines spread through the Admiralty, insurers and the census.",
+     "start_time": "1844-07-01T00:00:00.000Z",
+     "end_time": "1858-12-31T00:00:00.000Z",
+     "level": 1,
+     "metadata": {}
+    },
+    {
+     "id": "arc_reaction",
+     "name": "The Clerks’ Rebellion",
+     "description": "Displaced clerks, rival powers and Parliament push back.",
+     "start_time": "1859-01-01T00:00:00.000Z",
+     "end_time": "1871-12-31T00:00:00.000Z",
+     "level": 1,
+     "metadata": {}
+    },
+    {
+     "id": "arc_telegraph",
+     "name": "Engines on the Wire",
+     "description": "Telegraphy links the engines into a network of tabulating houses.",
+     "start_time": "1851-01-01T00:00:00.000Z",
+     "end_time": "1858-12-31T00:00:00.000Z",
+     "level": 2,
+     "metadata": {}
+    }
+   ],
+   "relationships": [
+    {
+     "id": "local_1",
+     "cause_event_id": "event_design",
+     "effect_event_id": "event_peel",
+     "weight": 0.6,
+     "confidence": 0.7,
+     "evidence": "The finished design made the cost estimate credible.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_2",
+     "cause_event_id": "event_peel",
+     "effect_event_id": "event_clement",
+     "weight": 0.8,
+     "confidence": 0.85,
+     "evidence": "Funding paid for Clement’s workshop.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_3",
+     "cause_event_id": "event_clement",
+     "effect_event_id": "event_firstrun",
+     "weight": 0.85,
+     "confidence": 0.8,
+     "evidence": "Standard parts made assembly possible.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_4",
+     "cause_event_id": "event_design",
+     "effect_event_id": "event_noteg",
+     "weight": 0.5,
+     "confidence": 0.75,
+     "evidence": "Note G was written against the published design.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_5",
+     "cause_event_id": "event_noteg",
+     "effect_event_id": "event_firstrun",
+     "weight": 0.9,
+     "confidence": 0.9,
+     "evidence": "The demonstration ran Lovelace’s program.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_6",
+     "cause_event_id": "event_firstrun",
+     "effect_event_id": "event_admiralty",
+     "weight": 0.8,
+     "confidence": 0.85,
+     "evidence": "Naval officers attended the demonstration.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_7",
+     "cause_event_id": "event_firstrun",
+     "effect_event_id": "event_lloyds",
+     "weight": 0.6,
+     "confidence": 0.7,
+     "evidence": "Actuaries saw the tables could be trusted.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_8",
+     "cause_event_id": "event_noteg",
+     "effect_event_id": "event_school",
+     "weight": 0.7,
+     "confidence": 0.8,
+     "evidence": "Demand for programmers outstripped Lovelace’s pupils.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_9",
+     "cause_event_id": "event_school",
+     "effect_event_id": "event_census",
+     "weight": 0.6,
+     "confidence": 0.7,
+     "evidence": "The Register Office hired the first graduates.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_10",
+     "cause_event_id": "event_admiralty",
+     "effect_event_id": "event_census",
+     "weight": 0.4,
+     "confidence": 0.6,
+     "evidence": "Admiralty engines proved reliability at scale.",
+     "relationship_type": "indirect"
+    },
+    {
+     "id": "local_11",
+     "cause_event_id": "event_census",
+     "effect_event_id": "event_exhibition",
+     "weight": 0.5,
+     "confidence": 0.65,
+     "evidence": "The census made the engine a national symbol.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_12",
+     "cause_event_id": "event_lloyds",
+     "effect_event_id": "event_wire",
+     "weight": 0.55,
+     "confidence": 0.6,
+     "evidence": "Insurers wanted prices shared between cities.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_13",
+     "cause_event_id": "event_exhibition",
+     "effect_event_id": "event_prussia",
+     "weight": 0.7,
+     "confidence": 0.75,
+     "evidence": "Prussian officers toured the engine hall.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_14",
+     "cause_event_id": "event_census",
+     "effect_event_id": "event_clerks",
+     "weight": 0.8,
+     "confidence": 0.8,
+     "evidence": "Census clerks were the first laid off.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_15",
+     "cause_event_id": "event_lloyds",
+     "effect_event_id": "event_clerks",
+     "weight": 0.5,
+     "confidence": 0.65,
+     "evidence": "Insurance clerks followed.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_16",
+     "cause_event_id": "event_lloyds",
+     "effect_event_id": "event_bank",
+     "weight": 0.5,
+     "confidence": 0.6,
+     "evidence": "The Bank followed the insurers’ lead.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_17",
+     "cause_event_id": "event_clerks",
+     "effect_event_id": "event_manchester",
+     "weight": 0.7,
+     "confidence": 0.75,
+     "evidence": "Word of the march reached Manchester by telegraph.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_18",
+     "cause_event_id": "event_clerks",
+     "effect_event_id": "event_debate",
+     "weight": 0.75,
+     "confidence": 0.8,
+     "evidence": "The march forced the question onto the Commons’ order paper.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_19",
+     "cause_event_id": "event_debate",
+     "effect_event_id": "event_act",
+     "weight": 0.85,
+     "confidence": 0.85,
+     "evidence": "The debate produced the Act.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_20",
+     "cause_event_id": "event_clerks",
+     "effect_event_id": "event_act",
+     "weight": 0.85,
+     "confidence": 0.85,
+     "evidence": "The Act was Parliament’s answer to the march.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_21",
+     "cause_event_id": "event_wire",
+     "effect_event_id": "event_moltke",
+     "weight": 0.6,
+     "confidence": 0.7,
+     "evidence": "Networked engines made timetables tractable.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_22",
+     "cause_event_id": "event_prussia",
+     "effect_event_id": "event_moltke",
+     "weight": 0.85,
+     "confidence": 0.85,
+     "evidence": "The General Staff’s engines planned the mobilisation.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_23",
+     "cause_event_id": "event_moltke",
+     "effect_event_id": "event_race",
+     "weight": 0.8,
+     "confidence": 0.8,
+     "evidence": "Sadowa alarmed the Admiralty.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_24",
+     "cause_event_id": "event_act",
+     "effect_event_id": "event_race",
+     "weight": 0.4,
+     "confidence": 0.55,
+     "evidence": "Licensing slowed British engines just as Prussia sped up.",
+     "relationship_type": "indirect"
+    }
+   ]
+  },
+  "graph_clerks_prevail": {
+   "events": [
+    {
+     "id": "event_design",
+     "description": "Babbage completes the full design of the Analytical Engine",
+     "actor": "Charles Babbage",
+     "target": "Analytical Engine",
+     "timestamp": "1834-12-15T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_build",
+      "significance": 0.7
+     }
+    },
+    {
+     "id": "event_peel",
+     "description": "Prime Minister Peel reverses course and funds construction",
+     "actor": "Robert Peel",
+     "target": "Charles Babbage",
+     "timestamp": "1838-03-02T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_build",
+      "significance": 0.9
+     }
+    },
+    {
+     "id": "event_clement",
+     "description": "Joseph Clement standardises the engine’s gears and screw threads",
+     "actor": "Joseph Clement",
+     "target": "Analytical Engine",
+     "timestamp": "1839-09-10T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_build",
+      "significance": 0.6
+     }
+    },
+    {
+     "id": "event_noteg",
+     "description": "Ada Lovelace publishes Note G, the first program",
+     "actor": "Ada Lovelace",
+     "target": "Analytical Engine",
+     "timestamp": "1843-09-01T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_build",
+      "significance": 0.95
+     }
+    },
+    {
+     "id": "event_firstrun",
+     "description": "The Engine computes Bernoulli numbers before the Royal Society",
+     "actor": "Charles Babbage",
+     "target": "Royal Society",
+     "timestamp": "1843-11-20T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_build",
+      "significance": 1
+     }
+    },
+    {
+     "id": "event_admiralty",
+     "description": "The Admiralty orders engines to compute navigation tables",
+     "actor": "British Admiralty",
+     "target": "Analytical Engine",
+     "timestamp": "1845-04-14T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_offices",
+      "significance": 0.8
+     }
+    },
+    {
+     "id": "event_lloyds",
+     "description": "Lloyd’s opens an actuarial engine room for the insurance market",
+     "actor": "Lloyd’s of London",
+     "target": "Analytical Engine",
+     "timestamp": "1847-06-01T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_offices",
+      "significance": 0.6
+     }
+    },
+    {
+     "id": "event_bank",
+     "description": "The Bank of England moves its ledgers onto engines",
+     "actor": "Bank of England",
+     "target": "Analytical Engine",
+     "timestamp": "1847-06-18T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_offices",
+      "significance": 0.65
+     }
+    },
+    {
+     "id": "event_school",
+     "description": "Lovelace founds the School of Engine Programming in London",
+     "actor": "Ada Lovelace",
+     "target": "School of Engine Programming",
+     "timestamp": "1848-10-05T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_offices",
+      "significance": 0.75
+     }
+    },
+    {
+     "id": "event_census",
+     "description": "The 1851 census is tabulated entirely by engine",
+     "actor": "General Register Office",
+     "target": "Census of 1851",
+     "timestamp": "1851-05-30T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_telegraph",
+      "significance": 0.85
+     }
+    },
+    {
+     "id": "event_exhibition",
+     "description": "The Great Exhibition’s centrepiece is a working engine hall",
+     "actor": "Prince Albert",
+     "target": "Great Exhibition",
+     "timestamp": "1851-07-01T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_telegraph",
+      "significance": 0.7
+     }
+    },
+    {
+     "id": "event_wire",
+     "description": "Engines in London and Manchester exchange results by telegraph",
+     "actor": "Electric Telegraph Company",
+     "target": "Analytical Engine",
+     "timestamp": "1853-02-11T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_telegraph",
+      "significance": 0.85
+     }
+    },
+    {
+     "id": "event_prussia",
+     "description": "Prussia buys three engines for its General Staff",
+     "actor": "Prussian General Staff",
+     "target": "Analytical Engine",
+     "timestamp": "1855-08-20T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_telegraph",
+      "significance": 0.7
+     }
+    },
+    {
+     "id": "event_clerks",
+     "description": "Ten thousand clerks protest at Westminster against the engines",
+     "actor": "Clerks’ Union",
+     "target": "Parliament",
+     "timestamp": "1859-03-17T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_reaction",
+      "significance": 0.8
+     }
+    },
+    {
+     "id": "event_manchester",
+     "description": "Manchester clerks hold a demonstration in solidarity",
+     "actor": "Clerks’ Union",
+     "target": "Manchester Exchange",
+     "timestamp": "1859-03-29T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_reaction",
+      "significance": 0.5
+     }
+    },
+    {
+     "id": "event_debate",
+     "description": "Parliament debates engine licensing legislation",
+     "actor": "Parliament",
+     "target": "Analytical Engine",
+     "timestamp": "1860-06-05T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_reaction",
+      "significance": 0.6
+     }
+    },
+    {
+     "id": "event_act",
+     "description": "Parliament passes the Engine Licensing Act",
+     "actor": "Parliament",
+     "target": "Clerks’ Union",
+     "timestamp": "1860-06-28T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_reaction",
+      "significance": 0.75
+     }
+    },
+    {
+     "id": "event_1",
+     "description": "Parliament bans private calculating engines",
+     "actor": "Parliament",
+     "target": "Analytical Engine",
+     "timestamp": "1860-07-12T00:00:00.000Z",
+     "metadata": {
+      "significance": 0.9
+     }
+    },
+    {
+     "id": "event_2",
+     "description": "Lovelace’s programmers emigrate to Berlin",
+     "actor": "School of Engine Programming",
+     "target": "Prussian General Staff",
+     "timestamp": "1861-04-02T00:00:00.000Z",
+     "metadata": {
+      "significance": 0.8
+     }
+    },
+    {
+     "id": "event_moltke",
+     "description": "Moltke uses engine-planned railway timetables to mobilise",
+     "actor": "Prussian General Staff",
+     "target": "Austrian Empire",
+     "timestamp": "1866-06-16T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_reaction",
+      "significance": 0.85
+     }
+    },
+    {
+     "id": "event_race",
+     "description": "Britain and Prussia begin an engine arms race",
+     "actor": "British Admiralty",
+     "target": "Prussian General Staff",
+     "timestamp": "1868-01-09T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_reaction",
+      "significance": 0.8
+     }
+    }
+   ],
+   "arcs": [
+    {
+     "id": "arc_build",
+     "name": "Building the Engine",
+     "description": "Babbage, Lovelace and Clement turn the design into working brass.",
+     "start_time": "1834-01-01T00:00:00.000Z",
+     "end_time": "1844-06-30T00:00:00.000Z",
+     "level": 1,
+     "metadata": {}
+    },
+    {
+     "id": "arc_offices",
+     "name": "The Calculating Offices",
+     "description": "Engines spread through the Admiralty, insurers and the census.",
+     "start_time": "1844-07-01T00:00:00.000Z",
+     "end_time": "1858-12-31T00:00:00.000Z",
+     "level": 1,
+     "metadata": {}
+    },
+    {
+     "id": "arc_reaction",
+     "name": "The Clerks’ Rebellion",
+     "description": "Displaced clerks, rival powers and Parliament push back.",
+     "start_time": "1859-01-01T00:00:00.000Z",
+     "end_time": "1871-12-31T00:00:00.000Z",
+     "level": 1,
+     "metadata": {}
+    },
+    {
+     "id": "arc_telegraph",
+     "name": "Engines on the Wire",
+     "description": "Telegraphy links the engines into a network of tabulating houses.",
+     "start_time": "1851-01-01T00:00:00.000Z",
+     "end_time": "1858-12-31T00:00:00.000Z",
+     "level": 2,
+     "metadata": {}
+    }
+   ],
+   "relationships": [
+    {
+     "id": "local_1",
+     "cause_event_id": "event_design",
+     "effect_event_id": "event_peel",
+     "weight": 0.6,
+     "confidence": 0.7,
+     "evidence": "The finished design made the cost estimate credible.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_2",
+     "cause_event_id": "event_peel",
+     "effect_event_id": "event_clement",
+     "weight": 0.8,
+     "confidence": 0.85,
+     "evidence": "Funding paid for Clement’s workshop.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_3",
+     "cause_event_id": "event_clement",
+     "effect_event_id": "event_firstrun",
+     "weight": 0.85,
+     "confidence": 0.8,
+     "evidence": "Standard parts made assembly possible.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_4",
+     "cause_event_id": "event_design",
+     "effect_event_id": "event_noteg",
+     "weight": 0.5,
+     "confidence": 0.75,
+     "evidence": "Note G was written against the published design.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_5",
+     "cause_event_id": "event_noteg",
+     "effect_event_id": "event_firstrun",
+     "weight": 0.9,
+     "confidence": 0.9,
+     "evidence": "The demonstration ran Lovelace’s program.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_6",
+     "cause_event_id": "event_firstrun",
+     "effect_event_id": "event_admiralty",
+     "weight": 0.8,
+     "confidence": 0.85,
+     "evidence": "Naval officers attended the demonstration.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_7",
+     "cause_event_id": "event_firstrun",
+     "effect_event_id": "event_lloyds",
+     "weight": 0.6,
+     "confidence": 0.7,
+     "evidence": "Actuaries saw the tables could be trusted.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_8",
+     "cause_event_id": "event_noteg",
+     "effect_event_id": "event_school",
+     "weight": 0.7,
+     "confidence": 0.8,
+     "evidence": "Demand for programmers outstripped Lovelace’s pupils.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_9",
+     "cause_event_id": "event_school",
+     "effect_event_id": "event_census",
+     "weight": 0.6,
+     "confidence": 0.7,
+     "evidence": "The Register Office hired the first graduates.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_10",
+     "cause_event_id": "event_admiralty",
+     "effect_event_id": "event_census",
+     "weight": 0.4,
+     "confidence": 0.6,
+     "evidence": "Admiralty engines proved reliability at scale.",
+     "relationship_type": "indirect"
+    },
+    {
+     "id": "local_11",
+     "cause_event_id": "event_census",
+     "effect_event_id": "event_exhibition",
+     "weight": 0.5,
+     "confidence": 0.65,
+     "evidence": "The census made the engine a national symbol.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_12",
+     "cause_event_id": "event_lloyds",
+     "effect_event_id": "event_wire",
+     "weight": 0.55,
+     "confidence": 0.6,
+     "evidence": "Insurers wanted prices shared between cities.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_13",
+     "cause_event_id": "event_exhibition",
+     "effect_event_id": "event_prussia",
+     "weight": 0.7,
+     "confidence": 0.75,
+     "evidence": "Prussian officers toured the engine hall.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_14",
+     "cause_event_id": "event_census",
+     "effect_event_id": "event_clerks",
+     "weight": 0.8,
+     "confidence": 0.8,
+     "evidence": "Census clerks were the first laid off.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_15",
+     "cause_event_id": "event_lloyds",
+     "effect_event_id": "event_clerks",
+     "weight": 0.5,
+     "confidence": 0.65,
+     "evidence": "Insurance clerks followed.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_16",
+     "cause_event_id": "event_lloyds",
+     "effect_event_id": "event_bank",
+     "weight": 0.5,
+     "confidence": 0.6,
+     "evidence": "The Bank followed the insurers’ lead.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_17",
+     "cause_event_id": "event_clerks",
+     "effect_event_id": "event_manchester",
+     "weight": 0.7,
+     "confidence": 0.75,
+     "evidence": "Word of the march reached Manchester by telegraph.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_18",
+     "cause_event_id": "event_clerks",
+     "effect_event_id": "event_debate",
+     "weight": 0.75,
+     "confidence": 0.8,
+     "evidence": "The march forced the question onto the Commons’ order paper.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_19",
+     "cause_event_id": "event_debate",
+     "effect_event_id": "event_act",
+     "weight": 0.85,
+     "confidence": 0.85,
+     "evidence": "The debate produced the Act.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_20",
+     "cause_event_id": "event_clerks",
+     "effect_event_id": "event_act",
+     "weight": 0.85,
+     "confidence": 0.85,
+     "evidence": "The Act was Parliament’s answer to the march.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_21",
+     "cause_event_id": "event_wire",
+     "effect_event_id": "event_moltke",
+     "weight": 0.6,
+     "confidence": 0.7,
+     "evidence": "Networked engines made timetables tractable.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_22",
+     "cause_event_id": "event_prussia",
+     "effect_event_id": "event_moltke",
+     "weight": 0.85,
+     "confidence": 0.85,
+     "evidence": "The General Staff’s engines planned the mobilisation.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_23",
+     "cause_event_id": "event_moltke",
+     "effect_event_id": "event_race",
+     "weight": 0.8,
+     "confidence": 0.8,
+     "evidence": "Sadowa alarmed the Admiralty.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_24",
+     "cause_event_id": "event_act",
+     "effect_event_id": "event_race",
+     "weight": 0.4,
+     "confidence": 0.55,
+     "evidence": "Licensing slowed British engines just as Prussia sped up.",
+     "relationship_type": "indirect"
+    },
+    {
+     "id": "local_25",
+     "cause_event_id": "event_1",
+     "effect_event_id": "event_2",
+     "weight": 0.85,
+     "confidence": 0.8,
+     "evidence": "Berlin offered the work London had outlawed.",
+     "relationship_type": "direct"
+    }
+   ]
+  }
+ },
+ "responses": {
+  "GET /arcs @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "arc_build",
+      "name": "Building the Engine",
+      "description": "Babbage, Lovelace and Clement turn the design into working brass.",
+      "start_time": "1834-01-01T00:00:00.000Z",
+      "end_time": "1844-06-30T00:00:00.000Z",
+      "level": 1,
+      "metadata": {}
+     },
+     {
+      "id": "arc_offices",
+      "name": "The Calculating Offices",
+      "description": "Engines spread through the Admiralty, insurers and the census.",
+      "start_time": "1844-07-01T00:00:00.000Z",
+      "end_time": "1858-12-31T00:00:00.000Z",
+      "level": 1,
+      "metadata": {}
+     },
+     {
+      "id": "arc_reaction",
+      "name": "The Clerks’ Rebellion",
+      "description": "Displaced clerks, rival powers and Parliament push back.",
+      "start_time": "1859-01-01T00:00:00.000Z",
+      "end_time": "1871-12-31T00:00:00.000Z",
+      "level": 1,
+      "metadata": {}
+     },
+     {
+      "id": "arc_telegraph",
+      "name": "Engines on the Wire",
+      "description": "Telegraphy links the engines into a network of tabulating houses.",
+      "start_time": "1851-01-01T00:00:00.000Z",
+      "end_time": "1858-12-31T00:00:00.000Z",
+      "level": 2,
+      "metadata": {}
+     }
+    ],
+    "pagination": {
+     "limit": 50,
+     "offset": 0,
+     "total": 4,
+     "hasMore": false
+    },
+    "filters": {
+     "level": null,
+     "timeRange": null
+    },
+    "requestId": "req_1"
+   }
+  },
+  "GET /arcs @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "arc_build",
+      "name": "Building the Engine",
+      "description": "Babbage, Lovelace and Clement turn the design into working brass.",
+      "start_time": "1834-01-01T00:00:00.000Z",
+      "end_time": "1844-06-30T00:00:00.000Z",
+      "level": 1,
+      "metadata": {}
+     },
+     {
+      "id": "arc_offices",
+      "name": "The Calculating Offices",
+      "description": "Engines spread through the Admiralty, insurers and the census.",
+      "start_time": "1844-07-01T00:00:00.000Z",
+      "end_time": "1858-12-31T00:00:00.000Z",
+      "level": 1,
+      "metadata": {}
+     },
+     {
+      "id": "arc_reaction",
+      "name": "The Clerks’ Rebellion",
+      "description": "Displaced clerks, rival powers and Parliament push back.",
+      "start_time": "1859-01-01T00:00:00.000Z",
+      "end_time": "1871-12-31T00:00:00.000Z",
+      "level": 1,
+      "metadata": {}
+     },
+     {
+      "id": "arc_telegraph",
+      "name": "Engines on the Wire",
+      "description": "Telegraphy links the engines into a network of tabulating houses.",
+      "start_time": "1851-01-01T00:00:00.000Z",
+      "end_time": "1858-12-31T00:00:00.000Z",
+      "level": 2,
+      "metadata": {}
+     }
+    ],
+    "pagination": {
+     "limit": 50,
+     "offset": 0,
+     "total": 4,
+     "hasMore": false
+    },
+    "filters": {
+     "level": null,
+     "timeRange": null
+    },
+    "requestId": "req_2"
+   }
+  },
+  "GET /causal/relationships @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "local_1",
+      "cause_event_id": "event_design",
+      "effect_event_id": "event_peel",
+      "weight": 0.6,
+      "confidence": 0.7,
+      "evidence": "The finished design made the cost estimate credible.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_2",
+      "cause_event_id": "event_peel",
+      "effect_event_id": "event_clement",
+      "weight": 0.8,
+      "confidence": 0.85,
+      "evidence": "Funding paid for Clement’s workshop.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_3",
+      "cause_event_id": "event_clement",
+      "effect_event_id": "event_firstrun",
+      "weight": 0.85,
+      "confidence": 0.8,
+      "evidence": "Standard parts made assembly possible.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_4",
+      "cause_event_id": "event_design",
+      "effect_event_id": "event_noteg",
+      "weight": 0.5,
+      "confidence": 0.75,
+      "evidence": "Note G was written against the published design.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_5",
+      "cause_event_id": "event_noteg",
+      "effect_event_id": "event_firstrun",
+      "weight": 0.9,
+      "confidence": 0.9,
+      "evidence": "The demonstration ran Lovelace’s program.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_6",
+      "cause_event_id": "event_firstrun",
+      "effect_event_id": "event_admiralty",
+      "weight": 0.8,
+      "confidence": 0.85,
+      "evidence": "Naval officers attended the demonstration.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_7",
+      "cause_event_id": "event_firstrun",
+      "effect_event_id": "event_lloyds",
+      "weight": 0.6,
+      "confidence": 0.7,
+      "evidence": "Actuaries saw the tables could be trusted.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_8",
+      "cause_event_id": "event_noteg",
+      "effect_event_id": "event_school",
+      "weight": 0.7,
+      "confidence": 0.8,
+      "evidence": "Demand for programmers outstripped Lovelace’s pupils.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_9",
+      "cause_event_id": "event_school",
+      "effect_event_id": "event_census",
+      "weight": 0.6,
+      "confidence": 0.7,
+      "evidence": "The Register Office hired the first graduates.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_10",
+      "cause_event_id": "event_admiralty",
+      "effect_event_id": "event_census",
+      "weight": 0.4,
+      "confidence": 0.6,
+      "evidence": "Admiralty engines proved reliability at scale.",
+      "relationship_type": "indirect"
+     },
+     {
+      "id": "local_11",
+      "cause_event_id": "event_census",
+      "effect_event_id": "event_exhibition",
+      "weight": 0.5,
+      "confidence": 0.65,
+      "evidence": "The census made the engine a national symbol.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_12",
+      "cause_event_id": "event_lloyds",
+      "effect_event_id": "event_wire",
+      "weight": 0.55,
+      "confidence": 0.6,
+      "evidence": "Insurers wanted prices shared between cities.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_13",
+      "cause_event_id": "event_exhibition",
+      "effect_event_id": "event_prussia",
+      "weight": 0.7,
+      "confidence": 0.75,
+      "evidence": "Prussian officers toured the engine hall.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_14",
+      "cause_event_id": "event_census",
+      "effect_event_id": "event_clerks",
+      "weight": 0.8,
+      "confidence": 0.8,
+      "evidence": "Census clerks were the first laid off.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_15",
+      "cause_event_id": "event_lloyds",
+      "effect_event_id": "event_clerks",
+      "weight": 0.5,
+      "confidence": 0.65,
+      "evidence": "Insurance clerks followed.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_16",
+      "cause_event_id": "event_lloyds",
+      "effect_event_id": "event_bank",
+      "weight": 0.5,
+      "confidence": 0.6,
+      "evidence": "The Bank followed the insurers’ lead.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_17",
+      "cause_event_id": "event_clerks",
+      "effect_event_id": "event_manchester",
+      "weight": 0.7,
+      "confidence": 0.75,
+      "evidence": "Word of the march reached Manchester by telegraph.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_18",
+      "cause_event_id": "event_clerks",
+      "effect_event_id": "event_debate",
+      "weight": 0.75,
+      "confidence": 0.8,
+      "evidence": "The march forced the question onto the Commons’ order paper.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_19",
+      "cause_event_id": "event_debate",
+      "effect_event_id": "event_act",
+      "weight": 0.85,
+      "confidence": 0.85,
+      "evidence": "The debate produced the Act.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_20",
+      "cause_event_id": "event_clerks",
+      "effect_event_id": "event_act",
+      "weight": 0.85,
+      "confidence": 0.85,
+      "evidence": "The Act was Parliament’s answer to the march.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_21",
+      "cause_event_id": "event_wire",
+      "effect_event_id": "event_moltke",
+      "weight": 0.6,
+      "confidence": 0.7,
+      "evidence": "Networked engines made timetables tractable.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_22",
+      "cause_event_id": "event_prussia",
+      "effect_event_id": "event_moltke",
+      "weight": 0.85,
+      "confidence": 0.85,
+      "evidence": "The General Staff’s engines planned the mobilisation.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_23",
+      "cause_event_id": "event_moltke",
+      "effect_event_id": "event_race",
+      "weight": 0.8,
+      "confidence": 0.8,
+      "evidence": "Sadowa alarmed the Admiralty.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_24",
+      "cause_event_id": "event_act",
+      "effect_event_id": "event_race",
+      "weight": 0.4,
+      "confidence": 0.55,
+      "evidence": "Licensing slowed British engines just as Prussia sped up.",
+      "relationship_type": "indirect"
+     }
+    ],
+    "requestId": "req_3"
+   }
+  },
+  "GET /causal/relationships @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "local_1",
+      "cause_event_id": "event_design",
+      "effect_event_id": "event_peel",
+      "weight": 0.6,
+      "confidence": 0.7,
+      "evidence": "The finished design made the cost estimate credible.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_2",
+      "cause_event_id": "event_peel",
+      "effect_event_id": "event_clement",
+      "weight": 0.8,
+      "confidence": 0.85,
+      "evidence": "Funding paid for Clement’s workshop.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_3",
+      "cause_event_id": "event_clement",
+      "effect_event_id": "event_firstrun",
+      "weight": 0.85,
+      "confidence": 0.8,
+      "evidence": "Standard parts made assembly possible.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_4",
+      "cause_event_id": "event_design",
+      "effect_event_id": "event_noteg",
+      "weight": 0.5,
+      "confidence": 0.75,
+      "evidence": "Note G was written against the published design.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_5",
+      "cause_event_id": "event_noteg",
+      "effect_event_id": "event_firstrun",
+      "weight": 0.9,
+      "confidence": 0.9,
+      "evidence": "The demonstration ran Lovelace’s program.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_6",
+      "cause_event_id": "event_firstrun",
+      "effect_event_id": "event_admiralty",
+      "weight": 0.8,
+      "confidence": 0.85,
+      "evidence": "Naval officers attended the demonstration.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_7",
+      "cause_event_id": "event_firstrun",
+      "effect_event_id": "event_lloyds",
+      "weight": 0.6,
+      "confidence": 0.7,
+      "evidence": "Actuaries saw the tables could be trusted.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_8",
+      "cause_event_id": "event_noteg",
+      "effect_event_id": "event_school",
+      "weight": 0.7,
+      "confidence": 0.8,
+      "evidence": "Demand for programmers outstripped Lovelace’s pupils.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_9",
+      "cause_event_id": "event_school",
+      "effect_event_id": "event_census",
+      "weight": 0.6,
+      "confidence": 0.7,
+      "evidence": "The Register Office hired the first graduates.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_10",
+      "cause_event_id": "event_admiralty",
+      "effect_event_id": "event_census",
+      "weight": 0.4,
+      "confidence": 0.6,
+      "evidence": "Admiralty engines proved reliability at scale.",
+      "relationship_type": "indirect"
+     },
+     {
+      "id": "local_11",
+      "cause_event_id": "event_census",
+      "effect_event_id": "event_exhibition",
+      "weight": 0.5,
+      "confidence": 0.65,
+      "evidence": "The census made the engine a national symbol.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_12",
+      "cause_event_id": "event_lloyds",
+      "effect_event_id": "event_wire",
+      "weight": 0.55,
+      "confidence": 0.6,
+      "evidence": "Insurers wanted prices shared between cities.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_13",
+      "cause_event_id": "event_exhibition",
+      "effect_event_id": "event_prussia",
+      "weight": 0.7,
+      "confidence": 0.75,
+      "evidence": "Prussian officers toured the engine hall.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_14",
+      "cause_event_id": "event_census",
+      "effect_event_id": "event_clerks",
+      "weight": 0.8,
+      "confidence": 0.8,
+      "evidence": "Census clerks were the first laid off.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_15",
+      "cause_event_id": "event_lloyds",
+      "effect_event_id": "event_clerks",
+      "weight": 0.5,
+      "confidence": 0.65,
+      "evidence": "Insurance clerks followed.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_16",
+      "cause_event_id": "event_lloyds",
+      "effect_event_id": "event_bank",
+      "weight": 0.5,
+      "confidence": 0.6,
+      "evidence": "The Bank followed the insurers’ lead.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_17",
+      "cause_event_id": "event_clerks",
+      "effect_event_id": "event_manchester",
+      "weight": 0.7,
+      "confidence": 0.75,
+      "evidence": "Word of the march reached Manchester by telegraph.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_18",
+      "cause_event_id": "event_clerks",
+      "effect_event_id": "event_debate",
+      "weight": 0.75,
+      "confidence": 0.8,
+      "evidence": "The march forced the question onto the Commons’ order paper.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_19",
+      "cause_event_id": "event_debate",
+      "effect_event_id": "event_act",
+      "weight": 0.85,
+      "confidence": 0.85,
+      "evidence": "The debate produced the Act.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_20",
+      "cause_event_id": "event_clerks",
+      "effect_event_id": "event_act",
+      "weight": 0.85,
+      "confidence": 0.85,
+      "evidence": "The Act was Parliament’s answer to the march.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_21",
+      "cause_event_id": "event_wire",
+      "effect_event_id": "event_moltke",
+      "weight": 0.6,
+      "confidence": 0.7,
+      "evidence": "Networked engines made timetables tractable.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_22",
+      "cause_event_id": "event_prussia",
+      "effect_event_id": "event_moltke",
+      "weight": 0.85,
+      "confidence": 0.85,
+      "evidence": "The General Staff’s engines planned the mobilisation.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_23",
+      "cause_event_id": "event_moltke",
+      "effect_event_id": "event_race",
+      "weight": 0.8,
+      "confidence": 0.8,
+      "evidence": "Sadowa alarmed the Admiralty.",
+      "relationship_type": "direct"
+     },
+     {
+      "id": "local_24",
+      "cause_event_id": "event_act",
+      "effect_event_id": "event_race",
+      "weight": 0.4,
+      "confidence": 0.55,
+      "evidence": "Licensing slowed British engines just as Prussia sped up.",
+      "relationship_type": "indirect"
+     },
+     {
+      "id": "local_25",
+      "cause_event_id": "event_1",
+      "effect_event_id": "event_2",
+      "weight": 0.85,
+      "confidence": 0.8,
+      "evidence": "Berlin offered the work London had outlawed.",
+      "relationship_type": "direct"
+     }
+    ],
+    "requestId": "req_4"
+   }
+  },
+  "GET /events @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "event_design",
+      "description": "Babbage completes the full design of the Analytical Engine",
+      "actor": "Charles Babbage",
+      "target": "Analytical Engine",
+      "timestamp": "1834-12-15T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.7
+      }
+     },
+     {
+      "id": "event_peel",
+      "description": "Prime Minister Peel reverses course and funds construction",
+      "actor": "Robert Peel",
+      "target": "Charles Babbage",
+      "timestamp": "1838-03-02T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.9
+      }
+     },
+     {
+      "id": "event_clement",
+      "description": "Joseph Clement standardises the engine’s gears and screw threads",
+      "actor": "Joseph Clement",
+      "target": "Analytical Engine",
+      "timestamp": "1839-09-10T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.6
+      }
+     },
+     {
+      "id": "event_noteg",
+      "description": "Ada Lovelace publishes Note G, the first program",
+      "actor": "Ada Lovelace",
+      "target": "Analytical Engine",
+      "timestamp": "1843-09-01T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.95
+      }
+     },
+     {
+      "id": "event_firstrun",
+      "description": "The Engine computes Bernoulli numbers before the Royal Society",
+      "actor": "Charles Babbage",
+      "target": "Royal Society",
+      "timestamp": "1843-11-20T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 1
+      }
+     },
+     {
+      "id": "event_admiralty",
+      "description": "The Admiralty orders engines to compute navigation tables",
+      "actor": "British Admiralty",
+      "target": "Analytical Engine",
+      "timestamp": "1845-04-14T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.8
+      }
+     },
+     {
+      "id": "event_lloyds",
+      "description": "Lloyd’s opens an actuarial engine room for the insurance market",
+      "actor": "Lloyd’s of London",
+      "target": "Analytical Engine",
+      "timestamp": "1847-06-01T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.6
+      }
+     },
+     {
+      "id": "event_bank",
+      "description": "The Bank of England moves its ledgers onto engines",
+      "actor": "Bank of England",
+      "target": "Analytical Engine",
+      "timestamp": "1847-06-18T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.65
+      }
+     },
+     {
+      "id": "event_school",
+      "description": "Lovelace founds the School of Engine Programming in London",
+      "actor": "Ada Lovelace",
+      "target": "School of Engine Programming",
+      "timestamp": "1848-10-05T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.75
+      }
+     },
+     {
+      "id": "event_census",
+      "description": "The 1851 census is tabulated entirely by engine",
+      "actor": "General Register Office",
+      "target": "Census of 1851",
+      "timestamp": "1851-05-30T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.85
+      }
+     },
+     {
+      "id": "event_exhibition",
+      "description": "The Great Exhibition’s centrepiece is a working engine hall",
+      "actor": "Prince Albert",
+      "target": "Great Exhibition",
+      "timestamp": "1851-07-01T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.7
+      }
+     },
+     {
+      "id": "event_wire",
+      "description": "Engines in London and Manchester exchange results by telegraph",
+      "actor": "Electric Telegraph Company",
+      "target": "Analytical Engine",
+      "timestamp": "1853-02-11T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.85
+      }
+     },
+     {
+      "id": "event_prussia",
+      "description": "Prussia buys three engines for its General Staff",
+      "actor": "Prussian General Staff",
+      "target": "Analytical Engine",
+      "timestamp": "1855-08-20T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.7
+      }
+     },
+     {
+      "id": "event_clerks",
+      "description": "Ten thousand clerks protest at Westminster against the engines",
+      "actor": "Clerks’ Union",
+      "target": "Parliament",
+      "timestamp": "1859-03-17T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.8
+      }
+     },
+     {
+      "id": "event_manchester",
+      "description": "Manchester clerks hold a demonstration in solidarity",
+      "actor": "Clerks’ Union",
+      "target": "Manchester Exchange",
+      "timestamp": "1859-03-29T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.5
+      }
+     },
+     {
+      "id": "event_debate",
+      "description": "Parliament debates engine licensing legislation",
+      "actor": "Parliament",
+      "target": "Analytical Engine",
+      "timestamp": "1860-06-05T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.6
+      }
+     },
+     {
+      "id": "event_act",
+      "description": "Parliament passes the Engine Licensing Act",
+      "actor": "Parliament",
+      "target": "Clerks’ Union",
+      "timestamp": "1860-06-28T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.75
+      }
+     },
+     {
+      "id": "event_moltke",
+      "description": "Moltke uses engine-planned railway timetables to mobilise",
+      "actor": "Prussian General Staff",
+      "target": "Austrian Empire",
+      "timestamp": "1866-06-16T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.85
+      }
+     },
+     {
+      "id": "event_race",
+      "description": "Britain and Prussia begin an engine arms race",
+      "actor": "British Admiralty",
+      "target": "Prussian General Staff",
+      "timestamp": "1868-01-09T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.8
+      }
+     }
+    ],
+    "pagination": {
+     "limit": 50,
+     "offset": 0,
+     "total": 19,
+     "hasMore": false
+    },
+    "filters": {
+     "actor": null,
+     "target": null,
+     "timeRange": null
+    },
+    "requestId": "req_5"
+   }
+  },
+  "GET /events @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "event_design",
+      "description": "Babbage completes the full design of the Analytical Engine",
+      "actor": "Charles Babbage",
+      "target": "Analytical Engine",
+      "timestamp": "1834-12-15T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.7
+      }
+     },
+     {
+      "id": "event_peel",
+      "description": "Prime Minister Peel reverses course and funds construction",
+      "actor": "Robert Peel",
+      "target": "Charles Babbage",
+      "timestamp": "1838-03-02T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.9
+      }
+     },
+     {
+      "id": "event_clement",
+      "description": "Joseph Clement standardises the engine’s gears and screw threads",
+      "actor": "Joseph Clement",
+      "target": "Analytical Engine",
+      "timestamp": "1839-09-10T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.6
+      }
+     },
+     {
+      "id": "event_noteg",
+      "description": "Ada Lovelace publishes Note G, the first program",
+      "actor": "Ada Lovelace",
+      "target": "Analytical Engine",
+      "timestamp": "1843-09-01T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.95
+      }
+     },
+     {
+      "id": "event_firstrun",
+      "description": "The Engine computes Bernoulli numbers before the Royal Society",
+      "actor": "Charles Babbage",
+      "target": "Royal Society",
+      "timestamp": "1843-11-20T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 1
+      }
+     },
+     {
+      "id": "event_admiralty",
+      "description": "The Admiralty orders engines to compute navigation tables",
+      "actor": "British Admiralty",
+      "target": "Analytical Engine",
+      "timestamp": "1845-04-14T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.8
+      }
+     },
+     {
+      "id": "event_lloyds",
+      "description": "Lloyd’s opens an actuarial engine room for the insurance market",
+      "actor": "Lloyd’s of London",
+      "target": "Analytical Engine",
+      "timestamp": "1847-06-01T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.6
+      }
+     },
+     {
+      "id": "event_bank",
+      "description": "The Bank of England moves its ledgers onto engines",
+      "actor": "Bank of England",
+      "target": "Analytical Engine",
+      "timestamp": "1847-06-18T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.65
+      }
+     },
+     {
+      "id": "event_school",
+      "description": "Lovelace founds the School of Engine Programming in London",
+      "actor": "Ada Lovelace",
+      "target": "School of Engine Programming",
+      "timestamp": "1848-10-05T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.75
+      }
+     },
+     {
+      "id": "event_census",
+      "description": "The 1851 census is tabulated entirely by engine",
+      "actor": "General Register Office",
+      "target": "Census of 1851",
+      "timestamp": "1851-05-30T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.85
+      }
+     },
+     {
+      "id": "event_exhibition",
+      "description": "The Great Exhibition’s centrepiece is a working engine hall",
+      "actor": "Prince Albert",
+      "target": "Great Exhibition",
+      "timestamp": "1851-07-01T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.7
+      }
+     },
+     {
+      "id": "event_wire",
+      "description": "Engines in London and Manchester exchange results by telegraph",
+      "actor": "Electric Telegraph Company",
+      "target": "Analytical Engine",
+      "timestamp": "1853-02-11T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.85
+      }
+     },
+     {
+      "id": "event_prussia",
+      "description": "Prussia buys three engines for its General Staff",
+      "actor": "Prussian General Staff",
+      "target": "Analytical Engine",
+      "timestamp": "1855-08-20T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.7
+      }
+     },
+     {
+      "id": "event_clerks",
+      "description": "Ten thousand clerks protest at Westminster against the engines",
+      "actor": "Clerks’ Union",
+      "target": "Parliament",
+      "timestamp": "1859-03-17T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.8
+      }
+     },
+     {
+      "id": "event_manchester",
+      "description": "Manchester clerks hold a demonstration in solidarity",
+      "actor": "Clerks’ Union",
+      "target": "Manchester Exchange",
+      "timestamp": "1859-03-29T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.5
+      }
+     },
+     {
+      "id": "event_debate",
+      "description": "Parliament debates engine licensing legislation",
+      "actor": "Parliament",
+      "target": "Analytical Engine",
+      "timestamp": "1860-06-05T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.6
+      }
+     },
+     {
+      "id": "event_act",
+      "description": "Parliament passes the Engine Licensing Act",
+      "actor": "Parliament",
+      "target": "Clerks’ Union",
+      "timestamp": "1860-06-28T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.75
+      }
+     },
+     {
+      "id": "event_1",
+      "description": "Parliament bans private calculating engines",
+      "actor": "Parliament",
+      "target": "Analytical Engine",
+      "timestamp": "1860-07-12T00:00:00.000Z",
+      "metadata": {
+       "significance": 0.9
+      }
+     },
+     {
+      "id": "event_2",
+      "description": "Lovelace’s programmers emigrate to Berlin",
+      "actor": "School of Engine Programming",
+      "target": "Prussian General Staff",
+      "timestamp": "1861-04-02T00:00:00.000Z",
+      "metadata": {
+       "significance": 0.8
+      }
+     },
+     {
+      "id": "event_moltke",
+      "description": "Moltke uses engine-planned railway timetables to mobilise",
+      "actor": "Prussian General Staff",
+      "target": "Austrian Empire",
+      "timestamp": "1866-06-16T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.85
+      }
+     },
+     {
+      "id": "event_race",
+      "description": "Britain and Prussia begin an engine arms race",
+      "actor": "British Admiralty",
+      "target": "Prussian General Staff",
+      "timestamp": "1868-01-09T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.8
+      }
+     }
+    ],
+    "pagination": {
+     "limit": 50,
+     "offset": 0,
+     "total": 21,
+     "hasMore": false
+    },
+    "filters": {
+     "actor": null,
+     "target": null,
+     "timeRange": null
+    },
+    "requestId": "req_6"
+   }
+  },
+  "GET /events?limit=1000 @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "event_design",
+      "description": "Babbage completes the full design of the Analytical Engine",
+      "actor": "Charles Babbage",
+      "target": "Analytical Engine",
+      "timestamp": "1834-12-15T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.7
+      }
+     },
+     {
+      "id": "event_peel",
+      "description": "Prime Minister Peel reverses course and funds construction",
+      "actor": "Robert Peel",
+      "target": "Charles Babbage",
+      "timestamp": "1838-03-02T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.9
+      }
+     },
+     {
+      "id": "event_clement",
+      "description": "Joseph Clement standardises the engine’s gears and screw threads",
+      "actor": "Joseph Clement",
+      "target": "Analytical Engine",
+      "timestamp": "1839-09-10T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.6
+      }
+     },
+     {
+      "id": "event_noteg",
+      "description": "Ada Lovelace publishes Note G, the first program",
+      "actor": "Ada Lovelace",
+      "target": "Analytical Engine",
+      "timestamp": "1843-09-01T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.95
+      }
+     },
+     {
+      "id": "event_firstrun",
+      "description": "The Engine computes Bernoulli numbers before the Royal Society",
+      "actor": "Charles Babbage",
+      "target": "Royal Society",
+      "timestamp": "1843-11-20T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 1
+      }
+     },
+     {
+      "id": "event_admiralty",
+      "description": "The Admiralty orders engines to compute navigation tables",
+      "actor": "British Admiralty",
+      "target": "Analytical Engine",
+      "timestamp": "1845-04-14T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.8
+      }
+     },
+     {
+      "id": "event_lloyds",
+      "description": "Lloyd’s opens an actuarial engine room for the insurance market",
+      "actor": "Lloyd’s of London",
+      "target": "Analytical Engine",
+      "timestamp": "1847-06-01T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.6
+      }
+     },
+     {
+      "id": "event_bank",
+      "description": "The Bank of England moves its ledgers onto engines",
+      "actor": "Bank of England",
+      "target": "Analytical Engine",
+      "timestamp": "1847-06-18T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.65
+      }
+     },
+     {
+      "id": "event_school",
+      "description": "Lovelace founds the School of Engine Programming in London",
+      "actor": "Ada Lovelace",
+      "target": "School of Engine Programming",
+      "timestamp": "1848-10-05T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.75
+      }
+     },
+     {
+      "id": "event_census",
+      "description": "The 1851 census is tabulated entirely by engine",
+      "actor": "General Register Office",
+      "target": "Census of 1851",
+      "timestamp": "1851-05-30T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.85
+      }
+     },
+     {
+      "id": "event_exhibition",
+      "description": "The Great Exhibition’s centrepiece is a working engine hall",
+      "actor": "Prince Albert",
+      "target": "Great Exhibition",
+      "timestamp": "1851-07-01T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.7
+      }
+     },
+     {
+      "id": "event_wire",
+      "description": "Engines in London and Manchester exchange results by telegraph",
+      "actor": "Electric Telegraph Company",
+      "target": "Analytical Engine",
+      "timestamp": "1853-02-11T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.85
+      }
+     },
+     {
+      "id": "event_prussia",
+      "description": "Prussia buys three engines for its General Staff",
+      "actor": "Prussian General Staff",
+      "target": "Analytical Engine",
+      "timestamp": "1855-08-20T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.7
+      }
+     },
+     {
+      "id": "event_clerks",
+      "description": "Ten thousand clerks protest at Westminster against the engines",
+      "actor": "Clerks’ Union",
+      "target": "Parliament",
+      "timestamp": "1859-03-17T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.8
+      }
+     },
+     {
+      "id": "event_manchester",
+      "description": "Manchester clerks hold a demonstration in solidarity",
+      "actor": "Clerks’ Union",
+      "target": "Manchester Exchange",
+      "timestamp": "1859-03-29T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.5
+      }
+     },
+     {
+      "id": "event_debate",
+      "description": "Parliament debates engine licensing legislation",
+      "actor": "Parliament",
+      "target": "Analytical Engine",
+      "timestamp": "1860-06-05T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.6
+      }
+     },
+     {
+      "id": "event_act",
+      "description": "Parliament passes the Engine Licensing Act",
+      "actor": "Parliament",
+      "target": "Clerks’ Union",
+      "timestamp": "1860-06-28T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.75
+      }
+     },
+     {
+      "id": "event_moltke",
+      "description": "Moltke uses engine-planned railway timetables to mobilise",
+      "actor": "Prussian General Staff",
+      "target": "Austrian Empire",
+      "timestamp": "1866-06-16T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.85
+      }
+     },
+     {
+      "id": "event_race",
+      "description": "Britain and Prussia begin an engine arms race",
+      "actor": "British Admiralty",
+      "target": "Prussian General Staff",
+      "timestamp": "1868-01-09T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.8
+      }
+     }
+    ],
+    "pagination": {
+     "limit": 1000,
+     "offset": 0,
+     "total": 19,
+     "hasMore": false
+    },
+    "filters": {
+     "actor": null,
+     "target": null,
+     "timeRange": null
+    },
+    "requestId": "req_7"
+   }
+  },
+  "GET /events?limit=1000 @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "event_design",
+      "description": "Babbage completes the full design of the Analytical Engine",
+      "actor": "Charles Babbage",
+      "target": "Analytical Engine",
+      "timestamp": "1834-12-15T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.7
+      }
+     },
+     {
+      "id": "event_peel",
+      "description": "Prime Minister Peel reverses course and funds construction",
+      "actor": "Robert Peel",
+      "target": "Charles Babbage",
+      "timestamp": "1838-03-02T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.9
+      }
+     },
+     {
+      "id": "event_clement",
+      "description": "Joseph Clement standardises the engine’s gears and screw threads",
+      "actor": "Joseph Clement",
+      "target": "Analytical Engine",
+      "timestamp": "1839-09-10T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.6
+      }
+     },
+     {
+      "id": "event_noteg",
+      "description": "Ada Lovelace publishes Note G, the first program",
+      "actor": "Ada Lovelace",
+      "target": "Analytical Engine",
+      "timestamp": "1843-09-01T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 0.95
+      }
+     },
+     {
+      "id": "event_firstrun",
+      "description": "The Engine computes Bernoulli numbers before the Royal Society",
+      "actor": "Charles Babbage",
+      "target": "Royal Society",
+      "timestamp": "1843-11-20T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_build",
+       "significance": 1
+      }
+     },
+     {
+      "id": "event_admiralty",
+      "description": "The Admiralty orders engines to compute navigation tables",
+      "actor": "British Admiralty",
+      "target": "Analytical Engine",
+      "timestamp": "1845-04-14T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.8
+      }
+     },
+     {
+      "id": "event_lloyds",
+      "description": "Lloyd’s opens an actuarial engine room for the insurance market",
+      "actor": "Lloyd’s of London",
+      "target": "Analytical Engine",
+      "timestamp": "1847-06-01T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.6
+      }
+     },
+     {
+      "id": "event_bank",
+      "description": "The Bank of England moves its ledgers onto engines",
+      "actor": "Bank of England",
+      "target": "Analytical Engine",
+      "timestamp": "1847-06-18T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.65
+      }
+     },
+     {
+      "id": "event_school",
+      "description": "Lovelace founds the School of Engine Programming in London",
+      "actor": "Ada Lovelace",
+      "target": "School of Engine Programming",
+      "timestamp": "1848-10-05T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_offices",
+       "significance": 0.75
+      }
+     },
+     {
+      "id": "event_census",
+      "description": "The 1851 census is tabulated entirely by engine",
+      "actor": "General Register Office",
+      "target": "Census of 1851",
+      "timestamp": "1851-05-30T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.85
+      }
+     },
+     {
+      "id": "event_exhibition",
+      "description": "The Great Exhibition’s centrepiece is a working engine hall",
+      "actor": "Prince Albert",
+      "target": "Great Exhibition",
+      "timestamp": "1851-07-01T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.7
+      }
+     },
+     {
+      "id": "event_wire",
+      "description": "Engines in London and Manchester exchange results by telegraph",
+      "actor": "Electric Telegraph Company",
+      "target": "Analytical Engine",
+      "timestamp": "1853-02-11T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.85
+      }
+     },
+     {
+      "id": "event_prussia",
+      "description": "Prussia buys three engines for its General Staff",
+      "actor": "Prussian General Staff",
+      "target": "Analytical Engine",
+      "timestamp": "1855-08-20T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_telegraph",
+       "significance": 0.7
+      }
+     },
+     {
+      "id": "event_clerks",
+      "description": "Ten thousand clerks protest at Westminster against the engines",
+      "actor": "Clerks’ Union",
+      "target": "Parliament",
+      "timestamp": "1859-03-17T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.8
+      }
+     },
+     {
+      "id": "event_manchester",
+      "description": "Manchester clerks hold a demonstration in solidarity",
+      "actor": "Clerks’ Union",
+      "target": "Manchester Exchange",
+      "timestamp": "1859-03-29T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.5
+      }
+     },
+     {
+      "id": "event_debate",
+      "description": "Parliament debates engine licensing legislation",
+      "actor": "Parliament",
+      "target": "Analytical Engine",
+      "timestamp": "1860-06-05T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.6
+      }
+     },
+     {
+      "id": "event_act",
+      "description": "Parliament passes the Engine Licensing Act",
+      "actor": "Parliament",
+      "target": "Clerks’ Union",
+      "timestamp": "1860-06-28T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.75
+      }
+     },
+     {
+      "id": "event_1",
+      "description": "Parliament bans private calculating engines",
+      "actor": "Parliament",
+      "target": "Analytical Engine",
+      "timestamp": "1860-07-12T00:00:00.000Z",
+      "metadata": {
+       "significance": 0.9
+      }
+     },
+     {
+      "id": "event_2",
+      "description": "Lovelace’s programmers emigrate to Berlin",
+      "actor": "School of Engine Programming",
+      "target": "Prussian General Staff",
+      "timestamp": "1861-04-02T00:00:00.000Z",
+      "metadata": {
+       "significance": 0.8
+      }
+     },
+     {
+      "id": "event_moltke",
+      "description": "Moltke uses engine-planned railway timetables to mobilise",
+      "actor": "Prussian General Staff",
+      "target": "Austrian Empire",
+      "timestamp": "1866-06-16T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.85
+      }
+     },
+     {
+      "id": "event_race",
+      "description": "Britain and Prussia begin an engine arms race",
+      "actor": "British Admiralty",
+      "target": "Prussian General Staff",
+      "timestamp": "1868-01-09T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_reaction",
+       "significance": 0.8
+      }
+     }
+    ],
+    "pagination": {
+     "limit": 1000,
+     "offset": 0,
+     "total": 21,
+     "hasMore": false
+    },
+    "filters": {
+     "actor": null,
+     "target": null,
+     "timeRange": null
+    },
+    "requestId": "req_8"
+   }
+  },
+  "GET /export/jobs @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [],
+    "pagination": {
+     "total": 0,
+     "limit": 50,
+     "offset": 0,
+     "hasMore": false
+    },
+    "requestId": "req_9"
+   }
+  },
+  "GET /export/jobs @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [],
+    "pagination": {
+     "total": 0,
+     "limit": 50,
+     "offset": 0,
+     "hasMore": false
+    },
+    "requestId": "req_10"
+   }
+  },
+  "GET /export/stats @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": {
+     "export": {
+      "total": 0,
+      "pending": 0,
+      "processing": 0,
+      "completed": 0,
+      "failed": 0
+     }
+    },
+    "requestId": "req_11"
+   }
+  },
+  "GET /export/stats @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": {
+     "export": {
+      "total": 0,
+      "pending": 0,
+      "processing": 0,
+      "completed": 0,
+      "failed": 0
+     }
+    },
+    "requestId": "req_12"
+   }
+  },
+  "GET /graphs @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "graph_clerks_prevail",
+      "name": "The Engine Age — Clerks Prevail",
+      "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
+      "createdAt": "2026-11-10T17:46:56.744Z",
+      "updatedAt": "2026-11-10T17:46:57.451Z",
+      "version": 4,
+      "parentGraphId": "graph_engine_age",
+      "branchPoint": 46,
+      "status": "active",
+      "metadata": {
+       "eventCount": 21,
+       "arcCount": 4,
+       "relationshipCount": 25,
+       "pressureCount": 0,
+       "temporalRange": {
+        "start": "1834-12-15T00:00:00.000Z",
+        "end": "1868-01-09T00:00:00.000Z"
+       },
+       "actors": [
+        "Charles Babbage",
+        "Robert Peel",
+        "Joseph Clement",
+        "Ada Lovelace",
+        "British Admiralty",
+        "Lloyd’s of London",
+        "Bank of England",
+        "General Register Office",
+        "Prince Albert",
+        "Electric Telegraph Company",
+        "Prussian General Staff",
+        "Clerks’ Union",
+        "Parliament",
+        "School of Engine Programming"
+       ]
+      }
+     },
+     {
+      "id": "graph_engine_age",
+      "name": "The Engine Age",
+      "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
+      "createdAt": "2026-11-10T17:46:49.003Z",
+      "updatedAt": "2026-11-10T17:46:56.607Z",
+      "version": 47,
+      "status": "active",
+      "metadata": {
+       "eventCount": 19,
+       "arcCount": 4,
+       "relationshipCount": 24,
+       "pressureCount": 0,
+       "temporalRange": {
+        "start": "1834-12-15T00:00:00.000Z",
+        "end": "1868-01-09T00:00:00.000Z"
+       },
+       "actors": [
+        "Charles Babbage",
+        "Robert Peel",
+        "Joseph Clement",
+        "Ada Lovelace",
+        "British Admiralty",
+        "Lloyd’s of London",
+        "Bank of England",
+        "General Register Office",
+        "Prince Albert",
+        "Electric Telegraph Company",
+        "Prussian General Staff",
+        "Clerks’ Union",
+        "Parliament"
+       ]
+      }
+     }
+    ],
+    "pagination": {
+     "total": 2,
+     "limit": 50,
+     "offset": 0,
+     "hasMore": false
+    },
+    "requestId": "req_13"
+   }
+  },
+  "GET /graphs @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "graph_clerks_prevail",
+      "name": "The Engine Age — Clerks Prevail",
+      "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
+      "createdAt": "2026-11-10T17:46:56.744Z",
+      "updatedAt": "2026-11-10T17:46:57.451Z",
+      "version": 4,
+      "parentGraphId": "graph_engine_age",
+      "branchPoint": 46,
+      "status": "active",
+      "metadata": {
+       "eventCount": 21,
+       "arcCount": 4,
+       "relationshipCount": 25,
+       "pressureCount": 0,
+       "temporalRange": {
+        "start": "1834-12-15T00:00:00.000Z",
+        "end": "1868-01-09T00:00:00.000Z"
+       },
+       "actors": [
+        "Charles Babbage",
+        "Robert Peel",
+        "Joseph Clement",
+        "Ada Lovelace",
+        "British Admiralty",
+        "Lloyd’s of London",
+        "Bank of England",
+        "General Register Office",
+        "Prince Albert",
+        "Electric Telegraph Company",
+        "Prussian General Staff",
+        "Clerks’ Union",
+        "Parliament",
+        "School of Engine Programming"
+       ]
+      }
+     },
+     {
+      "id": "graph_engine_age",
+      "name": "The Engine Age",
+      "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
+      "createdAt": "2026-11-10T17:46:49.003Z",
+      "updatedAt": "2026-11-10T17:46:56.607Z",
+      "version": 47,
+      "status": "active",
+      "metadata": {
+       "eventCount": 19,
+       "arcCount": 4,
+       "relationshipCount": 24,
+       "pressureCount": 0,
+       "temporalRange": {
+        "start": "1834-12-15T00:00:00.000Z",
+        "end": "1868-01-09T00:00:00.000Z"
+       },
+       "actors": [
+        "Charles Babbage",
+        "Robert Peel",
+        "Joseph Clement",
+        "Ada Lovelace",
+        "British Admiralty",
+        "Lloyd’s of London",
+        "Bank of England",
+        "General Register Office",
+        "Prince Albert",
+        "Electric Telegraph Company",
+        "Prussian General Staff",
+        "Clerks’ Union",
+        "Parliament"
+       ]
+      }
+     }
+    ],
+    "pagination": {
+     "total": 2,
+     "limit": 50,
+     "offset": 0,
+     "hasMore": false
+    },
+    "requestId": "req_14"
+   }
+  },
+  "GET /graphs/active @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": {
+     "id": "graph_engine_age",
+     "name": "The Engine Age",
+     "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
+     "createdAt": "2026-11-10T17:46:49.003Z",
+     "updatedAt": "2026-11-10T17:46:56.607Z",
+     "version": 47,
+     "status": "active",
+     "metadata": {
+      "eventCount": 19,
+      "arcCount": 4,
+      "relationshipCount": 24,
+      "pressureCount": 0,
+      "temporalRange": {
+       "start": "1834-12-15T00:00:00.000Z",
+       "end": "1868-01-09T00:00:00.000Z"
+      },
+      "actors": [
+       "Charles Babbage",
+       "Robert Peel",
+       "Joseph Clement",
+       "Ada Lovelace",
+       "British Admiralty",
+       "Lloyd’s of London",
+       "Bank of England",
+       "General Register Office",
+       "Prince Albert",
+       "Electric Telegraph Company",
+       "Prussian General Staff",
+       "Clerks’ Union",
+       "Parliament"
+      ]
+     }
+    },
+    "requestId": "req_15"
+   }
+  },
+  "GET /graphs/active @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": {
+     "id": "graph_clerks_prevail",
+     "name": "The Engine Age — Clerks Prevail",
+     "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
+     "createdAt": "2026-11-10T17:46:56.744Z",
+     "updatedAt": "2026-11-10T17:46:57.451Z",
+     "version": 4,
+     "parentGraphId": "graph_engine_age",
+     "branchPoint": 46,
+     "status": "active",
+     "metadata": {
+      "eventCount": 21,
+      "arcCount": 4,
+      "relationshipCount": 25,
+      "pressureCount": 0,
+      "temporalRange": {
+       "start": "1834-12-15T00:00:00.000Z",
+       "end": "1868-01-09T00:00:00.000Z"
+      },
+      "actors": [
+       "Charles Babbage",
+       "Robert Peel",
+       "Joseph Clement",
+       "Ada Lovelace",
+       "British Admiralty",
+       "Lloyd’s of London",
+       "Bank of England",
+       "General Register Office",
+       "Prince Albert",
+       "Electric Telegraph Company",
+       "Prussian General Staff",
+       "Clerks’ Union",
+       "Parliament",
+       "School of Engine Programming"
+      ]
+     }
+    },
+    "requestId": "req_16"
+   }
+  },
+  "GET /graphs/graph_engine_age @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": {
+     "id": "graph_engine_age",
+     "name": "The Engine Age",
+     "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
+     "createdAt": "2026-11-10T17:46:49.003Z",
+     "updatedAt": "2026-11-10T17:46:56.607Z",
+     "version": 47,
+     "status": "active",
+     "metadata": {
+      "eventCount": 19,
+      "arcCount": 4,
+      "relationshipCount": 24,
+      "pressureCount": 0,
+      "temporalRange": {
+       "start": "1834-12-15T00:00:00.000Z",
+       "end": "1868-01-09T00:00:00.000Z"
+      },
+      "actors": [
+       "Charles Babbage",
+       "Robert Peel",
+       "Joseph Clement",
+       "Ada Lovelace",
+       "British Admiralty",
+       "Lloyd’s of London",
+       "Bank of England",
+       "General Register Office",
+       "Prince Albert",
+       "Electric Telegraph Company",
+       "Prussian General Staff",
+       "Clerks’ Union",
+       "Parliament"
+      ]
+     }
+    },
+    "requestId": "req_17"
+   }
+  },
+  "GET /graphs/graph_engine_age @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": {
+     "id": "graph_engine_age",
+     "name": "The Engine Age",
+     "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
+     "createdAt": "2026-11-10T17:46:49.003Z",
+     "updatedAt": "2026-11-10T17:46:56.607Z",
+     "version": 47,
+     "status": "active",
+     "metadata": {
+      "eventCount": 19,
+      "arcCount": 4,
+      "relationshipCount": 24,
+      "pressureCount": 0,
+      "temporalRange": {
+       "start": "1834-12-15T00:00:00.000Z",
+       "end": "1868-01-09T00:00:00.000Z"
+      },
+      "actors": [
+       "Charles Babbage",
+       "Robert Peel",
+       "Joseph Clement",
+       "Ada Lovelace",
+       "British Admiralty",
+       "Lloyd’s of London",
+       "Bank of England",
+       "General Register Office",
+       "Prince Albert",
+       "Electric Telegraph Company",
+       "Prussian General Staff",
+       "Clerks’ Union",
+       "Parliament"
+      ]
+     }
+    },
+    "requestId": "req_18"
+   }
+  },
+  "GET /graphs/graph_engine_age/branches @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "graph_clerks_prevail",
+      "name": "The Engine Age — Clerks Prevail",
+      "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
+      "createdAt": "2026-11-10T17:46:56.744Z",
+      "updatedAt": "2026-11-10T17:46:57.451Z",
+      "version": 4,
+      "parentGraphId": "graph_engine_age",
+      "branchPoint": 46,
+      "status": "active",
+      "metadata": {
+       "eventCount": 21,
+       "arcCount": 4,
+       "relationshipCount": 25,
+       "pressureCount": 0,
+       "temporalRange": {
+        "start": "1834-12-15T00:00:00.000Z",
+        "end": "1868-01-09T00:00:00.000Z"
+       },
+       "actors": [
+        "Charles Babbage",
+        "Robert Peel",
+        "Joseph Clement",
+        "Ada Lovelace",
+        "British Admiralty",
+        "Lloyd’s of London",
+        "Bank of England",
+        "General Register Office",
+        "Prince Albert",
+        "Electric Telegraph Company",
+        "Prussian General Staff",
+        "Clerks’ Union",
+        "Parliament",
+        "School of Engine Programming"
+       ]
+      }
+     }
+    ],
+    "requestId": "req_19"
+   }
+  },
+  "GET /graphs/graph_engine_age/versions?limit=1 @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_engine_age",
+      "version": 46,
+      "timestamp": "2026-11-10T17:46:56.604Z",
+      "parentVersion": 45,
+      "operation": "create",
+      "description": "Added link: “Parliament passes the Engine Licensing Act” → “Britain and Prussia begin an engine arms race”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_24",
+         "hash": "7d3db3b08893d857aeb9a9979f8dcb5595c952bef111bab40afe6a663d3cc0eb"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "856c80a828634f9c3089350b0c29e3ca96b1f054a50ef9d073972207a8097eb2"
+     }
+    ],
+    "pagination": {
+     "total": 47,
+     "limit": 1,
+     "offset": 0,
+     "hasMore": true
+    },
+    "requestId": "req_20"
+   }
+  },
+  "GET /graphs/graph_engine_age/versions?limit=1 @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_engine_age",
+      "version": 46,
+      "timestamp": "2026-11-10T17:46:56.604Z",
+      "parentVersion": 45,
+      "operation": "create",
+      "description": "Added link: “Parliament passes the Engine Licensing Act” → “Britain and Prussia begin an engine arms race”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_24",
+         "hash": "7d3db3b08893d857aeb9a9979f8dcb5595c952bef111bab40afe6a663d3cc0eb"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "856c80a828634f9c3089350b0c29e3ca96b1f054a50ef9d073972207a8097eb2"
+     }
+    ],
+    "pagination": {
+     "total": 47,
+     "limit": 1,
+     "offset": 0,
+     "hasMore": true
+    },
+    "requestId": "req_21"
+   }
+  },
+  "GET /graphs/graph_engine_age/versions?limit=100 @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_engine_age",
+      "version": 46,
+      "timestamp": "2026-11-10T17:46:56.604Z",
+      "parentVersion": 45,
+      "operation": "create",
+      "description": "Added link: “Parliament passes the Engine Licensing Act” → “Britain and Prussia begin an engine arms race”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_24",
+         "hash": "7d3db3b08893d857aeb9a9979f8dcb5595c952bef111bab40afe6a663d3cc0eb"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "856c80a828634f9c3089350b0c29e3ca96b1f054a50ef9d073972207a8097eb2"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 45,
+      "timestamp": "2026-11-10T17:46:56.462Z",
+      "parentVersion": 44,
+      "operation": "create",
+      "description": "Added link: “Moltke uses engine-planned railway timetables to mobilise” → “Britain and Prussia begin an engine arms race”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_23",
+         "hash": "a847bfca370627902dc0c74d67de8b4d885891c395e551baa94520be0e7381d0"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "4c452a7513b74d158b3d62e761c64765889777dd68064459b1162084dcde430d"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 44,
+      "timestamp": "2026-11-10T17:46:56.298Z",
+      "parentVersion": 43,
+      "operation": "create",
+      "description": "Added link: “Prussia buys three engines for its General Staff” → “Moltke uses engine-planned railway timetables to mobilise”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_22",
+         "hash": "a83a8729c0fa73622492c601d577c271c16c28335022ee4d854ebff9aa53eeb1"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "ffc3007ba95e58279010bd172babe0f94b3ba64447a24ec25adacc335d990e8b"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 43,
+      "timestamp": "2026-11-10T17:46:56.134Z",
+      "parentVersion": 42,
+      "operation": "create",
+      "description": "Added link: “Engines in London and Manchester exchange results by telegraph” → “Moltke uses engine-planned railway timetables to mobilise”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_21",
+         "hash": "ed79ab335f7682885f7b7b6f90cb0d20cd0ad6aee39d22345b2173ddf93640e2"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "babda53de375831a443f911aba164f8a2542f73400d6b83910acbd4b57a20ac1"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 42,
+      "timestamp": "2026-11-10T17:46:55.960Z",
+      "parentVersion": 41,
+      "operation": "create",
+      "description": "Added link: “Ten thousand clerks protest at Westminster against the engines” → “Parliament passes the Engine Licensing Act”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_20",
+         "hash": "047916053ed7f210b1d58573cb96f17878a337fcd0f36d6455f5487ff80112d0"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "99d2efe5f1f3b452e4824b3a8a8636cc4dbb51a0a3e2d3d43ba3dc06637e09f1"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 41,
+      "timestamp": "2026-11-10T17:46:55.810Z",
+      "parentVersion": 40,
+      "operation": "create",
+      "description": "Added link: “Parliament debates engine licensing legislation” → “Parliament passes the Engine Licensing Act”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_19",
+         "hash": "5f253a2410779cfe5043339527513726cc14f225b00b58202c112e0279161d97"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "d46872515c7c9cb93bbdbbf7c284246ffb4f359495ca027c490496b938860d6e"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 40,
+      "timestamp": "2026-11-10T17:46:55.645Z",
+      "parentVersion": 39,
+      "operation": "create",
+      "description": "Added link: “Ten thousand clerks protest at Westminster against the engines” → “Parliament debates engine licensing legislation”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_18",
+         "hash": "f01003f3f60c0050903a703fd9bb2ee9dc5572723e7dca577ee36fe9078a672b"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "3f0273b34cb4b175464575875d3b2bd1a1d0e6d9b4dfe5e72744380caaf24851"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 39,
+      "timestamp": "2026-11-10T17:46:55.466Z",
+      "parentVersion": 38,
+      "operation": "create",
+      "description": "Added link: “Ten thousand clerks protest at Westminster against the engines” → “Manchester clerks hold a demonstration in solidarity”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_17",
+         "hash": "25820d5806f26df8380923a4bb7b6adf688249b50e7c2ddc6f3483d8db9b7d5d"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "0aea8fa639f8e6f22ae58d76ff56d5ea39cfc53f0e89787e3a06f924f41045bf"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 38,
+      "timestamp": "2026-11-10T17:46:55.295Z",
+      "parentVersion": 37,
+      "operation": "create",
+      "description": "Added link: “Lloyd’s opens an actuarial engine room for the insurance market” → “The Bank of England moves its ledgers onto engines”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_16",
+         "hash": "e4bfb13c6953cdb4716e1786e539efa722dd0384cfc5690cc9a43c1d3e50bf5b"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "7375c15e5d9ca0c44151a5f7804a588bff696f89305f81c2502a0fc0524bcae6"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 37,
+      "timestamp": "2026-11-10T17:46:55.049Z",
+      "parentVersion": 36,
+      "operation": "create",
+      "description": "Added link: “Lloyd’s opens an actuarial engine room for the insurance market” → “Ten thousand clerks protest at Westminster against the engines”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_15",
+         "hash": "1e10db05eca9d7874588f4c786ab8bd81e1da246933c82ba73c1a297c589e3e6"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "5a8076d4c99fea1bf319aee201cd9dbc3ffb3003c1a622364729ba1c8a0465bc"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 36,
+      "timestamp": "2026-11-10T17:46:54.860Z",
+      "parentVersion": 35,
+      "operation": "create",
+      "description": "Added link: “The 1851 census is tabulated entirely by engine” → “Ten thousand clerks protest at Westminster against the engines”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_14",
+         "hash": "c1ef3e9db90c7620edeb2b77fc0ea06565e070e3e313cd4138beac9221254752"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "9dd450d7005069c2073b951f313ee41b619a6a8f0d9db3f9139bac7de7d5dee3"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 35,
+      "timestamp": "2026-11-10T17:46:54.705Z",
+      "parentVersion": 34,
+      "operation": "create",
+      "description": "Added link: “The Great Exhibition’s centrepiece is a working engine hall” → “Prussia buys three engines for its General Staff”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_13",
+         "hash": "b262329d1409e6f8fa6061ec75def47c6139b88dba3901c138c18704a3574c82"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "b60584823a6514b0f51db35c2dbee005650d763d6fc12ff088c4af76d877eac6"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 34,
+      "timestamp": "2026-11-10T17:46:54.533Z",
+      "parentVersion": 33,
+      "operation": "create",
+      "description": "Added link: “Lloyd’s opens an actuarial engine room for the insurance market” → “Engines in London and Manchester exchange results by telegraph”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_12",
+         "hash": "94dcc954e4bf88214ea4dbae7d9ea5661282bea66dcb60d14fbd778c3fabf6b4"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "e1b98b472dd0170e0a47234f4282fce8d3f0922ff847592262d4e9f65495ca77"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 33,
+      "timestamp": "2026-11-10T17:46:54.327Z",
+      "parentVersion": 32,
+      "operation": "create",
+      "description": "Added link: “The 1851 census is tabulated entirely by engine” → “The Great Exhibition’s centrepiece is a working engine hall”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_11",
+         "hash": "c7015342bdbc62925a491f5438df669dc4bff62ddbcd2c341674f3992e844d2c"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "05a53d69fceee43325ebb4c9702f7548118072f9ad4f3c8573b5d26935915e2d"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 32,
+      "timestamp": "2026-11-10T17:46:54.158Z",
+      "parentVersion": 31,
+      "operation": "create",
+      "description": "Added link: “The Admiralty orders engines to compute navigation tables” → “The 1851 census is tabulated entirely by engine”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_10",
+         "hash": "ebd5771615f93f0cfcbcc4237112d6c36e48858b4ac69d77014e777268d31531"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "e76a3d1c038f0df6eff9664c6ad970ef33629cf0cc3b19051e4cd22877eac50d"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 31,
+      "timestamp": "2026-11-10T17:46:53.959Z",
+      "parentVersion": 30,
+      "operation": "create",
+      "description": "Added link: “Lovelace founds the School of Engine Programming in London” → “The 1851 census is tabulated entirely by engine”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_9",
+         "hash": "e1a3a9de7932eb84458ced851e6cc43a3b89c4d9da3581fe0f3a8b1e7e61ad94"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "0fe14620349cca7b3abd97bb8de406d37d7c0f6cd4666bfcd6026d7ef65c6252"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 30,
+      "timestamp": "2026-11-10T17:46:53.765Z",
+      "parentVersion": 29,
+      "operation": "create",
+      "description": "Added link: “Ada Lovelace publishes Note G, the first program” → “Lovelace founds the School of Engine Programming in London”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_8",
+         "hash": "2932b0ddb79bf8d33ce23ee07383b4f6659143ed8dbf8832756187a1098e7fe5"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "f29ba5644e9cf75c09aefa90564bc3b21ef8b1ab5b5d0927dd1d25c0fa3fad88"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 29,
+      "timestamp": "2026-11-10T17:46:53.590Z",
+      "parentVersion": 28,
+      "operation": "create",
+      "description": "Added link: “The Engine computes Bernoulli numbers before the Royal Society” → “Lloyd’s opens an actuarial engine room for the insurance market”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_7",
+         "hash": "ee72e730d12a9cc86e79a54e571c9793fc38199396c7f5eb2631849bc5a88da1"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "2fa381bad8cfc54436a8878d69e0a083768c4632c8b0b7907c1fef61cfcbb93d"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 28,
+      "timestamp": "2026-11-10T17:46:53.418Z",
+      "parentVersion": 27,
+      "operation": "create",
+      "description": "Added link: “The Engine computes Bernoulli numbers before the Royal Society” → “The Admiralty orders engines to compute navigation tables”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_6",
+         "hash": "253da3d1acacd1915ceaf39b47672b3455b92b1197020bfa8a1eba15bc7b4c1e"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "03420c59c51f0e9fb3b8537940260564f9b482c4ee4bb3a9004d0b9ed1d31ded"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 27,
+      "timestamp": "2026-11-10T17:46:53.245Z",
+      "parentVersion": 26,
+      "operation": "create",
+      "description": "Added link: “Ada Lovelace publishes Note G, the first program” → “The Engine computes Bernoulli numbers before the Royal Society”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_5",
+         "hash": "f8aa0d72a8ae9fd68f05f750f91e390fa96fd38c442a905550aa7fe4bb4b8875"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "f515e829a07b08546b498f43d0d1e8c981fe8affdf4932601da242e70f9e3260"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 26,
+      "timestamp": "2026-11-10T17:46:53.077Z",
+      "parentVersion": 25,
+      "operation": "create",
+      "description": "Added link: “Babbage completes the full design of the Analytical Engine” → “Ada Lovelace publishes Note G, the first program”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_4",
+         "hash": "0ad8720f427d3291b50dbde428b0ca90058aa5d276e3e72ba72f2e241ebc27ba"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "c21686dcd7d31098e633b371335074f00e42d240f18a109892efbd0289929d9b"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 25,
+      "timestamp": "2026-11-10T17:46:52.914Z",
+      "parentVersion": 24,
+      "operation": "create",
+      "description": "Added link: “Joseph Clement standardises the engine’s gears and screw threads” → “The Engine computes Bernoulli numbers before the Royal Society”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_3",
+         "hash": "173e2196003a6620019b7a5d74dd4e9ab773a1c4c63419e52142d158d0b854d5"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "fb0fb53365055596cc89cc7e34a42692a8cb6435403a7c300a7cd45063171592"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 24,
+      "timestamp": "2026-11-10T17:46:52.747Z",
+      "parentVersion": 23,
+      "operation": "create",
+      "description": "Added link: “Prime Minister Peel reverses course and funds construction” → “Joseph Clement standardises the engine’s gears and screw threads”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_2",
+         "hash": "f5b2c84996d6ff56aac2fc7891164113f376c7e520b29733f934be6344dc85a5"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "a51eead30b48d89be6de526b6bc087d75b51a4d8f3730cf52e0b0fe1050eeea9"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 23,
+      "timestamp": "2026-11-10T17:46:52.600Z",
+      "parentVersion": 22,
+      "operation": "create",
+      "description": "Added link: “Babbage completes the full design of the Analytical Engine” → “Prime Minister Peel reverses course and funds construction”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_1",
+         "hash": "09e22f45956bde17c4dec23f065ca16c1c1085547ff9d104c67c083815298eeb"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "a2bf96fdcdd21a34b34d16615418eb014181f9a32eabe41621be7d27f428ec3f"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 22,
+      "timestamp": "2026-11-10T17:46:52.451Z",
+      "parentVersion": 21,
+      "operation": "create",
+      "description": "Added event “Britain and Prussia begin an engine arms race”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_race",
+         "hash": "2831d26f7be689b695d31871f6c7a0342ed58a48541fe323a2629bd3b6a19547"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "97a05eb9e2d649dc246741d74ace008ad38e4cbee5ab52e96837219c1b964e27"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 21,
+      "timestamp": "2026-11-10T17:46:52.309Z",
+      "parentVersion": 20,
+      "operation": "create",
+      "description": "Added event “Moltke uses engine-planned railway timetables to mobilise”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_moltke",
+         "hash": "bc2873c41a1e5bc74a6aa4ffa3e4bc44069d1320389371fac3eb7d8074a71c3b"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "ee7ad826d06e2e4e8d6bc18f8b3f353f3f89f00511ca1d52818fa2b47133c690"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 20,
+      "timestamp": "2026-11-10T17:46:52.170Z",
+      "parentVersion": 19,
+      "operation": "create",
+      "description": "Added event “Parliament passes the Engine Licensing Act”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_act",
+         "hash": "c4bbf6661b745ffbceaa8d2fab06d3a6ba3f383468273ac6b1fd91fe50200a7b"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "253650f25080fc3ce60f25d1da1e556e9bed3d75dbfd85aee6d697ca80b3e453"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 19,
+      "timestamp": "2026-11-10T17:46:52.027Z",
+      "parentVersion": 18,
+      "operation": "create",
+      "description": "Added event “Parliament debates engine licensing legislation”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_debate",
+         "hash": "c5b0250d363eb07d4cd06d25bed2e0d35f98641a8a6313e159c3c3728d0f5e9e"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "4033be348e94c164abf0f6f71e7575890281392f66f7c381c5215b584f4da34e"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 18,
+      "timestamp": "2026-11-10T17:46:51.886Z",
+      "parentVersion": 17,
+      "operation": "create",
+      "description": "Added event “Manchester clerks hold a demonstration in solidarity”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_manchester",
+         "hash": "a0eac33b94084c76e90c12316ad7f35856adc068fea2ddce5a61e42fc64154d8"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "f3d180bb2892e5a3064bef51cf9236a4ad8f6b86c10faf508c512f6c66079b38"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 17,
+      "timestamp": "2026-11-10T17:46:51.733Z",
+      "parentVersion": 16,
+      "operation": "create",
+      "description": "Added event “Ten thousand clerks protest at Westminster against the engines”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_clerks",
+         "hash": "6a9885a16c12ef664d50f68033c4fec7696b248c9133516dd9518a5dfac92229"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "dbfaa43032b0823310fccbf1a92be5d54795e7d761b0ca5385c49ebe1346c449"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 16,
+      "timestamp": "2026-11-10T17:46:51.592Z",
+      "parentVersion": 15,
+      "operation": "create",
+      "description": "Added event “Prussia buys three engines for its General Staff”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_prussia",
+         "hash": "912c7dedd45760a7913cd5f4c41b0b6dd6e8e8722dc7ca53add41d326679c892"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "374a26b6cd7adf6d06491c633a11cd9badbcc8798e32ea2d8d9ef2c50e7b5aa1"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 15,
+      "timestamp": "2026-11-10T17:46:51.450Z",
+      "parentVersion": 14,
+      "operation": "create",
+      "description": "Added event “Engines in London and Manchester exchange results by telegraph”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_wire",
+         "hash": "db471de20ba8dc9bc8dc741328078f1bc8cf36cffebe599313baf67217074f4e"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "5972b1acb1851265722ec2858b24ce05c7da8e5eaf44d22d370937493eb084eb"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 14,
+      "timestamp": "2026-11-10T17:46:51.311Z",
+      "parentVersion": 13,
+      "operation": "create",
+      "description": "Added event “The Great Exhibition’s centrepiece is a working engine hall”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_exhibition",
+         "hash": "44efec7eb2732b0f3144217d31b36ea00cd6b9032c92df10fa506a3de808a83b"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "a22e3b8ff6b346ec6311fd409961a56f611156cb52f139077568662b67f6b4f6"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 13,
+      "timestamp": "2026-11-10T17:46:51.170Z",
+      "parentVersion": 12,
+      "operation": "create",
+      "description": "Added event “The 1851 census is tabulated entirely by engine”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_census",
+         "hash": "5bea677972569849a2bdfe796f534962e6df294bd8e3d46d2a2c071b6eac574c"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "3d59bb3dcc1b7a56bc93b8be418413a53e8b5a8a0d8d120d9545267b2c007e1b"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 12,
+      "timestamp": "2026-11-10T17:46:51.030Z",
+      "parentVersion": 11,
+      "operation": "create",
+      "description": "Added event “Lovelace founds the School of Engine Programming in London”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_school",
+         "hash": "17fa99fb6e941d0807868981e2c770f892fa0a7dc30cc31bf962eb3a81c21990"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "43b20952ed7e73603557f3512806ebddabec773cf2dfb7274cb3d58ef91104ac"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 11,
+      "timestamp": "2026-11-10T17:46:50.880Z",
+      "parentVersion": 10,
+      "operation": "create",
+      "description": "Added event “The Bank of England moves its ledgers onto engines”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_bank",
+         "hash": "cfbf21c0a9d0d44e667b92ee4cc2015608cd5720e9ff0a2035b5a53f59285a5e"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "346c8a46143a294796747248591838de831a44ada9a515a15b6ed5f84b9f529b"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 10,
+      "timestamp": "2026-11-10T17:46:50.733Z",
+      "parentVersion": 9,
+      "operation": "create",
+      "description": "Added event “Lloyd’s opens an actuarial engine room for the insurance market”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_lloyds",
+         "hash": "150d6f86a0d2d585eb87ab54305d8a3773181a88d4bd2c7c8c53ca2f0c7adce4"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "0cc4a3a64cd68795b5696bcbcdcabb4869b0c40b89ba94fb5c1892983889f904"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 9,
+      "timestamp": "2026-11-10T17:46:50.590Z",
+      "parentVersion": 8,
+      "operation": "create",
+      "description": "Added event “The Admiralty orders engines to compute navigation tables”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_admiralty",
+         "hash": "6f7c1953173d5021deb12a4226cdeba735f5c93382fa385c7779383adddf4344"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "aef183dad19b8f9e873097716b90fbdf9667138380c471a653a2cce4fbfd0c59"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 8,
+      "timestamp": "2026-11-10T17:46:50.449Z",
+      "parentVersion": 7,
+      "operation": "create",
+      "description": "Added event “The Engine computes Bernoulli numbers before the Royal Society”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_firstrun",
+         "hash": "650ce52fe3ff47f3e0a171784d01fb52e72602baceeea2918c6b112ae5e99d6d"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "31ae27f66c313b5ce044490622fba18edf36f168effec625ef682b4f844992ce"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 7,
+      "timestamp": "2026-11-10T17:46:50.289Z",
+      "parentVersion": 6,
+      "operation": "create",
+      "description": "Added event “Ada Lovelace publishes Note G, the first program”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_noteg",
+         "hash": "16c8cf2642c58003659fbd32d8fec876b642aaacc1de22d5662240679ac2463c"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "bae3fdd61369c1fb2969c7b2f22d8d3ac39c5970c2dd535ec40417e499e57dee"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 6,
+      "timestamp": "2026-11-10T17:46:50.135Z",
+      "parentVersion": 5,
+      "operation": "create",
+      "description": "Added event “Joseph Clement standardises the engine’s gears and screw threads”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_clement",
+         "hash": "a57a38554372285f7ddf4862cb6706d07b62067e292f12414584a027144105f7"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "040f531d03876a0bb3b48a585298776ce8d865d0872b0a4151874dcbb2ef5133"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 5,
+      "timestamp": "2026-11-10T17:46:49.974Z",
+      "parentVersion": 4,
+      "operation": "create",
+      "description": "Added event “Prime Minister Peel reverses course and funds construction”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_peel",
+         "hash": "8abf34748671bb70a195493647339179ddccc181e79bc9b5148f130558cfab14"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "1476de7856c70447159fa34fd32402357b3956c3ab9874d2b7572457fd20fef1"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 4,
+      "timestamp": "2026-11-10T17:46:49.825Z",
+      "parentVersion": 3,
+      "operation": "create",
+      "description": "Added event “Babbage completes the full design of the Analytical Engine”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_design",
+         "hash": "394a175eee53324d7b7633d66d4a7a9b4bc595b430f766d7a79c989c7fc5ab0a"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "952b9234b2e1c113604fb9a3d2045cf1640e96ecc2bafa45e3cc16e2ce06af3b"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 3,
+      "timestamp": "2026-11-10T17:46:49.652Z",
+      "parentVersion": 2,
+      "operation": "create",
+      "description": "Added arc “Engines on the Wire”",
+      "changes": {
+       "added": [
+        {
+         "type": "arc",
+         "id": "arc_telegraph",
+         "hash": "70c287fc63cd80a8f7b7259267a974e5d9de863ae72ce19537bedab94251ef8b"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "19b6f85d0169024f2262a1bf9bceb1cb9948ab9890b1b25713d7e00b0ba4232b"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 2,
+      "timestamp": "2026-11-10T17:46:49.497Z",
+      "parentVersion": 1,
+      "operation": "create",
+      "description": "Added arc “The Clerks’ Rebellion”",
+      "changes": {
+       "added": [
+        {
+         "type": "arc",
+         "id": "arc_reaction",
+         "hash": "eb2755256a4eee6398be19c8934e289d38df75b36727c1cd3b7158168fa0624b"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "5d545581fb6c2b6d2314aca7ec352ca1538a49ef1840a78710d7b03fb017019f"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 1,
+      "timestamp": "2026-11-10T17:46:49.337Z",
+      "parentVersion": 0,
+      "operation": "create",
+      "description": "Added arc “The Calculating Offices”",
+      "changes": {
+       "added": [
+        {
+         "type": "arc",
+         "id": "arc_offices",
+         "hash": "a8d803c620f3c3814730526c2f5fbb9a39ea2f4af8347d8233f1544db670e346"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "fc28c0905c7a46bfc532ddfb9a847a3e4dbcb8dec805fa160ad78b6d49fef70a"
+     },
+     {
+      "graphId": "graph_engine_age",
+      "version": 0,
+      "timestamp": "2026-11-10T17:46:49.179Z",
+      "parentVersion": null,
+      "operation": "create",
+      "description": "Added arc “Building the Engine”",
+      "changes": {
+       "added": [
+        {
+         "type": "arc",
+         "id": "arc_build",
+         "hash": "ac3fc5168fd6b2fbe76279fbecbca667c770e12cb1b529bdb7f73f5fda0f266c"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "1632d795c535bf80f76aff2baad75ead021873e05b381f18d7b492ff10d580db"
+     }
+    ],
+    "pagination": {
+     "total": 47,
+     "limit": 100,
+     "offset": 0,
+     "hasMore": false
+    },
+    "requestId": "req_22"
+   }
+  },
+  "GET /graphs/graph_clerks_prevail @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": {
+     "id": "graph_clerks_prevail",
+     "name": "The Engine Age — Clerks Prevail",
+     "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
+     "createdAt": "2026-11-10T17:46:56.744Z",
+     "updatedAt": "2026-11-10T17:46:57.451Z",
+     "version": 4,
+     "parentGraphId": "graph_engine_age",
+     "branchPoint": 46,
+     "status": "active",
+     "metadata": {
+      "eventCount": 21,
+      "arcCount": 4,
+      "relationshipCount": 25,
+      "pressureCount": 0,
+      "temporalRange": {
+       "start": "1834-12-15T00:00:00.000Z",
+       "end": "1868-01-09T00:00:00.000Z"
+      },
+      "actors": [
+       "Charles Babbage",
+       "Robert Peel",
+       "Joseph Clement",
+       "Ada Lovelace",
+       "British Admiralty",
+       "Lloyd’s of London",
+       "Bank of England",
+       "General Register Office",
+       "Prince Albert",
+       "Electric Telegraph Company",
+       "Prussian General Staff",
+       "Clerks’ Union",
+       "Parliament",
+       "School of Engine Programming"
+      ]
+     }
+    },
+    "requestId": "req_23"
+   }
+  },
+  "GET /graphs/graph_clerks_prevail/versions?limit=1 @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_clerks_prevail",
+      "version": 3,
+      "timestamp": "2026-11-10T17:46:57.430Z",
+      "parentVersion": 2,
+      "operation": "create",
+      "description": "Added link: “Parliament bans private calculating engines” → “Lovelace’s programmers emigrate to Berlin”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_25",
+         "hash": "5e0ae1e069f7e38d909df3a9047e2427b5ea3b504410873d4aea8c36882ed285"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "075e251945e4bf686bb1e11eb5bed7bbdc0a9a10e85fb8bfdb86fb6187429ae3"
+     }
+    ],
+    "pagination": {
+     "total": 4,
+     "limit": 1,
+     "offset": 0,
+     "hasMore": true
+    },
+    "requestId": "req_24"
+   }
+  },
+  "GET /graphs/graph_clerks_prevail/versions?limit=1 @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_clerks_prevail",
+      "version": 3,
+      "timestamp": "2026-11-10T17:46:57.430Z",
+      "parentVersion": 2,
+      "operation": "create",
+      "description": "Added link: “Parliament bans private calculating engines” → “Lovelace’s programmers emigrate to Berlin”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_25",
+         "hash": "5e0ae1e069f7e38d909df3a9047e2427b5ea3b504410873d4aea8c36882ed285"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "075e251945e4bf686bb1e11eb5bed7bbdc0a9a10e85fb8bfdb86fb6187429ae3"
+     }
+    ],
+    "pagination": {
+     "total": 4,
+     "limit": 1,
+     "offset": 0,
+     "hasMore": true
+    },
+    "requestId": "req_25"
+   }
+  },
+  "GET /graphs/graph_clerks_prevail/versions?limit=100 @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_clerks_prevail",
+      "version": 3,
+      "timestamp": "2026-11-10T17:46:57.430Z",
+      "parentVersion": 2,
+      "operation": "create",
+      "description": "Added link: “Parliament bans private calculating engines” → “Lovelace’s programmers emigrate to Berlin”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_25",
+         "hash": "5e0ae1e069f7e38d909df3a9047e2427b5ea3b504410873d4aea8c36882ed285"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "075e251945e4bf686bb1e11eb5bed7bbdc0a9a10e85fb8bfdb86fb6187429ae3"
+     },
+     {
+      "graphId": "graph_clerks_prevail",
+      "version": 2,
+      "timestamp": "2026-11-10T17:46:57.241Z",
+      "parentVersion": 1,
+      "operation": "create",
+      "description": "Added event “Lovelace’s programmers emigrate to Berlin”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_2",
+         "hash": "61b0c19d1af6c610eab48520ad9ca911958d0b71313a778ab27da97c68edcc07"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "9fdd13c09d075eb92df86bbaa31e1ba03dbb9dffc4f8ab8aa169017549e82d6a"
+     },
+     {
+      "graphId": "graph_clerks_prevail",
+      "version": 1,
+      "timestamp": "2026-11-10T17:46:57.058Z",
+      "parentVersion": 0,
+      "operation": "create",
+      "description": "Added event “Parliament bans private calculating engines”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_1",
+         "hash": "8849d7c2ddaa55107915da5cdffe151ec1fde6edea2ea423653b3d1000879ed8"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "2d4ac71921c1f630a959fab66e300e24cdb219c2b27ff31f3220288832a0dd7e"
+     },
+     {
+      "graphId": "graph_clerks_prevail",
+      "version": 0,
+      "timestamp": "2026-11-10T17:46:56.826Z",
+      "parentVersion": null,
+      "operation": "branch",
+      "description": "Branched from The Engine Age",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_design",
+         "hash": "394a175eee53324d7b7633d66d4a7a9b4bc595b430f766d7a79c989c7fc5ab0a"
+        },
+        {
+         "type": "event",
+         "id": "event_peel",
+         "hash": "8abf34748671bb70a195493647339179ddccc181e79bc9b5148f130558cfab14"
+        },
+        {
+         "type": "event",
+         "id": "event_clement",
+         "hash": "a57a38554372285f7ddf4862cb6706d07b62067e292f12414584a027144105f7"
+        },
+        {
+         "type": "event",
+         "id": "event_noteg",
+         "hash": "16c8cf2642c58003659fbd32d8fec876b642aaacc1de22d5662240679ac2463c"
+        },
+        {
+         "type": "event",
+         "id": "event_firstrun",
+         "hash": "650ce52fe3ff47f3e0a171784d01fb52e72602baceeea2918c6b112ae5e99d6d"
+        },
+        {
+         "type": "event",
+         "id": "event_admiralty",
+         "hash": "6f7c1953173d5021deb12a4226cdeba735f5c93382fa385c7779383adddf4344"
+        },
+        {
+         "type": "event",
+         "id": "event_lloyds",
+         "hash": "150d6f86a0d2d585eb87ab54305d8a3773181a88d4bd2c7c8c53ca2f0c7adce4"
+        },
+        {
+         "type": "event",
+         "id": "event_bank",
+         "hash": "cfbf21c0a9d0d44e667b92ee4cc2015608cd5720e9ff0a2035b5a53f59285a5e"
+        },
+        {
+         "type": "event",
+         "id": "event_school",
+         "hash": "17fa99fb6e941d0807868981e2c770f892fa0a7dc30cc31bf962eb3a81c21990"
+        },
+        {
+         "type": "event",
+         "id": "event_census",
+         "hash": "5bea677972569849a2bdfe796f534962e6df294bd8e3d46d2a2c071b6eac574c"
+        },
+        {
+         "type": "event",
+         "id": "event_exhibition",
+         "hash": "44efec7eb2732b0f3144217d31b36ea00cd6b9032c92df10fa506a3de808a83b"
+        },
+        {
+         "type": "event",
+         "id": "event_wire",
+         "hash": "db471de20ba8dc9bc8dc741328078f1bc8cf36cffebe599313baf67217074f4e"
+        },
+        {
+         "type": "event",
+         "id": "event_prussia",
+         "hash": "912c7dedd45760a7913cd5f4c41b0b6dd6e8e8722dc7ca53add41d326679c892"
+        },
+        {
+         "type": "event",
+         "id": "event_clerks",
+         "hash": "6a9885a16c12ef664d50f68033c4fec7696b248c9133516dd9518a5dfac92229"
+        },
+        {
+         "type": "event",
+         "id": "event_manchester",
+         "hash": "a0eac33b94084c76e90c12316ad7f35856adc068fea2ddce5a61e42fc64154d8"
+        },
+        {
+         "type": "event",
+         "id": "event_debate",
+         "hash": "c5b0250d363eb07d4cd06d25bed2e0d35f98641a8a6313e159c3c3728d0f5e9e"
+        },
+        {
+         "type": "event",
+         "id": "event_act",
+         "hash": "c4bbf6661b745ffbceaa8d2fab06d3a6ba3f383468273ac6b1fd91fe50200a7b"
+        },
+        {
+         "type": "event",
+         "id": "event_moltke",
+         "hash": "bc2873c41a1e5bc74a6aa4ffa3e4bc44069d1320389371fac3eb7d8074a71c3b"
+        },
+        {
+         "type": "event",
+         "id": "event_race",
+         "hash": "2831d26f7be689b695d31871f6c7a0342ed58a48541fe323a2629bd3b6a19547"
+        },
+        {
+         "type": "arc",
+         "id": "arc_build",
+         "hash": "ac3fc5168fd6b2fbe76279fbecbca667c770e12cb1b529bdb7f73f5fda0f266c"
+        },
+        {
+         "type": "arc",
+         "id": "arc_offices",
+         "hash": "a8d803c620f3c3814730526c2f5fbb9a39ea2f4af8347d8233f1544db670e346"
+        },
+        {
+         "type": "arc",
+         "id": "arc_reaction",
+         "hash": "eb2755256a4eee6398be19c8934e289d38df75b36727c1cd3b7158168fa0624b"
+        },
+        {
+         "type": "arc",
+         "id": "arc_telegraph",
+         "hash": "70c287fc63cd80a8f7b7259267a974e5d9de863ae72ce19537bedab94251ef8b"
+        },
+        {
+         "type": "relationship",
+         "id": "local_1",
+         "hash": "09e22f45956bde17c4dec23f065ca16c1c1085547ff9d104c67c083815298eeb"
+        },
+        {
+         "type": "relationship",
+         "id": "local_2",
+         "hash": "f5b2c84996d6ff56aac2fc7891164113f376c7e520b29733f934be6344dc85a5"
+        },
+        {
+         "type": "relationship",
+         "id": "local_3",
+         "hash": "173e2196003a6620019b7a5d74dd4e9ab773a1c4c63419e52142d158d0b854d5"
+        },
+        {
+         "type": "relationship",
+         "id": "local_4",
+         "hash": "0ad8720f427d3291b50dbde428b0ca90058aa5d276e3e72ba72f2e241ebc27ba"
+        },
+        {
+         "type": "relationship",
+         "id": "local_5",
+         "hash": "f8aa0d72a8ae9fd68f05f750f91e390fa96fd38c442a905550aa7fe4bb4b8875"
+        },
+        {
+         "type": "relationship",
+         "id": "local_6",
+         "hash": "253da3d1acacd1915ceaf39b47672b3455b92b1197020bfa8a1eba15bc7b4c1e"
+        },
+        {
+         "type": "relationship",
+         "id": "local_7",
+         "hash": "ee72e730d12a9cc86e79a54e571c9793fc38199396c7f5eb2631849bc5a88da1"
+        },
+        {
+         "type": "relationship",
+         "id": "local_8",
+         "hash": "2932b0ddb79bf8d33ce23ee07383b4f6659143ed8dbf8832756187a1098e7fe5"
+        },
+        {
+         "type": "relationship",
+         "id": "local_9",
+         "hash": "e1a3a9de7932eb84458ced851e6cc43a3b89c4d9da3581fe0f3a8b1e7e61ad94"
+        },
+        {
+         "type": "relationship",
+         "id": "local_10",
+         "hash": "ebd5771615f93f0cfcbcc4237112d6c36e48858b4ac69d77014e777268d31531"
+        },
+        {
+         "type": "relationship",
+         "id": "local_11",
+         "hash": "c7015342bdbc62925a491f5438df669dc4bff62ddbcd2c341674f3992e844d2c"
+        },
+        {
+         "type": "relationship",
+         "id": "local_12",
+         "hash": "94dcc954e4bf88214ea4dbae7d9ea5661282bea66dcb60d14fbd778c3fabf6b4"
+        },
+        {
+         "type": "relationship",
+         "id": "local_13",
+         "hash": "b262329d1409e6f8fa6061ec75def47c6139b88dba3901c138c18704a3574c82"
+        },
+        {
+         "type": "relationship",
+         "id": "local_14",
+         "hash": "c1ef3e9db90c7620edeb2b77fc0ea06565e070e3e313cd4138beac9221254752"
+        },
+        {
+         "type": "relationship",
+         "id": "local_15",
+         "hash": "1e10db05eca9d7874588f4c786ab8bd81e1da246933c82ba73c1a297c589e3e6"
+        },
+        {
+         "type": "relationship",
+         "id": "local_16",
+         "hash": "e4bfb13c6953cdb4716e1786e539efa722dd0384cfc5690cc9a43c1d3e50bf5b"
+        },
+        {
+         "type": "relationship",
+         "id": "local_17",
+         "hash": "25820d5806f26df8380923a4bb7b6adf688249b50e7c2ddc6f3483d8db9b7d5d"
+        },
+        {
+         "type": "relationship",
+         "id": "local_18",
+         "hash": "f01003f3f60c0050903a703fd9bb2ee9dc5572723e7dca577ee36fe9078a672b"
+        },
+        {
+         "type": "relationship",
+         "id": "local_19",
+         "hash": "5f253a2410779cfe5043339527513726cc14f225b00b58202c112e0279161d97"
+        },
+        {
+         "type": "relationship",
+         "id": "local_20",
+         "hash": "047916053ed7f210b1d58573cb96f17878a337fcd0f36d6455f5487ff80112d0"
+        },
+        {
+         "type": "relationship",
+         "id": "local_21",
+         "hash": "ed79ab335f7682885f7b7b6f90cb0d20cd0ad6aee39d22345b2173ddf93640e2"
+        },
+        {
+         "type": "relationship",
+         "id": "local_22",
+         "hash": "a83a8729c0fa73622492c601d577c271c16c28335022ee4d854ebff9aa53eeb1"
+        },
+        {
+         "type": "relationship",
+         "id": "local_23",
+         "hash": "a847bfca370627902dc0c74d67de8b4d885891c395e551baa94520be0e7381d0"
+        },
+        {
+         "type": "relationship",
+         "id": "local_24",
+         "hash": "7d3db3b08893d857aeb9a9979f8dcb5595c952bef111bab40afe6a663d3cc0eb"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "856c80a828634f9c3089350b0c29e3ca96b1f054a50ef9d073972207a8097eb2"
+     }
+    ],
+    "pagination": {
+     "total": 4,
+     "limit": 100,
+     "offset": 0,
+     "hasMore": false
+    },
+    "requestId": "req_26"
+   }
+  },
+  "GET /inference/pressures?limit=500 @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "pressure_1",
+      "description": "Economic pressure detected in cluster from Jun 1, 1847 to Jun 18, 1847",
+      "confidence_score": 0.9199999999999999,
+      "pressure_type": "economic",
+      "evidence": [
+       "Event: Lloyd’s opens an actuarial engine room for the insurance market (1847-06-01T00:00:00.000Z)",
+       "Event: The Bank of England moves its ledgers onto engines (1847-06-18T00:00:00.000Z)"
+      ],
+      "evidence_event_ids": [
+       "event_lloyds",
+       "event_bank"
+      ],
+      "time_range": {
+       "start": "1847-06-01T00:00:00.000Z",
+       "end": "1847-06-18T00:00:00.000Z"
+      }
+     },
+     {
+      "id": "pressure_2",
+      "description": "Social pressure detected in cluster from Mar 17, 1859 to Mar 29, 1859",
+      "confidence_score": 0.9233333333333333,
+      "pressure_type": "social",
+      "evidence": [
+       "Event: Ten thousand clerks protest at Westminster against the engines (1859-03-17T00:00:00.000Z)",
+       "Event: Manchester clerks hold a demonstration in solidarity (1859-03-29T00:00:00.000Z)"
+      ],
+      "evidence_event_ids": [
+       "event_clerks",
+       "event_manchester"
+      ],
+      "time_range": {
+       "start": "1859-03-17T00:00:00.000Z",
+       "end": "1859-03-29T00:00:00.000Z"
+      }
+     },
+     {
+      "id": "pressure_3",
+      "description": "Political pressure detected in cluster from Jun 5, 1860 to Jun 28, 1860",
+      "confidence_score": 0.9199999999999999,
+      "pressure_type": "political",
+      "evidence": [
+       "Event: Parliament debates engine licensing legislation (1860-06-05T00:00:00.000Z)",
+       "Event: Parliament passes the Engine Licensing Act (1860-06-28T00:00:00.000Z)"
+      ],
+      "evidence_event_ids": [
+       "event_debate",
+       "event_act"
+      ],
+      "time_range": {
+       "start": "1860-06-05T00:00:00.000Z",
+       "end": "1860-06-28T00:00:00.000Z"
+      }
+     }
+    ],
+    "pagination": {
+     "limit": 500,
+     "offset": 0,
+     "total": 3,
+     "hasMore": false
+    },
+    "filters": {
+     "minStrength": 0.1,
+     "minConfidence": 0.3
+    },
+    "requestId": "req_27"
+   }
+  },
+  "GET /inference/pressures?limit=500 @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "pressure_4",
+      "description": "Economic pressure detected in cluster from Jun 1, 1847 to Jun 18, 1847",
+      "confidence_score": 0.9199999999999999,
+      "pressure_type": "economic",
+      "evidence": [
+       "Event: Lloyd’s opens an actuarial engine room for the insurance market (1847-06-01T00:00:00.000Z)",
+       "Event: The Bank of England moves its ledgers onto engines (1847-06-18T00:00:00.000Z)"
+      ],
+      "evidence_event_ids": [
+       "event_lloyds",
+       "event_bank"
+      ],
+      "time_range": {
+       "start": "1847-06-01T00:00:00.000Z",
+       "end": "1847-06-18T00:00:00.000Z"
+      }
+     },
+     {
+      "id": "pressure_5",
+      "description": "Social pressure detected in cluster from Mar 17, 1859 to Mar 29, 1859",
+      "confidence_score": 0.9233333333333333,
+      "pressure_type": "social",
+      "evidence": [
+       "Event: Ten thousand clerks protest at Westminster against the engines (1859-03-17T00:00:00.000Z)",
+       "Event: Manchester clerks hold a demonstration in solidarity (1859-03-29T00:00:00.000Z)"
+      ],
+      "evidence_event_ids": [
+       "event_clerks",
+       "event_manchester"
+      ],
+      "time_range": {
+       "start": "1859-03-17T00:00:00.000Z",
+       "end": "1859-03-29T00:00:00.000Z"
+      }
+     },
+     {
+      "id": "pressure_6",
+      "description": "Political pressure detected in cluster from Jun 5, 1860 to Jun 28, 1860",
+      "confidence_score": 0.9199999999999999,
+      "pressure_type": "political",
+      "evidence": [
+       "Event: Parliament debates engine licensing legislation (1860-06-05T00:00:00.000Z)",
+       "Event: Parliament passes the Engine Licensing Act (1860-06-28T00:00:00.000Z)"
+      ],
+      "evidence_event_ids": [
+       "event_debate",
+       "event_act"
+      ],
+      "time_range": {
+       "start": "1860-06-05T00:00:00.000Z",
+       "end": "1860-06-28T00:00:00.000Z"
+      }
+     }
+    ],
+    "pagination": {
+     "limit": 500,
+     "offset": 0,
+     "total": 3,
+     "hasMore": false
+    },
+    "filters": {
+     "minStrength": 0.1,
+     "minConfidence": 0.3
+    },
+    "requestId": "req_28"
+   }
+  }
+ }
+}

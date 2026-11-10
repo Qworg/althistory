@@ -217,3 +217,6 @@ media/out/
 
 # GitHub Pages build output
 site/_site/
+
+# GitHub Pages demo build (npm run build:demo)
+frontend/dist-demo/

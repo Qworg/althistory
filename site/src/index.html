@@ -37,6 +37,7 @@
         <span>althistory</span>
       </a>
       <ul>
+        <li><a href="demo/">Demo</a></li>
         <li><a href="#features">Features</a></li>
         <li><a href="#agents">CLI &amp; MCP</a></li>
         <li><a href="https://github.com/Qworg/althistory/tree/main/docs">Docs</a></li>
@@ -49,9 +50,10 @@
       <div>
         <p class="lede">althistory is a workbench for real and invented histories. Record events, the periods that hold them and the causes that link them. Then branch at any moment and follow what changes.</p>
         <div class="actions">
-          <a class="btn btn-primary" href="#start">Run it locally</a>
+          <a class="btn btn-primary" href="demo/">Try it in your browser</a>
           <a class="btn btn-ghost" href="#walkthrough">Watch the one-minute tour</a>
         </div>
+        <p class="actions-note">The demo is the real app with this example history loaded. Nothing to install, and nothing you do leaves your browser.</p>
       </div>
     </div>
 
@@ -60,7 +62,7 @@
         <!-- hero:timeline -->
       </div>
       <figcaption>
-        <span class="mono">The Engine Age</span>, the example history in every picture on this page: Babbage finishes the Analytical Engine in 1843. In <span class="amber">a branch</span>, Parliament bans the engines in 1860 instead of licensing them. Hover over an event to read it.
+        <span class="mono">The Engine Age</span>, the example history in every picture on this page and in <a href="demo/">the demo</a>: Babbage finishes the Analytical Engine in 1843. In <span class="amber">a branch</span>, Parliament bans the engines in 1860 instead of licensing them. Hover over an event to read it.
       </figcaption>
     </figure>
   </header>
@@ -172,7 +174,7 @@
         <div>
           <h2 id="start-h">Run it on your machine</h2>
           <p>You need Node 20 or later, and nothing else: local mode keeps every graph in JSON files, so there's no database to set up. Then open <span class="mono">localhost:5173</span>.</p>
-          <p class="note">For a shared server with Neo4j and Redis, see <a href="https://github.com/Qworg/althistory/blob/main/docs/production-deployment.md">production deployment</a>.</p>
+          <p class="note">Or <a href="demo/">try the demo first</a>: it runs in your browser, with everything except bringing in history, exporting and branching. For a shared server with Neo4j and Redis, see <a href="https://github.com/Qworg/althistory/blob/main/docs/production-deployment.md">production deployment</a>.</p>
         </div>
         <figure class="code code-light">
           <figcaption>Terminal</figcaption>
