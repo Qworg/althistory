@@ -5,7 +5,11 @@
       1440
     ],
     "width": 1440,
-    "height": 936
+    "height": 936,
+    "detail": {
+      "width": 720,
+      "height": 428
+    }
   },
   "timeline": {
     "widths": [
@@ -13,7 +17,11 @@
       1440
     ],
     "width": 1440,
-    "height": 644
+    "height": 644,
+    "detail": {
+      "width": 720,
+      "height": 354
+    }
   },
   "causal-graph": {
     "widths": [
@@ -21,7 +29,11 @@
       1440
     ],
     "width": 1440,
-    "height": 980
+    "height": 980,
+    "detail": {
+      "width": 720,
+      "height": 520
+    }
   },
   "branch": {
     "widths": [
@@ -29,6 +41,10 @@
       1440
     ],
     "width": 1440,
-    "height": 738
+    "height": 738,
+    "detail": {
+      "width": 720,
+      "height": 608
+    }
   }
 }

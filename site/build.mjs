@@ -57,12 +57,13 @@ if (demo) {
 // The page and the social card (social.html) both carry the timeline.
 const marker = '<!-- hero:timeline -->'
 const siteImages = JSON.parse(readFileSync(join(root, 'docs/images/site/manifest.json'), 'utf8'))
-for (const page of ['index.html', 'social.html']) {
+for (const page of ['index.html', 'social.html', 'agents.html']) {
   const pagePath = join(out, page)
   let html = readFileSync(pagePath, 'utf8')
-  if (!html.includes(marker)) throw new Error(`${page} has no ${marker} marker`)
-  html = html.replace(marker, heroTimeline(scenario)).replace('<!-- hero:events -->', heroEventList(scenario))
+  if (page !== 'agents.html' && !html.includes(marker)) throw new Error(`${page} has no ${marker} marker`)
+  html = html.replace(marker, () => heroTimeline(scenario)).replace('<!-- hero:events -->', () => heroEventList(scenario))
   html = html.replace(/data-site-image="([a-z-]+)"/g, (_, name) => siteImageAttributes(name))
+  html = html.replace(/<!-- site-source:([a-z-]+) -->/g, (_, name) => siteImageDetail(name))
   writeFileSync(pagePath, html)
 }
 
@@ -75,9 +76,25 @@ function siteImageAttributes(name) {
   const image = siteImages[name]
   if (!image) throw new Error(`docs/images/site/manifest.json has no image "${name}"; run npm run capture in media/`)
   const srcset = image.widths.map((w) => `images/site/${name}-${w}.webp ${w}w`).join(', ')
-  // The feature grid's image column: the full width below 820px, ~664px above.
-  const sizes = '(max-width: 820px) calc(100vw - 32px), 664px'
+  // The feature grid's image column: the column (less the 40px spine
+  // gutter and the page gutters) below 820px, ~664px above. Phones get the
+  // detail crop instead (siteImageDetail).
+  const sizes = '(max-width: 820px) calc(100vw - 72px), 664px'
   return `srcset="${srcset}" sizes="${sizes}" width="${image.width}" height="${image.height}"`
+}
+
+/**
+ * The phone version of a site image, for a `<picture>`: the detail its
+ * paragraph claims, cropped by media/ so its text is readable in a phone's
+ * column. Written where the source has `<!-- site-source:name -->`.
+ */
+function siteImageDetail(name) {
+  const detail = siteImages[name]?.detail
+  if (!detail) throw new Error(`docs/images/site/manifest.json has no detail crop for "${name}"; run npm run site-images in media/`)
+  return (
+    `<source media="(max-width: 640px)" srcset="images/site/${name}-detail-${detail.width}.webp" ` +
+    `width="${detail.width}" height="${detail.height}">`
+  )
 }
 
 /** The hero's events as a list, for screen readers (the drawing is one image). */
@@ -188,7 +205,7 @@ function heroTimeline(s) {
     const x2 = px(l.effect)
     const h = Math.min(116, 14 + Math.abs(x2 - x1) * 0.42) * 1.33
     links.push(
-      `<path class="ht-link ht-${l.type}" style="--d:${delay(x1)};opacity:${f(0.25 + l.confidence * 0.55)}" ` +
+      `<path class="ht-link ht-${l.type}" data-from="${l.cause}" data-to="${l.effect}" style="--d:${delay(x1)};opacity:${f(0.25 + l.confidence * 0.55)}" ` +
         `stroke-width="${f(0.7 + l.weight * 1.5)}" d="M${f(x1)} ${baseY}C${f(x1)} ${f(baseY - h)} ${f(x2)} ${f(baseY - h)} ${f(x2)} ${baseY}"/>`,
     )
   }
@@ -226,7 +243,7 @@ function heroTimeline(s) {
     if (m.diverge) continue
     const cls = m.branch ? 'ht-event ht-on-branch' : 'ht-event'
     const style = m.branch ? '' : ` style="--d:${delay(m.cx)}"`
-    dots.push(`<circle class="${cls}"${style} cx="${f(m.cx)}" cy="${f(m.cy)}" r="${f(m.r)}"/>`)
+    dots.push(`<circle class="${cls}"${style} data-key="${m.e.key}" cx="${f(m.cx)}" cy="${f(m.cy)}" r="${f(m.r)}"/>`)
   }
   parts.push(`<g>${dots.join('')}</g>`)
   parts.push(
@@ -241,7 +258,7 @@ function heroTimeline(s) {
       marks
         .map(
           (m, i) =>
-            `<circle class="ht-hit" cx="${f(m.cx)}" cy="${f(m.cy)}" r="${f(Math.max(12, m.r + 5))}" data-i="${i}"` +
+            `<circle class="ht-hit" cx="${f(m.cx)}" cy="${f(m.cy)}" r="${f(Math.max(12, m.r + 5))}" data-i="${i}" data-key="${m.e.key}"` +
             ` data-date="${fmt(m.e.timestamp)}" data-text="${esc(m.e.description)}" data-who="${esc(who(m.e))}"` +
             `${m.branch ? ' data-branch=""' : ''}/>`,
         )
@@ -283,8 +300,8 @@ function heroTimeline(s) {
   const desc =
     `${s.graph.name}: ${s.events.length} events from ${new Date(s.events[0].timestamp).getUTCFullYear()} to ` +
     `${new Date(s.events[s.events.length - 1].timestamp).getUTCFullYear()}, joined by ${s.links.length} causal links. ` +
-    `On ${fmt(split.timestamp)} a branch, ${branchName}, splits away: ${split.description.toLowerCase()} ` +
-    `instead of ${act ? act.description.charAt(0).toLowerCase() + act.description.slice(1) : 'the original outcome'}.`
+    `On ${fmt(split.timestamp)} a branch, ${branchName}, splits away. In it, “${split.description}”` +
+    (act ? `, where the original history has “${act.description}”.` : '.')
 
   return (
     `<svg class="hero-timeline" viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="ht-title ht-desc" data-fork-x="${f(xs / W)}">` +

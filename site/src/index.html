@@ -42,8 +42,8 @@
       </a>
       <ul>
         <li><a href="demo/?start=branch">Demo</a></li>
-        <li class="bar-wide"><a href="#agents">CLI &amp; MCP</a></li>
-        <li><a href="https://github.com/Qworg/althistory/tree/main/docs">Docs</a></li>
+        <li class="bar-wide"><a href="agents.html">CLI &amp; MCP</a></li>
+        <li><a href="https://github.com/Qworg/althistory#documentation">Docs</a></li>
         <li><a class="bar-gh" href="https://github.com/Qworg/althistory">GitHub</a></li>
       </ul>
     </nav>
@@ -56,20 +56,21 @@
           <a class="btn btn-primary" href="demo/?start=branch">Try it in your browser</a>
           <a class="btn btn-ghost" href="#walkthrough">Watch the one-minute tour</a>
         </div>
-        <p class="actions-note">Opens on the branch below, where Parliament bans the engines. Branch it again, change anything; nothing leaves your browser.</p>
+        <p class="actions-note">Opens on the Clerks Prevail branch, with the original history drawn faintly beneath it. Branch it again, change anything; nothing leaves your browser.</p>
       </div>
     </div>
 
     <figure class="hero-figure">
-      <div class="hero-scroll" tabindex="0" aria-label="Timeline of The Engine Age. Use the left and right arrow keys to read each event.">
+      <div class="hero-scroll" role="group" tabindex="0" aria-label="Timeline of The Engine Age. Use the left and right arrow keys to read each event.">
         <div class="hero-canvas">
           <!-- hero:timeline -->
-          <div class="ht-tip" role="status" aria-live="polite"></div>
+          <div class="ht-tip" aria-hidden="true"></div>
         </div>
       </div>
+      <p class="sr-only ht-live" role="status" aria-live="polite"></p>
       <!-- hero:events -->
       <figcaption>
-        <span class="mono">The Engine Age</span>: Babbage finishes the Analytical Engine in 1843. In <span class="amber">a branch</span>, Parliament bans the engines in 1860 instead of licensing them. Select an event to read it.<span class="hero-hint"> Swipe sideways for the whole history.</span>
+        <span class="mono">The Engine Age</span>, an invented example: Babbage finishes the Analytical Engine in 1843. In <span class="amber">a branch</span>, Parliament bans the engines in 1860 instead of licensing them. Select an event to read it.<span class="hero-hint"> Swipe sideways for the whole history.</span>
       </figcaption>
     </figure>
   </header>
@@ -101,80 +102,40 @@
           <article class="feature">
             <div class="feature-text">
               <h3>Bring in history</h3>
-              <p>Paste text, or give it a Wikipedia article or a Wikidata ID. The events it finds come back in a review table, where you edit, drop or keep each one. Nothing is written until you approve.</p>
-              <p class="note">Pattern extraction runs offline. Add an Anthropic or OpenAI key to have a model read the prose as well.</p>
+              <p>Paste text, or give it a Wikipedia article or a Wikidata ID. What it finds comes back in a review table where you edit, drop or keep each event. Nothing is written until you approve.</p>
+              <p class="note">Patterns read the text offline; an Anthropic or OpenAI key adds a model.</p>
+              <p class="where where-install"><strong>Needs your own install</strong>: the demo can't fetch pages. <a href="#start">Run it locally</a></p>
             </div>
-            <img class="frame" src="images/site/ingest-review-1440.webp" data-site-image="ingest-review" alt="The review step: three extracted events with actor, target, date and confidence, each with a checkbox to keep it." loading="lazy">
+            <picture><!-- site-source:ingest-review --><img class="frame" src="images/site/ingest-review-1440.webp" data-site-image="ingest-review" alt="The review step: three extracted events with actor, target, date and confidence, each with a checkbox to keep it." loading="lazy"></picture>
           </article>
 
           <article class="feature">
             <div class="feature-text">
               <h3>See it in time</h3>
-              <p>Events sit under the periods that contain them, nested as deep as the history needs. Select one to trace what it caused: its effects stay lit on the timeline while the rest fades back.</p>
-              <p class="note">Or follow one actor through it all: what a person, state or institution did, and what was done to them. Clusters of events are read for the economic, social and political pressures behind them.</p>
+              <p>Events sit inside arcs: the periods that contain them, nested as deep as the history needs. Select an event to trace what it caused; its effects stay lit while the rest fades back.</p>
+              <p class="note">Or follow one actor through it all, and see the economic, social and political pressures read from clusters of events.</p>
+              <p class="where"><strong>In the demo</strong>: <a href="demo/?start=branch">open the timeline</a></p>
             </div>
-            <img class="frame" src="images/site/timeline-1440.webp" data-site-image="timeline" alt="The timeline: nested periods above a line of events, causal links arching between them, and a card on one event naming who did what to whom." loading="lazy">
+            <picture><!-- site-source:timeline --><img class="frame" src="images/site/timeline-1440.webp" data-site-image="timeline" alt="The timeline: nested arcs above a line of events, causal links arching between them, and a card on one event naming who did what to whom." loading="lazy"></picture>
           </article>
 
           <article class="feature">
             <div class="feature-text">
               <h3>Follow the causes</h3>
-              <p>Every link between two events is direct, indirect or contributory, and carries a weight, a confidence and the evidence for it. Lay the graph out the way that reads best, and find every path from one event to another.</p>
+              <p>Every link between two events is direct, indirect or contributory, with a weight, a confidence and the evidence for it. Lay the graph out the way that reads best, and find every path from one event to another.</p>
+              <p class="where"><strong>In the demo</strong>: <a href="demo/?start=branch#/causal-graph">open the causal graph</a></p>
             </div>
-            <img class="frame" src="images/site/causal-graph-1440.webp" data-site-image="causal-graph" alt="The causal graph laid out cause to effect, with the layout options beside it." loading="lazy">
+            <picture><!-- site-source:causal-graph --><img class="frame" src="images/site/causal-graph-1440.webp" data-site-image="causal-graph" alt="The causal graph laid out cause to effect, with the layout options beside it." loading="lazy"></picture>
           </article>
 
           <article class="feature feature-fork">
             <div class="feature-text">
               <h3>Change one thing</h3>
-              <p>Branch a history at any moment and write what happens instead. The original stays drawn faintly beneath, so you see where the two part. Compare branches side by side, and merge one back through a conflict resolver that flags what doesn't fit. Every graph is versioned, so any change can be rolled back.</p>
-              <p><a href="demo/?start=branch">Open the branch in the demo</a></p>
+              <p>Branch a history at any moment and write what happens instead, with the original drawn faintly beneath. Compare branches side by side, then merge one back through a conflict resolver that flags what doesn't fit.</p>
+              <p class="where"><strong>In the demo</strong>: <a href="demo/?start=branch">branching and comparing</a>. Merging needs your own install.</p>
             </div>
-            <img class="frame" src="images/site/branch-1440.webp" data-site-image="branch" alt="The Clerks Prevail branch: its own events in front, the original history ghosted beneath, and the divergence on 12 July 1860 marked." loading="lazy">
+            <picture><!-- site-source:branch --><img class="frame" src="images/site/branch-1440.webp" data-site-image="branch" alt="The Clerks Prevail branch: its own events in front, the original history ghosted beneath, and the divergence on 12 July 1860 marked." loading="lazy"></picture>
           </article>
-        </div>
-      </div>
-    </section>
-
-    <section id="agents" class="agents" aria-labelledby="agents-h">
-      <div class="wrap agents-grid">
-        <h2 id="agents-h">Everything the app does, from a script or an agent</h2>
-        <div class="agents-text">
-          <p>The <code>althistory</code> CLI answers in JSON on stdout, with exit codes that say what went wrong. <code>althistory schema</code> describes every command, so an agent can learn the tool by reading it.</p>
-          <p>Run <code>althistory mcp</code> and Claude, Cursor or any MCP client gets the same tools. Give it a premise and it drafts a history for you to edit.</p>
-          <p>Run <code>npm link</code> once in the repository to put <code>althistory</code> on your PATH; the MCP config assumes it. For generated histories, set <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code>; without one you get a template to fill in.</p>
-          <p class="agents-links"><a class="text-link" href="https://github.com/Qworg/althistory/blob/main/timeline/src/cli/README.md">CLI reference</a> <a class="text-link" href="https://github.com/Qworg/althistory/blob/main/docs/mcp-agent-guide.md">MCP guide</a> <a class="text-link" href="https://github.com/Qworg/althistory/blob/main/docs/api-integration.md">HTTP API</a></p>
-        </div>
-        <div class="agents-code">
-          <figure class="code">
-            <figcaption>Terminal</figcaption>
-<pre><code><span class="c"># Once, in the repository</span>
-<span class="p">$</span> npm link
-
-<span class="c"># Start from a premise</span>
-<span class="p">$</span> althistory generate timeline \
-    --premise <span class="s">"Byzantium wins at Manzikert"</span> \
-    --divergence-point 1071-08-26 --direct
-
-<span class="c"># Or from the record</span>
-<span class="p">$</span> althistory ingest url \
-    https://en.wikipedia.org/wiki/French_Revolution
-
-<span class="p">$</span> althistory causal paths -g &lt;graph&gt; \
-    --from &lt;event&gt; --to &lt;event&gt;</code></pre>
-          </figure>
-          <figure class="code">
-            <figcaption>claude_desktop_config.json</figcaption>
-<pre><code>{
-  <span class="k">"mcpServers"</span>: {
-    <span class="k">"althistory"</span>: {
-      <span class="k">"command"</span>: <span class="s">"althistory"</span>,
-      <span class="k">"args"</span>: [<span class="s">"mcp"</span>],
-      <span class="k">"env"</span>: { <span class="k">"LOCAL_EXECUTION_ENABLED"</span>: <span class="s">"true"</span> }
-    }
-  }
-}</code></pre>
-          </figure>
         </div>
       </div>
     </section>
@@ -188,12 +149,17 @@
         </div>
         <figure class="code">
           <figcaption>Terminal</figcaption>
-<pre><code><span class="p">$</span> git clone https://github.com/Qworg/althistory.git
+<pre tabindex="0" aria-label="Commands to install and start althistory"><code><span class="p">$</span> git clone https://github.com/Qworg/althistory.git
 <span class="p">$</span> cd althistory
 <span class="p">$</span> npm install
 <span class="p">$</span> ./start-local.sh</code></pre>
-          <button class="copy" type="button" data-copy="git clone https://github.com/Qworg/althistory.git&#10;cd althistory&#10;npm install&#10;./start-local.sh">Copy commands</button>
+          <button class="copy" type="button" aria-live="polite" data-copy="git clone https://github.com/Qworg/althistory.git&#10;cd althistory&#10;npm install&#10;./start-local.sh">Copy commands</button>
         </figure>
+      </div>
+      <div id="agents" class="wrap agents-teaser">
+        <h3>From a script or an agent</h3>
+        <p>Every screen is also a CLI command that answers in JSON, and <code>althistory mcp</code> gives Claude, Cursor or any MCP client the same tools.</p>
+        <p><a class="teaser-link" href="agents.html">Set up the CLI and MCP server</a></p>
       </div>
     </section>
 

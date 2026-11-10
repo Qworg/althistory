@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>althistory for scripts and agents</title>
+  <meta name="description" content="Set up the althistory CLI and MCP server: every screen of the app as a command that answers in JSON, and the same tools for Claude, Cursor or any MCP client.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#102c52">
+  <link rel="canonical" href="https://qworg.github.io/althistory/agents.html">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="althistory">
+  <meta property="og:title" content="althistory for scripts and agents">
+  <meta property="og:description" content="The althistory CLI and MCP server: every screen as a JSON command, and the same tools for any MCP client.">
+  <meta property="og:url" content="https://qworg.github.io/althistory/agents.html">
+  <meta property="og:image" content="https://qworg.github.io/althistory/images/social-preview.png">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,400&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <script src="main.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="hero hero-sub">
+    <nav class="bar" aria-label="Site">
+      <a class="brand" href="./">
+        <img src="favicon.svg" alt="" width="28" height="28">
+        <span>althistory</span>
+      </a>
+      <ul>
+        <li><a href="demo/?start=branch">Demo</a></li>
+        <li class="bar-wide"><a href="agents.html" aria-current="page">CLI &amp; MCP</a></li>
+        <li><a href="https://github.com/Qworg/althistory#documentation">Docs</a></li>
+        <li><a class="bar-gh" href="https://github.com/Qworg/althistory">GitHub</a></li>
+      </ul>
+    </nav>
+    <div class="sub-copy">
+      <h1>Everything the app does, from a script or an&nbsp;agent</h1>
+      <p class="lede">Every screen is also a CLI command that answers in JSON on stdout, with exit codes that say what went wrong. <code>althistory mcp</code> gives Claude, Cursor or any MCP client the same tools.</p>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="doc" aria-labelledby="install-h">
+      <div class="wrap doc-grid">
+        <div>
+          <h2 id="install-h">Install it</h2>
+          <p>You need Node 20 or later. <code>npm link</code> puts <code>althistory</code> on your PATH, which the MCP configs below assume; without it, use the full path to <code>bin/althistory</code> in the repository.</p>
+          <p class="note">Local mode keeps every graph in JSON files, so there is no database to set up. <code>althistory status</code> reports the mode it is running in.</p>
+        </div>
+        <figure class="code">
+          <figcaption>Terminal</figcaption>
+<pre tabindex="0" aria-label="Install commands"><code><span class="p">$</span> git clone https://github.com/Qworg/althistory.git
+<span class="p">$</span> cd althistory
+<span class="p">$</span> npm install
+<span class="p">$</span> npm link
+<span class="p">$</span> althistory status</code></pre>
+          <button class="copy" type="button" aria-live="polite" data-copy="git clone https://github.com/Qworg/althistory.git&#10;cd althistory&#10;npm install&#10;npm link&#10;althistory status">Copy commands</button>
+        </figure>
+      </div>
+    </section>
+
+    <section class="doc" aria-labelledby="cli-h">
+      <div class="wrap doc-grid">
+        <div>
+          <h2 id="cli-h">Use the CLI</h2>
+          <p>Every command prints JSON on stdout and its progress on stderr, so its output can go straight into a script or an agent. <code>althistory schema</code> prints the JSON Schema of every command, with the required options marked, so an agent can learn the tool by reading it.</p>
+          <p>Generating a history from a premise uses a model when <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> is set; without one you get a template to fill in. Ingestion reads text with patterns offline and adds a model when it has a key.</p>
+          <table class="exit-codes">
+            <caption>Exit codes</caption>
+            <tbody>
+              <tr><th scope="row">0</th><td>Success</td></tr>
+              <tr><th scope="row">1</th><td>General error</td></tr>
+              <tr><th scope="row">2</th><td>Validation failed</td></tr>
+              <tr><th scope="row">3</th><td>Authentication failed</td></tr>
+              <tr><th scope="row">4</th><td>Not found</td></tr>
+              <tr><th scope="row">5</th><td>Connection failed</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figure class="code">
+          <figcaption>Terminal</figcaption>
+<pre tabindex="0" aria-label="Example CLI commands"><code><span class="c"># Start from a premise</span>
+<span class="p">$</span> althistory generate timeline \
+    --premise <span class="s">"Byzantium wins at Manzikert"</span> \
+    --divergence-point 1071-08-26 --direct
+
+<span class="c"># Or from the record</span>
+<span class="p">$</span> althistory ingest url \
+    https://en.wikipedia.org/wiki/French_Revolution
+
+<span class="c"># Then ask it how one thing led to another</span>
+<span class="p">$</span> althistory causal paths -g &lt;graph&gt; \
+    --from &lt;event&gt; --to &lt;event&gt;
+
+<span class="p">$</span> althistory export &lt;graph&gt; --format markdown</code></pre>
+        </figure>
+      </div>
+    </section>
+
+    <section class="doc" aria-labelledby="mcp-h">
+      <div class="wrap doc-grid">
+        <div>
+          <h2 id="mcp-h">Connect an agent over MCP</h2>
+          <p><code>althistory mcp</code> is a stdio MCP server with the same tools as the CLI. Add it to Claude Desktop, Cursor or Claude Code, and the agent can build, branch and query histories for you.</p>
+          <p class="note"><code>althistory schema --mcp</code> prints the tool dictionary the server offers.</p>
+        </div>
+        <div class="code-stack">
+          <figure class="code">
+            <figcaption>claude_desktop_config.json · .cursor/mcp.json</figcaption>
+<pre tabindex="0" aria-label="MCP configuration for Claude Desktop or Cursor"><code>{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"althistory"</span>: {
+      <span class="k">"command"</span>: <span class="s">"althistory"</span>,
+      <span class="k">"args"</span>: [<span class="s">"mcp"</span>],
+      <span class="k">"env"</span>: { <span class="k">"LOCAL_EXECUTION_ENABLED"</span>: <span class="s">"true"</span> }
+    }
+  }
+}</code></pre>
+          </figure>
+          <figure class="code">
+            <figcaption>Claude Code</figcaption>
+<pre tabindex="0" aria-label="Command to add the MCP server to Claude Code"><code><span class="p">$</span> claude mcp add althistory \
+    -e LOCAL_EXECUTION_ENABLED=true -- althistory mcp</code></pre>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="doc doc-last" aria-labelledby="more-h">
+      <div class="wrap">
+        <h2 id="more-h">Go further</h2>
+        <ul class="doc-links">
+          <li><a href="https://github.com/Qworg/althistory/blob/main/timeline/src/cli/README.md">CLI reference</a>: every command, the ingestion modes and the generation flags.</li>
+          <li><a href="https://github.com/Qworg/althistory/blob/main/docs/mcp-agent-guide.md">MCP guide</a>: the tools, their arguments, and client setup.</li>
+          <li><a href="https://github.com/Qworg/althistory/blob/main/docs/api-integration.md">HTTP API</a>: keys, permissions, graph scoping, rate limits, jobs and webhooks.</li>
+        </ul>
+        <p><a href="./">Back to the overview</a> · <a href="demo/?start=branch">Try the app in your browser</a></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-grid">
+      <p><a class="brand brand-small" href="https://github.com/Qworg/althistory"><img src="favicon.svg" alt="" width="20" height="20"> <span>althistory</span></a> Open source under the MIT License.</p>
+      <ul aria-label="Documentation">
+        <li><a href="https://github.com/Qworg/althistory/blob/main/docs/walkthrough.md">Illustrated tour</a></li>
+        <li><a href="https://github.com/Qworg/althistory/blob/main/docs/ingestion.md">Ingestion</a></li>
+        <li><a href="https://github.com/Qworg/althistory/blob/main/docs/branch-merge-resolver.md">Branching and merging</a></li>
+        <li><a href="https://github.com/Qworg/althistory/blob/main/docs/export-format.md">Export format</a></li>
+        <li><a href="https://github.com/Qworg/althistory/issues">Issues</a></li>
+      </ul>
+    </div>
+  </footer>
+</body>
+</html>

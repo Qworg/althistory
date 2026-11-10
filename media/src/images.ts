@@ -91,19 +91,55 @@ export async function writeReadmeImages(): Promise<void> {
  * width and height. Kept apart from the README images, which GitHub shows as
  * PNG at fixed sizes.
  */
-interface SiteImage {
-  shot: string
-  name: string
+/** A fraction of a focus region, for a detail inside it (0..1 on each axis). */
+interface Part {
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+}
+
+interface Crop {
   focus: string
   pad: number
+  part?: Part
+}
+
+interface SiteImage extends Crop {
+  shot: string
+  name: string
+  /** A tighter crop for phones: the one detail the paragraph claims. */
+  detail?: Crop
 }
 
 export const SITE_IMAGES: SiteImage[] = [
-  { shot: 'ingest-review', name: 'ingest-review', focus: 'dialog', pad: 0 },
-  { shot: 'timeline', name: 'timeline', focus: 'timeline', pad: 12 },
-  { shot: 'causal-graph', name: 'causal-graph', focus: 'graph', pad: 12 },
-  { shot: 'branch', name: 'branch', focus: 'view', pad: 12 },
+  { shot: 'ingest-review', name: 'ingest-review', focus: 'dialog', pad: 0, detail: { focus: 'table', pad: 0, part: { x0: 0, x1: 0.56, y0: 0, y1: 1 } } },
+  { shot: 'timeline', name: 'timeline', focus: 'timeline', pad: 12, detail: { focus: 'timeline', pad: 0, part: { x0: 0.14, x1: 0.7, y0: 0.2, y1: 0.84 } } },
+  {
+    shot: 'causal-graph',
+    name: 'causal-graph',
+    focus: 'graph',
+    pad: 12,
+    detail: { focus: 'graph', pad: 0, part: { x0: 0.4, x1: 0.94, y0: 0.22, y1: 0.8 } },
+  },
+  { shot: 'branch', name: 'branch', focus: 'view', pad: 12, detail: { focus: 'view', pad: 0, part: { x0: 0.45, x1: 1, y0: 0.07, y1: 1 } } },
 ]
+
+/** Width of the phone detail crops (about 2x a 360px column). */
+export const SITE_DETAIL_WIDTH = 720
+
+function regionOf(shot: Shot, crop: Crop): Rect {
+  const rect = shot.focus[crop.focus]
+  if (!rect) throw new Error(`Shot "${shot.id}" has no focus region "${crop.focus}"`)
+  if (!crop.part) return rect
+  const { x0, x1, y0, y1 } = crop.part
+  return {
+    x: rect.x + rect.width * x0,
+    y: rect.y + rect.height * y0,
+    width: rect.width * (x1 - x0),
+    height: rect.height * (y1 - y0),
+  }
+}
 
 /** Widths written for each site image; the largest is about 2x its shown size. */
 export const SITE_WIDTHS = [720, 1440]
@@ -115,13 +151,11 @@ const webpArgs = ['-c:v', 'libwebp', '-quality', '82', '-compression_level', '6'
 export async function writeSiteImages(): Promise<void> {
   const manifest = JSON.parse(await readFile(path.join(paths.shots, 'manifest.json'), 'utf8')) as Manifest
   await mkdir(SITE_DIR, { recursive: true })
-  const sizes: Record<string, { widths: number[]; width: number; height: number }> = {}
+  const sizes: Record<string, { widths: number[]; width: number; height: number; detail?: { width: number; height: number } }> = {}
   for (const image of SITE_IMAGES) {
     const shot = manifest.shots[image.shot]
     if (!shot) throw new Error(`Site image ${image.name} needs shot "${image.shot}", which the tour did not capture`)
-    const rect = shot.focus[image.focus]
-    if (!rect) throw new Error(`Shot "${image.shot}" has no focus region "${image.focus}"`)
-    const box = cropBox(rect, image.pad, manifest, shot.size)
+    const box = cropBox(regionOf(shot, image), image.pad, manifest, shot.size)
     const widths = SITE_WIDTHS.map((w) => Math.min(w, box.w))
     for (const width of new Set(widths)) {
       await ffmpegRun([
@@ -138,6 +172,19 @@ export async function writeSiteImages(): Promise<void> {
       widths: [...new Set(widths)],
       width: largest,
       height: Math.round((box.h * largest) / box.w / 2) * 2,
+    }
+    if (image.detail) {
+      const d = cropBox(regionOf(shot, image.detail), image.detail.pad, manifest, shot.size)
+      const width = Math.min(SITE_DETAIL_WIDTH, d.w)
+      await ffmpegRun([
+        '-i',
+        path.join(paths.shots, shot.file),
+        '-vf',
+        `crop=${d.w}:${d.h}:${d.x}:${d.y},scale=${width}:-2:flags=lanczos`,
+        ...webpArgs,
+        path.join(SITE_DIR, `${image.name}-detail-${SITE_DETAIL_WIDTH}.webp`),
+      ])
+      sizes[image.name].detail = { width, height: Math.round((d.h * width) / d.w / 2) * 2 }
     }
     process.stderr.write(`[images] docs/images/site/${image.name}-{${[...new Set(widths)].join(',')}}.webp\n`)
   }

@@ -97,9 +97,12 @@ screen. Fix the step, don't add a sleep.
   upload it again in Settings → General → Social preview.
 - **The landing page's pictures.** `npm run capture` also writes
   `docs/images/site/`: tight WebP crops at 720 and 1440 px wide (including
-  the `branch` shot, which the README doesn't use), a WebP of the walkthrough
-  poster, and `manifest.json`, which `site/build.mjs` reads to fill in each
-  image's `srcset`, `width` and `height`.
+  the `branch` shot, which the README doesn't use), a 720 px detail crop of
+  each for phones, a WebP of the walkthrough poster, and `manifest.json`,
+  which `site/build.mjs` reads to fill in each image's `srcset`, `width` and
+  `height`. `npm run site-images` rewrites them from the last capture
+  without capturing again; the crops are listed in `SITE_IMAGES` in
+  `src/images.ts`.
 - **Captions.** `npm run captions` writes `docs/media/walkthrough.vtt` from
   the storyboard (rendering the video runs it too). The cue times replay the
   scene's fixed durations, and the script fails if they no longer add up to

@@ -70,6 +70,14 @@ test('the landing page link opens on the branch', async ({ page }) => {
   expect(new URL(page.url()).searchParams.has('start')).toBe(false)
 })
 
+test('a link from the landing page can open a view of the branch', async ({ page }) => {
+  await page.goto('./?start=branch#/causal-graph')
+  await expect(page).toHaveURL(/#\/causal-graph$/)
+  await expect(page.getByRole('main')).toBeVisible()
+  await page.goto('./#/timeline')
+  await expect(page.getByText('21 events · 4 arcs · 25 links')).toBeVisible()
+})
+
 test('forks the history in the browser', async ({ page }) => {
   await page.goto('./')
   await expect(page.getByText(COUNTS)).toBeVisible()
