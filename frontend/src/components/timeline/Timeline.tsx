@@ -923,19 +923,29 @@ const Timeline = memo(function Timeline({
 
     // A phone fitted the whole history into ~300px: nineteen marks in 230px,
     // overlapping, too close to tap. On a narrow canvas open zoomed in to about
-    // a touch target per event, from the start of the history, once per
-    // extent; panning reaches the rest and Fit to View still shows it all.
-    const extentKey = `${originalExtent.start.getTime()}-${originalExtent.end.getTime()}`
+    // a touch target per event, once per extent; panning reaches the rest and
+    // Fit to View still shows it all. A branch opens on its point of
+    // divergence, a third of the way in, because that is where it differs from
+    // the history it came from; anything else opens at the start.
+    const extentKey = `${originalExtent.start.getTime()}-${originalExtent.end.getTime()}-${divergenceMs ?? ''}`
     if (innerWidth < NARROW_CANVAS_PX && narrowZoomAppliedRef.current !== extentKey) {
       narrowZoomAppliedRef.current = extentKey
       const k = Math.min(20, (domainEventCount * TOUCH_SPACING_PX) / innerWidth)
-      if (k > 1.2) svg.call(zoom.transform, d3.zoomIdentity.scale(k))
+      if (k > 1.2) {
+        let tx = 0
+        if (divergenceMs !== null) {
+          const base = d3.scaleTime().domain([originalExtent.start, originalExtent.end]).range([0, innerWidth])
+          const wanted = -base(new Date(divergenceMs)) * k + innerWidth / 3
+          tx = Math.min(0, Math.max(innerWidth - innerWidth * k, wanted))
+        }
+        svg.call(zoom.transform, d3.zoomIdentity.translate(tx, 0).scale(k))
+      }
     }
 
     return () => {
       svg.on('.zoom', null)
     }
-  }, [originalExtent, innerWidth, width, svgHeight, domainEventCount])
+  }, [originalExtent, innerWidth, width, svgHeight, domainEventCount, divergenceMs])
 
   // Pan/zoom keys of the canvas (arrow keys and PageUp/PageDown pan, +/-
   // zoom, 0 resets). Returns whether the key was one of them.

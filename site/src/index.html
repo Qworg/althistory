@@ -50,27 +50,31 @@
 
     <div class="hero-copy">
       <h1>Make <em>what&nbsp;if</em><br>into <em class="amber">how&nbsp;so</em>.</h1>
-      <div>
-        <p class="lede">A workbench for real and invented histories. Record events, the periods that hold them and the causes that link them, then branch at any moment and follow what changes.</p>
-        <div class="actions">
-          <a class="btn btn-primary" href="demo/?start=branch">Try it in your browser</a>
-          <a class="btn btn-ghost" href="#walkthrough">Watch the one-minute tour</a>
-        </div>
-        <p class="actions-note">Opens on the Clerks Prevail branch, with the original history drawn faintly beneath it. Branch it again, change anything; nothing leaves your browser.</p>
+      <p class="lede">A workbench for real and invented histories. Record events, the periods that hold them and the causes that link them, then branch at any moment and follow what changes.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="demo/?start=branch">Try it in your browser</a>
+        <a class="btn btn-ghost" href="#walkthrough">Watch the one-minute tour</a>
       </div>
+      <p class="actions-note">Opens on Clerks Prevail, the branch drawn below, with the original history faintly beneath it. Branch it again, change anything; nothing leaves your browser.</p>
     </div>
 
     <figure class="hero-figure">
+      <p class="hero-hint">Swipe the timeline sideways for the whole history, 1834 to 1871.</p>
       <div class="hero-scroll" role="group" tabindex="0" aria-label="Timeline of The Engine Age. Use the left and right arrow keys to read each event.">
         <div class="hero-canvas">
           <!-- hero:timeline -->
-          <div class="ht-tip" aria-hidden="true"></div>
+          <div class="ht-tip"></div>
         </div>
       </div>
       <p class="sr-only ht-live" role="status" aria-live="polite"></p>
       <!-- hero:events -->
       <figcaption>
-        <span class="mono">The Engine Age</span>, an invented example: Babbage finishes the Analytical Engine in 1843. In <span class="amber">a branch</span>, Parliament bans the engines in 1860 instead of licensing them. Select an event to read it.<span class="hero-hint"> Swipe sideways for the whole history.</span>
+        <span class="mono">The Engine Age</span>, an invented example: Babbage finishes the Analytical Engine in 1843. In <span class="amber">a branch</span>, Parliament bans the engines in 1860 instead of licensing them. Select an event to see what it led to.
+        <span class="legend">The arcs are causes:
+          <span><svg viewBox="0 0 28 10" aria-hidden="true"><path d="M1 5H27"/></svg>direct</span>
+          <span><svg viewBox="0 0 28 10" aria-hidden="true"><path class="lg-indirect" d="M1 5H27"/></svg>indirect</span>
+          <span><svg viewBox="0 0 28 10" aria-hidden="true"><path class="lg-contributory" d="M1 5H27"/></svg>contributory</span>
+        </span>
       </figcaption>
     </figure>
   </header>
@@ -106,7 +110,7 @@
               <p class="note">Patterns read the text offline; an Anthropic or OpenAI key adds a model.</p>
               <p class="where where-install"><strong>Needs your own install</strong>: the demo can't fetch pages. <a href="#start">Run it locally</a></p>
             </div>
-            <picture><!-- site-source:ingest-review --><img class="frame" src="images/site/ingest-review-1440.webp" data-site-image="ingest-review" alt="The review step: three extracted events with actor, target, date and confidence, each with a checkbox to keep it." loading="lazy"></picture>
+            <picture><!-- site-source:ingest-review --><img class="frame" src="images/site/ingest-review-1440.webp" data-site-image="ingest-review" alt="The review step: three extracted events with actor, target, date and confidence, each with a checkbox to keep it." loading="lazy" decoding="async" fetchpriority="low"></picture>
           </article>
 
           <article class="feature">
@@ -116,7 +120,7 @@
               <p class="note">Or follow one actor through it all, and see the economic, social and political pressures read from clusters of events.</p>
               <p class="where"><strong>In the demo</strong>: <a href="demo/?start=branch">open the timeline</a></p>
             </div>
-            <picture><!-- site-source:timeline --><img class="frame" src="images/site/timeline-1440.webp" data-site-image="timeline" alt="The timeline: nested arcs above a line of events, causal links arching between them, and a card on one event naming who did what to whom." loading="lazy"></picture>
+            <picture><!-- site-source:timeline --><img class="frame" src="images/site/timeline-1440.webp" data-site-image="timeline" alt="The timeline: nested arcs above a line of events, causal links arching between them, and a card on one event naming who did what to whom." loading="lazy" decoding="async" fetchpriority="low"></picture>
           </article>
 
           <article class="feature">
@@ -125,7 +129,7 @@
               <p>Every link between two events is direct, indirect or contributory, with a weight, a confidence and the evidence for it. Lay the graph out the way that reads best, and find every path from one event to another.</p>
               <p class="where"><strong>In the demo</strong>: <a href="demo/?start=branch#/causal-graph">open the causal graph</a></p>
             </div>
-            <picture><!-- site-source:causal-graph --><img class="frame" src="images/site/causal-graph-1440.webp" data-site-image="causal-graph" alt="The causal graph laid out cause to effect, with the layout options beside it." loading="lazy"></picture>
+            <picture><!-- site-source:causal-graph --><img class="frame" src="images/site/causal-graph-1440.webp" data-site-image="causal-graph" alt="The causal graph laid out cause to effect, with the layout options beside it." loading="lazy" decoding="async" fetchpriority="low"></picture>
           </article>
 
           <article class="feature feature-fork">
@@ -134,40 +138,48 @@
               <p>Branch a history at any moment and write what happens instead, with the original drawn faintly beneath. Compare branches side by side, then merge one back through a conflict resolver that flags what doesn't fit.</p>
               <p class="where"><strong>In the demo</strong>: <a href="demo/?start=branch">branching and comparing</a>. Merging needs your own install.</p>
             </div>
-            <picture><!-- site-source:branch --><img class="frame" src="images/site/branch-1440.webp" data-site-image="branch" alt="The Clerks Prevail branch: its own events in front, the original history ghosted beneath, and the divergence on 12 July 1860 marked." loading="lazy"></picture>
+            <picture><!-- site-source:branch --><img class="frame" src="images/site/branch-1440.webp" data-site-image="branch" alt="The Clerks Prevail branch: its own events in front, the original history ghosted beneath, and the divergence on 12 July 1860 marked." loading="lazy" decoding="async" fetchpriority="low"></picture>
           </article>
         </div>
       </div>
     </section>
 
     <section id="start" class="start" aria-labelledby="start-h">
-      <div class="wrap start-grid">
-        <div>
-          <h2 id="start-h">Run it on your machine</h2>
-          <p>You need Node 20 or later, and nothing else: local mode keeps every graph in JSON files, so there's no database to set up. Then open <span class="mono">localhost:5173</span>.</p>
-          <p class="note">Your own install adds what the demo can't: bringing in history, exporting, merging and simulating. For a shared server with Neo4j and Redis, see <a href="https://github.com/Qworg/althistory/blob/main/docs/production-deployment.md">production deployment</a>.</p>
-        </div>
-        <figure class="code">
-          <figcaption>Terminal</figcaption>
+      <div class="wrap">
+        <h2 id="start-h">Run it on your machine</h2>
+        <p class="section-lede">You need Node 20 or later, and nothing else: local mode keeps every graph in JSON files, so there's no database to set up. Your own install adds what the demo can't: bringing in history, exporting, merging and simulating.</p>
+        <div class="ways">
+          <div class="way">
+            <h3>The app</h3>
+            <p>Clone it, install, and start it. Then open <span class="mono">localhost:5173</span>.</p>
+            <figure class="code">
+              <figcaption><span>Terminal</span><button class="copy" type="button" aria-live="polite" data-copy="git clone https://github.com/Qworg/althistory.git&#10;cd althistory&#10;npm install&#10;./start-local.sh">Copy commands</button></figcaption>
 <pre tabindex="0" aria-label="Commands to install and start althistory"><code><span class="p">$</span> git clone https://github.com/Qworg/althistory.git
 <span class="p">$</span> cd althistory
 <span class="p">$</span> npm install
 <span class="p">$</span> ./start-local.sh</code></pre>
-          <button class="copy" type="button" aria-live="polite" data-copy="git clone https://github.com/Qworg/althistory.git&#10;cd althistory&#10;npm install&#10;./start-local.sh">Copy commands</button>
-        </figure>
-      </div>
-      <div id="agents" class="wrap agents-teaser">
-        <h3>From a script or an agent</h3>
-        <p>Every screen is also a CLI command that answers in JSON, and <code>althistory mcp</code> gives Claude, Cursor or any MCP client the same tools.</p>
-        <p><a class="teaser-link" href="agents.html">Set up the CLI and MCP server</a></p>
+            </figure>
+            <p class="note">For a shared server with Neo4j and Redis, see <a href="https://github.com/Qworg/althistory/blob/main/docs/production-deployment.md">production deployment</a>.</p>
+          </div>
+          <div class="way" id="agents">
+            <h3>From a script or an agent</h3>
+            <p>Every screen is also a CLI command that answers in JSON, and <code>althistory mcp</code> gives Claude, Cursor or any MCP client the same tools.</p>
+            <figure class="code">
+              <figcaption><span>Terminal, in the repository</span><button class="copy" type="button" aria-live="polite" data-copy="npm link&#10;althistory mcp">Copy commands</button></figcaption>
+<pre tabindex="0" aria-label="Commands to put the CLI on your PATH and start the MCP server"><code><span class="p">$</span> npm link
+<span class="p">$</span> althistory mcp</code></pre>
+            </figure>
+            <p><a class="teaser-link" href="agents.html">Set up the CLI and MCP server</a></p>
+          </div>
+        </div>
       </div>
     </section>
 
     <section class="closing" aria-labelledby="closing-h">
       <div class="wrap closing-grid">
         <svg class="closing-fork" viewBox="0 0 320 120" aria-hidden="true">
-          <path class="cf-base" d="M8 44H312"/>
-          <path class="cf-branch" d="M196 44c10 0 6 52 30 52H312"/>
+          <path class="cf-base" pathLength="1" d="M8 44H312"/>
+          <path class="cf-branch" pathLength="1" d="M196 44c10 0 6 52 30 52H312"/>
           <circle cx="40" cy="44" r="5"/><circle cx="92" cy="44" r="6.5"/><circle cx="140" cy="44" r="5"/>
           <circle cx="250" cy="44" r="5"/><circle cx="290" cy="44" r="6"/>
           <circle class="cf-on-branch" cx="262" cy="96" r="5.5"/>

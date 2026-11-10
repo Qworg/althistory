@@ -146,6 +146,7 @@ function heroTimeline(s) {
   const events = new Map(s.events.map((e) => [e.key, e]))
   const branchEvents = s.branch.events
   const split = branchEvents[0]
+  const branchName = s.branch.name.split('—').pop().trim()
   const xs = x(split.timestamp)
   const xEnd = W - pad
 
@@ -237,6 +238,15 @@ function heroTimeline(s) {
   const dy = branchY(dx)
   marks.push({ e: split, cx: dx, cy: dy, r: dm, branch: true, diverge: true })
   marks.sort((a, b) => a.e.timestamp.localeCompare(b.e.timestamp))
+  // Each lane counts its own events: "4 of 19" in the history, "Branch, 1 of
+  // 2" in the branch. Selecting one offers to open its history in the demo.
+  const baseCount = marks.filter((m) => !m.branch).length
+  const branchCount = marks.length - baseCount
+  let nBase = 0
+  let nBranch = 0
+  for (const m of marks) {
+    m.pos = m.branch ? `Branch, ${++nBranch} of ${branchCount}` : `${++nBase} of ${baseCount}`
+  }
 
   const dots = []
   for (const m of marks) {
@@ -260,7 +270,8 @@ function heroTimeline(s) {
           (m, i) =>
             `<circle class="ht-hit" cx="${f(m.cx)}" cy="${f(m.cy)}" r="${f(Math.max(12, m.r + 5))}" data-i="${i}" data-key="${m.e.key}"` +
             ` data-date="${fmt(m.e.timestamp)}" data-text="${esc(m.e.description)}" data-who="${esc(who(m.e))}"` +
-            `${m.branch ? ' data-branch=""' : ''}/>`,
+            ` data-pos="${m.pos}" data-graph="${esc(m.branch ? branchName : s.graph.name)}"` +
+            ` data-start="${m.branch ? 'branch' : 'main'}"${m.branch ? ' data-branch=""' : ''}/>`,
         )
         .join('') +
       `</g>`,
@@ -268,20 +279,23 @@ function heroTimeline(s) {
 
   // Labels: the two lanes, and the events that tell the story of the fork.
   // The branch's own labels wait for the branch to be drawn.
-  const label = (lx, y, iso, text, cls = '') =>
-    `<text class="ht-label ${cls}" x="${f(lx)}" y="${y}"><tspan class="ht-date">${new Date(iso).getUTCFullYear()}</tspan> ${esc(text)}</text>`
+  const label = (lx, y, iso, text, cls = '', note = '') =>
+    `<text class="ht-label ${cls}" x="${f(lx)}" y="${y}"><tspan class="ht-date">${new Date(iso).getUTCFullYear()}</tspan> ` +
+    `${note ? `<tspan class="ht-note">${esc(note)}</tspan> ` : ''}${esc(text)}</text>`
   const first = events.get('firstrun')
   const act = events.get('act')
   parts.push(`<g class="ht-labels">`)
   parts.push(`<text class="ht-lane" x="${pad}" y="${baseY + 38}">${esc(s.graph.name)}</text>`)
   if (first) {
     const fx = px('firstrun')
-    parts.push(`<path class="ht-leader" d="M${f(fx)} ${baseY + 10}V${baseY + 26}"/>`)
-    parts.push(label(fx - 4, baseY + 40, first.timestamp, first.description))
+    parts.push(`<path class="ht-leader ht-first" d="M${f(fx)} ${baseY + 10}V${baseY + 26}"/>`)
+    parts.push(label(fx - 4, baseY + 40, first.timestamp, first.description, 'ht-first'))
   }
-  if (act) parts.push(label(xs + 40, baseY + 38, act.timestamp, act.description))
+  // The original history's answer to the same question the branch answers
+  // below it, worded so the two read as a pair and the label cannot be taken
+  // for the branch's: it sits right of the fork, over the branch.
+  if (act) parts.push(label(xs + 40, baseY + 38, act.timestamp, 'Parliament licenses the engines', '', 'Original:'))
   parts.push(`</g>`)
-  const branchName = s.branch.name.split('—').pop().trim()
   parts.push(`<g class="ht-labels ht-labels-branch">`)
   parts.push(`<text class="ht-lane ht-lane-branch" x="${f(xs + 40)}" y="${laneY - 14}">${esc(branchName)}</text>`)
   branchEvents.forEach((e, i) => {

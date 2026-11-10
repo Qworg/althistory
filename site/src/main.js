@@ -1,8 +1,9 @@
 /* ------------------------------------------------------- hero timeline --- */
 // Each event in the drawing carries its date, text and actors (site/build.mjs).
 // Point at one, tap near one, or focus the timeline and use the arrow keys:
-// a card names it, and the events it led to stay lit while the rest fades.
-// Keyboard selections are also read out through a live region.
+// a card names it and offers to open its history in the demo, and the events
+// it led to stay lit while the rest fades. Keyboard selections are also read
+// out through a live region; Tab from the timeline reaches the card's link.
 
 const figure = document.querySelector('.hero-figure')
 const scroller = figure?.querySelector('.hero-scroll')
@@ -46,10 +47,12 @@ if (figure && scroller && canvas && svg && tip) {
   const fit = () => figure.classList.toggle('is-scrollable', scrollable())
   fit()
 
-  // On a narrow screen the timeline scrolls sideways; start it at the fork.
+  // On a narrow screen the timeline scrolls sideways; start it with the fork
+  // just inside the left edge, where no label is cut (the 1843 label, the
+  // only one that would be, is not drawn on phones).
   if (scrollable()) {
     const fork = Number(svg.dataset.forkX) * scroller.scrollWidth
-    scroller.scrollLeft = Math.max(0, fork - scroller.clientWidth * 0.25)
+    scroller.scrollLeft = Math.max(0, fork - 64)
   }
 
   const line = (cls, text) => {
@@ -91,13 +94,22 @@ if (figure && scroller && canvas && svg && tip) {
     for (const link of links) link.classList.toggle('is-lit', lit.has(link))
     for (const [key, dot] of dots) dot.classList.toggle('is-lit', key === hit.dataset.key || events.has(key))
 
-    const position = `${i + 1} of ${hits.length}`
-    const led = !branch && events.size ? `Led to ${events.size} later event${events.size === 1 ? '' : 's'}` : ''
+    const position = hit.dataset.pos ?? `${i + 1} of ${hits.length}`
+    const led = branch
+      ? `Only in the branch ${hit.dataset.graph}. Select an event before 1860 to trace what it caused.`
+      : events.size
+        ? `Led to ${events.size} later event${events.size === 1 ? '' : 's'}`
+        : 'Led to nothing later in this history'
+    const open = document.createElement('a')
+    open.className = 'ht-open'
+    open.href = `demo/?start=${hit.dataset.start ?? 'branch'}`
+    open.textContent = `Open ${hit.dataset.graph ?? 'this history'} in the demo`
     tip.replaceChildren(
       line('ht-tip-date', `${hit.dataset.date ?? ''} · ${position}`),
       line('ht-tip-text', hit.dataset.text ?? ''),
       line('ht-tip-who', hit.dataset.who ?? ''),
-      ...(led ? [line('ht-tip-led', led)] : [])
+      line('ht-tip-led', led),
+      open
     )
     tip.classList.toggle('is-branch', branch)
     tip.classList.add('is-on')
@@ -111,11 +123,21 @@ if (figure && scroller && canvas && svg && tip) {
     }
     place()
     if (announce && live) {
-      live.textContent = `${position}. ${hit.dataset.date}: ${hit.dataset.text}. ${hit.dataset.who}.${led ? ` ${led}.` : ''}`
+      live.textContent = `${position}. ${hit.dataset.date}: ${hit.dataset.text}. ${hit.dataset.who}. ${led}.`
     }
   }
 
+  // A mouse leaving an event waits a moment before the card goes, so the
+  // pointer can travel onto the card's link.
+  let hideTimer = 0
+  const hideSoon = () => {
+    window.clearTimeout(hideTimer)
+    hideTimer = window.setTimeout(() => hide(), 260)
+  }
+  const keep = () => window.clearTimeout(hideTimer)
+
   const hide = () => {
+    window.clearTimeout(hideTimer)
     active = -1
     ring?.classList.remove('is-on')
     tip.classList.remove('is-on')
@@ -144,11 +166,19 @@ if (figure && scroller && canvas && svg && tip) {
   svg.addEventListener('pointermove', (event) => {
     if (event.pointerType !== 'mouse') return
     const i = nearest(event, 16)
-    if (i >= 0 && i !== active) show(i)
-    else if (i < 0 && active >= 0 && document.activeElement !== scroller) hide()
+    if (i >= 0) {
+      keep()
+      if (i !== active) show(i)
+    } else if (active >= 0 && !scroller.contains(document.activeElement)) {
+      hideSoon()
+    }
   })
   svg.addEventListener('pointerleave', (event) => {
-    if (event.pointerType === 'mouse' && document.activeElement !== scroller) hide()
+    if (event.pointerType === 'mouse' && !scroller.contains(document.activeElement)) hideSoon()
+  })
+  tip.addEventListener('pointerenter', keep)
+  tip.addEventListener('pointerleave', (event) => {
+    if (event.pointerType === 'mouse' && !scroller.contains(document.activeElement)) hideSoon()
   })
   svg.addEventListener('click', (event) => {
     // A finger is wider than a dot: take the nearest event within reach.
@@ -158,7 +188,7 @@ if (figure && scroller && canvas && svg && tip) {
     show(i, { reveal: true })
   })
   document.addEventListener('click', (event) => {
-    if (!svg.contains(event.target)) hide()
+    if (!svg.contains(event.target) && !tip.contains(event.target)) hide()
   })
 
   scroller.addEventListener('keydown', (event) => {
@@ -176,7 +206,10 @@ if (figure && scroller && canvas && svg && tip) {
       hide()
     }
   })
-  scroller.addEventListener('blur', hide)
+  // Tabbing from the timeline onto the card's link keeps the card.
+  scroller.addEventListener('focusout', (event) => {
+    if (!scroller.contains(event.relatedTarget)) hide()
+  })
   scroller.addEventListener('scroll', place, { passive: true })
   window.addEventListener('resize', () => {
     fit()
@@ -198,12 +231,40 @@ if (video && play) {
     play.hidden = true
     video.controls = true
   }
-  play.addEventListener('click', () => {
+  const begin = () => {
     start()
     video.focus()
     video.play().catch(() => undefined)
+  }
+  play.addEventListener('click', begin)
+  // On a phone the button sits under the poster; the poster plays too.
+  video.addEventListener('click', () => {
+    if (!video.controls) begin()
   })
   video.addEventListener('play', start)
+}
+
+/* -------------------------------------------------------------- closing --- */
+// The closing band's fork draws itself as it comes into view, as the hero's
+// did. Without the script, or with reduced motion, it is simply there.
+
+const closingFork = document.querySelector('.closing-fork')
+if (
+  closingFork &&
+  'IntersectionObserver' in window &&
+  !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+) {
+  closingFork.classList.add('will-draw')
+  const observer = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        closingFork.classList.add('is-drawn')
+        observer.disconnect()
+      }
+    },
+    { threshold: 0.6 }
+  )
+  observer.observe(closingFork)
 }
 
 /* ---------------------------------------------------------- quick start --- */

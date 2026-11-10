@@ -78,6 +78,37 @@ test('a link from the landing page can open a view of the branch', async ({ page
   await expect(page.getByText('21 events · 4 arcs · 25 links')).toBeVisible()
 })
 
+test('a link can switch graphs in a tab that already has edits', async ({ page }) => {
+  await page.goto('./?start=branch')
+  await expect(page.getByText('21 events · 4 arcs · 25 links')).toBeVisible()
+  await page.goto('./?start=main')
+  await expect(page.getByText(COUNTS)).toBeVisible()
+})
+
+test('on a phone, a branch opens at its divergence', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  const phone = await context.newPage()
+  await phone.goto('./?start=branch')
+  await expect(phone.getByText(/21 events/).first()).toBeVisible()
+  // The divergence (12 Jul 1860) is on screen, and the first event (1834) is not.
+  const inView = async (label: RegExp) => {
+    const box = await phone.locator('g[data-timeline-mark="event"]').evaluateAll(
+      (marks, source) => {
+        const pattern = new RegExp(source)
+        const mark = marks.find((m) => pattern.test(m.getAttribute('aria-label') ?? ''))
+        if (!mark) return null
+        const r = mark.getBoundingClientRect()
+        return { left: r.left, right: r.right }
+      },
+      label.source
+    )
+    return box !== null && box.right > 0 && box.left < 390
+  }
+  await expect.poll(() => inView(/Parliament bans/)).toBe(true)
+  expect(await inView(/Babbage completes the full design/)).toBe(false)
+  await context.close()
+})
+
 test('forks the history in the browser', async ({ page }) => {
   await page.goto('./')
   await expect(page.getByText(COUNTS)).toBeVisible()

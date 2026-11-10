@@ -54,13 +54,12 @@
           <p class="note">Local mode keeps every graph in JSON files, so there is no database to set up. <code>althistory status</code> reports the mode it is running in.</p>
         </div>
         <figure class="code">
-          <figcaption>Terminal</figcaption>
+          <figcaption><span>Terminal</span><button class="copy" type="button" aria-live="polite" data-copy="git clone https://github.com/Qworg/althistory.git&#10;cd althistory&#10;npm install&#10;npm link&#10;althistory status">Copy commands</button></figcaption>
 <pre tabindex="0" aria-label="Install commands"><code><span class="p">$</span> git clone https://github.com/Qworg/althistory.git
 <span class="p">$</span> cd althistory
 <span class="p">$</span> npm install
 <span class="p">$</span> npm link
 <span class="p">$</span> althistory status</code></pre>
-          <button class="copy" type="button" aria-live="polite" data-copy="git clone https://github.com/Qworg/althistory.git&#10;cd althistory&#10;npm install&#10;npm link&#10;althistory status">Copy commands</button>
         </figure>
       </div>
     </section>
@@ -84,7 +83,7 @@
           </table>
         </div>
         <figure class="code">
-          <figcaption>Terminal</figcaption>
+          <figcaption><span>Terminal</span><button class="copy" type="button" aria-live="polite" data-copy="althistory generate timeline --premise &quot;Byzantium wins at Manzikert&quot; --divergence-point 1071-08-26 --direct&#10;althistory ingest url https://en.wikipedia.org/wiki/French_Revolution">Copy</button></figcaption>
 <pre tabindex="0" aria-label="Example CLI commands"><code><span class="c"># Start from a premise</span>
 <span class="p">$</span> althistory generate timeline \
     --premise <span class="s">"Byzantium wins at Manzikert"</span> \
@@ -112,7 +111,7 @@
         </div>
         <div class="code-stack">
           <figure class="code">
-            <figcaption>claude_desktop_config.json · .cursor/mcp.json</figcaption>
+            <figcaption><span>claude_desktop_config.json · .cursor/mcp.json</span><button class="copy" type="button" aria-live="polite" data-copy="{&#10;  &quot;mcpServers&quot;: {&#10;    &quot;althistory&quot;: {&#10;      &quot;command&quot;: &quot;althistory&quot;,&#10;      &quot;args&quot;: [&quot;mcp&quot;],&#10;      &quot;env&quot;: { &quot;LOCAL_EXECUTION_ENABLED&quot;: &quot;true&quot; }&#10;    }&#10;  }&#10;}">Copy</button></figcaption>
 <pre tabindex="0" aria-label="MCP configuration for Claude Desktop or Cursor"><code>{
   <span class="k">"mcpServers"</span>: {
     <span class="k">"althistory"</span>: {
@@ -124,7 +123,7 @@
 }</code></pre>
           </figure>
           <figure class="code">
-            <figcaption>Claude Code</figcaption>
+            <figcaption><span>Claude Code</span><button class="copy" type="button" aria-live="polite" data-copy="claude mcp add althistory -e LOCAL_EXECUTION_ENABLED=true -- althistory mcp">Copy</button></figcaption>
 <pre tabindex="0" aria-label="Command to add the MCP server to Claude Code"><code><span class="p">$</span> claude mcp add althistory \
     -e LOCAL_EXECUTION_ENABLED=true -- althistory mcp</code></pre>
           </figure>

@@ -108,3 +108,7 @@ screen. Fix the step, don't add a sleep.
   scene's fixed durations, and the script fails if they no longer add up to
   the video's length, so a change to `walkthrough.tsx` must be mirrored in
   `src/video/captions.ts`.
+- **Type and colour.** The video uses the site's and the app's own type
+  (Newsreader for titles, IBM Plex Sans and Mono) on the site's cyanotype
+  blue, and no amber: in althistory amber means a branch, so highlights use
+  the baseline blue.
