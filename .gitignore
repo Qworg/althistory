@@ -150,9 +150,6 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
-/site
-
 # mypy
 .mypy_cache/
 .dmypy.json
@@ -217,3 +214,6 @@ media/out/
 .codex/
 .github/hooks/
 .impeccable/
+
+# GitHub Pages build output
+site/_site/
