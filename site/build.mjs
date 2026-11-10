@@ -13,7 +13,12 @@
  * - draws the hero's forking timeline from `media/src/seed/scenario.ts`, the
  *   history those pictures are taken from, and puts it in place of the
  *   `<!-- hero:timeline -->` marker in `index.html` and in `social.html`, the
- *   1280×640 social preview card (`npm run social` in media/ screenshots it);
+ *   1280×640 social preview card (`npm run social` in media/ screenshots it),
+ *   and a screen-reader list of the same events in place of
+ *   `<!-- hero:events -->`;
+ * - fills in each `<img data-site-image="name">` with the srcset, width and
+ *   height of the WebP crops `media/` writes to docs/images/site/ (see
+ *   `writeSiteImages` there);
  * - with `--demo <dir>`, copies the in-browser demo (frontend
  *   `npm run build:demo`, output `frontend/dist-demo`) to `demo/`. Without it
  *   the page's "Try it" links have nothing to open, so CI always passes it.
@@ -39,6 +44,7 @@ mkdirSync(out, { recursive: true })
 cpSync(join(here, 'src'), out, { recursive: true })
 cpSync(join(root, 'docs/images'), join(out, 'images'), { recursive: true })
 cpSync(join(root, 'docs/media/walkthrough.mp4'), join(out, 'media/walkthrough.mp4'))
+cpSync(join(root, 'docs/media/walkthrough.vtt'), join(out, 'media/walkthrough.vtt'))
 cpSync(join(root, 'frontend/public/favicon.svg'), join(out, 'favicon.svg'))
 writeFileSync(join(out, '.nojekyll'), '')
 if (demo) {
@@ -50,21 +56,52 @@ if (demo) {
 
 // The page and the social card (social.html) both carry the timeline.
 const marker = '<!-- hero:timeline -->'
+const siteImages = JSON.parse(readFileSync(join(root, 'docs/images/site/manifest.json'), 'utf8'))
 for (const page of ['index.html', 'social.html']) {
   const pagePath = join(out, page)
-  const html = readFileSync(pagePath, 'utf8')
+  let html = readFileSync(pagePath, 'utf8')
   if (!html.includes(marker)) throw new Error(`${page} has no ${marker} marker`)
-  writeFileSync(pagePath, html.replace(marker, heroTimeline(scenario)))
+  html = html.replace(marker, heroTimeline(scenario)).replace('<!-- hero:events -->', heroEventList(scenario))
+  html = html.replace(/data-site-image="([a-z-]+)"/g, (_, name) => siteImageAttributes(name))
+  writeFileSync(pagePath, html)
 }
 
 console.log(`site built in ${out}`)
 
 /* ------------------------------------------------------------------------ */
 
+/** srcset, sizes and the true dimensions of one of media/'s site crops. */
+function siteImageAttributes(name) {
+  const image = siteImages[name]
+  if (!image) throw new Error(`docs/images/site/manifest.json has no image "${name}"; run npm run capture in media/`)
+  const srcset = image.widths.map((w) => `images/site/${name}-${w}.webp ${w}w`).join(', ')
+  // The feature grid's image column: the full width below 820px, ~664px above.
+  const sizes = '(max-width: 820px) calc(100vw - 32px), 664px'
+  return `srcset="${srcset}" sizes="${sizes}" width="${image.width}" height="${image.height}"`
+}
+
+/** The hero's events as a list, for screen readers (the drawing is one image). */
+function heroEventList(s) {
+  const fmt = (iso) =>
+    new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
+  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const branchName = s.branch.name.split('—').pop().trim()
+  const item = (e) => `<li>${fmt(e.timestamp)}: ${esc(e.description)} (${esc(e.actor)}, ${esc(e.target)})</li>`
+  return (
+    `<div class="sr-only"><h2>The events in ${esc(s.graph.name)}</h2><ol>${s.events.map(item).join('')}</ol>` +
+    `<h3>In the branch ${esc(branchName)}</h3><ol>${s.branch.events.map(item).join('')}</ol></div>`
+  )
+}
+
 /**
  * The forking timeline: the baseline history with its periods above, causal
  * links arching over the events, and the branch dropping away at the moment it
- * diverges. x is time throughout; nothing is placed for looks.
+ * diverges. x is time throughout; the one exception is that events closer
+ * than their marks are spread just far enough apart to tell apart (a few
+ * weeks at this scale), and their links follow them.
+ *
+ * Each event carries its date, description and actors as data attributes;
+ * site/src/main.js shows them on hover, tap or arrow key.
  */
 function heroTimeline(s) {
   const W = 1200
@@ -103,6 +140,33 @@ function heroTimeline(s) {
     return baseY + (laneY - baseY) * t * t * (3 - 2 * t)
   }
 
+  // Where each baseline event is drawn. Events closer than their marks (the
+  // census and the Great Exhibition, five weeks apart) are spread around their
+  // centre just far enough to tell apart: a few weeks at this scale.
+  const radius = (e) => 2.5 + (e.significance ?? 0.5) * 4.5
+  const placed = s.events
+    .map((e) => ({ key: e.key, x: x(e.timestamp), r: radius(e) }))
+    .sort((a, b) => a.x - b.x)
+  for (let pass = 0; pass < 6; pass++) {
+    let moved = false
+    for (let i = 0; i < placed.length; ) {
+      let j = i
+      while (j + 1 < placed.length && placed[j + 1].x - placed[j].x < placed[j].r + placed[j + 1].r + 2) j++
+      if (j > i) {
+        const group = placed.slice(i, j + 1)
+        const offsets = [0]
+        for (let k = 1; k < group.length; k++) offsets.push(offsets[k - 1] + group[k - 1].r + group[k].r + 2)
+        const shift = group.reduce((t, g) => t + g.x, 0) / group.length - offsets.reduce((t, o) => t + o, 0) / group.length
+        group.forEach((g, k) => (g.x = offsets[k] + shift))
+        moved = true
+      }
+      i = j + 1
+    }
+    if (!moved) break
+  }
+  const at = new Map(placed.map((p) => [p.key, p.x]))
+  const px = (key) => at.get(key)
+
   const parts = []
 
   // Periods (arcs, in the domain sense), nested by level.
@@ -119,11 +183,9 @@ function heroTimeline(s) {
   // Causal links, arching over the baseline; height grows with the span.
   const links = []
   for (const l of s.links) {
-    const c = events.get(l.cause)
-    const e = events.get(l.effect)
-    if (!c || !e) continue
-    const x1 = x(c.timestamp)
-    const x2 = x(e.timestamp)
+    if (!events.has(l.cause) || !events.has(l.effect)) continue
+    const x1 = px(l.cause)
+    const x2 = px(l.effect)
     const h = Math.min(116, 14 + Math.abs(x2 - x1) * 0.42) * 1.33
     links.push(
       `<path class="ht-link ht-${l.type}" style="--d:${delay(x1)};opacity:${f(0.25 + l.confidence * 0.55)}" ` +
@@ -139,51 +201,71 @@ function heroTimeline(s) {
   const lastBranchX = x(branchEvents[branchEvents.length - 1].timestamp)
   const solidTo = Math.max(lastBranchX + 24, xs + drop + 8)
   const pts = []
-  for (let px = xs; px <= solidTo; px += 2) pts.push(`${f(px)} ${f(branchY(px))}`)
+  for (let p = xs; p <= solidTo; p += 2) pts.push(`${f(p)} ${f(branchY(p))}`)
   parts.push(`<path class="ht-branch" pathLength="1" d="M${pts.join('L')}"/>`)
   parts.push(`<path class="ht-branch-open" d="M${f(solidTo)} ${laneY}H${xEnd}"/>`)
 
-  // Events on the baseline, sized by significance.
+  // Every event, in date order, with what main.js shows when it is selected.
+  const who = (e) => `${e.actor} → ${e.target}`
+  const marks = [
+    ...s.events.map((e) => ({ e, cx: px(e.key), cy: baseY, r: radius(e), branch: false })),
+    ...branchEvents.slice(1).map((e) => ({ e, cx: x(e.timestamp), cy: branchY(x(e.timestamp)), r: radius(e), branch: true })),
+  ]
+  // The divergence: the branch's first event, drawn where the branch has
+  // just left the baseline, so it reads as the branch's and never sits on
+  // the original history's events of the same weeks.
+  const dm = 8
+  let dx = xs
+  while (branchY(dx) < baseY + 17 && dx < xs + drop) dx += 0.5
+  const dy = branchY(dx)
+  marks.push({ e: split, cx: dx, cy: dy, r: dm, branch: true, diverge: true })
+  marks.sort((a, b) => a.e.timestamp.localeCompare(b.e.timestamp))
+
   const dots = []
-  for (const e of s.events) {
-    const px = x(e.timestamp)
-    const r = 2.5 + (e.significance ?? 0.5) * 4.5
-    dots.push(
-      `<circle class="ht-event" style="--d:${delay(px)}" cx="${f(px)}" cy="${baseY}" r="${f(r)}">` +
-        `<title>${fmt(e.timestamp)}: ${esc(e.description)}</title></circle>`,
-    )
-  }
-  for (const e of branchEvents.slice(1)) {
-    const px = x(e.timestamp)
-    const r = 2.5 + (e.significance ?? 0.5) * 4.5
-    dots.push(
-      `<circle class="ht-event ht-on-branch" cx="${f(px)}" cy="${f(branchY(px))}" r="${f(r)}">` +
-        `<title>${fmt(e.timestamp)}: ${esc(e.description)}</title></circle>`,
-    )
+  for (const m of marks) {
+    if (m.diverge) continue
+    const cls = m.branch ? 'ht-event ht-on-branch' : 'ht-event'
+    const style = m.branch ? '' : ` style="--d:${delay(m.cx)}"`
+    dots.push(`<circle class="${cls}"${style} cx="${f(m.cx)}" cy="${f(m.cy)}" r="${f(m.r)}"/>`)
   }
   parts.push(`<g>${dots.join('')}</g>`)
-
-  // The divergence: the branch's first event, at the moment the branch splits.
-  const dm = 8
   parts.push(
-    `<path class="ht-diverge" d="M${f(xs)} ${baseY - dm}L${f(xs + dm)} ${baseY}L${f(xs)} ${baseY + dm}L${f(xs - dm)} ${baseY}Z">` +
-      `<title>Diverges ${fmt(split.timestamp)}: ${esc(split.description)}</title></path>`,
+    `<path class="ht-diverge" d="M${f(dx)} ${f(dy - dm)}L${f(dx + dm)} ${f(dy)}L${f(dx)} ${f(dy + dm)}L${f(dx - dm)} ${f(dy)}Z"/>`,
+  )
+
+  // The selection ring, and generous hit areas (a dot is a few pixels wide)
+  // carrying each event's text for main.js.
+  parts.push(`<circle class="ht-ring" cx="-40" cy="-40" r="11"/>`)
+  parts.push(
+    `<g class="ht-hits">` +
+      marks
+        .map(
+          (m, i) =>
+            `<circle class="ht-hit" cx="${f(m.cx)}" cy="${f(m.cy)}" r="${f(Math.max(12, m.r + 5))}" data-i="${i}"` +
+            ` data-date="${fmt(m.e.timestamp)}" data-text="${esc(m.e.description)}" data-who="${esc(who(m.e))}"` +
+            `${m.branch ? ' data-branch=""' : ''}/>`,
+        )
+        .join('') +
+      `</g>`,
   )
 
   // Labels: the two lanes, and the events that tell the story of the fork.
-  const label = (px, y, iso, text, cls = '') =>
-    `<text class="ht-label ${cls}" x="${f(px)}" y="${y}"><tspan class="ht-date">${new Date(iso).getUTCFullYear()}</tspan> ${esc(text)}</text>`
+  // The branch's own labels wait for the branch to be drawn.
+  const label = (lx, y, iso, text, cls = '') =>
+    `<text class="ht-label ${cls}" x="${f(lx)}" y="${y}"><tspan class="ht-date">${new Date(iso).getUTCFullYear()}</tspan> ${esc(text)}</text>`
   const first = events.get('firstrun')
   const act = events.get('act')
   parts.push(`<g class="ht-labels">`)
   parts.push(`<text class="ht-lane" x="${pad}" y="${baseY + 38}">${esc(s.graph.name)}</text>`)
   if (first) {
-    const px = x(first.timestamp)
-    parts.push(`<path class="ht-leader" d="M${f(px)} ${baseY + 10}V${baseY + 26}"/>`)
-    parts.push(label(px - 4, baseY + 40, first.timestamp, first.description))
+    const fx = px('firstrun')
+    parts.push(`<path class="ht-leader" d="M${f(fx)} ${baseY + 10}V${baseY + 26}"/>`)
+    parts.push(label(fx - 4, baseY + 40, first.timestamp, first.description))
   }
   if (act) parts.push(label(xs + 40, baseY + 38, act.timestamp, act.description))
+  parts.push(`</g>`)
   const branchName = s.branch.name.split('—').pop().trim()
+  parts.push(`<g class="ht-labels ht-labels-branch">`)
   parts.push(`<text class="ht-lane ht-lane-branch" x="${f(xs + 40)}" y="${laneY - 14}">${esc(branchName)}</text>`)
   branchEvents.forEach((e, i) => {
     parts.push(label(xs + 40, laneY + 28 + i * 21, e.timestamp, e.description, 'ht-label-branch'))

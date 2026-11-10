@@ -1,0 +1,34 @@
+{
+  "ingest-review": {
+    "widths": [
+      720,
+      1440
+    ],
+    "width": 1440,
+    "height": 936
+  },
+  "timeline": {
+    "widths": [
+      720,
+      1440
+    ],
+    "width": 1440,
+    "height": 644
+  },
+  "causal-graph": {
+    "widths": [
+      720,
+      1440
+    ],
+    "width": 1440,
+    "height": 980
+  },
+  "branch": {
+    "widths": [
+      720,
+      1440
+    ],
+    "width": 1440,
+    "height": 738
+  }
+}

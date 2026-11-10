@@ -10,6 +10,7 @@ npx serve site/_site         # or any static server (the demo needs one; the pag
 ```
 
 - `src/` is the page: plain HTML, CSS and a few lines of JavaScript, no build step of its own.
-- The screenshots and the walkthrough video are copied in from `docs/images/` and `docs/media/`, which `npm run media` regenerates from the running app. Regenerate them there, not here.
+- The screenshots and the walkthrough video are copied in from `docs/images/` and `docs/media/`, which `npm run media` regenerates from the running app. Regenerate them there, not here. The page uses the WebP crops in `docs/images/site/`: write `<img src="images/site/NAME-1440.webp" data-site-image="NAME" alt="…">` and the build fills in the `srcset`, `sizes`, `width` and `height` from that folder's `manifest.json`.
+- The hero timeline is interactive (`src/main.js`): point at an event, tap it, or focus the timeline and use the arrow keys. A screen-reader list of the same events replaces `<!-- hero:events -->`.
 - The hero's forking timeline is drawn by `build.mjs` from `media/src/seed/scenario.ts`, the history in those pictures, so the graphic and the screenshots always show the same events.
 - `demo/` is the real frontend built with `npm run build:demo`, which answers its own API in the browser from a recording of the real backend. See `frontend/src/demo/README.md`. The Pages workflow builds it, runs its e2e suite, and only then publishes.

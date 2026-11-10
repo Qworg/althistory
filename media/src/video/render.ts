@@ -8,6 +8,8 @@ import path from 'node:path'
 import ffmpeg from '@ffmpeg-installer/ffmpeg'
 import type { Manifest } from '../manifest.js'
 import { paths } from '../paths.js'
+import { writeSiteImages } from '../images.js'
+import { writeCaptions } from './captions.js'
 
 // Revideo's renderer reports anonymous usage unless this is set.
 process.env.DISABLE_TELEMETRY = 'true'
@@ -86,6 +88,10 @@ export async function renderWalkthrough(): Promise<void> {
     '-vf', 'scale=1280:-2:flags=lanczos', '-compression_level', '9',
     path.join(paths.readmeImages, 'walkthrough-poster.png'),
   ])
+
+  // Captions as text for the site's player, and the site's lighter poster.
+  await writeCaptions()
+  await writeSiteImages()
 
   const size = (await stat(finalPath)).size
   log(`docs/media/walkthrough.mp4 (${(size / 1024 / 1024).toFixed(1)} MB)`)

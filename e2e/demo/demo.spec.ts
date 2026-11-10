@@ -55,8 +55,44 @@ test('an edit lasts for the tab, and Start over undoes it', async ({ page }) => 
   await page.reload()
   await expect(page.getByText('20 events · 4 arcs · 24 links')).toBeVisible()
 
+  // Start over is a fresh visit from the landing page: the edit is gone, and
+  // the demo opens on the branch.
   await page.getByRole('button', { name: 'Start over' }).click()
+  await expect(page.getByText('21 events · 4 arcs · 25 links')).toBeVisible()
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="The engines reach Calcutta"]')).toHaveCount(0)
+})
+
+test('the landing page link opens on the branch', async ({ page }) => {
+  await page.goto('./?start=branch')
+  await expect(page.getByText('21 events · 4 arcs · 25 links')).toBeVisible()
+  await expect(page.getByText(/Branch of\s*The Engine Age/)).toBeVisible()
+  // The parameter is consumed, so a reload keeps whatever the visitor chose.
+  expect(new URL(page.url()).searchParams.has('start')).toBe(false)
+})
+
+test('forks the history in the browser', async ({ page }) => {
+  await page.goto('./')
   await expect(page.getByText(COUNTS)).toBeVisible()
+
+  await page.getByRole('button', { name: 'Graph', exact: true }).first().click()
+  await page.getByRole('menuitem', { name: /^Branch or copy/ }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Branch name').fill('The Engine Stays Secret')
+  await dialog.getByRole('button', { name: 'Create branch' }).click()
+  await dialog.getByRole('button', { name: 'Switch to branch' }).click()
+  await expect(page.getByText(/Branch of\s*The Engine Age/)).toBeVisible()
+  await expect(page.getByText(COUNTS)).toBeVisible()
+
+  // Change the branch, and it diverges from the history it came from.
+  await page.getByRole('button', { name: 'Create Event' }).click()
+  const create = page.getByRole('dialog')
+  await create.getByLabel(/Description/).fill('Babbage burns the plans')
+  await create.getByLabel(/Actor/).fill('Charles Babbage')
+  await create.getByLabel(/Target/).fill('Analytical Engine')
+  await create.getByLabel(/^Date/).fill('1842-02-01 09:00')
+  await create.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByText('20 events · 4 arcs · 24 links')).toBeVisible()
+  await expect(page.getByText(/diverges/).first()).toBeVisible()
 })
 
 test('switches to the branch', async ({ page }) => {

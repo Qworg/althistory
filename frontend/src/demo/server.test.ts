@@ -64,6 +64,48 @@ describe('demo server', () => {
     expect(main.data.data).toHaveLength(19)
   })
 
+  it('makes a branch from the live state, and serves it like a recorded graph', async () => {
+    const { respond } = await load()
+    await respond(request('post', '/events', { description: 'A late addition', actor: 'Ada Lovelace', target: 'London', timestamp: '1850-01-01T00:00:00.000Z' }))
+
+    const made = await respond(request('post', '/graphs/graph_engine_age/branch', { name: 'Secret engines' }))
+    expect(made.status).toBe(201)
+    const branch = made.data.data as { id: string; parentGraphId: string; name: string; metadata: { eventCount: number } }
+    expect(branch).toMatchObject({ name: 'Secret engines', parentGraphId: 'graph_engine_age' })
+    // A copy of the parent as it stands, edits included.
+    expect(branch.metadata.eventCount).toBe(20)
+
+    const list = await respond(request('get', '/graphs'))
+    expect(list.data.data.map((g: { id: string }) => g.id)).toContain(branch.id)
+    const children = await respond(request('get', '/graphs/graph_engine_age/branches'))
+    expect(children.data.data.map((g: { id: string }) => g.id)).toEqual(['graph_clerks_prevail', branch.id])
+
+    await respond(request('post', `/graphs/${branch.id}/activate`, {}))
+    const active = await respond(request('get', '/graphs/active'))
+    expect(active.data.data.id).toBe(branch.id)
+    const versions = await respond(request('get', `/graphs/${branch.id}/versions?limit=100`))
+    expect(versions.data.data[0].description).toMatch(/^Branched from/)
+    // Reads recorded for the parent stand in for the new branch.
+    const pressures = await respond(request('get', '/inference/pressures?limit=500'))
+    expect(pressures.status).toBe(200)
+
+    // Its edits stay its own.
+    await respond(request('post', '/events', { description: 'Only in the branch', actor: 'x', target: 'y', timestamp: '1855-01-01T00:00:00.000Z' }))
+    const parentEvents = await respond(request('get', '/events', undefined, { 'X-Graph-Id': 'graph_engine_age' }))
+    expect(parentEvents.data.data).toHaveLength(20)
+  })
+
+  it('starts on the graph the app last showed', async () => {
+    localStorage.setItem('active_graph_id', 'graph_clerks_prevail')
+    try {
+      const { respond } = await load()
+      const active = await respond(request('get', '/graphs/active'))
+      expect(active.data.data.id).toBe('graph_clerks_prevail')
+    } finally {
+      localStorage.removeItem('active_graph_id')
+    }
+  })
+
   it('says plainly when something needs the server', async () => {
     const { respond } = await load()
     const error = await respond(request('post', '/ingest/text', { text: 'On 1 May 1851 the Great Exhibition opened.' })).catch((e: unknown) => e)

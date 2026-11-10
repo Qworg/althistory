@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "install-browsers": "playwright install chromium",
     "demo:record": "tsx src/demo/record.ts",
-    "social": "tsx src/social.ts"
+    "social": "tsx src/social.ts",
+    "captions": "tsx src/video/captions.ts"
   },
   "devDependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
