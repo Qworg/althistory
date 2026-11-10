@@ -85,3 +85,8 @@ screen. Fix the step, don't add a sleep.
   issue or PR comment box and put the `user-attachments` URL it gives you in
   the README's `<video src="...">`. The download link next to the player
   always serves the repository copy.
+- **The online demo.** `npm run demo:record` uses the same stack and seed to
+  record what the backend answers, for the in-browser demo on GitHub Pages
+  (`frontend/src/demo/recording.json`). Re-record after changing the
+  scenario, so the demo shows the same history as the pictures; see
+  `frontend/src/demo/README.md`.

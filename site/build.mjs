@@ -2,7 +2,7 @@
 /**
  * Builds the GitHub Pages site into an output directory (default `site/_site`).
  *
- *   node site/build.mjs [outDir]
+ *   node site/build.mjs [outDir] [--demo <dir>]
  *
  * The page is hand-written (`site/src/`); this script only assembles it:
  *
@@ -12,17 +12,24 @@
  *   shows the same pictures as the README and never keeps its own copies;
  * - draws the hero's forking timeline from `media/src/seed/scenario.ts`, the
  *   history those pictures are taken from, and puts it in place of the
- *   `<!-- hero:timeline -->` marker in `index.html`.
+ *   `<!-- hero:timeline -->` marker in `index.html`;
+ * - with `--demo <dir>`, copies the in-browser demo (frontend
+ *   `npm run build:demo`, output `frontend/dist-demo`) to `demo/`. Without it
+ *   the page's "Try it" links have nothing to open, so CI always passes it.
  *
  * Needs Node 24 or later, which imports the TypeScript seed directly.
  */
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
-const out = resolve(process.argv[2] ?? join(here, '_site'))
+const args = process.argv.slice(2)
+const demoFlag = args.indexOf('--demo')
+const demo = demoFlag >= 0 ? resolve(args[demoFlag + 1] ?? '') : undefined
+if (demoFlag >= 0) args.splice(demoFlag, 2)
+const out = resolve(args[0] ?? join(here, '_site'))
 
 const { scenario } = await import(join(root, 'media/src/seed/scenario.ts'))
 
@@ -33,6 +40,12 @@ cpSync(join(root, 'docs/images'), join(out, 'images'), { recursive: true })
 cpSync(join(root, 'docs/media/walkthrough.mp4'), join(out, 'media/walkthrough.mp4'))
 cpSync(join(root, 'frontend/public/favicon.svg'), join(out, 'favicon.svg'))
 writeFileSync(join(out, '.nojekyll'), '')
+if (demo) {
+  if (!existsSync(join(demo, 'index.html'))) throw new Error(`${demo} has no index.html; run npm run build:demo in frontend/`)
+  cpSync(demo, join(out, 'demo'), { recursive: true })
+} else {
+  console.warn('no --demo given: the page links to demo/, which this build does not include')
+}
 
 const indexPath = join(out, 'index.html')
 const marker = '<!-- hero:timeline -->'

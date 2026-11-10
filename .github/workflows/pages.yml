@@ -1,9 +1,13 @@
 # The GitHub Pages site (https://qworg.github.io/althistory/).
 #
 # `site/build.mjs` assembles it: the hand-written page in `site/src/`, the
-# screenshots and video `media/` generates into `docs/`, and the hero timeline
-# drawn from the same seed history. A pull request that touches any of those
-# builds the site so a broken build is caught; only a push to main deploys.
+# screenshots and video `media/` generates into `docs/`, the hero timeline
+# drawn from the same seed history, and the in-browser demo at `demo/` (the
+# real frontend built with `npm run build:demo`, which answers its own API from
+# a recording of the real backend; see frontend/src/demo/). The demo's e2e
+# suite runs against that build before anything is published. A pull request
+# that touches any of those inputs builds and tests the site; only a push to
+# main deploys.
 #
 # Pages must be set to deploy from GitHub Actions (Settings → Pages → Source).
 
@@ -17,7 +21,9 @@ on:
       - 'docs/images/**'
       - 'docs/media/**'
       - 'media/src/seed/**'
-      - 'frontend/public/favicon.svg'
+      - 'frontend/**'
+      - 'e2e/demo/**'
+      - 'e2e/playwright.demo.config.ts'
       - '.github/workflows/pages.yml'
   pull_request:
     paths:
@@ -25,7 +31,9 @@ on:
       - 'docs/images/**'
       - 'docs/media/**'
       - 'media/src/seed/**'
-      - 'frontend/public/favicon.svg'
+      - 'frontend/**'
+      - 'e2e/demo/**'
+      - 'e2e/playwright.demo.config.ts'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -39,13 +47,34 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      # Node 24 imports the TypeScript seed directly; no install step needed.
+      # Node 24 also lets site/build.mjs import the TypeScript seed directly.
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: node site/build.mjs _site
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Install e2e dependencies and Chromium
+        run: npm ci && npx playwright install --with-deps chromium
+        working-directory: e2e
+
+      # The Playwright web server runs `npm run build:demo` itself, so the
+      # build that is tested is the build that is published.
+      - name: Build and test the demo
+        run: npx playwright test -c playwright.demo.config.ts
+        working-directory: e2e
+
+      - name: Assemble the site
+        run: node site/build.mjs _site --demo frontend/dist-demo
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

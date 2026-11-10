@@ -9,7 +9,8 @@
     "capture": "tsx src/generate.ts --skip-video",
     "video": "tsx src/generate.ts --video-only",
     "typecheck": "tsc --noEmit",
-    "install-browsers": "playwright install chromium"
+    "install-browsers": "playwright install chromium",
+    "demo:record": "tsx src/demo/record.ts"
   },
   "devDependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
