@@ -245,7 +245,16 @@ describe('Graph routes (request-level)', () => {
       const authorKey = (
         await container.authService.createApiKey({
           name: 'Graph Routes Author Key',
-          permissions: ['read:graphs', 'write:graphs', 'read:arcs', 'write:arcs'],
+          permissions: [
+            'read:graphs',
+            'write:graphs',
+            'read:arcs',
+            'write:arcs',
+            'read:events',
+            'write:events',
+            'read:relationships',
+            'write:relationships',
+          ],
         })
       ).key;
       const server = app.listen(0);
@@ -278,9 +287,30 @@ describe('Graph routes (request-level)', () => {
           parentArcId: reign.id,
         });
         expect((await engine.getArc(made.id, decade.id)).level).toBe(2);
+
+        // A link with no reasoning is accepted, as in direct mode: the API
+        // requires evidence, so the engine supplies the same default.
+        const cause = await engine.createEvent(made.id, { description: 'Cause', timestamp: '1001-01-01T00:00:00Z' });
+        const effect = await engine.createEvent(made.id, { description: 'Effect', timestamp: '1002-01-01T00:00:00Z' });
+        const link = await engine.createCausalLink(made.id, { causeId: cause.id, effectId: effect.id });
+        expect(link.reasoning).toBe('Observed historical causality');
       } finally {
         await new Promise((resolve) => server.close(resolve));
       }
+    });
+
+    it('keeps every graph in the index when two repositories over the same store create at once', async () => {
+      const { GraphRepository } = await import('@/repositories/GraphRepository');
+      const dataDir = path.join(testDataDir, 'two-repositories');
+      const first = new GraphRepository({ dataDir });
+      const second = new GraphRepository({ dataDir });
+      await first.initialize();
+      await second.initialize();
+      const made = await Promise.all(
+        Array.from({ length: 10 }, (_, n) => (n % 2 ? first : second).create({ name: `Concurrent ${n}` }))
+      );
+      const listed = new Set((await first.findAll({ limit: 100, offset: 0 })).graphs.map((graph) => graph.id));
+      for (const graph of made) expect(listed.has(graph.id)).toBe(true);
     });
 
     it('exports a nested arc with its parent, so the export imports again', async () => {

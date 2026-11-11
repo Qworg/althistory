@@ -215,6 +215,11 @@ describe('invented worlds', () => {
       expect(result.graphName).toBe('World: A drowned archipelago ruled by…');
       expect(result.events[0].timestamp.startsWith('1000-01-01')).toBe(true);
       expect(result.events[0].description).toBe('The founding of the world: A drowned archipelago ruled by salt-kings');
+      // A template date is a day, so it falls at midnight rather than showing an hour.
+      for (const event of result.events) expect(event.timestamp).toMatch(/T00:00:00\.000Z$/);
+      // The preview places events in arcs as the write would.
+      const previewArcs = new Set(result.arcs.map((arc) => arc.id));
+      for (const event of result.events) expect(previewArcs.has(event.metadata?.arcId as string)).toBe(true);
       // Nothing of the real-history template leaks in.
       const text = JSON.stringify(result);
       expect(text).not.toMatch(/1914|Divergent|counterfactual|Point of Divergence/i);
@@ -301,6 +306,11 @@ describe('invented worlds', () => {
       expect(branch.events.some((event) => event.description === 'The chronicle turns: The salt-kings make peace')).toBe(
         true
       );
+      // The branch's events sit in its arc, which is recorded, so the export carries both.
+      const branchArc = branch.arcs[0];
+      for (const event of branch.events) expect(event.metadata?.arcId).toBe(branchArc.id);
+      const document = JSON.parse((await engine.exportGraph(branch.graphId, 'json')).content!);
+      expect(document.data.arcs.map((arc: { id: string }) => arc.id)).toContain(branchArc.id);
     });
   });
 
@@ -347,6 +357,8 @@ describe('invented worlds', () => {
       expect(text).toContain('Year 312 is 0361-01-01T00:00:00Z');
       expect(renderPrompt('worldbuild', { world: 'Late', epochYear: '9990' }).text).toContain('Year 2 is 9991-01-01T00:00:00Z');
       expect(() => renderPrompt('worldbuild', { world: 'Isles', eraLabel: 'x'.repeat(17) })).toThrow(/at most 16/);
+      // `/althistory:worldbuild 1200` puts the number in the first argument, eraLabel.
+      expect(renderPrompt('worldbuild', { eraLabel: '1200' }).text).toContain('epochYear 1200.');
     });
 
     it('nests an arc one level below its parent, and refuses a parent that does not exist', async () => {

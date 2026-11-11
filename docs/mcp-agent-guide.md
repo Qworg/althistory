@@ -61,7 +61,9 @@ it works on the local files (`timeline/data`, the same store the app reads).
 `althistory_generate_timeline` and `althistory_branch_timeline` run only
 in-process, so they need the app stopped; every other tool works either way.
 Do not add `--direct` while the app is running: two processes would then
-write the same files.
+write the same files. Working through the app, the server uses the app's own
+admin key, which `start-local.sh` writes to `timeline/.env.local`; for another
+server, set `ALTHISTORY_API_KEY` in the server's `env` (or pass `--api-key`).
 
 To let the server draft with a model, give **the server** a key: add
 `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) to its `env`. The agent's own model

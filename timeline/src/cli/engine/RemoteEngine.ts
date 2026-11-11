@@ -625,7 +625,7 @@ export class RemoteEngine implements IEngine {
             type: readRelationshipType(data.type),
             strength: data.weight ?? 1,
             confidence: 1,
-            evidence: data.reasoning || '',
+            evidence: data.reasoning || 'Observed historical causality',
           },
         },
         { headers: this.graphHeaders(graphId) }

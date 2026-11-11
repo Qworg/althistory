@@ -550,11 +550,25 @@ export class GraphRepository {
   private async saveIndex(index: GraphIndex): Promise<void> {
     const temporary = `${this.graphsIndexPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
     await fs.promises.writeFile(temporary, JSON.stringify(index, null, 2), 'utf-8');
-    await fs.promises.rename(temporary, this.graphsIndexPath);
+    try {
+      // On Windows a rename onto a file that a scanner or indexer has open
+      // fails for a moment (EPERM, EBUSY, EACCES); it is retried briefly.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await fs.promises.rename(temporary, this.graphsIndexPath);
+          return;
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (attempt >= 4 || !['EPERM', 'EBUSY', 'EACCES'].includes(code ?? '')) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        }
+      }
+    } catch (error) {
+      await fs.promises.unlink(temporary).catch(() => undefined);
+      throw error;
+    }
   }
 
-  /** The tail of the queue of index changes; each change waits for the one before. */
-  private indexQueue: Promise<unknown> = Promise.resolve();
 
   /**
    * Read, change and write the index as one step. Two graphs created at once
@@ -565,16 +579,22 @@ export class GraphRepository {
    * `change` returns `false` when it changed nothing, so nothing is written.
    */
   private mutateIndex(change: (index: GraphIndex) => boolean | void): Promise<void> {
-    const run = this.indexQueue.then(async () => {
+    // Keyed by file, not by repository: GraphService, ImportService and the
+    // container each make their own repository over the same index.
+    const key = path.resolve(this.graphsIndexPath);
+    const run = (indexQueues.get(key) ?? Promise.resolve()).then(async () => {
       const index = await this.loadIndex();
       if (change(index) === false) return;
       await this.saveIndex(index);
     });
     // A failed change must not block the ones queued after it.
-    this.indexQueue = run.catch(() => undefined);
+    indexQueues.set(key, run.catch(() => undefined));
     return run;
   }
 }
+
+/** The queue of changes to each index file, shared by every repository in the process. */
+const indexQueues = new Map<string, Promise<unknown>>();
 
 interface GraphIndex {
   graphs: string[];

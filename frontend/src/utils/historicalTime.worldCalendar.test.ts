@@ -78,9 +78,9 @@ describe('historical dates in a world calendar', () => {
     expect(formatHistoricalDateAt(stored, 'month', 'ja-JP', AR)).toBe('312 AR 3月')
     // Two numbers never run together.
     expect(formatHistoricalDate(stored, 'ja-JP', UNLABELLED)).toBe('Year 312, 3月4日')
-    // Year last: the " г." of ru and bg goes; a numeric date gets a space.
+    // Year last: the " г." of ru and bg goes; a numeric date is set off by a comma.
     expect(formatHistoricalDate(stored, 'ru-RU', AR)).toBe('4 мар. 312 AR')
-    expect(formatHistoricalDate(stored, 'bg-BG', AR)).toBe('4.03. 312 AR')
+    expect(formatHistoricalDate(stored, 'bg-BG', AR)).toBe('4.03, 312 AR')
     expect(formatHistoricalTimestamp('1311-03-04T14:30:00Z', 'ja-JP', AR)).toBe('312 AR 3月4日, 14:30 UTC')
   })
 
@@ -148,5 +148,20 @@ describe('historical dates without a world calendar', () => {
     useWorldCalendarStore.getState().setCalendar(AR)
     useWorldCalendarStore.getState().setCalendar(null)
     expect(formatHistoricalDate('1843-11-20T00:00:00Z', 'en-US')).toBe('Nov 20, 1843')
+  })
+})
+
+describe('a world year after a numeric date', () => {
+  // Found in review: the locale's separator hung off the world year
+  // ("4/03/ 312 AR"), and a comma with no space made "ಮಾರ್ಚ್ 4,312".
+  it.each([
+    ['pt-PT', 'day', '4/03, 312 AR'],
+    ['pt-PT', 'month', '03, 312 AR'],
+    ['bg-BG', 'day', '4.03, 312 AR'],
+    ['sk-SK', 'month', '3, 312 AR'],
+    ['kn-IN', 'day', 'ಮಾರ್ಚ್ 4, 312 AR'],
+    ['ru-RU', 'day', '4 мар. 312 AR'],
+  ] as const)('%s at %s precision reads %s', (locale, precision, expected) => {
+    expect(formatHistoricalDateAt('1311-03-04T00:00:00Z', precision, locale, { epochYear: 1000, eraLabel: 'AR' })).toBe(expected)
   })
 })

@@ -86,8 +86,14 @@ function formatInWorld(
     return /\p{Nd}$/u.test(year) && /^\p{Nd}/u.test(rest) ? `${year}, ${rest}` : `${year} ${rest}`
   }
   if (after.length === 0) {
-    const head = text(before)
-    return /[\s,،]$/.test(head) ? `${head}${year}` : `${head.trimEnd()} ${year}`
+    // A numeric date's separator before the year ("4/03/", "03.") would hang
+    // off a world year ("4/03/ 312 AR"), so it goes; a comma keeps its space
+    // ("ಮಾರ್ಚ್ 4,312" read as one number); and two numbers that would meet
+    // are parted by a comma ("4/03, 312 AR"). "мар." keeps its full stop: only
+    // a separator after a digit is dropped.
+    const head = text(before).replace(/(\p{Nd})[/.-]\s*$/u, '$1').trimEnd()
+    if (/[,،]$/.test(head)) return `${head} ${year}`
+    return /\p{Nd}$/u.test(head) && /^\p{Nd}/u.test(year) ? `${head}, ${year}` : `${head} ${year}`
   }
   if (before[before.length - 1]?.type === 'literal') before.pop()
   return `${text(before).trim()} ${text(after).trim()}, ${year}`

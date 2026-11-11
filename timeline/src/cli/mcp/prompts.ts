@@ -1,7 +1,7 @@
 /**
  * The MCP prompts: the three ways of working with Althistory, written for an
  * agent. A client lists them (`prompts/list`) and offers them to its user;
- * Claude Code shows them as `/mcp__althistory__<name>` commands. The CLI prints
+ * Claude Code shows them as `/althistory:<name>` commands. The CLI prints
  * the same text with `althistory prompt <name>`.
  *
  * Each prompt names the tools it uses. `mcp.test.ts` checks that every tool a
@@ -47,6 +47,11 @@ const DEFAULT_EPOCH_YEAR = 1000;
  * world in their next message instead.
  */
 function worldbuild(args: Record<string, string>): string {
+  // A slash command's first word lands in eraLabel; a lone number there with no
+  // epochYear (`/althistory:worldbuild 1200`) is the epoch the author meant.
+  if (args.eraLabel && /^\d+$/.test(args.eraLabel) && !args.epochYear) {
+    args = { ...args, epochYear: args.eraLabel, eraLabel: '' };
+  }
   const world = args.world;
   const worldSection = world
     ? `The world:\n\n${world}`

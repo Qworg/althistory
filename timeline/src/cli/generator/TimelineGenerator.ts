@@ -260,19 +260,35 @@ export class TimelineGenerator {
     // Persist or Dry-Run
     if (options.dryRun) {
       const dryGraphId = `dry-${Date.now()}`;
-      const eventDtos: EventDto[] = intermediateEvents.map((e, idx) => ({
-        id: `evt-dry-${idx}`,
-        graphId: dryGraphId,
-        description: e.description,
-        timestamp: e.timestamp,
-        actor: e.actor,
-        target: e.target,
-        importance: e.importance,
-      }));
-
       const dryArcIdByTempId = new Map<string, string>(
         structuredArcs.map((arc, index) => [arc.tempId, `arc-dry-${index}`])
       );
+      // The preview places each event as the write would: in the innermost
+      // arc that holds it (an arc of one instant is widened to a day, as there).
+      const dryArcIdOf = (timestamp: string): string | undefined => {
+        const time = new Date(timestamp).getTime();
+        const holding = structuredArcs
+          .filter((arc) => {
+            const start = Date.parse(arc.start_time);
+            const end = Math.max(Date.parse(arc.end_time), start + MS_PER_DAY);
+            return start <= time && time <= end;
+          })
+          .sort((a, b) => b.level - a.level);
+        return holding[0] ? dryArcIdByTempId.get(holding[0].tempId) : undefined;
+      };
+      const eventDtos: EventDto[] = intermediateEvents.map((e, idx) => {
+        const arcId = dryArcIdOf(e.timestamp);
+        return {
+          id: `evt-dry-${idx}`,
+          graphId: dryGraphId,
+          description: e.description,
+          timestamp: e.timestamp,
+          actor: e.actor,
+          target: e.target,
+          importance: e.importance,
+          metadata: { importance: e.importance, ...(arcId ? { arcId } : {}) },
+        };
+      });
       const arcDtos: ArcDto[] = structuredArcs.map((a, idx) => ({
         id: `arc-dry-${idx}`,
         graphId: dryGraphId,
@@ -646,6 +662,40 @@ export class TimelineGenerator {
       stepMs
     );
 
+    // The branch's arc holds the events it adds, so it is made first and each
+    // event is placed in it. A top-level arc: it has no parent, so it is level
+    // 0 (an export of a level-1 arc without a parent fails the import's
+    // hierarchy check). It is recorded like the events, or an export of the
+    // branch would leave it out.
+    const times = intermediateEvents.map((e) => new Date(e.timestamp).getTime());
+    const arcStart = Math.min(...times);
+    const arcEnd = Math.max(Math.max(...times), arcStart + MS_PER_DAY);
+    const arc = await targetScoped.arcRepository.create({
+      name: `${options.branchName} Divergence Era`,
+      description: branchPlan.calendar
+        ? `Another course for the chronicle from ${pivotEvent.actor}: ${options.counterfactualPrompt}`
+        : `Counterfactual divergent timeline from ${pivotEvent.actor}: ${options.counterfactualPrompt}`,
+      start_time: new Date(arcStart),
+      end_time: new Date(arcEnd),
+      level: 0,
+    });
+    try {
+      await container.graphWriteVersioningService.recordArc(branchedGraphId, arc, 'create');
+    } catch {
+      // Best effort
+    }
+    const persistedArcs: ArcDto[] = [
+      {
+        id: arc.id,
+        graphId: branchedGraphId,
+        name: arc.name,
+        description: arc.description,
+        startTime: arc.start_time.toISOString(),
+        endTime: arc.end_time.toISOString(),
+        level: arc.level,
+      },
+    ];
+
     const domainEvents: Event[] = [];
     const persistedEvents: EventDto[] = [];
     for (const e of intermediateEvents) {
@@ -654,7 +704,7 @@ export class TimelineGenerator {
         timestamp: new Date(e.timestamp),
         actor: e.actor,
         target: e.target,
-        metadata: { importance: e.importance },
+        metadata: { importance: e.importance, arcId: arc.id },
       });
       try {
         await container.graphWriteVersioningService.recordEvent(branchedGraphId, created, 'create');
@@ -670,6 +720,7 @@ export class TimelineGenerator {
         actor: created.actor,
         target: created.target,
         importance: e.importance,
+        metadata: created.metadata,
       });
     }
 
@@ -721,30 +772,6 @@ export class TimelineGenerator {
         confidence: link.confidence,
       });
     }
-
-    // Create branch narrative arc
-    // A top-level arc: it has no parent, so it is level 0 (an export of a
-    // level-1 arc without a parent fails the import's hierarchy check).
-    const arc = await targetScoped.arcRepository.create({
-      name: `${options.branchName} Divergence Era`,
-      description: branchPlan.calendar
-        ? `Another course for the chronicle from ${pivotEvent.actor}: ${options.counterfactualPrompt}`
-        : `Counterfactual divergent timeline from ${pivotEvent.actor}: ${options.counterfactualPrompt}`,
-      start_time: new Date(persistedEvents[0].timestamp),
-      end_time: new Date(persistedEvents[persistedEvents.length - 1].timestamp),
-      level: 0,
-    });
-    const persistedArcs: ArcDto[] = [
-      {
-        id: arc.id,
-        graphId: branchedGraphId,
-        name: arc.name,
-        description: arc.description,
-        startTime: arc.start_time.toISOString(),
-        endTime: arc.end_time.toISOString(),
-        level: arc.level,
-      },
-    ];
 
     return {
       graphId: branchedGraphId,
@@ -1336,7 +1363,8 @@ Generate ${eventCount} chronological events of this world's history, from its fo
               ? `The chronicle turns: ${plan.subject}`
               : `The founding of the world: ${plan.subject}`
             : WORLD_STYLE_RENDERERS[style](milestone, world),
-        timestamp: new Date(startMs + stepMs * i).toISOString(),
+        // At midnight: a template date is a day, and an hour would show as one.
+        timestamp: new Date(Math.floor((startMs + stepMs * i) / MS_PER_DAY) * MS_PER_DAY).toISOString(),
         actor: i % 2 === 0 ? 'Founding People' : 'Rival Realm',
         target: i % 2 === 0 ? 'Rival Realm' : 'Founding People',
         importance: i === 0 ? 1.0 : Math.max(0.5, 0.9 - i * 0.05),
