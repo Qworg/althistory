@@ -63,9 +63,39 @@ describe('historical dates in a world calendar', () => {
     const stored = date.toLocaleDateString('de-DE', DATE_OPTIONS)
     expect(stored).toMatch(/1311$/)
     expect(formatHistoricalDate(date, 'de-DE', AR)).toBe(stored.replace('1311', '312 AR'))
+    expect(formatHistoricalDate(date, 'en-GB', AR)).toBe('4 Mar 312 AR')
+    expect(formatHistoricalDate(date, 'fr-FR', AR)).toBe('4 mars 312 AR')
+  })
 
-    const japanese = date.toLocaleDateString('ja-JP', DATE_OPTIONS)
-    expect(formatHistoricalDate(date, 'ja-JP', AR)).toBe(japanese.replace('1311', '312 AR'))
+  it("drops the locale's year markers, which belong to a number and not to a world year", () => {
+    const stored = '1311-03-04T00:00:00Z'
+    // Year first: the marker after it (年, 년, hu's ". ", lt's "-") goes.
+    expect(formatHistoricalDate(stored, 'ja-JP', AR)).toBe('312 AR 3月4日')
+    expect(formatHistoricalDate(stored, 'zh-CN', AR)).toBe('312 AR 3月4日')
+    expect(formatHistoricalDate(stored, 'ko-KR', AR)).toBe('312 AR 3월 4일')
+    expect(formatHistoricalDate(stored, 'hu-HU', AR)).toBe('312 AR márc. 4.')
+    expect(formatHistoricalDate(stored, 'lt-LT', AR)).toBe('312 AR 03-04')
+    expect(formatHistoricalDateAt(stored, 'month', 'ja-JP', AR)).toBe('312 AR 3月')
+    // Two numbers never run together.
+    expect(formatHistoricalDate(stored, 'ja-JP', UNLABELLED)).toBe('Year 312, 3月4日')
+    // Year last: the " г." of ru and bg goes; a numeric date gets a space.
+    expect(formatHistoricalDate(stored, 'ru-RU', AR)).toBe('4 мар. 312 AR')
+    expect(formatHistoricalDate(stored, 'bg-BG', AR)).toBe('4.03. 312 AR')
+    expect(formatHistoricalTimestamp('1311-03-04T14:30:00Z', 'ja-JP', AR)).toBe('312 AR 3月4日, 14:30 UTC')
+  })
+
+  it("writes the world year in the locale's digits", () => {
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'ar-EG', AR)).toBe('٤ مارس ٣١٢ AR')
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'fa-IR', AR)).toBe('۴ مارس ۳۱۲ AR')
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'en-US-u-nu-arab', AR)).toBe('Mar ٤, ٣١٢ AR')
+    expect(formatHistoricalDateAt('1311-03-04T00:00:00Z', 'year', 'ar-EG', AR)).toBe('٣١٢ AR')
+    // Never grouped: 1500, not 1,500.
+    expect(formatHistoricalDate('-000500-03-04T00:00:00Z', 'en-US', AR)).toBe('Mar 4, 1500 before AR')
+  })
+
+  it('ignores a locale calendar extension and its era', () => {
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'ja-JP-u-ca-japanese', AR)).toBe('312 AR 3月4日')
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'en-US-u-ca-buddhist', AR)).toBe('Mar 4, 312 AR')
   })
 
   it('shows the stored month and day in a locale whose default calendar is not Gregorian', () => {

@@ -1712,10 +1712,15 @@ const Timeline = memo(function Timeline({
               // 12px monospace labels need about 96px each.
               const maxTicks = Math.min(10, Math.floor(innerWidth / 96))
               // Use count-based ticks for reliability, format based on time span
+              // Ticks and labels in UTC, as the event labels read every
+              // date: local-time ticks put 1 January 1843 (UTC) on the wrong
+              // side of the "1843" tick west of Greenwich. The positions are
+              // the same linear scale either way.
+              const utcTicks = d3.scaleUtc().domain(xScale.domain()).ticks(maxTicks > 0 ? maxTicks : 5)
               // In a world calendar, multi-year steps land on the world's round years.
-              const ticks = alignYearTicksToCalendar(xScale.ticks(maxTicks > 0 ? maxTicks : 5), xScale.domain(), worldCalendar)
+              const ticks = alignYearTicksToCalendar(utcTicks, xScale.domain(), worldCalendar, true)
               // Labelled as a set, so two ticks never share a label.
-              const labels = formatTimeAxisTicks(ticks, timeSpanMs, worldCalendar)
+              const labels = formatTimeAxisTicks(ticks, timeSpanMs, worldCalendar, true)
               return ticks.map((tick, i) => (
                 <g key={i} transform={`translate(${xScale(tick)},0)`}>
                   <line y1={0} y2={6} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />

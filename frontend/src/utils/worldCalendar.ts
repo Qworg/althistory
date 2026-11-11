@@ -35,14 +35,20 @@ export function storedYear(year: number, calendar: GraphCalendar): number {
  * year 1 counts back from it: the year before the epoch is "1 before AR" (or
  * "1 before Year 1"), because a year 0 or a minus sign reads as an error.
  *
- * Copied from the backend; keep the two identical.
+ * Copied from the backend; keep the two identical. `formatNumber` (the
+ * frontend's only addition) writes the numbers in a locale's digits; left
+ * out, the output is the backend's.
  */
-export function formatWorldYear(storedYearValue: number, calendar: GraphCalendar): string {
+export function formatWorldYear(
+  storedYearValue: number,
+  calendar: GraphCalendar,
+  formatNumber: (value: number) => string = String
+): string {
   const year = worldYear(storedYearValue, calendar)
   const label = calendar.eraLabel?.trim()
-  if (year >= 1) return label ? `${year} ${label}` : `Year ${year}`
+  if (year >= 1) return label ? `${formatNumber(year)} ${label}` : `Year ${formatNumber(year)}`
   const before = 1 - year
-  return label ? `${before} before ${label}` : `${before} before Year 1`
+  return label ? `${formatNumber(before)} before ${label}` : `${formatNumber(before)} before Year ${formatNumber(1)}`
 }
 
 /** One line saying how the calendar maps: "the Reckoning of Vael: stored year 1000 is 1 AR". */

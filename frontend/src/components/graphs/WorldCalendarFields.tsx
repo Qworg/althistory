@@ -40,12 +40,16 @@ function previewCalendar(draft: CalendarDraft, epochValid: boolean): GraphCalend
 export function WorldCalendarFields({ state, idPrefix, sampleYear, disabled = false }: WorldCalendarFieldsProps) {
   const { enabled, setEnabled, draft, setField, errors, submitted, hadCalendar } = state
   const epochRef = useRef<HTMLInputElement>(null)
-  const focusEpoch = useRef(false)
+  const addRef = useRef<HTMLButtonElement>(null)
+  // Set by the button that toggles the section, which is unmounted by its own
+  // click: focus goes to what replaces it instead of dropping to <body>.
+  const moveFocus = useRef(false)
 
-  // "Add a world calendar" moves focus to the first field it reveals.
+  // "Add a world calendar" moves focus to the first field it reveals;
+  // "Remove calendar" to the button that adds it back.
   useEffect(() => {
-    if (enabled && focusEpoch.current) epochRef.current?.focus()
-    focusEpoch.current = false
+    if (moveFocus.current) (enabled ? epochRef.current : addRef.current)?.focus()
+    moveFocus.current = false
   }, [enabled])
 
   const ids = {
@@ -78,9 +82,10 @@ export function WorldCalendarFields({ state, idPrefix, sampleYear, disabled = fa
             </p>
           )}
           <button
+            ref={addRef}
             type="button"
             onClick={() => {
-              focusEpoch.current = true
+              moveFocus.current = true
               setEnabled(true)
             }}
             className="rounded border border-line px-3 py-1.5 text-sm text-ink hover:bg-subtle"
@@ -182,7 +187,10 @@ export function WorldCalendarFields({ state, idPrefix, sampleYear, disabled = fa
 
           <button
             type="button"
-            onClick={() => setEnabled(false)}
+            onClick={() => {
+              moveFocus.current = true
+              setEnabled(false)
+            }}
             className="rounded px-3 py-1.5 text-sm text-ink-secondary hover:bg-subtle hover:text-ink"
           >
             Remove calendar

@@ -100,6 +100,15 @@ describe('World calendar section: creating a graph', () => {
     expect(onCreate).not.toHaveBeenCalled()
   })
 
+  it('keeps focus in the section when it is added and removed', async () => {
+    await openForm()
+    await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
+    expect(screen.getByLabelText(/Year 1 is stored year/)).toHaveFocus()
+    // "Remove calendar" unmounts itself: focus goes to the button that replaces it, not <body>.
+    await user.click(screen.getByRole('button', { name: 'Remove calendar' }))
+    expect(screen.getByRole('button', { name: 'Add a world calendar' })).toHaveFocus()
+  })
+
   it('sends nothing once the section is removed again', async () => {
     const onCreate = await openForm()
     await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))

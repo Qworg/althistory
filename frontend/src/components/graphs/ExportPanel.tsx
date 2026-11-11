@@ -9,6 +9,9 @@ import { ExportHistoryList } from './ExportHistoryList'
 import { useExportManagement } from '@/hooks/useExport'
 import { useActiveGraphId, useActiveGraph } from '@/hooks/useGraphs'
 import { ExportFilters } from '@/types'
+import { WorldDateHint } from '@/components/ui/WorldDateHint'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { describedBy, worldDateOf } from '@/utils/worldDateHint'
 
 interface ExportPanelProps {
   className?: string
@@ -30,6 +33,8 @@ export const ExportPanel = memo(function ExportPanel({
   const [includeProvenance, setIncludeProvenance] = useState(false)
   const [filters, setFilters] = useState<ExportFilters>({})
   const [showFilters, setShowFilters] = useState(false)
+  // The open graph's world calendar: the dates are typed as stored, and read back in its years.
+  const worldCalendar = useWorldCalendar()
 
 
   const activeGraphId = useActiveGraphId()
@@ -238,18 +243,26 @@ export const ExportPanel = memo(function ExportPanel({
                     <div>
                       <label className="text-xs text-ink-muted">Between</label>
                       <div className="flex gap-2">
-                        <input
-                          type="date"
-                          value={filters.timeRange?.start || ''}
-                          onChange={(e) => handleTimeRangeChange('start', e.target.value)}
-                          className="flex-1 px-2 py-1 border border-line bg-card text-ink rounded text-sm"
-                        />
-                        <input
-                          type="date"
-                          value={filters.timeRange?.end || ''}
-                          onChange={(e) => handleTimeRangeChange('end', e.target.value)}
-                          className="flex-1 px-2 py-1 border border-line bg-card text-ink rounded text-sm"
-                        />
+                        <div className="flex-1 min-w-0">
+                          <input
+                            type="date"
+                            value={filters.timeRange?.start || ''}
+                            onChange={(e) => handleTimeRangeChange('start', e.target.value)}
+                            aria-describedby={describedBy(worldDateOf(filters.timeRange?.start, worldCalendar) && 'export-start-world')}
+                            className="w-full px-2 py-1 border border-line bg-card text-ink rounded text-sm"
+                          />
+                          <WorldDateHint id="export-start-world" value={filters.timeRange?.start || ''} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <input
+                            type="date"
+                            value={filters.timeRange?.end || ''}
+                            onChange={(e) => handleTimeRangeChange('end', e.target.value)}
+                            aria-describedby={describedBy(worldDateOf(filters.timeRange?.end, worldCalendar) && 'export-end-world')}
+                            className="w-full px-2 py-1 border border-line bg-card text-ink rounded text-sm"
+                          />
+                          <WorldDateHint id="export-end-world" value={filters.timeRange?.end || ''} />
+                        </div>
                       </div>
                     </div>
 

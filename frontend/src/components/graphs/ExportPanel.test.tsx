@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { UseQueryResult } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ExportPanel } from './ExportPanel'
 import { useExportManagement } from '@/hooks/useExport'
 import { useActiveGraphId, useActiveGraph } from '@/hooks/useGraphs'
 import { AlthistoryExport, ExportJob, Graph } from '@/types'
+import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 
 // Mock dependencies
 vi.mock('@/hooks/useExport')
@@ -702,5 +703,41 @@ describe('ExportPanel', () => {
       
       expect(screen.queryByText(/total exports/)).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('ExportPanel in a world calendar', () => {
+  const user = userEvent.setup()
+
+  beforeEach(() => {
+    vi.mocked(useActiveGraphId).mockReturnValue('graph1')
+    vi.mocked(useActiveGraph).mockReturnValue(createMockActiveGraphResult(mockActiveGraph))
+    vi.mocked(useExportManagement).mockReturnValue(createMockExportManagement())
+  })
+
+  afterEach(() => useWorldCalendarStore.getState().setCalendar(null))
+
+  it('says what a typed (stored) date reads as, and ties the hint to its field', async () => {
+    useWorldCalendarStore.getState().setCalendar({ epochYear: 1000, eraLabel: 'AR' })
+    const { container } = render(<ExportPanel />)
+    await user.click(screen.getByRole('button', { name: /Export/i }))
+    await user.click(screen.getByText('Only some events'))
+    await user.click(screen.getByText('Choose which events'))
+
+    const [start] = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]'))
+    expect(start).not.toHaveAttribute('aria-describedby')
+    fireEvent.change(start!, { target: { value: '1311-03-04' } })
+    expect(screen.getByText('= Mar 4, 312 AR')).toHaveAttribute('id', 'export-start-world')
+    expect(start).toHaveAttribute('aria-describedby', 'export-start-world')
+  })
+
+  it('shows no hint without a calendar', async () => {
+    const { container } = render(<ExportPanel />)
+    await user.click(screen.getByRole('button', { name: /Export/i }))
+    await user.click(screen.getByText('Only some events'))
+    await user.click(screen.getByText('Choose which events'))
+    const [start] = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]'))
+    fireEvent.change(start!, { target: { value: '1311-03-04' } })
+    expect(screen.queryByText(/^= /)).not.toBeInTheDocument()
   })
 })

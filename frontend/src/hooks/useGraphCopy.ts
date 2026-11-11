@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { apiClient } from '@/services/api'
 import { useGlobalStore } from '@/stores/globalStore'
 import { useCopyStore } from '@/stores/copyStore'
+import { getActiveCalendar } from '@/stores/worldCalendarStore'
 import { 
   CopyOperation, 
   CopyResult, 
@@ -144,7 +145,9 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
         parameters: {
           timeRange: variables.timeRange,
           filter: variables.filter
-        }
+        },
+        // A copy is of the open graph, so its calendar is the source's.
+        sourceCalendar: getActiveCalendar(),
       }
 
       addOperation(operation)

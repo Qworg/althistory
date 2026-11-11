@@ -221,6 +221,12 @@ export interface CopyOperation {
     timeRange?: TimeRange
     filter?: EntityFilter
   }
+  /**
+   * The world calendar of the graph copied (`null` for none), recorded when
+   * the copy is made: its dates are shown in that graph's years, whichever
+   * graph is open when the notice or the history is read.
+   */
+  sourceCalendar?: GraphCalendar | null
 }
 
 export interface GraphCopyState {
@@ -511,6 +517,8 @@ export interface AlthistoryExport {
     graphVersion: number
     checksum: string
     filters?: ExportFilters
+    /** The exported graph's world calendar, when it has one (docs/export-format.md). */
+    calendar?: GraphCalendar
   }
   data: {
     events: Array<{

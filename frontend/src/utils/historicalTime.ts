@@ -32,12 +32,35 @@ function resolveCalendar(calendar: CalendarArg): GraphCalendar | null {
   return calendar === undefined ? getActiveCalendar() : calendar
 }
 
+/** Numbers in the digits a date formatter uses (Arabic-Indic for ar-EG, Persian for fa-IR), never grouped. */
+function localeDigits(locale: string | undefined, numberingSystem: string): (value: number) => string {
+  const format = new Intl.NumberFormat(locale, { numberingSystem, useGrouping: false })
+  return (value) => format.format(value)
+}
+
+/** The world year of `date`, in the digits `formatter` writes. */
+function worldYearIn(date: Date, formatter: Intl.DateTimeFormat, locale: string | undefined, calendar: GraphCalendar): string {
+  return formatWorldYear(date.getUTCFullYear(), calendar, localeDigits(locale, formatter.resolvedOptions().numberingSystem))
+}
+
 /**
- * `date` formatted with `options`, its year replaced by the world year. The
- * locale still decides the order and the month's name (`formatToParts`), but on
- * the Gregorian calendar: the world keeps the stored months and days, so a
- * locale whose default calendar is another (th-TH's Buddhist one) must not
- * renumber them.
+ * `date` formatted with `options`, its year replaced by the world year.
+ *
+ * The locale still decides the month's name, the digits and, where it can,
+ * the order (`formatToParts`), on the Gregorian calendar: the world keeps the
+ * stored months and days, so a locale whose default calendar is another
+ * (th-TH's Buddhist one) must not renumber them.
+ *
+ * The year is a phrase ("312 AR", "1500 before AR"), not a number, so the
+ * locale's marks for a year number do not fit it. The literal right after
+ * the year is dropped: the 年/년 of ja, zh and ko, the " г." of ru and bg,
+ * hu's ". " and the "-" that joins lt's numeric fields. Then:
+ * - a locale that writes the year first reads "312 AR 3月4日", "312 AR márc. 4."
+ *   (with a comma where two numbers would meet: "Year 312, 3月4日");
+ * - one that writes it last keeps its own separator ("Mar 4, 312 AR",
+ *   "4 мар. 312 AR"), or gets a space after a numeric date ("4.03. 312 AR");
+ * - one that puts it between other fields (none of the common ones) gets the
+ *   date without it, then the year: "…, 312 AR".
  */
 function formatInWorld(
   date: Date,
@@ -45,13 +68,29 @@ function formatInWorld(
   options: Intl.DateTimeFormatOptions,
   calendar: GraphCalendar
 ): string {
-  const parts = new Intl.DateTimeFormat(locale, { ...options, calendar: 'gregory' }).formatToParts(date)
-  const year = formatWorldYear(date.getUTCFullYear(), calendar)
-  return parts
-    .filter((part) => part.type !== 'era')
-    .map((part) => (part.type === 'year' ? year : part.value))
-    .join('')
-    .trim()
+  const formatter = new Intl.DateTimeFormat(locale, { ...options, calendar: 'gregory' })
+  const year = worldYearIn(date, formatter, locale, calendar)
+  const parts = formatter.formatToParts(date).filter((part) => part.type !== 'era')
+  const at = parts.findIndex((part) => part.type === 'year')
+  const text = (list: Intl.DateTimeFormatPart[]) => list.map((part) => part.value).join('')
+  if (at < 0) return text(parts).trim()
+
+  const before = parts.slice(0, at)
+  const after = parts.slice(at + 1)
+  if (after[0]?.type === 'literal') after.shift()
+
+  if (before.length === 0) {
+    const rest = text(after).trim()
+    if (!rest) return year
+    // "Year 312 3月4日" would run two numbers together.
+    return /\p{Nd}$/u.test(year) && /^\p{Nd}/u.test(rest) ? `${year}, ${rest}` : `${year} ${rest}`
+  }
+  if (after.length === 0) {
+    const head = text(before)
+    return /[\s,،]$/.test(head) ? `${head}${year}` : `${head.trimEnd()} ${year}`
+  }
+  if (before[before.length - 1]?.type === 'literal') before.pop()
+  return `${text(before).trim()} ${text(after).trim()}, ${year}`
 }
 
 /**
@@ -135,9 +174,11 @@ export function formatHistoricalDateAt(
   if (precision === 'day') return formatHistoricalTimestamp(value, locale, world)
   const date = toDate(value)
   if (Number.isNaN(date.getTime())) return 'Invalid date'
-  if (world && precision === 'year') return formatWorldYear(date.getUTCFullYear(), world)
   const options: Intl.DateTimeFormatOptions =
     precision === 'month' ? { timeZone: 'UTC', year: 'numeric', month: 'short' } : { timeZone: 'UTC', year: 'numeric' }
+  if (world && precision === 'year') {
+    return worldYearIn(date, new Intl.DateTimeFormat(locale, { ...options, calendar: 'gregory' }), locale, world)
+  }
   if (world) return formatInWorld(date, locale, options, world)
   return date.toLocaleDateString(locale, options)
 }

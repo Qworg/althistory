@@ -2,6 +2,9 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { TimeRange } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { WorldDateHint } from '@/components/ui/WorldDateHint'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { describedBy, worldDateOf } from '@/utils/worldDateHint'
 
 interface TimeRangeSelectorProps {
   value: TimeRange | null
@@ -19,6 +22,8 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
   showPresets = true
 }) => {
   const { events } = useGlobalStore()
+  // The open graph's world calendar, subscribed so the range and hints follow it.
+  const worldCalendar = useWorldCalendar()
   
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -118,7 +123,7 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
   }, [onChange])
 
   // A historical range: in UTC, and in the graph's world calendar when it has one.
-  const formatDateForDisplay = (date: Date) => formatHistoricalTimestamp(date)
+  const formatDateForDisplay = (date: Date) => formatHistoricalTimestamp(date, undefined, worldCalendar)
 
   return (
     <div className={`space-y-4 ${className}`}>
@@ -133,11 +138,13 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
             type="datetime-local"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
+            aria-describedby={describedBy(worldDateOf(startDate, worldCalendar) && 'time-range-start-world')}
             className="w-full px-3 py-2 border border-line bg-card text-ink rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent"
             disabled={disabled}
             min={eventDateRange?.min.toISOString().slice(0, 16)}
             max={eventDateRange?.max.toISOString().slice(0, 16)}
           />
+          <WorldDateHint id="time-range-start-world" value={startDate} />
         </div>
         <div>
           <label htmlFor="endDate" className="block text-sm font-medium text-ink-secondary mb-1">
@@ -148,11 +155,13 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
             type="datetime-local"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
+            aria-describedby={describedBy(worldDateOf(endDate, worldCalendar) && 'time-range-end-world')}
             className="w-full px-3 py-2 border border-line bg-card text-ink rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent"
             disabled={disabled}
             min={eventDateRange?.min.toISOString().slice(0, 16)}
             max={eventDateRange?.max.toISOString().slice(0, 16)}
           />
+          <WorldDateHint id="time-range-end-world" value={endDate} />
         </div>
       </div>
 

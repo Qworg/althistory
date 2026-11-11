@@ -7,6 +7,8 @@ import { alignYearTicksToCalendar } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import {
   analyzeEventDivergence,
+  comparisonCalendar,
+  comparisonSide,
   PointOfDivergence,
   EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
@@ -34,6 +36,13 @@ export interface CounterfactualTimelineCanvasProps {
    * of it; "All history" still shows everything.
    */
   focusDivergence?: boolean
+  /**
+   * Each graph's world calendar (`null` for none). Each lane's dates read in
+   * its own graph's; the axis in the calendar both share, or stored years when
+   * they differ. Left out, the open graph's.
+   */
+  readonly baselineCalendar?: GraphCalendar | null
+  readonly counterfactualCalendar?: GraphCalendar | null
 }
 
 interface HoveredItem {
@@ -50,8 +59,8 @@ const COMPACT_MARGIN = { top: 32, right: 16, bottom: 36, left: 96 }
 const COMPACT_WIDTH = 560
 
 /** "Halifax Appointed, King → Halifax, May 10, 1940, 12:00 UTC (Halifax Government lane)". */
-function eventLabel(event: Event, laneName: string): string {
-  return `${event.description}, ${event.actor} → ${event.target}, ${formatHistoricalTimestamp(event.timestamp)} (${laneName} lane)`
+function eventLabel(event: Event, laneName: string, calendar: GraphCalendar | null): string {
+  return `${event.description}, ${event.actor} → ${event.target}, ${formatHistoricalTimestamp(event.timestamp, undefined, calendar)} (${laneName} lane)`
 }
 
 /** Keyboard focus ring for an event mark, shown while its group is :focus-visible. */
@@ -286,9 +295,23 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
   onEventSelect,
   className = '',
   focusDivergence = false,
+  baselineCalendar,
+  counterfactualCalendar,
 }: CounterfactualTimelineCanvasProps) {
-  // The graph's world calendar, if any: the axis labels its years as the event labels do.
-  const worldCalendar = useWorldCalendar()
+  // Each graph's world calendar (the open graph's when not given). Subscribed,
+  // so a change re-renders the canvas.
+  const activeCalendar = useWorldCalendar()
+  const calendars = useMemo(
+    () => ({
+      baseline: baselineCalendar === undefined ? activeCalendar : baselineCalendar,
+      counterfactual: counterfactualCalendar === undefined ? activeCalendar : counterfactualCalendar,
+    }),
+    [activeCalendar, baselineCalendar, counterfactualCalendar]
+  )
+  // The axis spans both lanes: their common calendar, or stored years.
+  const worldCalendar = comparisonCalendar('both', calendars)
+  const laneCalendar = (lane: 'baseline' | 'counterfactual') => calendars[lane]
+  const podCalendar = (pod: PointOfDivergence) => comparisonCalendar(comparisonSide(pod.type), calendars)
   const [zoomFactor, setZoomFactor] = useState(1)
   const [panOffset, setPanOffset] = useState(0)
   const [hovered, setHovered] = useState<HoveredItem | null>(null)
@@ -307,8 +330,8 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
 
   // 1. Analyze divergence between the two sets of events
   const { items, metrics } = useMemo(() => {
-    return analyzeEventDivergence(baselineEvents, counterfactualEvents)
-  }, [baselineEvents, counterfactualEvents])
+    return analyzeEventDivergence(baselineEvents, counterfactualEvents, calendars)
+  }, [baselineEvents, counterfactualEvents, calendars])
 
   const itemMap = useMemo(() => {
     const map = new Map<string, EventComparisonItem>()
@@ -576,7 +599,9 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
               <DivergenceMark />
               <span>
                 Point of divergence,{' '}
-                <span className="font-mono-code">{formatHistoricalDate(metrics.pointOfDivergence.timestamp)}</span>
+                <span className="font-mono-code">
+                  {formatHistoricalDate(metrics.pointOfDivergence.timestamp, undefined, podCalendar(metrics.pointOfDivergence))}
+                </span>
               </span>
             </li>
           )}
@@ -692,7 +717,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
                   className="pod-marker group cursor-pointer"
                   role="button"
                   tabIndex={0}
-                  aria-label={`Point of divergence: ${podCoordinate.pod.description}, ${formatHistoricalTimestamp(podCoordinate.pod.timestamp)}`}
+                  aria-label={`Point of divergence: ${podCoordinate.pod.description}, ${formatHistoricalTimestamp(podCoordinate.pod.timestamp, undefined, podCalendar(podCoordinate.pod))}`}
                   style={{ outline: 'none' }}
                   onClick={() => setHoveredPod(podCoordinate.pod)}
                   onKeyDown={e => activateOnKey(e, () => setHoveredPod(podCoordinate.pod))}
@@ -777,7 +802,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
                     className="group cursor-pointer"
                     role="button"
                     tabIndex={0}
-                    aria-label={eventLabel(event, baselineName)}
+                    aria-label={eventLabel(event, baselineName, calendars.baseline)}
                     style={{ outline: 'none' }}
                     onClick={select}
                     onKeyDown={e => activateOnKey(e, select)}
@@ -822,7 +847,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
                     className="group cursor-pointer"
                     role="button"
                     tabIndex={0}
-                    aria-label={eventLabel(event, counterfactualName)}
+                    aria-label={eventLabel(event, counterfactualName, calendars.counterfactual)}
                     style={{ outline: 'none' }}
                     onClick={select}
                     onKeyDown={e => activateOnKey(e, select)}
@@ -885,7 +910,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
               {hovered.event.actor} → {hovered.event.target}
             </div>
             <div className="font-mono-code text-ink-muted mt-1">
-              {formatHistoricalTimestamp(hovered.event.timestamp)}
+              {formatHistoricalTimestamp(hovered.event.timestamp, undefined, laneCalendar(hovered.lane))}
             </div>
             <div className="mt-1.5 pt-1.5 border-t border-line flex items-center gap-1.5 font-medium">
               <LegendMark status={hovered.status} />

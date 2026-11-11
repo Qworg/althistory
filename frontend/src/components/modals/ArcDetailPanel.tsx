@@ -4,6 +4,8 @@ import { formatDuration } from '../timeline/arcHierarchyUtils'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 import { WorldDateHint } from '@/components/ui/WorldDateHint'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { describedBy, worldDateOf } from '@/utils/worldDateHint'
 
 // Helper to convert an ISO instant to a datetime-local value (YYYY-MM-DDTHH:mm), in UTC
 const isoToDatetimeLocal = (isoString: string): string => {
@@ -63,6 +65,8 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
   parentArc = null,
   className = ''
 }) => {
+  // The graph's world calendar, for the hint under each stored date.
+  const worldCalendar = useWorldCalendar()
   const isCreateMode = !arc
   const [formData, setFormData] = useState<UpdateArcRequest>({})
   const [isLoading, setIsLoading] = useState(false)
@@ -313,12 +317,12 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
                     onChange={(e) => handleInputChange('start_time', e.target.value)}
                     aria-required="true"
                     aria-invalid={!!errors.start_time}
-                    aria-describedby={errors.start_time ? 'arc-start-time-error' : undefined}
+                    aria-describedby={describedBy(errors.start_time && 'arc-start-time-error', worldDateOf(formData.start_time, worldCalendar) && 'arc-start-time-world')}
                     className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
                       errors.start_time ? 'border-red-300' : 'border-line'
                     }`}
                   />
-                  <WorldDateHint value={formData.start_time || ''} />
+                  <WorldDateHint id="arc-start-time-world" value={formData.start_time || ''} />
                   {errors.start_time && <p id="arc-start-time-error" role="alert" className="mt-1 text-sm text-red-600">{errors.start_time}</p>}
                 </div>
 
@@ -333,12 +337,12 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
                     onChange={(e) => handleInputChange('end_time', e.target.value)}
                     aria-required="true"
                     aria-invalid={!!errors.end_time}
-                    aria-describedby={errors.end_time ? 'arc-end-time-error' : undefined}
+                    aria-describedby={describedBy(errors.end_time && 'arc-end-time-error', worldDateOf(formData.end_time, worldCalendar) && 'arc-end-time-world')}
                     className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
                       errors.end_time ? 'border-red-300' : 'border-line'
                     }`}
                   />
-                  <WorldDateHint value={formData.end_time || ''} />
+                  <WorldDateHint id="arc-end-time-world" value={formData.end_time || ''} />
                   {errors.end_time && <p id="arc-end-time-error" role="alert" className="mt-1 text-sm text-red-600">{errors.end_time}</p>}
                 </div>
               </div>

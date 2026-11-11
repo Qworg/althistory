@@ -4,6 +4,8 @@ import { useCreateArc } from '@/hooks/useAPI'
 import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 import { WorldDateHint } from '@/components/ui/WorldDateHint'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { describedBy, worldDateOf } from '@/utils/worldDateHint'
 
 // Helper to convert an ISO instant to a datetime-local value (YYYY-MM-DDTHH:mm), in UTC
 const isoToDatetimeLocal = (isoString: string): string => {
@@ -57,6 +59,8 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
   onSuccess,
   className = ''
 }) => {
+  // The graph's world calendar, for the hint under each stored date.
+  const worldCalendar = useWorldCalendar()
   const [formData, setFormData] = useState<CreateArcRequest>({
     name: '',
     description: '',
@@ -318,6 +322,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                   <input
                     id="arc-start-time"
                     type="datetime-local"
+                    aria-describedby={describedBy(worldDateOf(formData.start_time, worldCalendar) && 'arc-start-time-world')}
                     value={formData.start_time}
                     onChange={(e) => handleInputChange('start_time', e.target.value)}
                     className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
@@ -325,7 +330,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                     }`}
                     required
                   />
-                  <WorldDateHint value={formData.start_time} />
+                  <WorldDateHint id="arc-start-time-world" value={formData.start_time} />
                   {errors.start_time && <p className="mt-1 text-sm text-red-600">{errors.start_time}</p>}
                 </div>
 
@@ -336,6 +341,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                   <input
                     id="arc-end-time"
                     type="datetime-local"
+                    aria-describedby={describedBy(worldDateOf(formData.end_time, worldCalendar) && 'arc-end-time-world')}
                     value={formData.end_time}
                     onChange={(e) => handleInputChange('end_time', e.target.value)}
                     className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
@@ -343,7 +349,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                     }`}
                     required
                   />
-                  <WorldDateHint value={formData.end_time} />
+                  <WorldDateHint id="arc-end-time-world" value={formData.end_time} />
                   {errors.end_time && <p className="mt-1 text-sm text-red-600">{errors.end_time}</p>}
                 </div>
               </div>

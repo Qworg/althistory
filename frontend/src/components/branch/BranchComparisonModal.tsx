@@ -2,7 +2,16 @@ import React, { useState, useEffect, useMemo, useCallback, useId, useRef } from 
 import { Event, Arc, CausalRelationship } from '@/types'
 import { useGraphs, useActiveGraphId, useSwitchGraph } from '@/hooks/useGraphs'
 import { apiClient } from '@/services/api'
-import { analyzeEventDivergence, analyzeRelationshipDivergence, type EventComparisonItem } from '@/utils/divergenceAnalysis'
+import {
+  analyzeEventDivergence,
+  analyzeRelationshipDivergence,
+  comparisonCalendar,
+  comparisonSide,
+  type ComparisonCalendars,
+  type EventComparisonItem,
+} from '@/utils/divergenceAnalysis'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { sameCalendar } from '@/utils/worldCalendar'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { branchLabel } from '@/components/graphs/graphTree'
 import { CounterfactualTimelineCanvas } from './CounterfactualTimelineCanvas'
@@ -128,7 +137,7 @@ const FIELD_NAMES: Record<string, string> = {
  * What differs, without repeating the event (the Event column already names
  * it): "Date: Mar 2, 1838 → Jun 1, 1840", "Actor: Peel → Wellington".
  */
-function describeDifference(item: EventComparisonItem): string {
+function describeDifference(item: EventComparisonItem, calendars: ComparisonCalendars): string {
   switch (item.status) {
     case 'divergent_added':
       return 'Happens only in the branch'
@@ -141,9 +150,12 @@ function describeDifference(item: EventComparisonItem): string {
         .map((change) => {
           const name = FIELD_NAMES[change.field] ?? change.field
           if (change.field === 'description') return name
-          const show = (value: unknown) =>
-            change.field === 'timestamp' && typeof value === 'string' ? formatHistoricalDate(value) : String(value)
-          return `${name}: ${show(change.baselineValue)} → ${show(change.counterfactualValue)}`
+          // Each side's date in its own graph's calendar.
+          const show = (value: unknown, side: 'baseline' | 'counterfactual') =>
+            change.field === 'timestamp' && typeof value === 'string'
+              ? formatHistoricalDate(value, undefined, comparisonCalendar(side, calendars))
+              : String(value)
+          return `${name}: ${show(change.baselineValue, 'baseline')} → ${show(change.counterfactualValue, 'counterfactual')}`
         })
         .join(' · ') || 'Changed'
     default:
@@ -305,10 +317,28 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
   const baselineData = useGraphData(isOpen, baselineGraphId, originalData, reloadToken, 'Could not load the baseline')
   const counterfactualData = useGraphData(isOpen, counterfactualGraphId, copiedData, reloadToken, 'Could not load the branch')
 
+  // Each graph's own world calendar, not the open graph's: comparing two other
+  // graphs must not label their dates in a third one's years. A graph missing
+  // from the list falls back to the open graph's (subscribed, so it updates).
+  const activeCalendar = useWorldCalendar()
+  const calendars = useMemo<ComparisonCalendars>(() => {
+    const of = (id: string) => {
+      const graph = graphList.find(g => g.id === id)
+      return graph ? graph.calendar ?? null : activeCalendar
+    }
+    return { baseline: of(baselineGraphId), counterfactual: of(counterfactualGraphId) }
+  }, [graphList, baselineGraphId, counterfactualGraphId, activeCalendar])
+  const calendarsDiffer = !sameCalendar(calendars.baseline, calendars.counterfactual)
+  /** The calendar for a date from one side, or one both share (see comparisonCalendar). */
+  const calendarFor = useCallback(
+    (status: Parameters<typeof comparisonSide>[0]) => comparisonCalendar(comparisonSide(status), calendars),
+    [calendars]
+  )
+
   // Compute divergence analysis between baseline and counterfactual datasets
   const divergenceAnalysis = useMemo(() => {
-    return analyzeEventDivergence(baselineData.events, counterfactualData.events)
-  }, [baselineData.events, counterfactualData.events])
+    return analyzeEventDivergence(baselineData.events, counterfactualData.events, calendars)
+  }, [baselineData.events, counterfactualData.events, calendars])
 
   const relationshipDiff = useMemo(() => {
     return analyzeRelationshipDivergence(baselineData.relationships, counterfactualData.relationships)
@@ -567,9 +597,15 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
               phone, four in a row from md */}
           <p className="sm:hidden border-y border-line py-2 text-xs text-ink-secondary">
             {metrics.pointOfDivergence
-              ? <>Splits <span className="font-mono-code text-ink">{formatHistoricalDate(metrics.pointOfDivergence.timestamp)}</span> · {countNoun(metrics.divergentEventsCount, 'event')} added · {countNoun(newCausalLinks, 'new link')}</>
+              ? <>Splits <span className="font-mono-code text-ink">{formatHistoricalDate(metrics.pointOfDivergence.timestamp, undefined, calendarFor(metrics.pointOfDivergence.type))}</span> · {countNoun(metrics.divergentEventsCount, 'event')} added · {countNoun(newCausalLinks, 'new link')}</>
               : 'No point of divergence: the graphs have the same events.'}
           </p>
+          {calendarsDiffer && (
+            <p className="text-xs text-ink-muted">
+              These graphs count years differently: each graph’s own events show its calendar’s years, and dates
+              they share show stored years.
+            </p>
+          )}
           <dl className="max-sm:hidden grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3 py-3 border-y border-line md:gap-x-0 md:divide-x md:divide-line">
             <div className={STAT}>
               <dt className="text-xs text-ink-muted flex items-center gap-1.5">
@@ -578,7 +614,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
               </dt>
               <dd className="mt-1 font-semibold font-mono-code truncate">
                 {metrics.pointOfDivergence
-                  ? formatHistoricalDate(metrics.pointOfDivergence.timestamp)
+                  ? formatHistoricalDate(metrics.pointOfDivergence.timestamp, undefined, calendarFor(metrics.pointOfDivergence.type))
                   : 'None'}
               </dd>
               <dd className="text-xs text-ink-secondary truncate mt-0.5">
@@ -685,6 +721,8 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                     counterfactualName={resolvedCounterfactualName}
                     baselineEvents={baselineData.events}
                     counterfactualEvents={counterfactualData.events}
+                    baselineCalendar={calendars.baseline}
+                    counterfactualCalendar={calendars.counterfactual}
                     width={1020}
                     height={320}
                   />
@@ -718,6 +756,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                         causalRelationships={counterfactualData.relationships}
                         divergenceEventIds={podEventIds}
                         branchAddedIds={branchAddedIds}
+                        calendar={calendars.counterfactual}
                         canvasMinHeight={0}
                         className="h-full w-full"
                         showLayoutManager={true}
@@ -798,7 +837,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                               return (
                                 <tr key={`diff-row-${item.id}`} className="hover:bg-subtle">
                                   <td className="px-3 py-2 text-ink-secondary whitespace-nowrap font-mono-code">
-                                    {formatHistoricalTimestamp(item.timestamp)}
+                                    {formatHistoricalTimestamp(item.timestamp, undefined, calendarFor(item.status))}
                                   </td>
                                   <td className="px-3 py-2 whitespace-nowrap">
                                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${badge.className}`}>
@@ -812,7 +851,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                                     {event ? `${event.actor} → ${event.target}` : '—'}
                                   </td>
                                   <td className="px-3 py-2 text-ink-secondary">
-                                    {describeDifference(item)}
+                                    {describeDifference(item, calendars)}
                                   </td>
                                 </tr>
                               )
@@ -832,7 +871,9 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                       {metrics.pointOfDivergence ? (
                         <>
                           {quoted(resolvedCounterfactualName)} follows {quoted(resolvedBaselineName)} until{' '}
-                          <strong className="font-mono-code">{formatHistoricalDate(metrics.pointOfDivergence.timestamp)}</strong>
+                          <strong className="font-mono-code">
+                            {formatHistoricalDate(metrics.pointOfDivergence.timestamp, undefined, calendarFor(metrics.pointOfDivergence.type))}
+                          </strong>
                           {' '}({countNoun(metrics.sharedEventsCount, 'shared event')}), then goes its own way.
                         </>
                       ) : (
@@ -854,11 +895,11 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                               const event = item.counterfactualEvent || item.baselineEvent
                               return (
                                 <li key={item.id} className="flex flex-wrap gap-x-3">
-                                  <span className="w-24 shrink-0 font-mono-code text-ink-muted">{formatHistoricalDate(item.timestamp)}</span>
+                                  <span className="w-24 shrink-0 font-mono-code text-ink-muted">{formatHistoricalDate(item.timestamp, undefined, calendarFor(item.status))}</span>
                                   <span className="min-w-0 flex-1 text-ink">
                                     {event?.description ?? item.id}
                                     {status === 'modified' && (
-                                      <span className="block text-xs text-ink-secondary">{describeDifference(item)}</span>
+                                      <span className="block text-xs text-ink-secondary">{describeDifference(item, calendars)}</span>
                                     )}
                                   </span>
                                 </li>

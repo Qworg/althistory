@@ -214,12 +214,15 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
   const worldCalendar = useWorldCalendar()
   const xTicks = useMemo(() => {
     const timeSpanMs = state.visibleTimeRange.end.getTime() - state.visibleTimeRange.start.getTime()
-    const interval = getTimeAxisInterval(timeSpanMs)
+    // UTC ticks and labels, as the event labels read every date (the
+    // positions are the same linear scale either way).
+    const interval = getTimeAxisInterval(timeSpanMs, true)
+    const ticks = d3.scaleUtc().domain(timeScale.domain()).ticks(interval)
     // In a world calendar, multi-year steps land on the world's round years.
-    return alignYearTicksToCalendar(timeScale.ticks(interval), timeScale.domain(), worldCalendar).map(date => ({
+    return alignYearTicksToCalendar(ticks, timeScale.domain(), worldCalendar, true).map(date => ({
       key: date.getTime(),
       x: timeScale(date),
-      label: formatTimeAxisTick(date, timeSpanMs, worldCalendar)
+      label: formatTimeAxisTick(date, timeSpanMs, worldCalendar, true)
     }))
   }, [timeScale, state.visibleTimeRange, worldCalendar])
 

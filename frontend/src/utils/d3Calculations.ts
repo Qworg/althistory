@@ -29,7 +29,7 @@
 import * as d3 from 'd3'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { formatWorldYear, worldYear } from '@/utils/worldCalendar'
+import { formatWorldYear, storedYear, worldYear } from '@/utils/worldCalendar'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
 /**
@@ -286,9 +286,10 @@ export function getTimeAxisFormat(timeSpanMs: number): string {
 export function formatTimeAxisTick(
   tick: Date,
   timeSpanMs: number,
-  calendar: GraphCalendar | null = getActiveCalendar()
+  calendar: GraphCalendar | null = getActiveCalendar(),
+  utc = false
 ): string {
-  return formatAxisLabel(getTimeAxisFormat(timeSpanMs), tick, calendar)
+  return formatAxisLabel(getTimeAxisFormat(timeSpanMs), tick, calendar, utc)
 }
 
 /**
@@ -298,18 +299,21 @@ export function formatTimeAxisTick(
  * since the world's decades do not start where the Gregorian ones do (the
  * ticks are moved onto them by {@link alignYearTicksToCalendar}).
  *
- * The axis reads the tick's year as d3's local-time scale and format do, so a
- * label always agrees with the other labels on its axis.
+ * `utc` reads the tick in UTC, as the event labels read every historical date
+ * (utils/historicalTime.ts); pass it with ticks from a UTC scale or interval.
+ * Without it the tick is read in local time, as d3's `scaleTime` makes them.
  */
-function formatAxisLabel(name: string, tick: Date, calendar: GraphCalendar | null): string {
+function formatAxisLabel(name: string, tick: Date, calendar: GraphCalendar | null, utc: boolean): string {
+  const timeFormat = utc ? d3.utcFormat : d3.timeFormat
+  const fullYear = utc ? tick.getUTCFullYear() : tick.getFullYear()
   if (calendar) {
-    const year = formatWorldYear(tick.getFullYear(), calendar)
+    const year = formatWorldYear(fullYear, calendar)
     if (name === 'decade' || name === '%Y') return year
-    if (name === '%b %Y') return `${d3.timeFormat('%b')(tick)} ${year}`
-    return d3.timeFormat(name)(tick)
+    if (name === '%b %Y') return `${timeFormat('%b')(tick)} ${year}`
+    return timeFormat(name)(tick)
   }
-  if (name === 'decade') return `${Math.floor(tick.getFullYear() / 10) * 10}s`
-  return d3.timeFormat(name)(tick)
+  if (name === 'decade') return `${Math.floor(fullYear / 10) * 10}s`
+  return timeFormat(name)(tick)
 }
 
 /** Axis label formats, coarsest first. */
@@ -331,11 +335,12 @@ const TIME_AXIS_FORMAT_LADDER = ['decade', '%Y', '%b %Y', '%b %d', '%a %d', '%H:
 export function formatTimeAxisTicks(
   ticks: Date[],
   timeSpanMs: number,
-  calendar: GraphCalendar | null = getActiveCalendar()
+  calendar: GraphCalendar | null = getActiveCalendar(),
+  utc = false
 ): string[] {
   const preferred = getTimeAxisFormat(timeSpanMs)
   const start = Math.max(0, TIME_AXIS_FORMAT_LADDER.indexOf(preferred as (typeof TIME_AXIS_FORMAT_LADDER)[number]))
-  const format = (name: string, tick: Date) => formatAxisLabel(name, tick, calendar)
+  const format = (name: string, tick: Date) => formatAxisLabel(name, tick, calendar, utc)
 
   for (const name of TIME_AXIS_FORMAT_LADDER.slice(start)) {
     const labels = ticks.map((tick) => format(name, tick))
@@ -345,19 +350,25 @@ export function formatTimeAxisTicks(
 }
 
 /**
- * Move year ticks onto the world's round years.
+ * Move year ticks onto the world's round years, as a historian's axis counts.
  *
  * d3 steps multi-year ticks on Gregorian multiples (1840, 1850, ...). With a
  * world calendar whose year 1 is stored 1000, those are world years 841 and
- * 851; the same step moved to stored 1849, 1859 gives 850 and 860, which is
- * what an axis should read. Ticks that are not all New Year's Days at an even
- * step of two or more years (months, days, hours) are returned unchanged, as
- * they are without a calendar.
+ * 851. The ticks are moved, keeping d3's step, so that they count in round
+ * steps from the epoch on both sides of it:
+ *
+ *   ..., "40 before AR", "20 before AR", "1 AR", "20 AR", "40 AR", ...
+ *
+ * After the epoch they fall on multiples of the step; before it, on round
+ * counts back ("20 before" is world year -19); and year 1 stands in for the
+ * year 0 that a plain multiple would put at the epoch. Ticks that are not all
+ * New Year's Days at an even step of two or more years (months, days, hours)
+ * are returned unchanged, as they are without a calendar.
  *
  * @param ticks - The scale's ticks, in order
  * @param domain - The visible domain; moved ticks outside it are dropped
  * @param calendar - The world calendar (default: the active graph's)
- * @param utc - Whether the scale is a UTC scale (`d3.scaleUtc`) or local time (`d3.scaleTime`)
+ * @param utc - Whether the ticks are UTC (`d3.scaleUtc`) or local time (`d3.scaleTime`)
  */
 export function alignYearTicksToCalendar(
   ticks: Date[],
@@ -382,22 +393,26 @@ export function alignYearTicksToCalendar(
     const date = new Date(0)
     if (utc) {
       date.setUTCFullYear(year, 0, 1)
+      date.setUTCHours(0, 0, 0, 0)
     } else {
       date.setFullYear(year, 0, 1)
       date.setHours(0, 0, 0, 0)
     }
     return date
   }
-  const [lo, hi] = [Math.min(+domain[0]!, +domain[domain.length - 1]!), Math.max(+domain[0]!, +domain[domain.length - 1]!)]
-  // The first stored year at or before the first tick whose world year is a multiple of the step.
-  const firstYear = yearOf(ticks[0]!)
-  const offset = ((worldYear(firstYear, calendar) % step) + step) % step
+  const ends = [+domain[0]!, +domain[domain.length - 1]!]
+  const [lo, hi] = [Math.min(...ends), Math.max(...ends)]
+  /** A world year an axis would name: year 1, a multiple of the step, or a round count before year 1. */
+  const isRound = (year: number) => (year >= 1 ? year === 1 || year % step === 0 : (1 - year) % step === 0)
+
   const aligned: Date[] = []
-  for (let year = firstYear - offset; year <= yearOf(ticks[ticks.length - 1]!) + step; year += step) {
-    const date = yearStart(year)
+  const last = worldYear(yearOf(ticks[ticks.length - 1]!), calendar) + step
+  for (let year = worldYear(yearOf(ticks[0]!), calendar) - step; year <= last; year++) {
+    if (!isRound(year)) continue
+    const date = yearStart(storedYear(year, calendar))
     if (+date >= lo && +date <= hi) aligned.push(date)
   }
-  return aligned.length > 0 ? aligned : ticks
+  return aligned.length > 1 ? aligned : ticks
 }
 
 /**
@@ -406,24 +421,25 @@ export function alignYearTicksToCalendar(
  * @param timeSpanMs - The time span in milliseconds
  * @returns D3 time interval for tick generation
  */
-export function getTimeAxisInterval(timeSpanMs: number): d3.TimeInterval {
+export function getTimeAxisInterval(timeSpanMs: number, utc = false): d3.TimeInterval {
+  // `utc` gives the UTC intervals, for an axis read in UTC like the event labels.
   if (timeSpanMs <= TIME_THRESHOLDS.ONE_DAY) {
     // Within a day: hourly ticks
-    return d3.timeHour
+    return utc ? d3.utcHour : d3.timeHour
   } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_WEEKS) {
     // Within 2 weeks: daily ticks
-    return d3.timeDay
+    return utc ? d3.utcDay : d3.timeDay
   } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_MONTHS) {
     // Within 2 months: weekly ticks
-    return d3.timeWeek
+    return utc ? d3.utcWeek : d3.timeWeek
   } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_YEARS) {
     // Within 2 years: monthly ticks
-    return d3.timeMonth
+    return utc ? d3.utcMonth : d3.timeMonth
   } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_DECADES) {
     // Within 2 decades: yearly ticks
-    return d3.timeYear
+    return utc ? d3.utcYear : d3.timeYear
   } else {
     // Beyond 2 decades: decade ticks (every 10 years)
-    return d3.timeYear.every(10) as d3.TimeInterval
+    return (utc ? d3.utcYear.every(10) : d3.timeYear.every(10)) as d3.TimeInterval
   }
 }

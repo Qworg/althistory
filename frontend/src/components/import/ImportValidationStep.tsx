@@ -5,7 +5,7 @@
  */
 
 // React import not needed with new JSX transform
-import { ImportValidationResult, ImportError, ImportWarning } from '@/types'
+import { ImportValidationResult, ImportError, ImportWarning, GraphCalendar } from '@/types'
 import { formatHistoricalDate } from '@/utils/historicalTime'
 
 export interface ImportValidationStepProps {
@@ -13,6 +13,11 @@ export interface ImportValidationStepProps {
   onContinue: () => void
   onBack: () => void
   isLoading?: boolean
+  /**
+   * The incoming file's world calendar (`metadata.calendar`), or null for
+   * none: the file's dates are shown in its own years, not the open graph's.
+   */
+  calendar?: GraphCalendar | null
 }
 
 function ErrorItem({ error }: { error: ImportError }) {
@@ -58,6 +63,7 @@ export function ImportValidationStep({
   onContinue,
   onBack,
   isLoading = false,
+  calendar,
 }: ImportValidationStepProps) {
   const { valid, errors, warnings, summary } = validation
 
@@ -137,8 +143,8 @@ export function ImportValidationStep({
           <div className="mt-4 pt-4 border-t border-line">
             <dt className="text-sm text-ink-muted">Time Range</dt>
             <dd className="text-sm text-ink">
-              {formatHistoricalDate(summary.temporalRange.start)} -{' '}
-              {formatHistoricalDate(summary.temporalRange.end)}
+              {formatHistoricalDate(summary.temporalRange.start, undefined, calendar ?? null)} -{' '}
+              {formatHistoricalDate(summary.temporalRange.end, undefined, calendar ?? null)}
             </dd>
           </div>
         )}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as d3 from 'd3'
-import { alignYearTicksToCalendar, formatTimeAxisTick, formatTimeAxisTicks } from './d3Calculations'
+import { alignYearTicksToCalendar, formatTimeAxisTick, formatTimeAxisTicks, getTimeAxisInterval } from './d3Calculations'
 import { formatEventDate } from './historicalTime'
 import type { GraphCalendar } from '@/types'
 
@@ -43,6 +43,23 @@ describe('time axis labels in a world calendar', () => {
     expect(formatTimeAxisTicks(ticks, 40 * YEAR_MS, null)).toEqual(['1840s', '1850s', '1860s'])
   })
 
+  it('agrees with the event labels in any time zone when read in UTC', () => {
+    // UTC ticks (as the timelines use) put 1 January 1311 (UTC) exactly on the "312 AR" tick.
+    const a = new Date('1309-01-01T00:00:00Z')
+    const b = new Date('1313-06-01T00:00:00Z')
+    const scale = d3.scaleUtc().domain([a, b]).range([0, 1000])
+    const ticks = alignYearTicksToCalendar(scale.ticks(5), scale.domain(), AR, true)
+    const labels = formatTimeAxisTicks(ticks, +b - +a, AR, true)
+    const event = new Date('1311-01-01T00:00:00Z')
+    const index = ticks.findIndex((tick) => +tick === +event)
+    expect(index).toBeGreaterThanOrEqual(0)
+    expect(labels[index]).toBe('312 AR')
+    expect(formatEventDate({ timestamp: event.toISOString(), metadata: { datePrecision: 'year' } }, 'en-US', AR)).toBe(
+      '312 AR'
+    )
+    expect(getTimeAxisInterval(10 * YEAR_MS, true)).toBe(d3.utcYear)
+  })
+
   it('agrees with the event labels about the year', () => {
     // An event on 1 July 1311 (UTC) sits between the 1311 and 1312 ticks.
     const event = formatEventDate({ timestamp: '1311-07-01T00:00:00Z', metadata: { datePrecision: 'year' } }, 'en-US', AR)
@@ -64,6 +81,42 @@ describe('alignYearTicksToCalendar', () => {
     const scale = d3.scaleUtc().domain([new Date('1835-01-01T00:00:00Z'), new Date('1880-01-01T00:00:00Z')]).range([0, 800])
     const aligned = alignYearTicksToCalendar(scale.ticks(5), scale.domain(), AR, true)
     expect(aligned.map((t) => t.getUTCFullYear())).toEqual([1839, 1849, 1859, 1869, 1879])
+  })
+
+  it('counts round steps on both sides of the epoch, with year 1 at the epoch', () => {
+    const utcYear = (year: number) => {
+      const date = new Date(Date.UTC(2000, 0, 1))
+      date.setUTCFullYear(year, 0, 1)
+      return date
+    }
+    const domain: [Date, Date] = [utcYear(880), utcYear(1120)]
+    const scale = d3.scaleUtc().domain(domain)
+    const aligned = alignYearTicksToCalendar(scale.ticks(8), scale.domain(), AR, true)
+    // Stored 880 is world year -119: 120 years before year 1.
+    expect(formatTimeAxisTicks(aligned, +domain[1] - +domain[0], AR, true)).toEqual([
+      '120 before AR',
+      '100 before AR',
+      '80 before AR',
+      '60 before AR',
+      '40 before AR',
+      '20 before AR',
+      '1 AR',
+      '20 AR',
+      '40 AR',
+      '60 AR',
+      '80 AR',
+      '100 AR',
+      '120 AR',
+    ])
+  })
+
+  it('starts an axis that opens at the epoch on "1 AR", not "1 before AR"', () => {
+    const scale = d3.scaleTime().domain([localYear(1000), localYear(1100)])
+    const aligned = alignYearTicksToCalendar(scale.ticks(5), scale.domain(), AR)
+    const labels = formatTimeAxisTicks(aligned, 100 * YEAR_MS, AR)
+    expect(labels[0]).toBe('1 AR')
+    expect(labels).not.toContain('1 before AR')
+    expect(labels.slice(1, 3)).toEqual(['20 AR', '40 AR'])
   })
 
   it('leaves yearly, monthly and calendar-less ticks alone', () => {

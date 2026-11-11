@@ -87,6 +87,50 @@ describe('useWorldCalendarSync', () => {
     await waitFor(() => expect(activeCalendar()).toBeNull())
   })
 
+  it('keeps the calendar, and the views mounted, when a background refetch fails', async () => {
+    localStorage.setItem('active_graph_id', 'vael')
+    const mounts = vi.fn()
+    function View() {
+      const counted = useRef(false)
+      if (!counted.current) {
+        counted.current = true
+        mounts()
+      }
+      return null
+    }
+    function App() {
+      useWorldCalendarSync()
+      return (
+        <WorldCalendarBoundary>
+          <View />
+        </WorldCalendarBoundary>
+      )
+    }
+    render(<App />, { wrapper })
+    await waitFor(() => expect(activeCalendar()).toEqual(AR))
+    const mountsBefore = mounts.mock.calls.length
+
+    getById.mockRejectedValue(Object.assign(new Error('Service unavailable'), { status: 503 }))
+    await act(async () => {
+      await client.refetchQueries({ queryKey: graphKeys.detail('vael') })
+    })
+    expect(client.getQueryState(graphKeys.detail('vael'))?.status).toBe('error')
+    expect(activeCalendar()).toEqual(AR)
+    expect(mounts.mock.calls.length).toBe(mountsBefore)
+  })
+
+  it('drops the calendar when a refetch finds the graph gone (404)', async () => {
+    localStorage.setItem('active_graph_id', 'vael')
+    renderHook(() => useWorldCalendarSync(), { wrapper })
+    await waitFor(() => expect(activeCalendar()).toEqual(AR))
+
+    getById.mockRejectedValue(Object.assign(new Error('Graph not found'), { status: 404 }))
+    await act(async () => {
+      await client.refetchQueries({ queryKey: graphKeys.detail('vael') })
+    })
+    await waitFor(() => expect(activeCalendar()).toBeNull())
+  })
+
   it('has no calendar for a graph that cannot be loaded', async () => {
     useWorldCalendarStore.getState().setCalendar(AR)
     localStorage.setItem('active_graph_id', 'missing')

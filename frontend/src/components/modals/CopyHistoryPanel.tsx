@@ -4,6 +4,7 @@ import { CopyOperation } from '@/types'
 import { ConfirmDialog } from '@/components/ui'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { formatHistoricalRange } from '@/utils/historicalTime'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { COPY_TYPE_LABELS } from './copyTypeLabels'
 import { CopyStatusBadge } from './CopyStatusBadge'
 
@@ -31,6 +32,11 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
   onCompareGraphs,
   onDeleteCopy
 }) => {
+  // A copy's dates read in its source graph's calendar, recorded when it was
+  // made; a copy recorded before that falls back to the open graph's.
+  const activeCalendar = useWorldCalendar()
+  const sourceCalendar = (operation: CopyOperation) =>
+    operation.sourceCalendar === undefined ? activeCalendar : operation.sourceCalendar
   const { copyState, clearCompletedOperations } = useGraphCopy()
   
   const [sortField, setSortField] = useState<SortField>('created_at')
@@ -282,7 +288,12 @@ export const CopyHistoryPanel: React.FC<CopyHistoryPanelProps> = ({
                     <div className="font-medium text-ink break-words">{operation.name}</div>
                     {operation.parameters.timeRange && (
                       <div className="text-xs text-ink-muted font-mono-code">
-                        {formatHistoricalRange(operation.parameters.timeRange.start, operation.parameters.timeRange.end)}
+                        {formatHistoricalRange(
+                          operation.parameters.timeRange.start,
+                          operation.parameters.timeRange.end,
+                          undefined,
+                          sourceCalendar(operation)
+                        )}
                       </div>
                     )}
                     {operation.parameters.filter && (

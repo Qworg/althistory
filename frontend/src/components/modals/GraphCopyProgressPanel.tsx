@@ -12,6 +12,7 @@ import React from 'react'
 import { useGraphCopy } from '@/hooks/useGraphCopy'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { formatHistoricalRange } from '@/utils/historicalTime'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { CopyOperation } from '@/types'
 import { COPY_TYPE_LABELS } from './copyTypeLabels'
 import { CopyStatusBadge } from './CopyStatusBadge'
@@ -31,6 +32,11 @@ export const GraphCopyProgressPanel: React.FC<GraphCopyProgressPanelProps> = ({
   onSwitchToGraph,
   onShowAll
 }) => {
+  // A copy's dates read in its source graph's calendar, recorded when it was
+  // made; a copy recorded before that falls back to the open graph's.
+  const activeCalendar = useWorldCalendar()
+  const sourceCalendar = (operation: CopyOperation) =>
+    operation.sourceCalendar === undefined ? activeCalendar : operation.sourceCalendar
   const {
     copyState,
     cancelCopy,
@@ -95,7 +101,12 @@ export const GraphCopyProgressPanel: React.FC<GraphCopyProgressPanelProps> = ({
         {COPY_TYPE_LABELS[operation.type] ?? 'Copy'}
         {operation.parameters.timeRange && (
           <span className="ml-2 font-mono-code text-xs">
-            {formatHistoricalRange(operation.parameters.timeRange.start, operation.parameters.timeRange.end)}
+            {formatHistoricalRange(
+              operation.parameters.timeRange.start,
+              operation.parameters.timeRange.end,
+              undefined,
+              sourceCalendar(operation)
+            )}
           </span>
         )}
         {operation.parameters.filter && (
