@@ -302,28 +302,6 @@ async function graphs(ctx: TourContext, seed: SeedResult): Promise<Shot> {
   )
 }
 
-/**
- * The branch itself, as the landing page shows it: switched to through the
- * graph menu, with the baseline ghosted beneath and the point of divergence
- * marked. Not in the walkthrough video; the site's "Change one thing" picture.
- */
-async function branchView(ctx: TourContext, seed: SeedResult): Promise<Shot> {
-  const { page } = ctx
-  await openTimeline(ctx)
-  await hideFilters(page)
-  await page.getByRole('button', { name: new RegExp(scenario.graph.name) }).first().click()
-  await page.getByText(seed.branchName.slice(0, 20)).first().click()
-  const header = page.getByText(/^Branch of/).first()
-  await header.waitFor()
-  const svg = page.locator('svg[data-timeline-canvas]').first()
-  await page.locator('g[data-timeline-mark="event"]').first().waitFor()
-  await page.mouse.move(0, 0)
-  await settle(page)
-  const timelineRect = await rectOf(svg, 'the branch timeline')
-  const headerRect = await rectOf(header.locator('xpath=..'), 'the branch header')
-  return snap(ctx, 'branch', { view: union(headerRect, timelineRect), timeline: timelineRect })
-}
-
 export async function captureTour(appUrl: string, apiKey: string, seed: SeedResult, outDir: string): Promise<Manifest> {
   await rm(outDir, { recursive: true, force: true })
   await mkdir(outDir, { recursive: true })
@@ -364,7 +342,6 @@ export async function captureTour(appUrl: string, apiKey: string, seed: SeedResu
       await actorPerspective(ctx),
       ...(await ingest(ctx)),
       await graphs(ctx, seed),
-      await branchView(ctx, seed),
     ]
 
     const manifest: Manifest = {

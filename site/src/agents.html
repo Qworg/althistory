@@ -33,8 +33,7 @@
         <span>althistory</span>
       </a>
       <ul>
-        <li><a href="demo/?start=branch">Demo</a></li>
-        <li class="bar-wide"><a href="agents.html" aria-current="page">CLI &amp; MCP</a></li>
+                <li class="bar-wide"><a href="agents.html" aria-current="page">CLI &amp; MCP</a></li>
         <li class="bar-docs"><a href="https://github.com/Qworg/althistory#documentation">Docs<svg class="ext" viewBox="0 0 10 10" aria-hidden="true"><path d="M4 1.5H8.5V6M8.5 1.5L2 8"/></svg><span class="sr-only"> (on GitHub)</span></a></li>
         <li><a class="bar-gh" href="https://github.com/Qworg/althistory">GitHub</a></li>
       </ul>
@@ -54,12 +53,12 @@
           <p class="note">Local mode keeps every graph in JSON files, so there is no database to set up. <code>althistory status</code> reports the mode it is running in.</p>
         </div>
         <figure class="code">
-          <figcaption><span>Terminal</span><button class="copy" type="button" aria-live="polite" data-copy="git clone https://github.com/Qworg/althistory.git&#10;cd althistory&#10;npm install&#10;npm link&#10;althistory status">Copy commands</button></figcaption>
-<pre tabindex="0" aria-label="Install commands"><code><span class="p">$</span> git clone https://github.com/Qworg/althistory.git
-<span class="p">$</span> cd althistory
-<span class="p">$</span> npm install
-<span class="p">$</span> npm link
-<span class="p">$</span> althistory status</code></pre>
+          <figcaption><span>Terminal</span><button class="copy" type="button" aria-live="polite" data-copy="git clone https://github.com/Qworg/althistory.git&#10;cd althistory&#10;npm install&#10;npm link&#10;althistory status">Copy</button></figcaption>
+<pre aria-label="Install commands"><code><span class="p">$ </span>git clone https://github.com/Qworg/althistory.git
+<span class="p">$ </span>cd althistory
+<span class="p">$ </span>npm install
+<span class="p">$ </span>npm link
+<span class="p">$ </span>althistory status</code></pre>
         </figure>
       </div>
     </section>
@@ -84,20 +83,20 @@
         </div>
         <figure class="code">
           <figcaption><span>Terminal</span><button class="copy" type="button" aria-live="polite" data-copy="althistory generate timeline --premise &quot;Byzantium wins at Manzikert&quot; --divergence-point 1071-08-26 --direct&#10;althistory ingest url https://en.wikipedia.org/wiki/French_Revolution">Copy</button></figcaption>
-<pre tabindex="0" aria-label="Example CLI commands"><code><span class="c"># Start from a premise</span>
-<span class="p">$</span> althistory generate timeline \
+<pre aria-label="Example CLI commands"><code><span class="c"># Start from a premise</span>
+<span class="p">$ </span>althistory generate timeline \
     --premise <span class="s">"Byzantium wins at Manzikert"</span> \
     --divergence-point 1071-08-26 --direct
 
 <span class="c"># Or from the record</span>
-<span class="p">$</span> althistory ingest url \
+<span class="p">$ </span>althistory ingest url \
     https://en.wikipedia.org/wiki/French_Revolution
 
 <span class="c"># Then ask it how one thing led to another</span>
-<span class="p">$</span> althistory causal paths -g &lt;graph&gt; \
+<span class="p">$ </span>althistory causal paths -g &lt;graph&gt; \
     --from &lt;event&gt; --to &lt;event&gt;
 
-<span class="p">$</span> althistory export &lt;graph&gt; --format markdown</code></pre>
+<span class="p">$ </span>althistory export &lt;graph&gt; --format markdown</code></pre>
         </figure>
       </div>
     </section>
@@ -108,11 +107,12 @@
           <h2 id="mcp-h">Connect an agent over MCP</h2>
           <p><code>althistory mcp</code> is a stdio MCP server with the same tools as the CLI. Add it to Claude Desktop, Cursor or Claude Code, and the agent can build, branch and query histories for you.</p>
           <p class="note"><code>althistory schema --mcp</code> prints the tool dictionary the server offers.</p>
+          <p class="note">You never start <code>althistory mcp</code> yourself: your client runs it when it needs the tools, and talks to it over stdin and stdout.</p>
         </div>
         <div class="code-stack">
           <figure class="code">
             <figcaption><span>claude_desktop_config.json · .cursor/mcp.json</span><button class="copy" type="button" aria-live="polite" data-copy="{&#10;  &quot;mcpServers&quot;: {&#10;    &quot;althistory&quot;: {&#10;      &quot;command&quot;: &quot;althistory&quot;,&#10;      &quot;args&quot;: [&quot;mcp&quot;],&#10;      &quot;env&quot;: { &quot;LOCAL_EXECUTION_ENABLED&quot;: &quot;true&quot; }&#10;    }&#10;  }&#10;}">Copy</button></figcaption>
-<pre tabindex="0" aria-label="MCP configuration for Claude Desktop or Cursor"><code>{
+<pre aria-label="MCP configuration for Claude Desktop or Cursor"><code>{
   <span class="k">"mcpServers"</span>: {
     <span class="k">"althistory"</span>: {
       <span class="k">"command"</span>: <span class="s">"althistory"</span>,
@@ -124,10 +124,34 @@
           </figure>
           <figure class="code">
             <figcaption><span>Claude Code</span><button class="copy" type="button" aria-live="polite" data-copy="claude mcp add althistory -e LOCAL_EXECUTION_ENABLED=true -- althistory mcp">Copy</button></figcaption>
-<pre tabindex="0" aria-label="Command to add the MCP server to Claude Code"><code><span class="p">$</span> claude mcp add althistory \
+<pre aria-label="Command to add the MCP server to Claude Code"><code><span class="p">$ </span>claude mcp add althistory \
     -e LOCAL_EXECUTION_ENABLED=true -- althistory mcp</code></pre>
           </figure>
         </div>
+      </div>
+    </section>
+
+    <section class="doc" aria-labelledby="transcript-h">
+      <div class="wrap doc-grid">
+        <div>
+          <h2 id="transcript-h">What an agent sees</h2>
+          <p>A request, the tool call the agent makes, and what comes back. Every tool answers in JSON, so the agent can read the result and decide what to do next.</p>
+          <p class="note">An example: the counts depend on the premise, and on whether a model key is set.</p>
+        </div>
+        <figure class="code transcript">
+          <figcaption><span>A conversation with Claude</span></figcaption>
+<pre aria-label="An example agent conversation"><code><span class="t-who">You</span>    Draft a history in which Byzantium wins at Manzikert.
+
+<span class="t-who">Claude</span> <span class="c">calls</span> althistory_generate_timeline
+       { <span class="k">"premise"</span>: <span class="s">"Byzantium wins at Manzikert"</span>,
+         <span class="k">"divergencePoint"</span>: <span class="s">"1071-08-26"</span> }
+
+       <span class="c">returns</span> { <span class="k">"graphName"</span>: <span class="s">"What If: Byzantium wins at Manzikert"</span>,
+                 <span class="k">"eventCount"</span>: 8, <span class="k">"relationshipCount"</span>: 13, … }
+
+<span class="t-who">Claude</span> Done: a new graph with 8 events and 13 causal links.
+       Shall I branch it where the Seljuks regroup?</code></pre>
+        </figure>
       </div>
     </section>
 

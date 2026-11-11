@@ -84,3 +84,26 @@ for (const pagePath of PAGES) {
     await context.close()
   })
 }
+
+test('on a phone the hero shows what selecting does, once', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  const page = await context.newPage()
+  await page.goto('./', { waitUntil: 'networkidle' })
+  await page.locator('.hero-scroll').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+  // The demonstration selects an event a moment after the timeline is in
+  // view, without speaking and without taking focus, then lets go.
+  await expect(page.locator('.ht-tip.is-on')).toBeVisible({ timeout: 8000 })
+  await expect(page.locator('.ht-live')).toHaveText('')
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
+  await expect(page.locator('.ht-tip.is-on')).toHaveCount(0, { timeout: 6000 })
+  await context.close()
+})
+
+test('the hero demonstration never runs with reduced motion', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
+  const page = await context.newPage()
+  await page.goto('./', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(5000)
+  await expect(page.locator('.ht-tip.is-on')).toHaveCount(0)
+  await context.close()
+})

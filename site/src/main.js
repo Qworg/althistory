@@ -45,6 +45,10 @@ if (figure && scroller && svg && tip) {
 
   const inside = (element) => scroller.contains(element) || tip.contains(element)
   const scrollable = () => scroller.scrollWidth > scroller.clientWidth + 1
+  const hint = figure.querySelector('.hero-hint')
+  if (hint && !window.matchMedia('(pointer: coarse)').matches) {
+    hint.textContent = hint.textContent.replace(/^Swipe/, 'Scroll')
+  }
   const fit = () => figure.classList.toggle('is-scrollable', scrollable())
   fit()
 
@@ -65,21 +69,40 @@ if (figure && scroller && svg && tip) {
 
   const scale = () => svg.getBoundingClientRect().width / svg.viewBox.baseVal.width
 
-  // Keep the card by its event and on screen: above a main-line event, and
-  // below a branch event's lane (over the caption), so a branch card never
-  // covers the main line or the path the pointer takes to reach it.
+  // Keep the card by its event and on screen. A main-line event's card sits
+  // above it. A branch event's card sits to the right of the branch's last
+  // event, below the main line: nothing is drawn beneath it there, so it
+  // covers no other event and the pointer's way to its link crosses none.
+  const branchEnd = Math.max(...hits.filter((h) => h.hasAttribute('data-branch')).map((h) => point(h).x))
+  const mainLine = Math.min(...hits.filter((h) => !h.hasAttribute('data-branch')).map((h) => point(h).y))
   const place = () => {
     const hit = hits[active]
     if (!hit) return
     const { x, y } = point(hit)
-    const below = hit.hasAttribute('data-branch')
-    tip.classList.toggle('is-below', below)
-    const half = tip.offsetWidth / 2
-    const px = scroller.offsetLeft + x * scale() - scroller.scrollLeft
-    const left = scroller.offsetLeft + 4 + half
-    const right = scroller.offsetLeft + scroller.clientWidth - 4 - half
-    tip.style.left = `${Math.min(Math.max(px, left), Math.max(left, right))}px`
-    tip.style.top = `${scroller.offsetTop + y * scale()}px`
+    const k = scale()
+    const beside = hit.hasAttribute('data-branch')
+    tip.classList.toggle('is-beside', beside)
+    const width = tip.offsetWidth
+    const left = scroller.offsetLeft + 4
+    const right = scroller.offsetLeft + scroller.clientWidth - 4
+    const toFigure = (sx) => scroller.offsetLeft + sx * k - scroller.scrollLeft
+    if (beside) {
+      const at = toFigure(branchEnd + 22)
+      tip.style.left = `${Math.min(Math.max(at, left), Math.max(left, right - width))}px`
+      const centred = y * k - tip.offsetHeight / 2
+      tip.style.top = `${scroller.offsetTop + Math.max(centred, mainLine * k + 14)}px`
+    } else {
+      const half = width / 2
+      tip.style.left = `${Math.min(Math.max(toFigure(x), left + half), Math.max(left + half, right - half))}px`
+      tip.style.top = `${scroller.offsetTop + y * k}px`
+    }
+  }
+
+  // Whether the pointer is over the card (which lets the pointer through).
+  const overCard = (event) => {
+    if (!tip.classList.contains('is-on')) return false
+    const box = tip.getBoundingClientRect()
+    return event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom
   }
 
   const show = (i, { reveal = false, announce = false } = {}) => {
@@ -107,7 +130,9 @@ if (figure && scroller && svg && tip) {
         : 'Led to nothing later in this history'
     const open = document.createElement('a')
     open.className = 'ht-open'
-    open.href = `demo/?start=${hit.dataset.start ?? 'branch'}`
+    // Straight to this event in the demo: it opens on its history, selected.
+    const linked = hit.dataset.event ? `#/timeline?event=${encodeURIComponent(hit.dataset.event)}` : ''
+    open.href = `demo/?start=${hit.dataset.start ?? 'branch'}${linked}`
     open.textContent = `Open ${hit.dataset.graph ?? 'this history'} in the demo`
     tip.replaceChildren(
       line('ht-tip-date', `${hit.dataset.date ?? ''} · ${position}`),
@@ -119,10 +144,11 @@ if (figure && scroller && svg && tip) {
     tip.classList.toggle('is-branch', branch)
     tip.classList.add('is-on')
 
+    // Scroll only to bring an event into view, never under a finger that is
+    // already on it.
     if (reveal && scrollable()) {
       const px = x * scale()
-      const edge = 56
-      if (px < scroller.scrollLeft + edge || px > scroller.scrollLeft + scroller.clientWidth - edge) {
+      if (px < scroller.scrollLeft + 8 || px > scroller.scrollLeft + scroller.clientWidth - 8) {
         scroller.scrollTo({ left: px - scroller.clientWidth / 2 })
       }
     }
@@ -170,6 +196,7 @@ if (figure && scroller && svg && tip) {
 
   svg.addEventListener('pointermove', (event) => {
     if (event.pointerType !== 'mouse') return
+    if (overCard(event)) return keep()
     const i = nearest(event, 16)
     if (i >= 0) {
       keep()
@@ -186,6 +213,7 @@ if (figure && scroller && svg && tip) {
     if (event.pointerType === 'mouse' && !inside(document.activeElement)) hideSoon()
   })
   svg.addEventListener('click', (event) => {
+    if (overCard(event)) return
     // A finger is wider than a dot: take the nearest event within reach.
     const i = nearest(event, event.pointerType === 'mouse' ? 16 : 40 / Math.max(scale(), 0.5))
     if (i < 0) return hide()
@@ -249,7 +277,9 @@ if (figure && scroller && svg && tip) {
       },
       { threshold: 0.6 }
     )
-    watcher.observe(svg)
+    // The visible timeline, not the drawing: on a phone the drawing is wider
+    // than the screen, so most of it is never in view at once.
+    watcher.observe(scroller)
   }
 }
 
@@ -267,12 +297,10 @@ if (video && play) {
     play.hidden = true
     video.controls = true
   }
-  // On a phone the burned-in captions are too small to read: turn the text
-  // track on there.
-  const narrow = window.matchMedia('(max-width: 640px)')
+  // The narration is the text track (the video has no burned-in captions).
   const begin = () => {
     start()
-    if (narrow.matches && video.textTracks[0]) video.textTracks[0].mode = 'showing'
+    if (video.textTracks[0]) video.textTracks[0].mode = 'showing'
     video.focus({ preventScroll: true })
     video.play().catch(() => undefined)
   }
@@ -281,6 +309,10 @@ if (video && play) {
   video.addEventListener('click', () => {
     if (!video.controls) begin()
   })
+  // "Watch the tour" scrolls to the player and starts it.
+  for (const link of document.querySelectorAll('[data-play-tour]')) {
+    link.addEventListener('click', () => begin())
+  }
   video.addEventListener('play', () => {
     start()
     video.classList.add('is-playing')
@@ -341,7 +373,12 @@ for (const button of document.querySelectorAll('button[data-copy]')) {
 // A code line wider than its panel fades at the edge (styles.css).
 const markScrollable = () => {
   for (const pre of document.querySelectorAll('.code pre')) {
-    pre.classList.toggle('is-scrollable', pre.scrollWidth > pre.clientWidth + 1)
+    const scrolls = pre.scrollWidth > pre.clientWidth + 1
+    pre.classList.toggle('is-scrollable', scrolls)
+    // A panel that scrolls must be reachable by keyboard; one that does not
+    // is not a tab stop.
+    if (scrolls) pre.setAttribute('tabindex', '0')
+    else pre.removeAttribute('tabindex')
   }
 }
 markScrollable()

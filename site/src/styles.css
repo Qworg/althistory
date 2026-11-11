@@ -130,7 +130,7 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .hero .amber { color: var(--cy-amber); }
 
 .bar {
-  max-width: 1280px;
+  max-width: calc(var(--wrap));
   margin: 0 auto;
   padding: 20px var(--gutter);
   display: flex;
@@ -167,21 +167,21 @@ p { margin: 0 0 1em; text-wrap: pretty; }
  * them. Phones stack in reading order: headline, lede, buttons, note.
  */
 .hero-copy {
-  max-width: 1280px;
+  max-width: var(--wrap);
   margin: 0 auto;
-  padding: clamp(28px, 5vw, 64px) var(--gutter) 0;
+  padding: clamp(20px, 3.4vw, 44px) var(--gutter) 0;
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  grid-template-areas: 'title lede' 'actions note';
-  gap: 28px clamp(32px, 5vw, 72px);
-  align-items: end;
+  grid-template-areas: 'title lede' 'actions lede' 'note lede';
+  gap: 22px clamp(32px, 5vw, 72px);
+  align-items: start;
 }
 .hero-copy h1 { grid-area: title; }
 .hero-copy .lede { grid-area: lede; align-self: center; }
 .hero-copy .actions { grid-area: actions; margin-top: 0; align-self: start; }
-.hero-copy .actions-note { grid-area: note; margin-top: 0; align-self: start; }
+.hero-copy .actions-note { grid-area: note; margin-top: -6px; align-self: start; max-width: 32em; }
 .hero h1 {
-  font-size: clamp(3rem, 7.6vw, 6.2rem);
+  font-size: clamp(3rem, 6.6vw, 5.6rem);
   line-height: 0.98;
   letter-spacing: -0.025em;
 }
@@ -211,7 +211,7 @@ p { margin: 0 0 1em; text-wrap: pretty; }
   .actions .btn { flex: 1 1 100%; justify-content: center; }
 }
 
-.hero-figure { position: relative; max-width: 1280px; margin: 0 auto; padding: clamp(24px, 4vw, 44px) var(--gutter) 40px; }
+.hero-figure { position: relative; max-width: var(--wrap); margin: 0 auto; padding: clamp(18px, 2.6vw, 30px) var(--gutter) 40px; }
 .hero-scroll {
   overflow-x: auto; overflow-y: hidden;
   scrollbar-width: thin; scrollbar-color: rgb(182 197 221 / 0.35) transparent;
@@ -221,22 +221,22 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .is-scrollable .hero-scroll {
   mask-image: linear-gradient(90deg, transparent, #000 24px, #000 calc(100% - 24px), transparent);
 }
-.hero-canvas { position: relative; min-width: 860px; }
-/* On a phone the drawing is wider than the screen anyway; keep its text at
-   11px or more rather than shrinking it to fit fewer swipes. */
-@media (max-width: 640px) { .hero-canvas { min-width: 1100px; } }
+.hero-canvas { position: relative; min-width: 1100px; }
+/* Below that width the drawing scrolls rather than shrinking, so its text
+   stays at 11px or more on every screen, not just wide ones. */
 /* The edge fade clips anything outside the box, so the ring goes inside. */
 .is-scrollable .hero-scroll:focus-visible { outline-offset: -3px; }
 .hero-timeline { width: 100%; }
 .hero-figure figcaption {
-  max-width: 36em; margin-top: 14px;
-  font-size: 0.9rem; color: var(--cy-ink-2); text-wrap: pretty;
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 32px;
+  margin-top: 14px; font-size: 0.9rem; color: var(--cy-ink-2);
 }
+.cap-text { max-width: 36em; text-wrap: pretty; }
 .hero-figure figcaption .mono { color: var(--cy-ink); }
 /* Said before the drawing, on phones only, where the drawing scrolls. */
 .hero-hint { display: none; margin: 0 0 10px; font-size: 0.85rem; color: var(--cy-ink-2); }
 .is-scrollable .hero-hint { display: block; }
-.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin-top: 10px; font-size: 0.82rem; }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; font-size: 0.82rem; }
 .legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .legend svg { width: 28px; height: 10px; }
 .legend path { stroke: var(--cy-line); stroke-width: 2; fill: none; }
@@ -285,8 +285,14 @@ p { margin: 0 0 1em; text-wrap: pretty; }
   transition: opacity 0.12s ease-out, visibility 0s linear 0.12s;
 }
 .ht-tip.is-on { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity 0.12s ease-out; }
-/* A branch event's card sits below its lane, clear of the main line. */
-.ht-tip.is-below { transform: translate(-50%, 18px); }
+/* A branch event's card sits to the right of the branch's last event, where
+   nothing is drawn beneath it. */
+.ht-tip.is-beside { transform: none; }
+/* Only the card's link takes the pointer; the rest of the card lets moves and
+   taps through to the drawing (main.js keeps the card while the pointer is
+   over it). */
+.ht-tip.is-on { pointer-events: none; }
+.ht-tip .ht-open { pointer-events: auto; }
 .ht-tip span { display: block; }
 .ht-tip-date { font: 500 0.78rem/1.4 var(--mono); color: var(--cy-ink-2); margin-bottom: 2px; }
 .ht-tip.is-branch .ht-tip-date { color: var(--cy-amber); }
@@ -412,6 +418,78 @@ p { margin: 0 0 1em; text-wrap: pretty; }
   .feature { grid-template-columns: 1fr; }
 }
 
+/* ----------------------------------------------------------- moments --- */
+/* The features drawn in the hero's cyanotype, from the seed (build.mjs).
+   Lines are SVG; everything to be read is HTML, so it reads on a phone. */
+
+.moment {
+  margin: 4px 0 0; max-width: 560px;
+  padding: 22px 22px 18px; border-radius: 10px; border: 1px solid transparent;
+  background: var(--cyan); color: var(--cy-ink);
+  box-shadow: 0 1px 2px rgb(20 24 31 / 0.06), 0 14px 30px -14px rgb(0 0 0 / 0.38);
+}
+.moment svg { display: block; width: 100%; height: auto; }
+.moment figcaption { margin-top: 12px; font-size: 0.9rem; line-height: 1.5; color: var(--cy-ink-2); }
+.moment figcaption strong { color: var(--cy-ink); font-weight: 500; }
+.moment .m-date { font-family: var(--mono); font-size: 0.88em; color: var(--cy-ink); }
+.m-axis { display: flex; justify-content: space-between; margin-top: 4px; font: 500 0.75rem/1 var(--mono); color: var(--cy-ink-2); }
+
+.mt-base { fill: none; stroke: var(--cy-ink); stroke-width: 1.5; }
+.mt-link { fill: none; stroke: var(--cy-line); stroke-width: 1.2; opacity: 0.16; }
+.mt-link.is-lit { stroke: var(--cy-ink); stroke-width: 1.6; opacity: 1; }
+.mt-dot { fill: var(--cy-ink); stroke: var(--cyan); stroke-width: 2; opacity: 0.3; }
+.mt-dot.is-lit, .mt-dot.is-picked { opacity: 1; }
+.mt-ring { fill: none; stroke: var(--cy-ink); stroke-width: 1.5; }
+
+.mp-chain { list-style: none; margin: 0; padding: 0; }
+.mp-chain li { position: relative; padding-left: 24px; font-size: 0.95rem; line-height: 1.45; color: var(--cy-ink); }
+.mp-chain li::before {
+  content: ''; position: absolute; left: 3px; top: 0.42em;
+  width: 10px; height: 10px; border-radius: 50%; background: var(--cy-ink);
+}
+.mp-link {
+  display: block; margin: 6px 0 8px calc(8px - 24px - var(--w) / 2);
+  padding: 7px 0 7px 22px; border-left: var(--w) solid var(--cy-line);
+  font: 0.76rem/1.3 var(--mono); color: var(--cy-ink-2);
+}
+.mp-indirect { border-left-style: dashed; }
+.mp-contributory { border-left-style: dotted; }
+
+.mb-stage { position: relative; }
+.mb-lane { position: absolute; left: 4px; transform: translateY(-150%); font: italic 400 1.02rem/1 var(--display); }
+.mb-lane-branch { color: var(--cy-amber); }
+.mb-lane-ghost { color: var(--cy-ink-2); }
+.mb-line { stroke: var(--cy-ink); stroke-width: 2; }
+.mb-line-ghost { stroke: var(--cy-line); stroke-width: 1.5; stroke-dasharray: 2 5; opacity: 0.7; }
+.mb-split { stroke: var(--cy-amber); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.8; }
+.mb-ghost { fill: var(--cy-line); opacity: 0.55; }
+.mb-shared { fill: var(--cy-ink); stroke: var(--cyan); stroke-width: 2; }
+.mb-own, .mb-diverge { fill: var(--cy-amber); stroke: var(--cyan); stroke-width: 2; }
+
+.mr-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.mr-table caption { text-align: left; padding-bottom: 10px; font-weight: 500; color: var(--cy-ink); }
+.mr-table th { padding: 6px 8px; text-align: left; font: 500 0.72rem var(--mono); color: var(--cy-ink-2); border-bottom: 1px solid rgb(182 197 221 / 0.25); }
+.mr-table td { padding: 10px 8px; vertical-align: top; color: var(--cy-ink); border-bottom: 1px solid rgb(182 197 221 / 0.14); }
+.mr-table td:first-child, .mr-table th:first-child { padding-left: 0; width: 24px; }
+.mr-table td.m-date { white-space: nowrap; }
+.mr-who { display: block; margin-top: 3px; font-size: 0.8rem; color: var(--cy-ink-2); }
+.mr-conf { font-family: var(--mono); }
+.mr-check { width: 16px; height: 16px; margin-top: 2px; }
+.mr-check rect { fill: var(--cy-ink); }
+.mr-check path { fill: none; stroke: var(--cyan); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 480px) {
+  .moment { padding: 18px 16px 14px; }
+  /* Each row as a little card: the event across the top, date and
+     confidence beneath it, so the event's text keeps the width. */
+  .mr-table thead { display: none; }
+  .mr-table tr { display: grid; grid-template-columns: 24px 1fr auto; column-gap: 8px; padding: 10px 0; border-bottom: 1px solid rgb(182 197 221 / 0.14); }
+  .mr-table td { padding: 0; border: 0; }
+  .mr-table td:nth-child(2) { grid-column: 2 / 4; }
+  .mr-table td.m-date { grid-column: 2; margin-top: 6px; }
+  .mr-table td.mr-conf { grid-column: 3; margin-top: 6px; }
+  .mr-table td.mr-conf::before { content: 'confidence '; font-family: var(--sans); color: var(--cy-ink-2); font-size: 0.78rem; }
+}
+
 /* -------------------------------------------------------------- code --- */
 
 .code {
@@ -431,8 +509,8 @@ p { margin: 0 0 1em; text-wrap: pretty; }
   border-bottom: 1px solid rgb(182 197 221 / 0.14);
 }
 @media (prefers-color-scheme: dark) {
-  /* Otherwise the dark code panels melt into the dark page. */
-  .code { border-color: rgb(182 197 221 / 0.32); }
+  /* Otherwise the dark panels melt into the dark page. */
+  .code, .moment { border-color: rgb(182 197 221 / 0.32); }
 }
 .code pre { margin: 0; padding: 16px; overflow-x: auto; }
 /* A line that runs past the panel fades out, so it reads as more, not cut. */
@@ -442,6 +520,7 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .code .p { color: #8ea3c2; user-select: none; }
 .code .s { color: #d9e6f8; }
 .code .k { color: #9fbbe6; }
+.code .t-who { color: #fff; font-weight: 500; }
 .code pre:focus-visible { outline-offset: -3px; outline-color: var(--cy-ink); }
 
 /* ------------------------------------------------------------- start --- */
@@ -472,7 +551,7 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 
 /* ------------------------------------------------------- agents page --- */
 
-.hero-sub .sub-copy { max-width: 1280px; margin: 0 auto; padding: clamp(20px, 4vw, 44px) var(--gutter) clamp(44px, 6vw, 76px); }
+.hero-sub .sub-copy { max-width: var(--wrap); margin: 0 auto; padding: clamp(20px, 4vw, 44px) var(--gutter) clamp(44px, 6vw, 76px); }
 .hero-sub h1 { font-size: clamp(2.4rem, 5.2vw, 4.2rem); line-height: 1.02; letter-spacing: -0.02em; max-width: 15em; }
 .hero-sub .lede { margin-top: 22px; max-width: 42em; }
 .hero-sub code { color: var(--cy-ink); }

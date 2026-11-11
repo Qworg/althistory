@@ -95,15 +95,13 @@ screen. Fix the step, don't add a sleep.
   which carries the landing page's forking timeline. The site uses it as its
   `og:image`; GitHub's repository preview has no API, so after regenerating,
   upload it again in Settings → General → Social preview.
-- **The landing page's pictures.** `npm run capture` also writes
-  `docs/images/site/`: tight WebP crops at 720 and 1440 px wide (including
-  the `branch` shot, which the README doesn't use), a 720 px detail crop of
-  each for phones, a WebP of the walkthrough poster, and `manifest.json`,
-  which `site/build.mjs` reads to fill in each image's `srcset`, `width` and
-  `height`. `npm run site-images` rewrites them from the last capture
-  without capturing again; the crops are listed in `SITE_IMAGES` in
-  `src/images.ts`.
-- **Captions.** `npm run captions` writes `docs/media/walkthrough.vtt` from
+- **The landing page's poster.** `npm run capture` and the video render also
+  write `docs/images/site/walkthrough-poster.webp`, a light copy of the poster
+  for the site (`npm run site-images` rewrites it alone). The site's feature
+  pictures are drawn from the seed by `site/build.mjs`, not captured.
+- **Captions.** The video has no captions burned in; the narration is
+  `docs/media/walkthrough.vtt`, which the site shows at every width (the
+  camera keeps the bottom of the frame clear for it). `npm run captions` writes it from
   the storyboard (rendering the video runs it too). The cue times replay the
   scene's fixed durations, and the script fails if they no longer add up to
   the video's length, so a change to `walkthrough.tsx` must be mirrored in

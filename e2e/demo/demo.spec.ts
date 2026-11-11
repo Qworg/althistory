@@ -109,6 +109,14 @@ test('on a phone, a branch opens at its divergence', async ({ browser }) => {
   await context.close()
 })
 
+test('a link can open the demo on one event, selected', async ({ page }) => {
+  // The landing page's hero cards link this way.
+  await page.goto('./?start=main#/timeline?event=event_noteg')
+  const inspector = page.getByRole('region', { name: 'Selection inspector' })
+  await expect(inspector).toContainText('Ada Lovelace publishes Note G')
+  await expect(page).toHaveURL(/#\/timeline$/)
+})
+
 test('forks the history in the browser', async ({ page }) => {
   await page.goto('./')
   await expect(page.getByText(COUNTS)).toBeVisible()

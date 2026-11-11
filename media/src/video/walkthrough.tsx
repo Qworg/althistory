@@ -25,7 +25,7 @@ import type { Manifest, Rect as Box, Shot } from '../manifest'
 import { beats, intro, outro, type Beat, type Move, type Target } from './storyboard'
 
 const FRAME = { width: 1920, height: 1080 }
-/** Space the caption occupies at the bottom; the camera centres above it. */
+/** Space kept free at the bottom for the player's captions; the camera centres above it. */
 const CAPTION_CLEARANCE = 170
 // The site's and the app's own: cyanotype blue, baseline blue for pointing
 // things out, and no amber, which in althistory means a branch.
@@ -111,38 +111,6 @@ function pointerArrow(): Path {
   ) as Path
 }
 
-function caption(view: Node, index: number, beat: Beat): Rect {
-  const card = createRef<Rect>()
-  view.add(
-    <Rect
-      ref={card}
-      layout
-      direction={'column'}
-      gap={10}
-      padding={[26, 40]}
-      width={FRAME.width - 160}
-      y={FRAME.height / 2 - 100}
-      offset={[0, 0]}
-      radius={20}
-      fill={'rgba(10, 31, 60, 0.92)'}
-      shadowColor={'rgba(0,0,0,0.35)'}
-      shadowBlur={30}
-      opacity={0}
-    >
-      <Txt
-        text={`${String(index + 1).padStart(2, '0')}  ·  ${beat.chapter.toUpperCase()}`}
-        fontFamily={SANS}
-        fontWeight={700}
-        fontSize={24}
-        letterSpacing={2}
-        fill={COLOR.label}
-      />
-      <Txt text={beat.caption} fontFamily={SANS} fontSize={36} lineHeight={48} fill={COLOR.white} textWrap />
-    </Rect>
-  )
-  return card()
-}
-
 function* playBeat(view: Node, manifest: Manifest, index: number, beat: Beat): ThreadGenerator {
   const shot = manifest.shots[beat.shot]
   if (!shot) throw new Error(`Storyboard: no captured shot "${beat.shot}"`)
@@ -155,8 +123,11 @@ function* playBeat(view: Node, manifest: Manifest, index: number, beat: Beat): T
     </Node>
   )
 
-  const captionCard = caption(view, index, beat)
-  yield* all(stage().opacity(1, 0.5), captionCard.opacity(1, 0.5, easeOutCubic))
+  // No burned-in caption: the narration is the WebVTT track
+  // (docs/media/walkthrough.vtt, from captions.ts), which the site shows at
+  // every width. The camera still leaves CAPTION_CLEARANCE free at the
+  // bottom, where a player draws its captions.
+  yield* stage().opacity(1, 0.5)
 
   const arrow = pointerArrow()
   stage().add(arrow)
@@ -165,9 +136,8 @@ function* playBeat(view: Node, manifest: Manifest, index: number, beat: Beat): T
     yield* playMove(stage(), shot, move, arrow)
   }
 
-  yield* all(stage().opacity(0, 0.45), captionCard.opacity(0, 0.35))
+  yield* stage().opacity(0, 0.45)
   stage().remove()
-  captionCard.remove()
 }
 
 function* playMove(stage: Node, shot: Shot, move: Move, arrow: Path): ThreadGenerator {

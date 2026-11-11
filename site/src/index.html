@@ -41,8 +41,7 @@
         <span>althistory</span>
       </a>
       <ul>
-        <li><a href="demo/?start=branch">Demo</a></li>
-        <li class="bar-wide"><a href="agents.html">CLI &amp; MCP</a></li>
+                <li class="bar-wide"><a href="agents.html">CLI &amp; MCP</a></li>
         <li class="bar-docs"><a href="https://github.com/Qworg/althistory#documentation">Docs<svg class="ext" viewBox="0 0 10 10" aria-hidden="true"><path d="M4 1.5H8.5V6M8.5 1.5L2 8"/></svg><span class="sr-only"> (on GitHub)</span></a></li>
         <li><a class="bar-gh" href="https://github.com/Qworg/althistory">GitHub</a></li>
       </ul>
@@ -53,7 +52,7 @@
       <p class="lede">A workbench for real and invented histories. Record events, the periods that hold them and the causes that link them, then branch at any moment and follow what changes.</p>
       <div class="actions">
         <a class="btn btn-primary" href="demo/?start=branch">Try it in your browser</a>
-        <a class="btn btn-ghost" href="#walkthrough">Watch the one-minute tour</a>
+        <a class="btn btn-ghost" href="#walkthrough" data-play-tour>Watch the tour</a>
       </div>
       <p class="actions-note">Opens on Clerks Prevail, a branch of this history in which Parliament bans the engines, with the original drawn faintly beneath it. Branch it again, change anything; nothing leaves your browser.</p>
     </div>
@@ -69,7 +68,7 @@
       <p class="sr-only ht-live" role="status" aria-live="polite"></p>
       <!-- hero:events -->
       <figcaption>
-        <span class="mono">The Engine Age</span>, an invented example: Babbage finishes the Analytical Engine in 1843. In <span class="amber">a branch</span>, Parliament bans the engines in 1860 instead of licensing them. Select an event to see what it led to.
+        <span class="cap-text"><span class="mono">The Engine Age</span>, an invented example: Babbage finishes the Analytical Engine in 1843. In <span class="amber">a branch</span>, Parliament bans the engines in 1860 instead of licensing them. Select an event to see what it led to.</span>
         <span class="legend">The curves are causes:
           <span><svg viewBox="0 0 28 10" aria-hidden="true"><path d="M1 5H27"/></svg>direct</span>
           <span><svg viewBox="0 0 28 10" aria-hidden="true"><path class="lg-indirect" d="M1 5H27"/></svg>indirect</span>
@@ -87,7 +86,7 @@
         <div class="player">
           <video class="frame" controls preload="none" playsinline poster="images/site/walkthrough-poster.webp" width="1600" height="900">
             <source src="media/walkthrough.mp4" type="video/mp4">
-            <track kind="captions" src="media/walkthrough.vtt" srclang="en" label="English">
+            <track kind="captions" src="media/walkthrough.vtt" srclang="en" label="English" default>
             <a href="media/walkthrough.mp4">Download the walkthrough video</a>.
           </video>
           <button class="play" type="button" hidden>
@@ -110,16 +109,16 @@
               <p class="note">Or follow one actor through it all, and see the economic, social and political pressures read from clusters of events.</p>
               <p class="where"><strong>In the demo</strong>: <a href="demo/?start=branch">open the timeline</a></p>
             </div>
-            <picture><!-- site-source:timeline --><img class="frame" src="images/site/timeline-1440.webp" data-site-image="timeline" alt="The timeline: nested arcs above a line of events, causal links arching between them, and a card on one event naming who did what to whom." loading="lazy" decoding="async" fetchpriority="low"></picture>
+            <!-- moment:trace -->
           </article>
 
           <article class="feature">
             <div class="feature-text">
               <h3>Follow the causes</h3>
               <p>Every link between two events is direct, indirect or contributory, with a weight, a confidence and the evidence for it. Lay the graph out the way that reads best, and find every path from one event to another.</p>
-              <p class="where"><strong>In the demo</strong>: <a href="demo/?start=branch#/causal-graph">open the causal graph</a>, then choose <em>Cause to effect</em> under Layout for the view shown here.</p>
+              <p class="where"><strong>In the demo</strong>: <a href="demo/?start=branch#/causal-graph">open the causal graph</a>, and select an event to find every path from it.</p>
             </div>
-            <picture><!-- site-source:causal-graph --><img class="frame" src="images/site/causal-graph-1440.webp" data-site-image="causal-graph" alt="The causal graph laid out cause to effect, with the layout options beside it." loading="lazy" decoding="async" fetchpriority="low"></picture>
+            <!-- moment:path -->
           </article>
 
           <article class="feature feature-fork">
@@ -128,7 +127,7 @@
               <p>Branch a history at any moment and write what happens instead, with the original drawn faintly beneath. Compare branches side by side, then merge one back through a conflict resolver that flags what doesn't fit.</p>
               <p class="where"><strong>In the demo</strong>: <a href="demo/?start=branch">branching and comparing</a>. Merging needs your own install.</p>
             </div>
-            <picture><!-- site-source:branch --><img class="frame" src="images/site/branch-1440.webp" data-site-image="branch" alt="The Clerks Prevail branch: its own events in front, the original history ghosted beneath, and the divergence on 12 July 1860 marked." loading="lazy" decoding="async" fetchpriority="low"></picture>
+            <!-- moment:branch -->
           </article>
         </div>
 
@@ -139,7 +138,7 @@
               <p class="note">Patterns read the text offline; an Anthropic or OpenAI key adds a model.</p>
               <p class="where where-install"><strong>Needs your own install</strong>: the demo can't fetch pages. <a href="#start">Run it locally</a></p>
             </div>
-            <picture><!-- site-source:ingest-review --><img class="frame" src="images/site/ingest-review-1440.webp" data-site-image="ingest-review" alt="The review step: three extracted events with actor, target, date and confidence, each with a checkbox to keep it." loading="lazy" decoding="async" fetchpriority="low"></picture>
+            <!-- moment:review -->
           </article>
       </div>
     </section>
@@ -153,21 +152,23 @@
             <h3>The app</h3>
             <p>Clone it, install, and start it. Then open <span class="mono">localhost:5173</span>.</p>
             <figure class="code">
-              <figcaption><span>Terminal</span><button class="copy" type="button" aria-live="polite" data-copy="git clone https://github.com/Qworg/althistory.git&#10;cd althistory&#10;npm install&#10;./start-local.sh">Copy commands</button></figcaption>
-<pre tabindex="0" aria-label="Commands to install and start althistory"><code><span class="p">$</span> git clone https://github.com/Qworg/althistory.git
-<span class="p">$</span> cd althistory
-<span class="p">$</span> npm install
-<span class="p">$</span> ./start-local.sh</code></pre>
+              <figcaption><span>Terminal</span><button class="copy" type="button" aria-live="polite" data-copy="git clone https://github.com/Qworg/althistory.git&#10;cd althistory&#10;npm install&#10;./start-local.sh">Copy</button></figcaption>
+<pre aria-label="Commands to install and start althistory"><code><span class="p">$ </span>git clone https://github.com/Qworg/althistory.git
+<span class="p">$ </span>cd althistory
+<span class="p">$ </span>npm install
+<span class="p">$ </span>./start-local.sh</code></pre>
             </figure>
             <p class="note">For a shared server with Neo4j and Redis, see <a href="https://github.com/Qworg/althistory/blob/main/docs/production-deployment.md">production deployment</a>.</p>
           </div>
           <div class="way" id="agents">
             <h3>From a script or an agent</h3>
-            <p>Every screen is also a CLI command that answers in JSON, and <code>althistory mcp</code> gives Claude, Cursor or any MCP client the same tools.</p>
+            <p>Every screen is also a CLI command that answers in JSON. Link it once, then hand it to your MCP client: the client starts <code>althistory mcp</code> itself, so you never run it in a terminal.</p>
             <figure class="code">
-              <figcaption><span>Terminal, in the repository</span><button class="copy" type="button" aria-live="polite" data-copy="npm link&#10;althistory mcp">Copy commands</button></figcaption>
-<pre tabindex="0" aria-label="Commands to put the CLI on your PATH and start the MCP server"><code><span class="p">$</span> npm link
-<span class="p">$</span> althistory mcp</code></pre>
+              <figcaption><span>Terminal, in the repository</span><button class="copy" type="button" aria-live="polite" data-copy="npm link&#10;claude mcp add althistory -e LOCAL_EXECUTION_ENABLED=true -- althistory mcp">Copy</button></figcaption>
+<pre aria-label="Commands to put the CLI on your PATH and add it to Claude Code"><code><span class="p">$ </span>npm link
+<span class="c"># Claude Code; other clients take a JSON config</span>
+<span class="p">$ </span>claude mcp add althistory \
+    -e LOCAL_EXECUTION_ENABLED=true -- althistory mcp</code></pre>
             </figure>
             <p><a class="teaser-link" href="agents.html">Set up the CLI and MCP server</a></p>
           </div>
@@ -186,10 +187,10 @@
           <path class="cf-diverge" d="M196 36l8 8-8 8-8-8z"/>
         </svg>
         <div>
-          <h2 id="closing-h">Find the moment. Change it. Follow what happens.</h2>
+          <h2 id="closing-h">Find the moment. Change&nbsp;it. Follow what happens.</h2>
           <div class="actions">
             <a class="btn btn-primary" href="demo/?start=branch">Try it in your browser</a>
-            <a class="btn btn-ghost" href="#walkthrough">Watch the tour</a>
+            <a class="btn btn-ghost" href="#walkthrough" data-play-tour>Watch the tour</a>
           </div>
         </div>
       </div>
