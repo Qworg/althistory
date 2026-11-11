@@ -592,6 +592,10 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .recipe-meta dd { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
 .recipe-meta code { font-size: 0.85rem; }
 @media (max-width: 900px) { .recipes { grid-template-columns: minmax(0, 1fr); } }
+.doc .doc-h3 { font-size: 1.3rem; margin: 28px 0 10px; }
+/* The conversation is prose, so on a phone it fits the panel instead of scrolling:
+   its lines are wrapped at 46 columns, which this size holds at 390px. */
+@media (max-width: 480px) { .code.transcript pre code { font-size: 0.76rem; } }
 
 /* ----------------------------------------------------------- closing --- */
 

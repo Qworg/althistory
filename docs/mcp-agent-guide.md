@@ -50,8 +50,28 @@ flowchart TD
 
 ## 2. MCP Client Configuration
 
-### A. Claude Desktop
-Add the following to your `claude_desktop_config.json` (`~/.config/Claude/claude_desktop_config.json` on Linux or `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+`npm link` in the clone puts `althistory` on your PATH. If your client cannot
+find it (Claude Desktop on macOS starts with a minimal PATH), give the full
+path to `bin/althistory` in the clone instead; it runs through `npx`, so
+`node` must be on the client's PATH.
+
+When the althistory app is running on `localhost:3000`, the server works
+through it, so what an agent writes appears in the app as it goes; otherwise
+it works on the local files (`timeline/data`, the same store the app reads).
+`althistory_generate_timeline` and `althistory_branch_timeline` run only
+in-process, so they need the app stopped; every other tool works either way.
+Do not add `--direct` while the app is running: two processes would then
+write the same files.
+
+To let the server draft with a model, give **the server** a key: add
+`ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) to its `env`. The agent's own model
+does not count. Without one, generation returns a template marked
+`"source": "template"`.
+
+### A. Claude Desktop / Cursor / Roo Code / Cline
+`claude_desktop_config.json` (`~/.config/Claude/` on Linux,
+`~/Library/Application Support/Claude/` on macOS), `.cursor/mcp.json`, or your
+extension's settings:
 
 ```json
 {
@@ -59,65 +79,43 @@ Add the following to your `claude_desktop_config.json` (`~/.config/Claude/claude
     "althistory": {
       "command": "althistory",
       "args": ["mcp"],
-      "env": {
-        "LOCAL_EXECUTION_ENABLED": "true"
-      }
+      "env": { "ANTHROPIC_API_KEY": "<your key>" }
     }
   }
 }
 ```
 
-### B. Cursor / Roo Code / Cline
-In `.cursor/mcp.json` or your extension settings:
+The `env` line is only for drafting with a model; leave it out otherwise.
 
-```json
-{
-  "mcpServers": {
-    "althistory": {
-      "command": "althistory",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-### C. Claude Code
+### B. Claude Code
 
 ```bash
-claude mcp add althistory -e LOCAL_EXECUTION_ENABLED=true -- althistory mcp
+claude mcp add --scope user althistory -- althistory mcp
 ```
 
-The prompts then appear as `/mcp__althistory__worldbuild`,
-`/mcp__althistory__alternate_history` and `/mcp__althistory__grow_history`.
-
-### D. Direct Project Execution (No Global Link)
-If `althistory` is not in your global `PATH`, use the repository path directly:
-
-```json
-{
-  "mcpServers": {
-    "althistory": {
-      "command": "/path/to/althistory/bin/althistory",
-      "args": ["mcp"]
-    }
-  }
-}
-```
+`--scope user` makes the tools available in every project; without it they
+exist only in the directory you ran it in. Claude Code lists the prompts as
+`/althistory:worldbuild`, `/althistory:alternate_history` and
+`/althistory:grow_history` (typing `/mcp__althistory__worldbuild` works too).
+It passes a slash command's words to the prompt's arguments in order, split
+on whitespace, so run the prompt on its own (or with the one-word arguments:
+`/althistory:worldbuild AR 1000`) and describe the world in your next message.
 
 ---
 
 ## 3. Three ways to work
 
 The server offers one prompt for each way of working (MCP `prompts/list`). A
-client shows them to its user; Claude Code lists them as slash commands
-(`/mcp__althistory__worldbuild`). Without MCP, `althistory prompt <name>
-key=value… --plain` prints the same text for any agent that can run a command.
+client shows them to its user (Claude Code: `/althistory:worldbuild`). Every
+argument is optional: the prompt tells the agent to ask for what is missing.
+Without MCP, `althistory prompt <name> key=value… --plain` prints the same
+text for any agent that can run a command.
 
-| Prompt | Arguments | For |
+| Prompt | Arguments, in order | For |
 | --- | --- | --- |
-| `worldbuild` | `world` (required), `eraLabel`, `epochYear` | An invented world with no real history under it: calendar, ages, events, causes, checked as it goes. |
-| `alternate_history` | `premise` (required), `divergencePoint` | Real history turned at one moment: a draft, grounded in what really happened before the turn, then branched. |
-| `grow_history` | `graphId` (required) | A graph you already have: read it, extend one thread (writing or simulating), validate, branch. |
+| `worldbuild` | `eraLabel`, `epochYear`, `world` | An invented world with no real history under it: calendar, ages, events, causes, checked as it goes. |
+| `alternate_history` | `premise`, `divergencePoint` | Real history turned at one moment: a draft, grounded in what really happened before the turn, then branched. |
+| `grow_history` | `graphId` | A graph you already have: read it, extend one thread, validate, branch. Without an id the agent lists the graphs and asks. |
 
 ### Inventing a world
 
@@ -156,7 +154,11 @@ A session that builds a world by hand:
 `althistory_generate_timeline` with `world` drafts a skeleton instead: a model
 writes it when the server has `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, told
 that the world is not Earth and how its years are stored; without a key it is a
-template of ages to rewrite. Ingesting prose about a world (`althistory_ingest_text`
+template of generic ages to rewrite. The result's `source` says which.
+
+Give `reasoning` on every `althistory_link_events` call: without it the link
+records "Observed historical causality", which reads oddly in a world nobody
+observed. Ingesting prose about a world (`althistory_ingest_text`
 into a graph with a calendar) tells the model the calendar too; the offline
 pattern reader cannot read invented years, so give it ISO dates or use a model.
 
@@ -221,16 +223,17 @@ Draft a new graph whole-cloth. Give **either** `premise` and `divergencePoint`
 (an alternate history) **or** `world` (an invented world), not both.
 - `premise`, `divergencePoint`: the what-if, and where real history turns.
 - `world`: the world in a few sentences. The graph gets a calendar: `epochYear` defaults to the start date's year, or 1000; `eraLabel` and `calendarName` as above. A calendar on an alternate history is refused.
-- `startDate`, `endDate`: ISO 8601. An alternate history defaults to 15 years from the year in the premise; a world to 300 years from its epoch.
+- `startDate`, `endDate`: ISO 8601 (a date-time without a zone is read as UTC). An alternate history starts in the first year from 1000 to 2099 named in the premise or the divergence point (1914 if there is none, so give `startDate` for earlier history) and runs 15 years; a world starts at `startDate`, or its epoch, and runs 300 years, never past 9999.
 - `eventCount` (default 8), `style`: `"academic"` | `"narrative"` | `"concise"`, `dryRun`.
+- The result's `source` is `"model"`, or `"template"` when there was no model key or the model's answer was unusable: a generic skeleton to rewrite, not a history.
 
 #### `althistory_branch_timeline`
-Branch a graph at one of its events and draft a different course from there.
+Branch a graph at one of its events and draft a different course from there. Like generation, it drafts with a model only when the server has a key, and its result's `source` says which.
 - `sourceGraphId`, `divergeAtEventId`, `counterfactualPrompt`, `branchName` *(required)*
 - `eventCount` (default 6), `dryRun`.
 
 #### `althistory_simulate_timeline`
-Evolve a graph forward from an event, synthesising pressure-driven events and causal links.
+Evolve a graph forward from an event with a mechanical model of the pressures between its actors. It never calls a model: its events are terse and often repetitive, which makes them prompts for what to write rather than finished history.
 - `graphId` *(required)*
 - `steps` (1–10, default 3), `timeAdvanceMonths` (default 12), `anchorEventId` (default: the latest event)
 - `domain`: `"political"` | `"military"` | `"economic"` | `"scientific"` | `"social"` | `"environmental"`

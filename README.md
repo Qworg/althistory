@@ -83,40 +83,69 @@ mode is **one replica with a persistent volume** and refuses to start without
 
 ## Agent CLI & MCP Server
 
-`./bin/althistory` provides a scriptable CLI and a stdio Model Context Protocol
-(MCP) server (`./bin/althistory mcp`). It automatically connects to a running
-local server on `http://localhost:3000` (so changes appear live in the Web UI)
-or falls back to direct in-process storage (`--direct`) when no server is
-running.
+`./bin/althistory` is a scriptable CLI, and `./bin/althistory mcp` a stdio
+Model Context Protocol (MCP) server, so an agent such as Claude can write a
+history with you: bend a real one at a point of divergence, or invent a world
+with no real history under it. The agent does the writing through the tools;
+althistory keeps the events, ages and causes in a graph, refuses a cause dated
+after its effect, validates the whole, and branches it at any event. Both
+connect to a running app on `http://localhost:3000` (so changes appear live in
+the web UI) or fall back to the local files (`--direct`).
+
+Register the server with your client (more in
+[`docs/mcp-agent-guide.md`](docs/mcp-agent-guide.md) and [`.mcp/`](.mcp/)):
 
 ```bash
-# Inspect JSON Schema for all CLI commands or MCP tools
-./bin/althistory schema
-./bin/althistory schema --mcp
+npm link   # puts althistory on your PATH
+claude mcp add --scope user althistory -- althistory mcp   # Claude Code
+```
 
-# Manage graphs, events, arcs, ingestion, simulation, and validation
-./bin/althistory graph list
-./bin/althistory graph create "Roman Steam Engine" -d "Aeolipile industrialized in 100 CE"
+```json
+{ "mcpServers": { "althistory": { "command": "althistory", "args": ["mcp"] } } }
+```
+
+The server offers three prompts, one for each way of working (in Claude Code,
+`/althistory:worldbuild` and so on; run one, then describe your world or
+premise in your next message):
+
+| Prompt | For |
+| --- | --- |
+| `worldbuild` | An invented world: its calendar, ages, events and causes. |
+| `alternate_history` | Real history turned at one moment, grounded in what really happened before it. |
+| `grow_history` | Extending a graph you already have, and branching where it forks. |
+
+An invented world gets its own **calendar**: the graph records which stored
+year is the world's year 1 (`epochYear`) and a label (`eraLabel`), and the app
+and the exports show "Mar 4, 312 AR" instead of 1311. Dates stay ISO 8601
+underneath, so sorting and validation are unchanged.
+
+`generate timeline` (and the `generate_timeline` tool) drafts a graph
+whole-cloth from a premise or a world description. It uses a model only when
+*the althistory process* has `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; without
+one it returns a template skeleton, and the result says
+`"source": "template"`. Generation runs in-process, so it needs `--direct` or
+the app stopped.
+
+```bash
+./bin/althistory schema                 # the JSON Schema of every command
+./bin/althistory schema --mcp           # the MCP tools
+
+# An invented world
+./bin/althistory graph create "Vael" --epoch-year 1000 --era-label AR
+./bin/althistory generate timeline --world "A drowned archipelago ruled by salt-kings" --era-label AR --direct
+./bin/althistory prompt worldbuild world="A drowned archipelago" --plain   # the brief, for any agent
+
+# Real and alternate history
 ./bin/althistory ingest url "https://en.wikipedia.org/wiki/Battle_of_Hastings" -g <graphId>
 ./bin/althistory generate timeline --premise "Byzantium wins at Manzikert" --divergence-point "1071-08-26" --direct
 ./bin/althistory generate simulate -g <graphId> --steps 3 --months 12
 ./bin/althistory validate <graphId> --auto-repair
-./bin/althistory export <graphId> --format markdown
+./bin/althistory --plain export <graphId> --format markdown
 ```
 
-To register the MCP server in Claude Desktop, Cursor, or Antigravity (see
-[`.mcp/`](.mcp/)):
-
-```json
-{
-  "mcpServers": {
-    "althistory": {
-      "command": "/absolute/path/to/althistory/bin/althistory",
-      "args": ["mcp"]
-    }
-  }
-}
-```
+The [project page](https://qworg.github.io/althistory/agents.html) walks
+through building a world with Claude, and the
+[demo](https://qworg.github.io/althistory/demo/?start=world) opens the result.
 
 ## Tests
 

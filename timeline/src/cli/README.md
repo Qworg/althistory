@@ -98,7 +98,7 @@ without one it is a template of ages to rewrite. `generate branch` of a world
 stays in that world and its calendar, and the arcs a world's timeline is
 grouped into are named in its years.
 
-`export --format markdown` dates a world in its calendar with the stored date
+`--plain export --format markdown` (without `--plain` the Markdown comes inside the JSON envelope) dates a world in its calendar with the stored date
 beside it ("Mar 4, 312 AR (1311-03-04)") and states the offset, so an agent
 reading it knows which dates to write. `ingest text` into a graph with a
 calendar tells the model how the text's years are stored; the pattern reader

@@ -164,11 +164,11 @@
             <h3>From a script or an agent</h3>
             <p>Every screen is also a CLI command that answers in JSON, and the MCP server lets an agent write a history with you, whether it bends a real one or invents a world with its own calendar. Link it once and give it to your MCP client, which starts <code>althistory mcp</code> itself.</p>
             <figure class="code">
-              <figcaption><span>Terminal, in the repository</span><button class="copy" type="button" aria-live="polite" data-copy="npm link&#10;claude mcp add althistory -e LOCAL_EXECUTION_ENABLED=true -- althistory mcp">Copy</button></figcaption>
+              <figcaption><span>Terminal, in the repository</span><button class="copy" type="button" aria-live="polite" data-copy="npm link&#10;claude mcp add --scope user althistory -- althistory mcp">Copy</button></figcaption>
 <pre aria-label="Commands to put the CLI on your PATH and add it to Claude Code"><code><span class="p">$ </span>npm link
 <span class="c"># Claude Code; other clients take a JSON config</span>
-<span class="p">$ </span>claude mcp add althistory \
-    -e LOCAL_EXECUTION_ENABLED=true -- althistory mcp</code></pre>
+<span class="p">$ </span>claude mcp add --scope user althistory \
+    -- althistory mcp</code></pre>
             </figure>
             <p><a class="teaser-link" href="agents.html">Build histories with an agent</a></p>
           </div>

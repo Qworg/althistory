@@ -67,27 +67,27 @@
       <div class="wrap doc-grid">
         <div>
           <h2 id="mcp-h">Connect an agent over MCP</h2>
-          <p><code>althistory mcp</code> is a stdio MCP server. Add it to Claude Desktop, Cursor or Claude Code, and the agent can create graphs, write events, ages and causal links, check them, and branch them for you.</p>
-          <p>The server also offers three prompts, one for each way of working described below. Claude Code lists them as slash commands, such as <code>/mcp__althistory__worldbuild</code>.</p>
-          <p class="note">You never start <code>althistory mcp</code> yourself: your client runs it when it needs the tools, and talks to it over stdin and stdout. <code>althistory schema --mcp</code> prints the tools it offers.</p>
+          <p><code>althistory mcp</code> is a stdio MCP server. Add it to Claude Desktop, Cursor or Claude Code, and the agent can create graphs, write events, ages and causal links, check them, and branch them for you. If the app is running, the server works through it, so what the agent writes appears as it goes; otherwise it works on the files directly.</p>
+          <p>The server also offers three prompts, one for each way of working described below. In Claude Code they appear as <code>/althistory:worldbuild</code> and so on: run one on its own, then describe your world or premise in your next message.</p>
+          <p><strong>No extra API key needed.</strong> Claude writes the history itself through the tools. Only the drafting tools, <code>generate_timeline</code> and <code>branch_timeline</code>, call a model of their own, and only if the server has <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> in its environment (<code>env</code> in the config, or <code>-e</code> on the command). Without one they return a generic skeleton marked <code>"source": "template"</code> for the agent to rewrite. They also need the app stopped.</p>
+          <p class="note">You never start <code>althistory mcp</code> yourself: your client runs it, and talks to it over stdin and stdout. If your client cannot find <code>althistory</code>, give the full path to <code>bin/althistory</code> in the clone; it needs <code>node</code> on the client’s PATH.</p>
         </div>
         <div class="code-stack">
           <figure class="code">
-            <figcaption><span>claude_desktop_config.json · .cursor/mcp.json</span><button class="copy" type="button" aria-live="polite" data-copy="{&#10;  &quot;mcpServers&quot;: {&#10;    &quot;althistory&quot;: {&#10;      &quot;command&quot;: &quot;althistory&quot;,&#10;      &quot;args&quot;: [&quot;mcp&quot;],&#10;      &quot;env&quot;: { &quot;LOCAL_EXECUTION_ENABLED&quot;: &quot;true&quot; }&#10;    }&#10;  }&#10;}">Copy</button></figcaption>
+            <figcaption><span>claude_desktop_config.json · .cursor/mcp.json</span><button class="copy" type="button" aria-live="polite" data-copy="{&#10;  &quot;mcpServers&quot;: {&#10;    &quot;althistory&quot;: {&#10;      &quot;command&quot;: &quot;althistory&quot;,&#10;      &quot;args&quot;: [&quot;mcp&quot;]&#10;    }&#10;  }&#10;}">Copy</button></figcaption>
 <pre aria-label="MCP configuration for Claude Desktop or Cursor"><code>{
   <span class="k">"mcpServers"</span>: {
     <span class="k">"althistory"</span>: {
       <span class="k">"command"</span>: <span class="s">"althistory"</span>,
-      <span class="k">"args"</span>: [<span class="s">"mcp"</span>],
-      <span class="k">"env"</span>: { <span class="k">"LOCAL_EXECUTION_ENABLED"</span>: <span class="s">"true"</span> }
+      <span class="k">"args"</span>: [<span class="s">"mcp"</span>]
     }
   }
 }</code></pre>
           </figure>
           <figure class="code">
-            <figcaption><span>Claude Code</span><button class="copy" type="button" aria-live="polite" data-copy="claude mcp add althistory -e LOCAL_EXECUTION_ENABLED=true -- althistory mcp">Copy</button></figcaption>
-<pre aria-label="Command to add the MCP server to Claude Code"><code><span class="p">$ </span>claude mcp add althistory \
-    -e LOCAL_EXECUTION_ENABLED=true -- althistory mcp</code></pre>
+            <figcaption><span>Claude Code, for every project</span><button class="copy" type="button" aria-live="polite" data-copy="claude mcp add --scope user althistory -- althistory mcp">Copy</button></figcaption>
+<pre aria-label="Command to add the MCP server to Claude Code for every project"><code><span class="p">$ </span>claude mcp add --scope user althistory \
+    -- althistory mcp</code></pre>
           </figure>
         </div>
       </div>
@@ -96,11 +96,11 @@
     <section class="doc" aria-labelledby="ways-h">
       <div class="wrap">
         <h2 id="ways-h">Three ways to work</h2>
-        <p class="section-lede">Each is a prompt the server offers. Pick it in your client, or just ask in your own words.</p>
+        <p class="section-lede">Each is a prompt the server offers. Pick it in your client, or just ask in your own words: the prompt only gives the agent a plan to follow.</p>
         <div class="recipes">
           <article class="recipe">
             <h3>Bend real history</h3>
-            <p>Start from a premise and the moment real history turns. The agent drafts what follows, checks the years before the turn against what really happened, and makes each consequence show its causes.</p>
+            <p>Start from a premise and the moment real history turns. The agent drafts what follows and corrects the years before the turn from what it knows really happened; althistory checks that every consequence comes after its causes.</p>
             <p class="recipe-ask">“Draft a history where Byzantium wins at Manzikert, then show me where it’s weakest.”</p>
             <dl class="recipe-meta">
               <dt>Prompt</dt><dd><code>alternate_history</code></dd>
@@ -118,8 +118,8 @@
           </article>
           <article class="recipe">
             <h3>Grow what you have</h3>
-            <p>Hand the agent a graph you already have. It reads the whole history, follows one open thread forward, either writing it or simulating it with a preview first, and branches wherever you can’t choose.</p>
-            <p class="recipe-ask">“Read my Vael graph and carry the Glass Republic forward fifty years.”</p>
+            <p>Hand the agent a graph you already have. It reads the whole history, writes one open thread forward, and branches wherever you can’t choose. A simulation can suggest what comes next, but it is a rough model of pressures between actors, not prose.</p>
+            <p class="recipe-ask">“Read my Vael graph and write the next fifty years of the Glass Republic.”</p>
             <dl class="recipe-meta">
               <dt>Prompt</dt><dd><code>grow_history</code></dd>
               <dt>Tools</dt><dd><code>export_context</code>, <code>simulate_timeline</code>, <code>validate_graph</code>, <code>branch_timeline</code></dd>
@@ -137,41 +137,53 @@
           <p>An abridged session with the <code>worldbuild</code> prompt. The agent sets up the calendar first, lays out three ages, writes the events and links their causes.</p>
           <p>Then one link is refused: the agent claimed the glassmakers started the Tide War, but they only joined it eleven years in. Instead of forcing the link, the agent writes the grievance that actually turned them.</p>
           <p class="note">Dates stay ISO 8601 underneath. The calendar names the stored year that is the world’s year 1. With an epoch of 1000, 141&nbsp;AR is stored as 1140, and the tools’ Markdown shows both.</p>
+          <h3 class="doc-h3">See your world</h3>
+          <p>The agent’s graphs are files in <code>timeline/data</code> in your clone, the same store the app reads. Start the app with <code>./start-local.sh</code>, open <span class="mono">localhost:5173</span>, and pick the graph: its timeline, causal graph and dates read in the world’s years.</p>
+          <p><a class="teaser-link" href="demo/?start=world">Open Vael in the demo</a></p>
         </div>
         <figure class="code transcript">
           <figcaption><span>Building Vael with Claude</span></figcaption>
-<pre aria-label="An example session building an invented world"><code><span class="t-who">You</span>    Help me build the history of Vael: a drowned
-       archipelago where salt is money, and the
-       tide-priests keep the count of years.
+<pre aria-label="An example session building an invented world"><code><span class="t-who">You</span>    Help me build the history of Vael:
+       a drowned archipelago where salt is
+       money, and the tide-priests keep the
+       count of years.
 
 <span class="t-who">Claude</span> <span class="c">calls</span> althistory_create_graph
-       { <span class="k">"name"</span>: <span class="s">"Vael"</span>, <span class="k">"epochYear"</span>: 1000,
-         <span class="k">"eraLabel"</span>: <span class="s">"AR"</span> }
+       { <span class="k">"name"</span>: <span class="s">"Vael"</span>,
+         <span class="k">"epochYear"</span>: 1000, <span class="k">"eraLabel"</span>: <span class="s">"AR"</span> }
        <span class="c">calls</span> althistory_create_arc <span class="c">×3</span>
-       The Age of Salt · The Tide War · The Glass Republic
+       The Age of Salt · The Tide War ·
+       The Glass Republic
        <span class="c">calls</span> althistory_create_event <span class="c">×8</span>
+       <span class="c">calls</span> althistory_link_events <span class="c">×8</span>
 
        <span class="c">calls</span> althistory_link_events
        <span class="c"># the glassmakers side with the priests</span>
        <span class="c">#   → the Tide War begins</span>
        <span class="c">returns</span> <span class="s">Temporal ordering violation:</span>
-               <span class="s">cause (1151-04-12) must not be</span>
-               <span class="s">after effect (1140-06-01)</span>
+         <span class="s">cause timestamp</span>
+         <span class="s">(1151-04-12T00:00:00.000Z) must not</span>
+         <span class="s">be after effect timestamp</span>
+         <span class="s">(1140-06-01T00:00:00.000Z)</span>
 
-<span class="t-who">Claude</span> The glassmakers joined in 152 AR, eleven
-       years into the war, so they can’t have
-       started it. I’ve added what turned them,
-       the salt ban of 122 AR, and linked that to
-       their revolt instead.
+<span class="t-who">Claude</span> The glassmakers joined in 152 AR,
+       eleven years into the war, so they
+       can’t have started it. I’ve added what
+       turned them, the salt ban of 122 AR,
+       and linked it to their siding with the
+       priests instead.
 
+       <span class="c">calls</span> althistory_create_event
+       <span class="c">calls</span> althistory_link_events
        <span class="c">calls</span> althistory_validate_graph
-       <span class="c">returns</span> { <span class="k">"valid"</span>: true, <span class="k">"errorCount"</span>: 0 }
+       <span class="c">returns</span> { <span class="k">"valid"</span>: true,
+                 <span class="k">"errorCount"</span>: 0, … }
 
-<span class="t-who">Claude</span> Vael has 3 ages, 9 events and 9 causal
-       links. The Glass Republic has one event so
-       far. Shall I branch at the Siege of Hollow
-       Isle (163 AR), where the last salt-king
-       survives?</code></pre>
+<span class="t-who">Claude</span> Vael has 3 ages, 9 events and 9
+       causal links. The Glass Republic has
+       one event so far. Shall I branch at
+       the Siege of Hollow Isle (163 AR) and
+       let the last salt-king survive it?</code></pre>
         </figure>
       </div>
     </section>
@@ -210,7 +222,8 @@
 <span class="p">$ </span>althistory causal paths -g &lt;graph&gt; \
     --from &lt;event&gt; --to &lt;event&gt;
 
-<span class="p">$ </span>althistory export &lt;graph&gt; --format markdown</code></pre>
+<span class="c"># --plain prints the Markdown itself, not a JSON envelope</span>
+<span class="p">$ </span>althistory --plain export &lt;graph&gt; --format markdown</code></pre>
           </figure>
           <figure class="code">
             <figcaption><span>Invented worlds</span><button class="copy" type="button" aria-live="polite" data-copy="althistory generate timeline --world &quot;A drowned archipelago ruled by salt-kings&quot; --era-label AR --direct&#10;althistory graph calendar &lt;graph&gt; --epoch-year 1000 --era-label AR&#10;althistory prompt worldbuild world=&quot;A drowned archipelago&quot; --plain">Copy</button></figcaption>

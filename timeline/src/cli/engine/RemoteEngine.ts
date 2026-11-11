@@ -937,7 +937,9 @@ export class RemoteEngine implements IEngine {
   private unsupportedGeneration(command: string, route: string): never {
     throw new CLIError(
       `The daemon at ${this.baseUrl} does not serve ${route}, so "${command}" cannot run in remote mode. ` +
-        'Run it with --direct to generate against the local store.',
+        'Generation runs only in-process: stop the althistory app (this CLI or MCP server found it running and ' +
+        'is working through it) and try again, or run the command with --direct when no app shares the data. ' +
+        'An agent can instead write the history itself with the create and link tools, which work either way.',
       ExitCode.GENERAL_ERROR,
       'UNSUPPORTED_REMOTE_OPERATION'
     );
