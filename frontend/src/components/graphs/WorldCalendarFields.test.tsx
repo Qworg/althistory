@@ -20,7 +20,7 @@ const vael: Graph = {
     arcCount: 0,
     relationshipCount: 0,
     pressureCount: 0,
-    timeRange: { start: '1311-03-04T00:00:00Z', end: '1320-01-01T00:00:00Z' },
+    temporalRange: { start: '1311-03-04T00:00:00Z', end: '1320-01-01T00:00:00Z' },
   },
   calendar: { epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning of Vael' },
 }

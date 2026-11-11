@@ -31,8 +31,10 @@ Rerun it whenever the interface changes, look at the diff of
    `timeline/.env.local`, so your own settings cannot leak in. In particular,
    `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are blanked, which keeps ingestion
    on the deterministic pattern reader and means a run costs nothing.
-3. **Seed** the demo graph ([`src/seed/scenario.ts`](src/seed/scenario.ts))
-   through the public HTTP API, the same routes the UI and CLI use.
+3. **Seed** the demo graph, its branch and Vael, an invented world with its
+   own calendar ([`src/seed/scenario.ts`](src/seed/scenario.ts)), through the
+   public HTTP API, the same routes the UI and CLI use. The main history is
+   left active.
 4. **Capture** the tour ([`src/capture/tour.ts`](src/capture/tour.ts)) with
    Playwright at 1600×900, 2× pixel density, `en-US` and UTC. Each step
    writes a screenshot and records the screen regions the video points at

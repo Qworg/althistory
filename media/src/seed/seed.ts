@@ -3,7 +3,7 @@
  * -- the same routes the frontend and the CLI use -- so a seed that stops
  * working is a real API change, not a fixture drifting.
  */
-import { scenario, type ArcSeed, type EventSeed, type LinkSeed } from './scenario.js'
+import { scenario, world, type ArcSeed, type EventSeed, type LinkSeed } from './scenario.js'
 
 export interface SeedResult {
   graphId: string
@@ -12,6 +12,13 @@ export interface SeedResult {
   branchName: string
   eventIds: Record<string, string>
   arcIds: Record<string, string>
+  /** The invented world, with its own calendar (`scenario.ts`'s `world`). */
+  world: {
+    graphId: string
+    graphName: string
+    eventIds: Record<string, string>
+    arcIds: Record<string, string>
+  }
 }
 
 class Api {
@@ -158,6 +165,14 @@ export async function seed(baseUrl: string, apiKey: string): Promise<SeedResult>
   const branchEventIds = await createEvents(api, branchId, scenario.branch.events, {})
   await createLinks(api, branchId, scenario.branch.links, branchEventIds)
 
+  // An invented world, a graph of its own with its own calendar. Created
+  // after the main line and its branch, so their history is untouched.
+  const worldGraph = await api.call('POST', '/api/graphs', world.graph)
+  const worldGraphId = idOf(worldGraph, 'the world graph')
+  const worldArcIds = await createArcs(api, worldGraphId, world.arcs)
+  const worldEventIds = await createEvents(api, worldGraphId, world.events, worldArcIds)
+  await createLinks(api, worldGraphId, world.links, worldEventIds)
+
   // The main line is what the app should open on.
   await api.call('POST', `/api/graphs/${graphId}/activate`)
 
@@ -168,5 +183,11 @@ export async function seed(baseUrl: string, apiKey: string): Promise<SeedResult>
     branchName: scenario.branch.name,
     eventIds,
     arcIds,
+    world: {
+      graphId: worldGraphId,
+      graphName: world.graph.name,
+      eventIds: worldEventIds,
+      arcIds: worldArcIds,
+    },
   }
 }

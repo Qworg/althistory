@@ -611,7 +611,7 @@ export default GraphManagerModal
 
 /** The UTC year of a graph's first event, for the calendar preview; undefined when it has none. */
 function firstStoredYear(graph: Graph): number | undefined {
-  const start = graph.metadata.timeRange?.start
+  const start = graph.metadata.temporalRange?.start
   if (!start) return undefined
   const year = new Date(start).getUTCFullYear()
   return Number.isNaN(year) ? undefined : year

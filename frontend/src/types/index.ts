@@ -322,7 +322,8 @@ export interface GraphMetadata {
   arcCount: number
   relationshipCount: number
   pressureCount: number
-  timeRange?: {
+  /** The first and last event's timestamps, as the backend names it (`Graph.ts`). */
+  temporalRange?: {
     start: string
     end: string
   }

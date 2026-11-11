@@ -7,7 +7,8 @@
  * The demo on GitHub Pages has no backend. Rather than re-implement the API in
  * the browser, it replays what the real one said: this script brings up the
  * same private stack as the screenshots (`stack.ts`), seeds the same history
- * (`seed/`), walks the app through every screen for both graphs while letting
+ * (`seed/`), walks the app through every screen for each graph (the main
+ * history, its branch and the invented world, Vael) while letting
  * each request through to the real backend, and keeps every answer. It also
  * reads each graph's events, arcs and causal links directly, as the starting
  * state of the demo's in-memory store, so edits in the demo have something
@@ -19,7 +20,7 @@ import { chromium, type Page, type Request } from 'playwright'
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { paths } from '../paths.js'
-import { scenario } from '../seed/scenario.js'
+import { scenario, world } from '../seed/scenario.js'
 import { seed, type SeedResult } from '../seed/seed.js'
 import { buildProduct, startStack, type Stack } from '../stack.js'
 import { FEATURED_ACTOR } from '../capture/tour.js'
@@ -211,13 +212,24 @@ async function record(stack: Stack, seeded: SeedResult): Promise<void> {
     await page.getByRole('button', { name: new RegExp(seeded.branchName.slice(0, 14)) }).first().click()
     await page.getByText(seeded.graphName, { exact: true }).first().click()
     await page.waitForLoadState('networkidle')
+
+    // The invented world, through the picker too, then back to the main line.
+    await page.goto(`${stack.appUrl}/timeline`)
+    await page.getByRole('button', { name: new RegExp(seeded.graphName.slice(0, 14)) }).first().click()
+    await page.getByText(seeded.world.graphName, { exact: true }).first().click()
+    await page.waitForLoadState('networkidle')
+    activeGraph = seeded.world.graphId
+    await walk(page, stack.appUrl, seeded.world.graphName, world.events.length)
+    await page.getByRole('button', { name: new RegExp(seeded.world.graphName) }).first().click()
+    await page.getByText(seeded.graphName, { exact: true }).first().click()
+    await page.waitForLoadState('networkidle')
     await context.unrouteAll({ behavior: 'ignoreErrors' })
   } finally {
     await browser.close()
   }
 
   const entities: Record<string, { events: unknown; arcs: unknown; relationships: unknown }> = {}
-  for (const graphId of [seeded.graphId, seeded.branchId]) {
+  for (const graphId of [seeded.graphId, seeded.branchId, seeded.world.graphId]) {
     entities[graphId] = {
       events: await direct(stack, '/events', graphId),
       arcs: await direct(stack, '/arcs', graphId),
@@ -230,6 +242,7 @@ async function record(stack: Stack, seeded: SeedResult): Promise<void> {
     scenario: scenario.graph.name,
     mainGraphId: seeded.graphId,
     branchGraphId: seeded.branchId,
+    worldGraphId: seeded.world.graphId,
     entities,
     responses: Object.fromEntries(Object.entries(responses).sort(([a], [b]) => a.localeCompare(b))),
   }
@@ -247,8 +260,11 @@ function normalise(json: string, seeded: SeedResult): string {
   const names = new Map<string, string>([
     [seeded.graphId, 'graph_engine_age'],
     [seeded.branchId, 'graph_clerks_prevail'],
+    [seeded.world.graphId, 'graph_vael'],
     ...Object.entries(seeded.eventIds).map(([key, id]) => [id, `event_${key}`] as [string, string]),
     ...Object.entries(seeded.arcIds).map(([key, id]) => [id, `arc_${key}`] as [string, string]),
+    ...Object.entries(seeded.world.eventIds).map(([key, id]) => [id, `event_vael_${key}`] as [string, string]),
+    ...Object.entries(seeded.world.arcIds).map(([key, id]) => [id, `arc_vael_${key}`] as [string, string]),
   ])
   const counters = new Map<string, number>()
   return json.replace(/\b([a-z]+)_\d{13}_[a-z0-9]{6,12}\b/g, (id, prefix: string) => {

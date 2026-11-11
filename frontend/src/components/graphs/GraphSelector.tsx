@@ -310,16 +310,16 @@ export const GraphSelector = memo(function GraphSelector({
                       <div className="font-mono-code flex flex-wrap items-center gap-x-3 mt-1 text-xs text-ink-muted">
                         <span>{graph.metadata.eventCount} events</span>
                         <span>{graph.metadata.arcCount} arcs</span>
-                        {graph.metadata.timeRange && (
+                        {graph.metadata.temporalRange && (
                           <span
                             title={formatHistoricalRange(
-                              graph.metadata.timeRange.start,
-                              graph.metadata.timeRange.end,
+                              graph.metadata.temporalRange.start,
+                              graph.metadata.temporalRange.end,
                               undefined,
                               graph.calendar ?? null
                             )}
                           >
-                            {utcYear(graph.metadata.timeRange.start, graph.calendar ?? null)}–{utcYear(graph.metadata.timeRange.end, graph.calendar ?? null)}
+                            {utcYear(graph.metadata.temporalRange.start, graph.calendar ?? null)}–{utcYear(graph.metadata.temporalRange.end, graph.calendar ?? null)}
                           </span>
                         )}
                       </div>

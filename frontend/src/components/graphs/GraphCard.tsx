@@ -136,12 +136,12 @@ export const GraphCard = memo(function GraphCard({
       </div>
 
       {/* Time Range (if available) */}
-      {graph.metadata.timeRange && (
+      {graph.metadata.temporalRange && (
         <div className="mt-2 text-xs text-ink-muted">
           {/* A world calendar relabels the years (the graph's own, not the open graph's). */}
           {graph.calendar
-            ? `${formatWorldYear(new Date(graph.metadata.timeRange.start).getUTCFullYear(), graph.calendar)} - ${formatWorldYear(new Date(graph.metadata.timeRange.end).getUTCFullYear(), graph.calendar)}`
-            : `${new Date(graph.metadata.timeRange.start).getFullYear()} - ${new Date(graph.metadata.timeRange.end).getFullYear()}`}
+            ? `${formatWorldYear(new Date(graph.metadata.temporalRange.start).getUTCFullYear(), graph.calendar)} - ${formatWorldYear(new Date(graph.metadata.temporalRange.end).getUTCFullYear(), graph.calendar)}`
+            : `${new Date(graph.metadata.temporalRange.start).getUTCFullYear()} - ${new Date(graph.metadata.temporalRange.end).getUTCFullYear()}`}
         </div>
       )}
 

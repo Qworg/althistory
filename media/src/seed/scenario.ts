@@ -327,3 +327,152 @@ export const scenario: Scenario = {
     ],
   },
 }
+
+/**
+ * A graph's own calendar: `POST /api/graphs` takes it as `calendar`. Stored
+ * dates stay Gregorian ISO; the app shows year `stored - epochYear + 1`.
+ */
+export interface CalendarSeed {
+  epochYear: number
+  eraLabel?: string
+  name?: string
+}
+
+export interface WorldScenario {
+  graph: { name: string; description: string; calendar: CalendarSeed }
+  arcs: ArcSeed[]
+  events: EventSeed[]
+  links: LinkSeed[]
+}
+
+/**
+ * An invented world, with no real history underneath: the one the site's
+ * agents page (`site/src/agents.html`, "Inventing a world, start to finish")
+ * builds with an agent, so a reader can open the result in the demo. Keep the
+ * two the same.
+ *
+ * Its calendar counts from the Rising: stored 1000 is 1 AR, so the Siege of
+ * Hollow Isle (stored 1162) shows as 163 AR.
+ */
+export const world: WorldScenario = {
+  graph: {
+    name: 'Vael',
+    description: 'A drowned archipelago where salt is money and the tide-priests keep the count of years.',
+    calendar: { epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning of the Rising' },
+  },
+
+  arcs: [
+    {
+      key: 'salt',
+      name: 'The Age of Salt',
+      description: 'From the Rising to the closing of the harbours: the salt-kings rule Hollow Isle.',
+      start: '1000-01-01T00:00:00Z',
+      end: '1140-06-01T00:00:00Z',
+      level: 0,
+    },
+    {
+      key: 'tidewar',
+      name: 'The Tide War',
+      description: 'The tide-priests against the salt-kings, and the glassmakers who decided it.',
+      start: '1140-06-01T00:00:00Z',
+      end: '1162-09-01T00:00:00Z',
+      level: 0,
+    },
+    {
+      key: 'glass',
+      name: 'The Glass Republic',
+      description: "Ambry's republic of glassmakers, after the last salt-king.",
+      start: '1163-03-01T00:00:00Z',
+      end: '1300-01-01T00:00:00Z',
+      level: 0,
+    },
+  ],
+
+  events: [
+    {
+      key: 'rising',
+      description: 'The waters rise; the survivors crown the first salt-king on Hollow Isle',
+      actor: 'Salt-kings',
+      target: 'Vael',
+      timestamp: '1000-03-04T00:00:00Z',
+      arc: 'salt',
+    },
+    {
+      key: 'coin',
+      description: 'The salt-kings fix the weight of the salt coin',
+      actor: 'Salt-kings',
+      target: 'Merchants of Vael',
+      timestamp: '1036-05-01T00:00:00Z',
+      arc: 'salt',
+    },
+    {
+      key: 'reckoning',
+      description: 'The tide-priests begin the Reckoning, counting years from the Rising',
+      actor: 'Tide-priests',
+      target: 'Vael',
+      timestamp: '1087-09-21T00:00:00Z',
+      arc: 'salt',
+    },
+    {
+      key: 'saltban',
+      description: "The glassmakers of Ambry are forbidden to trade without the king's salt",
+      actor: 'Salt-kings',
+      target: 'Glassmakers of Ambry',
+      timestamp: '1121-02-10T00:00:00Z',
+      arc: 'salt',
+    },
+    {
+      key: 'shrinetax',
+      description: "The salt-kings tax the tide-priests' shrines",
+      actor: 'Salt-kings',
+      target: 'Tide-priests',
+      timestamp: '1139-11-30T00:00:00Z',
+      arc: 'salt',
+    },
+    {
+      key: 'harbours',
+      description: 'The priests close the harbours; the Tide War begins',
+      actor: 'Tide-priests',
+      target: 'Salt-kings',
+      timestamp: '1140-06-01T00:00:00Z',
+      arc: 'tidewar',
+    },
+    {
+      key: 'ambry',
+      description: 'The glassmakers of Ambry side with the priests',
+      actor: 'Glassmakers of Ambry',
+      target: 'Salt-kings',
+      timestamp: '1151-04-12T00:00:00Z',
+      arc: 'tidewar',
+    },
+    {
+      key: 'siege',
+      description: 'The last salt-king drowns at the Siege of Hollow Isle',
+      actor: 'Tide-priests',
+      target: 'Salt-kings',
+      timestamp: '1162-09-01T00:00:00Z',
+      arc: 'tidewar',
+    },
+    {
+      key: 'republic',
+      description: 'The Glass Republic is proclaimed in Ambry',
+      actor: 'Glassmakers of Ambry',
+      target: 'Vael',
+      timestamp: '1163-03-01T00:00:00Z',
+      arc: 'glass',
+    },
+  ],
+
+  // The site's session gives no confidences; every link here uses 0.8.
+  links: [
+    { cause: 'rising', effect: 'coin', type: 'direct', weight: 0.8, confidence: 0.8, evidence: "The salt-kings' crown rested on salt." },
+    { cause: 'coin', effect: 'shrinetax', type: 'contributory', weight: 0.6, confidence: 0.8, evidence: "A fixed coin made the shrines' salt worth taxing." },
+    { cause: 'reckoning', effect: 'shrinetax', type: 'contributory', weight: 0.5, confidence: 0.8, evidence: 'Keeping the count of years had made the shrines rich and powerful.' },
+    { cause: 'reckoning', effect: 'harbours', type: 'contributory', weight: 0.5, confidence: 0.8, evidence: "The Reckoning gave the priests authority over the harbours' tides." },
+    { cause: 'shrinetax', effect: 'harbours', type: 'direct', weight: 0.9, confidence: 0.8, evidence: 'The priests answered the tax by closing the harbours.' },
+    { cause: 'saltban', effect: 'ambry', type: 'direct', weight: 0.85, confidence: 0.8, evidence: 'Thirty years of the salt ban had made the glassmakers enemies of the crown.' },
+    { cause: 'harbours', effect: 'ambry', type: 'contributory', weight: 0.6, confidence: 0.8, evidence: 'The war gave the glassmakers their chance.' },
+    { cause: 'ambry', effect: 'siege', type: 'direct', weight: 0.85, confidence: 0.8, evidence: "Ambry's fleet closed the siege." },
+    { cause: 'siege', effect: 'republic', type: 'direct', weight: 0.9, confidence: 0.8, evidence: 'With no king left, Ambry proclaimed a republic.' },
+  ],
+}

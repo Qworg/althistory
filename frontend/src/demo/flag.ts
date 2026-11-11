@@ -17,3 +17,6 @@ export const DEMO_BRANCH_GRAPH_ID = 'graph_clerks_prevail'
 
 /** The example's main history, which `?start=main` opens on. */
 export const DEMO_MAIN_GRAPH_ID = 'graph_engine_age'
+
+/** The invented world in the recording, with its own calendar, which `?start=world` opens on. */
+export const DEMO_WORLD_GRAPH_ID = 'graph_vael'
