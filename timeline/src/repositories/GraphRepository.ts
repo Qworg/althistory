@@ -537,7 +537,7 @@ export class GraphRepository {
 
   /**
    * The index, or an empty one when there is none yet (or it cannot be
-   * parsed). With `strict`, any other failure to read it is thrown: a change
+   * parsed). With `strict`, any other failure to read or parse it is thrown: a change
    * made on top of an index that could not be read for a moment would write
    * back an index holding only that change, and every other graph would drop
    * out of the list.
@@ -552,7 +552,11 @@ export class GraphRepository {
     }
     try {
       return JSON.parse(content) as GraphIndex;
-    } catch {
+    } catch (error) {
+      // Only `saveIndex` writes the index, atomically, so an unreadable one was
+      // damaged by hand or by the disk; a change on top of it would replace
+      // the list with that one change.
+      if (strict) throw new Error(`The graph index ${this.graphsIndexPath} cannot be read: ${(error as Error).message}`);
       return { graphs: [], activeGraphId: null };
     }
   }

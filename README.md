@@ -89,8 +89,8 @@ history with you: bend a real one at a point of divergence, or invent a world
 with no real history under it. The agent does the writing through the tools;
 althistory keeps the events, ages and causes in a graph, refuses a cause dated
 after its effect, validates the whole, and branches it at any event. Both
-connect to a running app on `http://localhost:3000` (so changes appear live in
-the web UI) or fall back to the local files (`--direct`).
+connect to a running app on `http://127.0.0.1:3000` (so changes appear live in
+the web UI) or, when none is running, work on the local files.
 
 Register the server with your client (more in
 [`docs/mcp-agent-guide.md`](docs/mcp-agent-guide.md) and [`.mcp/`](.mcp/)):

@@ -114,9 +114,18 @@ describe('GraphRepository Unit Tests', () => {
     });
   });
 
+  describe('the index under its lock', () => {
+    it('refuses to change an index it cannot parse, rather than replacing the list', async () => {
+      vi.mocked(fs.promises.readFile).mockResolvedValue('{ not json');
+      await expect(repository.create({ name: 'On a damaged index' })).rejects.toThrow(/cannot be read/);
+      expect(fs.promises.rename).not.toHaveBeenCalled();
+    });
+  });
+
   describe('initialize()', () => {
     it('should create graphs directory if it does not exist', async () => {
       vi.mocked(fs.promises.access).mockRejectedValueOnce(new Error('ENOENT'));
+      vi.mocked(fs.promises.readFile).mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
       vi.mocked(fs.promises.writeFile).mockResolvedValue(undefined);
 
       await repository.initialize();
@@ -129,6 +138,7 @@ describe('GraphRepository Unit Tests', () => {
 
     it('should create index file if it does not exist', async () => {
       vi.mocked(fs.promises.access).mockRejectedValueOnce(new Error('ENOENT'));
+      vi.mocked(fs.promises.readFile).mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
       await repository.initialize();
 

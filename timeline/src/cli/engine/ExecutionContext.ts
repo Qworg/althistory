@@ -11,10 +11,9 @@ import { logger } from '../utils/logger';
 /**
  * The admin key of this clone's own app, for when the CLI found it running on
  * this machine: `start-local.sh` writes it to `timeline/.env.local` (the CLI
- * runs from `timeline/`), and the graph routes always ask for a key. The
- * clone's own files come first, as the app reads them; an ADMIN_API_KEY in the
- * environment is a common name and may belong to something else, so it is the
- * last resort. Never sent to an address the caller named with --url.
+ * runs from `timeline/`), and the graph routes always ask for a key. Read as
+ * the app reads it, after the environment: .env.local, then .env. Never sent to
+ * an address the caller named with --url.
  */
 function localAppKey(): string | undefined {
   for (const file of ['.env.local', '.env']) {
@@ -77,34 +76,36 @@ export class ExecutionContext {
     }
 
     // Default probe: is this clone's app running? It binds 127.0.0.1 in local
-    // mode; "localhost" can resolve to ::1 first and reach something else.
-    const defaultUrl = 'http://127.0.0.1:3000';
+    // mode; an app bound to the IPv6 loopback only is tried next.
     // Any answer means the app is there, including 503: /health reports
     // "degraded" until its services have warmed up. Falling back to the files
     // then would make this process a second writer beside the running app.
     // It has to be althistory's own health report, though: port 3000 is the
-    // default of many dev servers, and this one is about to be sent the
-    // app's admin key.
-    let daemonAnswered = false;
-    try {
-      logger.debug(`Probing daemon at ${defaultUrl}...`);
-      const response = await axios.get(`${defaultUrl}/health`, { timeout: 400 });
-      daemonAnswered = isAlthistoryHealth(response.data);
-    } catch (error) {
-      daemonAnswered = axios.isAxiosError(error) && isAlthistoryHealth(error.response?.data);
-    }
-    if (daemonAnswered) {
-      logger.debug('Daemon detected. Using RemoteEngine');
-      // The app found here is this clone's: its own key first, then the general ones.
-      this.engine = new RemoteEngine(
-        defaultUrl,
-        this.options.apiKey ||
-          localAppKey() ||
-          process.env.ALTHISTORY_API_KEY ||
-          process.env.ADMIN_API_KEY ||
-          undefined
-      );
-      return this.engine;
+    // default of many dev servers, and this one is about to be sent a key.
+    for (const candidate of ['http://127.0.0.1:3000', 'http://[::1]:3000']) {
+      let daemonAnswered = false;
+      try {
+        logger.debug(`Probing daemon at ${candidate}...`);
+        const response = await axios.get(`${candidate}/health`, { timeout: 400 });
+        daemonAnswered = isAlthistoryHealth(response.data);
+      } catch (error) {
+        daemonAnswered = axios.isAxiosError(error) && isAlthistoryHealth(error.response?.data);
+      }
+      if (daemonAnswered) {
+        logger.debug(`Daemon detected at ${candidate}. Using RemoteEngine`);
+        // A key the caller chose comes first, so a scoped key given to an agent
+        // is never swapped for the admin key. Then the app's own, found where
+        // the app looks: the environment, then this clone's .env.local and .env.
+        this.engine = new RemoteEngine(
+          candidate,
+          this.options.apiKey ||
+            process.env.ALTHISTORY_API_KEY ||
+            process.env.ADMIN_API_KEY ||
+            localAppKey() ||
+            undefined
+        );
+        return this.engine;
+      }
     }
     logger.debug('Daemon not reachable. Falling back to DirectEngine');
     this.engine = new DirectEngine();

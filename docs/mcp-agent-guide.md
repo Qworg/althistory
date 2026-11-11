@@ -55,15 +55,16 @@ find it (Claude Desktop on macOS starts with a minimal PATH), give the full
 path to `bin/althistory` in the clone instead; it runs through `npx`, so
 `node` must be on the client's PATH.
 
-When the althistory app is running on `localhost:3000`, the server works
+When the althistory app is running on `127.0.0.1:3000`, the server works
 through it, so what an agent writes appears in the app as it goes; otherwise
 it works on the local files (`timeline/data`, the same store the app reads).
 `althistory_generate_timeline` and `althistory_branch_timeline` run only
 in-process, so they need the app stopped; every other tool works either way.
 Do not add `--direct` while the app is running: two processes would then
-write the same files. Working through the app, the server uses the app's own
-admin key, which `start-local.sh` writes to `timeline/.env.local`; for another
-server, set `ALTHISTORY_API_KEY` in the server's `env` (or pass `--api-key`).
+write the same files. Working through the app, the server uses
+`ALTHISTORY_API_KEY` if its `env` sets one (give an agent a scoped key that
+way), and otherwise the app's own admin key, which `start-local.sh` writes to
+`timeline/.env.local`. For another server, also pass `--url`.
 
 To let the server draft with a model, give **the server** a key: add
 `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) to its `env`. The agent's own model

@@ -7,8 +7,11 @@ authentication failed, `4` not found, `5` connection failed).
 
 The CLI runs in two modes. Without flags it looks for this clone's app on
 `127.0.0.1:3000`: if althistory answers there (even 503, while its services
-warm up), the CLI talks to it over HTTP with the app's own admin key from
-`timeline/.env.local` (then `ALTHISTORY_API_KEY`), and every request that names
+warm up; then `[::1]:3000`), the CLI talks to it over HTTP. Its key is
+`--api-key`, else `ALTHISTORY_API_KEY` (so a scoped key you give an agent is
+the one used), else the app's own admin key, found where the app finds it: the
+environment's `ADMIN_API_KEY`, then `timeline/.env.local` (which
+`start-local.sh` writes), then `timeline/.env`. Every request that names
 a graph says so in the `X-Graph-Id` header the daemon reads; otherwise it runs
 in process against the local store. `--url` names another daemon (its key from
 `--api-key` or `ALTHISTORY_API_KEY`), and `--direct` forces in-process mode,
@@ -126,8 +129,8 @@ approves it, so a remote `ingest` creates no events: the result says so
 entities are waiting in), and no graph is created for `--graph-name` either.
 The provider is the daemon's, so `--provider` and `--model` are the daemon's
 business in remote mode, and the daemon's `/api/ingest/url` route reads
-Wikipedia only -- a page on any other site is `ingest url` in `--direct`
-mode.
+Wikipedia only -- a page on any other site needs in-process mode: stop the
+app and run `ingest url` again.
 
 The remote engine computes the graph diff and the causal paths itself: the
 daemon serves `GET /api/graphs/:id/data` and `GET /api/causal/relationships`,

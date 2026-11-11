@@ -708,7 +708,7 @@ export class TimelineGenerator {
           },
         ],
         relationships,
-        validation: this.verifyIntegrityPass(intermediateEvents, [arcPreview], chain),
+        validation: { ...this.verifyIntegrityPass(intermediateEvents, [arcPreview], chain), graphId: dryGraphId },
       };
     }
 
@@ -868,6 +868,7 @@ export class TimelineGenerator {
       graphName: options.branchName,
       premise: options.counterfactualPrompt,
       divergencePoint: pivotEvent.description,
+      ...(branchPlan.calendar ? { calendar: branchPlan.calendar } : {}),
       source,
       eventCount: persistedEvents.length,
       arcCount: persistedArcs.length,

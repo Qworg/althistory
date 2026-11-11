@@ -44,8 +44,9 @@ world's years are stored, so "the Tide War began in 141 AR" lands on the
 stored year 1140. The patterns cannot read invented years: with `pattern`, or
 the pattern half of `hybrid`, give the dates in ISO 8601, or use `llm`. The
 arcs grouped from the events are named in the world's years. This is the CLI's
-in-process ingestion (`--direct`, and the MCP server); the daemon's review
-flow does not read the calendar yet.
+in-process ingestion (the CLI and the MCP server when no app is running); the
+daemon's review flow, which they use while the app runs, does not read the
+calendar yet.
 
 ### Provider selection
 

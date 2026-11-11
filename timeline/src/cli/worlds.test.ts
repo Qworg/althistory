@@ -19,7 +19,8 @@ import { MCP_PROMPTS, renderPrompt } from './mcp/prompts';
 import { TimelineGenerator } from './generator/TimelineGenerator';
 import { runCLI } from './index';
 import { ExitCode } from './utils/exitCodes';
-import { isAlthistoryHealth } from './engine/ExecutionContext';
+import { ExecutionContext, isAlthistoryHealth } from './engine/ExecutionContext';
+import axios from 'axios';
 import { RemoteEngine } from './engine/RemoteEngine';
 import express from 'express';
 import { AddressInfo } from 'net';
@@ -517,6 +518,33 @@ describe('invented worlds', () => {
       expect(isAlthistoryHealth({ status: 'ok' })).toBe(false);
       expect(isAlthistoryHealth({ status: 'ok', services: { db: true } })).toBe(false);
       expect(isAlthistoryHealth(undefined)).toBe(false);
+    });
+
+    it('sends the key the caller chose to the app it finds, never swapping it for the admin key', async () => {
+      const health = { status: 'unhealthy', services: { graphService: true } };
+      const probe = vi.spyOn(axios, 'get').mockResolvedValue({ data: health });
+      const saved = { scoped: process.env.ALTHISTORY_API_KEY, admin: process.env.ADMIN_API_KEY };
+      const keyOf = async (options: ConstructorParameters<typeof ExecutionContext>[0]) => {
+        const context = new ExecutionContext(options);
+        const found = (await context.getEngine()) as unknown as { client: { defaults: { headers: Record<string, string> } } };
+        expect(found).toBeInstanceOf(RemoteEngine);
+        return found.client.defaults.headers['X-API-Key'];
+      };
+      try {
+        process.env.ALTHISTORY_API_KEY = 'scoped-read-only';
+        process.env.ADMIN_API_KEY = 'admin-from-env';
+        expect(await keyOf({})).toBe('scoped-read-only');
+        expect(await keyOf({ apiKey: 'from-flag' })).toBe('from-flag');
+        delete process.env.ALTHISTORY_API_KEY;
+        expect(await keyOf({})).toBe('admin-from-env');
+        expect(probe.mock.calls[0][0]).toBe('http://127.0.0.1:3000/health');
+      } finally {
+        probe.mockRestore();
+        if (saved.scoped === undefined) delete process.env.ALTHISTORY_API_KEY;
+        else process.env.ALTHISTORY_API_KEY = saved.scoped;
+        if (saved.admin === undefined) delete process.env.ADMIN_API_KEY;
+        else process.env.ADMIN_API_KEY = saved.admin;
+      }
     });
 
     it('reports the running app as degraded, not as a failure, while its health check answers 503', async () => {
