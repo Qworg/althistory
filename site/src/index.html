@@ -43,7 +43,7 @@
       <ul>
         <li><a href="demo/?start=branch">Demo</a></li>
         <li class="bar-wide"><a href="agents.html">CLI &amp; MCP</a></li>
-        <li><a href="https://github.com/Qworg/althistory#documentation">Docs</a></li>
+        <li class="bar-docs"><a href="https://github.com/Qworg/althistory#documentation">Docs<svg class="ext" viewBox="0 0 10 10" aria-hidden="true"><path d="M4 1.5H8.5V6M8.5 1.5L2 8"/></svg><span class="sr-only"> (on GitHub)</span></a></li>
         <li><a class="bar-gh" href="https://github.com/Qworg/althistory">GitHub</a></li>
       </ul>
     </nav>
@@ -55,7 +55,7 @@
         <a class="btn btn-primary" href="demo/?start=branch">Try it in your browser</a>
         <a class="btn btn-ghost" href="#walkthrough">Watch the one-minute tour</a>
       </div>
-      <p class="actions-note">Opens on Clerks Prevail, the branch drawn below, with the original history faintly beneath it. Branch it again, change anything; nothing leaves your browser.</p>
+      <p class="actions-note">Opens on Clerks Prevail, a branch of this history in which Parliament bans the engines, with the original drawn faintly beneath it. Branch it again, change anything; nothing leaves your browser.</p>
     </div>
 
     <figure class="hero-figure">
@@ -63,14 +63,14 @@
       <div class="hero-scroll" role="group" tabindex="0" aria-label="Timeline of The Engine Age. Use the left and right arrow keys to read each event.">
         <div class="hero-canvas">
           <!-- hero:timeline -->
-          <div class="ht-tip"></div>
         </div>
       </div>
+      <div class="ht-tip"></div>
       <p class="sr-only ht-live" role="status" aria-live="polite"></p>
       <!-- hero:events -->
       <figcaption>
         <span class="mono">The Engine Age</span>, an invented example: Babbage finishes the Analytical Engine in 1843. In <span class="amber">a branch</span>, Parliament bans the engines in 1860 instead of licensing them. Select an event to see what it led to.
-        <span class="legend">The arcs are causes:
+        <span class="legend">The curves are causes:
           <span><svg viewBox="0 0 28 10" aria-hidden="true"><path d="M1 5H27"/></svg>direct</span>
           <span><svg viewBox="0 0 28 10" aria-hidden="true"><path class="lg-indirect" d="M1 5H27"/></svg>indirect</span>
           <span><svg viewBox="0 0 28 10" aria-hidden="true"><path class="lg-contributory" d="M1 5H27"/></svg>contributory</span>
@@ -100,19 +100,9 @@
 
     <section id="features" class="features" aria-labelledby="features-h">
       <div class="wrap">
-        <h2 id="features-h">From the record to the road not taken</h2>
+        <h2 id="features-h">Read it, trace it, change it</h2>
 
         <div class="feature-list">
-          <article class="feature">
-            <div class="feature-text">
-              <h3>Bring in history</h3>
-              <p>Paste text, or give it a Wikipedia article or a Wikidata ID. What it finds comes back in a review table where you edit, drop or keep each event. Nothing is written until you approve.</p>
-              <p class="note">Patterns read the text offline; an Anthropic or OpenAI key adds a model.</p>
-              <p class="where where-install"><strong>Needs your own install</strong>: the demo can't fetch pages. <a href="#start">Run it locally</a></p>
-            </div>
-            <picture><!-- site-source:ingest-review --><img class="frame" src="images/site/ingest-review-1440.webp" data-site-image="ingest-review" alt="The review step: three extracted events with actor, target, date and confidence, each with a checkbox to keep it." loading="lazy" decoding="async" fetchpriority="low"></picture>
-          </article>
-
           <article class="feature">
             <div class="feature-text">
               <h3>See it in time</h3>
@@ -127,7 +117,7 @@
             <div class="feature-text">
               <h3>Follow the causes</h3>
               <p>Every link between two events is direct, indirect or contributory, with a weight, a confidence and the evidence for it. Lay the graph out the way that reads best, and find every path from one event to another.</p>
-              <p class="where"><strong>In the demo</strong>: <a href="demo/?start=branch#/causal-graph">open the causal graph</a></p>
+              <p class="where"><strong>In the demo</strong>: <a href="demo/?start=branch#/causal-graph">open the causal graph</a>, then choose <em>Cause to effect</em> under Layout for the view shown here.</p>
             </div>
             <picture><!-- site-source:causal-graph --><img class="frame" src="images/site/causal-graph-1440.webp" data-site-image="causal-graph" alt="The causal graph laid out cause to effect, with the layout options beside it." loading="lazy" decoding="async" fetchpriority="low"></picture>
           </article>
@@ -141,6 +131,16 @@
             <picture><!-- site-source:branch --><img class="frame" src="images/site/branch-1440.webp" data-site-image="branch" alt="The Clerks Prevail branch: its own events in front, the original history ghosted beneath, and the divergence on 12 July 1860 marked." loading="lazy" decoding="async" fetchpriority="low"></picture>
           </article>
         </div>
+
+          <article class="feature feature-install">
+            <div class="feature-text">
+              <h3>Bring in history</h3>
+              <p>Paste text, or give it a Wikipedia article or a Wikidata ID. What it finds comes back in a review table where you edit, drop or keep each event. Nothing is written until you approve.</p>
+              <p class="note">Patterns read the text offline; an Anthropic or OpenAI key adds a model.</p>
+              <p class="where where-install"><strong>Needs your own install</strong>: the demo can't fetch pages. <a href="#start">Run it locally</a></p>
+            </div>
+            <picture><!-- site-source:ingest-review --><img class="frame" src="images/site/ingest-review-1440.webp" data-site-image="ingest-review" alt="The review step: three extracted events with actor, target, date and confidence, each with a checkbox to keep it." loading="lazy" decoding="async" fetchpriority="low"></picture>
+          </article>
       </div>
     </section>
 
@@ -198,7 +198,7 @@
 
   <footer class="foot">
     <div class="wrap foot-grid">
-      <p><a class="brand brand-small" href="https://github.com/Qworg/althistory"><img src="favicon.svg" alt="" width="20" height="20"> <span>althistory</span></a> Open source under the MIT License.</p>
+      <p><a class="brand brand-small" href="./"><img src="favicon.svg" alt="" width="20" height="20"> <span>althistory</span></a> Open source under the MIT License.</p>
       <ul aria-label="Documentation">
         <li><a href="https://github.com/Qworg/althistory/blob/main/docs/walkthrough.md">Illustrated tour</a></li>
         <li><a href="https://github.com/Qworg/althistory/blob/main/docs/ingestion.md">Ingestion</a></li>

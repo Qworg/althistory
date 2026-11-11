@@ -7,12 +7,12 @@
 
 const figure = document.querySelector('.hero-figure')
 const scroller = figure?.querySelector('.hero-scroll')
-const canvas = figure?.querySelector('.hero-canvas')
-const svg = canvas?.querySelector('svg.hero-timeline')
-const tip = canvas?.querySelector('.ht-tip')
+const svg = scroller?.querySelector('svg.hero-timeline')
+// The card sits outside the scrolling drawing, so nothing clips it.
+const tip = figure?.querySelector('.ht-tip')
 const live = figure?.querySelector('.ht-live')
 
-if (figure && scroller && canvas && svg && tip) {
+if (figure && scroller && svg && tip) {
   const hits = [...svg.querySelectorAll('.ht-hit')]
   const ring = svg.querySelector('.ht-ring')
   const links = [...svg.querySelectorAll('.ht-link')]
@@ -43,6 +43,7 @@ if (figure && scroller && canvas && svg && tip) {
     return { events, links: lit }
   }
 
+  const inside = (element) => scroller.contains(element) || tip.contains(element)
   const scrollable = () => scroller.scrollWidth > scroller.clientWidth + 1
   const fit = () => figure.classList.toggle('is-scrollable', scrollable())
   fit()
@@ -64,17 +65,21 @@ if (figure && scroller && canvas && svg && tip) {
 
   const scale = () => svg.getBoundingClientRect().width / svg.viewBox.baseVal.width
 
-  // Keep the card over its event, inside the part of the drawing on screen.
+  // Keep the card by its event and on screen: above a main-line event, and
+  // below a branch event's lane (over the caption), so a branch card never
+  // covers the main line or the path the pointer takes to reach it.
   const place = () => {
     const hit = hits[active]
     if (!hit) return
     const { x, y } = point(hit)
-    const px = x * scale()
+    const below = hit.hasAttribute('data-branch')
+    tip.classList.toggle('is-below', below)
     const half = tip.offsetWidth / 2
-    const from = scroller.scrollLeft + half + 4
-    const to = scroller.scrollLeft + scroller.clientWidth - half - 4
-    tip.style.left = `${Math.min(Math.max(px, from), Math.max(from, to))}px`
-    tip.style.top = `${y * scale()}px`
+    const px = scroller.offsetLeft + x * scale() - scroller.scrollLeft
+    const left = scroller.offsetLeft + 4 + half
+    const right = scroller.offsetLeft + scroller.clientWidth - 4 - half
+    tip.style.left = `${Math.min(Math.max(px, left), Math.max(left, right))}px`
+    tip.style.top = `${scroller.offsetTop + y * scale()}px`
   }
 
   const show = (i, { reveal = false, announce = false } = {}) => {
@@ -123,7 +128,7 @@ if (figure && scroller && canvas && svg && tip) {
     }
     place()
     if (announce && live) {
-      live.textContent = `${position}. ${hit.dataset.date}: ${hit.dataset.text}. ${hit.dataset.who}. ${led}.`
+      live.textContent = `${position}. ${hit.dataset.date}: ${hit.dataset.text}. ${hit.dataset.who}. ${led.replace(/\.$/, '')}.`
     }
   }
 
@@ -169,16 +174,16 @@ if (figure && scroller && canvas && svg && tip) {
     if (i >= 0) {
       keep()
       if (i !== active) show(i)
-    } else if (active >= 0 && !scroller.contains(document.activeElement)) {
+    } else if (active >= 0 && !inside(document.activeElement)) {
       hideSoon()
     }
   })
   svg.addEventListener('pointerleave', (event) => {
-    if (event.pointerType === 'mouse' && !scroller.contains(document.activeElement)) hideSoon()
+    if (event.pointerType === 'mouse' && !inside(document.activeElement)) hideSoon()
   })
   tip.addEventListener('pointerenter', keep)
   tip.addEventListener('pointerleave', (event) => {
-    if (event.pointerType === 'mouse' && !scroller.contains(document.activeElement)) hideSoon()
+    if (event.pointerType === 'mouse' && !inside(document.activeElement)) hideSoon()
   })
   svg.addEventListener('click', (event) => {
     // A finger is wider than a dot: take the nearest event within reach.
@@ -207,14 +212,45 @@ if (figure && scroller && canvas && svg && tip) {
     }
   })
   // Tabbing from the timeline onto the card's link keeps the card.
-  scroller.addEventListener('focusout', (event) => {
-    if (!scroller.contains(event.relatedTarget)) hide()
-  })
+  for (const part of [scroller, tip]) {
+    part.addEventListener('focusout', (event) => {
+      if (!inside(event.relatedTarget)) hide()
+    })
+  }
   scroller.addEventListener('scroll', place, { passive: true })
   window.addEventListener('resize', () => {
     fit()
     place()
   })
+
+  // Once, after the drawing has drawn itself: select an event for a moment to
+  // show what selecting does (Note G, or on a phone the clerks' protest, which
+  // is in view), then let go. Never with reduced motion, never once the
+  // visitor has touched the timeline, and it neither moves focus nor speaks.
+  let touched = false
+  for (const type of ['pointerdown', 'pointermove', 'keydown', 'focusin']) {
+    figure.addEventListener(type, () => (touched = true), { once: true, passive: true })
+  }
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (!reduce && 'IntersectionObserver' in window) {
+    const key = scrollable() ? 'clerks' : 'noteg'
+    const demo = hits.findIndex((hit) => hit.dataset.key === key)
+    const watcher = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return
+        watcher.disconnect()
+        window.setTimeout(() => {
+          if (touched || active >= 0 || demo < 0) return
+          show(demo)
+          window.setTimeout(() => {
+            if (!touched && active === demo) hide()
+          }, 2600)
+        }, 2400)
+      },
+      { threshold: 0.6 }
+    )
+    watcher.observe(svg)
+  }
 }
 
 /* ---------------------------------------------------------- walkthrough --- */
@@ -231,9 +267,13 @@ if (video && play) {
     play.hidden = true
     video.controls = true
   }
+  // On a phone the burned-in captions are too small to read: turn the text
+  // track on there.
+  const narrow = window.matchMedia('(max-width: 640px)')
   const begin = () => {
     start()
-    video.focus()
+    if (narrow.matches && video.textTracks[0]) video.textTracks[0].mode = 'showing'
+    video.focus({ preventScroll: true })
     video.play().catch(() => undefined)
   }
   play.addEventListener('click', begin)
@@ -241,7 +281,10 @@ if (video && play) {
   video.addEventListener('click', () => {
     if (!video.controls) begin()
   })
-  video.addEventListener('play', start)
+  video.addEventListener('play', () => {
+    start()
+    video.classList.add('is-playing')
+  })
 }
 
 /* -------------------------------------------------------------- closing --- */
@@ -269,21 +312,37 @@ if (
 
 /* ---------------------------------------------------------- quick start --- */
 
+// Without the clipboard API (or if it refuses), select the commands instead,
+// so a copy shortcut takes them.
+const selectCode = (button) => {
+  const code = button.closest('.code')?.querySelector('pre code')
+  if (!code) return false
+  window.getSelection()?.selectAllChildren(code)
+  return true
+}
+
 for (const button of document.querySelectorAll('button[data-copy]')) {
-  if (!navigator.clipboard) {
-    button.hidden = true
-    continue
-  }
   // The label is read once: a second click inside 1.8 s would otherwise
   // take "Copied" for it and keep it.
   const label = button.textContent
   button.addEventListener('click', async () => {
+    let said = 'Copied'
     try {
+      if (!navigator.clipboard) throw new Error('no clipboard')
       await navigator.clipboard.writeText(button.dataset.copy)
-      button.textContent = 'Copied'
     } catch {
-      button.textContent = 'Select the text to copy'
+      said = selectCode(button) ? 'Selected: press Ctrl+C or ⌘C' : 'Select the text to copy'
     }
-    setTimeout(() => (button.textContent = label), 1800)
+    button.textContent = said
+    setTimeout(() => (button.textContent = label), 2400)
   })
 }
+
+// A code line wider than its panel fades at the edge (styles.css).
+const markScrollable = () => {
+  for (const pre of document.querySelectorAll('.code pre')) {
+    pre.classList.toggle('is-scrollable', pre.scrollWidth > pre.clientWidth + 1)
+  }
+}
+markScrollable()
+window.addEventListener('resize', markScrollable)

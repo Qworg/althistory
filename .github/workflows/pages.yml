@@ -24,6 +24,8 @@ on:
       - 'frontend/**'
       - 'e2e/demo/**'
       - 'e2e/playwright.demo.config.ts'
+      - 'e2e/site/**'
+      - 'e2e/playwright.site.config.ts'
       - '.github/workflows/pages.yml'
   pull_request:
     paths:
@@ -34,6 +36,8 @@ on:
       - 'frontend/**'
       - 'e2e/demo/**'
       - 'e2e/playwright.demo.config.ts'
+      - 'e2e/site/**'
+      - 'e2e/playwright.site.config.ts'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -71,6 +75,10 @@ jobs:
       # build that is tested is the build that is published.
       - name: Build and test the demo
         run: npx playwright test -c playwright.demo.config.ts
+        working-directory: e2e
+
+      - name: Test the site's pages (contrast, overflow)
+        run: npx playwright test -c playwright.site.config.ts
         working-directory: e2e
 
       - name: Assemble the site

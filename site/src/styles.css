@@ -146,16 +146,18 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .brand img { border-radius: 7px; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.18); }
 .bar ul { display: flex; gap: clamp(14px, 2.6vw, 28px); list-style: none; margin: 0; padding: 0; align-items: center; }
 .bar a:not(.brand) {
-  display: inline-flex; align-items: center; min-height: 32px;
+  display: inline-flex; align-items: center; gap: 4px; min-height: 32px; white-space: nowrap;
   color: var(--cy-ink-2); text-decoration: none; font-size: 0.95rem;
 }
 .bar a:not(.brand):hover, .bar a[aria-current='page'] { color: var(--cy-ink); }
 .bar a[aria-current='page'] { text-decoration: underline; text-underline-offset: 0.35em; }
+.bar .ext { width: 10px; height: 10px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; opacity: 0.8; }
 .bar .bar-gh { border: 1px solid rgb(182 197 221 / 0.45); border-radius: 999px; padding: 0 14px; }
 @media (max-width: 640px) {
   .bar .bar-wide { display: none; }
   /* Except on its own page, where it is the "you are here". */
   .bar .bar-wide:has([aria-current='page']) { display: list-item; }
+  .bar ul:has([aria-current='page']) .bar-docs { display: none; }
   .bar a:not(.brand) { min-height: 44px; }
 }
 
@@ -175,7 +177,7 @@ p { margin: 0 0 1em; text-wrap: pretty; }
   align-items: end;
 }
 .hero-copy h1 { grid-area: title; }
-.hero-copy .lede { grid-area: lede; }
+.hero-copy .lede { grid-area: lede; align-self: center; }
 .hero-copy .actions { grid-area: actions; margin-top: 0; align-self: start; }
 .hero-copy .actions-note { grid-area: note; margin-top: 0; align-self: start; }
 .hero h1 {
@@ -209,7 +211,7 @@ p { margin: 0 0 1em; text-wrap: pretty; }
   .actions .btn { flex: 1 1 100%; justify-content: center; }
 }
 
-.hero-figure { max-width: 1280px; margin: 0 auto; padding: clamp(24px, 4vw, 44px) var(--gutter) 40px; }
+.hero-figure { position: relative; max-width: 1280px; margin: 0 auto; padding: clamp(24px, 4vw, 44px) var(--gutter) 40px; }
 .hero-scroll {
   overflow-x: auto; overflow-y: hidden;
   scrollbar-width: thin; scrollbar-color: rgb(182 197 221 / 0.35) transparent;
@@ -283,6 +285,8 @@ p { margin: 0 0 1em; text-wrap: pretty; }
   transition: opacity 0.12s ease-out, visibility 0s linear 0.12s;
 }
 .ht-tip.is-on { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity 0.12s ease-out; }
+/* A branch event's card sits below its lane, clear of the main line. */
+.ht-tip.is-below { transform: translate(-50%, 18px); }
 .ht-tip span { display: block; }
 .ht-tip-date { font: 500 0.78rem/1.4 var(--mono); color: var(--cy-ink-2); margin-bottom: 2px; }
 .ht-tip.is-branch .ht-tip-date { color: var(--cy-amber); }
@@ -332,7 +336,7 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .section-lede { color: var(--ink-2); max-width: 38em; margin: 14px 0 32px; }
 @media (prefers-color-scheme: dark) {
   /* The screenshots are of the light app; keep them from glaring. */
-  img.frame { filter: brightness(0.86); }
+  img.frame, .player video.frame:not(.is-playing) { filter: brightness(0.86); }
 }
 
 .player { position: relative; }
@@ -391,6 +395,11 @@ p { margin: 0 0 1em; text-wrap: pretty; }
   transform: scale(0.86) rotate(45deg);
 }
 .feature p { color: var(--ink-2); }
+/* The install-only feature: after the spine, not on it. */
+.feature-install { margin-top: clamp(24px, 4vw, 40px); padding-top: clamp(28px, 4vw, 44px); border-top: 1px solid var(--line); }
+.feature-install::before { display: none; }
+.feature-install h3::before { display: none; }
+
 .feature .note { color: var(--muted); }
 .feature picture { display: block; }
 .feature .frame { margin-top: 4px; }
@@ -426,7 +435,9 @@ p { margin: 0 0 1em; text-wrap: pretty; }
   .code { border-color: rgb(182 197 221 / 0.32); }
 }
 .code pre { margin: 0; padding: 16px; overflow-x: auto; }
-.code code { font: 400 0.86rem/1.65 var(--mono); color: var(--cy-ink); }
+/* A line that runs past the panel fades out, so it reads as more, not cut. */
+.code pre.is-scrollable { mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+.code pre code { font: 400 0.86rem/1.65 var(--mono); color: var(--cy-ink); }
 .code .c { color: #8ea3c2; }
 .code .p { color: #8ea3c2; user-select: none; }
 .code .s { color: #d9e6f8; }
@@ -438,13 +449,15 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .start { padding: clamp(48px, 6vw, 80px) 0 clamp(64px, 9vw, 112px); border-top: 1px solid var(--line); }
 .start h2 { margin-bottom: 14px; }
 .start p { color: var(--ink-2); max-width: 36em; }
-.start .mono, .start code { color: var(--ink); }
+/* Prose only: inside a code panel the panel's own light ink must win. */
+.start p .mono, .start p code { color: var(--ink); }
 .start .section-lede { margin-bottom: clamp(28px, 4vw, 44px); }
 /* Two ways to run it, side by side: the app, and the CLI or an agent. */
-.ways { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(28px, 5vw, 64px); align-items: start; }
+.ways { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(28px, 5vw, 64px); align-items: start; }
+.way { min-width: 0; }
 .way h3 { margin-bottom: 10px; }
 .way .code { margin: 18px 0 14px; }
-@media (max-width: 820px) { .ways { grid-template-columns: 1fr; } }
+@media (max-width: 820px) { .ways { grid-template-columns: minmax(0, 1fr); } }
 .copy {
   flex: none;
   font: 500 0.75rem/1 var(--sans);
