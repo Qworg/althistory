@@ -210,6 +210,7 @@ describe('invented worlds', () => {
         dryRun: true,
       });
       expect(result.world).toBe('A drowned archipelago ruled by salt-kings');
+      expect(result.source).toBe('template');
       expect(result.calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
       expect(result.graphName).toBe('World: A drowned archipelago ruled by…');
       expect(result.events[0].timestamp.startsWith('1000-01-01')).toBe(true);
@@ -230,6 +231,11 @@ describe('invented worlds', () => {
       created.push(result.graphId);
       expect(result.calendar).toEqual({ epochYear: 1500 });
       expect((await engine.getGraph(result.graphId)).calendar).toEqual({ epochYear: 1500 });
+      // Every event is placed in an arc that holds it, as the app and exports read it.
+      const arcIds = new Set(result.arcs.map((arc) => arc.id));
+      for (const event of await engine.listEvents(result.graphId)) {
+        expect(arcIds.has(event.metadata?.arcId as string), event.description).toBe(true);
+      }
     });
 
     it('refuses a request that mixes the two kinds, or puts a calendar on an alternate history', async () => {
@@ -276,6 +282,7 @@ describe('invented worlds', () => {
       expect(prompt).toContain('ISO year N + 999');
       expect(prompt).toContain('"312 AR", stored as 1311');
       expect(result.events[0].actor).toBe('Unnamed Realm');
+      expect(result.source).toBe('model');
     });
 
     it('keeps a branch of an invented world in that world', async () => {
@@ -389,7 +396,12 @@ describe('invented worlds', () => {
 
     it('answers a bad prompt request as invalid params', async () => {
       expect((await rpc(server, 'prompts/get', { name: 'nope' })).error.code).toBe(-32602);
-      expect((await rpc(server, 'prompts/get', { name: 'worldbuild', arguments: {} })).error.message).toContain('"world"');
+      // Every argument is optional: without the world, the agent is told to ask for it.
+      const bare = await rpc(server, 'prompts/get', { name: 'worldbuild', arguments: {} });
+      expect(bare.result.messages[0].content.text).toContain('has not described the world yet');
+      // One-word arguments come first, so a Claude Code slash command's words land in them.
+      expect(MCP_PROMPTS[0].arguments.map((argument) => argument.name)).toEqual(['eraLabel', 'epochYear', 'world']);
+      expect(MCP_PROMPTS.every((prompt) => prompt.arguments.every((argument) => !argument.required))).toBe(true);
       expect(
         (await rpc(server, 'prompts/get', { name: 'grow_history', arguments: { graphId: 'g', extra: 'x' } })).error.message
       ).toContain('does not take "extra"');

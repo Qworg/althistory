@@ -293,6 +293,8 @@ export class DirectEngine implements IEngine {
       timestamp: e.timestamp.toISOString(),
       actor: e.actor,
       target: e.target,
+      // The arc an event is in (`arcId`) and its date precision live here.
+      ...(e.metadata && Object.keys(e.metadata).length > 0 ? { metadata: e.metadata } : {}),
     }));
   }
 

@@ -326,6 +326,12 @@ export interface GenerationResultDto {
   world?: string;
   /** The calendar the generated graph counts its years in. */
   calendar?: GraphCalendar;
+  /**
+   * Who wrote the events: `model`, or `template` when there was no model key
+   * or the model's answer could not be used. A template is a skeleton to
+   * rewrite. Absent for a simulation, which is a pressure model, not prose.
+   */
+  source?: 'model' | 'template';
   eventCount: number;
   arcCount: number;
   relationshipCount: number;

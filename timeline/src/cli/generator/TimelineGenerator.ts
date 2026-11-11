@@ -122,6 +122,14 @@ const WORLD_STYLE_RENDERERS: Record<NarrativeStyle, (milestone: string, world: s
   concise: (milestone) => `${milestone}.`,
 };
 
+/**
+ * Who wrote a generated timeline: a model, or the template used when there is
+ * no model key or the model's answer could not be used. A template is a
+ * skeleton to rewrite, and the result says so, so an agent does not present it
+ * as a history.
+ */
+type GenerationSource = 'model' | 'template';
+
 /** The narrative styles the generator can write in. */
 type NarrativeStyle = 'academic' | 'narrative' | 'concise';
 
@@ -213,7 +221,7 @@ export class TimelineGenerator {
       (plan.kind === 'world' ? `World: ${clip(plan.subject, 40)}` : `What If: ${plan.subject.slice(0, 40)}`);
 
     // Pass 2: Generate Chronological Micro-Events
-    const intermediateEvents = await this.generateEventsPass(
+    const { events: intermediateEvents, source } = await this.generateEventsPass(
       options,
       plan,
       eventCount,
@@ -293,6 +301,7 @@ export class TimelineGenerator {
         premise: plan.subject,
         divergencePoint: plan.divergencePoint,
         ...this.worldFields(plan),
+        source,
         eventCount: eventDtos.length,
         arcCount: arcDtos.length,
         relationshipCount: relDtos.length,
@@ -312,33 +321,6 @@ export class TimelineGenerator {
     });
     const graphId = graph.id;
     const scoped = await container.graphScopedRepositories(graphId);
-
-    const domainEvents: Event[] = [];
-    const persistedEvents: EventDto[] = [];
-    for (const e of intermediateEvents) {
-      const created = await scoped.eventRepository.create({
-        description: e.description,
-        timestamp: new Date(e.timestamp),
-        actor: e.actor,
-        target: e.target,
-        metadata: { importance: e.importance },
-      });
-      try {
-        await container.graphWriteVersioningService.recordEvent(graphId, created, 'create');
-      } catch {
-        // Best effort
-      }
-      domainEvents.push(created);
-      persistedEvents.push({
-        id: created.id,
-        graphId,
-        description: created.description,
-        timestamp: created.timestamp.toISOString(),
-        actor: created.actor,
-        target: created.target,
-        importance: e.importance,
-      });
-    }
 
     const persistedArcs: ArcDto[] = [];
     // The parents are created first, so that a child arc can name the arc it
@@ -373,6 +355,45 @@ export class TimelineGenerator {
         startTime: created.start_time.toISOString(),
         endTime: created.end_time.toISOString(),
         level: created.level,
+      });
+    }
+
+    // Each event goes in the innermost arc that holds it, which is what the app
+    // and the exports read (`metadata.arcId`); otherwise every event was left
+    // outside the arcs that were drawn around it.
+    const arcIdOf = (timestamp: string): string | undefined => {
+      const time = new Date(timestamp).getTime();
+      const holding = persistedArcs
+        .filter((arc) => Date.parse(arc.startTime) <= time && time <= Date.parse(arc.endTime))
+        .sort((a, b) => (b.level ?? 0) - (a.level ?? 0));
+      return holding[0]?.id;
+    };
+
+    const domainEvents: Event[] = [];
+    const persistedEvents: EventDto[] = [];
+    for (const e of intermediateEvents) {
+      const created = await scoped.eventRepository.create({
+        description: e.description,
+        timestamp: new Date(e.timestamp),
+        actor: e.actor,
+        target: e.target,
+        metadata: { importance: e.importance, ...(arcIdOf(e.timestamp) ? { arcId: arcIdOf(e.timestamp) } : {}) },
+      });
+      try {
+        await container.graphWriteVersioningService.recordEvent(graphId, created, 'create');
+      } catch {
+        // Best effort
+      }
+      domainEvents.push(created);
+      persistedEvents.push({
+        id: created.id,
+        graphId,
+        description: created.description,
+        timestamp: created.timestamp.toISOString(),
+        actor: created.actor,
+        target: created.target,
+        importance: e.importance,
+        metadata: created.metadata,
       });
     }
 
@@ -412,6 +433,7 @@ export class TimelineGenerator {
       premise: plan.subject,
       divergencePoint: plan.divergencePoint,
       ...this.worldFields(plan),
+      source,
       eventCount: persistedEvents.length,
       arcCount: persistedArcs.length,
       relationshipCount: persistedRels.length,
@@ -616,7 +638,7 @@ export class TimelineGenerator {
     }
 
     // Generate divergent events
-    const intermediateEvents = await this.generateEventsPass(
+    const { events: intermediateEvents, source } = await this.generateEventsPass(
       divergentTimelineOptions,
       branchPlan,
       eventCount,
@@ -729,6 +751,7 @@ export class TimelineGenerator {
       graphName: options.branchName,
       premise: options.counterfactualPrompt,
       divergencePoint: pivotEvent.description,
+      source,
       eventCount: persistedEvents.length,
       arcCount: persistedArcs.length,
       relationshipCount: persistedRels.length,
@@ -1173,7 +1196,7 @@ export class TimelineGenerator {
     eventCount: number,
     startMs: number,
     stepMs: number
-  ): Promise<IntermediateEvent[]> {
+  ): Promise<{ events: IntermediateEvent[]; source: GenerationSource }> {
     const style: NarrativeStyle = options.style || 'academic';
     const isWorld = plan.kind === 'world';
 
@@ -1197,13 +1220,14 @@ Generate ${eventCount} chronological historical events demonstrating this counte
           const sorted = [...extracted].sort(
             (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
           );
-          return sorted.map((e, idx) => ({
+          const events = sorted.map((e, idx) => ({
             description: e.description,
             timestamp: e.timestamp,
             actor: e.actor || (isWorld ? 'Unnamed Realm' : 'Divergent Government'),
             target: e.target || (isWorld ? 'Unnamed People' : 'Opposing Power'),
             importance: Math.max(0.4, 1.0 - idx * 0.05),
           }));
+          return { events, source: 'model' };
         }
       } catch {
         // Fall back to the deterministic template below
@@ -1211,7 +1235,7 @@ Generate ${eventCount} chronological historical events demonstrating this counte
     }
 
     if (isWorld) {
-      return this.worldTemplateEvents(plan, style, eventCount, startMs, stepMs);
+      return { events: this.worldTemplateEvents(plan, style, eventCount, startMs, stepMs), source: 'template' };
     }
 
     // Deterministic counterfactual progression synthesizer
@@ -1260,7 +1284,7 @@ Generate ${eventCount} chronological historical events demonstrating this counte
       });
     }
 
-    return events;
+    return { events, source: 'template' };
   }
 
   /**
