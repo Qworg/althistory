@@ -2,6 +2,7 @@
  * Export Service for generating Althistory export files
  */
 
+import type { GraphCalendar } from '@/utils/worldCalendar';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -33,6 +34,8 @@ export interface ExportMetadata {
   graphVersion: number;
   checksum: string;
   filters?: ExportFilters;
+  /** The graph's own calendar, when it has one. Outside the checksum, like the rest of `metadata`. */
+  calendar?: GraphCalendar;
 }
 
 export interface ExportData {
@@ -352,6 +355,7 @@ export class ExportService {
         graphVersion: versionRef?.version ?? 0,
         checksum: '', // Will be calculated
         filters: options.scope === 'filtered' ? options.filters : undefined,
+        ...(graph.calendar ? { calendar: graph.calendar } : {}),
       },
       data: exportData,
     };
@@ -527,6 +531,7 @@ export class ExportService {
       graphVersion: versionRef?.version ?? 0,
       checksum,
       filters: options.scope === 'filtered' ? options.filters : undefined,
+      ...(graph.calendar ? { calendar: graph.calendar } : {}),
     };
 
     const provenance = options.includeProvenance

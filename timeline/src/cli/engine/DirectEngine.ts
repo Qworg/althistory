@@ -44,6 +44,8 @@ import {
 import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
+import type { GraphCalendar } from '@/utils/worldCalendar';
+import type { IGraph } from '@/models/Graph';
 import { validateCausalRelationshipFields } from '@/services/CausalService';
 
 export interface DirectEngineOptions {
@@ -54,6 +56,21 @@ export interface DirectEngineOptions {
    * fixtures, so the ingestion tests never touch the network.
    */
   httpClient?: HttpClient;
+}
+
+/** A graph record as the CLI's summary shape. */
+function toGraphSummary(graph: IGraph): GraphSummaryDto {
+  return {
+    id: graph.id,
+    name: graph.name,
+    description: graph.description,
+    currentVersion: 'v1',
+    parentGraphId: graph.parentGraphId,
+    branchPointVersion: undefined,
+    createdAt: graph.createdAt,
+    updatedAt: graph.updatedAt,
+    ...(graph.calendar ? { calendar: graph.calendar } : {}),
+  };
 }
 
 export class DirectEngine implements IEngine {
@@ -118,34 +135,23 @@ export class DirectEngine implements IEngine {
   async listGraphs(): Promise<GraphSummaryDto[]> {
     const container = await this.getInitializedContainer();
     const result = await container.graphService.listGraphs({ limit: 1000, offset: 0 });
-    return result.graphs.map((g) => ({
-      id: g.id,
-      name: g.name,
-      description: g.description,
-      currentVersion: 'v1',
-      parentGraphId: g.parentGraphId,
-      branchPointVersion: undefined,
-      createdAt: g.createdAt,
-      updatedAt: g.updatedAt,
-    }));
+    return result.graphs.map((g) => toGraphSummary(g));
   }
 
-  async createGraph(name: string, description?: string): Promise<GraphSummaryDto> {
+  async createGraph(name: string, description?: string, calendar?: GraphCalendar): Promise<GraphSummaryDto> {
     const container = await this.getInitializedContainer();
     const created = await container.graphService.createGraph({
       name,
       description,
+      calendar,
     });
-    return {
-      id: created.id,
-      name: created.name,
-      description: created.description,
-      currentVersion: 'v1',
-      parentGraphId: created.parentGraphId,
-      branchPointVersion: undefined,
-      createdAt: created.createdAt,
-      updatedAt: created.updatedAt,
-    };
+    return toGraphSummary(created);
+  }
+
+  async setGraphCalendar(id: string, calendar: GraphCalendar | null): Promise<GraphSummaryDto> {
+    const container = await this.getInitializedContainer();
+    const updated = await container.graphService.updateGraph(id, { calendar });
+    return toGraphSummary(updated);
   }
 
   async getGraph(id: string): Promise<GraphSummaryDto> {
@@ -154,16 +160,7 @@ export class DirectEngine implements IEngine {
     if (!graph) {
       throw new NotFoundErrorCLI(`Graph not found: ${id}`);
     }
-    return {
-      id: graph.id,
-      name: graph.name,
-      description: graph.description,
-      currentVersion: 'v1',
-      parentGraphId: graph.parentGraphId,
-      branchPointVersion: undefined,
-      createdAt: graph.createdAt,
-      updatedAt: graph.updatedAt,
-    };
+    return toGraphSummary(graph);
   }
 
   async branchGraph(id: string, name: string): Promise<GraphSummaryDto> {
@@ -171,16 +168,7 @@ export class DirectEngine implements IEngine {
     const branched = await container.graphService.branchGraph(id, {
       name,
     });
-    return {
-      id: branched.id,
-      name: branched.name,
-      description: branched.description,
-      currentVersion: 'v1',
-      parentGraphId: branched.parentGraphId,
-      branchPointVersion: undefined,
-      createdAt: branched.createdAt,
-      updatedAt: branched.updatedAt,
-    };
+    return toGraphSummary(branched);
   }
 
   async mergeGraph(sourceId: string, targetId: string, strategy: string = 'keep-source'): Promise<{ success: boolean; version?: string }> {
@@ -387,12 +375,20 @@ export class DirectEngine implements IEngine {
       throw new ValidationErrorCLI(`Arc startTime (${data.startTime}) must precede endTime (${data.endTime})`);
     }
 
+    // A child arc sits one level below the arc it belongs to, which has to exist.
+    let level = 0;
+    if (data.parentArcId) {
+      const parent = await scoped.arcRepository.findById(data.parentArcId);
+      if (!parent) throw new NotFoundErrorCLI(`Parent arc not found: ${data.parentArcId}`);
+      level = parent.level + 1;
+    }
+
     const created = await scoped.arcRepository.create({
       name: data.name,
       description: data.description || '',
       start_time: start,
       end_time: end,
-      level: 0,
+      level,
       metadata: data.parentArcId ? { parentArcId: data.parentArcId } : {},
     });
 
@@ -629,7 +625,9 @@ export class DirectEngine implements IEngine {
 
     // Group into arcs if requested and not already present
     if (options.groupArcs && arcs.length === 0 && events.length > 0) {
-      arcs = clusterEventsIntoArcs(events, events[0].source);
+      arcs = clusterEventsIntoArcs(events, events[0].source, {
+        calendar: await this.calendarOf(targetGraphId),
+      });
     }
 
     // Infer causes if requested and not already present
@@ -840,6 +838,13 @@ export class DirectEngine implements IEngine {
    * preview names the graph it would have written to, and the graph is only
    * created when the ingestion is committed.
    */
+  /** The calendar of a stored graph; none for a dry run's placeholder or a missing graph. */
+  private async calendarOf(graphId: string): Promise<GraphCalendar | undefined> {
+    const container = await this.getInitializedContainer();
+    const graph = await container.graphRepository.findById(graphId);
+    return graph?.calendar;
+  }
+
   private async resolveTargetGraph(
     graphId: string | undefined,
     graphName: string | undefined,
@@ -866,13 +871,24 @@ export class DirectEngine implements IEngine {
   private async extractText(
     text: string,
     extractor: TextExtractor,
-    mode: 'pattern' | 'llm' | 'hybrid'
+    mode: 'pattern' | 'llm' | 'hybrid',
+    calendar?: GraphCalendar
   ): Promise<ExtractionResult> {
     if (mode === 'pattern') {
       return extractor.extract({ text, useLLM: false });
     }
 
-    const llmResult = await extractor.extractWithLLM({ text });
+    // Prose about an invented world dates things in the world's years; the
+    // model is told how they are stored. Pattern extraction cannot read them.
+    const context = calendar
+      ? {
+          instructions:
+            `The text dates events in an invented world's calendar${calendar.name ? ` (${calendar.name})` : ''}. ` +
+            `Its year N${calendar.eraLabel ? ` (written "N ${calendar.eraLabel}")` : ''} is the ISO year N + ${calendar.epochYear - 1}; ` +
+            'give every timestamp as that ISO date.',
+        }
+      : undefined;
+    const llmResult = await extractor.extractWithLLM({ text }, context);
 
     if (mode === 'llm') {
       if (!llmResult) {
@@ -897,7 +913,12 @@ export class DirectEngine implements IEngine {
     );
     const llmClient = options.mode !== 'pattern' ? createLLMClient({ provider: options.provider, model: options.model, temperature: options.temperature }) : null;
     const extractor = new TextExtractor({ llmClient });
-    const extractionResult = await this.extractText(text, extractor, options.mode || 'hybrid');
+    const extractionResult = await this.extractText(
+      text,
+      extractor,
+      options.mode || 'hybrid',
+      await this.calendarOf(targetGraphId)
+    );
     return this.persistExtractedEntities(targetGraphId, extractionResult, options);
   }
 
@@ -1092,7 +1113,8 @@ export class DirectEngine implements IEngine {
       arcs,
       rels,
       format,
-      outputPath
+      outputPath,
+      graph?.calendar
     );
   }
 

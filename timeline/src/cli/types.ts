@@ -3,6 +3,7 @@
  */
 
 import type { SimulationDomain } from '@/services/SimulationService';
+import type { GraphCalendar } from '@/utils/worldCalendar';
 
 
 export type OutputFormat = 'json' | 'ndjson' | 'markdown' | 'plain';
@@ -56,6 +57,8 @@ export interface GraphSummaryDto {
   eventCount?: number;
   arcCount?: number;
   relationshipCount?: number;
+  /** The world's own calendar, when the graph has one (see utils/worldCalendar.ts). */
+  calendar?: GraphCalendar;
 }
 
 export interface EventDto {
@@ -245,9 +248,25 @@ export interface IngestResultDto {
   skippedRelationships?: SkippedRelationship[];
 }
 
+/**
+ * What `generate timeline` writes. There are two kinds, and a request is one
+ * or the other:
+ *
+ * - an alternate history: a `premise` and the `divergencePoint` where real
+ *   history turns;
+ * - an invented world: a `world` to chronicle from its beginning, with no real
+ *   history under it, and optionally the `calendar` its years are counted in.
+ */
 export interface GenerateTimelineOptions {
-  premise: string;
-  divergencePoint: string;
+  premise?: string;
+  divergencePoint?: string;
+  /** An invented world to chronicle, instead of a premise and a point of divergence. */
+  world?: string;
+  /**
+   * The invented world's calendar. `epochYear` defaults to the start date's
+   * year, or 1000 when there is no start date.
+   */
+  calendar?: { epochYear?: number; eraLabel?: string; name?: string };
   startDate?: string;
   endDate?: string;
   eventCount?: number;
@@ -303,6 +322,10 @@ export interface GenerationResultDto {
   graphName: string;
   premise: string;
   divergencePoint: string;
+  /** The invented world, when the timeline chronicles one. */
+  world?: string;
+  /** The calendar the generated graph counts its years in. */
+  calendar?: GraphCalendar;
   eventCount: number;
   arcCount: number;
   relationshipCount: number;

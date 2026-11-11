@@ -237,9 +237,12 @@ graphRoutes.post(
         sourceGraphId = activeGraph.id;
       }
 
+      // A copy is the same world, so it keeps the source's calendar.
+      const sourceGraph = await graphService.getGraph(sourceGraphId);
       const targetGraph = await graphService.createGraph({
         name: targetName,
         description: request.description,
+        calendar: sourceGraph.calendar,
       });
 
       let result: GraphCopyResult;

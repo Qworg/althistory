@@ -18,6 +18,7 @@ import {
   ExportResultDto,
   ImportResultDto,
 } from '../types';
+import type { GraphCalendar } from '@/utils/worldCalendar';
 
 export interface IEngine {
   readonly mode: 'direct' | 'remote';
@@ -28,7 +29,9 @@ export interface IEngine {
 
   // Graph CRUD & Versioning
   listGraphs(): Promise<GraphSummaryDto[]>;
-  createGraph(name: string, description?: string): Promise<GraphSummaryDto>;
+  createGraph(name: string, description?: string, calendar?: GraphCalendar): Promise<GraphSummaryDto>;
+  /** Give a graph its own calendar, or remove it with `null`. */
+  setGraphCalendar(id: string, calendar: GraphCalendar | null): Promise<GraphSummaryDto>;
   getGraph(id: string): Promise<GraphSummaryDto>;
   branchGraph(id: string, name: string): Promise<GraphSummaryDto>;
   mergeGraph(sourceId: string, targetId: string, strategy?: string): Promise<{ success: boolean; version?: string }>;

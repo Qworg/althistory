@@ -14,6 +14,7 @@
 import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
 import { ExportRelationship } from './GraphExporter';
+import { GraphCalendar, calendarProblems, normalizeCalendar } from '@/utils/worldCalendar';
 
 export interface ParsedExportDocument {
   graphId: string;
@@ -22,6 +23,8 @@ export interface ParsedExportDocument {
   events: Event[];
   arcs: Arc[];
   relationships: ExportRelationship[];
+  /** The graph's calendar; one that does not check out is left out. */
+  calendar?: GraphCalendar;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -145,5 +148,8 @@ export function parseExportDocument(document: unknown): ParsedExportDocument {
     events,
     arcs,
     relationships,
+    ...(metadata.calendar !== undefined && calendarProblems(metadata.calendar).length === 0
+      ? { calendar: normalizeCalendar(metadata.calendar) }
+      : {}),
   };
 }

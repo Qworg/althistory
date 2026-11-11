@@ -31,6 +31,7 @@ import {
 } from './mergedEntityValidation';
 import { createLogger, ILogger } from '../utils/logger';
 import { isTemporalInversion } from '@/utils/causalOrder';
+import { GraphCalendar, calendarProblems, normalizeCalendar } from '@/utils/worldCalendar';
 import type { HeadReplacedHook } from './LiveStoreSyncService';
 
 /**
@@ -64,6 +65,15 @@ export interface GraphServiceConfig {
 /**
  * Simple in-memory rate limiter for expensive operations
  */
+/** A calendar from a request, or a ValidationError naming what is wrong with it. */
+function checkedCalendar(value: unknown): GraphCalendar {
+  const problems = calendarProblems(value);
+  if (problems.length > 0) {
+    throw new ValidationError(problems.join('; '), 'calendar', value);
+  }
+  return normalizeCalendar(value);
+}
+
 class OperationRateLimiter {
   private operations: Map<string, number[]> = new Map();
   private readonly maxOperations: number;
@@ -155,6 +165,7 @@ export class GraphService {
     const graph = await this.graphRepository.create({
       name: request.name.trim(),
       description: request.description?.trim(),
+      calendar: request.calendar === undefined ? undefined : checkedCalendar(request.calendar),
     });
 
     return graph.toJSON();
@@ -186,6 +197,10 @@ export class GraphService {
       name: request.name?.trim(),
       description: request.description?.trim(),
       status: request.status,
+      calendar:
+        request.calendar === undefined || request.calendar === null
+          ? request.calendar
+          : checkedCalendar(request.calendar),
     });
 
     if (!graph) {

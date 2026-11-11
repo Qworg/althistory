@@ -171,6 +171,81 @@ describe('Graph routes (request-level)', () => {
     });
   });
 
+  describe('world calendar', () => {
+    const calendar = { epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning' };
+
+    it('creates a graph with a calendar and reads it back', async () => {
+      const created = await request(app)
+        .post('/api/graphs')
+        .set('X-API-Key', writeKey)
+        .send({ name: 'Vael', calendar })
+        .expect(201);
+      expect(created.body.data.calendar).toEqual(calendar);
+
+      const read = await request(app).get(`/api/graphs/${created.body.data.id}`).set('X-API-Key', readKey).expect(200);
+      expect(read.body.data.calendar).toEqual(calendar);
+    });
+
+    it('refuses a calendar that does not check out, saying why', async () => {
+      const response = await request(app)
+        .post('/api/graphs')
+        .set('X-API-Key', writeKey)
+        .send({ name: 'Bad Calendar', calendar: { epochYear: 'soon' } })
+        .expect(400);
+      expect(response.body.error.message).toContain('epochYear');
+    });
+
+    it('changes the calendar with PUT, keeps it when it is not mentioned, and removes it with null', async () => {
+      const graph = await container.graphService.createGraph({ name: 'Calendar Later' });
+
+      const set = await request(app)
+        .put(`/api/graphs/${graph.id}`)
+        .set('X-API-Key', writeKey)
+        .send({ calendar: { epochYear: 1200 } })
+        .expect(200);
+      expect(set.body.data.calendar).toEqual({ epochYear: 1200 });
+
+      const renamed = await request(app)
+        .put(`/api/graphs/${graph.id}`)
+        .set('X-API-Key', writeKey)
+        .send({ name: 'Calendar Kept' })
+        .expect(200);
+      expect(renamed.body.data.calendar).toEqual({ epochYear: 1200 });
+
+      const cleared = await request(app)
+        .put(`/api/graphs/${graph.id}`)
+        .set('X-API-Key', writeKey)
+        .send({ calendar: null })
+        .expect(200);
+      expect(cleared.body.data.calendar).toBeUndefined();
+    });
+
+    it('carries the calendar to a branch and to a copy, which are the same world', async () => {
+      const world = await container.graphService.createGraph({ name: 'World To Fork', calendar });
+      const branch = await container.graphService.branchGraph(world.id, { name: 'World Branch' });
+      expect(branch.calendar).toEqual(calendar);
+
+      const copy = await request(app)
+        .post('/api/graphs/copy')
+        .set('X-API-Key', writeKey)
+        .send({ sourceGraphId: world.id, targetName: 'World Copy' })
+        .expect(201);
+      const copied = await container.graphService.getGraph(copy.body.data.id);
+      expect(copied.calendar).toEqual(calendar);
+    });
+
+    it('puts the calendar in the export metadata, outside the checksum', async () => {
+      const world = await container.graphService.createGraph({ name: 'World To Export', calendar });
+      const response = await request(app)
+        .get('/api/export')
+        .set('X-API-Key', writeKey)
+        .set('X-Graph-Id', world.id)
+        .expect(200);
+      expect(response.body.metadata.calendar).toEqual(calendar);
+      expect(response.body.data.calendar).toBeUndefined();
+    });
+  });
+
   describe('copy (frontend apiClient.graph.copy*)', () => {
     it('POST /api/graphs/copy creates a copy and returns a completed copy result', async () => {
       const copyResult: GraphCopyServiceResult = {

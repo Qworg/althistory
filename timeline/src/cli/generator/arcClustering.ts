@@ -1,4 +1,14 @@
 import { ExtractedEvent, ExtractedArc, ExtractionSource } from '@/services/ingestion/types';
+import { GraphCalendar, formatWorldYear } from '@/utils/worldCalendar';
+
+/** How the arcs are named. */
+export interface ArcNamingOptions {
+  /**
+   * The world's calendar: the years in an arc's name are the world's years,
+   * and an arc is an "Age" rather than a "Campaign / Period".
+   */
+  calendar?: GraphCalendar;
+}
 
 /**
  * Clusters an array of extracted events into hierarchical narrative arcs
@@ -37,8 +47,17 @@ import { ExtractedEvent, ExtractedArc, ExtractionSource } from '@/services/inges
  */
 export function clusterEventsIntoArcs(
   events: ExtractedEvent[],
-  source: ExtractionSource
+  source: ExtractionSource,
+  naming: ArcNamingOptions = {}
 ): ExtractedArc[] {
+  const { calendar } = naming;
+  // The UTC year, as every historical date is stored; a calendar relabels it.
+  const yearOf = (timestamp: string): string => {
+    const year = new Date(timestamp).getUTCFullYear();
+    if (Number.isNaN(year)) return '';
+    return calendar ? formatWorldYear(year, calendar) : String(year);
+  };
+
   if (events.length === 0) {
     return [];
   }
@@ -48,12 +67,11 @@ export function clusterEventsIntoArcs(
 
   if (sorted.length === 1) {
     const e = sorted[0];
-    const date = new Date(e.timestamp);
-    const year = isNaN(date.getFullYear()) ? 'Historic' : String(date.getFullYear());
+    const year = yearOf(e.timestamp) || 'Historic';
     return [
       {
         tempId: `arc-cluster-0`,
-        name: `Period of ${e.actor || 'Events'} (${year})`,
+        name: `${calendar ? 'Age' : 'Period'} of ${e.actor || 'Events'} (${year})`,
         description: `Enclosing narrative arc for single event`,
         start_time: e.timestamp,
         end_time: new Date(new Date(e.timestamp).getTime() + 24 * 60 * 60 * 1000).toISOString(),
@@ -127,13 +145,13 @@ export function clusterEventsIntoArcs(
       }
     }
 
-    const startYear = new Date(start).getFullYear() || '';
-    const endYear = new Date(end).getFullYear() || '';
+    const startYear = yearOf(start);
+    const endYear = yearOf(end);
     const spanText = startYear && endYear ? ` (${startYear}–${endYear})` : '';
 
     return {
       tempId: `arc-cluster-${idx}`,
-      name: `${dominantActor} Campaign / Period${spanText}`,
+      name: calendar ? `Age of ${dominantActor}${spanText}` : `${dominantActor} Campaign / Period${spanText}`,
       description: `Historical narrative arc containing ${cluster.length} events`,
       start_time: start,
       end_time: end,

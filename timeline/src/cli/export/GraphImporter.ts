@@ -1,8 +1,18 @@
 import * as fs from 'fs';
+import { GraphCalendar, calendarProblems, normalizeCalendar } from '@/utils/worldCalendar';
 import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
 import { ImportResultDto } from '../types';
 import { ValidationErrorCLI } from '../utils/exitCodes';
+
+/**
+ * The calendar an export carries, if it checks out. A bad one is dropped
+ * rather than failing the import: it only changes how years are shown.
+ */
+function importedCalendar(metadata: Record<string, unknown> | undefined): GraphCalendar | undefined {
+  const value = metadata?.calendar;
+  return value !== undefined && calendarProblems(value).length === 0 ? normalizeCalendar(value) : undefined;
+}
 
 export class GraphImporter {
   async import(
@@ -46,6 +56,7 @@ export class GraphImporter {
           const created = await container.graphRepository.create({
             name: (metadataObj.graphName as string) || 'Imported Timeline',
             description: (metadataObj.description as string) || 'Imported from file',
+            calendar: importedCalendar(metadataObj),
           });
           targetGraphId = created.id;
         }
@@ -53,6 +64,7 @@ export class GraphImporter {
         const created = await container.graphRepository.create({
           name: (metadataObj?.graphName as string) || 'Imported Timeline',
           description: (metadataObj?.description as string) || 'Imported from file',
+          calendar: importedCalendar(metadataObj),
         });
         targetGraphId = created.id;
       }

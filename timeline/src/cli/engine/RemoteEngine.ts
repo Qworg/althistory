@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { GraphCalendar, calendarProblems, normalizeCalendar } from '@/utils/worldCalendar';
 import { IEngine } from './IEngine';
 import {
   HealthInfo,
@@ -221,6 +222,9 @@ export class RemoteEngine implements IEngine {
         typeof graph.branchPoint === 'number' ? `v${graph.branchPoint}` : undefined,
       createdAt: readString(graph.createdAt, new Date().toISOString()),
       updatedAt: readString(graph.updatedAt, new Date().toISOString()),
+      ...(graph.calendar !== undefined && calendarProblems(graph.calendar).length === 0
+        ? { calendar: normalizeCalendar(graph.calendar) }
+        : {}),
     };
   }
 
@@ -233,12 +237,21 @@ export class RemoteEngine implements IEngine {
     }
   }
 
-  async createGraph(name: string, description?: string): Promise<GraphSummaryDto> {
+  async createGraph(name: string, description?: string, calendar?: GraphCalendar): Promise<GraphSummaryDto> {
     try {
-      const res = await this.client.post('/api/graphs', { name, description });
+      const res = await this.client.post('/api/graphs', { name, description, calendar });
       return this.toGraphSummary(unwrap(res.data));
     } catch (err) {
       return this.handleError(err, 'creating graph');
+    }
+  }
+
+  async setGraphCalendar(id: string, calendar: GraphCalendar | null): Promise<GraphSummaryDto> {
+    try {
+      const res = await this.client.put(`/api/graphs/${encodeURIComponent(id)}`, { calendar });
+      return this.toGraphSummary(unwrap(res.data));
+    } catch (err) {
+      return this.handleError(err, `setting the calendar of graph ${id}`);
     }
   }
 
@@ -1252,7 +1265,7 @@ export class RemoteEngine implements IEngine {
         const exporter = new GraphExporter();
         content =
           format === 'markdown'
-            ? exporter.generateMarkdown(parsed.graphId, parsed.graphName, parsed.description, parsed.events, parsed.arcs, parsed.relationships)
+            ? exporter.generateMarkdown(parsed.graphId, parsed.graphName, parsed.description, parsed.events, parsed.arcs, parsed.relationships, parsed.calendar)
             : format === 'dot'
               ? exporter.generateDot(parsed.graphId, parsed.graphName, parsed.events, parsed.arcs, parsed.relationships)
               : exporter.generateGraphML(parsed.graphId, parsed.graphName, parsed.events, parsed.arcs, parsed.relationships);

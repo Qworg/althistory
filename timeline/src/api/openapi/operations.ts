@@ -141,7 +141,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     auth: 'required',
   },
   'PUT /api/graphs/:id': {
-    summary: 'Rename a graph, change its description or archive it.',
+    summary: 'Rename a graph, change its description or calendar, or archive it.',
     request: 'GraphUpdate',
     response: 'Graph',
     auth: 'required',

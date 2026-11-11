@@ -16,6 +16,7 @@
  */
 
 import { GraphRepository } from '../repositories/GraphRepository';
+import { calendarProblems, normalizeCalendar } from '@/utils/worldCalendar';
 import { JobRepository } from '../repositories/JobRepository';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 import {
@@ -2339,6 +2340,12 @@ export class ImportService {
         const newGraph = await this.graphRepository.create({
           name: importData.metadata.graphName,
           description: importData.metadata.description,
+          // A calendar that does not check out is dropped rather than failing
+          // the import: it only changes how years are shown.
+          calendar:
+            importData.metadata.calendar !== undefined && calendarProblems(importData.metadata.calendar).length === 0
+              ? normalizeCalendar(importData.metadata.calendar)
+              : undefined,
         });
         targetGraphId = newGraph.id;
         createdNewGraphId = newGraph.id;

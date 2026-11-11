@@ -2,13 +2,15 @@ import { Command } from 'commander';
 import { ExecutionContext } from './engine/ExecutionContext';
 import { formatOutput, formatErrorJson } from './formatters';
 import { GlobalCLIOptions, OutputFormat, ExportFormat } from './types';
-import { CLIError, ExitCode } from './utils/exitCodes';
+import { CLIError, ExitCode, ValidationErrorCLI } from './utils/exitCodes';
 import { isSimulationDomain } from '@/services/SimulationService';
 import { logger } from './utils/logger';
 import { McpServer } from './mcp/McpServer';
 import { MCP_TOOLS } from './mcp/toolDefinitions';
+import { MCP_PROMPTS, renderPrompt } from './mcp/prompts';
 import { buildCommandJsonSchema } from './schema/commandSchema';
 import { readInputText } from './utils/inputText';
+import { calendarFrom, partialCalendarFrom } from './utils/calendarOptions';
 import { formatSuccessJson } from './formatters/jsonFormatter';
 
 export function createProgram(): Command {
@@ -86,13 +88,17 @@ export function createProgram(): Command {
     .command('create <name>')
     .description('Create a new historical graph')
     .option('-d, --description <desc>', 'Graph description')
-    .action(async (name: string, cmdOpts: { description?: string }) => {
+    .option('--epoch-year <year>', "For an invented world: the stored year that is the world's year 1 (e.g. 1000)")
+    .option('--era-label <label>', 'Written after a world year, as in "312 AR" (needs --epoch-year)')
+    .option('--calendar-name <name>', "What the world's calendar is called (needs --epoch-year)")
+    .action(async (name: string, cmdOpts: { description?: string; epochYear?: string; eraLabel?: string; calendarName?: string }) => {
       const opts = program.opts<GlobalCLIOptions>();
       const ctx = new ExecutionContext(opts);
       const start = Date.now();
       try {
+        const calendar = calendarFrom(cmdOpts);
         const engine = await ctx.getEngine();
-        const graph = await engine.createGraph(name, cmdOpts.description);
+        const graph = await engine.createGraph(name, cmdOpts.description, calendar);
         const output = formatOutput(graph, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: graph.id,
@@ -197,6 +203,39 @@ export function createProgram(): Command {
         const output = formatOutput(res, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: id,
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  graphCmd
+    .command('calendar <id>')
+    .description(
+      "Give a graph an invented world's calendar, which relabels its years when they are shown (the stored dates do not change), or remove it"
+    )
+    .option('--epoch-year <year>', "The stored year that is the world's year 1 (e.g. 1000)")
+    .option('--era-label <label>', 'Written after a world year, as in "312 AR"; without one a year reads "Year 312"')
+    .option('--calendar-name <name>', "What the world's calendar is called")
+    .option('--clear', 'Remove the calendar, so years show as stored')
+    .action(async (id: string, cmdOpts: { epochYear?: string; eraLabel?: string; calendarName?: string; clear?: boolean }) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const calendar = calendarFrom(cmdOpts);
+        if (cmdOpts.clear && calendar) {
+          throw new ValidationErrorCLI('Give either --clear or a calendar, not both');
+        }
+        if (!cmdOpts.clear && !calendar) {
+          throw new ValidationErrorCLI('Give --epoch-year (with --era-label and --calendar-name if wanted), or --clear');
+        }
+        const engine = await ctx.getEngine();
+        const graph = await engine.setGraphCalendar(id, cmdOpts.clear ? null : (calendar ?? null));
+        const output = formatOutput(graph, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: graph.id,
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -748,9 +787,15 @@ export function createProgram(): Command {
 
   generate
     .command('timeline')
-    .description('Generate an alternate history timeline whole-cloth from a premise and divergence point')
-    .requiredOption('-p, --premise <text>', 'Counterfactual premise or what-if hypothesis')
-    .requiredOption('-d, --divergence-point <text>', 'Point of divergence anchor event')
+    .description(
+      'Generate a timeline whole-cloth: an alternate history from --premise and --divergence-point, or an invented world from --world'
+    )
+    .option('-p, --premise <text>', 'Counterfactual premise or what-if hypothesis (with --divergence-point)')
+    .option('-d, --divergence-point <text>', 'Point of divergence anchor event (with --premise)')
+    .option('-w, --world <text>', 'An invented world to chronicle from its founding, instead of --premise and --divergence-point')
+    .option('--epoch-year <year>', "With --world: the stored year that is the world's year 1 (default: the start date's year, or 1000)")
+    .option('--era-label <label>', 'With --world: written after a world year, as in "312 AR"')
+    .option('--calendar-name <name>', "With --world: what the world's calendar is called")
     .option('--start-date <iso>', 'Earliest timeline date boundary (ISO-8601)')
     .option('--end-date <iso>', 'Latest timeline date boundary (ISO-8601)')
     .option('-n, --event-count <count>', 'Number of pivotal events to synthesize (default: 8)', '8')
@@ -777,8 +822,10 @@ export function createProgram(): Command {
           : undefined;
 
         const result = await engine.generateTimeline({
-          premise: String(cmdOpts?.premise || ''),
-          divergencePoint: String(cmdOpts?.divergencePoint || ''),
+          premise: cmdOpts?.premise as string | undefined,
+          divergencePoint: cmdOpts?.divergencePoint as string | undefined,
+          world: cmdOpts?.world as string | undefined,
+          calendar: partialCalendarFrom(cmdOpts ?? {}),
           startDate: cmdOpts?.startDate as string | undefined,
           endDate: cmdOpts?.endDate as string | undefined,
           eventCount: cmdOpts?.eventCount ? parseInt(String(cmdOpts.eventCount), 10) : 8,
@@ -1089,7 +1136,47 @@ export function createProgram(): Command {
         });
       });
 
+      await server.whenIdle();
       await ctx.shutdown();
+    });
+
+  // --- Prompt Command ---
+  program
+    .command('prompt [name] [args...]')
+    .description(
+      'Print an agent prompt for working with Althistory (worldbuild, alternate_history, grow_history), with its arguments as key=value; without a name, list them. The MCP server offers the same prompts.'
+    )
+    .action(async (name: string | undefined, rawArgs: string[] = []) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      if (!name) {
+        if (opts.plain) {
+          const lines = MCP_PROMPTS.map(
+            (prompt) =>
+              `${prompt.name}: ${prompt.description}\n  ${prompt.arguments
+                .map((argument) => `${argument.name}${argument.required ? '' : ' (optional)'}`)
+                .join(', ')}`
+          );
+          process.stdout.write(lines.join('\n') + '\n');
+        } else {
+          process.stdout.write(formatSuccessJson({ prompts: MCP_PROMPTS }, 'direct') + '\n');
+        }
+        return;
+      }
+
+      const args: Record<string, string> = {};
+      for (const pair of rawArgs) {
+        const separator = pair.indexOf('=');
+        if (separator <= 0) {
+          throw new ValidationErrorCLI(`Expected key=value, got "${pair}" (for example world="A drowned archipelago")`);
+        }
+        args[pair.slice(0, separator)] = pair.slice(separator + 1);
+      }
+      const prompt = renderPrompt(name, args);
+      if (opts.plain) {
+        process.stdout.write(prompt.text + '\n');
+      } else {
+        process.stdout.write(formatSuccessJson({ name, description: prompt.description, text: prompt.text }, 'direct') + '\n');
+      }
     });
 
   // --- Schema Command ---

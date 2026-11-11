@@ -2,6 +2,10 @@
  * Graph model for multi-graph management with Git-like versioning
  */
 
+import { GraphCalendar, calendarProblems, normalizeCalendar } from '../utils/worldCalendar';
+
+export type { GraphCalendar } from '../utils/worldCalendar';
+
 /**
  * Represents a historical graph containing events, arcs, and relationships
  */
@@ -35,6 +39,11 @@ export interface IGraph {
   status: GraphStatus;
   /** Computed metadata */
   metadata: GraphMetadata;
+  /**
+   * The world's own calendar, for an invented history: how stored years are
+   * shown (see `utils/worldCalendar.ts`). Absent means plain Gregorian years.
+   */
+  calendar?: GraphCalendar;
 }
 
 export type GraphStatus = 'active' | 'archived' | 'deleted';
@@ -65,6 +74,7 @@ export class Graph implements IGraph {
   public readonly branchPoint?: number | null;
   public readonly status: GraphStatus;
   public readonly metadata: GraphMetadata;
+  public readonly calendar?: GraphCalendar;
 
   constructor(data: CreateGraphData & { id?: string }) {
     this.id = data.id || this.generateId();
@@ -88,6 +98,7 @@ export class Graph implements IGraph {
       relationshipCount: 0,
       pressureCount: 0,
     };
+    this.calendar = data.calendar ? normalizeCalendar(data.calendar) : undefined;
   }
 
   /**
@@ -112,6 +123,10 @@ export class Graph implements IGraph {
       errors.push('Status must be active, archived, or deleted');
     }
 
+    if (data.calendar !== undefined && data.calendar !== null) {
+      errors.push(...calendarProblems(data.calendar));
+    }
+
     return {
       isValid: errors.length === 0,
       errors,
@@ -133,6 +148,8 @@ export class Graph implements IGraph {
       branchPoint: this.branchPoint,
       status: updates.status ?? this.status,
       metadata: updates.metadata ?? this.metadata,
+      // `null` clears the calendar; `undefined` keeps it.
+      calendar: updates.calendar === null ? undefined : (updates.calendar ?? this.calendar),
     });
   }
 
@@ -151,6 +168,8 @@ export class Graph implements IGraph {
       branchPoint: branchPoint === undefined ? this.version : branchPoint,
       status: 'active',
       metadata: { ...this.metadata },
+      // A branch is the same world, so it counts years the same way.
+      calendar: this.calendar,
     });
   }
 
@@ -169,6 +188,7 @@ export class Graph implements IGraph {
       branchPoint: this.branchPoint,
       status: this.status,
       metadata: this.metadata,
+      ...(this.calendar ? { calendar: this.calendar } : {}),
     };
   }
 
@@ -187,6 +207,7 @@ export interface CreateGraphData {
   branchPoint?: number | null;
   status?: GraphStatus;
   metadata?: GraphMetadata;
+  calendar?: GraphCalendar;
 }
 
 export interface UpdateGraphData {
@@ -194,6 +215,8 @@ export interface UpdateGraphData {
   description?: string;
   status?: GraphStatus;
   metadata?: GraphMetadata;
+  /** A new calendar, or `null` to remove it. */
+  calendar?: GraphCalendar | null;
 }
 
 export interface GraphValidationResult {
@@ -207,12 +230,15 @@ export interface GraphValidationResult {
 export interface CreateGraphRequest {
   name: string;
   description?: string;
+  calendar?: GraphCalendar;
 }
 
 export interface UpdateGraphRequest {
   name?: string;
   description?: string;
   status?: 'active' | 'archived';
+  /** A new calendar, or `null` to remove it. */
+  calendar?: GraphCalendar | null;
 }
 
 export interface BranchGraphRequest {

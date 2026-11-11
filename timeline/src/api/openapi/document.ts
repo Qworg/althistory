@@ -82,6 +82,19 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     description: 'An object whose properties depend on the operation.',
     additionalProperties: true,
   },
+  GraphCalendar: {
+    type: 'object',
+    description:
+      "An invented world's calendar. Timestamps stay Gregorian; the calendar relabels the year when a date is " +
+      'shown: the stored year `epochYear` is year 1 of the world.',
+    properties: {
+      epochYear: { type: 'integer', minimum: 1, maximum: 9999, description: 'The stored year that is year 1.' },
+      eraLabel: { type: 'string', maxLength: 16, description: 'Written after the year ("312 AR"). Without one, "Year 312".' },
+      name: { type: 'string', maxLength: 80, description: 'What the calendar is called.' },
+    },
+    required: ['epochYear'],
+    additionalProperties: false,
+  },
   Graph: {
     type: 'object',
     properties: {
@@ -93,6 +106,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       parentGraphId: { type: 'string' },
       createdAt: { type: 'string', format: 'date-time' },
       updatedAt: { type: 'string', format: 'date-time' },
+      calendar: { $ref: '#/components/schemas/GraphCalendar' },
     },
     required: ['id', 'name', 'status', 'version'],
   },
@@ -101,6 +115,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       name: { type: 'string' },
       description: { type: 'string' },
+      calendar: { $ref: '#/components/schemas/GraphCalendar' },
     },
     required: ['name'],
   },
@@ -110,6 +125,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       name: { type: 'string' },
       description: { type: 'string' },
       status: { type: 'string', enum: ['active', 'archived'] },
+      calendar: {
+        description: 'A new calendar, or null to remove it.',
+        allOf: [{ $ref: '#/components/schemas/GraphCalendar' }],
+        nullable: true,
+      },
     },
   },
   BranchGraphRequest: {

@@ -1,0 +1,418 @@
+/**
+ * Invented worlds through the CLI and the MCP server: the calendar, the
+ * authoring tools, the world mode of `generate timeline`, the prompts, and the
+ * exports an agent reads back.
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { PassThrough } from 'stream';
+import { DirectEngine } from './engine/DirectEngine';
+import { McpServer } from './mcp/McpServer';
+import { MCP_TOOLS } from './mcp/toolDefinitions';
+import { MCP_PROMPTS, renderPrompt } from './mcp/prompts';
+import { TimelineGenerator } from './generator/TimelineGenerator';
+import { runCLI } from './index';
+import { ExitCode } from './utils/exitCodes';
+import { LLMClient } from '../services/llm/LLMClient';
+import { ExtractedEvent } from '../services/ingestion/types';
+
+const CALENDAR = { epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning' };
+
+/** Call one MCP tool and return its parsed output, or throw with its error text. */
+async function callTool(server: McpServer, name: string, args: Record<string, unknown>): Promise<any> {
+  const raw = await server.handleMessage(
+    JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })
+  );
+  const response = JSON.parse(raw!);
+  const text = response.result.content[0].text as string;
+  if (response.result.isError) throw new Error(text);
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+async function rpc(server: McpServer, method: string, params?: Record<string, unknown>): Promise<any> {
+  return JSON.parse((await server.handleMessage(JSON.stringify({ jsonrpc: '2.0', id: 7, method, params })))!);
+}
+
+/** Run the CLI and return the parsed JSON envelope and the exit code. */
+async function cli(args: string[]): Promise<{ code: number; body: any }> {
+  let out = '';
+  const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+    out += chunk.toString();
+    return true;
+  });
+  try {
+    const code = await runCLI(['node', 'althistory', ...args]);
+    return { code, body: JSON.parse(out) };
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+describe('invented worlds', () => {
+  let engine: DirectEngine;
+  let server: McpServer;
+  const created: string[] = [];
+
+  beforeEach(() => {
+    engine = new DirectEngine();
+    server = new McpServer(engine);
+  });
+
+  afterEach(async () => {
+    for (const id of created.splice(0)) {
+      try {
+        await engine.deleteGraph(id);
+      } catch {
+        // Best-effort cleanup
+      }
+    }
+    await engine.shutdown();
+  });
+
+  describe('authoring a world over MCP', () => {
+    it('creates a graph with a calendar, an age, events in it and a causal link, and exports it in world years', async () => {
+      const graph = await callTool(server, 'althistory_create_graph', {
+        name: 'Vael',
+        epochYear: 1000,
+        eraLabel: 'AR',
+        calendarName: 'the Reckoning',
+      });
+      created.push(graph.id);
+      expect(graph.calendar).toEqual(CALENDAR);
+
+      const age = await callTool(server, 'althistory_create_arc', {
+        graphId: graph.id,
+        name: 'The Age of Salt',
+        startTime: '1000-01-01T00:00:00Z',
+        endTime: '1200-01-01T00:00:00Z',
+      });
+      const reign = await callTool(server, 'althistory_create_arc', {
+        graphId: graph.id,
+        name: 'The Reign of Ysolde',
+        startTime: '1100-01-01T00:00:00Z',
+        endTime: '1150-01-01T00:00:00Z',
+        parentArcId: age.id,
+      });
+      expect((await engine.getArc(graph.id, reign.id)).level).toBe(1);
+
+      const founding = await callTool(server, 'althistory_create_event', {
+        graphId: graph.id,
+        description: 'The salt-kings found Vael',
+        timestamp: '1001-03-04T00:00:00Z',
+        actor: 'Salt-kings',
+        target: 'Vael',
+        arcId: age.id,
+      });
+      const war = await callTool(server, 'althistory_create_event', {
+        graphId: graph.id,
+        description: 'The Tide War breaks the salt-kings',
+        timestamp: '1140-06-01T00:00:00Z',
+        actor: 'Tide-folk',
+        target: 'Salt-kings',
+      });
+      await callTool(server, 'althistory_assign_to_arc', { graphId: graph.id, eventId: war.id, arcId: reign.id });
+
+      const link = await callTool(server, 'althistory_link_events', {
+        graphId: graph.id,
+        causeId: founding.id,
+        effectId: war.id,
+        type: 'indirect',
+        weight: 0.6,
+        reasoning: 'The salt monopoly bred resentment',
+      });
+      expect(link.type).toBe('indirect');
+      expect(link.weight).toBe(0.6);
+
+      const markdown = await callTool(server, 'althistory_export_context', { graphId: graph.id });
+      expect(markdown).toContain('the Reckoning: stored year 1000 is 1 AR');
+      expect(markdown).toContain('the world\'s year plus 999');
+      expect(markdown).toContain('Mar 4, 2 AR (1001-03-04)');
+      expect(markdown).toContain('Jan 1, 1 AR (1000-01-01) to Jan 1, 201 AR (1200-01-01)');
+      // The arc each event sits in is named, so an agent can find empty ages.
+      expect(markdown).toMatch(/The salt-kings found Vael \| The Age of Salt \|/);
+      expect(markdown).toMatch(/The Tide War breaks the salt-kings \| The Reign of Ysolde \|/);
+
+      const json = await callTool(server, 'althistory_export_context', { graphId: graph.id, format: 'json' });
+      expect(json.metadata.calendar).toEqual(CALENDAR);
+    });
+
+    it('refuses a link from a later cause to an earlier effect, and a link type it does not know', async () => {
+      const graph = await engine.createGraph('Order', undefined, { epochYear: 1000 });
+      created.push(graph.id);
+      const early = await engine.createEvent(graph.id, { description: 'Early', timestamp: '1001-01-01T00:00:00Z' });
+      const late = await engine.createEvent(graph.id, { description: 'Late', timestamp: '1002-01-01T00:00:00Z' });
+
+      await expect(
+        callTool(server, 'althistory_link_events', { graphId: graph.id, causeId: late.id, effectId: early.id })
+      ).rejects.toThrow(/Temporal ordering violation/);
+      await expect(
+        callTool(server, 'althistory_link_events', { graphId: graph.id, causeId: early.id, effectId: late.id, type: 'magic' })
+      ).rejects.toThrow(/type must be one of/);
+      await expect(
+        callTool(server, 'althistory_link_events', { graphId: graph.id, causeId: early.id, effectId: late.id, weight: 2 })
+      ).rejects.toThrow(/weight must be a number from 0 to 1/);
+    });
+
+    it('names a missing required argument instead of writing "undefined"', async () => {
+      const graph = await engine.createGraph('Strict');
+      created.push(graph.id);
+      await expect(callTool(server, 'althistory_create_event', { graphId: graph.id })).rejects.toThrow(
+        'althistory_create_event needs "description", "timestamp"'
+      );
+      expect(await engine.listEvents(graph.id)).toEqual([]);
+    });
+
+    it('says which event it created when it cannot put it in the arc', async () => {
+      const graph = await engine.createGraph('No Such Arc');
+      created.push(graph.id);
+      await expect(
+        callTool(server, 'althistory_create_event', {
+          graphId: graph.id,
+          description: 'Lost',
+          timestamp: '1001-01-01T00:00:00Z',
+          arcId: 'arc_missing',
+        })
+      ).rejects.toThrow(/Created event \S+, but could not put it in arc arc_missing/);
+    });
+
+    it('sets, keeps and clears a calendar with althistory_set_calendar', async () => {
+      const graph = await engine.createGraph('Later World');
+      created.push(graph.id);
+
+      const set = await callTool(server, 'althistory_set_calendar', { graphId: graph.id, epochYear: 1200 });
+      expect(set.calendar).toEqual({ epochYear: 1200 });
+
+      await expect(callTool(server, 'althistory_set_calendar', { graphId: graph.id })).rejects.toThrow(/or clear: true/);
+      await expect(
+        callTool(server, 'althistory_set_calendar', { graphId: graph.id, epochYear: 1200, clear: true })
+      ).rejects.toThrow(/not both/);
+      await expect(
+        callTool(server, 'althistory_set_calendar', { graphId: graph.id, eraLabel: 'AR' })
+      ).rejects.toThrow(/needs an epoch year/);
+
+      const cleared = await callTool(server, 'althistory_set_calendar', { graphId: graph.id, clear: true });
+      expect(cleared.calendar).toBeUndefined();
+    });
+  });
+
+  describe('the world mode of generate timeline', () => {
+    it('chronicles a world from its epoch in its own calendar, without a model', async () => {
+      const result = await engine.generateTimeline({
+        world: 'A drowned archipelago ruled by salt-kings',
+        calendar: { eraLabel: 'AR' },
+        eventCount: 5,
+        dryRun: true,
+      });
+      expect(result.world).toBe('A drowned archipelago ruled by salt-kings');
+      expect(result.calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
+      expect(result.graphName).toBe('World: A drowned archipelago ruled by…');
+      expect(result.events[0].timestamp.startsWith('1000-01-01')).toBe(true);
+      expect(result.events[0].description).toBe('The founding of the world: A drowned archipelago ruled by salt-kings');
+      // Nothing of the real-history template leaks in.
+      const text = JSON.stringify(result);
+      expect(text).not.toMatch(/1914|Divergent|counterfactual|Point of Divergence/i);
+      // The arcs are named in the world's years.
+      expect(result.arcs.some((arc) => / AR/.test(arc.name))).toBe(true);
+    });
+
+    it('takes the epoch from the start date when none is given, and writes the calendar on the graph', async () => {
+      const result = await engine.generateTimeline({
+        world: 'The kingdoms under the glacier',
+        startDate: '1500-01-01T00:00:00Z',
+        eventCount: 3,
+      });
+      created.push(result.graphId);
+      expect(result.calendar).toEqual({ epochYear: 1500 });
+      expect((await engine.getGraph(result.graphId)).calendar).toEqual({ epochYear: 1500 });
+    });
+
+    it('refuses a request that mixes the two kinds, or puts a calendar on an alternate history', async () => {
+      await expect(
+        engine.generateTimeline({ world: 'Somewhere', premise: 'What if', divergencePoint: 'x', dryRun: true })
+      ).rejects.toThrow(/not both/);
+      await expect(
+        engine.generateTimeline({ premise: 'What if', divergencePoint: 'x', calendar: { eraLabel: 'AR' }, dryRun: true })
+      ).rejects.toThrow(/A calendar is for an invented world/);
+      await expect(engine.generateTimeline({ premise: 'What if', dryRun: true })).rejects.toThrow(
+        /a premise and a point of divergence/
+      );
+      await expect(engine.generateTimeline({ world: 'Somewhere', startDate: 'soon', dryRun: true })).rejects.toThrow(
+        /Invalid start date/
+      );
+    });
+
+    it('asks the model for an invented world, not a counterfactual, and tells it how years are stored', async () => {
+      const events: ExtractedEvent[] = ['First', 'Second', 'Third'].map((description, index) => ({
+        tempId: `e${index}`,
+        description,
+        actor: '',
+        target: '',
+        timestamp: `${1010 + index * 10}-01-01T00:00:00Z`,
+        confidence: 0.9,
+        source: { type: 'llm', extractedAt: new Date().toISOString() },
+        selected: true,
+        edited: false,
+      }));
+      const llm: LLMClient = {
+        provider: 'mock-llm',
+        extractEvents: vi.fn().mockResolvedValue(events),
+        suggestRelationships: vi.fn().mockResolvedValue([]),
+        enrichDescription: vi.fn().mockResolvedValue(''),
+      };
+      const generator = new TimelineGenerator({ llmClient: llm });
+      const result = await generator.generateTimeline(
+        { world: 'Vael', calendar: { epochYear: 1000, eraLabel: 'AR' }, eventCount: 3, dryRun: true },
+        await engine.getContainer()
+      );
+      const prompt = vi.mocked(llm.extractEvents).mock.calls[0][0];
+      expect(prompt).toContain('invented world');
+      expect(prompt).not.toContain('counterfactual');
+      expect(prompt).toContain('ISO year N + 999');
+      expect(prompt).toContain('"312 AR", stored as 1311');
+      expect(result.events[0].actor).toBe('Unnamed Realm');
+    });
+
+    it('keeps a branch of an invented world in that world', async () => {
+      const world = await engine.generateTimeline({ world: 'Vael', calendar: { eraLabel: 'AR' }, eventCount: 4 });
+      created.push(world.graphId);
+      const branch = await engine.generateBranch({
+        sourceGraphId: world.graphId,
+        divergeAtEventId: world.events[1].id,
+        counterfactualPrompt: 'The salt-kings make peace',
+        branchName: 'Peace',
+        eventCount: 3,
+      });
+      created.push(branch.graphId);
+      expect((await engine.getGraph(branch.graphId)).calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
+      expect(JSON.stringify(branch.events)).not.toMatch(/counterfactual|Divergent/i);
+      expect(branch.events.some((event) => event.description === 'The chronicle turns: The salt-kings make peace')).toBe(
+        true
+      );
+    });
+  });
+
+  describe('the prompts', () => {
+    it('lists the three prompts over MCP and fills one in', async () => {
+      const init = await rpc(server, 'initialize', {});
+      expect(init.result.capabilities.prompts).toBeDefined();
+
+      const list = await rpc(server, 'prompts/list');
+      expect(list.result.prompts.map((prompt: { name: string }) => prompt.name)).toEqual([
+        'worldbuild',
+        'alternate_history',
+        'grow_history',
+      ]);
+
+      const got = await rpc(server, 'prompts/get', {
+        name: 'worldbuild',
+        arguments: { world: 'A drowned archipelago', eraLabel: 'AR', epochYear: '1200' },
+      });
+      const text = got.result.messages[0].content.text as string;
+      expect(got.result.messages[0].role).toBe('user');
+      expect(text).toContain('A drowned archipelago');
+      expect(text).toContain('epochYear 1200, eraLabel "AR"');
+      expect(text).toContain('312 AR is 1511-01-01T00:00:00Z');
+    });
+
+    it('answers a bad prompt request as invalid params', async () => {
+      expect((await rpc(server, 'prompts/get', { name: 'nope' })).error.code).toBe(-32602);
+      expect((await rpc(server, 'prompts/get', { name: 'worldbuild', arguments: {} })).error.message).toContain('"world"');
+      expect(
+        (await rpc(server, 'prompts/get', { name: 'grow_history', arguments: { graphId: 'g', extra: 'x' } })).error.message
+      ).toContain('does not take "extra"');
+      expect(
+        (await rpc(server, 'prompts/get', { name: 'worldbuild', arguments: { world: 'w', epochYear: 'soon' } })).error.code
+      ).toBe(-32602);
+    });
+
+    it('names only tools the server offers', () => {
+      const tools = new Set(MCP_TOOLS.map((tool) => tool.name));
+      const samples: Record<string, Record<string, string>> = {
+        worldbuild: { world: 'w', eraLabel: 'AR' },
+        alternate_history: { premise: 'p', divergencePoint: 'd' },
+        grow_history: { graphId: 'g' },
+      };
+      for (const prompt of MCP_PROMPTS) {
+        const named = renderPrompt(prompt.name, samples[prompt.name]).text.match(/althistory_[a-z_]+/g) ?? [];
+        expect(named.length).toBeGreaterThan(0);
+        for (const name of named) {
+          expect(tools.has(name), `${prompt.name} names ${name}`).toBe(true);
+        }
+      }
+    });
+
+    it('prints a prompt from the CLI, and refuses an argument that is not key=value', async () => {
+      const ok = await cli(['prompt', 'grow_history', 'graphId=abc']);
+      expect(ok.code).toBe(ExitCode.SUCCESS);
+      expect(ok.body.data.text).toContain('graph abc');
+
+      const bad = await cli(['prompt', 'grow_history', 'abc']);
+      expect(bad.code).toBe(ExitCode.VALIDATION_FAILED);
+    });
+  });
+
+  describe('the CLI calendar flags', () => {
+    it('creates a graph with a calendar, changes it, and clears it', async () => {
+      const made = await cli(['graph', 'create', 'Flagged', '--epoch-year', '1000', '--era-label', 'AR']);
+      expect(made.code).toBe(ExitCode.SUCCESS);
+      created.push(made.body.data.id);
+      expect(made.body.data.calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
+
+      const changed = await cli(['graph', 'calendar', made.body.data.id, '--epoch-year', '1100']);
+      expect(changed.body.data.calendar).toEqual({ epochYear: 1100 });
+
+      const cleared = await cli(['graph', 'calendar', made.body.data.id, '--clear']);
+      expect(cleared.body.data.calendar).toBeUndefined();
+    });
+
+    it('refuses a label without an epoch, and a year that is not a whole number', async () => {
+      expect((await cli(['graph', 'create', 'No Epoch', '--era-label', 'AR'])).code).toBe(ExitCode.VALIDATION_FAILED);
+      expect((await cli(['graph', 'create', 'Bad Epoch', '--epoch-year', '10.5'])).code).toBe(
+        ExitCode.VALIDATION_FAILED
+      );
+    });
+  });
+
+  describe('importing a world', () => {
+    it('brings the calendar back with the graph', async () => {
+      const graph = await engine.createGraph('Round Trip', undefined, CALENDAR);
+      created.push(graph.id);
+      await engine.createEvent(graph.id, { description: 'Founding', timestamp: '1001-01-01T00:00:00Z' });
+      const exported = await engine.exportGraph(graph.id, 'json');
+      const document = JSON.parse(exported.content);
+      document.metadata.graphId = 'graph_not_here';
+
+      const imported = await engine.importGraph(JSON.stringify(document));
+      created.push(imported.graphId);
+      expect((await engine.getGraph(imported.graphId)).calendar).toEqual(CALENDAR);
+    });
+  });
+
+  describe('the stdio server', () => {
+    it('answers every request even when the client closes its end first', async () => {
+      const input = new PassThrough();
+      const output = new PassThrough();
+      let written = '';
+      output.on('data', (chunk) => (written += chunk.toString()));
+
+      server.start(input, output);
+      input.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'althistory_list_graphs' } }) + '\n');
+      input.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'ping' }) + '\n');
+      input.end();
+      await new Promise((resolve) => setImmediate(resolve));
+      await server.whenIdle();
+      server.stop();
+
+      const ids = written
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line).id)
+        .sort();
+      expect(ids).toEqual([1, 2]);
+    });
+  });
+});

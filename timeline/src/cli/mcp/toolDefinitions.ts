@@ -17,18 +17,86 @@ export interface McpToolDefinition {
   };
 }
 
+/** The timestamp note every authoring tool carries, so an agent working on an invented world dates correctly. */
+const STORED_DATE_NOTE =
+  "An ISO 8601 stored date. For a graph with a world calendar, the world's year N is stored as year N + epochYear - 1 " +
+  '(althistory_export_context states the offset).';
+
 export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'althistory_list_graphs',
-    description: 'List all alternate history graphs in the store with version metadata and entity counts',
+    description: 'List the history graphs in the store (real, alternate and invented), with their calendars',
     inputSchema: {
       type: 'object',
       properties: {},
     },
   },
   {
+    name: 'althistory_create_graph',
+    description:
+      'Create an empty history graph to write into, optionally with an invented world\'s calendar so its years are shown in the world\'s own count',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Name of the graph, e.g. the world or the history',
+        },
+        description: {
+          type: 'string',
+          description: 'What the history is about',
+        },
+        epochYear: {
+          type: 'number',
+          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000). The world's year N is then stored as year N + epochYear - 1.",
+        },
+        eraLabel: {
+          type: 'string',
+          description: 'Written after a world year, as in "312 AR". Without one, years read "Year 312". Needs epochYear.',
+        },
+        calendarName: {
+          type: 'string',
+          description: "What the world's calendar is called, e.g. \"the Reckoning of Vael\". Needs epochYear.",
+        },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'althistory_set_calendar',
+    description:
+      "Give a graph an invented world's calendar, or remove it with clear. The calendar only relabels years when they are shown; stored dates do not move.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'The graph to change',
+        },
+        epochYear: {
+          type: 'number',
+          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000). The world's year N is then stored as year N + epochYear - 1.",
+        },
+        eraLabel: {
+          type: 'string',
+          description: 'Written after a world year, as in "312 AR". Without one, years read "Year 312". Needs epochYear.',
+        },
+        calendarName: {
+          type: 'string',
+          description: "What the world's calendar is called, e.g. \"the Reckoning of Vael\". Needs epochYear.",
+        },
+        clear: {
+          type: 'boolean',
+          description: 'Remove the calendar, so years show as stored',
+          default: false,
+        },
+      },
+      required: ['graphId'],
+    },
+  },
+  {
     name: 'althistory_create_event',
-    description: 'Create a historical event within a timeline graph with temporal placement and participants',
+    description: 'Add an event to a graph: what happened, when, who did it and to whom, and optionally the arc (age or period) it belongs to',
     inputSchema: {
       type: 'object',
       properties: {
@@ -38,11 +106,11 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         description: {
           type: 'string',
-          description: 'Description of the historical event',
+          description: 'What happened',
         },
         timestamp: {
           type: 'string',
-          description: 'ISO 8601 timestamp of the event (e.g. 1914-06-28T10:45:00Z)',
+          description: `When it happened (e.g. 1914-06-28T10:45:00Z). ${STORED_DATE_NOTE}`,
         },
         actor: {
           type: 'string',
@@ -52,8 +120,106 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           type: 'string',
           description: 'Entity, nation, or figure targeted or affected by the event',
         },
+        arcId: {
+          type: 'string',
+          description: 'The arc to put the event in (from althistory_create_arc)',
+        },
       },
       required: ['graphId', 'description', 'timestamp'],
+    },
+  },
+  {
+    name: 'althistory_create_arc',
+    description: 'Add an arc to a graph: an age, era, reign or campaign that holds events. An arc can sit inside another.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'Target timeline graph ID',
+        },
+        name: {
+          type: 'string',
+          description: 'Name of the arc, e.g. "The Age of Salt"',
+        },
+        startTime: {
+          type: 'string',
+          description: `When the arc begins. ${STORED_DATE_NOTE}`,
+        },
+        endTime: {
+          type: 'string',
+          description: `When the arc ends. ${STORED_DATE_NOTE}`,
+        },
+        description: {
+          type: 'string',
+          description: 'What the arc is about',
+        },
+        parentArcId: {
+          type: 'string',
+          description: 'The arc this one sits inside (a reign inside an age)',
+        },
+      },
+      required: ['graphId', 'name', 'startTime', 'endTime'],
+    },
+  },
+  {
+    name: 'althistory_assign_to_arc',
+    description: 'Put an existing event inside an arc',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'Target timeline graph ID',
+        },
+        eventId: {
+          type: 'string',
+          description: 'The event to place',
+        },
+        arcId: {
+          type: 'string',
+          description: 'The arc to put it in',
+        },
+      },
+      required: ['graphId', 'eventId', 'arcId'],
+    },
+  },
+  {
+    name: 'althistory_link_events',
+    description:
+      'Record that one event caused another. The cause may not come after the effect; a link that would go back in time is refused.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'Target timeline graph ID',
+        },
+        causeId: {
+          type: 'string',
+          description: 'The event that brought the other about',
+        },
+        effectId: {
+          type: 'string',
+          description: 'The event it brought about',
+        },
+        type: {
+          type: 'string',
+          enum: ['direct', 'indirect', 'contributory'],
+          description: 'How the cause worked: directly, through intermediate events, or as one factor among several',
+          default: 'direct',
+        },
+        weight: {
+          type: 'number',
+          description: 'How strong the link is, from 0 to 1',
+          default: 1,
+        },
+        reasoning: {
+          type: 'string',
+          description: 'Why the cause led to the effect, in a sentence',
+        },
+      },
+      required: ['graphId', 'causeId', 'effectId'],
     },
   },
   {
@@ -97,17 +263,36 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: 'althistory_generate_timeline',
-    description: 'Generate a whole-cloth counterfactual alternate history timeline from a what-if premise and point of divergence',
+    description:
+      'Draft a new graph whole-cloth: an alternate history from a premise and point of divergence, or the chronicle of an invented world from a description of it. ' +
+      'A model writes it when the server has ANTHROPIC_API_KEY or OPENAI_API_KEY; otherwise it is a template to rewrite.',
     inputSchema: {
       type: 'object',
       properties: {
         premise: {
           type: 'string',
-          description: 'The core counterfactual premise (e.g., "The Spanish Armada conquers England in 1588")',
+          description: 'For an alternate history: the what-if (e.g., "The Spanish Armada conquers England in 1588"). Needs divergencePoint.',
         },
         divergencePoint: {
           type: 'string',
-          description: 'The exact historical pivot where history diverges from baseline reality',
+          description: 'For an alternate history: the historical pivot where history diverges from what really happened. Needs premise.',
+        },
+        world: {
+          type: 'string',
+          description:
+            'For an invented world, instead of premise and divergencePoint: the world in a few sentences. The graph gets a calendar (epochYear defaults to the start year, or 1000).',
+        },
+        epochYear: {
+          type: 'number',
+          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000). The world's year N is then stored as year N + epochYear - 1.",
+        },
+        eraLabel: {
+          type: 'string',
+          description: 'Written after a world year, as in "312 AR". Without one, years read "Year 312". Needs epochYear.',
+        },
+        calendarName: {
+          type: 'string',
+          description: "What the world's calendar is called, e.g. \"the Reckoning of Vael\". Needs epochYear.",
         },
         startDate: {
           type: 'string',
@@ -115,7 +300,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         endDate: {
           type: 'string',
-          description: 'Ending ISO timestamp for timeline generation',
+          description: 'Ending ISO timestamp for timeline generation (an invented world defaults to 300 years after the start)',
         },
         eventCount: {
           type: 'number',
@@ -134,12 +319,12 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           default: false,
         },
       },
-      required: ['premise', 'divergencePoint'],
     },
   },
   {
     name: 'althistory_branch_timeline',
-    description: 'Branch an existing timeline graph at a specific historical event with a new counterfactual trajectory',
+    description:
+      'Branch a graph at one of its events and draft a different course from there. A branch of an invented world stays in that world and its calendar.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -269,7 +454,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: 'althistory_export_context',
-    description: 'Export timeline context in LLM-optimized Markdown tables, JSON, or Graphviz DOT for agent prompts and reasoning',
+    description:
+      'Read a whole graph back: Markdown tables of arcs, events and causal links with their ids (dated in the world\'s calendar when the graph has one), JSON, or Graphviz DOT',
     inputSchema: {
       type: 'object',
       properties: {
