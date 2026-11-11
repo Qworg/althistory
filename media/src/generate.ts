@@ -9,7 +9,7 @@
  */
 import { mkdir } from 'node:fs/promises'
 import { captureTour } from './capture/tour.js'
-import { writeReadmeImages } from './images.js'
+import { writeReadmeImages, writeSiteImages } from './images.js'
 import { paths } from './paths.js'
 import { seed } from './seed/seed.js'
 import { buildProduct, startStack } from './stack.js'
@@ -44,6 +44,7 @@ async function capture(): Promise<void> {
   }
   await mkdir(paths.readmeImages, { recursive: true })
   await writeReadmeImages()
+  await writeSiteImages()
 }
 
 async function main(): Promise<void> {

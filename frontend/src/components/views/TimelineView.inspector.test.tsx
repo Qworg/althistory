@@ -220,6 +220,20 @@ describe('TimelineView: the selected event and why it is there', () => {
     expect(within(inspector).getByText('No recorded effects.')).toBeInTheDocument()
   })
 
+  it('opens on the event a link names, then drops it from the address', () => {
+    window.history.pushState({}, '', '/timeline?event=moltke')
+    renderView()
+    expect(timelineProps().selectedEventId).toBe('moltke')
+    expect(window.location.search).toBe('')
+  })
+
+  it('drops a linked event this graph does not have, selecting nothing', () => {
+    window.history.pushState({}, '', '/timeline?event=not-in-this-graph')
+    renderView()
+    expect(timelineProps().selectedEventId).toBeNull()
+    expect(window.location.search).toBe('')
+  })
+
   it('selects an arc from the inspector', async () => {
     const user = userEvent.setup()
     renderView()

@@ -25,18 +25,22 @@ import type { Manifest, Rect as Box, Shot } from '../manifest'
 import { beats, intro, outro, type Beat, type Move, type Target } from './storyboard'
 
 const FRAME = { width: 1920, height: 1080 }
-/** Space the caption occupies at the bottom; the camera centres above it. */
+/** Space kept free at the bottom for the player's captions; the camera centres above it. */
 const CAPTION_CLEARANCE = 170
+// The site's and the app's own: cyanotype blue, baseline blue for pointing
+// things out, and no amber, which in althistory means a branch.
 const COLOR = {
-  night: '#0b1020',
+  night: '#0a1f3c',
+  cyan: '#102c52',
   ink: '#0f172a',
-  accent: '#3b82f6',
-  amber: '#f59e0b',
+  accent: '#1d4ed8',
+  label: '#a9c4ef',
   white: '#ffffff',
-  muted: '#94a3b8',
+  muted: '#b6c5dd',
 }
-const SANS = 'Inter, "DejaVu Sans", sans-serif'
-const MONO = '"JetBrains Mono", "DejaVu Sans Mono", monospace'
+const SANS = '"IBM Plex Sans", "DejaVu Sans", sans-serif'
+const MONO = '"IBM Plex Mono", "DejaVu Sans Mono", monospace'
+const DISPLAY = 'Newsreader, "DejaVu Serif", serif'
 const MAX_ZOOM = 2.4
 
 interface Camera {
@@ -81,11 +85,11 @@ function outline(box: Box, stageScale: number): Node {
       width={box.width + pad * 2}
       height={box.height + pad * 2}
       radius={12 / stageScale}
-      stroke={COLOR.amber}
+      stroke={COLOR.accent}
       lineWidth={5 / stageScale}
-      fill={'rgba(245, 158, 11, 0.07)'}
+      fill={'rgba(29, 78, 216, 0.06)'}
       opacity={0}
-      shadowColor={'rgba(245, 158, 11, 0.45)'}
+      shadowColor={'rgba(29, 78, 216, 0.4)'}
       shadowBlur={24}
     />
   ) as Node
@@ -107,38 +111,6 @@ function pointerArrow(): Path {
   ) as Path
 }
 
-function caption(view: Node, index: number, beat: Beat): Rect {
-  const card = createRef<Rect>()
-  view.add(
-    <Rect
-      ref={card}
-      layout
-      direction={'column'}
-      gap={10}
-      padding={[26, 40]}
-      width={FRAME.width - 160}
-      y={FRAME.height / 2 - 100}
-      offset={[0, 0]}
-      radius={20}
-      fill={'rgba(11, 16, 32, 0.9)'}
-      shadowColor={'rgba(0,0,0,0.35)'}
-      shadowBlur={30}
-      opacity={0}
-    >
-      <Txt
-        text={`${String(index + 1).padStart(2, '0')}  ·  ${beat.chapter.toUpperCase()}`}
-        fontFamily={SANS}
-        fontWeight={700}
-        fontSize={24}
-        letterSpacing={2}
-        fill={COLOR.amber}
-      />
-      <Txt text={beat.caption} fontFamily={SANS} fontSize={36} lineHeight={48} fill={COLOR.white} textWrap />
-    </Rect>
-  )
-  return card()
-}
-
 function* playBeat(view: Node, manifest: Manifest, index: number, beat: Beat): ThreadGenerator {
   const shot = manifest.shots[beat.shot]
   if (!shot) throw new Error(`Storyboard: no captured shot "${beat.shot}"`)
@@ -151,8 +123,11 @@ function* playBeat(view: Node, manifest: Manifest, index: number, beat: Beat): T
     </Node>
   )
 
-  const captionCard = caption(view, index, beat)
-  yield* all(stage().opacity(1, 0.5), captionCard.opacity(1, 0.5, easeOutCubic))
+  // No burned-in caption: the narration is the WebVTT track
+  // (docs/media/walkthrough.vtt, from captions.ts), which the site shows at
+  // every width. The camera still leaves CAPTION_CLEARANCE free at the
+  // bottom, where a player draws its captions.
+  yield* stage().opacity(1, 0.5)
 
   const arrow = pointerArrow()
   stage().add(arrow)
@@ -161,9 +136,8 @@ function* playBeat(view: Node, manifest: Manifest, index: number, beat: Beat): T
     yield* playMove(stage(), shot, move, arrow)
   }
 
-  yield* all(stage().opacity(0, 0.45), captionCard.opacity(0, 0.35))
+  yield* stage().opacity(0, 0.45)
   stage().remove()
-  captionCard.remove()
 }
 
 function* playMove(stage: Node, shot: Shot, move: Move, arrow: Path): ThreadGenerator {
@@ -191,7 +165,7 @@ function* playMove(stage: Node, shot: Shot, move: Move, arrow: Path): ThreadGene
     arrow.moveToTop()
     yield* all(arrow.opacity(1, 0.25), arrow.position(target, 0.9, easeInOutCubic))
     if (move.pointer === 'click') {
-      const ripple = (<Circle position={target} size={0} stroke={COLOR.amber} lineWidth={3} opacity={0.9} />) as Circle
+      const ripple = (<Circle position={target} size={0} stroke={COLOR.accent} lineWidth={3} opacity={0.9} />) as Circle
       stage.add(ripple)
       arrow.moveToTop()
       yield* all(ripple.size(56, 0.5, easeOutCubic), ripple.opacity(0, 0.5))
@@ -215,8 +189,9 @@ function* titleCard(view: Node): ThreadGenerator {
     // frame until someone presses play, and a fade from black made the README
     // player look empty, as if the video had not loaded.
     <Node ref={group}>
-      <Txt text={intro.title} y={-90} fontFamily={SANS} fontWeight={800} fontSize={150} fill={COLOR.white} letterSpacing={-3} />
-      <Rect y={10} width={120} height={6} radius={3} fill={COLOR.amber} />
+      <Rect width={FRAME.width} height={FRAME.height} fill={COLOR.cyan} />
+      <Txt text={intro.title} y={-90} fontFamily={DISPLAY} fontWeight={600} fontSize={160} fill={COLOR.white} letterSpacing={-3} />
+      <Rect y={10} width={120} height={4} radius={2} fill={COLOR.muted} />
       <Txt text={intro.subtitle} y={80} fontFamily={SANS} fontWeight={500} fontSize={52} fill={COLOR.white} />
       <Txt text={intro.premise} y={170} fontFamily={SANS} fontSize={30} fill={COLOR.muted} />
     </Node>
@@ -233,7 +208,7 @@ function* cliCard(view: Node): ThreadGenerator {
   const top = -((outro.commands.length - 1) * lineHeight) / 2 + 60
   view.add(
     <Node ref={group} opacity={0}>
-      <Txt text={outro.title} y={-330} fontFamily={SANS} fontWeight={800} fontSize={84} fill={COLOR.white} />
+      <Txt text={outro.title} y={-330} fontFamily={DISPLAY} fontWeight={600} fontSize={92} fill={COLOR.white} />
       <Txt text={outro.caption} y={-240} fontFamily={SANS} fontSize={34} fill={COLOR.muted} />
       <Rect y={60} width={1460} height={outro.commands.length * lineHeight + 80} radius={24} fill={'#111a33'} stroke={'#24304f'} lineWidth={2} />
       <Node ref={lines} />
@@ -242,7 +217,7 @@ function* cliCard(view: Node): ThreadGenerator {
   outro.commands.forEach((line, i) => {
     lines().add(
       <Node y={top + i * lineHeight} opacity={0}>
-        <Txt text={'$'} x={-680} offset={[-1, 0]} fontFamily={MONO} fontSize={32} fill={COLOR.amber} />
+        <Txt text={'$'} x={-680} offset={[-1, 0]} fontFamily={MONO} fontSize={32} fill={COLOR.label} />
         <Txt text={line.cmd} x={-640} offset={[-1, 0]} fontFamily={MONO} fontSize={32} fill={COLOR.white} />
         <Txt text={line.note ? `# ${line.note}` : ''} x={680} offset={[1, 0]} fontFamily={MONO} fontSize={26} fill={COLOR.muted} />
       </Node>
@@ -260,7 +235,7 @@ export default makeScene2D('walkthrough', function* (view) {
 
   // Canvas text does not wait for web fonts, so load them before the first frame.
   yield Promise.all(
-    ['400 36px Inter', '500 52px Inter', '700 24px Inter', '800 150px Inter', '400 32px "JetBrains Mono"'].map((font) =>
+    ['400 36px "IBM Plex Sans"', '500 52px "IBM Plex Sans"', '700 24px "IBM Plex Sans"', '600 160px Newsreader', '400 32px "IBM Plex Mono"'].map((font) =>
       document.fonts.load(font)
     )
   )

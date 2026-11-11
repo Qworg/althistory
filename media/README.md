@@ -95,3 +95,18 @@ screen. Fix the step, don't add a sleep.
   which carries the landing page's forking timeline. The site uses it as its
   `og:image`; GitHub's repository preview has no API, so after regenerating,
   upload it again in Settings → General → Social preview.
+- **The landing page's poster.** `npm run capture` and the video render also
+  write `docs/images/site/walkthrough-poster.webp`, a light copy of the poster
+  for the site (`npm run site-images` rewrites it alone). The site's feature
+  pictures are drawn from the seed by `site/build.mjs`, not captured.
+- **Captions.** The video has no captions burned in; the narration is
+  `docs/media/walkthrough.vtt`, which the site shows at every width (the
+  camera keeps the bottom of the frame clear for it). `npm run captions` writes it from
+  the storyboard (rendering the video runs it too). The cue times replay the
+  scene's fixed durations, and the script fails if they no longer add up to
+  the video's length, so a change to `walkthrough.tsx` must be mirrored in
+  `src/video/captions.ts`.
+- **Type and colour.** The video uses the site's and the app's own type
+  (Newsreader for titles, IBM Plex Sans and Mono) on the site's cyanotype
+  blue, and no amber: in althistory amber means a branch, so highlights use
+  the baseline blue.

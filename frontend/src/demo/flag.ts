@@ -11,3 +11,9 @@ export const REPO_URL = 'https://github.com/Qworg/althistory'
 
 /** sessionStorage key of the demo's edits; clearing it resets the demo. */
 export const DEMO_STATE_KEY = 'althistory-demo'
+
+/** The example branch in the recording, which `?start=branch` opens on. */
+export const DEMO_BRANCH_GRAPH_ID = 'graph_clerks_prevail'
+
+/** The example's main history, which `?start=main` opens on. */
+export const DEMO_MAIN_GRAPH_ID = 'graph_engine_age'

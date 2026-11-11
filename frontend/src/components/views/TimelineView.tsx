@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router'
 import { Timeline } from '@/components/timeline/Timeline'
 import { PressureExploration } from '@/components/timeline/PressureExploration'
 import { usePressures } from '@/hooks/usePressures'
@@ -332,6 +333,26 @@ export function TimelineView() {
     setSelectedArc(arc)
     setSelectedEvent(null)
   }, [])
+
+  // A link can name the event to open on (`?event=<id>`; the landing page's
+  // hero links into the demo this way). Select it once the events have
+  // loaded (the canvas pans to a selection), then drop the parameter so a
+  // reload or Back does not select it again. An id this graph does not have
+  // is dropped the same way.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const linkedEventId = searchParams.get('event')
+  useEffect(() => {
+    if (!linkedEventId || eventsLoading) return
+    const linked = events.find((e) => e.id === linkedEventId)
+    if (linked) handleEventSelect(linked)
+    setSearchParams(
+      (params) => {
+        params.delete('event')
+        return params
+      },
+      { replace: true }
+    )
+  }, [linkedEventId, eventsLoading, events, handleEventSelect, setSearchParams])
 
   // Escape clears the inspector's selection, and with it the ripple trace.
   // (The marks stop Escape themselves while one has focus: there it returns

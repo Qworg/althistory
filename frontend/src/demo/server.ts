@@ -13,7 +13,11 @@
  *    pressures, export stats. They describe the seeded history, not the
  *    visitor's edits; graph counts are patched from the live store.
  *
- * Anything else needs the server (ingestion, export, import, branching,
+ * Branching works too: a branch made in the demo copies its parent's live
+ * store under a new graph id, and the graph routes (list, active, branches,
+ * versions, activate) answer for it alongside the recorded graphs.
+ *
+ * Anything else needs the server (ingestion, export, import, copying,
  * merging, simulation, keys) and is answered with a 405 that says so, which
  * the app shows like any other API error.
  */
@@ -72,6 +76,8 @@ interface DemoState {
   version: number
   active: string
   graphs: Record<string, GraphState>
+  /** Branches made in the demo, as the graph routes describe them. */
+  madeGraphs: Record<string, Json>
   nextId: number
 }
 
@@ -81,13 +87,25 @@ interface Reply {
 }
 
 const recording = JSON.parse(recordingText) as Recording
-const STATE_VERSION = 1
+const STATE_VERSION = 2
+
+/** The graph the app last showed (`demo/install.ts` sets it for `?start=branch`). */
+function startingGraph(): string {
+  try {
+    const remembered = localStorage.getItem('active_graph_id')
+    if (remembered && recording.entities[remembered]) return remembered
+  } catch {
+    // No storage: start on the main history.
+  }
+  return recording.mainGraphId
+}
 
 function initialState(): DemoState {
   return {
     version: STATE_VERSION,
-    active: recording.mainGraphId,
+    active: startingGraph(),
     graphs: structuredClone(recording.entities),
+    madeGraphs: {},
     nextId: 1,
   }
 }
@@ -140,7 +158,7 @@ function describe(method: string, path: string): string {
   if (path.startsWith('/ingest')) return 'Bringing in history from text, Wikipedia or Wikidata'
   if (path.startsWith('/export')) return 'Exporting a graph'
   if (path.startsWith('/import')) return 'Importing an export file'
-  if (/\/(branch|copy)\b/.test(path) || path.startsWith('/graphs/copy')) return 'Branching or copying a graph'
+  if (path.startsWith('/graphs/copy')) return 'Copying a graph'
   if (path.includes('/merge')) return 'Merging branches'
   if (path.includes('/rollback')) return 'Restoring a version'
   if (path.includes('simulat')) return 'Simulating forward'
@@ -181,7 +199,12 @@ function recordedReply(method: string, path: string, query: string, graph: strin
 
 /** A recorded graph still says how many events it had when it was recorded. */
 function withLiveCounts(recorded: Recorded): Reply {
-  const body = structuredClone(recorded.body)
+  return patchCounts({ status: recorded.status, body: structuredClone(recorded.body) })
+}
+
+/** Rewrites every graph's counts in a reply from the live store. */
+function patchCounts(reply: Reply): Reply {
+  const body = reply.body
   const patch = (node: unknown): void => {
     if (Array.isArray(node)) return node.forEach(patch)
     if (!node || typeof node !== 'object') return
@@ -198,7 +221,99 @@ function withLiveCounts(recorded: Recorded): Reply {
     Object.values(object).forEach(patch)
   }
   patch(body)
-  return { status: recorded.status, body }
+  return reply
+}
+
+/* ---------------------------------------------------------------- graphs --- */
+
+/** A graph as the graph routes describe it: recorded, or made in the demo. */
+function graphObject(id: string): Json | undefined {
+  const made = state.madeGraphs[id]
+  if (made) return structuredClone(made)
+  const recorded = recording.responses[`GET /graphs/${id} @${id}`]?.body as { data?: Json } | undefined
+  return recorded?.data ? structuredClone(recorded.data) : undefined
+}
+
+/** The recorded graph whose answers stand in for a branch made in the demo. */
+function recordedAncestor(id: string): string {
+  let current = id
+  for (let hops = 0; hops < 50 && state.madeGraphs[current]; hops++) {
+    current = String(state.madeGraphs[current]?.parentGraphId ?? recording.mainGraphId)
+  }
+  return recording.entities[current] ? current : recording.mainGraphId
+}
+
+const madeChildren = (parent: string): Json[] =>
+  Object.values(state.madeGraphs)
+    .filter((g) => g.parentGraphId === parent)
+    .map((g) => structuredClone(g))
+
+function graphs(method: string, path: string, body: Json): Reply | undefined {
+  if (path === '/graphs' && method === 'GET') {
+    const recorded = recordedReply('GET', '/graphs', '', recording.mainGraphId)
+    const list = ((recorded?.body as { data?: Json[] } | undefined)?.data ?? []).concat(Object.values(state.madeGraphs))
+    return patchCounts(ok(list))
+  }
+  if (path === '/graphs/active' && method === 'GET') {
+    const active = graphObject(state.active)
+    return active ? patchCounts(ok(active)) : notFound('Graph')
+  }
+  const match = /^\/graphs\/([^/]+)(\/[a-z]+)?$/.exec(path)
+  if (!match) return undefined
+  const id = decodeURIComponent(match[1] ?? '')
+  const action = match[2] ?? ''
+  if (id === 'copy' || !state.graphs[id]) return undefined
+  const made = Boolean(state.madeGraphs[id])
+
+  if (action === '' && method === 'GET') return patchCounts(ok(graphObject(id)))
+  if (action === '/activate' && method === 'POST') {
+    state.active = id
+    return patchCounts(ok(graphObject(id)))
+  }
+  if (action === '/branches' && method === 'GET') {
+    const recorded = made ? undefined : recording.responses[`GET /graphs/${id}/branches @${id}`]
+    const list = (((recorded?.body as { data?: Json[] } | undefined)?.data ?? []) as Json[]).concat(madeChildren(id))
+    return patchCounts(ok(list))
+  }
+  if (action === '/versions' && method === 'GET' && made) {
+    const graph = state.madeGraphs[id] as Json
+    const parent = graphObject(String(graph.parentGraphId))
+    return ok([
+      {
+        graphId: id,
+        version: 1,
+        timestamp: graph.createdAt,
+        parentVersion: null,
+        operation: 'create',
+        description: `Branched from “${String(parent?.name ?? 'its parent')}”`,
+        changes: { added: [], modified: [], deleted: [] },
+        treeHash: '',
+      },
+    ])
+  }
+  if (action === '/branch' && method === 'POST') {
+    const name = typeof body.name === 'string' ? body.name.trim() : ''
+    if (!name) return badRequest('A branch needs a name')
+    const parent = graphObject(id)
+    if (!parent) return notFound('Graph')
+    const now = new Date().toISOString()
+    const branchId = newId('graph')
+    state.graphs[branchId] = structuredClone(state.graphs[id] as GraphState)
+    state.madeGraphs[branchId] = {
+      ...parent,
+      id: branchId,
+      name,
+      description: typeof body.description === 'string' ? body.description : '',
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+      parentGraphId: id,
+      branchPoint: typeof parent.version === 'number' ? parent.version : 1,
+      status: 'active',
+    }
+    return patchCounts(ok(graphObject(branchId), 201))
+  }
+  return undefined
 }
 
 /* ------------------------------------------------------------ live store --- */
@@ -411,18 +526,8 @@ function route(method: string, path: string, params: URLSearchParams, body: Json
     return sorted.toString()
   })()
 
-  if (path === '/graphs/active' && method === 'GET') {
-    return recordedReply('GET', path, '', state.active) ?? notFound('Graph')
-  }
-  const activate = /^\/graphs\/([^/]+)\/activate$/.exec(path)
-  if (activate && method === 'POST') {
-    const id = decodeURIComponent(activate[1] ?? '')
-    if (!state.graphs[id]) return notFound('Graph')
-    state.active = id
-    return recordedReply('GET', `/graphs/${id}`, '', id) ?? ok({ id })
-  }
-
   const live =
+    graphs(method, path, body) ??
     events(method, path, params, body, graph) ??
     arcs(method, path, params, body, graph) ??
     causal(method, path, params, body, graph)
@@ -432,7 +537,12 @@ function route(method: string, path: string, params: URLSearchParams, body: Json
   }
 
   if (method === 'GET' || path.startsWith('/inference/')) {
-    const recorded = method === 'GET' || path === '/inference/pressures' ? recordedReply(method, path, query, graphId) : undefined
+    // A branch made here answers with what was recorded for its ancestor.
+    const recordedPath = path.replace(graphId, recordedAncestor(graphId))
+    const recorded =
+      method === 'GET' || path === '/inference/pressures'
+        ? recordedReply(method, recordedPath, query, recordedAncestor(graphId))
+        : undefined
     if (recorded) return recorded
   }
   return unsupported(method, path)

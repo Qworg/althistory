@@ -1,11 +1,12 @@
 import { DEMO_STATE_KEY, REPO_URL } from './flag'
 
 /**
- * The strip above the app in the GitHub Pages demo: what this is, how long an
- * edit lasts, and how to start over or get the real thing. In normal flow
+ * The strip above the app in the GitHub Pages demo: what to try first, how
+ * long an edit lasts, and how to start over or get the real thing. In normal flow
  * above the sticky header, so it scrolls away and never covers the app.
  */
 export function DemoBanner() {
+  // Back to a fresh visit, as the landing page's link opens it: on the branch.
   const startOver = () => {
     try {
       sessionStorage.removeItem(DEMO_STATE_KEY)
@@ -13,7 +14,7 @@ export function DemoBanner() {
     } catch {
       // Nothing stored, so there is nothing to clear.
     }
-    window.location.reload()
+    window.location.assign(`${window.location.pathname}?start=branch`)
   }
 
   return (
@@ -23,9 +24,14 @@ export function DemoBanner() {
       className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-line bg-subtle px-4 py-2 text-sm text-ink-secondary sm:px-6"
     >
       <p className="m-0 min-w-0 basis-full sm:basis-0 sm:flex-1">
-        <span className="font-semibold text-ink">Demo.</span> This copy of althistory runs in your browser, and your
-        edits last until you close the tab.
-        <span className="hidden md:inline"> Bringing in history, exporting and branching need the server.</span>
+        <span className="font-semibold text-ink">Demo.</span> Select an event to trace what it caused, open{' '}
+        <span className="font-medium text-ink">Compare branches</span>, or fork the history yourself with{' '}
+        <span className="font-medium text-ink">Branch or copy</span> in the Graph menu.
+        <span className="hidden md:inline">
+          {' '}
+          It all runs in your browser and lasts until you close the tab; bringing in history, exporting and merging
+          need the server.
+        </span>
       </p>
       <div className="flex items-center gap-3">
         <button

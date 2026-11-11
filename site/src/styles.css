@@ -6,7 +6,7 @@
  * figures; baseline blue for the history as it stands, divergence amber for a
  * branch. Amber is used for nothing else on this page.
  *
- * The hero and the agents band are cyanotype blue: the example history is
+ * The hero and the closing band are cyanotype blue: the example history is
  * Victorian, the decade cyanotype was invented, and a timeline drawn in pale
  * lines on that blue reads as a plan of something that could be built.
  */
@@ -68,6 +68,8 @@ body {
 img, video, svg { display: block; max-width: 100%; height: auto; }
 
 a { color: var(--baseline); text-underline-offset: 0.18em; text-decoration-thickness: 1px; }
+::selection { background: rgb(29 78 216 / 0.18); }
+.hero ::selection, .closing ::selection { background: rgb(238 242 248 / 0.28); color: #fff; }
 a:hover { text-decoration-thickness: 2px; }
 
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 3px; }
@@ -89,12 +91,18 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 var(--gutter); }
 .note { color: var(--muted); font-size: 0.95rem; }
 .amber { color: var(--amber); }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 
 .skip {
   position: absolute; left: 12px; top: -48px; z-index: 10;
   background: var(--card); color: var(--ink); padding: 8px 14px; border-radius: 6px;
 }
 .skip:focus { top: 12px; }
+/* It appears over the navy hero, where the paper focus blue would vanish. */
+.skip:focus-visible { outline-color: var(--cy-ink); }
 
 /* ---------------------------------------------------------------- hero --- */
 
@@ -109,7 +117,7 @@ p { margin: 0 0 1em; text-wrap: pretty; }
   overflow: hidden;
 }
 /* Cyanotype paper is never flat: a faint mottle over the whole band. */
-.hero::before, .agents::before {
+.hero::before, .closing::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -122,7 +130,7 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .hero .amber { color: var(--cy-amber); }
 
 .bar {
-  max-width: 1280px;
+  max-width: calc(var(--wrap));
   margin: 0 auto;
   padding: 20px var(--gutter);
   display: flex;
@@ -137,24 +145,43 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 }
 .brand img { border-radius: 7px; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.18); }
 .bar ul { display: flex; gap: clamp(14px, 2.6vw, 28px); list-style: none; margin: 0; padding: 0; align-items: center; }
-.bar a:not(.brand) { color: var(--cy-ink-2); text-decoration: none; font-size: 0.95rem; }
-.bar a:not(.brand):hover { color: var(--cy-ink); }
-.bar .bar-gh { border: 1px solid rgb(182 197 221 / 0.45); border-radius: 999px; padding: 5px 14px; }
+.bar a:not(.brand) {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 32px; white-space: nowrap;
+  color: var(--cy-ink-2); text-decoration: none; font-size: 0.95rem;
+}
+.bar a:not(.brand):hover, .bar a[aria-current='page'] { color: var(--cy-ink); }
+.bar a[aria-current='page'] { text-decoration: underline; text-underline-offset: 0.35em; }
+.bar .ext { width: 10px; height: 10px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; opacity: 0.8; }
+.bar .bar-gh { border: 1px solid rgb(182 197 221 / 0.45); border-radius: 999px; padding: 0 14px; }
 @media (max-width: 640px) {
-  .bar li:nth-child(n + 2):nth-child(-n + 3) { display: none; }
+  .bar .bar-wide { display: none; }
+  /* Except on its own page, where it is the "you are here". */
+  .bar .bar-wide:has([aria-current='page']) { display: list-item; }
+  .bar ul:has([aria-current='page']) .bar-docs { display: none; }
+  .bar a:not(.brand) { min-height: 44px; }
 }
 
+/*
+ * Headline, then the buttons straight under it in the same column, so the
+ * call to action is the second thing read; the lede and the note sit beside
+ * them. Phones stack in reading order: headline, lede, buttons, note.
+ */
 .hero-copy {
-  max-width: 1280px;
+  max-width: var(--wrap);
   margin: 0 auto;
-  padding: clamp(28px, 5vw, 64px) var(--gutter) 0;
+  padding: clamp(20px, 3.4vw, 44px) var(--gutter) 0;
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: 24px clamp(32px, 5vw, 72px);
-  align-items: end;
+  grid-template-areas: 'title lede' 'actions lede' 'note lede';
+  gap: 22px clamp(32px, 5vw, 72px);
+  align-items: start;
 }
+.hero-copy h1 { grid-area: title; }
+.hero-copy .lede { grid-area: lede; align-self: center; }
+.hero-copy .actions { grid-area: actions; margin-top: 0; align-self: start; }
+.hero-copy .actions-note { grid-area: note; margin-top: -6px; align-self: start; max-width: 32em; }
 .hero h1 {
-  font-size: clamp(3rem, 7.6vw, 6.2rem);
+  font-size: clamp(3rem, 6.6vw, 5.6rem);
   line-height: 0.98;
   letter-spacing: -0.025em;
 }
@@ -167,9 +194,8 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .actions-note { margin: 14px 0 0; font-size: 0.88rem; color: var(--cy-ink-2); max-width: 34em; }
-.hero-figure figcaption a { color: var(--cy-ink); }
 @media (max-width: 900px) {
-  .hero-copy { grid-template-columns: 1fr; }
+  .hero-copy { grid-template-columns: 1fr; grid-template-areas: 'title' 'lede' 'actions' 'note'; gap: 20px; }
 }
 .btn {
   display: inline-flex; align-items: center; min-height: 46px;
@@ -181,15 +207,41 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .btn-primary:hover { background: #ffffff; }
 .btn-ghost { color: var(--cy-ink); border: 1px solid rgb(182 197 221 / 0.5); }
 .btn-ghost:hover { border-color: var(--cy-ink); background: rgb(255 255 255 / 0.06); }
-
-.hero-figure { max-width: 1280px; margin: 0 auto; padding: clamp(24px, 4vw, 44px) var(--gutter) 40px; }
-.hero-scroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: rgb(182 197 221 / 0.35) transparent; }
-.hero-timeline { width: 100%; min-width: 860px; }
-.hero-figure figcaption {
-  max-width: 52em; margin-top: 14px;
-  font-size: 0.9rem; color: var(--cy-ink-2);
+@media (max-width: 480px) {
+  .actions .btn { flex: 1 1 100%; justify-content: center; }
 }
+
+.hero-figure { position: relative; max-width: var(--wrap); margin: 0 auto; padding: clamp(18px, 2.6vw, 30px) var(--gutter) 40px; }
+.hero-scroll {
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: thin; scrollbar-color: rgb(182 197 221 / 0.35) transparent;
+  border-radius: 6px;
+}
+/* When it scrolls, its edges fade to say there is more. */
+.is-scrollable .hero-scroll {
+  mask-image: linear-gradient(90deg, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+}
+.hero-canvas { position: relative; min-width: 1100px; }
+/* Below that width the drawing scrolls rather than shrinking, so its text
+   stays at 11px or more on every screen, not just wide ones. */
+/* The edge fade clips anything outside the box, so the ring goes inside. */
+.is-scrollable .hero-scroll:focus-visible { outline-offset: -3px; }
+.hero-timeline { width: 100%; }
+.hero-figure figcaption {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 32px;
+  margin-top: 14px; font-size: 0.9rem; color: var(--cy-ink-2);
+}
+.cap-text { max-width: 36em; text-wrap: pretty; }
 .hero-figure figcaption .mono { color: var(--cy-ink); }
+/* Said before the drawing, on phones only, where the drawing scrolls. */
+.hero-hint { display: none; margin: 0 0 10px; font-size: 0.85rem; color: var(--cy-ink-2); }
+.is-scrollable .hero-hint { display: block; }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; font-size: 0.82rem; }
+.legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.legend svg { width: 28px; height: 10px; }
+.legend path { stroke: var(--cy-line); stroke-width: 2; fill: none; }
+.legend .lg-indirect { stroke-dasharray: 5 4; }
+.legend .lg-contributory { stroke-dasharray: 1.5 4; stroke-linecap: round; }
 
 /* The timeline itself (generated by site/build.mjs from the seed). */
 .hero-timeline text { font-family: var(--sans); }
@@ -201,8 +253,7 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .ht-base { fill: none; stroke: var(--cy-ink); stroke-width: 2; }
 .ht-branch { fill: none; stroke: var(--cy-amber); stroke-width: 2.5; stroke-linecap: round; }
 .ht-branch-open { fill: none; stroke: var(--cy-amber); stroke-width: 2; stroke-dasharray: 2 7; stroke-linecap: round; opacity: 0.75; }
-.ht-event { fill: var(--cy-ink); stroke: var(--cyan); stroke-width: 2.5; transition: stroke-width 0.15s; }
-.ht-event:hover { stroke-width: 0.5; }
+.ht-event { fill: var(--cy-ink); stroke: var(--cyan); stroke-width: 2.5; }
 .ht-on-branch { fill: var(--cy-amber); }
 .ht-diverge { fill: var(--cy-amber); stroke: var(--cyan); stroke-width: 2; }
 .ht-lane { font-family: var(--display) !important; font-style: italic; font-size: 22px; fill: var(--cy-ink); }
@@ -210,22 +261,72 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .ht-label { fill: var(--cy-ink-2); font-size: 13.5px; }
 .ht-date { font-family: var(--mono); font-weight: 500; fill: var(--cy-ink); }
 .ht-label-branch .ht-date { fill: var(--cy-amber); }
+.ht-note { fill: var(--cy-ink); font-weight: 500; }
+@media (max-width: 640px) { .ht-first { display: none; } }
 .ht-leader { stroke: var(--cy-ink-2); stroke-width: 1; }
 .ht-axis path { stroke: var(--cy-line); opacity: 0.6; fill: none; }
-.ht-axis text { font-family: var(--mono) !important; font-size: 11.5px; fill: var(--cy-ink-2); text-anchor: middle; }
+.ht-axis text { font-family: var(--mono) !important; font-size: 12.5px; fill: var(--cy-ink-2); text-anchor: middle; }
+
+/* Selecting an event (main.js): a ring on the mark, a card above it. */
+.ht-hit { fill: transparent; cursor: pointer; }
+.ht-ring { fill: none; stroke: var(--cy-ink); stroke-width: 1.5; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.ht-ring.is-on { opacity: 1; }
+.ht-ring.is-branch { stroke: var(--cy-amber); }
+.ht-tip {
+  position: absolute; left: 0; top: 0; z-index: 2;
+  width: max-content; max-width: min(280px, 80vw);
+  transform: translate(-50%, calc(-100% - 18px));
+  padding: 10px 12px;
+  background: var(--cyan-deep); color: var(--cy-ink);
+  border: 1px solid rgb(182 197 221 / 0.3); border-radius: 8px;
+  box-shadow: 0 10px 24px -10px rgb(0 0 0 / 0.55);
+  font-size: 0.86rem; line-height: 1.4;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity 0.12s ease-out, visibility 0s linear 0.12s;
+}
+.ht-tip.is-on { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity 0.12s ease-out; }
+/* A branch event's card sits to the right of the branch's last event, where
+   nothing is drawn beneath it. */
+.ht-tip.is-beside { transform: none; }
+/* Only the card's link takes the pointer; the rest of the card lets moves and
+   taps through to the drawing (main.js keeps the card while the pointer is
+   over it). */
+.ht-tip.is-on { pointer-events: none; }
+.ht-tip .ht-open { pointer-events: auto; }
+.ht-tip span { display: block; }
+.ht-tip-date { font: 500 0.78rem/1.4 var(--mono); color: var(--cy-ink-2); margin-bottom: 2px; }
+.ht-tip.is-branch .ht-tip-date { color: var(--cy-amber); }
+.ht-tip-who { color: var(--cy-ink-2); font-size: 0.8rem; margin-top: 4px; }
+.ht-tip-led {
+  margin-top: 8px; padding-top: 7px; border-top: 1px solid rgb(182 197 221 / 0.2);
+  color: var(--cy-ink); font-size: 0.8rem; font-weight: 500;
+}
+.ht-tip .ht-open {
+  display: inline-block; margin-top: 6px; padding: 3px 0;
+  color: var(--cy-ink); font-size: 0.82rem; font-weight: 500;
+}
+.ht-tip .ht-open::after { content: ' →'; }
+
+/* Tracing: what the selected event led to stays lit; the rest falls back. */
+.ht-link, .ht-event { transition: opacity 0.2s ease-out; }
+.is-tracing .ht-link:not(.is-lit) { opacity: 0.08 !important; }
+.is-tracing .ht-link.is-lit { opacity: 1 !important; stroke: var(--cy-ink); }
+.is-tracing .ht-event:not(.is-lit) { opacity: 0.3; }
+.hero-scroll:focus-visible { outline-offset: 4px; }
 
 @media (prefers-reduced-motion: no-preference) {
   .ht-base { stroke-dasharray: 1; animation: draw 1.3s cubic-bezier(0.3, 0, 0.2, 1) both; }
   .ht-event, .ht-link { animation: fade-in 0.5s ease-out var(--d, 0s) backwards; }
   .ht-period, .ht-axis { animation: fade-in 0.8s ease-out backwards; }
   .ht-labels { animation: fade-in 0.6s ease-out 1.2s backwards; }
-  .ht-diverge { transform-box: fill-box; transform-origin: center; animation: pop 0.45s cubic-bezier(0.3, 1.6, 0.5, 1) 1.35s backwards; }
+  .ht-diverge { transform-box: fill-box; transform-origin: center; animation: pop 0.5s cubic-bezier(0.16, 1, 0.3, 1) 1.35s backwards; }
   .ht-branch { stroke-dasharray: 1; animation: draw 0.6s ease-out 1.6s both; }
-  .ht-branch-open, .ht-on-branch { animation: fade-in 0.6s ease-out 2.05s backwards; }
+  /* The branch's own events and labels arrive once the branch is drawn. */
+  .ht-branch-open, .ht-on-branch, .ht-labels.ht-labels-branch { animation: fade-in 0.6s ease-out 2.1s backwards; }
 }
 @keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 @keyframes fade-in { from { opacity: 0; } }
-@keyframes pop { from { opacity: 0; transform: scale(0.2); } }
+@keyframes pop { from { opacity: 0; transform: scale(0.3); } }
 
 /* ---------------------------------------------------------- sections --- */
 
@@ -239,67 +340,157 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 
 .walkthrough { padding: clamp(64px, 9vw, 112px) 0 clamp(40px, 6vw, 72px); }
 .section-lede { color: var(--ink-2); max-width: 38em; margin: 14px 0 32px; }
+@media (prefers-color-scheme: dark) {
+  /* The screenshots are of the light app; keep them from glaring. */
+  img.frame, .player video.frame:not(.is-playing) { filter: brightness(0.86); }
+}
 
-.features { padding: clamp(40px, 6vw, 72px) 0 clamp(64px, 9vw, 112px); }
+.player { position: relative; }
+.play {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 14px 24px 14px 18px; border: 0; border-radius: 999px;
+  background: var(--cyan); color: var(--cy-ink);
+  font: 500 1.02rem/1 var(--sans); white-space: nowrap; cursor: pointer;
+  box-shadow: 0 12px 28px -10px rgb(0 0 0 / 0.45);
+  transition: background-color 0.15s;
+}
+.play:hover { background: var(--cyan-deep); }
+.play svg { flex: none; width: 22px; height: 22px; max-width: none; fill: var(--cy-ink); }
+.play-meta { margin-left: 6px; font: 400 0.85rem/1 var(--sans); font-variant-numeric: tabular-nums; color: var(--cy-ink-2); }
+.play[hidden] { display: none; }
+/* On a phone the poster is too small to read and the button would cover it:
+   the button goes under it, and the poster itself plays (main.js). */
+@media (max-width: 640px) {
+  .player { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .play { position: static; transform: none; }
+}
+
+.features { padding: clamp(40px, 6vw, 72px) 0 clamp(24px, 3vw, 40px); }
 .features h2 { max-width: 16em; margin-bottom: clamp(36px, 5vw, 64px); }
 
+/*
+ * The four features are the order work happens in, from the record to the
+ * road not taken, so they hang on a timeline of their own: a baseline-blue
+ * line with an event mark at each, ending in the branch's diamond.
+ */
 .feature {
+  --pad: clamp(28px, 4vw, 44px);
+  --mark: 15px; /* from the top of a heading to the middle of its mark */
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
   gap: clamp(24px, 4vw, 56px);
-  align-items: center;
-  padding: clamp(28px, 4vw, 44px) 0;
-  border-top: 1px solid var(--line);
+  align-items: start;
+  padding: var(--pad) 0 var(--pad) 40px;
 }
-.feature:nth-of-type(even) { grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); }
-.feature:nth-of-type(even) .feature-text { order: 2; }
-.feature h3 { margin-bottom: 14px; }
-.feature p { color: var(--ink-2); }
-.feature .note { color: var(--muted); }
-/* The one feature that is about branching wears the branch's mark. */
-.feature-fork h3::before {
+.feature:not(:last-child)::before {
   content: '';
-  display: inline-block;
-  width: 0.42em; height: 0.42em;
-  margin: 0 0.45em 0.12em 0.1em;
-  background: var(--amber);
-  transform: rotate(45deg);
+  position: absolute; left: 6px; top: calc(var(--pad) + var(--mark)); height: 100%;
+  width: 2px; background: var(--baseline); opacity: 0.55;
 }
+.feature h3 { position: relative; margin-bottom: 14px; }
+.feature h3::before {
+  content: '';
+  position: absolute; left: -40px; top: calc(var(--mark) - 7px);
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--baseline); box-shadow: 0 0 0 4px var(--paper);
+}
+.feature-fork h3::before {
+  border-radius: 1px; background: var(--amber);
+  transform: scale(0.86) rotate(45deg);
+}
+.feature p { color: var(--ink-2); }
+/* The install-only feature: after the spine, not on it. */
+.feature-install { margin-top: clamp(24px, 4vw, 40px); padding-top: clamp(28px, 4vw, 44px); border-top: 1px solid var(--line); }
+.feature-install::before { display: none; }
+.feature-install h3::before { display: none; }
 
-.feature-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: clamp(20px, 3vw, 40px);
-  padding-top: clamp(28px, 4vw, 44px);
-  border-top: 1px solid var(--line);
-}
-.feature-pair figure { margin: 0; }
-.feature-pair figcaption { margin-top: 14px; color: var(--ink-2); font-size: 0.97rem; }
-.feature-pair strong { color: var(--ink); font-weight: 600; }
+.feature .note { color: var(--muted); }
+.feature picture { display: block; }
+.feature .frame { margin-top: 4px; }
+/* Whether a feature can be tried in the demo, said where it is described. */
+.where { font-size: 0.92rem; color: var(--ink-2); }
+.where strong { color: var(--ink); font-weight: 600; }
+.where a { display: inline-block; padding: 3px 0; }
 
 @media (max-width: 820px) {
-  .feature, .feature:nth-of-type(even), .feature-pair { grid-template-columns: 1fr; }
-  .feature:nth-of-type(even) .feature-text { order: 0; }
+  .feature { grid-template-columns: 1fr; }
 }
 
-/* ------------------------------------------------------------ agents --- */
+/* ----------------------------------------------------------- moments --- */
+/* The features drawn in the hero's cyanotype, from the seed (build.mjs).
+   Lines are SVG; everything to be read is HTML, so it reads on a phone. */
 
-.agents {
-  --focus: var(--cy-ink);
-  position: relative;
-  background: var(--cyan);
-  color: var(--cy-ink);
-  padding: clamp(64px, 9vw, 112px) 0;
+.moment {
+  margin: 4px 0 0; max-width: 560px;
+  padding: 22px 22px 18px; border-radius: 10px; border: 1px solid transparent;
+  background: var(--cyan); color: var(--cy-ink);
+  box-shadow: 0 1px 2px rgb(20 24 31 / 0.06), 0 14px 30px -14px rgb(0 0 0 / 0.38);
 }
-.agents > * { position: relative; }
-.agents-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(32px, 5vw, 72px); align-items: start; }
-.agents h2 { margin-bottom: 22px; }
-.agents p { color: var(--cy-ink-2); }
-.agents code { color: var(--cy-ink); }
-.agents-code { display: grid; gap: 18px; }
-.text-link { color: var(--cy-ink); margin-right: 18px; white-space: nowrap; }
-.text-link::after { content: ' →'; }
-@media (max-width: 900px) { .agents-grid { grid-template-columns: 1fr; } }
+.moment svg { display: block; width: 100%; height: auto; }
+.moment figcaption { margin-top: 12px; font-size: 0.9rem; line-height: 1.5; color: var(--cy-ink-2); }
+.moment figcaption strong { color: var(--cy-ink); font-weight: 500; }
+.moment .m-date { font-family: var(--mono); font-size: 0.88em; color: var(--cy-ink); }
+.m-axis { display: flex; justify-content: space-between; margin-top: 4px; font: 500 0.75rem/1 var(--mono); color: var(--cy-ink-2); }
+
+.mt-base { fill: none; stroke: var(--cy-ink); stroke-width: 1.5; }
+.mt-link { fill: none; stroke: var(--cy-line); stroke-width: 1.2; opacity: 0.16; }
+.mt-link.is-lit { stroke: var(--cy-ink); stroke-width: 1.6; opacity: 1; }
+.mt-dot { fill: var(--cy-ink); stroke: var(--cyan); stroke-width: 2; opacity: 0.3; }
+.mt-dot.is-lit, .mt-dot.is-picked { opacity: 1; }
+.mt-ring { fill: none; stroke: var(--cy-ink); stroke-width: 1.5; }
+
+.mp-chain { list-style: none; margin: 0; padding: 0; }
+.mp-chain li { position: relative; padding-left: 24px; font-size: 0.95rem; line-height: 1.45; color: var(--cy-ink); }
+.mp-chain li::before {
+  content: ''; position: absolute; left: 3px; top: 0.42em;
+  width: 10px; height: 10px; border-radius: 50%; background: var(--cy-ink);
+}
+.mp-link {
+  display: block; margin: 6px 0 8px calc(8px - 24px - var(--w) / 2);
+  padding: 7px 0 7px 22px; border-left: var(--w) solid var(--cy-line);
+  font: 0.76rem/1.3 var(--mono); color: var(--cy-ink-2);
+}
+.mp-indirect { border-left-style: dashed; }
+.mp-contributory { border-left-style: dotted; }
+
+.mb-stage { position: relative; }
+.mb-lane { position: absolute; left: 4px; transform: translateY(-150%); font: italic 400 1.02rem/1 var(--display); }
+.mb-lane-branch { color: var(--cy-amber); }
+.mb-lane-ghost { color: var(--cy-ink-2); }
+.mb-line { stroke: var(--cy-ink); stroke-width: 2; }
+.mb-line-ghost { stroke: var(--cy-line); stroke-width: 1.5; stroke-dasharray: 2 5; opacity: 0.7; }
+.mb-split { stroke: var(--cy-amber); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.8; }
+.mb-ghost { fill: var(--cy-line); opacity: 0.55; }
+.mb-shared { fill: var(--cy-ink); stroke: var(--cyan); stroke-width: 2; }
+.mb-own, .mb-diverge { fill: var(--cy-amber); stroke: var(--cyan); stroke-width: 2; }
+
+.mr-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.mr-table caption { text-align: left; padding-bottom: 10px; font-weight: 500; color: var(--cy-ink); }
+.mr-table th { padding: 6px 8px; text-align: left; font: 500 0.72rem var(--mono); color: var(--cy-ink-2); border-bottom: 1px solid rgb(182 197 221 / 0.25); }
+.mr-table td { padding: 10px 8px; vertical-align: top; color: var(--cy-ink); border-bottom: 1px solid rgb(182 197 221 / 0.14); }
+.mr-table td:first-child, .mr-table th:first-child { padding-left: 0; width: 24px; }
+.mr-table td.m-date { white-space: nowrap; }
+.mr-who { display: block; margin-top: 3px; font-size: 0.8rem; color: var(--cy-ink-2); }
+.mr-conf { font-family: var(--mono); }
+.mr-check { width: 16px; height: 16px; margin-top: 2px; }
+.mr-check rect { fill: var(--cy-ink); }
+.mr-check path { fill: none; stroke: var(--cyan); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 480px) {
+  .moment { padding: 18px 16px 14px; }
+  /* Each row as a little card: the event across the top, date and
+     confidence beneath it, so the event's text keeps the width. */
+  .mr-table thead { display: none; }
+  .mr-table tr { display: grid; grid-template-columns: 24px 1fr auto; column-gap: 8px; padding: 10px 0; border-bottom: 1px solid rgb(182 197 221 / 0.14); }
+  .mr-table td { padding: 0; border: 0; }
+  .mr-table td:nth-child(2) { grid-column: 2 / 4; }
+  .mr-table td.m-date { grid-column: 2; margin-top: 6px; }
+  .mr-table td.mr-conf { grid-column: 3; margin-top: 6px; }
+  .mr-table td.mr-conf::before { content: 'confidence '; font-family: var(--sans); color: var(--cy-ink-2); font-size: 0.78rem; }
+}
+
+/* -------------------------------------------------------------- code --- */
 
 .code {
   margin: 0;
@@ -310,28 +501,44 @@ p { margin: 0 0 1em; text-wrap: pretty; }
   overflow: hidden;
 }
 .code figcaption {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
   font: 500 0.75rem/1 var(--mono);
   letter-spacing: 0.04em;
   color: var(--cy-ink-2);
-  padding: 12px 16px;
+  padding: 8px 8px 8px 16px; min-height: 42px;
   border-bottom: 1px solid rgb(182 197 221 / 0.14);
 }
+@media (prefers-color-scheme: dark) {
+  /* Otherwise the dark panels melt into the dark page. */
+  .code, .moment { border-color: rgb(182 197 221 / 0.32); }
+}
 .code pre { margin: 0; padding: 16px; overflow-x: auto; }
-.code code { font: 400 0.86rem/1.65 var(--mono); color: var(--cy-ink); }
+/* A line that runs past the panel fades out, so it reads as more, not cut. */
+.code pre.is-scrollable { mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+.code pre code { font: 400 0.86rem/1.65 var(--mono); color: var(--cy-ink); }
 .code .c { color: #8ea3c2; }
 .code .p { color: #8ea3c2; user-select: none; }
-.code .s { color: #f2c38b; }
-.code .k { color: #a9c4ef; }
+.code .s { color: #d9e6f8; }
+.code .k { color: #9fbbe6; }
+.code .t-who { color: #fff; font-weight: 500; }
+.code pre:focus-visible { outline-offset: -3px; outline-color: var(--cy-ink); }
 
 /* ------------------------------------------------------------- start --- */
 
-.start { padding: clamp(64px, 9vw, 112px) 0; }
-.start-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: clamp(28px, 5vw, 72px); align-items: center; }
-.start h2 { margin-bottom: 18px; }
-.start p { color: var(--ink-2); max-width: 32em; }
-.start .mono { color: var(--ink); }
+.start { padding: clamp(48px, 6vw, 80px) 0 clamp(64px, 9vw, 112px); border-top: 1px solid var(--line); }
+.start h2 { margin-bottom: 14px; }
+.start p { color: var(--ink-2); max-width: 36em; }
+/* Prose only: inside a code panel the panel's own light ink must win. */
+.start p .mono, .start p code { color: var(--ink); }
+.start .section-lede { margin-bottom: clamp(28px, 4vw, 44px); }
+/* Two ways to run it, side by side: the app, and the CLI or an agent. */
+.ways { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(28px, 5vw, 64px); align-items: start; }
+.way { min-width: 0; }
+.way h3 { margin-bottom: 10px; }
+.way .code { margin: 18px 0 14px; }
+@media (max-width: 820px) { .ways { grid-template-columns: minmax(0, 1fr); } }
 .copy {
-  position: absolute; top: 6px; right: 8px;
+  flex: none;
   font: 500 0.75rem/1 var(--sans);
   color: var(--cy-ink-2); background: transparent;
   border: 1px solid rgb(182 197 221 / 0.3); border-radius: 6px;
@@ -339,7 +546,60 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 }
 .copy:hover { color: var(--cy-ink); border-color: var(--cy-ink-2); }
 .copy:focus-visible { outline-color: var(--cy-ink); }
-@media (max-width: 820px) { .start-grid { grid-template-columns: 1fr; } }
+.teaser-link { display: inline-block; padding: 4px 0; font-weight: 500; }
+.teaser-link::after { content: ' →'; }
+
+/* ------------------------------------------------------- agents page --- */
+
+.hero-sub .sub-copy { max-width: var(--wrap); margin: 0 auto; padding: clamp(20px, 4vw, 44px) var(--gutter) clamp(44px, 6vw, 76px); }
+.hero-sub h1 { font-size: clamp(2.4rem, 5.2vw, 4.2rem); line-height: 1.02; letter-spacing: -0.02em; max-width: 15em; }
+.hero-sub .lede { margin-top: 22px; max-width: 42em; }
+.hero-sub code { color: var(--cy-ink); }
+.doc { padding: clamp(48px, 7vw, 88px) 0; }
+.doc + .doc { border-top: 1px solid var(--line); }
+.doc-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: clamp(28px, 5vw, 64px); align-items: start; }
+.doc h2 { margin-bottom: 18px; }
+.doc p, .doc li { color: var(--ink-2); max-width: 38em; }
+.doc :not(pre) > code { color: var(--ink); }
+.code-stack { display: grid; gap: 18px; }
+.exit-codes { border-collapse: collapse; margin-top: 8px; font-size: 0.95rem; }
+.exit-codes caption { text-align: left; font-weight: 600; color: var(--ink); padding-bottom: 8px; }
+.exit-codes th { font: 500 0.9rem var(--mono); text-align: left; padding: 6px 18px 6px 0; color: var(--ink); }
+.exit-codes td { padding: 6px 0; color: var(--ink-2); }
+.exit-codes tr + tr { border-top: 1px solid var(--line); }
+.doc-links { padding-left: 1.2em; margin: 0 0 1.4em; }
+.doc-links li { margin-bottom: 10px; }
+@media (max-width: 820px) { .doc-grid { grid-template-columns: 1fr; } }
+
+/* ----------------------------------------------------------- closing --- */
+
+.closing {
+  --focus: var(--cy-ink);
+  position: relative;
+  background: var(--cyan);
+  color: var(--cy-ink);
+  padding: clamp(56px, 8vw, 96px) 0;
+}
+.closing > * { position: relative; }
+.closing .amber { color: var(--cy-amber); }
+.closing-grid { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: clamp(28px, 5vw, 72px); align-items: center; }
+.closing h2 { font-size: clamp(2rem, 4vw, 3.1rem); max-width: 14em; }
+.closing-fork { width: 100%; max-width: 360px; }
+.closing-fork path { fill: none; stroke-linecap: round; }
+.cf-base { stroke: var(--cy-ink); stroke-width: 2; }
+.cf-branch { stroke: var(--cy-amber); stroke-width: 2.5; }
+.closing-fork circle { fill: var(--cy-ink); stroke: var(--cyan); stroke-width: 2.5; }
+.closing-fork .cf-on-branch { fill: var(--cy-amber); }
+.closing-fork .cf-diverge { fill: var(--cy-amber); stroke: var(--cyan); stroke-width: 2; }
+/* Drawn as it comes into view (main.js adds .will-draw, then .is-drawn). */
+.closing-fork.will-draw .cf-base, .closing-fork.will-draw .cf-branch { stroke-dasharray: 1; stroke-dashoffset: 1; }
+.closing-fork.will-draw circle, .closing-fork.will-draw .cf-diverge { opacity: 0; }
+.closing-fork.is-drawn .cf-base { stroke-dashoffset: 0; transition: stroke-dashoffset 0.9s cubic-bezier(0.3, 0, 0.2, 1); }
+.closing-fork.is-drawn circle { opacity: 1; transition: opacity 0.4s ease-out 0.35s; }
+.closing-fork.is-drawn .cf-diverge { opacity: 1; transition: opacity 0.35s ease-out 0.8s; }
+.closing-fork.is-drawn .cf-branch { stroke-dashoffset: 0; transition: stroke-dashoffset 0.6s ease-out 0.95s; }
+.closing-fork.is-drawn .cf-on-branch { transition-delay: 1.4s; }
+@media (max-width: 820px) { .closing-grid { grid-template-columns: 1fr; } .closing-fork { max-width: 260px; } }
 
 /* ------------------------------------------------------------ footer --- */
 
@@ -349,5 +609,5 @@ p { margin: 0 0 1em; text-wrap: pretty; }
 .brand-small { font-size: 1.1rem; color: var(--ink); gap: 8px; }
 .brand-small img { border-radius: 5px; box-shadow: none; }
 .foot ul { display: flex; flex-wrap: wrap; gap: 6px 20px; list-style: none; margin: 0; padding: 0; }
-.foot ul a { color: var(--muted); }
+.foot ul a { display: inline-block; padding: 6px 0; color: var(--muted); }
 .foot ul a:hover { color: var(--ink); }

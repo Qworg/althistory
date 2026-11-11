@@ -1,0 +1,42 @@
+WEBVTT
+
+1
+00:00:00.000 --> 00:00:03.800
+althistory: A guided tour.
+Demo graph: The Engine Age — what if Babbage finished the Analytical Engine in 1843?
+
+2
+00:00:03.800 --> 00:00:11.200
+The workspace. Each graph opens on its timeline. Views on the left, tools along the top, filters on the right.
+
+3
+00:00:11.300 --> 00:00:17.350
+Timeline. Arcs group events into periods and sub-periods. Hover any event to see who did what, to whom, and when.
+
+4
+00:00:17.450 --> 00:00:22.150
+Inferred pressures. althistory reads clusters of events and infers the economic, social and political pressures behind them.
+
+5
+00:00:22.250 --> 00:00:30.750
+Causal graph. Every cause-and-effect link, weighted and typed. Pick a layout to reorganise the graph.
+
+6
+00:00:30.850 --> 00:00:36.550
+Actor perspective. Follow one actor through the history: what they did, and what was done to them.
+
+7
+00:00:36.650 --> 00:00:40.950
+Ingestion. Bring history in from Wikipedia, Wikidata or plain text.
+
+8
+00:00:41.050 --> 00:00:45.550
+Review before import. Nothing is written until you have reviewed it: edit or untick rows, then import the rest.
+
+9
+00:00:45.650 --> 00:00:51.950
+Graphs and branches. Keep many graphs side by side, and branch one to explore a counterfactual without touching the original.
+
+10
+00:00:52.050 --> 00:00:58.050
+Script it, too. Everything in the interface is also a CLI command and an MCP tool for agents.

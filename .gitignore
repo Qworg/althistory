@@ -220,3 +220,6 @@ site/_site/
 
 # GitHub Pages demo build (npm run build:demo)
 frontend/dist-demo/
+
+# Site e2e build output (e2e/playwright.site.config.ts)
+e2e/.site/

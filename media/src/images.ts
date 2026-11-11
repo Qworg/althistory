@@ -4,7 +4,7 @@
  * would bury the point.
  */
 import { spawn } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { access, mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import ffmpeg from '@ffmpeg-installer/ffmpeg'
 import type { Manifest, Rect, Shot } from './manifest.js'
@@ -41,17 +41,21 @@ function ffmpegRun(args: string[]): Promise<void> {
   })
 }
 
-function cropFilter(rect: Rect, pad: number, manifest: Manifest, size: Shot['size']): string {
+/** The crop, in device pixels of the capture. */
+function cropBox(rect: Rect, pad: number, manifest: Manifest, size: Shot['size']) {
   const s = manifest.deviceScaleFactor
-  const maxW = size.width
-  const maxH = size.height
   const x = Math.max(0, rect.x - pad)
   const y = Math.max(0, rect.y - pad)
-  const w = Math.min(maxW - x, rect.width + pad * 2)
-  const h = Math.min(maxH - y, rect.height + pad * 2)
+  const w = Math.min(size.width - x, rect.width + pad * 2)
+  const h = Math.min(size.height - y, rect.height + pad * 2)
   // Even sizes keep every encoder and scaler happy.
   const even = (n: number) => Math.floor((n * s) / 2) * 2
-  return `crop=${even(w)}:${even(h)}:${even(x)}:${even(y)}`
+  return { w: even(w), h: even(h), x: even(x), y: even(y) }
+}
+
+function cropFilter(rect: Rect, pad: number, manifest: Manifest, size: Shot['size']): string {
+  const box = cropBox(rect, pad, manifest, size)
+  return `crop=${box.w}:${box.h}:${box.x}:${box.y}`
 }
 
 export async function writeReadmeImages(): Promise<void> {
@@ -78,4 +82,26 @@ export async function writeReadmeImages(): Promise<void> {
     ])
     process.stderr.write(`[images] docs/images/${image.file}\n`)
   }
+}
+
+/**
+ * The landing page's one picture from the app: the walkthrough's poster, as a
+ * light WebP (the README keeps the PNG). The page's other pictures are drawn
+ * from the seed by site/build.mjs.
+ */
+const SITE_DIR = path.join(paths.readmeImages, 'site')
+
+const webpArgs = ['-c:v', 'libwebp', '-quality', '82', '-compression_level', '6']
+
+export async function writeSiteImages(): Promise<void> {
+  await mkdir(SITE_DIR, { recursive: true })
+  const poster = path.join(paths.readmeImages, 'walkthrough-poster.png')
+  try {
+    await access(poster)
+  } catch {
+    process.stderr.write('[images] no walkthrough poster yet; render the video first\n')
+    return
+  }
+  await ffmpegRun(['-i', poster, ...webpArgs, path.join(SITE_DIR, 'walkthrough-poster.webp')])
+  process.stderr.write('[images] docs/images/site/walkthrough-poster.webp\n')
 }
