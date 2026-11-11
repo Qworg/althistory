@@ -346,8 +346,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         eventCount: {
           type: 'number',
-          description: 'Number of counterfactual events to generate following divergence',
-          default: 5,
+          description: 'Number of events to generate after the branch point',
+          default: 6,
         },
         dryRun: {
           type: 'boolean',

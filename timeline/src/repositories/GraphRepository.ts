@@ -76,16 +76,13 @@ export class GraphRepository {
     // Save graph metadata
     await this.saveGraphMetadata(graph);
 
-    // Add to index
-    const index = await this.loadIndex();
-    index.graphs.push(graph.id);
-    
-    // If this is the first graph, make it active
-    if (!index.activeGraphId) {
-      index.activeGraphId = graph.id;
-    }
-    
-    await this.saveIndex(index);
+    // Add to index; if this is the first graph, make it active
+    await this.mutateIndex((index) => {
+      index.graphs.push(graph.id);
+      if (!index.activeGraphId) {
+        index.activeGraphId = graph.id;
+      }
+    });
 
     return graph;
   }
@@ -182,13 +179,12 @@ export class GraphRepository {
     await this.saveGraphMetadata(deleted);
 
     // Remove from active if it was active
-    const index = await this.loadIndex();
-    if (index.activeGraphId === id) {
+    await this.mutateIndex((index) => {
+      if (index.activeGraphId !== id) return false;
       // Find another active graph
       const activeGraphs = index.graphs.filter(gid => gid !== id);
       index.activeGraphId = activeGraphs.length > 0 ? activeGraphs[0] : null;
-      await this.saveIndex(index);
-    }
+    });
 
     return true;
   }
@@ -214,12 +210,12 @@ export class GraphRepository {
     }
 
     // Remove from index
-    const index = await this.loadIndex();
-    index.graphs = index.graphs.filter(gid => gid !== id);
-    if (index.activeGraphId === id) {
-      index.activeGraphId = index.graphs.length > 0 ? index.graphs[0] : null;
-    }
-    await this.saveIndex(index);
+    await this.mutateIndex((index) => {
+      index.graphs = index.graphs.filter(gid => gid !== id);
+      if (index.activeGraphId === id) {
+        index.activeGraphId = index.graphs.length > 0 ? index.graphs[0] : null;
+      }
+    });
 
     return true;
   }
@@ -244,9 +240,9 @@ export class GraphRepository {
       return false;
     }
 
-    const index = await this.loadIndex();
-    index.activeGraphId = id;
-    await this.saveIndex(index);
+    await this.mutateIndex((index) => {
+      index.activeGraphId = id;
+    });
 
     return true;
   }
@@ -444,9 +440,9 @@ export class GraphRepository {
     await this.saveGraphMetadata(branchGraph);
 
     // Add to index
-    const index = await this.loadIndex();
-    index.graphs.push(branchGraph.id);
-    await this.saveIndex(index);
+    await this.mutateIndex((index) => {
+      index.graphs.push(branchGraph.id);
+    });
 
     // Update metadata
     const metadata = await this.calculateMetadata(branchGraph.id);
@@ -547,8 +543,36 @@ export class GraphRepository {
     }
   }
 
+  /**
+   * Written to a temporary file and renamed into place, so a reader never sees
+   * half an index (which `loadIndex` would read as an empty one).
+   */
   private async saveIndex(index: GraphIndex): Promise<void> {
-    await fs.promises.writeFile(this.graphsIndexPath, JSON.stringify(index, null, 2), 'utf-8');
+    const temporary = `${this.graphsIndexPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+    await fs.promises.writeFile(temporary, JSON.stringify(index, null, 2), 'utf-8');
+    await fs.promises.rename(temporary, this.graphsIndexPath);
+  }
+
+  /** The tail of the queue of index changes; each change waits for the one before. */
+  private indexQueue: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Read, change and write the index as one step. Two graphs created at once
+   * (an agent's parallel tool calls) each read the index and wrote it back with
+   * only their own graph added, so one of them vanished from the list. The
+   * changes now run one after another. This is a lock within the process,
+   * which is what the single-replica deployment the store requires allows.
+   * `change` returns `false` when it changed nothing, so nothing is written.
+   */
+  private mutateIndex(change: (index: GraphIndex) => boolean | void): Promise<void> {
+    const run = this.indexQueue.then(async () => {
+      const index = await this.loadIndex();
+      if (change(index) === false) return;
+      await this.saveIndex(index);
+    });
+    // A failed change must not block the ones queued after it.
+    this.indexQueue = run.catch(() => undefined);
+    return run;
   }
 }
 

@@ -869,4 +869,23 @@ describe('Graph Model', () => {
       expect(branch2.branchPoint).toBe(1); // branch1Updated is at version 1
     });
   });
+
+  describe('calendar', () => {
+    it('keeps a good calendar, and drops a stored one that does not check out rather than becoming unreadable', () => {
+      expect(new Graph({ name: 'World', calendar: { epochYear: 1000, eraLabel: 'AR' } }).calendar).toEqual({
+        epochYear: 1000,
+        eraLabel: 'AR',
+      });
+      const stored = { name: 'Hand-edited', calendar: { epochYear: 0 } } as unknown as ConstructorParameters<typeof Graph>[0];
+      expect(new Graph(stored).calendar).toBeUndefined();
+    });
+
+    it('keeps the calendar on update unless cleared with null, and on a branch', () => {
+      const graph = new Graph({ name: 'World', calendar: { epochYear: 1000 } });
+      expect(graph.update({ name: 'Renamed' }).calendar).toEqual({ epochYear: 1000 });
+      expect(graph.update({ calendar: null }).calendar).toBeUndefined();
+      expect(graph.branch('Branch').calendar).toEqual({ epochYear: 1000 });
+      expect(graph.update({ calendar: null }).toJSON()).not.toHaveProperty('calendar');
+    });
+  });
 });

@@ -72,6 +72,22 @@ const AUTH_ERROR_RESPONSES: Record<string, string> = {
   403: 'The key may not perform this operation on this graph.',
 }
 
+
+/** An invented world's calendar (see `utils/worldCalendar.ts`). */
+const GRAPH_CALENDAR_SCHEMA = {
+  type: 'object',
+  description:
+    "An invented world's calendar. Timestamps stay Gregorian; the calendar relabels the year when a date is " +
+    'shown: the stored year `epochYear` is year 1 of the world.',
+  properties: {
+    epochYear: { type: 'integer', minimum: 1, maximum: 9999, description: 'The stored year that is year 1.' },
+    eraLabel: { type: 'string', maxLength: 16, description: 'Written after the year ("312 AR"). Without one, "Year 312".' },
+    name: { type: 'string', maxLength: 80, description: 'What the calendar is called.' },
+  },
+  required: ['epochYear'],
+  additionalProperties: false,
+};
+
 const SCHEMAS: Record<string, Record<string, unknown>> = {
   /**
    * The shape of a request or response this document does not describe in
@@ -82,19 +98,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     description: 'An object whose properties depend on the operation.',
     additionalProperties: true,
   },
-  GraphCalendar: {
-    type: 'object',
-    description:
-      "An invented world's calendar. Timestamps stay Gregorian; the calendar relabels the year when a date is " +
-      'shown: the stored year `epochYear` is year 1 of the world.',
-    properties: {
-      epochYear: { type: 'integer', minimum: 1, maximum: 9999, description: 'The stored year that is year 1.' },
-      eraLabel: { type: 'string', maxLength: 16, description: 'Written after the year ("312 AR"). Without one, "Year 312".' },
-      name: { type: 'string', maxLength: 80, description: 'What the calendar is called.' },
-    },
-    required: ['epochYear'],
-    additionalProperties: false,
-  },
+  GraphCalendar: GRAPH_CALENDAR_SCHEMA,
   Graph: {
     type: 'object',
     properties: {
@@ -125,9 +129,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       name: { type: 'string' },
       description: { type: 'string' },
       status: { type: 'string', enum: ['active', 'archived'] },
+      // Inline rather than a $ref: in OpenAPI 3.0 `nullable` only counts next
+      // to a `type`, so a nullable reference cannot be written.
       calendar: {
+        ...GRAPH_CALENDAR_SCHEMA,
         description: 'A new calendar, or null to remove it.',
-        allOf: [{ $ref: '#/components/schemas/GraphCalendar' }],
         nullable: true,
       },
     },

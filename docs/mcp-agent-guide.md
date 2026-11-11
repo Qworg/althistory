@@ -227,7 +227,7 @@ Draft a new graph whole-cloth. Give **either** `premise` and `divergencePoint`
 #### `althistory_branch_timeline`
 Branch a graph at one of its events and draft a different course from there.
 - `sourceGraphId`, `divergeAtEventId`, `counterfactualPrompt`, `branchName` *(required)*
-- `eventCount` (default 5), `dryRun`.
+- `eventCount` (default 6), `dryRun`.
 
 #### `althistory_simulate_timeline`
 Evolve a graph forward from an event, synthesising pressure-driven events and causal links.

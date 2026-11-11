@@ -251,6 +251,13 @@ const DEFAULT_ASYNC_EXPORT_ENTITY_THRESHOLD = 10_000;
 /**
  * Service for exporting graph data
  */
+/** An arc's parent: its own field, or the `parentArcId` its metadata records. */
+function parentArcIdOf(field: unknown, metadata: unknown): string | null {
+  if (typeof field === 'string' && field) return field;
+  const recorded = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).parentArcId : undefined;
+  return typeof recorded === 'string' && recorded ? recorded : null;
+}
+
 export class ExportService {
   private readonly graphRepository: GraphRepository;
   private readonly dataDir: string;
@@ -996,7 +1003,10 @@ export class ExportService {
       start_time: a.start_time as string,
       end_time: a.end_time as string,
       level: a.level as number,
-      parent_arc_id: a.parent_arc_id as string | null,
+      // An arc made through the CLI, MCP or the generator records its parent in
+      // its metadata only; without it, a nested arc exported as a root fails
+      // the import's level check.
+      parent_arc_id: parentArcIdOf(a.parent_arc_id, a.metadata),
       metadata,
       sourceRef: a.sourceRef as string | undefined,
     };

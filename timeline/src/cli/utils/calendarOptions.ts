@@ -23,12 +23,17 @@ function readYear(value: unknown): number {
   return Number(text);
 }
 
+/** Absent, null and empty all mean "not given": some clients send "" for an unset field. */
+function isUnset(value: unknown): boolean {
+  return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
+}
+
 function readText(value: unknown, what: string): string | undefined {
-  if (value === undefined || value === null) return undefined;
+  if (isUnset(value)) return undefined;
   if (typeof value !== 'string') {
     throw new ValidationErrorCLI(`${what} must be text`);
   }
-  return value;
+  return value as string;
 }
 
 /**
@@ -38,7 +43,7 @@ function readText(value: unknown, what: string): string | undefined {
 export function partialCalendarFrom(
   input: CalendarInput
 ): { epochYear?: number; eraLabel?: string; name?: string } | undefined {
-  const epochYear = input.epochYear === undefined || input.epochYear === null ? undefined : readYear(input.epochYear);
+  const epochYear = isUnset(input.epochYear) ? undefined : readYear(input.epochYear);
   const eraLabel = readText(input.eraLabel, 'The era label');
   const name = readText(input.calendarName, 'The calendar name');
   if (epochYear === undefined && eraLabel === undefined && name === undefined) return undefined;

@@ -99,6 +99,7 @@ export class GraphExporter {
         start_time: a.start_time.toISOString(),
         end_time: a.end_time.toISOString(),
         level: a.level,
+        parent_arc_id: typeof a.metadata?.parentArcId === 'string' ? a.metadata.parentArcId : null,
         metadata: a.metadata,
       })),
       causalRelationships: relationships.map((r) => ({

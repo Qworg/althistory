@@ -508,6 +508,9 @@ export class RemoteEngine implements IEngine {
     data: { name: string; startTime: string; endTime: string; description?: string; parentArcId?: string }
   ): Promise<ArcDto> {
     try {
+      // A child arc sits one level below the arc it belongs to, which has to
+      // exist; the direct engine places it the same way.
+      const level = data.parentArcId ? ((await this.getArc(graphId, data.parentArcId)).level ?? 0) + 1 : 0;
       const res = await this.client.post(
         '/api/arcs',
         {
@@ -515,7 +518,7 @@ export class RemoteEngine implements IEngine {
           description: data.description || '',
           start_time: data.startTime,
           end_time: data.endTime,
-          level: data.parentArcId ? 1 : 0,
+          level,
           metadata: data.parentArcId ? { parentArcId: data.parentArcId } : undefined,
         },
         { headers: this.graphHeaders(graphId) }

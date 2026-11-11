@@ -98,7 +98,12 @@ export class Graph implements IGraph {
       relationshipCount: 0,
       pressureCount: 0,
     };
-    this.calendar = data.calendar ? normalizeCalendar(data.calendar) : undefined;
+    // Everything that writes a calendar checks it first (GraphService, the
+    // importers, the generator). One that still does not check out was written
+    // by hand or under other limits; it is dropped rather than making the graph
+    // unreadable, since it only changes how years are shown.
+    this.calendar =
+      data.calendar && calendarProblems(data.calendar).length === 0 ? normalizeCalendar(data.calendar) : undefined;
   }
 
   /**
@@ -121,10 +126,6 @@ export class Graph implements IGraph {
 
     if (data.status && !['active', 'archived', 'deleted'].includes(data.status)) {
       errors.push('Status must be active, archived, or deleted');
-    }
-
-    if (data.calendar !== undefined && data.calendar !== null) {
-      errors.push(...calendarProblems(data.calendar));
     }
 
     return {

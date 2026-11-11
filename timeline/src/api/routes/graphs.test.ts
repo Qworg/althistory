@@ -1,4 +1,8 @@
 /**
+ * @vitest-environment node
+ */
+
+/**
  * Request-level tests for the graph routes.
  *
  * Unlike the unit-style route tests that mock `@/api/middleware`, these boot the
@@ -21,6 +25,9 @@ import { errorHandler, injectContainer } from '@/api/middleware';
 import { IGraph } from '@/models/Graph';
 import { ValidationError } from '@/utils/errors';
 import type { CopyResult as GraphCopyServiceResult } from '@/services/GraphCopyService';
+import { AddressInfo } from 'net';
+import { RemoteEngine } from '@/cli/engine/RemoteEngine';
+import { ImportService } from '@/services/ImportService';
 
 describe('Graph routes (request-level)', () => {
   let app: Express;
@@ -232,6 +239,105 @@ describe('Graph routes (request-level)', () => {
         .expect(201);
       const copied = await container.graphService.getGraph(copy.body.data.id);
       expect(copied.calendar).toEqual(calendar);
+    });
+
+    it('lets the remote CLI engine create a world, change its calendar, and nest an arc one level down', async () => {
+      const authorKey = (
+        await container.authService.createApiKey({
+          name: 'Graph Routes Author Key',
+          permissions: ['read:graphs', 'write:graphs', 'read:arcs', 'write:arcs'],
+        })
+      ).key;
+      const server = app.listen(0);
+      try {
+        const { port } = server.address() as AddressInfo;
+        const engine = new RemoteEngine(`http://127.0.0.1:${port}`, authorKey);
+
+        const made = await engine.createGraph('Remote World', undefined, calendar);
+        expect(made.calendar).toEqual(calendar);
+        const changed = await engine.setGraphCalendar(made.id, { epochYear: 1200 });
+        expect(changed.calendar).toEqual({ epochYear: 1200 });
+        const cleared = await engine.setGraphCalendar(made.id, null);
+        expect(cleared.calendar).toBeUndefined();
+
+        const age = await engine.createArc(made.id, {
+          name: 'Age',
+          startTime: '1000-01-01T00:00:00Z',
+          endTime: '1200-01-01T00:00:00Z',
+        });
+        const reign = await engine.createArc(made.id, {
+          name: 'Reign',
+          startTime: '1100-01-01T00:00:00Z',
+          endTime: '1150-01-01T00:00:00Z',
+          parentArcId: age.id,
+        });
+        const decade = await engine.createArc(made.id, {
+          name: 'Decade',
+          startTime: '1100-01-01T00:00:00Z',
+          endTime: '1110-01-01T00:00:00Z',
+          parentArcId: reign.id,
+        });
+        expect((await engine.getArc(made.id, decade.id)).level).toBe(2);
+      } finally {
+        await new Promise((resolve) => server.close(resolve));
+      }
+    });
+
+    it('exports a nested arc with its parent, so the export imports again', async () => {
+      const world = await container.graphService.createGraph({ name: 'Nested World', calendar });
+      const scoped = await container.graphScopedRepositories(world.id);
+      const age = await scoped.arcRepository.create({
+        name: 'Age',
+        description: '',
+        start_time: new Date('1000-01-01T00:00:00Z'),
+        end_time: new Date('1200-01-01T00:00:00Z'),
+        level: 0,
+        metadata: {},
+      });
+      await container.graphWriteVersioningService.recordArc(world.id, age, 'create');
+      // How the CLI, MCP and the generator record a parent: in the metadata.
+      const reignArc = await scoped.arcRepository.create({
+        name: 'Reign',
+        description: '',
+        start_time: new Date('1100-01-01T00:00:00Z'),
+        end_time: new Date('1150-01-01T00:00:00Z'),
+        level: 1,
+        metadata: { parentArcId: age.id },
+      });
+      await container.graphWriteVersioningService.recordArc(world.id, reignArc, 'create');
+
+      const exported = await request(app)
+        .get('/api/export')
+        .set('X-API-Key', writeKey)
+        .set('X-Graph-Id', world.id)
+        .expect(200);
+      const reign = exported.body.data.arcs.find((arc: { name: string }) => arc.name === 'Reign');
+      expect(reign.parent_arc_id).toBe(age.id);
+
+      const importService = new ImportService({ dataDir: testDataDir });
+      await importService.initialize();
+      const check = await importService.validateFormat(exported.body);
+      expect(check.errors.filter((error) => error.code === 'ARC_HIERARCHY_VIOLATION')).toEqual([]);
+    });
+
+    it('restores the calendar when an export is imported as a new graph, and drops one that does not check out', async () => {
+      const world = await container.graphService.createGraph({ name: 'Imported World', calendar });
+      const exported = await request(app)
+        .get('/api/export')
+        .set('X-API-Key', writeKey)
+        .set('X-Graph-Id', world.id)
+        .expect(200);
+
+      const importService = new ImportService({ dataDir: testDataDir });
+      await importService.initialize();
+      const restored = await importService.executeImport(exported.body, { mode: 'create-new', conflictResolution: 'skip' });
+      expect(restored.success).toBe(true);
+      expect((await container.graphService.getGraph(restored.graphId)).calendar).toEqual(calendar);
+
+      const tampered = { ...exported.body, metadata: { ...exported.body.metadata, calendar: { epochYear: 'soon' } } };
+      const dropped = await importService.executeImport(tampered, { mode: 'create-new', conflictResolution: 'skip' });
+      expect(dropped.success).toBe(true);
+      expect((await container.graphService.getGraph(dropped.graphId)).calendar).toBeUndefined();
     });
 
     it('puts the calendar in the export metadata, outside the checksum', async () => {

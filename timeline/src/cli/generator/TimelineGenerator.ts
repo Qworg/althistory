@@ -84,6 +84,22 @@ const MS_PER_YEAR = 365.25 * MS_PER_DAY;
 /** How long an invented world's chronicle runs when no end date is given. */
 const WORLD_DEFAULT_SPAN_YEARS = 300;
 
+/** The last instant a four-digit stored year can hold. */
+const LAST_STORED_INSTANT = Date.parse('9999-12-31T23:59:59.999Z');
+
+/**
+ * An ISO-8601 instant, NaN when absent or unreadable. A date-time written
+ * without a zone is read as UTC, like every historical date here: `Date.parse`
+ * would read it in the host's zone, and in Tokyo "1000-01-01T00:00" is the
+ * last day of 999.
+ */
+function parseInstant(value: string | undefined): number {
+  if (!value) return NaN;
+  const trimmed = value.trim();
+  const zoneless = /^[+-]?\d{4,6}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(trimmed);
+  return Date.parse(zoneless ? `${trimmed}Z` : trimmed);
+}
+
 /** The stored year an invented world's year 1 falls on when nothing says otherwise. */
 const WORLD_DEFAULT_EPOCH_YEAR = 1000;
 
@@ -685,12 +701,16 @@ export class TimelineGenerator {
     }
 
     // Create branch narrative arc
+    // A top-level arc: it has no parent, so it is level 0 (an export of a
+    // level-1 arc without a parent fails the import's hierarchy check).
     const arc = await targetScoped.arcRepository.create({
       name: `${options.branchName} Divergence Era`,
-      description: `Counterfactual divergent timeline from ${pivotEvent.actor}: ${options.counterfactualPrompt}`,
+      description: branchPlan.calendar
+        ? `Another course for the chronicle from ${pivotEvent.actor}: ${options.counterfactualPrompt}`
+        : `Counterfactual divergent timeline from ${pivotEvent.actor}: ${options.counterfactualPrompt}`,
       start_time: new Date(persistedEvents[0].timestamp),
       end_time: new Date(persistedEvents[persistedEvents.length - 1].timestamp),
-      level: 1,
+      level: 0,
     });
     const persistedArcs: ArcDto[] = [
       {
@@ -1068,8 +1088,8 @@ export class TimelineGenerator {
     const world = options.world?.trim() ?? '';
     const premise = options.premise?.trim() ?? '';
     const divergencePoint = options.divergencePoint?.trim() ?? '';
-    const startParsed = Date.parse(options.startDate || '');
-    const endParsed = Date.parse(options.endDate || '');
+    const startParsed = parseInstant(options.startDate);
+    const endParsed = parseInstant(options.endDate);
     if (options.startDate && Number.isNaN(startParsed)) {
       throw new ValidationErrorCLI(`Invalid start date "${options.startDate}": expected an ISO-8601 date`);
     }
@@ -1096,7 +1116,15 @@ export class TimelineGenerator {
       const startMs = Number.isNaN(startParsed)
         ? Date.parse(`${String(calendar.epochYear).padStart(4, '0')}-01-01T00:00:00Z`)
         : startParsed;
-      const endMs = Number.isNaN(endParsed) ? startMs + WORLD_DEFAULT_SPAN_YEARS * MS_PER_YEAR : endParsed;
+      // A stored year has four digits; past 9999 a timestamp needs an expanded
+      // year, which the rest of the system does not read. The default span
+      // stops there, and an end date past it is refused.
+      if (!Number.isNaN(endParsed) && endParsed > LAST_STORED_INSTANT) {
+        throw new ValidationErrorCLI('The end date must be no later than the year 9999');
+      }
+      const endMs = Number.isNaN(endParsed)
+        ? Math.min(startMs + WORLD_DEFAULT_SPAN_YEARS * MS_PER_YEAR, LAST_STORED_INSTANT)
+        : endParsed;
       if (endMs <= startMs) {
         throw new ValidationErrorCLI('The end date must be after the start date');
       }

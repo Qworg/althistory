@@ -18,6 +18,7 @@ vi.mock('fs', () => ({
     access: vi.fn(),
     readFile: vi.fn(),
     writeFile: vi.fn().mockResolvedValue(undefined),
+    rename: vi.fn().mockResolvedValue(undefined),
     unlink: vi.fn().mockResolvedValue(undefined),
     rm: vi.fn().mockResolvedValue(undefined),
     readdir: vi.fn(),
@@ -66,6 +67,7 @@ describe('GraphRepository Unit Tests', () => {
     vi.mocked(fs.promises.access).mockClear();
     vi.mocked(fs.promises.readFile).mockClear();
     vi.mocked(fs.promises.writeFile).mockClear().mockResolvedValue(undefined);
+    vi.mocked(fs.promises.rename).mockClear().mockResolvedValue(undefined);
     vi.mocked(fs.promises.unlink).mockClear().mockResolvedValue(undefined);
     vi.mocked(fs.promises.rm).mockClear().mockResolvedValue(undefined);
     vi.mocked(fs.promises.readdir).mockClear();
@@ -130,11 +132,14 @@ describe('GraphRepository Unit Tests', () => {
 
       await repository.initialize();
 
+      // Written beside the index and renamed into place, so no reader sees half of it.
+      const indexPath = path.join(testDataDir, 'graphs', 'index.json');
       expect(fs.promises.writeFile).toHaveBeenCalledWith(
-        path.join(testDataDir, 'graphs', 'index.json'),
+        expect.stringMatching(/index\.json\..*\.tmp$/),
         JSON.stringify({ graphs: [], activeGraphId: null }, null, 2),
         'utf-8'
       );
+      expect(fs.promises.rename).toHaveBeenCalledWith(expect.stringMatching(/index\.json\..*\.tmp$/), indexPath);
     });
 
     it('should not overwrite existing index file', async () => {
@@ -181,9 +186,13 @@ describe('GraphRepository Unit Tests', () => {
       const graph = await repository.create({ name: 'Test Graph' });
 
       expect(fs.promises.writeFile).toHaveBeenCalledWith(
-        path.join(testDataDir, 'graphs', 'index.json'),
+        expect.stringMatching(/index\.json\..*\.tmp$/),
         expect.stringContaining(graph.id),
         'utf-8'
+      );
+      expect(fs.promises.rename).toHaveBeenCalledWith(
+        expect.stringMatching(/index\.json\..*\.tmp$/),
+        path.join(testDataDir, 'graphs', 'index.json')
       );
     });
 

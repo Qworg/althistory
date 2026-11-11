@@ -10,6 +10,12 @@
  */
 
 import { ValidationErrorCLI } from '../utils/exitCodes';
+import { calendarProblems } from '@/utils/worldCalendar';
+
+/** A stored year as ISO 8601 writes it: four digits. */
+function isoYear(year: number): string {
+  return String(year).padStart(4, '0');
+}
 
 export interface McpPromptArgument {
   name: string;
@@ -41,7 +47,14 @@ function worldbuild(args: Record<string, string>): string {
   if (!Number.isInteger(epoch) || epoch < 1 || epoch > 9999) {
     throw new ValidationErrorCLI(`Invalid epochYear "${epochText}": expected a whole year between 1 and 9999`);
   }
+  // The calendar the prompt tells the agent to create has to be one the tools accept.
+  const problems = calendarProblems({ epochYear: epoch, ...(label ? { eraLabel: label } : {}) });
+  if (problems.length > 0) {
+    throw new ValidationErrorCLI(problems.join('; '));
+  }
   const offset = epoch - 1;
+  // A later year to show the arithmetic with, kept within the four-digit years.
+  const example = 312 + offset <= 9999 ? 312 : 2;
   const year = (n: number): string => (label ? `${n} ${label}` : `Year ${n}`);
   const calendarArgs = `epochYear ${epoch}${label ? `, eraLabel "${label}"` : ''}`;
   const lowWarning =
@@ -55,7 +68,7 @@ ${world}
 
 Althistory keeps the history as a graph: events (who did what to whom, and when), arcs (the ages and periods that hold them) and causal links (which events brought about which). It checks the graph for contradictions and lets the author branch it at any event. You write the history; the tools keep it straight. Work in this order.
 
-1. Create the graph with its calendar. Call althistory_create_graph with a name for the world and ${calendarArgs}. The calendar makes the app and the exports show the world's own years. Every timestamp a tool takes or returns is a stored ISO-8601 date, and the world's year N is stored as year N + ${offset}: ${year(1)} is ${String(epoch).padStart(4, '0')}-01-01T00:00:00Z, and ${year(312)} is ${312 + offset}-01-01T00:00:00Z.${lowWarning}
+1. Create the graph with its calendar. Call althistory_create_graph with a name for the world and ${calendarArgs}. The calendar makes the app and the exports show the world's own years. Every timestamp a tool takes or returns is a stored ISO-8601 date, and the world's year N is stored as year N + ${offset}: ${year(1)} is ${isoYear(epoch)}-01-01T00:00:00Z, and ${year(example)} is ${isoYear(example + offset)}-01-01T00:00:00Z.${lowWarning}
 
 2. Lay out the ages. Decide the three to six great ages of the world's history, and create each with althistory_create_arc. An arc inside another (a reign inside an age) takes the outer arc's id as parentArcId.
 

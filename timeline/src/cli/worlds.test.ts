@@ -297,6 +297,73 @@ describe('invented worlds', () => {
     });
   });
 
+  describe('what the review found', () => {
+    it('lists every graph created by parallel tool calls', async () => {
+      const made = await Promise.all(
+        [1, 2, 3, 4, 5, 6].map((n) => callTool(server, 'althistory_create_graph', { name: `Parallel ${n}` }))
+      );
+      created.push(...made.map((graph) => graph.id));
+      const listed = new Set((await engine.listGraphs()).map((graph) => graph.id));
+      for (const graph of made) expect(listed.has(graph.id)).toBe(true);
+    });
+
+    it('keeps a world generated near the year 9999 within four-digit years', async () => {
+      const result = await engine.generateTimeline({ world: 'Late', calendar: { epochYear: 9900 }, eventCount: 4, dryRun: true });
+      for (const event of result.events) expect(event.timestamp).toMatch(/^\d{4}-/);
+      await expect(
+        engine.generateTimeline({ world: 'Late', calendar: { epochYear: 9900 }, endDate: '+010100-01-01T00:00:00Z', dryRun: true })
+      ).rejects.toThrow(/no later than the year 9999/);
+    });
+
+    it('reads a start date without a zone as UTC', async () => {
+      const result = await engine.generateTimeline({ world: 'Isles', startDate: '1000-01-01T00:00', eventCount: 3, dryRun: true });
+      expect(result.calendar).toEqual({ epochYear: 1000 });
+      expect(result.events[0].timestamp.startsWith('1000-01-01T00:00')).toBe(true);
+    });
+
+    it('treats an empty calendar argument as not given', async () => {
+      const result = await callTool(server, 'althistory_generate_timeline', {
+        premise: 'What if the Armada landed',
+        divergencePoint: '1588-08-08',
+        eraLabel: '',
+        epochYear: '',
+        calendarName: '',
+        eventCount: 3,
+        dryRun: true,
+      });
+      expect(result.calendar).toBeUndefined();
+    });
+
+    it('writes valid four-digit dates into the worldbuild prompt for an early epoch, and refuses a label the tools would refuse', () => {
+      const text = renderPrompt('worldbuild', { world: 'Isles', epochYear: '50' }).text;
+      for (const stamp of text.match(/\d{4}-01-01T00:00:00Z/g) ?? []) expect(Number.isNaN(Date.parse(stamp))).toBe(false);
+      expect(text).toContain('Year 312 is 0361-01-01T00:00:00Z');
+      expect(renderPrompt('worldbuild', { world: 'Late', epochYear: '9990' }).text).toContain('Year 2 is 9991-01-01T00:00:00Z');
+      expect(() => renderPrompt('worldbuild', { world: 'Isles', eraLabel: 'x'.repeat(17) })).toThrow(/at most 16/);
+    });
+
+    it('nests an arc one level below its parent, and refuses a parent that does not exist', async () => {
+      const graph = await engine.createGraph('Nesting');
+      created.push(graph.id);
+      const age = await engine.createArc(graph.id, { name: 'Age', startTime: '1000-01-01T00:00:00Z', endTime: '1200-01-01T00:00:00Z' });
+      const reign = await engine.createArc(graph.id, {
+        name: 'Reign',
+        startTime: '1100-01-01T00:00:00Z',
+        endTime: '1150-01-01T00:00:00Z',
+        parentArcId: age.id,
+      });
+      expect((await engine.getArc(graph.id, reign.id)).level).toBe(1);
+      await expect(
+        engine.createArc(graph.id, { name: 'Orphan', startTime: '1100-01-01T00:00:00Z', endTime: '1101-01-01T00:00:00Z', parentArcId: 'arc_none' })
+      ).rejects.toThrow(/Parent arc not found/);
+
+      // The JSON export names the parent, so the import's level check holds.
+      const document = JSON.parse((await engine.exportGraph(graph.id, 'json')).content!);
+      const exportedReign = document.data.arcs.find((arc: { name: string }) => arc.name === 'Reign');
+      expect(exportedReign.parent_arc_id).toBe(age.id);
+    });
+  });
+
   describe('the prompts', () => {
     it('lists the three prompts over MCP and fills one in', async () => {
       const init = await rpc(server, 'initialize', {});
@@ -399,12 +466,12 @@ describe('invented worlds', () => {
       created.push(graph.id);
       await engine.createEvent(graph.id, { description: 'Founding', timestamp: '1001-01-01T00:00:00Z' });
       const exported = await engine.exportGraph(graph.id, 'json');
-      const document = JSON.parse(exported.content);
+      const document = JSON.parse(exported.content!);
       document.metadata.graphId = 'graph_not_here';
 
       const imported = await engine.importGraph(JSON.stringify(document));
-      created.push(imported.graphId);
-      expect((await engine.getGraph(imported.graphId)).calendar).toEqual(CALENDAR);
+      created.push(imported.graphId!);
+      expect((await engine.getGraph(imported.graphId!)).calendar).toEqual(CALENDAR);
     });
   });
 
