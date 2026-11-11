@@ -1,5 +1,5 @@
 import type { Event } from '@/types'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatHistoricalTimestamp, worldYearLabel } from '@/utils/historicalTime'
 
 /**
  * How an event reads on the causal graph.
@@ -43,11 +43,16 @@ export function eventNodeLabel(event: Pick<Event, 'description' | 'actor' | 'tar
   return truncateLabel(description || formatActorTarget(event))
 }
 
-/** The year an event falls in, in UTC, with BCE for years before 1 CE. */
+/**
+ * The year an event falls in, in UTC, with BCE for years before 1 CE; in the
+ * world's own years when the graph has a calendar ("312 AR").
+ */
 export function eventYear(timestamp: string | Date): string {
   const date = new Date(timestamp)
   if (Number.isNaN(date.getTime())) return ''
   const year = date.getUTCFullYear()
+  const world = worldYearLabel(year)
+  if (world !== null) return world
   // Astronomical year 0 is 1 BCE, -1 is 2 BCE, and so on.
   return year <= 0 ? `${1 - year} BCE` : String(year)
 }

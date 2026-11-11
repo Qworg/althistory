@@ -329,6 +329,20 @@ export interface GraphMetadata {
   tags?: string[]
 }
 
+/**
+ * An invented world's calendar. Stored dates stay UTC instants on the
+ * Gregorian calendar; the calendar only relabels the year when a date is shown
+ * (see `utils/worldCalendar.ts`).
+ */
+export interface GraphCalendar {
+  /** The stored (Gregorian) year that is year 1 of this world: an integer 1..9999. */
+  epochYear: number
+  /** Written after the year: "AR" shows 312 as "312 AR". Absent or empty shows "Year 312". */
+  eraLabel?: string
+  /** What the calendar is called ("the Reckoning of Vael"). Display only. */
+  name?: string
+}
+
 export interface Graph {
   id: string
   name: string
@@ -340,6 +354,8 @@ export interface Graph {
   metadata: GraphMetadata
   parentGraphId?: string
   branchName?: string
+  /** Present when the graph is an invented world with its own calendar. */
+  calendar?: GraphCalendar
 }
 
 export interface GraphVersion {
@@ -368,6 +384,7 @@ export interface CreateGraphRequest {
   name: string
   description?: string
   tags?: string[]
+  calendar?: GraphCalendar
 }
 
 export interface UpdateGraphRequest {
@@ -375,6 +392,8 @@ export interface UpdateGraphRequest {
   description?: string
   tags?: string[]
   status?: GraphStatus
+  /** An object sets the calendar, `null` removes it, omitted keeps it. */
+  calendar?: GraphCalendar | null
 }
 
 export interface BranchGraphRequest {

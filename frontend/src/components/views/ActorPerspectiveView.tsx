@@ -11,7 +11,7 @@ import { useArcs } from '@/hooks/useArcs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
 import { Event, Arc } from '@/types'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatHistoricalTimestamp, worldYearLabel } from '@/utils/historicalTime'
 
 export interface ActorPerspectiveViewProps {
   className?: string
@@ -366,7 +366,7 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
               {actorEvents.length} {actorEvents.length === 1 ? 'event' : 'events'} · {actorStats.relationshipMetrics.asActor} as actor ·{' '}
               {actorStats.relationshipMetrics.asTarget} as target
               {actorStats.timeSpan && (
-                <> · {actorStats.timeSpan.start.getUTCFullYear()}–{actorStats.timeSpan.end.getUTCFullYear()}</>
+                <> · {worldYearLabel(actorStats.timeSpan.start.getUTCFullYear()) ?? actorStats.timeSpan.start.getUTCFullYear()}–{worldYearLabel(actorStats.timeSpan.end.getUTCFullYear()) ?? actorStats.timeSpan.end.getUTCFullYear()}</>
               )}
               {' '}· {relevantArcs.length} {relevantArcs.length === 1 ? 'arc' : 'arcs'}
             </div>

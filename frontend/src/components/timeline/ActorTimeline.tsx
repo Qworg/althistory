@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
-import { formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
+import { alignYearTicksToCalendar, formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
 import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
@@ -210,15 +211,17 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
 
   // Axis ticks. The interval and labels follow the visible span, as the d3
   // axis did: scale.ticks(interval) is exactly what axisBottom computed.
+  const worldCalendar = useWorldCalendar()
   const xTicks = useMemo(() => {
     const timeSpanMs = state.visibleTimeRange.end.getTime() - state.visibleTimeRange.start.getTime()
     const interval = getTimeAxisInterval(timeSpanMs)
-    return timeScale.ticks(interval).map(date => ({
+    // In a world calendar, multi-year steps land on the world's round years.
+    return alignYearTicksToCalendar(timeScale.ticks(interval), timeScale.domain(), worldCalendar).map(date => ({
       key: date.getTime(),
       x: timeScale(date),
-      label: formatTimeAxisTick(date, timeSpanMs)
+      label: formatTimeAxisTick(date, timeSpanMs, worldCalendar)
     }))
-  }, [timeScale, state.visibleTimeRange])
+  }, [timeScale, state.visibleTimeRange, worldCalendar])
 
   // Tick labels stand upright when they fit side by side, and turn 45° only
   // when the widest would run into its neighbour.

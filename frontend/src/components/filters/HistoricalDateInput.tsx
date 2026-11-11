@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react'
-import { parseHistoricalDate, type DateBoundEdge } from './filterUtils'
+import { parseHistoricalDate, worldBoundLabel, type DateBoundEdge } from './filterUtils'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
 
 /** The instant a bound stands for, or null when it is empty or unreadable. */
 function instantOf(text: string, edge: DateBoundEdge): number | null {
@@ -38,6 +39,9 @@ export function HistoricalDateInput({
   placeholder,
 }: HistoricalDateInputProps) {
   const errorId = useId()
+  const worldId = useId()
+  // In a world calendar the bound is still typed as a stored date; say what it reads as.
+  const calendar = useWorldCalendar()
   const [draft, setDraft] = useState(value)
   const [touched, setTouched] = useState(false)
 
@@ -55,6 +59,7 @@ export function HistoricalDateInput({
 
   const parsed = draft.trim() === '' ? null : parseHistoricalDate(draft, edge)
   const error = parsed && !parsed.ok && touched ? parsed.error : null
+  const world = parsed?.ok ? worldBoundLabel(parsed.text, edge, calendar) : null
 
   // The message waits for the field to be left (or Enter): mid-word, `1843-`
   // is not a mistake yet.
@@ -93,11 +98,16 @@ export function HistoricalDateInput({
           if (e.key === 'Enter') handleBlur()
         }}
         aria-invalid={error ? true : undefined}
-        aria-describedby={error ? `${errorId} ${hintId}` : hintId}
+        aria-describedby={[error ? errorId : null, world ? worldId : null, hintId].filter(Boolean).join(' ')}
         className={`w-full px-3 py-2 border rounded-md bg-card text-ink font-mono-code text-sm shadow-sm placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-selected ${
           error ? 'border-red-500 dark:border-red-400' : 'border-line focus:border-selected'
         }`}
       />
+      {world && !error && (
+        <p id={worldId} className="mt-1 text-xs text-ink-muted">
+          = {world}
+        </p>
+      )}
       {error && (
         <p id={errorId} className="mt-1 text-xs text-red-700 dark:text-red-300">
           {error}

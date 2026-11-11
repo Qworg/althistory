@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { TimeRange } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
+import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 
 interface TimeRangeSelectorProps {
   value: TimeRange | null
@@ -46,8 +47,11 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
 
   const handleDateChange = useCallback(() => {
     if (startDate && endDate) {
-      const start = new Date(startDate)
-      const end = new Date(endDate)
+      // The fields hold UTC wall-clock times (they are filled from
+      // toISOString), as every historical date is; read in the browser's zone
+      // they moved by its offset on each round trip through `value`.
+      const start = new Date(`${startDate}Z`)
+      const end = new Date(`${endDate}Z`)
       
       if (start <= end) {
         onChange({ start, end })
@@ -113,9 +117,8 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
     onChange(null)
   }, [onChange])
 
-  const formatDateForDisplay = (date: Date) => {
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  }
+  // A historical range: in UTC, and in the graph's world calendar when it has one.
+  const formatDateForDisplay = (date: Date) => formatHistoricalTimestamp(date)
 
   return (
     <div className={`space-y-4 ${className}`}>

@@ -3,7 +3,8 @@ import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { type ArcWithUIState, calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
-import { formatDuration, formatTimeAxisTicks } from '@/utils/d3Calculations'
+import { alignYearTicksToCalendar, formatDuration, formatTimeAxisTicks } from '@/utils/d3Calculations'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import EventArcAssignment from './EventArcAssignment'
 import PressureIndicators from './PressureIndicators'
 import { TimelineEvent } from './TimelineEvent'
@@ -257,6 +258,8 @@ const Timeline = memo(function Timeline({
   links,
   className = '',
 }: TimelineProps) {
+  // The graph's world calendar, if any: the axis labels its years as the event labels do.
+  const worldCalendar = useWorldCalendar()
   const containerRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null)
@@ -1709,9 +1712,10 @@ const Timeline = memo(function Timeline({
               // 12px monospace labels need about 96px each.
               const maxTicks = Math.min(10, Math.floor(innerWidth / 96))
               // Use count-based ticks for reliability, format based on time span
-              const ticks = xScale.ticks(maxTicks > 0 ? maxTicks : 5)
+              // In a world calendar, multi-year steps land on the world's round years.
+              const ticks = alignYearTicksToCalendar(xScale.ticks(maxTicks > 0 ? maxTicks : 5), xScale.domain(), worldCalendar)
               // Labelled as a set, so two ticks never share a label.
-              const labels = formatTimeAxisTicks(ticks, timeSpanMs)
+              const labels = formatTimeAxisTicks(ticks, timeSpanMs, worldCalendar)
               return ticks.map((tick, i) => (
                 <g key={i} transform={`translate(${xScale(tick)},0)`}>
                   <line y1={0} y2={6} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />

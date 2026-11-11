@@ -13,8 +13,8 @@ import {
   useGraphHeadVersion,
 } from '@/hooks/useGraphs'
 import { useGlobalStore } from '@/stores/globalStore'
-import { GraphStatus } from '@/types'
-import { formatHistoricalRange } from '@/utils/historicalTime'
+import { GraphCalendar, GraphStatus } from '@/types'
+import { formatHistoricalRange, worldYearLabel } from '@/utils/historicalTime'
 import { buildGraphTree, branchLabel } from './graphTree'
 
 /** The fork glyph, in the divergence accent: this graph is a branch. */
@@ -29,10 +29,14 @@ function ForkGlyph({ className = 'h-4 w-4' }: { className?: string }) {
   )
 }
 
-/** The UTC year of a timestamp, so a range never shifts by the viewer's zone. */
-function utcYear(value: string): string {
+/**
+ * The UTC year of a timestamp, so a range never shifts by the viewer's zone;
+ * in the graph's own years when it has a world calendar. Each graph in the
+ * list is labelled by its own calendar, not the open graph's.
+ */
+function utcYear(value: string, calendar: GraphCalendar | null): string {
   const year = new Date(value).getUTCFullYear()
-  return Number.isNaN(year) ? '?' : String(year)
+  return Number.isNaN(year) ? '?' : worldYearLabel(year, calendar) ?? String(year)
 }
 
 /**
@@ -310,10 +314,12 @@ export const GraphSelector = memo(function GraphSelector({
                           <span
                             title={formatHistoricalRange(
                               graph.metadata.timeRange.start,
-                              graph.metadata.timeRange.end
+                              graph.metadata.timeRange.end,
+                              undefined,
+                              graph.calendar ?? null
                             )}
                           >
-                            {utcYear(graph.metadata.timeRange.start)}–{utcYear(graph.metadata.timeRange.end)}
+                            {utcYear(graph.metadata.timeRange.start, graph.calendar ?? null)}–{utcYear(graph.metadata.timeRange.end, graph.calendar ?? null)}
                           </span>
                         )}
                       </div>

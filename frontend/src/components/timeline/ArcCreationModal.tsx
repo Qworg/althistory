@@ -3,6 +3,7 @@ import { TimeRange, CreateArcRequest, Event, Arc } from '@/types'
 import { useCreateArc } from '@/hooks/useAPI'
 import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
+import { WorldDateHint } from '@/components/ui/WorldDateHint'
 
 // Helper to convert an ISO instant to a datetime-local value (YYYY-MM-DDTHH:mm), in UTC
 const isoToDatetimeLocal = (isoString: string): string => {
@@ -324,6 +325,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                     }`}
                     required
                   />
+                  <WorldDateHint value={formData.start_time} />
                   {errors.start_time && <p className="mt-1 text-sm text-red-600">{errors.start_time}</p>}
                 </div>
 
@@ -341,6 +343,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                     }`}
                     required
                   />
+                  <WorldDateHint value={formData.end_time} />
                   {errors.end_time && <p className="mt-1 text-sm text-red-600">{errors.end_time}</p>}
                 </div>
               </div>

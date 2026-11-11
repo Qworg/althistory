@@ -2,6 +2,8 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { HistoricalDateInput } from './HistoricalDateInput'
 import { parseHistoricalDate } from './filterUtils'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { formatWorldYear } from '@/utils/worldCalendar'
 
 export interface FilterState {
   dateRange: {
@@ -64,6 +66,7 @@ export function FilterPanel({
   const [showAll, setShowAll] = useState({ actors: false, targets: false })
   const [searchParams, setSearchParams] = useSearchParams()
   const dateHintId = useId()
+  const worldCalendar = useWorldCalendar()
 
   // The URL -> filters sync below needs the *current* filters and callback, but
   // must stay keyed on `searchParams` alone: listing them would make every filter
@@ -280,6 +283,12 @@ export function FilterPanel({
             </div>
             <p id={dateHintId} className="mt-1.5 text-xs text-ink-muted">
               A year, year-month or full date, year first: 1843, 1843-11, 1843-11-20. Add BCE for earlier years (44 BCE). Each bound covers the whole period it names.
+              {worldCalendar && (
+                <>
+                  {' '}Type stored years: in this world’s calendar, stored {worldCalendar.epochYear} is{' '}
+                  {formatWorldYear(worldCalendar.epochYear, worldCalendar)}.
+                </>
+              )}
             </p>
             {dateRangeInverted && (
               <p className="mt-1 text-xs text-amber-800 dark:text-amber-300" role="status">

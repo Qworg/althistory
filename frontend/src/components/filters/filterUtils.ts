@@ -2,8 +2,10 @@ import type {
   Event,
   Arc,
   CausalRelationship,
-  FilterState
+  FilterState,
+  GraphCalendar
 } from '@/types'
+import { formatHistoricalDate, formatHistoricalDateAt, type DatePrecision } from '@/utils/historicalTime'
 import type { FilterState as PanelFilterState } from './FilterPanel'
 
 export type { PanelFilterState }
@@ -235,6 +237,24 @@ export function formatHistoricalDateBound(value: Date | string | null | undefine
     if (date.getUTCDate() === 1) return formatBound(date.getUTCFullYear(), date.getUTCMonth() + 1)
   }
   return formatBound(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate())
+}
+
+/**
+ * A typed bound as it reads in a world calendar ("1843-11" -> "Nov 844 AR"),
+ * at the precision it was typed; null without a calendar or a readable bound.
+ * Bounds are typed as stored (Gregorian) dates, like every date field; this is
+ * what the filter's hint and chip show beside them.
+ */
+export function worldBoundLabel(text: string, edge: DateBoundEdge, calendar: GraphCalendar | null): string | null {
+  if (!calendar || text.trim() === '') return null
+  const parsed = parseHistoricalDate(text, edge)
+  if (!parsed.ok) return null
+  const parts = parsed.text.replace(/ BCE$/, '').split('-').length
+  const precision: DatePrecision = parts === 1 ? 'year' : parts === 2 ? 'month' : 'day'
+  // An end bound is the period's last moment; the date alone names it.
+  return precision === 'day'
+    ? formatHistoricalDate(parsed.date, undefined, calendar)
+    : formatHistoricalDateAt(parsed.date, precision, undefined, calendar)
 }
 
 function toInputDate(value: Date | string | null | undefined, edge: DateBoundEdge): string {

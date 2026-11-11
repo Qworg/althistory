@@ -1,4 +1,5 @@
 import { Event, CausalRelationship } from '@/types'
+import { formatHistoricalDate } from '@/utils/historicalTime'
 
 export type DivergenceType = 'event_added' | 'event_modified' | 'event_removed' | 'relationship_changed'
 
@@ -121,8 +122,8 @@ export function findPointOfDivergence(items: readonly EventComparisonItem[]): Po
       event,
       type: 'event_added',
       description: event
-        ? `First new counterfactual event: "${event.description}" (${new Date(timestamp).toLocaleDateString()})`
-        : `New event introduced at ${new Date(timestamp).toLocaleDateString()}`,
+        ? `First new counterfactual event: "${event.description}" (${formatHistoricalDate(timestamp)})`
+        : `New event introduced at ${formatHistoricalDate(timestamp)}`,
     }
   }
 
@@ -144,8 +145,8 @@ export function findPointOfDivergence(items: readonly EventComparisonItem[]): Po
     event,
     type: 'event_removed',
     description: event
-      ? `Prevented/omitted event: "${event.description}" (${new Date(timestamp).toLocaleDateString()})`
-      : `Event prevented at ${new Date(timestamp).toLocaleDateString()}`,
+      ? `Prevented/omitted event: "${event.description}" (${formatHistoricalDate(timestamp)})`
+      : `Event prevented at ${formatHistoricalDate(timestamp)}`,
   }
 }
 

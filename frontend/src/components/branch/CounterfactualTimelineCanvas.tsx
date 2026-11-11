@@ -1,8 +1,10 @@
 import { memo, useMemo, useState, useCallback, useRef, useLayoutEffect, useEffect } from 'react'
 import type React from 'react'
 import * as d3 from 'd3'
-import { Event, Arc } from '@/types'
-import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { Event, Arc, GraphCalendar } from '@/types'
+import { formatHistoricalDate, formatHistoricalTimestamp, worldYearLabel } from '@/utils/historicalTime'
+import { alignYearTicksToCalendar } from '@/utils/d3Calculations'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import {
   analyzeEventDivergence,
   PointOfDivergence,
@@ -89,7 +91,7 @@ const TOOLTIP_WIDTH_PX = 240
  * that all fall on New Year's Day name the year alone; otherwise each tick is
  * a full UTC date ("May 10, 1940"), never shifted by the viewer's zone.
  */
-function formatTicks(dates: readonly Date[]): string[] {
+function formatTicks(dates: readonly Date[], calendar: GraphCalendar | null): string[] {
   const allYearStarts = dates.every(
     d =>
       d.getUTCMonth() === 0 &&
@@ -97,7 +99,12 @@ function formatTicks(dates: readonly Date[]): string[] {
       d.getUTCHours() === 0 &&
       d.getUTCMinutes() === 0
   )
-  return dates.map(d => (allYearStarts ? String(d.getUTCFullYear()) : formatHistoricalDate(d)))
+  // A world calendar relabels the year, on the axis as in the event labels.
+  return dates.map(d =>
+    allYearStarts
+      ? worldYearLabel(d.getUTCFullYear(), calendar) ?? String(d.getUTCFullYear())
+      : formatHistoricalDate(d, undefined, calendar)
+  )
 }
 
 /**
@@ -280,6 +287,8 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
   className = '',
   focusDivergence = false,
 }: CounterfactualTimelineCanvasProps) {
+  // The graph's world calendar, if any: the axis labels its years as the event labels do.
+  const worldCalendar = useWorldCalendar()
   const [zoomFactor, setZoomFactor] = useState(1)
   const [panOffset, setPanOffset] = useState(0)
   const [hovered, setHovered] = useState<HoveredItem | null>(null)
@@ -347,8 +356,13 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
 
   // 5. Ticks for time axis
   const timeTicks = useMemo(() => {
-    const dates = xScale.ticks(Math.max(2, Math.min(6, Math.floor(innerWidth / 110))))
-    const labels = formatTicks(dates)
+    const dates = alignYearTicksToCalendar(
+      xScale.ticks(Math.max(2, Math.min(6, Math.floor(innerWidth / 110)))),
+      xScale.domain(),
+      worldCalendar,
+      true
+    )
+    const labels = formatTicks(dates, worldCalendar)
     const kept = thinTicks(
       dates.map((date, i) => ({
         date,
@@ -363,7 +377,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
         tick.x + half > innerWidth + margin.right ? 'end' : tick.x - half < -margin.left ? 'start' : 'middle'
       return { ...tick, anchor }
     })
-  }, [xScale, innerWidth, margin.left, margin.right])
+  }, [xScale, innerWidth, margin.left, margin.right, worldCalendar])
 
   // Zoom controls
   const handleZoomIn = useCallback(() => {

@@ -1,4 +1,6 @@
 import { FilterState } from './FilterPanel'
+import { worldBoundLabel } from './filterUtils'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
 
 interface ActiveFiltersProps {
   filters: FilterState
@@ -22,6 +24,8 @@ export function ActiveFilters({
   onClearAll,
   className = ''
 }: ActiveFiltersProps) {
+  // Bounds are typed as stored dates; in a world calendar the chip reads in the world's years.
+  const calendar = useWorldCalendar()
   const getFilterTags = (): FilterTag[] => {
     const tags: FilterTag[] = []
 
@@ -36,7 +40,8 @@ export function ActiveFilters({
 
     // Date range
     if (filters.dateRange) {
-      const { start, end } = filters.dateRange
+      const start = worldBoundLabel(filters.dateRange.start, 'start', calendar) ?? filters.dateRange.start
+      const end = worldBoundLabel(filters.dateRange.end, 'end', calendar) ?? filters.dateRange.end
       const label = start && end 
         ? `Date: ${start} to ${end}`
         : start 

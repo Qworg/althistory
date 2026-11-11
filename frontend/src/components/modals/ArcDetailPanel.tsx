@@ -3,6 +3,7 @@ import { Arc, Event, UpdateArcRequest, CreateArcRequest } from '@/types'
 import { formatDuration } from '../timeline/arcHierarchyUtils'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
+import { WorldDateHint } from '@/components/ui/WorldDateHint'
 
 // Helper to convert an ISO instant to a datetime-local value (YYYY-MM-DDTHH:mm), in UTC
 const isoToDatetimeLocal = (isoString: string): string => {
@@ -317,6 +318,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
                       errors.start_time ? 'border-red-300' : 'border-line'
                     }`}
                   />
+                  <WorldDateHint value={formData.start_time || ''} />
                   {errors.start_time && <p id="arc-start-time-error" role="alert" className="mt-1 text-sm text-red-600">{errors.start_time}</p>}
                 </div>
 
@@ -336,6 +338,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
                       errors.end_time ? 'border-red-300' : 'border-line'
                     }`}
                   />
+                  <WorldDateHint value={formData.end_time || ''} />
                   {errors.end_time && <p id="arc-end-time-error" role="alert" className="mt-1 text-sm text-red-600">{errors.end_time}</p>}
                 </div>
               </div>

@@ -7,6 +7,7 @@
 
 import { memo, useCallback } from 'react'
 import { Graph, GraphStatus } from '@/types'
+import { formatWorldYear } from '@/utils/worldCalendar'
 
 interface GraphCardProps {
   /** The graph to display */
@@ -137,7 +138,10 @@ export const GraphCard = memo(function GraphCard({
       {/* Time Range (if available) */}
       {graph.metadata.timeRange && (
         <div className="mt-2 text-xs text-ink-muted">
-          {new Date(graph.metadata.timeRange.start).getFullYear()} - {new Date(graph.metadata.timeRange.end).getFullYear()}
+          {/* A world calendar relabels the years (the graph's own, not the open graph's). */}
+          {graph.calendar
+            ? `${formatWorldYear(new Date(graph.metadata.timeRange.start).getUTCFullYear(), graph.calendar)} - ${formatWorldYear(new Date(graph.metadata.timeRange.end).getUTCFullYear(), graph.calendar)}`
+            : `${new Date(graph.metadata.timeRange.start).getFullYear()} - ${new Date(graph.metadata.timeRange.end).getFullYear()}`}
         </div>
       )}
 
