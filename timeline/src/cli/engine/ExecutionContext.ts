@@ -24,6 +24,19 @@ function localAppKey(): string | undefined {
   }
 }
 
+/** Whether a /health answer is althistory's: a status, and a services map naming its graph service. */
+export function isAlthistoryHealth(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null) return false;
+  const record = body as Record<string, unknown>;
+  const services = record.services;
+  return (
+    typeof record.status === 'string' &&
+    typeof services === 'object' &&
+    services !== null &&
+    'graphService' in services
+  );
+}
+
 export class ExecutionContext {
   private engine?: IEngine;
   private options: GlobalCLIOptions;
@@ -67,13 +80,16 @@ export class ExecutionContext {
     // Any answer means the app is there, including 503: /health reports
     // "degraded" until its services have warmed up. Falling back to the files
     // then would make this process a second writer beside the running app.
+    // It has to be althistory's own health report, though: port 3000 is the
+    // default of many dev servers, and this one is about to be sent the
+    // app's admin key.
     let daemonAnswered = false;
     try {
       logger.debug(`Probing daemon at ${defaultUrl}...`);
-      await axios.get(`${defaultUrl}/health`, { timeout: 400 });
-      daemonAnswered = true;
+      const response = await axios.get(`${defaultUrl}/health`, { timeout: 400 });
+      daemonAnswered = isAlthistoryHealth(response.data);
     } catch (error) {
-      daemonAnswered = axios.isAxiosError(error) && error.response !== undefined;
+      daemonAnswered = axios.isAxiosError(error) && isAlthistoryHealth(error.response?.data);
     }
     if (daemonAnswered) {
       logger.debug('Daemon detected. Using RemoteEngine');

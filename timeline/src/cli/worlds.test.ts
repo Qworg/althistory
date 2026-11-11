@@ -15,6 +15,7 @@ import { MCP_PROMPTS, renderPrompt } from './mcp/prompts';
 import { TimelineGenerator } from './generator/TimelineGenerator';
 import { runCLI } from './index';
 import { ExitCode } from './utils/exitCodes';
+import { isAlthistoryHealth } from './engine/ExecutionContext';
 import { LLMClient } from '../services/llm/LLMClient';
 import { ExtractedEvent } from '../services/ingestion/types';
 
@@ -496,6 +497,19 @@ describe('invented worlds', () => {
       const imported = await engine.importGraph(JSON.stringify(document));
       created.push(imported.graphId!);
       expect((await engine.getGraph(imported.graphId!)).calendar).toEqual(CALENDAR);
+    });
+  });
+
+  describe('finding the running app', () => {
+    it("recognises only althistory's own health report, so another server on port 3000 is never sent the key", () => {
+      // What althistory answers while its services warm up (a 503), and when healthy.
+      expect(isAlthistoryHealth({ status: 'unhealthy', services: { graphService: true, eventRepository: false } })).toBe(true);
+      expect(isAlthistoryHealth({ status: 'healthy', services: { graphService: true } })).toBe(true);
+      // A dev server's page, another API's health check, nothing at all.
+      expect(isAlthistoryHealth('<!doctype html><html></html>')).toBe(false);
+      expect(isAlthistoryHealth({ status: 'ok' })).toBe(false);
+      expect(isAlthistoryHealth({ status: 'ok', services: { db: true } })).toBe(false);
+      expect(isAlthistoryHealth(undefined)).toBe(false);
     });
   });
 
