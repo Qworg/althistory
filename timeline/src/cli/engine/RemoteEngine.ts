@@ -102,7 +102,11 @@ export class RemoteEngine implements IEngine {
   private client: AxiosInstance;
   private baseUrl: string;
 
+  /** Whether requests carry a key, so a 401 can say what to do. */
+  private readonly sentApiKey: boolean;
+
   constructor(baseUrl: string = 'http://localhost:3000', apiKey?: string) {
+    this.sentApiKey = Boolean(apiKey);
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -142,7 +146,12 @@ export class RemoteEngine implements IEngine {
         error.message;
 
       if (status === 401 || status === 403) {
-        throw new AuthErrorCLI(`Authentication failed: ${message}`);
+        const hint =
+          status === 401 && !this.sentApiKey
+            ? ' No API key was sent: give one with --api-key or ALTHISTORY_API_KEY, or for the local app run ' +
+              './start-local.sh once, which writes ADMIN_API_KEY to timeline/.env.local.'
+            : '';
+        throw new AuthErrorCLI(`Authentication failed: ${message}${hint}`);
       }
       if (status === 404) {
         throw new NotFoundErrorCLI(`Resource not found: ${message}`);
@@ -196,7 +205,9 @@ export class RemoteEngine implements IEngine {
 
   async getHealth(): Promise<HealthInfo> {
     try {
-      const res = await this.client.get('/health');
+      // /health answers 503 while the app's services are unbuilt, which in
+      // local mode is most of the time; that is a report, not a failure.
+      const res = await this.client.get('/health', { validateStatus: (code) => code === 200 || code === 503 });
       const body = isRecord(res.data) ? res.data : {};
       return {
         status: body.status === 'healthy' ? 'healthy' : 'degraded',
@@ -880,7 +891,8 @@ export class RemoteEngine implements IEngine {
     if (!isWikipediaUrl(url)) {
       throw new ValidationErrorCLI(
         `The daemon reads Wikipedia articles only, so "${url}" cannot be ingested in remote mode. ` +
-          'Run it with --direct to read a page on any site.'
+          'Stop the althistory app and run it again to read a page on any site (or use --direct when no app ' +
+          'shares the data).'
       );
     }
     try {

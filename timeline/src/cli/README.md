@@ -5,10 +5,15 @@ JSON on stdout, writes its progress to stderr, and answers with a semantic
 exit code (`0` success, `1` general error, `2` validation failed, `3`
 authentication failed, `4` not found, `5` connection failed).
 
-The CLI runs in two modes. `--direct` (or the `LOCAL_EXECUTION_ENABLED`
-environment) runs in process against the local store; without it the CLI talks
-to the daemon over HTTP, and every request that names a graph says so in the
-`X-Graph-Id` header the daemon reads.
+The CLI runs in two modes. Without flags it looks for this clone's app on
+`127.0.0.1:3000`: if althistory answers there (even 503, while its services
+warm up), the CLI talks to it over HTTP with the app's own admin key from
+`timeline/.env.local` (then `ALTHISTORY_API_KEY`), and every request that names
+a graph says so in the `X-Graph-Id` header the daemon reads; otherwise it runs
+in process against the local store. `--url` names another daemon (its key from
+`--api-key` or `ALTHISTORY_API_KEY`), and `--direct` forces in-process mode,
+which must not be used while the app is running on the same data: two
+processes would write the same files.
 
 ## The commands
 
@@ -108,7 +113,8 @@ cannot read invented years. See [the MCP guide](../../../docs/mcp-agent-guide.md
 
 The daemon serves no generation routes: there is no
 `POST /api/generate/timeline`, `/branch` or `/expand` in the backend, so
-`generate timeline`, `generate branch` and `generate expand` need `--direct`.
+`generate timeline`, `generate branch` and `generate expand` run only in
+process: stop the app first (or use `--direct` when no app shares the data).
 In remote mode the CLI fails with a message naming the route that is missing;
 it does not fall back to a different route. `generate simulate` works in both
 modes, because the daemon serves `POST /api/inference/simulate`.

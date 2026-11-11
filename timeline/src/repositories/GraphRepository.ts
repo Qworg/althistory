@@ -56,11 +56,12 @@ export class GraphRepository {
     const graphsDir = path.join(this.dataDir, 'graphs');
     await fs.promises.mkdir(graphsDir, { recursive: true });
 
-    // Create index file if it doesn't exist
+    // Create index file if it doesn't exist. Under the index lock, which reads
+    // the index again first: another repository may have just created a graph.
     try {
       await fs.promises.access(this.graphsIndexPath);
     } catch {
-      await this.saveIndex({ graphs: [], activeGraphId: null });
+      await this.mutateIndex(() => undefined);
     }
   }
 
@@ -534,9 +535,22 @@ export class GraphRepository {
     await fs.promises.writeFile(metadataPath, JSON.stringify(graph.toJSON(), null, 2), 'utf-8');
   }
 
-  private async loadIndex(): Promise<GraphIndex> {
+  /**
+   * The index, or an empty one when there is none yet (or it cannot be
+   * parsed). With `strict`, any other failure to read it is thrown: a change
+   * made on top of an index that could not be read for a moment would write
+   * back an index holding only that change, and every other graph would drop
+   * out of the list.
+   */
+  private async loadIndex(strict = false): Promise<GraphIndex> {
+    let content: string;
     try {
-      const content = await fs.promises.readFile(this.graphsIndexPath, 'utf-8');
+      content = await fs.promises.readFile(this.graphsIndexPath, 'utf-8');
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      return { graphs: [], activeGraphId: null };
+    }
+    try {
       return JSON.parse(content) as GraphIndex;
     } catch {
       return { graphs: [], activeGraphId: null };
@@ -549,8 +563,8 @@ export class GraphRepository {
    */
   private async saveIndex(index: GraphIndex): Promise<void> {
     const temporary = `${this.graphsIndexPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
-    await fs.promises.writeFile(temporary, JSON.stringify(index, null, 2), 'utf-8');
     try {
+      await fs.promises.writeFile(temporary, JSON.stringify(index, null, 2), 'utf-8');
       // On Windows a rename onto a file that a scanner or indexer has open
       // fails for a moment (EPERM, EBUSY, EACCES); it is retried briefly.
       for (let attempt = 0; ; attempt++) {
@@ -583,7 +597,7 @@ export class GraphRepository {
     // container each make their own repository over the same index.
     const key = path.resolve(this.graphsIndexPath);
     const run = (indexQueues.get(key) ?? Promise.resolve()).then(async () => {
-      const index = await this.loadIndex();
+      const index = await this.loadIndex(true);
       if (change(index) === false) return;
       await this.saveIndex(index);
     });

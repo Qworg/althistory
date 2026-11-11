@@ -58,7 +58,8 @@ function worldYearIn(date: Date, formatter: Intl.DateTimeFormat, locale: string 
  * - a locale that writes the year first reads "312 AR 3月4日", "312 AR márc. 4."
  *   (with a comma where two numbers would meet: "Year 312, 3月4日");
  * - one that writes it last keeps its own separator ("Mar 4, 312 AR",
- *   "4 мар. 312 AR"), or gets a space after a numeric date ("4.03. 312 AR");
+ *   "4 мар. 312 AR"), or after a numeric date drops the date's trailing
+ *   separator and sets the year off with a comma ("4/03, 312 AR");
  * - one that puts it between other fields (none of the common ones) gets the
  *   date without it, then the year: "…, 312 AR".
  */

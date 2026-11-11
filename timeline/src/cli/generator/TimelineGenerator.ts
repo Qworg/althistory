@@ -84,6 +84,11 @@ const MS_PER_YEAR = 365.25 * MS_PER_DAY;
 /** How long an invented world's chronicle runs when no end date is given. */
 const WORLD_DEFAULT_SPAN_YEARS = 300;
 
+/** An arc that ends where it starts (or before) is given a day, so it has a width. */
+function widenedEnd(startMs: number, endMs: number): number {
+  return startMs >= endMs ? startMs + MS_PER_DAY : endMs;
+}
+
 /** The last instant a four-digit stored year can hold. */
 const LAST_STORED_INSTANT = Date.parse('9999-12-31T23:59:59.999Z');
 
@@ -264,13 +269,14 @@ export class TimelineGenerator {
         structuredArcs.map((arc, index) => [arc.tempId, `arc-dry-${index}`])
       );
       // The preview places each event as the write would: in the innermost
-      // arc that holds it (an arc of one instant is widened to a day, as there).
+      // arc that holds it (an arc that ends where it starts is widened to a
+      // day, as there).
       const dryArcIdOf = (timestamp: string): string | undefined => {
         const time = new Date(timestamp).getTime();
         const holding = structuredArcs
           .filter((arc) => {
             const start = Date.parse(arc.start_time);
-            const end = Math.max(Date.parse(arc.end_time), start + MS_PER_DAY);
+            const end = widenedEnd(start, Date.parse(arc.end_time));
             return start <= time && time <= end;
           })
           .sort((a, b) => b.level - a.level);
@@ -295,7 +301,7 @@ export class TimelineGenerator {
         name: a.name,
         description: a.description,
         startTime: a.start_time,
-        endTime: a.end_time,
+        endTime: new Date(widenedEnd(Date.parse(a.start_time), Date.parse(a.end_time))).toISOString(),
         level: a.level,
         parentArcId: a.parentArcId ? dryArcIdByTempId.get(a.parentArcId) : undefined,
       }));
@@ -346,9 +352,7 @@ export class TimelineGenerator {
     for (const a of orderedArcs) {
       const startTime = new Date(a.start_time);
       let endTime = new Date(a.end_time);
-      if (startTime.getTime() >= endTime.getTime()) {
-        endTime = new Date(startTime.getTime() + 24 * 60 * 60 * 1000);
-      }
+      endTime = new Date(widenedEnd(startTime.getTime(), endTime.getTime()));
       const created = await scoped.arcRepository.create({
         name: a.name,
         description: a.description || '',
@@ -616,8 +620,96 @@ export class TimelineGenerator {
       endMs: pivotTimeMs + stepMs * eventCount,
     };
 
+    // Generate divergent events
+    const { events: intermediateEvents, source } = await this.generateEventsPass(
+      divergentTimelineOptions,
+      branchPlan,
+      eventCount,
+      pivotTimeMs + MS_PER_DAY,
+      stepMs
+    );
+    const times = intermediateEvents.map((e) => new Date(e.timestamp).getTime());
+    const arcStart = Math.min(...times);
+    const arcEnd = Math.max(Math.max(...times), arcStart + MS_PER_DAY);
+    const branchArcName = `${options.branchName} Divergence Era`;
+    const branchArcDescription = branchPlan.calendar
+      ? `Another course for the chronicle from ${pivotEvent.actor}: ${options.counterfactualPrompt}`
+      : `Counterfactual divergent timeline from ${pivotEvent.actor}: ${options.counterfactualPrompt}`;
+
+    // The preview is what the write below makes: the same events, one arc
+    // holding them, a link from the pivot and a chain through them.
     if (options.dryRun) {
-      return this.generateFromPlan(divergentTimelineOptions, branchPlan, container);
+      const dryGraphId = `dry-${Date.now()}`;
+      const arcId = 'arc-dry-0';
+      const events: EventDto[] = intermediateEvents.map((e, idx) => ({
+        id: `evt-dry-${idx}`,
+        graphId: dryGraphId,
+        description: e.description,
+        timestamp: e.timestamp,
+        actor: e.actor,
+        target: e.target,
+        importance: e.importance,
+        metadata: { importance: e.importance, arcId },
+      }));
+      const chain: IntermediateCausalLink[] = intermediateEvents.slice(1).map((_, idx) => ({
+        causeIndex: idx,
+        effectIndex: idx + 1,
+        weight: 0.85,
+        type: 'direct',
+        reasoning: `Divergent cascade from ${intermediateEvents[idx].description}`,
+      }));
+      const relationships: CausalRelationshipDto[] = [
+        ...(events.length > 0
+          ? [
+              {
+                id: 'rel-dry-pivot',
+                graphId: dryGraphId,
+                causeId: pivotEvent.id,
+                effectId: events[0].id,
+                weight: 0.95,
+                type: 'direct',
+                reasoning: `Counterfactual branch point: ${options.counterfactualPrompt}`,
+                confidence: 0.95,
+              },
+            ]
+          : []),
+        ...chain.map((link, idx) => ({
+          id: `rel-dry-${idx}`,
+          graphId: dryGraphId,
+          causeId: events[link.causeIndex].id,
+          effectId: events[link.effectIndex].id,
+          weight: link.weight,
+          type: link.type,
+          reasoning: link.reasoning,
+          confidence: 0.9,
+        })),
+      ];
+      const arcPreview = { start_time: new Date(arcStart).toISOString(), end_time: new Date(arcEnd).toISOString() };
+      return {
+        graphId: dryGraphId,
+        graphName: options.branchName,
+        premise: options.counterfactualPrompt,
+        divergencePoint: pivotEvent.description,
+        ...(branchPlan.calendar ? { calendar: branchPlan.calendar } : {}),
+        source,
+        eventCount: events.length,
+        arcCount: 1,
+        relationshipCount: relationships.length,
+        events,
+        arcs: [
+          {
+            id: arcId,
+            graphId: dryGraphId,
+            name: branchArcName,
+            description: branchArcDescription,
+            startTime: arcPreview.start_time,
+            endTime: arcPreview.end_time,
+            level: 0,
+          },
+        ],
+        relationships,
+        validation: this.verifyIntegrityPass(intermediateEvents, [arcPreview], chain),
+      };
     }
 
     // Branch source graph
@@ -653,28 +745,14 @@ export class TimelineGenerator {
       branchPivotEvent = pivotEvent;
     }
 
-    // Generate divergent events
-    const { events: intermediateEvents, source } = await this.generateEventsPass(
-      divergentTimelineOptions,
-      branchPlan,
-      eventCount,
-      pivotTimeMs + 24 * 60 * 60 * 1000,
-      stepMs
-    );
-
     // The branch's arc holds the events it adds, so it is made first and each
     // event is placed in it. A top-level arc: it has no parent, so it is level
     // 0 (an export of a level-1 arc without a parent fails the import's
     // hierarchy check). It is recorded like the events, or an export of the
     // branch would leave it out.
-    const times = intermediateEvents.map((e) => new Date(e.timestamp).getTime());
-    const arcStart = Math.min(...times);
-    const arcEnd = Math.max(Math.max(...times), arcStart + MS_PER_DAY);
     const arc = await targetScoped.arcRepository.create({
-      name: `${options.branchName} Divergence Era`,
-      description: branchPlan.calendar
-        ? `Another course for the chronicle from ${pivotEvent.actor}: ${options.counterfactualPrompt}`
-        : `Counterfactual divergent timeline from ${pivotEvent.actor}: ${options.counterfactualPrompt}`,
+      name: branchArcName,
+      description: branchArcDescription,
       start_time: new Date(arcStart),
       end_time: new Date(arcEnd),
       level: 0,
@@ -738,6 +816,13 @@ export class TimelineGenerator {
         domainEvents[0],
         branchRel
       );
+      // Recorded, like the events and the arc: otherwise a diff cannot see the
+      // link, a merge leaves it behind, and a rollback of the branch loses it.
+      try {
+        await container.graphWriteVersioningService.recordRelationship(branchedGraphId, branchLink, 'create');
+      } catch {
+        // Best effort
+      }
       persistedRels.push({
         id: branchLink.id,
         graphId: branchedGraphId,
@@ -761,6 +846,11 @@ export class TimelineGenerator {
         relationship_type: 'direct',
       };
       const link = await targetScoped.causalService.createCausalLink(cause, effect, linkRel);
+      try {
+        await container.graphWriteVersioningService.recordRelationship(branchedGraphId, link, 'create');
+      } catch {
+        // Best effort
+      }
       persistedRels.push({
         id: link.id,
         graphId: branchedGraphId,
@@ -925,6 +1015,14 @@ export class TimelineGenerator {
       level: parentArc ? parentArc.level + 1 : 0,
       metadata: parentArc ? { parentArcId: parentArc.id } : {},
     });
+    // Recorded in the graph's history, like everything else the generator
+    // writes: a merge or rollback rebuilds the live store from that history,
+    // and an unrecorded expansion vanished from the graph.
+    try {
+      await container.graphWriteVersioningService.recordArc(options.graphId, createdArc, 'create');
+    } catch {
+      // Best effort
+    }
 
     const createdEvents: EventDto[] = [];
     for (const e of intermediateEvents) {
@@ -935,6 +1033,11 @@ export class TimelineGenerator {
         target: e.target,
         metadata: { importance: e.importance, arcId: createdArc.id },
       });
+      try {
+        await container.graphWriteVersioningService.recordEvent(options.graphId, created, 'create');
+      } catch {
+        // Best effort
+      }
       createdEvents.push({
         id: created.id,
         graphId: options.graphId,

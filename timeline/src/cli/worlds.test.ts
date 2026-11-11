@@ -1,4 +1,8 @@
 /**
+ * @vitest-environment node
+ */
+
+/**
  * Invented worlds through the CLI and the MCP server: the calendar, the
  * authoring tools, the world mode of `generate timeline`, the prompts, and the
  * exports an agent reads back.
@@ -16,6 +20,9 @@ import { TimelineGenerator } from './generator/TimelineGenerator';
 import { runCLI } from './index';
 import { ExitCode } from './utils/exitCodes';
 import { isAlthistoryHealth } from './engine/ExecutionContext';
+import { RemoteEngine } from './engine/RemoteEngine';
+import express from 'express';
+import { AddressInfo } from 'net';
 import { LLMClient } from '../services/llm/LLMClient';
 import { ExtractedEvent } from '../services/ingestion/types';
 
@@ -510,6 +517,72 @@ describe('invented worlds', () => {
       expect(isAlthistoryHealth({ status: 'ok' })).toBe(false);
       expect(isAlthistoryHealth({ status: 'ok', services: { db: true } })).toBe(false);
       expect(isAlthistoryHealth(undefined)).toBe(false);
+    });
+
+    it('reports the running app as degraded, not as a failure, while its health check answers 503', async () => {
+      const app = express();
+      app.get('/health', (_req, res) => {
+        res.status(503).json({ status: 'unhealthy', services: { graphService: true }, uptime: 12 });
+      });
+      const server = app.listen(0);
+      try {
+        const { port } = server.address() as AddressInfo;
+        const health = await new RemoteEngine(`http://127.0.0.1:${port}`).getHealth();
+        expect(health.status).toBe('degraded');
+        expect(health.executionMode).toBe('remote');
+      } finally {
+        await new Promise((resolve) => server.close(resolve));
+      }
+    });
+  });
+
+  describe('what generation records', () => {
+    it("records a branch's links, so a diff sees them and a merge can carry them", async () => {
+      const world = await engine.generateTimeline({ world: 'Vael', eventCount: 4 });
+      created.push(world.graphId);
+      const branch = await engine.generateBranch({
+        sourceGraphId: world.graphId,
+        divergeAtEventId: world.events[1].id,
+        counterfactualPrompt: 'The salt-kings make peace',
+        branchName: 'Peace',
+        eventCount: 3,
+      });
+      created.push(branch.graphId);
+      const diff = (await engine.diffGraph(world.graphId, branch.graphId)) as {
+        relationships: { added: number };
+        arcs: { added: number };
+      };
+      expect(diff.relationships.added).toBe(branch.relationships.length);
+      expect(diff.arcs.added).toBe(1);
+    });
+
+    it('previews a branch as the write makes it', async () => {
+      const world = await engine.generateTimeline({ world: 'Vael', eventCount: 4 });
+      created.push(world.graphId);
+      const request = {
+        sourceGraphId: world.graphId,
+        divergeAtEventId: world.events[1].id,
+        counterfactualPrompt: 'The salt-kings make peace',
+        branchName: 'Peace',
+        eventCount: 3,
+      };
+      const preview = await engine.generateBranch({ ...request, dryRun: true });
+      const written = await engine.generateBranch(request);
+      created.push(written.graphId);
+      expect(preview.arcs.map((arc) => arc.name)).toEqual(written.arcs.map((arc) => arc.name));
+      expect(preview.events.map((event) => event.timestamp)).toEqual(written.events.map((event) => event.timestamp));
+      expect(preview.relationships.length).toBe(written.relationships.length);
+      for (const event of preview.events) expect(event.metadata?.arcId).toBe(preview.arcs[0].id);
+      expect(preview.calendar).toEqual(written.calendar ?? (await engine.getGraph(written.graphId)).calendar);
+    });
+
+    it("records an expansion's arc and events in the graph's history", async () => {
+      const world = await engine.generateTimeline({ world: 'Vael', eventCount: 4 });
+      created.push(world.graphId);
+      const expanded = await engine.generateExpand({ graphId: world.graphId, eventCount: 2 });
+      const history = await (await engine.getContainer()).graphRepository.checkout(world.graphId);
+      expect(Object.keys(history.arcs)).toContain(expanded.arcs[0].id);
+      for (const event of expanded.events) expect(Object.keys(history.events)).toContain(event.id);
     });
   });
 

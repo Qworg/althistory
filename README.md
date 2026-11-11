@@ -123,8 +123,10 @@ underneath, so sorting and validation are unchanged.
 whole-cloth from a premise or a world description. It uses a model only when
 *the althistory process* has `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; without
 one it returns a template skeleton, and the result says
-`"source": "template"`. Generation runs in-process, so it needs `--direct` or
-the app stopped.
+`"source": "template"`. Generation runs in-process, so it needs the app
+stopped: with the app running, the CLI works through it (using the app's own
+key from `timeline/.env.local`), and the app has no generation route. Don't
+add `--direct` while the app runs; two processes would write the same files.
 
 ```bash
 ./bin/althistory schema                 # the JSON Schema of every command
@@ -132,12 +134,12 @@ the app stopped.
 
 # An invented world
 ./bin/althistory graph create "Vael" --epoch-year 1000 --era-label AR
-./bin/althistory generate timeline --world "A drowned archipelago ruled by salt-kings" --era-label AR --direct
+./bin/althistory generate timeline --world "A drowned archipelago ruled by salt-kings" --era-label AR   # app stopped
 ./bin/althistory prompt worldbuild world="A drowned archipelago" --plain   # the brief, for any agent
 
 # Real and alternate history
 ./bin/althistory ingest url "https://en.wikipedia.org/wiki/Battle_of_Hastings" -g <graphId>
-./bin/althistory generate timeline --premise "Byzantium wins at Manzikert" --divergence-point "1071-08-26" --direct
+./bin/althistory generate timeline --premise "Byzantium wins at Manzikert" --divergence-point "1071-08-26"   # app stopped
 ./bin/althistory generate simulate -g <graphId> --steps 3 --months 12
 ./bin/althistory validate <graphId> --auto-repair
 ./bin/althistory --plain export <graphId> --format markdown

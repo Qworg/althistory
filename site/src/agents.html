@@ -193,7 +193,7 @@
         <div>
           <h2 id="cli-h">Use the CLI</h2>
           <p>Every command prints JSON on stdout and its progress on stderr, so its output can go straight into a script or an agent. <code>althistory schema</code> prints the JSON Schema of every command, with the required options marked, so an agent can learn the tool by reading it.</p>
-          <p>Generating a history from a premise, or a world from a description, uses a model when <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> is set; without one you get a template to fill in. Ingestion reads text with patterns offline and adds a model when it has a key.</p>
+          <p>Generating a history from a premise, or a world from a description, uses a model when <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> is set; without one you get a template to fill in. Drafting runs in process, so stop the app first; every other command works with it running. Ingestion reads text with patterns offline and adds a model when it has a key.</p>
           <table class="exit-codes">
             <caption>Exit codes</caption>
             <tbody>
@@ -208,11 +208,11 @@
         </div>
         <div class="code-stack">
           <figure class="code">
-            <figcaption><span>Real and alternate history</span><button class="copy" type="button" aria-live="polite" data-copy="althistory generate timeline --premise &quot;Byzantium wins at Manzikert&quot; --divergence-point 1071-08-26 --direct&#10;althistory ingest url https://en.wikipedia.org/wiki/French_Revolution">Copy</button></figcaption>
+            <figcaption><span>Real and alternate history</span><button class="copy" type="button" aria-live="polite" data-copy="althistory generate timeline --premise &quot;Byzantium wins at Manzikert&quot; --divergence-point 1071-08-26&#10;althistory ingest url https://en.wikipedia.org/wiki/French_Revolution">Copy</button></figcaption>
 <pre aria-label="Example CLI commands"><code><span class="c"># Start from a premise</span>
 <span class="p">$ </span>althistory generate timeline \
     --premise <span class="s">"Byzantium wins at Manzikert"</span> \
-    --divergence-point 1071-08-26 --direct
+    --divergence-point 1071-08-26
 
 <span class="c"># Or from the record</span>
 <span class="p">$ </span>althistory ingest url \
@@ -226,11 +226,11 @@
 <span class="p">$ </span>althistory --plain export &lt;graph&gt; --format markdown</code></pre>
           </figure>
           <figure class="code">
-            <figcaption><span>Invented worlds</span><button class="copy" type="button" aria-live="polite" data-copy="althistory generate timeline --world &quot;A drowned archipelago ruled by salt-kings&quot; --era-label AR --direct&#10;althistory graph calendar &lt;graph&gt; --epoch-year 1000 --era-label AR&#10;althistory prompt worldbuild world=&quot;A drowned archipelago&quot; --plain">Copy</button></figcaption>
+            <figcaption><span>Invented worlds</span><button class="copy" type="button" aria-live="polite" data-copy="althistory generate timeline --world &quot;A drowned archipelago ruled by salt-kings&quot; --era-label AR&#10;althistory graph calendar &lt;graph&gt; --epoch-year 1000 --era-label AR&#10;althistory prompt worldbuild world=&quot;A drowned archipelago&quot; --plain">Copy</button></figcaption>
 <pre aria-label="Example CLI commands for an invented world"><code><span class="c"># Draft a world from a description</span>
 <span class="p">$ </span>althistory generate timeline \
     --world <span class="s">"A drowned archipelago ruled by salt-kings"</span> \
-    --era-label AR --direct
+    --era-label AR
 
 <span class="c"># Give a graph you already have its own calendar</span>
 <span class="p">$ </span>althistory graph calendar &lt;graph&gt; \
