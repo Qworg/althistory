@@ -6,6 +6,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PassThrough } from 'stream';
+import * as fs from 'fs';
+import * as path from 'path';
 import { DirectEngine } from './engine/DirectEngine';
 import { McpServer } from './mcp/McpServer';
 import { MCP_TOOLS } from './mcp/toolDefinitions';
@@ -342,6 +344,20 @@ describe('invented worlds', () => {
         for (const name of named) {
           expect(tools.has(name), `${prompt.name} names ${name}`).toBe(true);
         }
+      }
+    });
+
+    it('are all documented in the MCP guide, with every tool', () => {
+      const guide = fs.readFileSync(path.resolve(__dirname, '../../../docs/mcp-agent-guide.md'), 'utf8');
+      expect(guide).toContain(`The server exposes ${MCP_TOOLS.length} tools.`);
+      for (const tool of MCP_TOOLS) {
+        expect(guide, `the guide documents ${tool.name}`).toContain(`#### \`${tool.name}\``);
+        for (const argument of Object.keys(tool.inputSchema.properties)) {
+          expect(guide, `the guide names ${tool.name}'s ${argument}`).toContain(`\`${argument}\``);
+        }
+      }
+      for (const prompt of MCP_PROMPTS) {
+        expect(guide).toContain(`| \`${prompt.name}\` |`);
       }
     });
 

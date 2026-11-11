@@ -36,6 +36,17 @@ name the surviving event.
 `--mode llm` **fails** when no model answered, rather than presenting
 pattern output as the model's.
 
+### Prose about an invented world
+
+Ingesting text into a graph with a world calendar (see
+[the MCP guide](mcp-agent-guide.md#inventing-a-world)) tells the model how the
+world's years are stored, so "the Tide War began in 141 AR" lands on the
+stored year 1140. The patterns cannot read invented years: with `pattern`, or
+the pattern half of `hybrid`, give the dates in ISO 8601, or use `llm`. The
+arcs grouped from the events are named in the world's years. This is the CLI's
+in-process ingestion (`--direct`, and the MCP server); the daemon's review
+flow does not read the calendar yet.
+
 ### Provider selection
 
 The provider is inferred from the environment, or named with `--provider`:

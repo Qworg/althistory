@@ -15,17 +15,18 @@ to the daemon over HTTP, and every request that names a graph says so in the
 | Command | What it does |
 |:---|:---|
 | `status` | Reports the health and the execution mode. |
-| `graph list\|create\|info\|branch\|merge\|diff\|rollback\|delete` | Manages the graphs. |
+| `graph list\|create\|info\|calendar\|branch\|merge\|diff\|rollback\|delete` | Manages the graphs. `calendar` gives a graph an invented world's calendar, or removes it with `--clear`. |
 | `event add\|list\|get\|update\|delete` | Manages the events of a graph. |
 | `arc create\|list\|get\|delete\|assign` | Manages the narrative arcs. `assign` puts an event inside an arc. |
 | `causal link\|unlink\|list\|paths` | Manages the causal links and finds the paths between two events. |
 | `ingest text\|url\|wikidata` | Extracts events from a text, a page or Wikidata. |
-| `generate timeline\|branch\|expand\|simulate` | Generates an alternate history, a branch, an expansion or a simulation. |
+| `generate timeline\|branch\|expand\|simulate` | Generates an alternate history or an invented world, a branch, an expansion or a simulation. |
 | `validate` | Validates a graph, and with `--auto-repair` repairs what it can. |
 | `export` | Exports a graph as `json`, `markdown`, `dot` or `graphml`. |
 | `import` | Imports a graph from a JSON document. |
 | `schema` | The JSON Schema of every command, with the required options and arguments marked required (`--mcp` for the MCP tool dictionary, `--tool` for one tool). The default output used to be the MCP tool dictionary; it is now the command schema, which is what the flag list has always described. |
-| `mcp` | The stdio MCP server. |
+| `mcp` | The stdio MCP server: the tools, and the prompts below. |
+| `prompt [name] [key=value…]` | Prints an agent prompt (`worldbuild`, `alternate_history`, `grow_history`) with its arguments filled in; without a name, lists them. `--plain` prints the bare text, for an agent without MCP. |
 
 ## The ingestion modes
 
@@ -77,6 +78,30 @@ timeline is written. `generate expand --time-window` is the window to
 interpolate into, as two ISO-8601 instants separated by a slash
 (`2020-01-01T00:00:00Z/2020-12-31T00:00:00Z`); the expansion is recorded as
 an arc, a child of the arc it expands when there is one.
+
+## Invented worlds
+
+A graph can have a world calendar, so an invented world's years are shown in
+its own count. Dates are still stored as ISO-8601 instants; the calendar only
+relabels the year. `--epoch-year` is the stored year that is the world's year
+1, `--era-label` is written after a year ("312 AR"; without one, "Year 312"),
+and `--calendar-name` names the calendar. `graph create` and `graph calendar`
+take the three flags; a label or a name without an epoch is refused.
+
+`generate timeline --world <text>` chronicles an invented world from its
+founding instead of turning real history at a point of divergence: give
+`--world`, or `--premise` and `--divergence-point`, never both. The graph gets
+a calendar, its epoch defaulting to `--start-date`'s year or 1000, and the
+chronicle runs for 300 years unless `--end-date` says otherwise. With a model
+key the model is told the world is not Earth and how its years are stored;
+without one it is a template of ages to rewrite. `generate branch` of a world
+stays in that world and its calendar, and the arcs are named in its years.
+
+`export --format markdown` dates a world in its calendar with the stored date
+beside it ("Mar 4, 312 AR (1311-03-04)") and states the offset, so an agent
+reading it knows which dates to write. `ingest text` into a graph with a
+calendar tells the model how the text's years are stored; the pattern reader
+cannot read invented years. See [the MCP guide](../../../docs/mcp-agent-guide.md#inventing-a-world).
 
 ## What the daemon cannot do
 
