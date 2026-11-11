@@ -201,7 +201,7 @@ test('the graph picker shows the world in its own years', async ({ page }) => {
   await expect(page.getByText(COUNTS)).toBeVisible()
   await page.getByRole('button', { name: /The Engine Age/ }).first().click()
   const vael = page.getByRole('button', { name: /^Vael/ })
-  await expect(vael).toContainText('1 AR–164 AR')
+  await expect(vael).toContainText('1 AR–173 AR')
   await vael.click()
   await expect(page.getByText(WORLD_COUNTS)).toBeVisible()
   await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Siege of Hollow Isle"]')).toHaveAttribute('aria-label', /163 AR/)
