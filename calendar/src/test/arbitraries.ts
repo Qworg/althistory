@@ -35,12 +35,20 @@ const MONTH_CHARS = LABEL_CHARS.filter((char) => char !== ',')
 /** Characters no label holds: what `calendarIssues` must refuse. */
 export const FORBIDDEN_LABEL_CHARS = [
   '|', '\n', '\r', '\t', '\u0000', '\u007f', '\u0085', '\u2028', '\u2029',
-  // Bidi embeddings, overrides and isolates, which would reorder every date.
-  '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066', '\u2067', '\u2068', '\u2069',
 ]
 
-/** Invisible format characters a name may hold inside it, but not be made of. */
-export const INVISIBLE_CHARS = ['\u200b', '\u200c', '\u200d', '\u00ad', '\u2060', '\ufeff']
+/** Characters drawn as nothing: a name may hold them inside it, but not be made of them. */
+export const INVISIBLE_CHARS = [
+  '\u200B', '\u200C', '\u200D', '\u00AD', '\u2060', '\uFEFF',
+  // Not format characters, but drawn as nothing all the same.
+  '\u3164', '\uFFA0', '\u115F', '\u2800', '\uFE0F', '\u034F',
+]
+
+/** Text-direction controls that open (embeddings, overrides, isolates) and the one that closes each. */
+export const BIDI_PAIRS: Array<[string, string]> = [
+  ['\u202A', '\u202C'], ['\u202B', '\u202C'], ['\u202D', '\u202C'], ['\u202E', '\u202C'],
+  ['\u2066', '\u2069'], ['\u2067', '\u2069'], ['\u2068', '\u2069'],
+]
 export const FORBIDDEN_MONTH_CHARS = [...FORBIDDEN_LABEL_CHARS, ',', '[', ']', '"']
 
 function text(chars: string[], maxLength: number): fc.Arbitrary<string> {

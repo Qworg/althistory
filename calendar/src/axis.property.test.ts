@@ -52,7 +52,10 @@ describe('year ticks in a world calendar, for every axis and time zone', () => {
         const isRound = (year: number) => (year >= 1 ? year === 1 || year % used === 0 : (1 - year) % used === 0)
         const [lo, hi] = [+domain[0]!, +domain[1]!]
 
-        expect(aligned.length).toBeGreaterThanOrEqual(2)
+        expect(aligned.length).toBeGreaterThanOrEqual(1)
+        // A smaller step never draws more labels than d3 chose room for, and one.
+        if (used < step) expect(aligned.length).toBeLessThanOrEqual(ticks.length + 1)
+        if (aligned.length === 1) expect(used).toBe(step)
         for (const [i, tick] of aligned.entries()) {
           expect(+tick).toBe(+yearStart(yearOf(tick), utc))
           expect(isRound(worldYear(yearOf(tick), calendar)), String(worldYear(yearOf(tick), calendar))).toBe(true)
@@ -84,6 +87,16 @@ describe('year ticks in a world calendar, for every axis and time zone', () => {
       }),
       arb.runs(2000)
     )
+  })
+
+  it('does not crowd a narrow axis near year 1 with a smaller step', () => {
+    // Two ticks a 5-year step apart, epoch 1837: a step of 2 would draw five labels.
+    const calendar = { epochYear: 1837, eraLabel: 'AR' }
+    const ticks = [yearStart(1835, true), yearStart(1840, true)]
+    const domain = [new Date(Date.UTC(1832, 6, 1)), yearStart(1840, true)]
+    const aligned = alignYearTicksToCalendar(ticks, domain, calendar, true)
+    expect(aligned.length).toBeLessThanOrEqual(3)
+    expect(aligned.map((tick) => worldYear(tick.getUTCFullYear(), calendar))).toEqual([1])
   })
 
   it('puts a narrow two-tick axis on round world years, not "841 AR" and "851 AR"', () => {

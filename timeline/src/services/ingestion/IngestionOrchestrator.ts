@@ -20,6 +20,7 @@
  * cannot be imported twice.
  */
 
+import { toInstant } from '@althistory/calendar';
 import * as crypto from 'crypto';
 import { AppError } from '../../utils/errors';
 import {
@@ -446,9 +447,10 @@ export function validateExtraction(extraction: ExtractionResult): ValidationIssu
     if (!event.target.trim()) {
       issues.push(issue(event.tempId, 'event', 'error', 'Event target is required'));
     }
-    if (Number.isNaN(Date.parse(event.timestamp))) {
+    const time = toInstant(event.timestamp).getTime();
+    if (Number.isNaN(time)) {
       issues.push(issue(event.tempId, 'event', 'error', `Invalid event timestamp: ${event.timestamp}`));
-    } else if (Date.parse(event.timestamp) > Date.now()) {
+    } else if (time > Date.now()) {
       issues.push(issue(event.tempId, 'event', 'warning', 'Event timestamp is in the future'));
     }
     if (event.confidence < 0 || event.confidence > 1) {
@@ -465,8 +467,8 @@ export function validateExtraction(extraction: ExtractionResult): ValidationIssu
     if (!arc.name.trim()) {
       issues.push(issue(arc.tempId, 'arc', 'error', 'Arc name is required'));
     }
-    const start = Date.parse(arc.start_time);
-    const end = Date.parse(arc.end_time);
+    const start = toInstant(arc.start_time).getTime();
+    const end = toInstant(arc.end_time).getTime();
     if (Number.isNaN(start) || Number.isNaN(end)) {
       issues.push(issue(arc.tempId, 'arc', 'error', 'Arc start/end must be valid timestamps'));
     } else if (start > end) {

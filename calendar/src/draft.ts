@@ -63,7 +63,7 @@ function draftAsRequest(draft: CalendarDraft): Record<string, unknown> {
 export type CalendarDraftErrors = Partial<Record<keyof CalendarDraft, string>>
 
 /** Which of a field's issues the form shows, when it has several. */
-const MONTH_ISSUE_ORDER: CalendarIssue['code'][] = ['not-list', 'count', 'empty', 'forbidden', 'too-long', 'duplicate']
+const MONTH_ISSUE_ORDER: CalendarIssue['code'][] = ['not-list', 'count', 'empty', 'forbidden', 'bidi', 'too-long', 'duplicate']
 
 /** What the form says is wrong with each field; empty when the API would take it. */
 export function calendarDraftErrors(draft: CalendarDraft): CalendarDraftErrors {
@@ -91,7 +91,8 @@ function formMessage(issue: CalendarIssue): string {
       if (issue.code === 'too-long') {
         return `${what} can be at most ${issue.field === 'eraLabel' ? MAX_ERA_LABEL_LENGTH : MAX_CALENDAR_NAME_LENGTH} characters.`
       }
-      if (issue.code === 'forbidden') return `${what} cannot contain a “|”, a tab, a line break or a text-direction control.`
+      if (issue.code === 'forbidden') return `${what} cannot contain a “|”, a tab or a line break.`
+      if (issue.code === 'bidi') return `${what} has a text-direction control that is not closed.`
       if (issue.code === 'invisible') return `${what} cannot be made of invisible characters only.`
       return problemMessage(issue)
     case 'monthNames':
@@ -101,7 +102,9 @@ function formMessage(issue: CalendarIssue): string {
         case 'empty':
           return 'A month name cannot be empty or invisible.'
         case 'forbidden':
-          return 'A month name cannot contain a comma, a “|”, brackets, a double quote, a tab, a line break or a text-direction control.'
+          return 'A month name cannot contain a comma, a “|”, brackets, a double quote, a tab or a line break.'
+        case 'bidi':
+          return 'A month name has a text-direction control that is not closed.'
         case 'too-long':
           return `A month name can be at most ${MAX_MONTH_NAME_LENGTH} characters.`
         case 'duplicate':

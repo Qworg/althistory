@@ -114,6 +114,31 @@ describe('text that only looks right', () => {
     )
   })
 
+  it('refuses a text-direction control left open or closed out of turn, and keeps one closed in order', () => {
+    fc.assert(
+      fc.property(fc.constantFrom(...arb.BIDI_PAIRS), arb.eraLabel, fc.nat(11), ([open, close], text, month) => {
+        const inner = text.slice(0, 12)
+        // Closed around the text: kept, in a label, a name and a month name.
+        const wrapped = `${open}${inner}${close}`
+        expect(calendarIssues({ epochYear: 1000, eraLabel: wrapped, name: `Vael ${wrapped}` })).toEqual([])
+        // Left open, or a close with nothing open: refused, wherever it is.
+        for (const bad of [`${open}${inner}`, `${inner}${open}`, `${inner}${close}`, `${close}${inner}${open}`]) {
+          expect(calendarIssues({ epochYear: 1000, eraLabel: bad }), JSON.stringify(bad)).toContainEqual({ field: 'eraLabel', code: 'bidi' })
+          const months = Array.from({ length: 12 }, (_, i) => `M${i}`)
+          months[month] = `M${bad}`
+          expect(calendarIssues({ epochYear: 1000, monthNames: months }), JSON.stringify(bad)).toContainEqual({ field: 'monthNames', code: 'bidi' })
+        }
+      })
+    )
+    // An Israeli author's era label, isolated right-to-left: kept.
+    const rtl = `${String.fromCodePoint(0x2067)}עידן${String.fromCodePoint(0x2069)}`
+    expect(storedCalendar({ epochYear: 1000, eraLabel: rtl })).toEqual({ epochYear: 1000, eraLabel: rtl })
+    // Isolates nest; crossing them is not closing them in order.
+    const [lri, rli, pdi] = [0x2066, 0x2067, 0x2069].map((c) => String.fromCodePoint(c))
+    expect(calendarIssues({ epochYear: 1000, eraLabel: `${lri}A${rli}B${pdi}${pdi}` })).toEqual([])
+    expect(calendarIssues({ epochYear: 1000, eraLabel: `${lri}A${String.fromCodePoint(0x202c)}${pdi}` })).toContainEqual({ field: 'eraLabel', code: 'bidi' })
+  })
+
   it('keeps a zero-width non-joiner inside a word, as Persian writes it', () => {
     expect(calendarIssues({ epochYear: 1000, eraLabel: 'می\u200cرود' })).toEqual([])
   })

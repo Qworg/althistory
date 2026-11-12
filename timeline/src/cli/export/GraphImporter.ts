@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { GraphCalendar, storedCalendar } from '@althistory/calendar';
+import { GraphCalendar, storedCalendar, toInstant } from '@althistory/calendar';
 import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
 import { ImportResultDto } from '../types';
@@ -148,7 +148,7 @@ export class GraphImporter {
         } else if (strategy === 'overwrite') {
           await scoped.eventRepository.update(origId, {
             description: String(evtData.description || ''),
-            timestamp: new Date(String(evtData.timestamp)),
+            timestamp: toInstant(String(evtData.timestamp)),
             actor: String(evtData.actor || 'Unknown'),
             target: String(evtData.target || 'None'),
             metadata: meta,
@@ -161,7 +161,7 @@ export class GraphImporter {
           await scoped.eventRepository.create({
             id: newId,
             description: String(evtData.description || ''),
-            timestamp: new Date(String(evtData.timestamp)),
+            timestamp: toInstant(String(evtData.timestamp)),
             actor: String(evtData.actor || 'Unknown'),
             target: String(evtData.target || 'None'),
             metadata: meta,
@@ -173,7 +173,7 @@ export class GraphImporter {
         await scoped.eventRepository.create({
           id: origId,
           description: String(evtData.description || ''),
-          timestamp: new Date(String(evtData.timestamp)),
+          timestamp: toInstant(String(evtData.timestamp)),
           actor: String(evtData.actor || 'Unknown'),
           target: String(evtData.target || 'None'),
           metadata: meta,

@@ -51,34 +51,57 @@ export const MAX_MONTH_NAME_LENGTH = 24
  * mean a list was pasted as text ('["Lowtide", …]', "[Lowtide, …]") and split
  * in the wrong place. An apostrophe is fine.
  */
-const FORBIDDEN_IN_MONTH_NAME = /[,|"[\]\p{Cc}\p{Zl}\p{Zp}\u202A-\u202E\u2066-\u2069]/u
+const FORBIDDEN_IN_MONTH_NAME = /[,|"[\]\p{Cc}\p{Zl}\p{Zp}]/u
 /**
  * What the era label and the calendar's name may not hold, for the same
  * reasons: the label is in every date of an export's tables, and both go into
  * a model's instructions. A comma is fine in them; nothing lists them.
  */
-const FORBIDDEN_IN_LABEL = /[|\p{Cc}\p{Zl}\p{Zp}\u202A-\u202E\u2066-\u2069]/u
-/*
- * Both refuse the bidi embeddings, overrides and isolates (U+202A-E,
- * U+2066-9) too: one in a label would reorder every date it is written into.
- * Other invisible format characters are allowed inside text (Persian writes
- * a zero-width non-joiner within words), but text has to have something
- * visible in it, and two month names that differ only by them are the same
- * name (see `sameNameKey`).
- */
+const FORBIDDEN_IN_LABEL = /[|\p{Cc}\p{Zl}\p{Zp}]/u
 
-/** Whether text has a character a reader can see: not only spaces and invisible format characters. */
-function hasVisible(text: string): boolean {
-  return /[^\s\p{Cf}]/u.test(text)
+/**
+ * Whether every text-direction control in the text is closed in order: an
+ * embedding or override (\u202A, B, D, E) by \u202C, an isolate
+ * (\u2066-8) by \u2069. Closed, they keep their effect inside the text,
+ * which is how right-to-left text is set into a label; one left open would
+ * reorder every date the label is written into.
+ */
+function bidiClosed(text: string): boolean {
+  const open: string[] = []
+  for (const char of text) {
+    if (char === '\u202A' || char === '\u202B' || char === '\u202D' || char === '\u202E') open.push('\u202C')
+    else if (char === '\u2066' || char === '\u2067' || char === '\u2068') open.push('\u2069')
+    else if ((char === '\u202C' || char === '\u2069') && open.pop() !== char) return false
+  }
+  return open.length === 0
 }
 
 /**
- * The key two month names are compared by: without invisible format
- * characters, composed alike, in lower case, so "Thaw", "THAW" and
- * "Thaw\u200B" are one name.
+ * What a reader cannot see: spaces, the characters Unicode says to render as
+ * nothing (Default_Ignorable_Code_Point: zero-width spaces and joiners, soft
+ * hyphens, variation selectors, the Hangul fillers) and the blank braille
+ * pattern. Text may hold them (Persian writes a zero-width non-joiner inside
+ * words) but cannot be made of them alone.
+ */
+const INVISIBLE = /[\s\p{Default_Ignorable_Code_Point}\u2800]/u
+
+/** Whether text has a character a reader can see. */
+function hasVisible(text: string): boolean {
+  return [...text].some((char) => !INVISIBLE.test(char))
+}
+
+/**
+ * The key two month names are compared by: without what a reader cannot
+ * see, composed alike, in lower case, so "Thaw", "THAW" and "Thaw\u200B"
+ * are one name. The tag characters that spell a subdivision flag
+ * (\u{E0020}-\u{E007F} after a black flag) are kept: they make the
+ * flag, not padding.
  */
 function sameNameKey(name: string): string {
-  return name.replace(/\p{Cf}/gu, '').normalize('NFC').toLowerCase()
+  return name
+    .replace(/[\p{Default_Ignorable_Code_Point}\u2800]/gu, (char) => (/[\u{E0020}-\u{E007F}]/u.test(char) ? char : ''))
+    .normalize('NFC')
+    .toLowerCase()
 }
 
 const FIELDS = ['epochYear', 'eraLabel', 'name', 'monthNames'] as const
@@ -88,10 +111,10 @@ export type CalendarIssue =
   | { field: 'calendar'; code: 'not-object' }
   | { field: 'calendar'; code: 'unknown-field'; key: string }
   | { field: 'epochYear'; code: 'not-integer' | 'out-of-range' }
-  | { field: 'eraLabel' | 'name'; code: 'not-string' | 'too-long' | 'forbidden' | 'invisible' }
+  | { field: 'eraLabel' | 'name'; code: 'not-string' | 'too-long' | 'forbidden' | 'invisible' | 'bidi' }
   | { field: 'monthNames'; code: 'not-list' }
   | { field: 'monthNames'; code: 'count'; count: number }
-  | { field: 'monthNames'; code: 'empty' | 'too-long' | 'forbidden' }
+  | { field: 'monthNames'; code: 'empty' | 'too-long' | 'forbidden' | 'bidi' }
   | { field: 'monthNames'; code: 'duplicate'; name: string }
 
 /**
@@ -123,6 +146,7 @@ function textIssues(field: 'eraLabel' | 'name', value: unknown, maxLength: numbe
   const text = value.trim()
   if (text.length > maxLength) return [{ field, code: 'too-long' }]
   if (FORBIDDEN_IN_LABEL.test(text)) return [{ field, code: 'forbidden' }]
+  if (!bidiClosed(text)) return [{ field, code: 'bidi' }]
   // Empty is fine (it is dropped); text that only looks empty is not.
   if (text.length > 0 && !hasVisible(text)) return [{ field, code: 'invisible' }]
   return []
@@ -138,6 +162,7 @@ function monthNameIssues(value: unknown): CalendarIssue[] {
   if (names.some((name) => !hasVisible(name))) issues.push({ field: 'monthNames', code: 'empty' })
   if (names.some((name) => name.length > MAX_MONTH_NAME_LENGTH)) issues.push({ field: 'monthNames', code: 'too-long' })
   if (names.some((name) => FORBIDDEN_IN_MONTH_NAME.test(name))) issues.push({ field: 'monthNames', code: 'forbidden' })
+  if (names.some((name) => !bidiClosed(name))) issues.push({ field: 'monthNames', code: 'bidi' })
   const seen = new Set<string>()
   for (const name of names) {
     const key = sameNameKey(name)
@@ -177,6 +202,8 @@ export function problemMessage(issue: CalendarIssue): string {
       return `calendar.monthNames must name all ${MONTH_COUNT} months (got ${issue.count})`
     case 'empty':
       return 'calendar.monthNames cannot have an empty name (or one of invisible characters only)'
+    case 'bidi':
+      return `calendar.${issue.field} has a text-direction control (U+202A to U+202E, U+2066 to U+2069) left open, which would reorder the text after it`
     case 'invisible':
       return `calendar.${issue.field} cannot be made of invisible characters only`
     case 'duplicate':

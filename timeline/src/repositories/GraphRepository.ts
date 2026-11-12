@@ -450,7 +450,7 @@ export class GraphRepository {
     await this.update(branchGraph.id, { metadata });
 
     return new Graph({
-      ...branchGraph.toJSON(),
+      ...branchGraph.toStoredJSON(),
       metadata,
     });
   }
@@ -532,7 +532,8 @@ export class GraphRepository {
     await fs.promises.mkdir(graphDir, { recursive: true });
     
     const metadataPath = this.getGraphMetadataPath(graph.id);
-    await fs.promises.writeFile(metadataPath, JSON.stringify(graph.toJSON(), null, 2), 'utf-8');
+    // As stored: a calendar field a newer rule refuses is kept on disk, not dropped by an unrelated edit.
+    await fs.promises.writeFile(metadataPath, JSON.stringify(graph.toStoredJSON(), null, 2), 'utf-8');
   }
 
   /**

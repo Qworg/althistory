@@ -75,6 +75,13 @@ export class Graph implements IGraph {
   public readonly status: GraphStatus;
   public readonly metadata: GraphMetadata;
   public readonly calendar?: GraphCalendar;
+  /**
+   * The calendar exactly as it was stored. `calendar` is what of it still
+   * checks out; this is what is written back when nothing sets a new one, so
+   * a field a newer rule refuses is not lost to an unrelated edit (a rename),
+   * and comes back if the rule is relaxed.
+   */
+  private readonly calendarAsStored: unknown;
 
   constructor(data: CreateGraphData & { id?: string }) {
     this.id = data.id || this.generateId();
@@ -103,6 +110,7 @@ export class Graph implements IGraph {
     // by hand or under other limits: the fields that no longer check out are
     // dropped (see `storedCalendar`), rather than making the graph unreadable,
     // since a calendar only changes how dates are shown.
+    this.calendarAsStored = data.calendar;
     this.calendar = storedCalendar(data.calendar);
   }
 
@@ -149,8 +157,8 @@ export class Graph implements IGraph {
       branchPoint: this.branchPoint,
       status: updates.status ?? this.status,
       metadata: updates.metadata ?? this.metadata,
-      // `null` clears the calendar; `undefined` keeps it.
-      calendar: updates.calendar === null ? undefined : (updates.calendar ?? this.calendar),
+      // `null` clears the calendar; `undefined` keeps it, as it was stored.
+      calendar: updates.calendar === null ? undefined : (updates.calendar ?? (this.calendarAsStored as GraphCalendar | undefined)),
     });
   }
 
@@ -170,7 +178,7 @@ export class Graph implements IGraph {
       status: 'active',
       metadata: { ...this.metadata },
       // A branch is the same world, so it counts years the same way.
-      calendar: this.calendar,
+      calendar: this.calendarAsStored as GraphCalendar | undefined,
     });
   }
 
@@ -191,6 +199,15 @@ export class Graph implements IGraph {
       metadata: this.metadata,
       ...(this.calendar ? { calendar: this.calendar } : {}),
     };
+  }
+
+  /**
+   * The graph as it is written to storage: {@link toJSON}, with the calendar
+   * as it was stored rather than what of it still checks out.
+   */
+  toStoredJSON(): IGraph {
+    const { calendar: _shown, ...rest } = this.toJSON();
+    return this.calendarAsStored === undefined ? rest : { ...rest, calendar: this.calendarAsStored as GraphCalendar };
   }
 
   private generateId(): string {

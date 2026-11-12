@@ -184,7 +184,10 @@ export function worldBoundLabel(
  * day and other engines refuse. See {@link parseIsoInstant}.
  */
 export function readDateField(value: string | null | undefined): { date: Date; dateOnly: boolean } | null {
-  return value ? parseIsoInstant(value) : null
+  const parsed = value ? parseIsoInstant(value) : null
+  // A field holds a whole date: "1066" is a free-text field part-way through.
+  if (!parsed || parsed.precision === 'year' || parsed.precision === 'month') return null
+  return { date: parsed.date, dateOnly: parsed.dateOnly }
 }
 
 /**

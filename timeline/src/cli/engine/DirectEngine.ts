@@ -44,7 +44,7 @@ import {
 import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { calendarExtractionInstructions, type GraphCalendar } from '@althistory/calendar';
+import { calendarExtractionInstructions, type GraphCalendar, toInstant } from '@althistory/calendar';
 import type { IGraph } from '@/models/Graph';
 import { validateCausalRelationshipFields } from '@/services/CausalService';
 
@@ -240,7 +240,7 @@ export class DirectEngine implements IEngine {
   ): Promise<EventDto> {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
-    const parsedDate = new Date(data.timestamp);
+    const parsedDate = toInstant(data.timestamp);
     if (isNaN(parsedDate.getTime())) {
       throw new ValidationErrorCLI(`Invalid timestamp: ${data.timestamp}`);
     }
@@ -327,7 +327,7 @@ export class DirectEngine implements IEngine {
     if (data.actor !== undefined) updatePayload.actor = data.actor;
     if (data.target !== undefined) updatePayload.target = data.target;
     if (data.timestamp !== undefined) {
-      const d = new Date(data.timestamp);
+      const d = toInstant(data.timestamp);
       if (isNaN(d.getTime())) throw new ValidationErrorCLI(`Invalid timestamp: ${data.timestamp}`);
       updatePayload.timestamp = d;
     }
@@ -639,7 +639,7 @@ export class DirectEngine implements IEngine {
           new Event({
             id: e.tempId,
             description: e.description,
-            timestamp: new Date(e.timestamp),
+            timestamp: toInstant(e.timestamp),
             actor: e.actor || 'Unknown',
             target: e.target || 'None',
           })
@@ -665,7 +665,7 @@ export class DirectEngine implements IEngine {
       // and a link the server would refuse, so the dry run skips those too.
       const timestampsByTempId = new Map<string, Date>();
       for (const event of events) {
-        timestampsByTempId.set(event.tempId, new Date(event.timestamp));
+        timestampsByTempId.set(event.tempId, toInstant(event.timestamp));
       }
 
       const creatableRelationships = relationships.filter((r) => {
@@ -726,7 +726,7 @@ export class DirectEngine implements IEngine {
     for (const e of events) {
       const created = await scoped.eventRepository.create({
         description: e.description,
-        timestamp: new Date(e.timestamp),
+        timestamp: toInstant(e.timestamp),
         actor: e.actor || 'Unknown',
         target: e.target || 'None',
       });

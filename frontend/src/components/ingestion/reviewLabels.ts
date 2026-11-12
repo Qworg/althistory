@@ -7,6 +7,7 @@
  * the entity it names is not in the extraction.
  */
 
+import { parseIsoInstant } from '@althistory/calendar'
 import type {
   ExtractedArc,
   ExtractedEvent,
@@ -103,7 +104,11 @@ export function compactReviewDate(raw: string): string {
   return raw
 }
 
-/** True when `raw` is a date the importer can read. */
+/**
+ * True when `raw` is a date the importer can read: ISO 8601, read by the same
+ * `parseIsoInstant` as the server's ingestion and the line that shows it, so
+ * a date that passes here never reads "Invalid date" beneath the field.
+ */
 export function isReadableReviewDate(raw: string): boolean {
-  return raw.trim() !== '' && !Number.isNaN(new Date(raw.trim()).getTime())
+  return parseIsoInstant(raw.trim()) !== null
 }

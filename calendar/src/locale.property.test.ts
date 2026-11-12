@@ -89,14 +89,18 @@ describe('a date in a world calendar, in every locale and time zone', () => {
     // little (the next day, the month before, a year or a century on, the
     // other side of the era), not two dates drawn thousands of years apart.
     const nearby = fc
-      .tuple(instant, fc.constantFrom('day+1', 'day-1', 'day+2', 'month+1', 'month-1', 'year+1', 'year-1', 'year+10', 'year+100', 'era'))
-      .map(([a, change]) => {
+      .tuple(
+        instant,
+        fc.constantFrom<[string, number]>(
+          ['day', 1], ['day', -1], ['day', 2], ['month', 1], ['month', -1],
+          ['year', 1], ['year', -1], ['year', 10], ['year', 100], ['year', -1000], ['era', 0]
+        )
+      )
+      .map(([a, [field, by]]) => {
         const b = new Date(a)
-        const [field, by] = change === 'era' ? ['era', 0] : [change.slice(0, -2), Number(change.slice(-2))]
         if (field === 'day') b.setUTCDate(b.getUTCDate() + by)
         else if (field === 'month') b.setUTCMonth(b.getUTCMonth() + by)
         else if (field === 'year') b.setUTCFullYear(b.getUTCFullYear() + by)
-        else if (field === 'year+') b.setUTCFullYear(b.getUTCFullYear() + Number(change.slice(5)))
         else b.setUTCFullYear(1 - b.getUTCFullYear())
         return [a, b] as const
       })

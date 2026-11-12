@@ -893,5 +893,19 @@ describe('Graph Model', () => {
       expect(graph.branch('Branch').calendar).toEqual({ epochYear: 1000 });
       expect(graph.update({ calendar: null }).toJSON()).not.toHaveProperty('calendar');
     });
+
+    it('writes back a field a newer rule refuses unchanged on an unrelated edit, and shows only what checks out', () => {
+      const months = ['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun', 'Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Long, night'];
+      const stored = { epochYear: 1000, eraLabel: 'AR', monthNames: months };
+      const graph = new Graph({ name: 'Vael', calendar: stored });
+      const renamed = graph.update({ name: 'Vael, renamed' });
+      expect(renamed.calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
+      expect(renamed.toJSON().calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
+      expect(renamed.toStoredJSON().calendar).toEqual(stored);
+      expect(graph.branch('Branch').toStoredJSON().calendar).toEqual(stored);
+      // Setting a calendar replaces it whole, and clearing it clears it.
+      expect(graph.update({ calendar: { epochYear: 1200 } }).toStoredJSON().calendar).toEqual({ epochYear: 1200 });
+      expect(graph.update({ calendar: null }).toStoredJSON()).not.toHaveProperty('calendar');
+    });
   });
 });

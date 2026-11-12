@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { GraphCalendar, storedCalendar } from '@althistory/calendar';
+import { GraphCalendar, storedCalendar, toInstant } from '@althistory/calendar';
 import { IEngine } from './IEngine';
 import {
   HealthInfo,
@@ -1128,7 +1128,7 @@ export class RemoteEngine implements IEngine {
       description: readString(event.description, 'Untitled event'),
       actor: readString(event.actor, 'Unknown'),
       target: readString(event.target, 'Unknown'),
-      timestamp: new Date(readString(event.timestamp)),
+      timestamp: toInstant(readString(event.timestamp)),
       metadata: readRecord(event.metadata),
     });
   }

@@ -28,7 +28,7 @@ import {
 import { clusterEventsIntoArcs } from './arcClustering';
 import { ExtractedArc, ExtractedEvent } from '@/services/ingestion/types';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { GraphCalendar, formatWorldYear, normalizeCalendar } from '@althistory/calendar';
+import { GraphCalendar, formatWorldYear, normalizeCalendar, toInstant } from '@althistory/calendar';
 import { ValidationErrorCLI } from '../utils/exitCodes';
 
 export interface TimelineGeneratorConfig {
@@ -93,16 +93,13 @@ function widenedEnd(startMs: number, endMs: number): number {
 const LAST_STORED_INSTANT = Date.parse('9999-12-31T23:59:59.999Z');
 
 /**
- * An ISO-8601 instant, NaN when absent or unreadable. A date-time written
- * without a zone is read as UTC, like every historical date here: `Date.parse`
- * would read it in the host's zone, and in Tokyo "1000-01-01T00:00" is the
- * last day of 999.
+ * An ISO-8601 instant in milliseconds, NaN when absent or unreadable: the
+ * package's `toInstant`, so a date-time written without a zone is UTC, like
+ * every historical date here (`Date.parse` would read it in the host's zone,
+ * and in Tokyo "1000-01-01T00:00" is the last day of 999).
  */
 function parseInstant(value: string | undefined): number {
-  if (!value) return NaN;
-  const trimmed = value.trim();
-  const zoneless = /^[+-]?\d{4,6}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(trimmed);
-  return Date.parse(zoneless ? `${trimmed}Z` : trimmed);
+  return value ? toInstant(value).getTime() : NaN;
 }
 
 /** The stored year an invented world's year 1 falls on when nothing says otherwise. */
@@ -181,8 +178,8 @@ export function parseTimeWindow(value: string): { start: number; end: number } {
   }
 
   const [rawStart, rawEnd] = value.split(separator);
-  const start = Date.parse(rawStart.trim());
-  const end = Date.parse(rawEnd.trim());
+  const start = parseInstant(rawStart);
+  const end = parseInstant(rawEnd);
 
   if (Number.isNaN(start) || Number.isNaN(end)) {
     throw new Error(`Invalid time window "${value}": both instants must be ISO-8601 dates`);
@@ -272,11 +269,11 @@ export class TimelineGenerator {
       // arc that holds it (an arc that ends where it starts is widened to a
       // day, as there).
       const dryArcIdOf = (timestamp: string): string | undefined => {
-        const time = new Date(timestamp).getTime();
+        const time = parseInstant(timestamp);
         const holding = structuredArcs
           .filter((arc) => {
-            const start = Date.parse(arc.start_time);
-            const end = widenedEnd(start, Date.parse(arc.end_time));
+            const start = parseInstant(arc.start_time);
+            const end = widenedEnd(start, parseInstant(arc.end_time));
             return start <= time && time <= end;
           })
           .sort((a, b) => b.level - a.level);
@@ -301,7 +298,7 @@ export class TimelineGenerator {
         name: a.name,
         description: a.description,
         startTime: a.start_time,
-        endTime: new Date(widenedEnd(Date.parse(a.start_time), Date.parse(a.end_time))).toISOString(),
+        endTime: new Date(widenedEnd(parseInstant(a.start_time), parseInstant(a.end_time))).toISOString(),
         level: a.level,
         parentArcId: a.parentArcId ? dryArcIdByTempId.get(a.parentArcId) : undefined,
       }));
@@ -350,8 +347,8 @@ export class TimelineGenerator {
     const arcIdByTempId = new Map<string, string>();
     const orderedArcs = [...structuredArcs].sort((a, b) => a.level - b.level);
     for (const a of orderedArcs) {
-      const startTime = new Date(a.start_time);
-      let endTime = new Date(a.end_time);
+      const startTime = toInstant(a.start_time);
+      let endTime = toInstant(a.end_time);
       endTime = new Date(widenedEnd(startTime.getTime(), endTime.getTime()));
       const created = await scoped.arcRepository.create({
         name: a.name,
@@ -382,9 +379,9 @@ export class TimelineGenerator {
     // and the exports read (`metadata.arcId`); otherwise every event was left
     // outside the arcs that were drawn around it.
     const arcIdOf = (timestamp: string): string | undefined => {
-      const time = new Date(timestamp).getTime();
+      const time = parseInstant(timestamp);
       const holding = persistedArcs
-        .filter((arc) => Date.parse(arc.startTime) <= time && time <= Date.parse(arc.endTime))
+        .filter((arc) => parseInstant(arc.startTime) <= time && time <= parseInstant(arc.endTime))
         .sort((a, b) => (b.level ?? 0) - (a.level ?? 0));
       return holding[0]?.id;
     };
@@ -394,7 +391,7 @@ export class TimelineGenerator {
     for (const e of intermediateEvents) {
       const created = await scoped.eventRepository.create({
         description: e.description,
-        timestamp: new Date(e.timestamp),
+        timestamp: toInstant(e.timestamp),
         actor: e.actor,
         target: e.target,
         metadata: { importance: e.importance, ...(arcIdOf(e.timestamp) ? { arcId: arcIdOf(e.timestamp) } : {}) },
@@ -477,7 +474,7 @@ export class TimelineGenerator {
    */
   private buildArcHierarchy(baseArcs: ExtractedArc[], depth: number, calendar?: GraphCalendar): StructuredArc[] {
     const yearOf = (timestamp: string): string => {
-      const year = new Date(timestamp).getUTCFullYear();
+      const year = toInstant(timestamp).getUTCFullYear();
       return calendar ? formatWorldYear(year, calendar) : timestamp.slice(0, 4);
     };
     const maxDepth = Math.max(1, Math.min(Math.trunc(depth) || 1, 4));
@@ -548,7 +545,7 @@ export class TimelineGenerator {
    */
   private groupArcsForParents(arcs: StructuredArc[]): StructuredArc[][] {
     const sorted = [...arcs].sort(
-      (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+      (a, b) => parseInstant(a.start_time) - parseInstant(b.start_time)
     );
 
     const gaps: number[] = [];
@@ -628,7 +625,7 @@ export class TimelineGenerator {
       pivotTimeMs + MS_PER_DAY,
       stepMs
     );
-    const times = intermediateEvents.map((e) => new Date(e.timestamp).getTime());
+    const times = intermediateEvents.map((e) => parseInstant(e.timestamp));
     const arcStart = Math.min(...times);
     const arcEnd = Math.max(Math.max(...times), arcStart + MS_PER_DAY);
     const branchArcName = `${options.branchName} Divergence Era`;
@@ -779,7 +776,7 @@ export class TimelineGenerator {
     for (const e of intermediateEvents) {
       const created = await targetScoped.eventRepository.create({
         description: e.description,
-        timestamp: new Date(e.timestamp),
+        timestamp: toInstant(e.timestamp),
         actor: e.actor,
         target: e.target,
         metadata: { importance: e.importance, arcId: arc.id },
@@ -1029,7 +1026,7 @@ export class TimelineGenerator {
     for (const e of intermediateEvents) {
       const created = await scoped.eventRepository.create({
         description: e.description,
-        timestamp: new Date(e.timestamp),
+        timestamp: toInstant(e.timestamp),
         actor: e.actor,
         target: e.target,
         metadata: { importance: e.importance, arcId: createdArc.id },
@@ -1167,7 +1164,7 @@ export class TimelineGenerator {
     for (const e of simulatedEvents) {
       const created = await scoped.eventRepository.create({
         description: e.description,
-        timestamp: new Date(e.timestamp),
+        timestamp: toInstant(e.timestamp),
         actor: e.actor,
         target: e.target,
         metadata: { importance: e.importance },
@@ -1349,7 +1346,7 @@ Generate ${eventCount} chronological historical events demonstrating this counte
         });
         if (extracted.length >= 3) {
           const sorted = [...extracted].sort(
-            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            (a, b) => parseInstant(a.timestamp) - parseInstant(b.timestamp)
           );
           const events = sorted.map((e, idx) => ({
             description: e.description,

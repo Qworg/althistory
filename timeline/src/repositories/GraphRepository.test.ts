@@ -423,6 +423,27 @@ describe('GraphRepository Unit Tests', () => {
       expect(result?.version).toBe(2); // Version should increment
     });
 
+    it('writes a stored calendar back as it was on a rename, though it shows only what checks out', async () => {
+      const calendar = { epochYear: 1000, eraLabel: 'AR', monthNames: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L, M'] };
+      const graphData = {
+        id: 'test-id',
+        name: 'Vael',
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+        version: 1,
+        status: 'active',
+        metadata: { eventCount: 0, arcCount: 0, relationshipCount: 0, pressureCount: 0 },
+        calendar,
+      };
+      vi.mocked(fs.promises.readFile).mockResolvedValueOnce(JSON.stringify(graphData));
+
+      const result = await repository.update('test-id', { name: 'Vael, renamed' });
+
+      expect(result?.calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
+      const written = vi.mocked(fs.promises.writeFile).mock.calls.map(([, body]) => String(body)).find((body) => body.includes('Vael, renamed'));
+      expect(JSON.parse(written!).calendar).toEqual(calendar);
+    });
+
     it('should return null if graph not found', async () => {
       vi.mocked(fs.promises.readFile).mockRejectedValueOnce(new Error('ENOENT'));
 

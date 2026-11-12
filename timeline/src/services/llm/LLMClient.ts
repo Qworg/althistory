@@ -11,6 +11,7 @@
  * `../ingestion/index.ts`).
  */
 
+import { parseIsoInstant } from '@althistory/calendar';
 import { ExtractedEvent, ExtractedRelationship, ExtractionContext, ExtractionSource } from '../ingestion/types';
 import { JsonValue, parseJsonBody } from '../ingestion/http';
 import { newTempId } from '../ingestion/ids';
@@ -67,8 +68,9 @@ function asString(value: JsonValue | undefined): string {
   return typeof value === 'string' ? value : '';
 }
 
+/** ISO 8601, read as the app and the review read it (`parseIsoInstant`): never in the server's zone. */
 function isValidTimestamp(value: string): boolean {
-  return value.length > 0 && !Number.isNaN(Date.parse(value));
+  return parseIsoInstant(value) !== null;
 }
 
 /** Items may be under `events` or the payload may be the array itself. */

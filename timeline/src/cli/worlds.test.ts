@@ -177,6 +177,32 @@ describe('invented worlds', () => {
       expect(await engine.listEvents(graph.id)).toEqual([]);
     });
 
+    it("reads an agent's timestamp with the package's ISO reader: no zone is UTC, prose is refused", async () => {
+      // The reader's zone independence is tested in calendar/, in five zones
+      // (TZ cannot be changed inside a vitest worker thread). Here: the tool
+      // goes through it, so a zone-less time is stored as UTC on this host
+      // too, and prose that new Date() would guess at is refused.
+      const graph = await engine.createGraph('Zoneless');
+      created.push(graph.id);
+      for (const [timestamp, stored] of [
+        ['1001-03-04T00:00', '1001-03-04T00:00:00.000Z'],
+        ['1001-03-04 09:30', '1001-03-04T09:30:00.000Z'],
+        ['1066', '1066-01-01T00:00:00.000Z'],
+      ]) {
+        const event = await callTool(server, 'althistory_create_event', {
+          graphId: graph.id,
+          description: `At ${timestamp}`,
+          timestamp,
+          actor: 'Salt-kings',
+          target: 'Vael',
+        });
+        expect(new Date(event.timestamp).toISOString(), timestamp).toBe(stored);
+      }
+      await expect(
+        callTool(server, 'althistory_create_event', { graphId: graph.id, description: 'Prose', timestamp: 'Feb 14 1001', actor: 'A', target: 'B' })
+      ).rejects.toThrow(/Invalid timestamp/);
+    });
+
     it('says which event it created when it cannot put it in the arc', async () => {
       const graph = await engine.createGraph('No Such Arc');
       created.push(graph.id);

@@ -19,9 +19,11 @@ import { storedYear, worldYear } from './years'
  * counts back ("20 before" is world year -19); and year 1 stands in for the
  * year 0 that a plain multiple would put at the epoch. When fewer than two of
  * the step's round years are in view (a narrow axis given two ticks a decade
- * apart may hold only one), the next smaller step of d3's 1-2-5 series is
- * used: an axis of world years never falls back to Gregorian round numbers
- * ("841 AR", "851 AR"). Ticks that are not all New Year's Days at an even
+ * apart may hold only one), the next smaller step of d3's 1-2-5 series that
+ * gives no more than one tick over d3's count is used, or else that one round
+ * year alone: an axis of world years never falls back to Gregorian round
+ * numbers ("841 AR", "851 AR"), and never crowds more labels than d3 chose
+ * room for. Ticks that are not all New Year's Days at an even
  * step of two or more years (months, days, hours) are returned unchanged, as
  * they are without a calendar.
  *
@@ -78,7 +80,7 @@ export function alignedYearTicks(
   const first = worldYear(yearOf(new Date(lo)), calendar)
   const last = worldYear(yearOf(new Date(hi)), calendar) + 1
 
-  for (const candidate of [step, ...smallerSteps(step)]) {
+  const roundYears = (candidate: number): Date[] => {
     /** A world year an axis would name: year 1, a multiple of the step, or a round count before year 1. */
     const isRound = (year: number) => (year >= 1 ? year === 1 || year % candidate === 0 : (1 - year) % candidate === 0)
     const aligned: Date[] = []
@@ -87,9 +89,20 @@ export function alignedYearTicks(
       const date = yearStart(storedYear(year, calendar))
       if (+date >= lo && +date <= hi) aligned.push(date)
     }
-    if (aligned.length > 1) return { ticks: aligned, step: candidate }
+    return aligned
   }
-  return null
+
+  const atStep = roundYears(step)
+  if (atStep.length > 1) return { ticks: atStep, step }
+  // A smaller step, but no more ticks than d3 asked for and one: it chose
+  // its count for the axis's width, and near year 1 a step of 2 could fit
+  // five labels where there is room for two.
+  for (const candidate of smallerSteps(step)) {
+    const aligned = roundYears(candidate)
+    if (aligned.length > 1 && aligned.length <= ticks.length + 1) return { ticks: aligned, step: candidate }
+  }
+  // Otherwise the one round year in view, which a domain as wide as the step always holds.
+  return atStep.length > 0 ? { ticks: atStep, step } : null
 }
 
 /** The steps of d3's 1-2-5 series below `step`, largest first: 20 -> 10, 5, 2, 1. */
