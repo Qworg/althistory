@@ -6,7 +6,7 @@
 
 import { type WorldCalendarSet, MAX_TIME } from './definition'
 import { type CompiledCalendar, calendarIn, dateAt, positionOf } from './engine'
-import { formatWorldFields, formatWorldTime, parseWorldText, type WorldPrecision, worldPeriod } from './notation'
+import { formatWorldFields, formatWorldTime, parseWorldDate, parseWorldText, type WorldPrecision, worldPeriod } from './notation'
 
 export interface WorldTick {
   position: number
@@ -124,9 +124,10 @@ function ticksOf(calendar: CompiledCalendar, unit: Unit, step: number, lo: numbe
 }
 
 /**
- * Ticks for a timeline over [lo, hi] in a calendar: the coarsest round unit
- * that gives at least two ticks and no more than `maxTicks` (Req 17), each
- * labelled in the calendar's notation, distinct.
+ * Ticks for a timeline over [lo, hi] in a calendar (Req 17): of the round
+ * units and steps that give from two to `maxTicks` ticks, the one that gives
+ * the most (the coarser on a tie), as a d3 axis fills the room it is given;
+ * each labelled in the calendar's notation, distinct.
  */
 export function worldTicks(calendar: CompiledCalendar, domain: readonly [number, number], maxTicks: number): WorldTick[] {
   const lo = Math.max(-MAX_TIME, Math.min(domain[0], domain[1]))
@@ -135,18 +136,19 @@ export function worldTicks(calendar: CompiledCalendar, domain: readonly [number,
   const span = hi - lo
   const units: Unit[] = ['year', 'month', 'day', 'hour', 'minute']
   let best: { unit: Unit; ticks: number[] } | null = null
-  for (const unit of units) {
+  // Coarse to fine: once a unit's coarsest step has too many ticks, every finer one does.
+  search: for (const unit of units) {
     const length = unitMs(calendar, unit)
-    // Largest step first: the first that fits is the coarsest round step.
     const steps = unit === 'year' ? yearSteps(span / length) : STEPS[unit]
-    for (const step of [...steps].reverse()) {
-      if (span / (length * step) > maxTicks * 2) break
-      const ticks = ticksOf(calendar, unit, step, lo, hi, maxTicks)
-      if (ticks === null) break
-      if (ticks.length >= 2) best = { unit, ticks }
-      else if (!best && ticks.length === 1) best = { unit, ticks }
+    for (const [index, step] of [...steps].reverse().entries()) {
+      const tooMany = span / (length * step) > maxTicks * 2
+      const ticks = tooMany ? null : ticksOf(calendar, unit, step, lo, hi, maxTicks)
+      if (ticks === null) {
+        if (index === 0) break search
+        break
+      }
+      if (ticks.length > 0 && (best === null || ticks.length > best.ticks.length)) best = { unit, ticks }
     }
-    if (best && best.ticks.length >= 2) break
   }
   if (!best) {
     // No round step fits the room exactly (30 days in a 51-day month, with
@@ -177,8 +179,10 @@ function labelled(calendar: CompiledCalendar, unit: Unit, ticks: number[]): Worl
   const precision: WorldPrecision = unit === 'year' ? 'year' : unit === 'month' ? 'month' : 'day'
   let labels = dates.map((date) => formatWorldFields(calendar, date, precision))
   if (unit === 'hour' || unit === 'minute') {
-    const sameDay = new Set(dates.map((date) => `${date.year}:${date.part}:${date.day}`)).size === 1
-    labels = dates.map((date, index) => (sameDay ? formatWorldTime(calendar, date) : `${labels[index]}, ${formatWorldTime(calendar, date)}`))
+    // As a d3 axis reads: a day's first moment by its date, the rest by their time.
+    labels = dates.map((date, index) =>
+      date.hour === 0 && date.minute === 0 ? labels[index]! : formatWorldTime(calendar, date)
+    )
   }
   if (new Set(labels).size !== labels.length) {
     labels = dates.map((date) => `${formatWorldFields(calendar, date, 'day')}, ${formatWorldTime(calendar, date)}`)
@@ -188,20 +192,62 @@ function labelled(calendar: CompiledCalendar, unit: Unit, ticks: number[]): Worl
 
 /**
  * A filter bound written in a world's notation ("Thaw 312 AR"), as the first
- * (start) or last (end) millisecond of the period it names, with the
- * precision it was written at. An error when it names no date.
+ * (start) or last (end) millisecond of the day, month or year it names, with
+ * the precision it was written at. It is read in the calendar shown (the
+ * set's primary) first, so the spelling {@link formatWorldBound} gives always
+ * reads back as itself; then in the world's other calendars. A bound names a
+ * period, not a moment: a time is refused. An error when it names no date.
  */
 export function worldBound(
   set: WorldCalendarSet,
   text: string,
   edge: 'start' | 'end'
 ): { ok: true; position: number; precision: WorldPrecision; calendar: string } | { ok: false; error: string } {
-  const read = parseWorldText(set, text)
+  const shown = parseWorldDate(calendarIn(set), text)
+  const read = shown.ok ? shown : parseWorldText(set, text)
   if (!read.ok) return read
-  // A bound with a time names that moment; without one, the period it names.
-  const timed = read.fields.hour !== 0 || read.fields.minute !== 0 || read.fields.second !== 0
-  if (timed) return { ok: true, position: read.position, precision: read.precision, calendar: read.calendar }
+  if (read.timed) {
+    return { ok: false, error: 'a bound names a day, a month or a year, not a time of day' }
+  }
   const period = worldPeriod(calendarIn(set, read.calendar), read.fields, read.precision)
   if (!period) return { ok: false, error: 'that date is beyond the range a date can hold' }
   return { ok: true, position: edge === 'start' ? period.start : period.end, precision: read.precision, calendar: read.calendar }
+}
+
+/**
+ * A position as a filter bound in the calendar shown, the inverse of
+ * {@link worldBound}: a start on the first moment of a year reads as the
+ * year, of a month as the month, and anything else as its day; an end on the
+ * last moment of a year or month likewise. '' for a position that is not a
+ * finite number.
+ */
+export function formatWorldBound(set: WorldCalendarSet, position: number, edge: 'start' | 'end'): string {
+  if (!Number.isFinite(position) || Math.abs(position) > MAX_TIME) return ''
+  const calendar = calendarIn(set)
+  // A start is a period's first moment; an end is the moment before the next one's.
+  const boundary = edge === 'start' ? position : position + 1
+  const date = dateAt(calendar, position)
+  const next = dateAt(calendar, Math.min(MAX_TIME, boundary))
+  const startsAt = (fields: { year: number; part: number }) =>
+    positionOf(calendar, { year: fields.year, part: fields.part, day: 1, hour: 0, minute: 0, second: 0 }) === boundary
+  if (boundary <= MAX_TIME) {
+    if (startsAt({ year: next.year, part: 0 })) return formatWorldFields(calendar, date, 'year')
+    if (startsAt(next)) return formatWorldFields(calendar, date, 'month')
+  }
+  return formatWorldFields(calendar, date, 'day')
+}
+
+/**
+ * A year, a month and a day as a bound is written in the calendar shown, for
+ * a field's hint: the first of each in the calendar's year 1 ("1 AR", "Thaw
+ * 1 AR", "Thaw 1, 1 AR"). Each reads back as a bound at its precision.
+ */
+export function worldBoundExamples(set: WorldCalendarSet): { year: string; month: string; day: string } {
+  const calendar = calendarIn(set)
+  const first = dateAt(calendar, calendar.definition.epoch * calendar.dayMs)
+  return {
+    year: formatWorldFields(calendar, first, 'year'),
+    month: formatWorldFields(calendar, first, 'month'),
+    day: formatWorldFields(calendar, first, 'day'),
+  }
 }

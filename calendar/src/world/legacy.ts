@@ -9,6 +9,8 @@ import { daysFromCivil } from '../gregorian'
 import { SHORT_MONTHS } from '../years'
 import {
   type CalendarDefinition,
+  DEFAULT_NOTATION,
+  DEFAULT_TIME,
   type WorldCalendarSet,
   calendarDefinitionIssues,
   calendarSetIssues,
@@ -81,7 +83,16 @@ export function isCalendarSet(value: unknown): boolean {
 export function storedCalendarSet(value: unknown): WorldCalendarSet | null {
   if (!isCalendarSet(value)) {
     const legacy = storedCalendar(value)
-    return legacy ? legacyCalendarSet(legacy) : null
+    if (!legacy) return null
+    // The earlier form allowed era labels and month names a world calendar
+    // cannot read back ("1A", "before"): keep the rest of what it says.
+    const { eraLabel, monthNames, ...years } = legacy
+    const candidates = [legacy, { ...years, ...(monthNames ? { monthNames } : {}) }, { ...years, ...(eraLabel ? { eraLabel } : {}) }, years]
+    for (const candidate of candidates) {
+      const set = legacyCalendarSet(candidate)
+      if (calendarSetIssues(set).length === 0) return set
+    }
+    return null
   }
   if (calendarSetIssues(value).length === 0) return normalizeCalendarSet(value)
   const record = value as Partial<WorldCalendarSet>
@@ -101,6 +112,33 @@ export function storedCalendarSet(value: unknown): WorldCalendarSet | null {
 /** A calendar given in either form (a set, or the earlier one), as the set to store; throws on an unusable one. */
 export function calendarSetFromInput(value: unknown): WorldCalendarSet {
   if (isCalendarSet(value)) return normalizeCalendarSet(value)
-  // The earlier form is checked by its own rules, which throw with their messages.
-  return legacyCalendarSet(normalizeCalendar(value))
+  // The earlier form is checked by its own rules, then by a set's (which
+  // refuse an era label a date could not be read back with), each throwing
+  // with its messages.
+  return normalizeCalendarSet(legacyCalendarSet(normalizeCalendar(value)))
+}
+
+/**
+ * A set as text that two sets share exactly when they say the same: keys in
+ * order, and what is the same as its absence left out (no leap rules, a
+ * false flag, a zero offset or first weekday, a default time unit or
+ * template).
+ */
+function canonicalText(set: WorldCalendarSet | null): string {
+  return JSON.stringify(set, (key, value: unknown) => {
+    if (key === 'leapRules' && Array.isArray(value) && value.length === 0) return undefined
+    if ((key === 'intercalary' || key === 'skipsIntercalary') && value === false) return undefined
+    if ((key === 'offset' || key === 'epochWeekday') && value === 0) return undefined
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return value
+    let entries = Object.entries(value as Record<string, unknown>)
+    if (key === 'time') entries = entries.filter(([unit, count]) => DEFAULT_TIME[unit as keyof typeof DEFAULT_TIME] !== count)
+    if (key === 'notation') entries = entries.filter(([form, template]) => DEFAULT_NOTATION[form as keyof typeof DEFAULT_NOTATION] !== template)
+    if ((key === 'time' || key === 'notation') && entries.length === 0) return undefined
+    return Object.fromEntries(entries.sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)))
+  })
+}
+
+/** Two calendars (in either stored form, or none) that say the same of every position. */
+export function sameCalendarSet(a: unknown, b: unknown): boolean {
+  return canonicalText(storedCalendarSet(a)) === canonicalText(storedCalendarSet(b))
 }

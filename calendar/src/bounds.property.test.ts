@@ -3,16 +3,20 @@ import { describe, expect, it } from 'vitest'
 import {
   type DateBoundEdge,
   boundPrecision,
-  formatHistoricalDate,
-  formatHistoricalDateAt,
+  calendarIn,
+  dateAt,
   formatBoundAt,
+  formatDateBound,
   formatHistoricalDateBound,
+  formatWorldBound,
+  formatWorldFields,
   parseHistoricalDate,
+  readDateBound,
   readDateField,
-  worldBoundLabel,
-  worldDateOf,
+  worldBound,
 } from './index'
 import * as arb from './test/arbitraries'
+import * as warb from './test/worldArbitraries'
 
 // ── An oracle that does not use Date ─────────────────────────────────────
 
@@ -192,20 +196,60 @@ describe('an instant as a bound at a stated precision', () => {
   })
 })
 
-describe('a bound in a world calendar', () => {
-  it('reads at the precision it was typed', () => {
+describe('a bound for a graph', () => {
+  it('without a world, is the stored bound', () => {
     fc.assert(
-      fc.property(typedBound, edge, arb.calendar, arb.locale, ({ text }, side, calendar, locale) => {
-        const parsed = parseHistoricalDate(text, side)
-        fc.pre(parsed.ok)
-        if (!parsed.ok) return
-        const precision = boundPrecision(parsed.text)
-        const expected =
-          precision === 'day'
-            ? formatHistoricalDate(parsed.date, locale, calendar)
-            : formatHistoricalDateAt(parsed.date, precision, locale, calendar)
-        expect(worldBoundLabel(text, side, calendar, locale)).toBe(expected)
-        expect(worldBoundLabel(text, side, null, locale)).toBeNull()
+      fc.property(typedBound, edge, ({ text }, side) => {
+        expect(readDateBound(text, side, null)).toEqual(parseHistoricalDate(text, side))
+        expect(formatDateBound(text, side, null)).toBe(formatHistoricalDateBound(text, side))
+      })
+    )
+  })
+
+  it('in a world, is written in its notation and reads back as itself, on the right side of the instant', () => {
+    fc.assert(
+      fc.property(warb.calendarSet, fc.integer({ min: -1e13, max: 1e13 }), edge, (set, position, side) => {
+        const text = formatDateBound(new Date(position), side, set)
+        const read = readDateBound(text, side, set)
+        expect(read.ok, text).toBe(true)
+        if (!read.ok) return
+        // Canonical: the spelling it reads as is the one it was written as.
+        expect(read.text).toBe(text)
+        expect(formatDateBound(text, side, set)).toBe(text)
+        // A start covers the instant from its period's first moment, an end to its last.
+        if (side === 'start') expect(read.date.getTime()).toBeLessThanOrEqual(position)
+        else expect(read.date.getTime()).toBeGreaterThanOrEqual(position)
+        // The bound's own instant is written (perhaps wider: the last day of
+        // a year ends it) as text that reads back as exactly that instant.
+        const again = readDateBound(formatWorldBound(set, read.date.getTime(), side), side, set)
+        expect(again.ok && again.date.getTime()).toBe(read.date.getTime())
+      }),
+      arb.runs(2000)
+    )
+  })
+
+  it('in a world, still reads a stored bound as the instant it names', () => {
+    fc.assert(
+      fc.property(warb.calendarSet, typedBound, edge, (set, { text }, side) => {
+        const stored = parseHistoricalDate(text, side)
+        fc.pre(stored.ok && !worldBound(set, text, side).ok)
+        if (!stored.ok) return
+        const read = readDateBound(text, side, set)
+        expect(read.ok).toBe(true)
+        if (read.ok) expect(read.date.getTime()).toBe(stored.date.getTime())
+      })
+    )
+  })
+
+  it('in a world, refuses a time of day: a bound names a period', () => {
+    fc.assert(
+      fc.property(warb.calendarSet, fc.integer({ min: -1e13, max: 1e13 }), edge, (set, position, side) => {
+        const calendar = calendarIn(set)
+        const date = dateAt(calendar, position)
+        fc.pre(date.hour !== 0 || date.minute !== 0)
+        const text = formatWorldFields(calendar, date, 'day', true)
+        fc.pre(!parseHistoricalDate(text, side).ok)
+        expect(readDateBound(text, side, set).ok).toBe(false)
       })
     )
   })
@@ -259,16 +303,6 @@ describe("a date field's value, in every time zone", () => {
         expect(field.date.getTime()).toBe(daysFromCivil(y!, m!, d!) * DAY)
       }),
       arb.runs(3000)
-    )
-  })
-
-  it("shows a field's value in a world calendar as the UTC date it holds", () => {
-    fc.assert(
-      fc.property(arb.fieldInstant, arb.calendar, (date, calendar) => {
-        const day = date.toISOString().slice(0, 10)
-        expect(worldDateOf(day, calendar)).toBe(formatHistoricalDate(new Date(`${day}T00:00:00Z`), undefined, calendar))
-        expect(worldDateOf(day, null)).toBeNull()
-      })
     )
   })
 })

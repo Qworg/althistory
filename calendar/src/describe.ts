@@ -1,12 +1,13 @@
 /**
- * A world's dates in plain English, as the exports, the CLI and a language
- * model's instructions write them. The app writes them in the viewer's locale
- * instead (locale.ts).
+ * Dates in plain text: the ISO date part of an instant, and a date in a
+ * calendar of the earlier form, which the world calendars are checked
+ * against (world/world.property.test.ts). The app writes dates in the
+ * viewer's locale (locale.ts); a world's, in its notation (world/).
  */
 
 import type { GraphCalendar } from './calendar'
 import { toInstant } from './instant'
-import { MONTH_WORDS, formatWorldYear, monthLabel } from './years'
+import { formatWorldYear, monthLabel } from './years'
 
 export type DatePrecision = 'day' | 'month' | 'year'
 
@@ -41,36 +42,4 @@ export function formatWorldDate(
   if (precision === 'year') return year
   if (precision === 'month') return `${month} ${year}`
   return `${month} ${date.getUTCDate()}, ${year}`
-}
-
-/** One line saying how the calendar maps, for exports and tool output. */
-export function describeCalendar(calendar: GraphCalendar): string {
-  const named = calendar.name ? `${calendar.name}: ` : ''
-  const years = `${named}stored year ${calendar.epochYear} is ${formatWorldYear(calendar.epochYear, calendar)}`
-  return calendar.monthNames ? `${years}; the months: ${monthPairs(calendar.monthNames)}` : years
-}
-
-/** "January is Lowtide, February is Greywater, …": which name is which stored month. */
-function monthPairs(monthNames: string[]): string {
-  return monthNames.map((name, index) => `${MONTH_WORDS[index]} is ${name}`).join(', ')
-}
-
-/**
- * What a reader of prose about the world (a language model extracting events)
- * needs to turn the world's dates into stored ones: how its years are counted
- * and, if it names them, which month is which.
- */
-export function calendarExtractionInstructions(calendar: GraphCalendar): string {
-  const named = calendar.name ? ` (${calendar.name})` : ''
-  const written = calendar.eraLabel ? ` (written "N ${calendar.eraLabel}")` : ''
-  const months = calendar.monthNames
-    ? ` Its months are the ISO months under other names: ${monthPairs(calendar.monthNames)}. A day keeps its number.`
-    : ''
-  const before = calendar.eraLabel ? `"N before ${calendar.eraLabel}"` : '"N before Year 1"'
-  return (
-    `The text dates events in an invented world's calendar${named}. ` +
-    `Its year N${written} is the ISO year N + ${calendar.epochYear - 1}, and a year counted back, ${before}, ` +
-    `is the ISO year ${calendar.epochYear} - N.${months} ` +
-    'Give every timestamp as that ISO date.'
-  )
 }

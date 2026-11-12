@@ -2,7 +2,7 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import * as arb from '../test/arbitraries'
 import * as warb from '../test/worldArbitraries'
-import { MAX_TIME, calendarIn, dateAt, formatWorldFields, positionOf, worldBound, worldTicks } from './index'
+import { MAX_TIME, calendarIn, dateAt, formatWorldFields, positionOf, worldBound, worldBoundExamples, worldTicks } from './index'
 
 /** A domain as a timeline shows one: minutes to tens of thousands of years wide. */
 const domain = fc
@@ -53,6 +53,20 @@ describe('a filter bound in a world calendar (Req 15)', () => {
         expect(formatWorldFields(calendar, dateAt(calendar, end.position + 1), precision)).not.toBe(text)
       }),
       arb.runs(2000)
+    )
+  })
+
+  it('gives examples for a hint that read as bounds at their precision', () => {
+    fc.assert(
+      fc.property(warb.calendarSet, (set) => {
+        const examples = worldBoundExamples(set)
+        for (const precision of ['year', 'month', 'day'] as const) {
+          const read = worldBound(set, examples[precision], 'start')
+          expect(read.ok, examples[precision]).toBe(true)
+          if (read.ok) expect(read.precision).toBe(precision)
+        }
+      }),
+      arb.runs(500)
     )
   })
 })

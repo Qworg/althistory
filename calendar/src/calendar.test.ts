@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  calendarExtractionInstructions,
   calendarProblems,
   storedCalendar,
-  describeCalendar,
   formatWorldDate,
   formatWorldYear,
   normalizeCalendar,
@@ -44,10 +42,6 @@ describe('worldCalendar', () => {
   it('formats as an ISO date when there is no calendar', () => {
     expect(formatWorldDate('1311-03-04T10:00:00Z', undefined)).toBe('1311-03-04');
     expect(formatWorldDate('1311-03-04T10:00:00Z', undefined, 'year')).toBe('1311');
-  });
-
-  it('describes how the calendar maps', () => {
-    expect(describeCalendar({ ...reckoning, name: 'the Reckoning' })).toBe('the Reckoning: stored year 1000 is 1 AR');
   });
 
   describe('checking', () => {
@@ -91,13 +85,6 @@ describe('worldCalendar', () => {
       expect(formatWorldDate('1311-03-04T00:00:00Z', named, 'year')).toBe('312 AR');
     });
 
-    it('says which month is which', () => {
-      expect(describeCalendar(named)).toBe(
-        'stored year 1000 is 1 AR; the months: January is Thaw, February is Seedfall, March is Greening, April is Highsun, ' +
-          'May is Brine, June is Harvest, July is Ember, August is Ashfall, September is Gale, October is Dimming, ' +
-          'November is Frost, December is Deepwinter'
-      );
-    });
 
     it('accepts twelve distinct names, trimmed', () => {
       expect(calendarProblems(named)).toEqual([]);
@@ -160,16 +147,4 @@ describe('worldCalendar', () => {
     });
   });
 
-  describe('instructions for a reader of prose about the world', () => {
-    it('gives the year offset, and the months when it names them', () => {
-      const plain = calendarExtractionInstructions({ ...reckoning, name: 'the Reckoning' });
-      expect(plain).toContain('(the Reckoning)');
-      expect(plain).toContain('year N (written "N AR") is the ISO year N + 999');
-      expect(plain).toContain('a year counted back, "N before AR", is the ISO year 1000 - N');
-      expect(plain).not.toContain('months');
-      const months = calendarExtractionInstructions({ ...reckoning, monthNames: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'] });
-      expect(months).toContain('Its months are the ISO months under other names: January is A, February is B,');
-      expect(months).toContain('December is L. A day keeps its number.');
-    });
-  });
 });

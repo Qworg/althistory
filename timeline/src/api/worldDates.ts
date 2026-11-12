@@ -39,8 +39,7 @@ export async function readRequestTime(
     if (calendar) {
       const read = readWorldInput(calendar, value);
       if (read.ok) {
-        const timed = read.fields.hour !== 0 || read.fields.minute !== 0 || read.fields.second !== 0;
-        if (edge === 'end' && !timed) {
+        if (edge === 'end' && !read.timed) {
           const period = worldPeriod(calendarIn(calendar, read.calendar), read.fields, read.precision);
           if (period) return withPrecision(new Date(period.end), read.precision);
         }

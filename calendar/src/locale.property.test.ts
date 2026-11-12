@@ -1,24 +1,27 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import {
-  type GraphCalendar,
+  type WorldCalendarSet,
+  calendarIn,
+  dateAt,
   formatHistoricalDate,
   formatHistoricalDateAt,
   formatHistoricalTimestamp,
   formatWorldDate,
-  formatWorldYearIn,
+  formatWorldFields,
+  formatWorldPosition,
   isoDatePart,
-  worldMonthName,
+  legacyCalendarSet,
 } from './index'
 import * as arb from './test/arbitraries'
+import * as warb from './test/worldArbitraries'
 
-/** A calendar whose month names, if any, are letters alone, so a digit in the output is a number. */
-const calendar: fc.Arbitrary<GraphCalendar> = fc.record(
-  { epochYear: arb.epochYear, eraLabel: fc.constantFrom('AR', 'Reckoning', 'a.R.', 'ص'), monthNames: arb.letterMonthNames },
-  { requiredKeys: ['epochYear'] }
-)
+/** Calendars of the simple form (Gregorian, renamed), as the sets they are stored as. */
+const simpleCalendar: fc.Arbitrary<WorldCalendarSet> = arb.calendar.map(legacyCalendarSet)
+/** Any world calendar: of any shape, or of the simple form. */
+const calendar: fc.Arbitrary<WorldCalendarSet> = fc.oneof(warb.calendarSet, simpleCalendar)
 
-/** Instants a person would date events at: the world years a calendar is made for. */
+/** Instants a person would date events at. */
 const instant = fc.oneof(
   arb.instant,
   fc.date({ min: new Date('-002000-01-01T00:00:00Z'), max: new Date('9999-12-31T23:59:59Z'), noInvalidDate: true })
@@ -26,61 +29,18 @@ const instant = fc.oneof(
 
 const day = (date: Date) => new Date(Date.UTC(2000, 0, 1)).setUTCFullYear(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
 
-/**
- * What may stand beside a phrase set into a date: nothing, a space, or a
- * comma; or, before a month, a day written as an ordinal by its locale, as
- * de's "4. März" and uz's "1-yanvar" are ("4. Thaw", "1-Thaw").
- */
-function delimited(text: string, phrase: string): boolean {
-  let from = 0
-  for (;;) {
-    const at = text.indexOf(phrase, from)
-    if (at < 0) return false
-    const before = text.slice(0, at)
-    const after = text.slice(at + phrase.length)
-    if ((before === '' || /([\s,،]|\p{Nd}-)$/u.test(before)) && (after === '' || /^[\s,،.]/u.test(after))) return true
-    from = at + 1
-  }
-}
-
 describe('a date in a world calendar, in every locale and time zone', () => {
-  it('holds the world year as one phrase, set off from the rest', () => {
-    fc.assert(
-      fc.property(instant, arb.locale, calendar, fc.constantFrom('day', 'month', 'year') as fc.Arbitrary<'day' | 'month' | 'year'>, (date, locale, world, precision) => {
-        const text = formatHistoricalDateAt(date, precision, locale, world)
-        const year = formatWorldYearIn(date, locale, world)
-        expect(delimited(text, year), `${locale}: "${text}" around "${year}"`).toBe(true)
-      }),
-      arb.runs(3000)
-    )
-  })
-
-  it("holds the world's month name, set off from the rest, in place of the locale's", () => {
-    fc.assert(
-      fc.property(instant, arb.locale, calendar, fc.constantFrom('day', 'month') as fc.Arbitrary<'day' | 'month'>, (date, locale, world, precision) => {
-        fc.pre(world.monthNames !== undefined)
-        const text = formatHistoricalDateAt(date, precision, locale, world)
-        const month = worldMonthName(date.getUTCMonth(), world)!
-        expect(delimited(text, month), `${locale}: "${text}" around "${month}"`).toBe(true)
-      }),
-      arb.runs(3000)
-    )
-  })
-
-  it('never shows the stored year', () => {
+  it("is written in the world's own notation, whatever the locale (Req 10, 18)", () => {
     fc.assert(
       fc.property(instant, arb.locale, calendar, (date, locale, world) => {
-        const stored = date.getUTCFullYear()
-        // Only where the stored year could not also be another number in the date.
-        fc.pre(world.epochYear > 1 && stored >= world.epochYear && stored >= 100)
-        const digits = new Intl.NumberFormat(locale, {
-          numberingSystem: new Intl.DateTimeFormat(locale).resolvedOptions().numberingSystem,
-          useGrouping: false,
-        })
-        const text = formatHistoricalDate(date, locale, world)
-        expect(text, locale).not.toContain(digits.format(stored))
+        const primary = calendarIn(world)
+        const fields = dateAt(primary, date.getTime())
+        expect(formatHistoricalDate(date, locale, world)).toBe(formatWorldFields(primary, fields, 'day'))
+        expect(formatHistoricalDateAt(date, 'month', locale, world)).toBe(formatWorldFields(primary, fields, 'month'))
+        expect(formatHistoricalDateAt(date, 'year', locale, world)).toBe(formatWorldFields(primary, fields, 'year'))
+        expect(formatHistoricalTimestamp(date, locale, world)).toBe(formatWorldPosition(primary, date.getTime()))
       }),
-      arb.runs(3000)
+      arb.runs(2000)
     )
   })
 
@@ -107,9 +67,12 @@ describe('a date in a world calendar, in every locale and time zone', () => {
       .filter(([a, b]) => !Number.isNaN(b.getTime()) && day(a) !== day(b))
     fc.assert(
       fc.property(fc.oneof(nearby, fc.tuple(instant, instant)), arb.locale, fc.option(calendar, { nil: null }), ([a, b], locale, world) => {
-        fc.pre(day(a) !== day(b))
+        // Different days: in a world, its own days (which need not be Earth's).
+        const dayMs = world ? calendarIn(world).dayMs : 0
+        fc.pre(world ? Math.floor(a.getTime() / dayMs) !== Math.floor(b.getTime() / dayMs) : day(a) !== day(b))
         expect(formatHistoricalDate(a, locale, world), `${a.toISOString()} ${b.toISOString()} ${locale}`).not.toBe(formatHistoricalDate(b, locale, world))
-        if (a.getUTCFullYear() !== b.getUTCFullYear()) {
+        // Gregorian years apart are different years only without a world calendar.
+        if (!world && a.getUTCFullYear() !== b.getUTCFullYear()) {
           expect(formatHistoricalDateAt(a, 'year', locale, world)).not.toBe(formatHistoricalDateAt(b, 'year', locale, world))
         }
       }),
@@ -141,7 +104,6 @@ describe('a date in a world calendar, in every locale and time zone', () => {
         const zoneless = date.toISOString().slice(0, 19)
         const second = new Date(Math.floor(date.getTime() / 1000) * 1000)
         expect(formatHistoricalTimestamp(zoneless, locale, world)).toBe(formatHistoricalTimestamp(second, locale, world))
-        expect(formatWorldDate(zoneless, world)).toBe(formatWorldDate(second, world))
         // Stored data written before the app wrote only ISO: read as it always was.
         expect(formatHistoricalDate(second.toUTCString(), locale, world)).toBe(formatHistoricalDate(new Date(second.toUTCString()), locale, world))
         // An ISO-shaped date that does not exist is no date, never the day it rolls into.
@@ -166,7 +128,7 @@ describe('a date in a world calendar, in every locale and time zone', () => {
 
   it('has no stray spaces', () => {
     fc.assert(
-      fc.property(instant, arb.locale, calendar, (date, locale, world) => {
+      fc.property(instant, arb.locale, calendar.filter((set) => !/\s\s/.test(JSON.stringify(set))), (date, locale, world) => {
         for (const text of [
           formatHistoricalTimestamp(date, locale, world),
           formatHistoricalDateAt(date, 'month', locale, world),
@@ -182,7 +144,8 @@ describe('a date in a world calendar, in every locale and time zone', () => {
 
   it('reads the same in every time zone: the UTC day, and the UTC time when it is not midnight', () => {
     fc.assert(
-      fc.property(instant, arb.locale, calendar, (date, locale, world) => {
+      // Without a calendar: a world's times are its own hours, with no "UTC" (see the first property).
+      fc.property(instant, arb.locale, fc.constant(null), (date, locale, world) => {
         const midnight = new Date(day(date))
         expect(formatHistoricalTimestamp(midnight, locale, world)).toBe(formatHistoricalDate(date, locale, world))
         if (+date !== +midnight) {

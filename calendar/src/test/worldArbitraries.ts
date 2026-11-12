@@ -85,7 +85,14 @@ export const definition: fc.Arbitrary<CalendarDefinition> = fc
 /** A world's day in seconds: Earth's, and longer and shorter ones. */
 export const dayLength = fc.constantFrom(86_400, 30 * 3600, 1000, 100_000, 7)
 
+const IDS = ['world', 'second', 'third']
+const CALENDAR_NAMES = ['The Reckoning', 'The Tide Count', 'The Old Count']
+
+/** A world with one calendar, or with two or three (any of them shown first), of any shapes. */
 export const calendarSet: fc.Arbitrary<WorldCalendarSet> = fc
-  .tuple(definition, dayLength)
-  .map(([calendar, length]) => ({ version: 2 as const, dayLength: length, calendars: [calendar], primary: calendar.id }))
+  .tuple(fc.array(definition, { minLength: 1, maxLength: 3 }), dayLength, fc.nat(2))
+  .map(([definitions, length, shown]) => {
+    const calendars = definitions.map((calendar, index) => ({ ...calendar, id: IDS[index]!, name: CALENDAR_NAMES[index]! }))
+    return { version: 2 as const, dayLength: length, calendars, primary: calendars[shown % calendars.length]!.id }
+  })
   .filter((set) => calendarSetIssues(set).length === 0)

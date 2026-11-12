@@ -8,11 +8,13 @@
  * midnight.
  */
 
-import type { GraphCalendar } from './calendar'
+import type { WorldCalendarSet } from './world/definition'
 import type { DatePrecision } from './describe'
 import { daysInMonth } from './gregorian'
 import { parseIsoInstant, toInstant } from './instant'
-import { formatHistoricalDate, formatHistoricalDateAt, formatHistoricalTimestamp } from './locale'
+import { formatWorldBound, worldBound } from './world/axis'
+import { calendarIn, dateAt } from './world/engine'
+import { formatWorldFields } from './world/notation'
 
 // ── Bounds ───────────────────────────────────────────────────────────────
 //
@@ -164,25 +166,49 @@ export function boundPrecision(text: string): DatePrecision {
 }
 
 /**
- * A typed bound as it reads in a world calendar ("1843-11" -> "Nov 844 AR"),
- * at the precision it was typed; null without a calendar or a readable bound.
- * Bounds are typed as stored (Gregorian) dates, like every date field; this is
- * what the filter's hint and chip show beside them.
+ * A typed bound for a graph. In a world, it is written in the world's
+ * notation ("Thaw 312 AR", "312 AR"), read by {@link worldBound}; a stored
+ * bound ("1843-11", from a link made before) still reads as the instant it
+ * names. Without a world, {@link parseHistoricalDate}. The text returned is
+ * the canonical spelling (in a world, in the calendar shown): what the field
+ * shows once it is left.
  */
-export function worldBoundLabel(
-  text: string,
+export function readDateBound(input: string, edge: DateBoundEdge, calendar: WorldCalendarSet | null): HistoricalDateParse {
+  if (!calendar) return parseHistoricalDate(input, edge)
+  const world = worldBound(calendar, input, edge)
+  if (world.ok) {
+    // Spelled at the precision it was typed, as a stored bound is ("Qaa 4,
+    // Year 9" stays a day, though it ends the year); a date in another of
+    // the world's calendars, in the one shown.
+    const shown = calendarIn(calendar)
+    const text =
+      world.calendar === shown.definition.id
+        ? formatWorldFields(shown, dateAt(shown, world.position), world.precision)
+        : formatWorldBound(calendar, world.position, edge)
+    return { ok: true, date: new Date(world.position), text }
+  }
+  const stored = parseHistoricalDate(input, edge)
+  if (stored.ok) return { ok: true, date: stored.date, text: formatWorldBound(calendar, stored.date.getTime(), edge) }
+  return world
+}
+
+/**
+ * An instant (or a typed bound) as a bound for a graph, the inverse of
+ * {@link readDateBound}: in a world, in the notation of the calendar shown;
+ * otherwise {@link formatHistoricalDateBound}. '' when there is nothing to show.
+ */
+export function formatDateBound(
+  value: Date | string | null | undefined,
   edge: DateBoundEdge,
-  calendar: GraphCalendar | null,
-  locale?: string
-): string | null {
-  if (!calendar || text.trim() === '') return null
-  const parsed = parseHistoricalDate(text, edge)
-  if (!parsed.ok) return null
-  const precision = boundPrecision(parsed.text)
-  // An end bound is the period's last moment; the date alone names it.
-  return precision === 'day'
-    ? formatHistoricalDate(parsed.date, locale, calendar)
-    : formatHistoricalDateAt(parsed.date, precision, locale, calendar)
+  calendar: WorldCalendarSet | null
+): string {
+  if (!calendar) return formatHistoricalDateBound(value, edge)
+  if (value === null || value === undefined || value === '') return ''
+  if (typeof value === 'string') {
+    const read = readDateBound(value, edge, calendar)
+    if (read.ok) return read.text
+  }
+  return formatWorldBound(calendar, toInstant(value).getTime(), edge)
 }
 
 // ── Date fields ──────────────────────────────────────────────────────────
@@ -204,21 +230,4 @@ export function readDateField(value: string | null | undefined): { date: Date; d
   const parsed = parseIsoInstant(value)
   if (!parsed || parsed.precision === 'year' || parsed.precision === 'month') return null
   return { date: parsed.date, dateOnly: parsed.dateOnly }
-}
-
-/**
- * What a stored-date field's value reads as in a world calendar ("Mar 4,
- * 312 AR"), or null when there is no calendar or nothing readable to show.
- */
-export function worldDateOf(
-  value: string | null | undefined,
-  calendar: GraphCalendar | null,
-  locale?: string
-): string | null {
-  if (!calendar) return null
-  const field = readDateField(value)
-  if (!field) return null
-  return field.dateOnly
-    ? formatHistoricalDate(field.date, locale, calendar)
-    : formatHistoricalTimestamp(field.date, locale, calendar)
 }

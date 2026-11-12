@@ -168,7 +168,15 @@ function readYearPhrase(definition: CalendarDefinition, text: string): number | 
 }
 
 export type WorldParse =
-  | { ok: true; calendar: string; fields: WorldDateFields; precision: WorldPrecision; position: number }
+  | {
+      ok: true
+      calendar: string
+      fields: WorldDateFields
+      precision: WorldPrecision
+      position: number
+      /** Whether a time of day was given ("…, 00:00" names midnight, not the whole day). */
+      timed: boolean
+    }
   | { ok: false; error: string }
 
 /** A date written in one calendar's notation, at whatever precision it names (Req 14). */
@@ -232,7 +240,7 @@ export function parseWorldDate(calendar: CompiledCalendar, input: string): World
       reason = 'that date is beyond the range a date can hold'
       continue
     }
-    return { ok: true, calendar: definition.id, fields, precision: form.precision, position }
+    return { ok: true, calendar: definition.id, fields, precision: form.precision, position, timed: timeValues.hour !== undefined }
   }
   const example = formatWorldFields(calendar, { year: 312, part: 0, day: 4, hour: 0, minute: 0, second: 0 })
   return { ok: false, error: reason ?? `"${input.trim()}" is not a date in ${definition.name}: write one as "${example}"` }
@@ -318,7 +326,7 @@ export function readWorldInput(set: WorldCalendarSet, input: unknown): WorldPars
   if (problem) return { ok: false, error: problem }
   const position = positionOf(calendar, fields)
   if (position === null) return { ok: false, error: 'that date is beyond the range a date can hold' }
-  return { ok: true, calendar: definition.id, fields, precision, position }
+  return { ok: true, calendar: definition.id, fields, precision, position, timed }
 }
 
 /**
