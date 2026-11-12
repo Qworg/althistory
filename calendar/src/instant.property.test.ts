@@ -1,6 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { parseIsoInstant, readDateField, toInstant } from './index'
+import { parseIsoInstant, readDateField, readTimestamp, toInstant } from './index'
 import * as arb from './test/arbitraries'
 
 // An oracle that does not use Date: Hinnant's days_from_civil, written out
@@ -90,6 +90,7 @@ describe('an ISO 8601 timestamp, in every time zone', () => {
         const parsed = parseIsoInstant(text)
         if (!exists || Math.abs(ms) > arb.MAX_TIME) {
           expect(parsed, text).toBeNull()
+          // Shaped like ISO, so no legacy guess either: never the day V8 rolls it into.
           expect(Number.isNaN(toInstant(text).getTime()), text).toBe(true)
         } else {
           expect(parsed, text).toEqual({ date: new Date(ms), dateOnly: precision !== 'time', precision })
@@ -125,14 +126,20 @@ describe('an ISO 8601 timestamp, in every time zone', () => {
     expect(readDateField('1871-03-04')).toEqual({ date: new Date('1871-03-04T00:00:00Z'), dateOnly: true })
   })
 
-  it('reads text that is not ISO 8601 as no date, never as a guess in the host zone', () => {
+  it('reads text that is not ISO 8601 as no ISO date, and toInstant reads it as JavaScript always has (stored data only)', () => {
     fc.assert(
       fc.property(arb.fieldInstant, (date) => {
         for (const text of [date.toString(), date.toUTCString(), date.toDateString(), date.toLocaleDateString('en-US')]) {
           expect(parseIsoInstant(text), text).toBeNull()
+          expect(readTimestamp(text), text).toBeNull()
+          expect(toInstant(text).getTime(), text).toBe(new Date(text).getTime())
         }
       })
     )
+    // Anything but text, a number or a Date is no date, and never a thrown error.
+    for (const value of [null, undefined, {}, [], ['2020-01-01'], true, { $date: '2020-01-01' }]) {
+      expect(Number.isNaN(toInstant(value).getTime()), JSON.stringify(value)).toBe(true)
+    }
     fc.assert(
       fc.property(fc.string({ unit: 'binary', maxLength: 40 }), (text) => {
         const parsed = parseIsoInstant(text)

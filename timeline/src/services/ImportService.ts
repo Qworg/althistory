@@ -16,7 +16,7 @@
  */
 
 import { GraphRepository } from '../repositories/GraphRepository';
-import { storedCalendar, toInstant } from '@althistory/calendar';
+import { readTimestamp, storedCalendar, toInstant } from '@althistory/calendar';
 import { JobRepository } from '../repositories/JobRepository';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 import {
@@ -1786,8 +1786,8 @@ export class ImportService {
           (typeof startRaw === 'string' || typeof startRaw === 'number') &&
           (typeof endRaw === 'string' || typeof endRaw === 'number')
         ) {
-          const startTime = new Date(startRaw);
-          const endTime = new Date(endRaw);
+          const startTime = toInstant(startRaw);
+          const endTime = toInstant(endRaw);
           if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
             existingArcsMap.set(arc.id, {
               raw: arc,
@@ -2748,7 +2748,7 @@ export class ImportService {
           description: data.description,
           actor: data.actor,
           target: data.target,
-          timestamp: data.timestamp,
+          timestamp: storedTimeText(data.timestamp),
           // Provenance reference, exported alongside the entity (see
           // ExportService.convertToExportFormat). Only a string survives;
           // `validateEvents` warns about anything else.
@@ -2768,8 +2768,8 @@ export class ImportService {
           id,
           name: data.name,
           description: data.description,
-          start_time: data.start_time,
-          end_time: data.end_time,
+          start_time: storedTimeText(data.start_time),
+          end_time: storedTimeText(data.end_time),
           level: data.level,
           parent_arc_id: data.parent_arc_id,
           ...(typeof data.sourceRef === 'string' && data.sourceRef !== ''
@@ -2867,4 +2867,14 @@ export class ImportService {
       deleted,
     };
   }
+}
+
+/**
+ * A time as the import stores it: ISO 8601 in any spelling the validation
+ * took ("1870-02-14 09:30", "+05", a decimal comma) as toISOString's, which
+ * the live store, exports and every later reader read as the same instant.
+ * Other text (only an old, hand-made document holds it) is kept as it was.
+ */
+function storedTimeText(value: unknown): unknown {
+  return typeof value === 'string' ? (readTimestamp(value)?.iso ?? value) : value;
 }

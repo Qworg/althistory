@@ -45,6 +45,7 @@ import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
 import { calendarExtractionInstructions, type GraphCalendar, toInstant } from '@althistory/calendar';
+import { precisionMetadata, readAgentTimestamp } from '../utils/timestamps';
 import type { IGraph } from '@/models/Graph';
 import { validateCausalRelationshipFields } from '@/services/CausalService';
 
@@ -240,17 +241,14 @@ export class DirectEngine implements IEngine {
   ): Promise<EventDto> {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
-    const parsedDate = toInstant(data.timestamp);
-    if (isNaN(parsedDate.getTime())) {
-      throw new ValidationErrorCLI(`Invalid timestamp: ${data.timestamp}`);
-    }
+    const read = readAgentTimestamp(data.timestamp);
 
     const created = await scoped.eventRepository.create({
       description: data.description,
-      timestamp: parsedDate,
+      timestamp: new Date(read.iso),
       actor: data.actor || 'Unknown',
       target: data.target || 'None',
-      metadata: { importance: data.importance ?? 1, ...(data.metadata || {}) },
+      metadata: { importance: data.importance ?? 1, ...precisionMetadata(read), ...(data.metadata || {}) },
     });
 
     try {
@@ -278,11 +276,11 @@ export class DirectEngine implements IEngine {
       events = events.filter((e) => e.actor.toLowerCase().includes(filters.actor!.toLowerCase()));
     }
     if (filters?.from) {
-      const fromTime = new Date(filters.from).getTime();
+      const fromTime = toInstant(filters.from).getTime();
       events = events.filter((e) => e.timestamp.getTime() >= fromTime);
     }
     if (filters?.to) {
-      const toTime = new Date(filters.to).getTime();
+      const toTime = toInstant(filters.to).getTime();
       events = events.filter((e) => e.timestamp.getTime() <= toTime);
     }
 
@@ -327,9 +325,7 @@ export class DirectEngine implements IEngine {
     if (data.actor !== undefined) updatePayload.actor = data.actor;
     if (data.target !== undefined) updatePayload.target = data.target;
     if (data.timestamp !== undefined) {
-      const d = toInstant(data.timestamp);
-      if (isNaN(d.getTime())) throw new ValidationErrorCLI(`Invalid timestamp: ${data.timestamp}`);
-      updatePayload.timestamp = d;
+      updatePayload.timestamp = new Date(readAgentTimestamp(data.timestamp).iso);
     }
 
     const updated = await scoped.eventRepository.update(eventId, updatePayload);

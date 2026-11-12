@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { GraphCalendar, storedCalendar, toInstant } from '@althistory/calendar';
+import { precisionMetadata, readAgentTimestamp } from '../utils/timestamps';
 import { IEngine } from './IEngine';
 import {
   HealthInfo,
@@ -414,15 +415,18 @@ export class RemoteEngine implements IEngine {
       metadata?: Record<string, unknown>;
     }
   ): Promise<EventDto> {
+    // Read here, as the direct engine reads it, so both modes take the same text.
+    const read = readAgentTimestamp(data.timestamp);
     try {
       const res = await this.client.post(
         '/api/events',
         {
           description: data.description,
-          timestamp: data.timestamp,
+          timestamp: read.iso,
           actor: data.actor || 'Unknown',
           target: data.target || 'Unknown',
           metadata: {
+            ...precisionMetadata(read),
             ...(data.metadata || {}),
             ...(data.importance !== undefined ? { importance: data.importance } : {}),
           },
@@ -485,12 +489,13 @@ export class RemoteEngine implements IEngine {
     eventId: string,
     data: Partial<{ description: string; timestamp: string; actor?: string; target?: string }>
   ): Promise<EventDto> {
+    const timestamp = data.timestamp !== undefined ? readAgentTimestamp(data.timestamp).iso : undefined;
     try {
       const res = await this.client.put(
         `/api/events/${eventId}`,
         {
           ...(data.description !== undefined ? { description: data.description } : {}),
-          ...(data.timestamp !== undefined ? { timestamp: data.timestamp } : {}),
+          ...(timestamp !== undefined ? { timestamp } : {}),
           ...(data.actor !== undefined ? { actor: data.actor } : {}),
           ...(data.target !== undefined ? { target: data.target } : {}),
         },

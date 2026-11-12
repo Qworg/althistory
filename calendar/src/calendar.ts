@@ -102,11 +102,13 @@ function hasVisible(text: string): boolean {
 /**
  * The key two month names are compared by: without what a reader cannot
  * see, composed alike, in lower case, so "Thaw", "THAW" and "Thaw\u200B"
- * are one name. A subdivision flag (a black flag, tag letters and a cancel
- * tag: Scotland, Wales) is kept whole, since its tags are what tell one flag
- * from another; a tag character anywhere else is padding like the rest.
+ * are one name. The three subdivision flags Unicode recommends (England,
+ * Scotland, Wales: a black flag, tag letters, a cancel tag) are kept whole,
+ * since their tags are what tell one from another. Any other tag sequence is
+ * drawn as the bare black flag, so its tags are padding like the rest.
  */
-const NOT_SEEN = /(\u{1F3F4}[\u{E0020}-\u{E007E}]+\u{E007F})|[\p{Default_Ignorable_Code_Point}\u2800\uFFF9-\uFFFB]/gu
+const NOT_SEEN =
+  /(\u{1F3F4}\u{E0067}\u{E0062}(?:\u{E0065}\u{E006E}\u{E0067}|\u{E0073}\u{E0063}\u{E0074}|\u{E0077}\u{E006C}\u{E0073})\u{E007F})|[\p{Default_Ignorable_Code_Point}\u2800\uFFF9-\uFFFB]/gu
 
 function sameNameKey(name: string): string {
   return name

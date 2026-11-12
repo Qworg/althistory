@@ -416,6 +416,22 @@ describe('RemoteEngine against a stand-in daemon', () => {
     }
   });
 
+  it("reads an agent's timestamp as the direct engine does, before anything is sent", async () => {
+    await engine.createEvent('g1', { description: 'Zoneless', timestamp: '1870-02-14 09:30' });
+    await engine.createEvent('g1', { description: 'A month', timestamp: '1871-03' });
+    const posted = daemon.requests.filter((request) => request.path === '/api/events' && request.method === 'POST');
+    expect(posted.map((request) => (request.body as { timestamp: string }).timestamp)).toEqual([
+      '1870-02-14T09:30:00.000Z',
+      '1871-03-01T00:00:00.000Z',
+    ]);
+    expect((posted[1]!.body as { metadata: Record<string, unknown> }).metadata.datePrecision).toBe('month');
+
+    // Prose is refused here, as in direct mode, and never reaches the daemon.
+    await expect(engine.createEvent('g1', { description: 'Prose', timestamp: 'Feb 14 1870' })).rejects.toThrow(/Invalid timestamp/);
+    await expect(engine.updateEvent('g1', 'event-1', { timestamp: 'Feb 14 1870' })).rejects.toThrow(/Invalid timestamp/);
+    expect(daemon.requests.filter((request) => request.path.startsWith('/api/events')).length).toBe(2);
+  });
+
   it('unwraps the response envelope instead of returning it', async () => {
     const created = await engine.createEvent('g1', {
       description: 'The Congress votes',

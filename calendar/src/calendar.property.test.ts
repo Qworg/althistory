@@ -157,6 +157,18 @@ describe('text that only looks right', () => {
     expect(calendarIssues({ epochYear: 1000, monthNames: months('Thaw', `Thaw${tags('A')}`) })).toContainEqual(
       expect.objectContaining({ code: 'duplicate' })
     )
+    // A tag sequence that is not a recommended flag is drawn as the bare black flag.
+    const black = String.fromCodePoint(0x1f3f4)
+    for (const [a, b] of [
+      [`Thaw ${black}`, `Thaw ${flag('a')}`],
+      [`Thaw ${flag('xx')}`, `Thaw ${flag('yy')}`],
+      [`Thaw ${flag('gbzzz')}`, `Thaw ${black}`],
+    ]) {
+      expect(calendarIssues({ epochYear: 1000, monthNames: months(a!, b!) }), JSON.stringify([a, b])).toContainEqual(
+        expect.objectContaining({ code: 'duplicate' })
+      )
+    }
+    expect(calendarIssues({ epochYear: 1000, monthNames: months(`Thaw ${flag('gbeng')}`, `Thaw ${black}`) })).toEqual([])
     // The interlinear annotation marks are not seen either.
     const annotation = String.fromCodePoint(0xfff9)
     expect(calendarIssues({ epochYear: 1000, monthNames: months('Thaw', `Thaw${annotation}`) })).toContainEqual(expect.objectContaining({ code: 'duplicate' }))

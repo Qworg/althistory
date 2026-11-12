@@ -5,6 +5,7 @@
  * Uses dependency injection via the container pattern.
  */
 
+import { toInstant } from '@althistory/calendar';
 import { Router, Response, NextFunction, RequestHandler } from 'express';
 import {
   RequestWithContainer,
@@ -252,8 +253,8 @@ graphRoutes.post(
         if (!start || !end) {
           throw new ValidationError('timeRange.start and timeRange.end are required for a time_range copy', 'timeRange');
         }
-        const startDate = new Date(start);
-        const endDate = new Date(end);
+        const startDate = toInstant(start);
+        const endDate = toInstant(end);
         if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
           throw new ValidationError('timeRange.start and timeRange.end must be valid dates', 'timeRange');
         }

@@ -8,11 +8,11 @@
  * fixed so the stored text does not depend on the machine that wrote it.
  */
 
-import { formatHistoricalDate as formatInLocale } from '@althistory/calendar';
+import { formatHistoricalDate as formatInLocale, toInstant } from '@althistory/calendar';
 
 /** "May 31, 1847". An unparseable value yields "an unknown date". */
 export function formatHistoricalDate(value: Date | string | number): string {
-  const date = value instanceof Date ? value : new Date(value);
+  const date = toInstant(value);
   if (Number.isNaN(date.getTime())) return 'an unknown date';
   return formatInLocale(date, 'en-US', null);
 }

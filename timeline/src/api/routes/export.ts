@@ -5,6 +5,7 @@
  * Uses dependency injection via the container pattern.
  */
 
+import { toInstant } from '@althistory/calendar';
 import { Router, Response, NextFunction, RequestHandler } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -496,8 +497,8 @@ function reconcileGraphId(request: CreateExportJobRequest, resolvedGraphId: stri
 
 function validateFilters(filters: ExportFilters): void {
   if (filters.timeRange) {
-    const start = new Date(filters.timeRange.start);
-    const end = new Date(filters.timeRange.end);
+    const start = toInstant(filters.timeRange.start);
+    const end = toInstant(filters.timeRange.end);
     
     if (isNaN(start.getTime())) {
       throw new ValidationError('Invalid start date in timeRange', 'filters.timeRange.start', filters.timeRange.start);

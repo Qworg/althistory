@@ -415,10 +415,10 @@ describe('Arc Model', () => {
 });
 
 describe('Arc times given as text', () => {
-  it('reads ISO 8601 as UTC, with no zone too, and refuses prose', () => {
+  it('reads ISO 8601 as UTC, with no zone too, and refuses an ISO-shaped date that does not exist', () => {
     const arc = new Arc({ name: 'Age', start_time: '1066 ' as unknown as Date, end_time: '1100-06-01 12:00' as unknown as Date, level: 0 });
     expect(arc.start_time.toISOString()).toBe('1066-01-01T00:00:00.000Z');
     expect(arc.end_time.toISOString()).toBe('1100-06-01T12:00:00.000Z');
-    expect(Arc.validate({ name: 'Age', start_time: 'Jan 1 1066' as unknown as Date, end_time: '1100' as unknown as Date, level: 0 }).isValid).toBe(false);
+    expect(Arc.validate({ name: 'Age', start_time: '1066-02-30' as unknown as Date, end_time: '1100' as unknown as Date, level: 0 }).isValid).toBe(false);
   });
 });

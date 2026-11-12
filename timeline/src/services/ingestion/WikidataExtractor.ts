@@ -25,6 +25,7 @@
  * start, not its conclusion.
  */
 
+import { toInstant } from '@althistory/calendar';
 import { DataSource } from '../ExportService';
 import { HttpClient, JsonValue, parseJsonBody, wikimediaUserAgent } from './http';
 import { newTempId } from './ids';
@@ -261,11 +262,11 @@ export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
     range?: { start: string; end: string }
   ): WikidataFact[] {
     if (!range) return facts;
-    const start = Date.parse(range.start);
-    const end = Date.parse(range.end);
+    const start = toInstant(range.start).getTime();
+    const end = toInstant(range.end).getTime();
     if (Number.isNaN(start) || Number.isNaN(end)) return facts;
     return facts.filter((fact) => {
-      const time = Date.parse(fact.date);
+      const time = toInstant(fact.date).getTime();
       return !Number.isNaN(time) && time >= start && time <= end;
     });
   }

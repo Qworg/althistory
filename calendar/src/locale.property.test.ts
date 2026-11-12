@@ -135,15 +135,17 @@ describe('a date in a world calendar, in every locale and time zone', () => {
     )
   })
 
-  it('reads a timestamp without a zone as UTC, and text that is not ISO 8601 as no date', () => {
+  it('reads a timestamp without a zone as UTC, and other text as JavaScript always has', () => {
     fc.assert(
       fc.property(arb.fieldInstant, arb.locale, fc.option(calendar, { nil: null }), (date, locale, world) => {
         const zoneless = date.toISOString().slice(0, 19)
         const second = new Date(Math.floor(date.getTime() / 1000) * 1000)
         expect(formatHistoricalTimestamp(zoneless, locale, world)).toBe(formatHistoricalTimestamp(second, locale, world))
         expect(formatWorldDate(zoneless, world)).toBe(formatWorldDate(second, world))
-        expect(formatHistoricalDate(second.toString(), locale, world)).toBe('Invalid date')
-        expect(formatHistoricalDate(second.toUTCString(), locale, world)).toBe('Invalid date')
+        // Stored data written before the app wrote only ISO: read as it always was.
+        expect(formatHistoricalDate(second.toUTCString(), locale, world)).toBe(formatHistoricalDate(new Date(second.toUTCString()), locale, world))
+        // An ISO-shaped date that does not exist is no date, never the day it rolls into.
+        expect(formatHistoricalDate('2019-02-31', locale, world)).toBe('Invalid date')
       }),
       arb.runs(1000)
     )

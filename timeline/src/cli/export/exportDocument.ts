@@ -14,7 +14,7 @@
 import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
 import { ExportRelationship } from './GraphExporter';
-import { GraphCalendar, storedCalendar } from '@althistory/calendar';
+import { GraphCalendar, storedCalendar, toInstant } from '@althistory/calendar';
 
 export interface ParsedExportDocument {
   graphId: string;
@@ -91,7 +91,7 @@ export function parseExportDocument(document: unknown): ParsedExportDocument {
         description: readString(raw.description, 'Untitled event'),
         actor: readString(raw.actor, 'Unknown'),
         target: readString(raw.target, 'Unknown'),
-        timestamp: new Date(readString(raw.timestamp)),
+        timestamp: toInstant(readString(raw.timestamp)),
         metadata: readMetadata(raw.metadata),
       })
     );

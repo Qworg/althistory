@@ -81,6 +81,7 @@
  *     reading.
  */
 
+import { toInstant } from '@althistory/calendar';
 import type { IncomingMessage, Server as HttpServer } from 'http';
 import type { Duplex } from 'stream';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -1595,7 +1596,7 @@ function toDate(value: unknown): Date | null {
     return Number.isNaN(value.getTime()) ? null : value;
   }
   if (typeof value === 'string' || typeof value === 'number') {
-    const date = new Date(value);
+    const date = toInstant(value);
     return Number.isNaN(date.getTime()) ? null : date;
   }
   return null;

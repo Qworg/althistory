@@ -2,6 +2,7 @@
  * Batch operations API routes
  */
 
+import { toInstant } from '@althistory/calendar';
 import { Router, Request, Response, RequestHandler } from 'express';
 import {
   AuthenticatedRequest,
@@ -729,7 +730,7 @@ function validateEventData(data: Partial<IEvent>): string[] {
 
   if (!data.timestamp) {
     warnings.push('timestamp is required');
-  } else if (isNaN(new Date(data.timestamp).getTime())) {
+  } else if (isNaN(toInstant(data.timestamp).getTime())) {
     warnings.push('timestamp is invalid');
   }
 
@@ -752,8 +753,8 @@ function validateArcData(data: Partial<IArc>): string[] {
   }
 
   if (data.start_time && data.end_time) {
-    const start = new Date(data.start_time);
-    const end = new Date(data.end_time);
+    const start = toInstant(data.start_time);
+    const end = toInstant(data.end_time);
     if (start >= end) {
       warnings.push('start_time must be before end_time');
     }

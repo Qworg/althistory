@@ -1,4 +1,5 @@
 import { Event, Arc } from '@/types'
+import { readDateField, toInstant } from '@althistory/calendar'
 
 // Form data interface for arc editing
 export interface ArcFormData {
@@ -136,13 +137,12 @@ export function initializeFormData(arc: Arc | null): ArcFormData {
 }
 
 /**
- * Converts a datetime-local input value to ISO string
- * @param value - The datetime-local input value
- * @returns ISO string or empty string
+ * A datetime-local input value as an ISO string. The field holds a UTC
+ * wall-clock time, as every historical date is read (`readDateField`), not
+ * the browser's local time; a value that is not a real date and time is ''.
  */
 export function datetimeLocalToISO(value: string): string {
-  if (!value) return ''
-  return new Date(value).toISOString()
+  return readDateField(value)?.date.toISOString() ?? ''
 }
 
 /**
@@ -152,5 +152,7 @@ export function datetimeLocalToISO(value: string): string {
  */
 export function isoToDatetimeLocal(isoString: string | undefined): string {
   if (!isoString) return ''
-  return new Date(isoString).toISOString().slice(0, 16)
+  const date = toInstant(isoString)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toISOString().slice(0, 16)
 }

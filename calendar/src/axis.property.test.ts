@@ -99,6 +99,16 @@ describe('year ticks in a world calendar, for every axis and time zone', () => {
     expect(aligned.map((tick) => worldYear(tick.getUTCFullYear(), calendar))).toEqual([1])
   })
 
+  it("takes local New Year's Days whose midnight a zone change skipped (Kathmandu, 1986)", () => {
+    // Local ticks as d3.scaleTime makes them. In Asia/Kathmandu, 1 January
+    // 1986 starts at 00:15: still New Year's Day, and the ticks still move.
+    const ticks = [1982, 1984, 1986, 1988, 1990].map((year) => yearStart(year, false))
+    const domain = [ticks[0]!, ticks[ticks.length - 1]!]
+    const result = alignedYearTicks(ticks, domain, { epochYear: 1001, eraLabel: 'AR' }, false)
+    expect(result).not.toBeNull()
+    for (const tick of result!.ticks) expect(+tick).toBe(+yearStart(tick.getFullYear(), false))
+  })
+
   it('puts a narrow two-tick axis on round world years, not "841 AR" and "851 AR"', () => {
     const ticks = [yearStart(1840, true), yearStart(1850, true)]
     const aligned = alignYearTicksToCalendar(ticks, ticks, { epochYear: 1000, eraLabel: 'AR' }, true)

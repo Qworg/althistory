@@ -76,15 +76,31 @@ export function parseIsoInstant(text: string): ParsedInstant | null {
 }
 
 /**
- * A timestamp as a Date: a Date as it is, a number as milliseconds, and text
- * by {@link parseIsoInstant}. Text it cannot read is an invalid Date, never a
- * guess in the host's zone.
+ * A timestamp as a Date, read the one way every part of the app reads one:
+ * a Date as it is; a number as milliseconds; text in ISO 8601 by
+ * {@link parseIsoInstant}, exactly (UTC when it names no zone); and anything
+ * else invalid. Text that is not ISO 8601 is read as JavaScript always read
+ * it (`new Date(text)`, in the host's zone): the app writes only ISO, but data
+ * stored before, and API clients, may hold "January 1, 2023", and refusing it
+ * here would make it unreadable rather than right. Where text first enters
+ * from a person or a model, read it with {@link readTimestamp}, which refuses
+ * anything but ISO 8601.
  */
-export function toInstant(value: Date | string | number): Date {
+export function toInstant(value: unknown): Date {
   if (value instanceof Date) return value
   if (typeof value === 'number') return new Date(value)
-  return parseIsoInstant(value.trim())?.date ?? new Date(NaN)
+  if (typeof value !== 'string') return new Date(NaN)
+  const text = value.trim()
+  const parsed = parseIsoInstant(text)
+  if (parsed) return parsed.date
+  // Shaped like an ISO date ("2019-02-31", "1066-13"), it is that or nothing:
+  // V8 would roll a day that does not exist into the next month.
+  if (ISO_SHAPED.test(text)) return new Date(NaN)
+  return new Date(text)
 }
+
+/** Text that starts as an ISO 8601 date does: a year of four or more digits (or signed) and a hyphen, or the year alone. */
+const ISO_SHAPED = /^[+-]?\d{4,}(?:-|$)/
 
 /**
  * A timestamp written by a person or a model, as the one spelling everything

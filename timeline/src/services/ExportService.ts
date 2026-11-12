@@ -875,9 +875,9 @@ export class ExportService {
 
     // Check time range
     if (filters.timeRange) {
-      const timestamp = toInstant(event.timestamp as string).getTime();
-      const start = new Date(filters.timeRange.start).getTime();
-      const end = new Date(filters.timeRange.end).getTime();
+      const timestamp = toInstant(event.timestamp).getTime();
+      const start = toInstant(filters.timeRange.start).getTime();
+      const end = toInstant(filters.timeRange.end).getTime();
       
       if (timestamp < start || timestamp > end) {
         return false;
@@ -911,10 +911,10 @@ export class ExportService {
 
     // Check time range (arc must overlap with filter range)
     if (filters.timeRange) {
-      const arcStart = toInstant(arc.start_time as string).getTime();
-      const arcEnd = toInstant(arc.end_time as string).getTime();
-      const filterStart = new Date(filters.timeRange.start).getTime();
-      const filterEnd = new Date(filters.timeRange.end).getTime();
+      const arcStart = toInstant(arc.start_time).getTime();
+      const arcEnd = toInstant(arc.end_time).getTime();
+      const filterStart = toInstant(filters.timeRange.start).getTime();
+      const filterEnd = toInstant(filters.timeRange.end).getTime();
       
       // Arc overlaps if it starts before filter ends and ends after filter starts
       if (arcEnd < filterStart || arcStart > filterEnd) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isReadableReviewDate } from './reviewLabels'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { readTimestamp } from '@althistory/calendar'
 
 describe('a date in the ingestion review', () => {
   // What a model writes for a date: ISO 8601 in its several forms, and the
@@ -18,13 +19,15 @@ describe('a date in the ingestion review', () => {
   ]
   const unreadable = ['', '  ', 'Feb 14 1870', 'March 1871', '14/02/1870', '2019-02-31', '1870-02-14T24:00']
 
-  it('is readable exactly when the line beneath it shows a date, not "Invalid date"', () => {
-    for (const raw of [...readable, ...unreadable]) {
-      const shown = formatHistoricalTimestamp(raw.trim(), 'en-US', null)
-      expect(isReadableReviewDate(raw), raw).toBe(shown !== 'Invalid date')
+  it('is readable exactly when the server will take it, and then shows a date, never "Invalid date"', () => {
+    for (const raw of readable) {
+      expect(isReadableReviewDate(raw), raw).toBe(true)
+      expect(formatHistoricalTimestamp(raw.trim(), 'en-US', null), raw).not.toBe('Invalid date')
     }
-    for (const raw of readable) expect(isReadableReviewDate(raw), raw).toBe(true)
+    // Unreadable text shows "Not a date" under the field (EntityReviewTable), not a guessed date.
     for (const raw of unreadable) expect(isReadableReviewDate(raw), raw).toBe(false)
+    // The server's ingestion reads with readTimestamp: the review agrees with it on every input.
+    for (const raw of [...readable, ...unreadable]) expect(isReadableReviewDate(raw), raw).toBe(readTimestamp(raw) !== null)
   })
 
   it('reads a reduced-precision date as its first day, in UTC', () => {

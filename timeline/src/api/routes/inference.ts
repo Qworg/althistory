@@ -1,3 +1,4 @@
+import { toInstant } from '@althistory/calendar';
 import { Router, Request, Response, NextFunction } from 'express';
 import { ValidationError, NotFoundError } from '@/utils/errors';
 import { TimeRange } from '@/models/Event';
@@ -76,8 +77,8 @@ inferenceRoutes.post('/analyze-clusters', ...entityPermission('read:events'), as
     } else {
       // Get events within time range
       const parsedTimeRange: TimeRange = {
-        start: new Date(timeRange.startTime),
-        end: new Date(timeRange.endTime)
+        start: toInstant(timeRange.startTime),
+        end: toInstant(timeRange.endTime)
       };
 
       if (isNaN(parsedTimeRange.start.getTime()) || isNaN(parsedTimeRange.end.getTime())) {
@@ -123,8 +124,8 @@ inferenceRoutes.post('/detect-patterns', ...entityPermission('read:events'), asy
     }
 
     const parsedTimeRange: TimeRange = {
-      start: new Date(timeRange.startTime),
-      end: new Date(timeRange.endTime)
+      start: toInstant(timeRange.startTime),
+      end: toInstant(timeRange.endTime)
     };
 
     if (isNaN(parsedTimeRange.start.getTime()) || isNaN(parsedTimeRange.end.getTime())) {
@@ -311,8 +312,8 @@ inferenceRoutes.get('/actor-relationships', ...entityPermission('read:events'), 
       try {
         const tr = typeof timeRange === 'string' ? JSON.parse(timeRange) : timeRange;
         parsedTimeRange = {
-          start: new Date(tr.startTime),
-          end: new Date(tr.endTime)
+          start: toInstant(tr.startTime),
+          end: toInstant(tr.endTime)
         };
 
         if (isNaN(parsedTimeRange.start.getTime()) || isNaN(parsedTimeRange.end.getTime())) {
@@ -439,8 +440,8 @@ inferenceRoutes.get('/anomalies', ...entityPermission('read:events'), async (req
     try {
       const tr = typeof timeRange === 'string' ? JSON.parse(timeRange as string) : timeRange;
       parsedTimeRange = {
-        start: new Date(tr.startTime),
-        end: new Date(tr.endTime)
+        start: toInstant(tr.startTime),
+        end: toInstant(tr.endTime)
       };
 
       if (isNaN(parsedTimeRange.start.getTime()) || isNaN(parsedTimeRange.end.getTime())) {
@@ -521,8 +522,8 @@ inferenceRoutes.post('/predict', ...entityPermission('read:events'), async (req:
     }
 
     const parsedBaseTimeRange: TimeRange = {
-      start: new Date(baseTimeRange.startTime),
-      end: new Date(baseTimeRange.endTime)
+      start: toInstant(baseTimeRange.startTime),
+      end: toInstant(baseTimeRange.endTime)
     };
 
     if (isNaN(parsedBaseTimeRange.start.getTime()) || isNaN(parsedBaseTimeRange.end.getTime())) {

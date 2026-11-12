@@ -1,3 +1,4 @@
+import { toInstant } from '@althistory/calendar';
 import { Event, InferredPressure, PressureType } from '@/models';
 import { CausalSuggestion, CausalRelationshipType, DrivenByRelationship } from '@/models/relationships';
 import { isTemporalInversion } from '@/utils/causalOrder';
@@ -366,7 +367,7 @@ export class InferenceService {
 
     // Sort events by timestamp
     const sortedEvents = [...events].sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      (a, b) => toInstant(a.timestamp).getTime() - toInstant(b.timestamp).getTime()
     );
 
     // Find temporal gaps (periods > TEMPORAL_GAP_THRESHOLD_DAYS with no events)
