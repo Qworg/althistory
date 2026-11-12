@@ -217,6 +217,27 @@ describe('invented worlds', () => {
       await expect(engine.createArc(graph.id, { name: 'Prose', startTime: 'Jan 1 1870', endTime: '1871' })).rejects.toThrow(/Invalid timestamp/);
     });
 
+    it("imports an arc's times as its events' are read, so a zone-less arc holds its event", async () => {
+      const graph = await engine.createGraph('Imported arcs');
+      created.push(graph.id);
+      const document = {
+        version: '1.0',
+        metadata: { graphId: 'x', graphName: 'x', exportedAt: new Date().toISOString(), sourceVersion: '1.0.0', graphVersion: 1, checksum: '' },
+        data: {
+          events: [{ id: 'e1', description: 'At the start', actor: 'A', target: 'B', timestamp: '1870-02-14T09:30' }],
+          arcs: [{ id: 'a1', name: 'Age', description: '', start_time: '1870-02-14T09:30', end_time: '1870-12-31T12:00+05', level: 0 }],
+          causalRelationships: [],
+          inferredPressures: [],
+        },
+      };
+      await engine.importGraph(JSON.stringify(document), { graphId: graph.id, strategy: 'overwrite' });
+      const [arc] = await engine.listArcs(graph.id);
+      const [event] = await engine.listEvents(graph.id);
+      expect(new Date(arc!.startTime).toISOString()).toBe('1870-02-14T09:30:00.000Z');
+      expect(new Date(arc!.endTime).toISOString()).toBe('1870-12-31T07:00:00.000Z');
+      expect(new Date(event!.timestamp).toISOString()).toBe('1870-02-14T09:30:00.000Z');
+    });
+
     it('says which event it created when it cannot put it in the arc', async () => {
       const graph = await engine.createGraph('No Such Arc');
       created.push(graph.id);
@@ -274,6 +295,12 @@ describe('invented worlds', () => {
       expect(text).not.toMatch(/1914|Divergent|counterfactual|Point of Divergence/i);
       // The arcs are named in the world's years.
       expect(result.arcs.some((arc) => / AR/.test(arc.name))).toBe(true);
+    });
+
+    it('reads its start and end dates as ISO 8601, refusing prose rather than reading it in the host zone', async () => {
+      await expect(engine.generateTimeline({ world: 'Isles', startDate: 'Feb 14 1870', dryRun: true })).rejects.toThrow(/Invalid start date/);
+      const zoneless = await engine.generateTimeline({ world: 'Isles', startDate: '1870-02-14T00:00', eventCount: 3, dryRun: true });
+      expect(zoneless.calendar?.epochYear).toBe(1870);
     });
 
     it('takes the epoch from the start date when none is given, and writes the calendar on the graph', async () => {

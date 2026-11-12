@@ -432,6 +432,27 @@ describe('RemoteEngine against a stand-in daemon', () => {
     expect(daemon.requests.filter((request) => request.path.startsWith('/api/events')).length).toBe(2);
   });
 
+  it("keeps an event's metadata when its date changes, replacing only the date's precision", async () => {
+    const created = await engine.createEvent('g1', {
+      description: 'In an arc',
+      timestamp: '1871-03',
+      metadata: { arcId: 'arc_1', evidence: 'src', confidence: 0.4 },
+      importance: 0.7,
+    });
+    expect(created.metadata?.datePrecision).toBe('month');
+
+    await engine.updateEvent('g1', created.id, { timestamp: '1871-03-15' });
+    const after = await engine.getEvent('g1', created.id);
+    expect(after.timestamp).toBe('1871-03-15T00:00:00.000Z');
+    // Everything else is still there: the arc, the evidence, the importance.
+    expect(after.metadata).toMatchObject({ arcId: 'arc_1', evidence: 'src', confidence: 0.4, importance: 0.7 });
+    expect(after.metadata?.datePrecision).toBeUndefined();
+
+    // An arc's times are read as an event's are, before anything is sent.
+    await expect(engine.createArc('g1', { name: 'Prose', startTime: 'Jan 1 1870', endTime: '1871' })).rejects.toThrow(/Invalid timestamp/);
+    expect(daemon.requests.some((request) => request.path === '/api/arcs' && request.method === 'POST')).toBe(false);
+  });
+
   it('unwraps the response envelope instead of returning it', async () => {
     const created = await engine.createEvent('g1', {
       description: 'The Congress votes',

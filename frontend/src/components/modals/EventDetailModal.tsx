@@ -2,8 +2,8 @@ import { useState, useEffect, useContext, useMemo } from 'react'
 import { QueryClientContext } from '@tanstack/react-query'
 import { Arc, CausalRelationship, Event } from '@/types'
 import { useEvents } from '@/hooks/useAPI'
-import { formatHistoricalDateBound, parseHistoricalDate } from '@/components/filters/filterUtils'
-import { boundPrecision, type DatePrecision } from '@althistory/calendar'
+import { parseHistoricalDate } from '@/components/filters/filterUtils'
+import { boundPrecision, datePrecisionOf, formatBoundAt, toInstant, type DatePrecision } from '@althistory/calendar'
 import { formatHistoricalDate } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 
@@ -123,11 +123,12 @@ function CausePicker({
  */
 const TIME_SUFFIX = /^(.+?)(?:[ T](\d{1,2}):(\d{2}))$/
 
-function toDateField(isoString: string): string {
+/** The event's date as the field shows it, at the precision it is known to (the 1st of a month at day precision stays a day). */
+function toDateField(isoString: string, precision: DatePrecision = 'day'): string {
   if (!isoString) return ''
-  const date = new Date(isoString)
+  const date = toInstant(isoString)
   if (isNaN(date.getTime())) return ''
-  const day = formatHistoricalDateBound(date, 'start')
+  const day = formatBoundAt(date, precision)
   const hours = date.getUTCHours()
   const minutes = date.getUTCMinutes()
   return hours || minutes ? `${day} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}` : day
@@ -250,7 +251,7 @@ export function EventDetailModal({
         description: event.description || '',
         actor: event.actor || '',
         target: event.target || '',
-        timestamp: toDateField(event.timestamp || ''),
+        timestamp: toDateField(event.timestamp || '', datePrecisionOf(event.metadata)),
         // Kept in the event's metadata, where the timeline reads confidence.
         event_type: metadataText(event, 'eventType'),
         confidence: confidenceField(event),
@@ -357,12 +358,10 @@ export function EventDetailModal({
       setOrDrop('confidence', formData.confidence.trim() === '' ? undefined : Number(formData.confidence))
       setOrDrop('evidence', formData.evidence.trim())
       setOrDrop('eventType', formData.event_type.trim())
-      // A date the user typed states its own precision ("1871-03" a month); one
-      // left as the form showed it keeps the event's, so editing anything else
-      // never turns a month into its first day or the other way round.
-      if (parsedDate.ok && (!event || formData.timestamp.trim() !== toDateField(event.timestamp || ''))) {
-        setOrDrop('datePrecision', parsedDate.precision === 'day' ? undefined : parsedDate.precision)
-      }
+      // The field states the date's precision ("1871-03" a month), and shows
+      // an event at the precision it is known to (toDateField), so saving it
+      // untouched keeps a month a month and a day on the 1st a day.
+      if (parsedDate.ok) setOrDrop('datePrecision', parsedDate.precision === 'day' ? undefined : parsedDate.precision)
       const eventData: Partial<Event> = {
         description: formData.description,
         actor: formData.actor,

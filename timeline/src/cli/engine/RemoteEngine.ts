@@ -449,6 +449,8 @@ export class RemoteEngine implements IEngine {
       timestamp: readString(event.timestamp),
       actor: readOptionalString(event.actor),
       target: readOptionalString(event.target),
+      // The arc an event is in and its date precision live here, as in the direct engine.
+      ...(isRecord(event.metadata) && Object.keys(event.metadata).length > 0 ? { metadata: event.metadata } : {}),
     };
   }
 
@@ -492,12 +494,21 @@ export class RemoteEngine implements IEngine {
     const read = data.timestamp !== undefined ? readAgentTimestamp(data.timestamp) : undefined;
     try {
       // A new date replaces the old one's precision, as in the direct engine.
-      const metadata = read ? withNewDatePrecision((await this.getEvent(graphId, eventId)).metadata, read) : undefined;
+      // The PUT replaces metadata whole, so it is sent only as read back and
+      // changed: never an empty object standing in for metadata not read.
+      const existing = read ? (await this.getEvent(graphId, eventId)).metadata : undefined;
+      const metadata = !read
+        ? undefined
+        : existing
+          ? withNewDatePrecision(existing, read)
+          : read.precision === 'day'
+            ? undefined
+            : precisionMetadata(read);
       const res = await this.client.put(
         `/api/events/${eventId}`,
         {
           ...(data.description !== undefined ? { description: data.description } : {}),
-          ...(read ? { timestamp: read.iso, metadata } : {}),
+          ...(read ? { timestamp: read.iso, ...(metadata ? { metadata } : {}) } : {}),
           ...(data.actor !== undefined ? { actor: data.actor } : {}),
           ...(data.target !== undefined ? { target: data.target } : {}),
         },

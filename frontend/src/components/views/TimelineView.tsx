@@ -504,8 +504,13 @@ export function TimelineView() {
     return violation ? `Will be refused: ${violation.reason}` : null
   }, [arcResizeViolation])
 
-  /** Validate and persist an event's new time; resolves to whether it was written. */
-  const moveEvent = useCallback(async (event: Event, newTimestamp: Date): Promise<boolean> => {
+  /**
+   * Validate and persist an event's new time; resolves to whether it was
+   * written. `precision` is how much of the new time is known: a drag puts
+   * the event at an exact instant (none), and undoing it restores the month
+   * or year the event was dated to.
+   */
+  const moveEvent = useCallback(async (event: Event, newTimestamp: Date, precision?: unknown): Promise<boolean> => {
     const reason = eventMoveViolation(event, newTimestamp)
     if (reason) {
       addError({
@@ -515,9 +520,15 @@ export function TimelineView() {
       return false
     }
     try {
+      // The precision goes with the time: a month an event was dated to no
+      // longer applies once it is dragged to an exact instant (left in place it
+      // would show the move as "May 1871"). Metadata is sent only when that
+      // changes, and then whole, as the API replaces it.
+      const { datePrecision, ...rest } = event.metadata ?? {}
+      const metadata = datePrecision === precision ? undefined : precision === undefined ? rest : { ...rest, datePrecision: precision }
       await updateEventMutation.mutateAsync({
         id: event.id,
-        data: { timestamp: newTimestamp.toISOString() },
+        data: { timestamp: newTimestamp.toISOString(), ...(metadata ? { metadata } : {}) },
       })
       return true
     } catch (error) {
@@ -573,13 +584,13 @@ export function TimelineView() {
    * restored; that step is reported and consumed so it does not block the rest
    * of the history.
    */
-  const reapplyEventTime = useCallback(async (eventId: string, description: string, iso: string) => {
+  const reapplyEventTime = useCallback(async (eventId: string, description: string, iso: string, precision?: unknown) => {
     const current = fetchedEventsRef.current.find((e) => e.id === eventId)
     if (!current) {
       addError({ type: 'general', message: `"${description}" no longer exists, so that change cannot be reversed.` })
       return true
     }
-    return moveEvent(current, new Date(iso))
+    return moveEvent(current, new Date(iso), precision)
   }, [moveEvent, addError])
 
   const reapplyArcBounds = useCallback(async (arcId: string, name: string, bounds: { start: string; end: string }) => {
@@ -593,11 +604,12 @@ export function TimelineView() {
 
   const handleEventDrag = useCallback(async (event: Event, newTimestamp: Date) => {
     const from = event.timestamp
+    const fromPrecision = event.metadata?.datePrecision
     const to = newTimestamp.toISOString()
     if (!(await moveEvent(event, newTimestamp))) return
     recordEdit({
       description: `moved "${event.description}" to ${formatHistoricalTimestamp(to)}`,
-      undo: () => reapplyEventTime(event.id, event.description, from),
+      undo: () => reapplyEventTime(event.id, event.description, from, fromPrecision),
       redo: () => reapplyEventTime(event.id, event.description, to),
     })
   }, [moveEvent, recordEdit, reapplyEventTime])

@@ -13,13 +13,16 @@ import { daysFromCivil, daysInMonth } from './gregorian'
 
 /**
  * The calendar date, then optionally a time and a zone, in the forms of ISO
- * 8601 and RFC 3339 a person or a model writes: a year alone or a year and
- * month (reduced precision), a "T", "t" or space before the time, "Z" or "z",
- * an offset with or without its colon ("+05:45", "+0545", "+05"), and a
- * fraction after a full stop or a comma.
+ * 8601 and RFC 3339 a person or a model writes, and the near spellings other
+ * programs write: a year alone or a year and month (reduced precision), a
+ * month or day of one digit ("2023-1-5"), a "T", "t" or space before the
+ * time, "Z", "z", "UTC" or "GMT", an offset with or without its colon
+ * ("+05:45", "+0545", "+05"), set off by a space or followed by "UTC" (Go's
+ * "+0000 UTC"), and a fraction after a full stop or a comma. Every one is
+ * read the same way on every machine: no zone is UTC.
  */
 const ISO_INSTANT =
-  /^([+-]\d{6}|\d{4,6})(?:-(\d{2})(?:-(\d{2})(?:[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?(?:([Zz])|([+-])(\d{2})(?::?(\d{2}))?)?)?)?)?$/
+  /^([+-]\d{6}|\d{4,6})(?:-(\d{1,2})(?:-(\d{1,2})(?:[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?)?(?: ?(?:([Zz])|(UTC|GMT)|([+-])(\d{2})(?::?(\d{2}))?(?: (?:UTC|GMT))?))?)?)?$/
 
 /** A Date can hold ±8.64e15 ms from 1970. */
 const MAX_TIME = 8.64e15
@@ -50,8 +53,8 @@ export interface ParsedInstant {
 export function parseIsoInstant(text: string): ParsedInstant | null {
   const match = ISO_INSTANT.exec(text)
   if (!match) return null
-  // The ninth group is "Z": an offset of 0, as no offset is.
-  const [, yearText, monthText, dayText, hourText, minuteText, secondText, fraction, , sign, zoneHours, zoneMinutes] = match
+  // Groups 8 and 9 are "Z" and "UTC"/"GMT": an offset of 0, as no offset is.
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, fraction, , , sign, zoneHours, zoneMinutes] = match
   if (yearText === '-000000') return null // ISO 8601 has no negative zero year
   const year = Number(yearText)
   const month = Number(monthText ?? 1)
@@ -80,8 +83,8 @@ export function parseIsoInstant(text: string): ParsedInstant | null {
  * a Date as it is; a number as milliseconds; text in ISO 8601 by
  * {@link parseIsoInstant}, exactly (UTC when it names no zone); and anything
  * else invalid. Text that is not ISO 8601 is read as JavaScript always read
- * it (`new Date(text)`, in the host's zone), unless it opens with a day that
- * does not exist ("2019-02-31", which V8 rolls into March): the app writes only ISO, but data
+ * it (`new Date(text)`, in the host's zone), unless it starts like an ISO
+ * date ("2019-2-31", which V8 would roll into March): the app writes only ISO, but data
  * stored before, and API clients, may hold "January 1, 2023", and refusing it
  * here would make it unreadable rather than right. Where text first enters
  * from a person or a model, read it with {@link readTimestamp}, which refuses
@@ -94,20 +97,16 @@ export function toInstant(value: unknown): Date {
   const text = value.trim()
   const parsed = parseIsoInstant(text)
   if (parsed) return parsed.date
-  // Text that opens with a calendar date that does not exist ("2019-02-31")
-  // is no date: V8 would roll it into the next month. Any other text is read
-  // as it always was ("2023-01-01 12:00:00 UTC", "2023-1-5", "…12:00 PM").
-  if (namesNoSuchDay(text)) return new Date(NaN)
+  // Text that starts like an ISO date is that or nothing: V8 would roll a
+  // day that does not exist into the next month ("2019-2-31") and read a
+  // spelling it half knows in the host's zone ("1871-3"). Only text of
+  // another shape ("January 1, 2023") is read as JavaScript always read it.
+  if (STARTS_LIKE_ISO.test(text)) return new Date(NaN)
   return new Date(text)
 }
 
-/** Whether text opens with a year, month and day ("2019-02-31…") that no calendar has. */
-function namesNoSuchDay(text: string): boolean {
-  const match = /^([+-]?\d{4,6})-(\d{2})-(\d{2})(?!\d)/.exec(text)
-  if (!match) return false
-  const [, year, month, day] = match
-  return Number(day) < 1 || Number(day) > daysInMonth(Number(year), Number(month))
-}
+/** Text that starts as an ISO date does: a year of four or more digits (or signed six), a hyphen and a digit. */
+const STARTS_LIKE_ISO = /^[+-]?\d{4,6}-\d/
 
 /**
  * A timestamp written by a person or a model, as the one spelling everything

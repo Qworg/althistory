@@ -5,6 +5,7 @@ import {
   boundPrecision,
   formatHistoricalDate,
   formatHistoricalDateAt,
+  formatBoundAt,
   formatHistoricalDateBound,
   parseHistoricalDate,
   readDateField,
@@ -170,6 +171,24 @@ describe('an instant as a bound', () => {
       }),
       arb.runs(3000)
     )
+  })
+})
+
+describe('an instant as a bound at a stated precision', () => {
+  it('reads back as the period it names, starting at the instant', () => {
+    fc.assert(
+      fc.property(arb.instant.filter((d) => Math.abs(d.getTime()) < arb.MAX_TIME - 400 * 366 * DAY), fc.constantFrom('day', 'month', 'year') as fc.Arbitrary<'day' | 'month' | 'year'>, (date, precision) => {
+        const text = formatBoundAt(date, precision)
+        const parsed = parseHistoricalDate(text, 'start')
+        expect(parsed.ok, text).toBe(true)
+        if (!parsed.ok) return
+        expect(boundPrecision(parsed.text)).toBe(precision)
+        expect(parsed.date.getTime()).toBeLessThanOrEqual(date.getTime())
+      })
+    )
+    // The 1st of a month at day precision stays a day.
+    expect(formatBoundAt(new Date('1871-03-01T00:00:00Z'), 'day')).toBe('1871-03-01')
+    expect(formatBoundAt(new Date('-000043-03-15T00:00:00Z'), 'month')).toBe('44-03 BCE')
   })
 })
 

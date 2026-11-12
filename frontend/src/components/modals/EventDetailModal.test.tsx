@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'vitest-axe'
 import type { ReactElement } from 'react'
@@ -208,6 +208,12 @@ describe('EventDetailModal', () => {
       const day = await save(monthEvent, '1871-03-15')
       expect(day.timestamp).toBe('1871-03-15T00:00:00.000Z')
       expect(day.metadata?.datePrecision).toBeUndefined()
+      // A day-precision event on the 1st, left alone: shown as the day, and still a day.
+      const firstOfMonth = createMockEvent({ timestamp: '1871-03-01T00:00:00.000Z' })
+      render(<EventDetailModal {...defaultProps} event={firstOfMonth} isOpen={true} />)
+      expect(screen.getByLabelText(/^date/i)).toHaveValue('1871-03-01')
+      cleanup()
+      expect((await save(firstOfMonth)).metadata?.datePrecision).toBeUndefined()
       // A month typed for a dated event: the month.
       expect((await save(createMockEvent({ timestamp: '1871-03-15T00:00:00.000Z' }), '1872-05')).metadata?.datePrecision).toBe('month')
     })

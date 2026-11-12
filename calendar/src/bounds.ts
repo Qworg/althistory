@@ -143,6 +143,20 @@ export function formatHistoricalDateBound(value: Date | string | null | undefine
   return formatBound(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate())
 }
 
+/**
+ * An instant as a bound at the precision it is known to: "1871-03-01" for a
+ * day (even the 1st, which {@link formatHistoricalDateBound} would widen to
+ * the month), "1871-03" for a month, "1871" for a year. What a date field
+ * shows, so that saving it unchanged keeps what is known.
+ */
+export function formatBoundAt(value: Date, precision: DatePrecision): string {
+  if (Number.isNaN(value.getTime())) return ''
+  const year = value.getUTCFullYear()
+  if (precision === 'year') return formatBound(year)
+  if (precision === 'month') return formatBound(year, value.getUTCMonth() + 1)
+  return formatBound(year, value.getUTCMonth() + 1, value.getUTCDate())
+}
+
 /** How much of a date a canonical bound names: `1843` a year, `1843-11` a month, `1843-11-20` a day. */
 export function boundPrecision(text: string): DatePrecision {
   const parts = text.replace(/ BCE$/, '').split('-').length
@@ -184,8 +198,10 @@ export function worldBoundLabel(
  * day and other engines refuse. See {@link parseIsoInstant}.
  */
 export function readDateField(value: string | null | undefined): { date: Date; dateOnly: boolean } | null {
-  const parsed = value ? parseIsoInstant(value) : null
-  // A field holds a whole date: "1066" is a free-text field part-way through.
+  // A field holds a whole date, written in full: "1066" or "1066-3-4" is a
+  // free-text field part-way through (on its way to "1066-3-14").
+  if (!value || !/^[+-]?\d{4,6}-\d{2}-\d{2}(?:$|[Tt ])/.test(value)) return null
+  const parsed = parseIsoInstant(value)
   if (!parsed || parsed.precision === 'year' || parsed.precision === 'month') return null
   return { date: parsed.date, dateOnly: parsed.dateOnly }
 }

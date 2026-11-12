@@ -90,9 +90,9 @@ describe('an ISO 8601 timestamp, in every time zone', () => {
         const parsed = parseIsoInstant(text)
         if (!exists || Math.abs(ms) > arb.MAX_TIME) {
           expect(parsed, text).toBeNull()
-          // Never the day V8 rolls a day that does not exist into.
-          const dayExists = month >= 1 && month <= 12 && day >= 1 && day <= daysIn(year, month)
-          if (!dayExists && (precision === 'day' || precision === 'time')) expect(Number.isNaN(toInstant(text).getTime()), text).toBe(true)
+          // Text that starts like an ISO date and is not one is no date: never
+          // the day V8 rolls it into, nor a time read in the host's zone.
+          expect(Number.isNaN(toInstant(text).getTime()), text).toBe(true)
         } else {
           expect(parsed, text).toEqual({ date: new Date(ms), dateOnly: precision !== 'time', precision })
           expect(toInstant(` ${text} `)).toEqual(new Date(ms))
@@ -115,7 +115,7 @@ describe('an ISO 8601 timestamp, in every time zone', () => {
       ['+000000-01-01', '0000-01-01T00:00:00.000Z'],
       ['-000000-01-01', null],
       ['18431120', null],
-      ['1843-1-20', null],
+      ['1843-1-20', '1843-01-20T00:00:00.000Z'],
       ['Feb 14 1870', null],
     ]
     for (const [text, expected] of cases) {
@@ -137,9 +137,20 @@ describe('an ISO 8601 timestamp, in every time zone', () => {
         }
       })
     )
-    // Spellings other programs write, which JavaScript always read: still read so.
-    for (const text of ['2023-01-01 12:00:00 UTC', '2023-01-01 12:00:00 +0000 UTC', '2023-01-01 12:00:00 -0800', '2023-01-01 12:00 PM', '2023-1-5', '2023-01-01Z']) {
-      expect(toInstant(text).getTime(), text).toBe(new Date(text).getTime())
+    // Near spellings other programs write (Ruby's, Go's): read, the same way on every machine.
+    const near: Array<[string, string]> = [
+      ['2023-01-01 12:00:00 UTC', '2023-01-01T12:00:00.000Z'],
+      ['2023-01-01 12:00:00 +0000 UTC', '2023-01-01T12:00:00.000Z'],
+      ['2023-01-01 12:00:00 -0800', '2023-01-01T20:00:00.000Z'],
+      ['2023-1-5', '2023-01-05T00:00:00.000Z'],
+      ['2023-01-01Z', '2023-01-01T00:00:00.000Z'],
+      ['1871-3', '1871-03-01T00:00:00.000Z'],
+    ]
+    for (const [text, iso] of near) expect(toInstant(text).toISOString(), text).toBe(iso)
+    // Text that starts like an ISO date and is not one is no date: never the
+    // day V8 rolls it into, nor a time read in the host's zone.
+    for (const text of ['2019-2-31', '2019-02-28T24:00', '2023-01-01 12:00 PM', '2019-02-29', '1871-13']) {
+      expect(Number.isNaN(toInstant(text).getTime()), text).toBe(true)
     }
     // Anything but text, a number or a Date is no date, and never a thrown error.
     for (const value of [null, undefined, {}, [], ['2020-01-01'], true, { $date: '2020-01-01' }]) {

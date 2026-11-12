@@ -364,6 +364,17 @@ describe('validateExtraction', () => {
     expect(errors.some((issue) => issue.message.includes('effect event'))).toBe(true);
   });
 
+  it("flags an arc or an event dated in prose, which the server would otherwise read in its own zone", () => {
+    const extraction = makeExtraction({
+      events: [makeEvent({ timestamp: 'Feb 14 1870' })],
+      relationships: [],
+      arcs: [makeArc({ start_time: 'January 1870', end_time: '1871-01-01T00:00:00Z' })],
+    });
+    const errors = validateExtraction(extraction).filter((issue) => issue.severity === 'error');
+    expect(errors.some((issue) => issue.entityType === 'event' && issue.message.includes('timestamp'))).toBe(true);
+    expect(errors.some((issue) => issue.entityType === 'arc' && issue.message.includes('valid timestamps'))).toBe(true);
+  });
+
   it('flags an arc whose start is after its end', () => {
     const extraction = makeExtraction({
       events: [],
