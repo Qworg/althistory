@@ -177,11 +177,11 @@ test('a link opens on the invented world, in its own years', async ({ page }) =>
   await expect(page.getByRole('button', { name: /^Vael/ }).first()).toBeVisible()
   expect(new URL(page.url()).searchParams.has('start')).toBe(false)
 
-  // Stored 1000-03-04 is the world's year 1; stored 1162 is 163 AR.
+  // Stored 1000-03-04 is the world's year 1, in its month Thaw; stored 1162 is 163 AR.
   const marks = page.locator('g[data-timeline-mark="event"]')
   await expect(marks).toHaveCount(9)
-  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="the first salt-king"]')).toHaveAttribute('aria-label', /at Mar 4, 1 AR\b/)
-  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Siege of Hollow Isle"]')).toHaveAttribute('aria-label', /at Sep 1, 163 AR\b/)
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="the first salt-king"]')).toHaveAttribute('aria-label', /at Thaw 4, 1 AR\b/)
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Siege of Hollow Isle"]')).toHaveAttribute('aria-label', /at Gale 1, 163 AR\b/)
   // The axis counts in the same years, and never shows a Gregorian one.
   await expect.poll(async () => (await axisLabels(page)).filter((l) => /^\d+ AR$/.test(l)).length).toBeGreaterThan(2)
   expect((await axisLabels(page)).filter((l) => /^1\d{3}$/.test(l))).toEqual([])
@@ -189,7 +189,7 @@ test('a link opens on the invented world, in its own years', async ({ page }) =>
   // An event's details are in world years too.
   await page.locator('g[data-timeline-mark="event"][aria-label*="the first salt-king"] .event-marker').click({ force: true })
   const inspector = page.getByRole('region', { name: 'Selection inspector' })
-  await expect(inspector).toContainText('Mar 4, 1 AR')
+  await expect(inspector).toContainText('Thaw 4, 1 AR')
 
   // The causal graph opens on the world too (its labels are drawn on a canvas).
   await page.goto('./#/causal-graph')
@@ -219,11 +219,11 @@ test('a branch of the world keeps its calendar', async ({ page }) => {
   await dialog.getByRole('button', { name: 'Switch to branch' }).click()
   await expect(page.getByText(/Branch of\s*Vael/)).toBeVisible()
   await expect(page.getByText(WORLD_COUNTS)).toBeVisible()
-  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Siege of Hollow Isle"]')).toHaveAttribute('aria-label', /at Sep 1, 163 AR\b/)
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Siege of Hollow Isle"]')).toHaveAttribute('aria-label', /at Gale 1, 163 AR\b/)
   await expect.poll(async () => (await axisLabels(page)).filter((l) => /^\d+ AR$/.test(l)).length).toBeGreaterThan(2)
 
   // And after a reload, from the demo's saved state.
   await page.reload()
   await expect(page.getByText(/Branch of\s*Vael/)).toBeVisible()
-  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="the first salt-king"]')).toHaveAttribute('aria-label', /at Mar 4, 1 AR\b/)
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="the first salt-king"]')).toHaveAttribute('aria-label', /at Thaw 4, 1 AR\b/)
 })
