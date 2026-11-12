@@ -204,6 +204,9 @@ describe('historical dates in a world calendar that names its months', () => {
     }
     // The dot after the day is its ordinal, as de writes "4. Greening".
     expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'cs-CZ', NAMED)).toBe('4. Greening 312 AR')
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'fi-FI', NAMED)).toBe('4. Greening 312 AR')
+    // bg's dot only separates numbers: it writes "4 март", so "4 Greening".
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'bg-BG', NAMED)).toBe('4 Greening 312 AR')
     expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'de-DE', NAMED)).toBe('4. Greening 312 AR')
   })
 

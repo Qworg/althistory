@@ -46,19 +46,27 @@ function readText(value: unknown, what: string): string | undefined {
 function readMonthNames(value: unknown): string[] | undefined {
   if (isUnset(value)) return undefined;
   // A client that sends the list as JSON text ('["Lowtide", …]') means the list,
-  // not twelve names with brackets and quotes in them. Only a quoted first
-  // name counts as JSON, so a name like "[Thaw]" can still be typed.
-  if (typeof value === 'string' && /^\[\s*"/.test(value.trim())) {
+  // not twelve names with brackets and quotes in them; so does text wrapped in
+  // brackets ("[Lowtide, …, Longnight]"), which must then be JSON. A name in
+  // brackets inside a plain list ("[Lowtide],Greywater,…") is just a name.
+  const text = typeof value === 'string' ? value.trim() : undefined;
+  if (text !== undefined && (/^\[\s*"/.test(text) || (text.startsWith('[') && text.endsWith(']')))) {
     let parsed: unknown;
     try {
-      parsed = JSON.parse(value);
+      parsed = JSON.parse(text);
     } catch {
-      throw new ValidationErrorCLI('The month names look like a JSON list but are not one');
+      throw new ValidationErrorCLI(
+        'The month names are in brackets but are not a JSON list: give them separated by commas without brackets, or as a JSON list of quoted names'
+      );
     }
     return readMonthNames(parsed);
   }
-  // A comma after the last name ("…,Longnight,") ends the list; it is not a thirteenth, empty name.
-  if (typeof value === 'string') return value.trim().replace(/,\s*$/, '').split(',').map((name) => name.trim());
+  if (text !== undefined) {
+    // A comma after the last name ("…,Longnight,") ends the list; it is not a
+    // thirteenth, empty name. Text with no names in it ("," or " ") has none.
+    const list = text.replace(/,\s*$/, '');
+    return list.trim() === '' ? [] : list.split(',').map((name) => name.trim());
+  }
   if (Array.isArray(value) && value.every((name) => typeof name === 'string')) {
     return value.map((name) => (name as string).trim());
   }

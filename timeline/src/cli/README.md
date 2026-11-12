@@ -96,8 +96,9 @@ the world's year 1, `--era-label` is written after a year ("312 AR"; without
 one, "Year 312"), `--calendar-name` names the calendar, and `--month-names`
 gives the twelve months the world's names, January's first, separated by
 commas (with Vael's "Lowtide,Greywater,Thaw,…", March 4 reads "Thaw 4"). The
-months keep their stored lengths, and a name cannot contain a comma, a `|` or
-a control character. `graph create`, `graph calendar` and
+months keep their stored lengths. A month name cannot contain a comma, a `|`
+or a control character such as a tab or line break; an era label or calendar
+name cannot contain a `|` or a control character. `graph create`, `graph calendar` and
 `generate timeline --world` take the four flags. `graph create` and
 `graph calendar` refuse a label, a name or month names without
 `--epoch-year`; `generate timeline --world` fills the epoch in. `graph

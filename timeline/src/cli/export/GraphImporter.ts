@@ -6,8 +6,9 @@ import { ImportResultDto } from '../types';
 import { ValidationErrorCLI } from '../utils/exitCodes';
 
 /**
- * The calendar an export carries, if it checks out. A bad one is dropped
- * rather than failing the import: it only changes how years are shown.
+ * The calendar an export carries. A field that does not check out is dropped
+ * rather than failing the import, and without a usable epoch there is no
+ * calendar (see `storedCalendar`): it only changes how dates are shown.
  */
 function importedCalendar(metadata: Record<string, unknown> | undefined): GraphCalendar | undefined {
   const value = metadata?.calendar;

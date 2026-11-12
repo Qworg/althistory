@@ -78,7 +78,7 @@ export function calendarProblems(value: unknown): string[] {
       problems.push('calendar.eraLabel must be a string');
     } else if (record.eraLabel.trim().length > MAX_ERA_LABEL_LENGTH) {
       problems.push(`calendar.eraLabel must be at most ${MAX_ERA_LABEL_LENGTH} characters`);
-    } else if (FORBIDDEN_IN_LABEL.test(record.eraLabel)) {
+    } else if (FORBIDDEN_IN_LABEL.test(record.eraLabel.trim())) {
       problems.push('calendar.eraLabel cannot contain a "|" or a line break or other control character');
     }
   }
@@ -87,7 +87,7 @@ export function calendarProblems(value: unknown): string[] {
       problems.push('calendar.name must be a string');
     } else if (record.name.trim().length > MAX_CALENDAR_NAME_LENGTH) {
       problems.push(`calendar.name must be at most ${MAX_CALENDAR_NAME_LENGTH} characters`);
-    } else if (FORBIDDEN_IN_LABEL.test(record.name)) {
+    } else if (FORBIDDEN_IN_LABEL.test(record.name.trim())) {
       problems.push('calendar.name cannot contain a "|" or a line break or other control character');
     }
   }

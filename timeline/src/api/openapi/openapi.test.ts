@@ -76,6 +76,16 @@ describe('the OpenAPI description', () => {
     )
   })
 
+  it('refuses an operation that declares X-Graph-Id both as graphScoped and in its own headers', () => {
+    const spec = OPERATIONS['POST /api/ingest/text']!
+    spec.graphScoped = true
+    try {
+      expect(() => buildOpenApiDocument(routes)).toThrow(/declares X-Graph-Id twice/)
+    } finally {
+      delete spec.graphScoped
+    }
+  })
+
   it('is a valid OpenAPI 3 document', () => {
     expect(document.openapi).toMatch(/^3\.\d+\.\d+$/)
     expect(document.info.title).toBeTruthy()

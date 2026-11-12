@@ -137,6 +137,14 @@ describe('month names from the server', () => {
     expect(usableCalendar({ epochYear: 1000, eraLabel: 'A|R', name: 'Vael\nnow', monthNames: MONTHS })).toEqual({ epochYear: 1000, monthNames: MONTHS })
     const good = { epochYear: 1000, eraLabel: 'AR', name: 'Vael, the Drowned', monthNames: MONTHS }
     expect(usableCalendar(good)).toBe(good)
+    // Trimmed, with an out-of-range epoch refused, as the backend reads it back.
+    expect(usableCalendar({ epochYear: 1000, eraLabel: ' AR ', name: '  ', monthNames: MONTHS.map((m) => ` ${m} `) })).toEqual({
+      epochYear: 1000,
+      eraLabel: 'AR',
+      monthNames: MONTHS,
+    })
+    expect(usableCalendar({ epochYear: 0 })).toBeNull()
+    expect(usableCalendar({ epochYear: 10000 })).toBeNull()
   })
 
   it('names no month from an unusable or empty list', () => {
@@ -166,6 +174,7 @@ describe('month names as typed', () => {
 
   it('ignores a comma after the last name on one line', () => {
     expect(parseMonthNames(`${MONTHS_ONE_LINE},`)).toHaveLength(12)
+    expect(parseMonthNames(',')).toEqual([])
   })
 
   it('refuses a comma, a "|" or a control character, as the backend does', () => {

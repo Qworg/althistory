@@ -504,6 +504,15 @@ describe('invented worlds', () => {
       expect(graph.calendar.monthNames).toEqual(months);
     });
 
+    it('refuses a bracketed list that is not JSON, rather than keeping the brackets in the names', async () => {
+      const short = await cli(['graph', 'create', 'Wrapped', '--epoch-year', '1000', '--month-names', '[Lowtide, Greywater, Thaw, Seedtide, Brightwater, Highsun, Saltreap, Panfire, Gale, Ebb, Wrack, Longnight]']);
+      expect(short.code).toBe(ExitCode.VALIDATION_FAILED);
+      expect(JSON.stringify(short.body)).toContain('not a JSON list');
+      const none = await cli(['graph', 'create', 'No names', '--epoch-year', '1000', '--month-names', ',']);
+      expect(none.code).toBe(ExitCode.VALIDATION_FAILED);
+      expect(JSON.stringify(none.body)).toContain('got 0');
+    });
+
     it('takes a name in brackets on the command line, and ignores a comma after the last name', async () => {
       const months = '[Lowtide],Greywater,Thaw,Seedtide,Brightwater,Highsun,Saltreap,Panfire,Gale,Ebb,Wrack,Longnight,';
       const made = await cli(['graph', 'create', 'Bracketed', '--epoch-year', '1000', '--month-names', months]);

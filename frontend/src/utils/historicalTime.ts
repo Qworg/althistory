@@ -73,7 +73,8 @@ function formatInWorld(
   const year = worldYearIn(date, formatter, locale, calendar)
   const parts = withWorldMonth(
     formatter.formatToParts(date).filter((part) => part.type !== 'era'),
-    worldMonthName(date.getUTCMonth(), calendar)
+    worldMonthName(date.getUTCMonth(), calendar),
+    formatter.resolvedOptions().locale
   )
   const at = parts.findIndex((part) => part.type === 'year')
   const text = (list: Intl.DateTimeFormatPart[]) => list.map((part) => part.value).join('')
@@ -109,7 +110,11 @@ function formatInWorld(
  * number with marks around it (ja's "3月", bg's "4.03.", lt's "03-04") loses
  * them, and gets spaces instead.
  */
-function withWorldMonth(parts: Intl.DateTimeFormatPart[], monthName: string | null): Intl.DateTimeFormatPart[] {
+function withWorldMonth(
+  parts: Intl.DateTimeFormatPart[],
+  monthName: string | null,
+  locale: string
+): Intl.DateTimeFormatPart[] {
   if (!monthName) return parts
   const at = parts.findIndex((part) => part.type === 'month')
   if (at < 0) return parts
@@ -119,19 +124,38 @@ function withWorldMonth(parts: Intl.DateTimeFormatPart[], monthName: string | nu
   // A numeric month's marks belong to the number: the 月 of "3月", the dots
   // of bg's "4.03." and the dash of lt's "03-04". Around a name they read
   // "Thaw月", "4.Thaw." and "Thaw-04", so the marks become spaces, and one
-  // with nothing after it goes. A dot after the day is the day's own (the
-  // ordinal of cs, fi, bg: "4. Thaw", as de writes "4. März") and stays.
+  // with nothing after it goes. A dot after the day stays where the locale
+  // writes the day as an ordinal before a month's name ("4. března" in cs,
+  // "4. maaliskuuta" in fi, as de writes "4. März"), and goes where the dot
+  // only separates numbers (bg's "4.03." beside "4 март").
   const isMark = (part: Intl.DateTimeFormatPart | undefined) =>
     part?.type === 'literal' && !/^\s*$/.test(part.value) && !/[,،]/.test(part.value)
   if (isMark(renamed[at - 1])) {
     const afterDay = renamed[at - 2]?.type === 'day' && renamed[at - 1]!.value.trim() === '.'
-    renamed[at - 1] = { type: 'literal', value: afterDay ? '. ' : ' ' }
+    renamed[at - 1] = { type: 'literal', value: afterDay && writesOrdinalDay(locale) ? '. ' : ' ' }
   }
   if (isMark(renamed[at + 1])) {
     if (at + 1 === renamed.length - 1) renamed.pop()
     else renamed[at + 1] = { type: 'literal', value: ' ' }
   }
   return renamed
+}
+
+const ordinalDayLocales = new Map<string, boolean>()
+
+/** Whether the locale writes a dot after the day before a month's name: "4. března", not "4 март". */
+function writesOrdinalDay(locale: string): boolean {
+  let known = ordinalDayLocales.get(locale)
+  if (known === undefined) {
+    const parts = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', timeZone: 'UTC', calendar: 'gregory' }).formatToParts(
+      new Date(Date.UTC(2001, 2, 4))
+    )
+    const day = parts.findIndex((part) => part.type === 'day')
+    const next = parts[day + 1]
+    known = day >= 0 && next?.type === 'literal' && next.value.trim() === '.' && parts[day + 2]?.type === 'month'
+    ordinalDayLocales.set(locale, known)
+  }
+  return known
 }
 
 /**

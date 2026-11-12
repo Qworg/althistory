@@ -88,22 +88,33 @@ export function isUsableCalendar(value: unknown): value is GraphCalendar {
  */
 export function usableCalendar(value: unknown): GraphCalendar | null {
   if (!isUsableCalendar(value)) return null
-  const usable: GraphCalendar = { ...value }
-  if (usable.eraLabel !== undefined && !isGoodText(usable.eraLabel, MAX_ERA_LABEL_LENGTH)) delete usable.eraLabel
-  if (usable.name !== undefined && !isGoodText(usable.name, MAX_CALENDAR_NAME_LENGTH)) delete usable.name
-  if (
-    usable.monthNames !== undefined &&
-    !(hasUsableMonths(usable.monthNames) && monthNamesError(usable.monthNames.map((month) => month.trim())) === null)
-  ) {
-    delete usable.monthNames
+  if (value.epochYear < MIN_EPOCH_YEAR || value.epochYear > MAX_EPOCH_YEAR) return null
+  // Trimmed, and empty text left out, as the backend stores it.
+  const usable: GraphCalendar = { epochYear: value.epochYear }
+  const eraLabel = goodText(value.eraLabel, MAX_ERA_LABEL_LENGTH)
+  if (eraLabel) usable.eraLabel = eraLabel
+  const name = goodText(value.name, MAX_CALENDAR_NAME_LENGTH)
+  if (name) usable.name = name
+  if (hasUsableMonths(value.monthNames)) {
+    const monthNames = value.monthNames.map((month) => month.trim())
+    if (monthNamesError(monthNames) === null) usable.monthNames = monthNames
   }
+  // The same object when nothing changed, so a caller comparing by identity sees no change.
   const unchanged =
-    usable.eraLabel === value.eraLabel && usable.name === value.name && usable.monthNames === value.monthNames
+    Object.keys(value).length === Object.keys(usable).length &&
+    usable.eraLabel === value.eraLabel &&
+    usable.name === value.name &&
+    (usable.monthNames === undefined
+      ? value.monthNames === undefined
+      : usable.monthNames.every((month, index) => month === value.monthNames![index]))
   return unchanged ? value : usable
 }
 
-function isGoodText(value: unknown, maxLength: number): boolean {
-  return typeof value === 'string' && value.trim().length <= maxLength && !FORBIDDEN_IN_LABEL.test(value)
+/** Text the backend would keep, trimmed; undefined when it would drop it (or it is empty). */
+function goodText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length <= maxLength && !FORBIDDEN_IN_LABEL.test(trimmed) ? trimmed || undefined : undefined
 }
 
 function sameMonthNames(a: string[] | undefined, b: string[] | undefined): boolean {
@@ -153,8 +164,12 @@ export function parseMonthNames(text: string): string[] {
   const trimmed = text.trim()
   if (!trimmed) return []
   // A blank line in the middle is kept, and refused as an empty name.
-  // A comma after the last name ends the list; it is not a thirteenth, empty name.
-  if (!trimmed.includes('\n')) return trimmed.replace(/,\s*$/, '').split(',').map((part) => part.trim())
+  // A comma after the last name ends the list; it is not a thirteenth, empty
+  // name. A line with no names in it ("," alone) has none.
+  if (!trimmed.includes('\n')) {
+    const list = trimmed.replace(/,\s*$/, '')
+    return list.trim() === '' ? [] : list.split(',').map((part) => part.trim())
+  }
   return trimmed.split(/\r?\n/).map((line) => line.trim().replace(/,$/, '').trim())
 }
 
@@ -177,12 +192,12 @@ export function calendarDraftErrors(draft: CalendarDraft): CalendarDraftErrors {
   }
   if (draft.eraLabel.trim().length > MAX_ERA_LABEL_LENGTH) {
     errors.eraLabel = `The era label can be at most ${MAX_ERA_LABEL_LENGTH} characters.`
-  } else if (FORBIDDEN_IN_LABEL.test(draft.eraLabel)) {
+  } else if (FORBIDDEN_IN_LABEL.test(draft.eraLabel.trim())) {
     errors.eraLabel = 'The era label cannot contain a “|”, a tab or a line break.'
   }
   if (draft.name.trim().length > MAX_CALENDAR_NAME_LENGTH) {
     errors.name = `The calendar name can be at most ${MAX_CALENDAR_NAME_LENGTH} characters.`
-  } else if (FORBIDDEN_IN_LABEL.test(draft.name)) {
+  } else if (FORBIDDEN_IN_LABEL.test(draft.name.trim())) {
     errors.name = 'The calendar name cannot contain a “|”, a tab or a line break.'
   }
   const monthError = monthNamesError(parseMonthNames(draft.monthNames))
