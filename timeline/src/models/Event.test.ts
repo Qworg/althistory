@@ -265,3 +265,23 @@ describe('Event Model', () => {
     });
   });
 });
+
+describe('Event timestamps given as text', () => {
+  // The models are where every write reads its timestamp (the API, the
+  // importer, the ingestion commit), so they read it as the app does.
+  const make = (timestamp: string) =>
+    new Event({ description: 'd', actor: 'a', target: 't', timestamp: timestamp as unknown as Date });
+
+  it('reads ISO 8601 as UTC, with no zone too, in every spelling a person or model writes', () => {
+    expect(make('1870-02-14 09:30').timestamp.toISOString()).toBe('1870-02-14T09:30:00.000Z');
+    expect(make('1870-02-14T09:30').timestamp.toISOString()).toBe('1870-02-14T09:30:00.000Z');
+    expect(make('1066-10-14T09:30+05').timestamp.toISOString()).toBe('1066-10-14T04:30:00.000Z');
+    expect(make('1871-03').timestamp.toISOString()).toBe('1871-03-01T00:00:00.000Z');
+  });
+
+  it('refuses prose and dates that do not exist, rather than guessing in the server zone', () => {
+    for (const text of ['Feb 14 1870', '2019-02-31', '1870-02-14T24:00']) {
+      expect(Event.validate({ description: 'd', actor: 'a', target: 't', timestamp: text as unknown as Date }).isValid, text).toBe(false);
+    }
+  });
+});

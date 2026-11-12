@@ -550,8 +550,8 @@ export class TimelineGenerator {
 
     const gaps: number[] = [];
     for (let i = 1; i < sorted.length; i++) {
-      const previousEnd = new Date(sorted[i - 1].end_time).getTime();
-      const currentStart = new Date(sorted[i].start_time).getTime();
+      const previousEnd = toInstant(sorted[i - 1].end_time).getTime();
+      const currentStart = toInstant(sorted[i].start_time).getTime();
       gaps.push(Math.max(0, currentStart - previousEnd));
     }
     const sortedGaps = [...gaps].sort((a, b) => a - b);
@@ -563,8 +563,8 @@ export class TimelineGenerator {
     let current: StructuredArc[] = [sorted[0]];
 
     for (let i = 1; i < sorted.length; i++) {
-      const previousEnd = new Date(sorted[i - 1].end_time).getTime();
-      const currentStart = new Date(sorted[i].start_time).getTime();
+      const previousEnd = toInstant(sorted[i - 1].end_time).getTime();
+      const currentStart = toInstant(sorted[i].start_time).getTime();
       if (currentStart - previousEnd > threshold) {
         groups.push(current);
         current = [sorted[i]];
@@ -591,7 +591,7 @@ export class TimelineGenerator {
       throw new Error(`Divergence pivot event not found: ${options.divergeAtEventId}`);
     }
 
-    const pivotTimeMs = new Date(pivotEvent.timestamp).getTime();
+    const pivotTimeMs = toInstant(pivotEvent.timestamp).getTime();
     const oneYearMs = 365.25 * 24 * 60 * 60 * 1000;
     const stepMs = oneYearMs * 2;
 
@@ -1514,8 +1514,8 @@ Generate ${eventCount} chronological events of this world's history, from its fo
 
     // Temporal order
     for (let i = 1; i < events.length; i++) {
-      const prev = new Date(events[i - 1].timestamp).getTime();
-      const curr = new Date(events[i].timestamp).getTime();
+      const prev = toInstant(events[i - 1].timestamp).getTime();
+      const curr = toInstant(events[i].timestamp).getTime();
       if (prev >= curr) {
         issues.push({
           type: 'temporal',
@@ -1527,8 +1527,8 @@ Generate ${eventCount} chronological events of this world's history, from its fo
 
     // Arc bounds
     for (let idx = 0; idx < arcs.length; idx++) {
-      const start = new Date(arcs[idx].start_time).getTime();
-      const end = new Date(arcs[idx].end_time).getTime();
+      const start = toInstant(arcs[idx].start_time).getTime();
+      const end = toInstant(arcs[idx].end_time).getTime();
       if (start >= end) {
         issues.push({
           type: 'temporal',
@@ -1540,8 +1540,8 @@ Generate ${eventCount} chronological events of this world's history, from its fo
 
     // Causal direction (the cause may not follow the effect)
     for (const link of links) {
-      const causeTime = new Date(events[link.causeIndex].timestamp).getTime();
-      const effectTime = new Date(events[link.effectIndex].timestamp).getTime();
+      const causeTime = toInstant(events[link.causeIndex].timestamp).getTime();
+      const effectTime = toInstant(events[link.effectIndex].timestamp).getTime();
       if (isTemporalInversion(causeTime, effectTime)) {
         issues.push({
           type: 'causal_direction',

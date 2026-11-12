@@ -368,8 +368,8 @@ export class DirectEngine implements IEngine {
   ): Promise<ArcDto> {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
-    const start = new Date(data.startTime);
-    const end = new Date(data.endTime);
+    const start = toInstant(data.startTime);
+    const end = toInstant(data.endTime);
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       throw new ValidationErrorCLI('Invalid start or end time for arc');
     }
@@ -748,8 +748,8 @@ export class DirectEngine implements IEngine {
 
     const createdArcDtos: ArcDto[] = [];
     for (const a of arcs) {
-      const startTime = new Date(a.start_time);
-      let endTime = new Date(a.end_time);
+      const startTime = toInstant(a.start_time);
+      let endTime = toInstant(a.end_time);
       if (startTime.getTime() >= endTime.getTime()) {
         endTime = new Date(startTime.getTime() + 24 * 60 * 60 * 1000);
       }

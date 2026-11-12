@@ -177,8 +177,9 @@ export class Graph implements IGraph {
       branchPoint: branchPoint === undefined ? this.version : branchPoint,
       status: 'active',
       metadata: { ...this.metadata },
-      // A branch is the same world, so it counts years the same way.
-      calendar: this.calendarAsStored as GraphCalendar | undefined,
+      // A branch is the same world, so it counts years the same way. It is a
+      // new graph, so it starts from what checks out, as a copy does.
+      calendar: this.calendar,
     });
   }
 

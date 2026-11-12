@@ -1,3 +1,4 @@
+import { toInstant } from '@althistory/calendar';
 import { Router, Response, NextFunction } from 'express';
 import { CreateArcRequest, UpdateArcRequest } from '@/models/Arc';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
@@ -46,10 +47,10 @@ arcRoutes.post('/', ...entityPermission('write:arcs'), async (req: RequestWithCo
 
     // Convert timestamp strings to Date if needed
     if (typeof arcData.start_time === 'string') {
-      arcData.start_time = new Date(arcData.start_time);
+      arcData.start_time = toInstant(arcData.start_time);
     }
     if (typeof arcData.end_time === 'string') {
-      arcData.end_time = new Date(arcData.end_time);
+      arcData.end_time = toInstant(arcData.end_time);
     }
 
     // Repositories bound to this request's graph; never the global store.
@@ -130,8 +131,8 @@ arcRoutes.get('/', ...entityPermission('read:arcs'), async (req: RequestWithCont
     } else if (startTime && endTime) {
       // Time range query
       const timeRange = {
-        start: new Date(startTime as string),
-        end: new Date(endTime as string)
+        start: toInstant(startTime as string),
+        end: toInstant(endTime as string)
       };
 
       // Validate time range
@@ -308,10 +309,10 @@ arcRoutes.put('/:id', ...entityPermission('write:arcs'), async (req: RequestWith
 
     // Convert timestamp strings to Date if provided
     if (updates.start_time && typeof updates.start_time === 'string') {
-      updates.start_time = new Date(updates.start_time);
+      updates.start_time = toInstant(updates.start_time);
     }
     if (updates.end_time && typeof updates.end_time === 'string') {
-      updates.end_time = new Date(updates.end_time);
+      updates.end_time = toInstant(updates.end_time);
     }
 
     const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));

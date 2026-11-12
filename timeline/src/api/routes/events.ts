@@ -1,3 +1,4 @@
+import { toInstant } from '@althistory/calendar';
 import { Router, Response, NextFunction } from 'express';
 import { CreateEventRequest, UpdateEventRequest, TimeRange } from '@/models/Event';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
@@ -44,7 +45,7 @@ eventRoutes.post('/', ...entityPermission('write:events'), async (req: RequestWi
 
     // Convert timestamp string to Date if needed
     if (typeof eventData.timestamp === 'string') {
-      eventData.timestamp = new Date(eventData.timestamp);
+      eventData.timestamp = toInstant(eventData.timestamp);
     }
 
     // Repositories bound to this request's graph; never the global store.
@@ -119,8 +120,8 @@ eventRoutes.get('/', ...entityPermission('read:events'), async (req: RequestWith
     if (startTime && endTime) {
       // Time range query
       const timeRange: TimeRange = {
-        start: new Date(startTime as string),
-        end: new Date(endTime as string)
+        start: toInstant(startTime as string),
+        end: toInstant(endTime as string)
       };
 
       // Validate time range
@@ -188,8 +189,8 @@ eventRoutes.get('/stats/count', ...entityPermission('read:events'), async (req: 
     
     if (startTime && endTime) {
       const timeRange: TimeRange = {
-        start: new Date(startTime as string),
-        end: new Date(endTime as string)
+        start: toInstant(startTime as string),
+        end: toInstant(endTime as string)
       };
 
       if (isNaN(timeRange.start.getTime()) || isNaN(timeRange.end.getTime())) {
@@ -259,7 +260,7 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
 
     // Convert timestamp string to Date if provided
     if (updates.timestamp && typeof updates.timestamp === 'string') {
-      updates.timestamp = new Date(updates.timestamp);
+      updates.timestamp = toInstant(updates.timestamp);
     }
 
     const { eventRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));

@@ -237,6 +237,23 @@ describe('IngestionOrchestrator.approve', () => {
     expect(event?.actor).toBe('New Actor');
   });
 
+  it("imports a reviewer's typed date as toISOString's spelling, with the precision the text states", async () => {
+    for (const [typed, iso, precision] of [
+      ['1870-02-14 09:30', '1870-02-14T09:30:00.000Z', undefined],
+      ['1066-10-14T09:30+05', '1066-10-14T04:30:00.000Z', undefined],
+      ['1066-10-14T09:30:00,5Z', '1066-10-14T09:30:00.500Z', undefined],
+      ['1871-03', '1871-03-01T00:00:00.000Z', 'month'],
+    ] as const) {
+      const { orchestrator, importExecutor } = makeOrchestrator();
+      const preview = await orchestrator.ingest({ source: 'text', text: { text: 'x' } });
+      await orchestrator.approve(preview.jobId, { targetGraphId: 'graph-1', edits: { 'event-1': { timestamp: typed } } });
+      const event = importExecutor.calls[0].data.data.events.find((entry) => entry.id === 'event-1');
+      // What the import (and new Date() anywhere after it) reads as one instant on any server.
+      expect(event?.timestamp, typed).toBe(iso);
+      expect(event?.metadata?.datePrecision, typed).toBe(precision);
+    }
+  });
+
   it('rejects approval when the selected subset still has validation errors', async () => {
     const invalid = makeExtraction({
       events: [makeEvent({ actor: '' })],

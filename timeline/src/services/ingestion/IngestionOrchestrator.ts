@@ -20,7 +20,7 @@
  * cannot be imported twice.
  */
 
-import { toInstant } from '@althistory/calendar';
+import { readTimestamp, toInstant } from '@althistory/calendar';
 import * as crypto from 'crypto';
 import { AppError } from '../../utils/errors';
 import {
@@ -389,6 +389,21 @@ function hasApproved(approved: string[] | undefined, tempId: string, fallback: b
   return fallback;
 }
 
+/**
+ * The timestamp a reviewer typed, as stored: read once by the package's ISO
+ * reader into toISOString's spelling, with the precision the text states
+ * ("1871-03" is a month). Text it cannot read is kept as typed, for the
+ * validation to refuse by name. Unchanged text keeps the extraction's own.
+ */
+function typedTimestamp(typed: unknown, event: ExtractedEvent): Pick<ExtractedEvent, 'timestamp' | 'datePrecision'> {
+  if (typeof typed !== 'string' || typed === event.timestamp) {
+    return { timestamp: event.timestamp, datePrecision: event.datePrecision };
+  }
+  const read = readTimestamp(typed);
+  if (!read) return { timestamp: typed, datePrecision: undefined };
+  return { timestamp: read.iso, datePrecision: read.precision === 'day' ? undefined : read.precision };
+}
+
 function mergeEvent(event: ExtractedEvent, edit: ExtractedEdit | undefined): ExtractedEvent {
   if (!edit) return event;
   return {
@@ -396,10 +411,7 @@ function mergeEvent(event: ExtractedEvent, edit: ExtractedEdit | undefined): Ext
     description: typeof edit.description === 'string' ? edit.description : event.description,
     actor: typeof edit.actor === 'string' ? edit.actor : event.actor,
     target: typeof edit.target === 'string' ? edit.target : event.target,
-    timestamp: typeof edit.timestamp === 'string' ? edit.timestamp : event.timestamp,
-    // A reviewer who types a date has stated it in full.
-    datePrecision:
-      typeof edit.timestamp === 'string' && edit.timestamp !== event.timestamp ? undefined : event.datePrecision,
+    ...typedTimestamp(edit.timestamp, event),
     confidence: typeof edit.confidence === 'number' ? edit.confidence : event.confidence,
     selected: typeof edit.selected === 'boolean' ? edit.selected : event.selected,
     edited: true,
@@ -412,8 +424,8 @@ function mergeArc(arc: ExtractedArc, edit: ExtractedEdit | undefined): Extracted
     ...arc,
     name: typeof edit.name === 'string' ? edit.name : arc.name,
     description: typeof edit.description === 'string' ? edit.description : arc.description,
-    start_time: typeof edit.start_time === 'string' ? edit.start_time : arc.start_time,
-    end_time: typeof edit.end_time === 'string' ? edit.end_time : arc.end_time,
+    start_time: typeof edit.start_time === 'string' ? (readTimestamp(edit.start_time)?.iso ?? edit.start_time) : arc.start_time,
+    end_time: typeof edit.end_time === 'string' ? (readTimestamp(edit.end_time)?.iso ?? edit.end_time) : arc.end_time,
     level: typeof edit.level === 'number' ? edit.level : arc.level,
     confidence: typeof edit.confidence === 'number' ? edit.confidence : arc.confidence,
     selected: typeof edit.selected === 'boolean' ? edit.selected : arc.selected,

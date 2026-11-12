@@ -1,5 +1,5 @@
 import { ExtractedEvent, ExtractedArc, ExtractionSource } from '@/services/ingestion/types';
-import { GraphCalendar, formatWorldYear } from '@althistory/calendar';
+import { GraphCalendar, formatWorldYear, toInstant } from '@althistory/calendar';
 
 /** How the arcs are named. */
 export interface ArcNamingOptions {
@@ -53,7 +53,7 @@ export function clusterEventsIntoArcs(
   const { calendar } = naming;
   // The UTC year, as every historical date is stored; a calendar relabels it.
   const yearOf = (timestamp: string): string => {
-    const year = new Date(timestamp).getUTCFullYear();
+    const year = toInstant(timestamp).getUTCFullYear();
     if (Number.isNaN(year)) return '';
     return calendar ? formatWorldYear(year, calendar) : String(year);
   };
@@ -63,7 +63,7 @@ export function clusterEventsIntoArcs(
   }
 
   // Sort events chronologically
-  const sorted = [...events].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const sorted = [...events].sort((a, b) => toInstant(a.timestamp).getTime() - toInstant(b.timestamp).getTime());
 
   if (sorted.length === 1) {
     const e = sorted[0];
@@ -74,7 +74,7 @@ export function clusterEventsIntoArcs(
         name: `${calendar ? 'Age' : 'Period'} of ${e.actor || 'Events'} (${year})`,
         description: `Enclosing narrative arc for single event`,
         start_time: e.timestamp,
-        end_time: new Date(new Date(e.timestamp).getTime() + 24 * 60 * 60 * 1000).toISOString(),
+        end_time: new Date(toInstant(e.timestamp).getTime() + 24 * 60 * 60 * 1000).toISOString(),
         level: 0,
         confidence: 0.8,
         source,
@@ -87,8 +87,8 @@ export function clusterEventsIntoArcs(
   // Calculate gaps between adjacent events
   const gaps: number[] = [];
   for (let i = 1; i < sorted.length; i++) {
-    const prev = new Date(sorted[i - 1].timestamp).getTime();
-    const curr = new Date(sorted[i].timestamp).getTime();
+    const prev = toInstant(sorted[i - 1].timestamp).getTime();
+    const curr = toInstant(sorted[i].timestamp).getTime();
     gaps.push(Math.max(0, curr - prev));
   }
 
@@ -106,8 +106,8 @@ export function clusterEventsIntoArcs(
   let currentCluster: ExtractedEvent[] = [sorted[0]];
 
   for (let i = 1; i < sorted.length; i++) {
-    const prev = new Date(sorted[i - 1].timestamp).getTime();
-    const curr = new Date(sorted[i].timestamp).getTime();
+    const prev = toInstant(sorted[i - 1].timestamp).getTime();
+    const curr = toInstant(sorted[i].timestamp).getTime();
     const diff = curr - prev;
 
     if (diff > gapThreshold || currentCluster.length >= 8) {
@@ -125,8 +125,8 @@ export function clusterEventsIntoArcs(
   return clusters.map((cluster, idx) => {
     const start = cluster[0].timestamp;
     let end = cluster[cluster.length - 1].timestamp;
-    if (new Date(start).getTime() >= new Date(end).getTime()) {
-      end = new Date(new Date(start).getTime() + 24 * 60 * 60 * 1000).toISOString();
+    if (toInstant(start).getTime() >= toInstant(end).getTime()) {
+      end = new Date(toInstant(start).getTime() + 24 * 60 * 60 * 1000).toISOString();
     }
 
     // Find dominant actor

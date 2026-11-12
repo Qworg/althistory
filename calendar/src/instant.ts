@@ -85,3 +85,17 @@ export function toInstant(value: Date | string | number): Date {
   if (typeof value === 'number') return new Date(value)
   return parseIsoInstant(value.trim())?.date ?? new Date(NaN)
 }
+
+/**
+ * A timestamp written by a person or a model, as the one spelling everything
+ * downstream reads alike: `toISOString`'s ("1870-02-14T09:30:00.000Z"), which
+ * every engine reads as the same instant in every zone. With it, how much the
+ * text stated: "1871-03" is the month (stored as its first day), "1066" the
+ * year, anything with a day the day. Null when the text is not a timestamp.
+ */
+export function readTimestamp(text: string): { iso: string; precision: 'day' | 'month' | 'year' } | null {
+  const parsed = parseIsoInstant(text.trim())
+  if (!parsed) return null
+  const precision = parsed.precision === 'year' || parsed.precision === 'month' ? parsed.precision : 'day'
+  return { iso: parsed.date.toISOString(), precision }
+}

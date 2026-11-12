@@ -2,6 +2,7 @@
  * Suggestion API routes for AI-powered recommendations
  */
 
+import { toInstant } from '@althistory/calendar';
 import { Router, Response, RequestHandler } from 'express';
 import {
   AuthenticatedRequest,
@@ -83,7 +84,7 @@ suggestRoutes.post(
               description: e.description,
               actor: e.actor,
               target: e.target,
-              timestamp: new Date(e.timestamp),
+              timestamp: toInstant(e.timestamp),
             })
         );
       } else {
@@ -96,7 +97,7 @@ suggestRoutes.post(
               description: e.description,
               actor: e.actor,
               target: e.target,
-              timestamp: new Date(e.timestamp),
+              timestamp: toInstant(e.timestamp),
             })
         );
       }
@@ -148,7 +149,7 @@ suggestRoutes.post(
           description: e.description,
           actor: e.actor,
           target: e.target,
-          timestamp: new Date(e.timestamp),
+          timestamp: toInstant(e.timestamp),
         }));
       } else {
         const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
@@ -158,7 +159,7 @@ suggestRoutes.post(
           description: e.description,
           actor: e.actor,
           target: e.target,
-          timestamp: new Date(e.timestamp),
+          timestamp: toInstant(e.timestamp),
         }));
       }
 
@@ -216,7 +217,7 @@ suggestRoutes.post(
         description: e.description,
         actor: e.actor,
         target: e.target,
-        timestamp: new Date(e.timestamp),
+        timestamp: toInstant(e.timestamp),
       }));
       
       for (const event of eventEntities) {
@@ -242,7 +243,7 @@ suggestRoutes.post(
         description: e.description,
         actor: e.actor,
         target: e.target,
-        timestamp: new Date(e.timestamp).toISOString(),
+        timestamp: toInstant(e.timestamp).toISOString(),
       }));
 
       const response: CompletenessResponse = req.container.inferenceService.analyzeCompleteness(
@@ -294,7 +295,7 @@ suggestRoutes.post(
               description: e.description,
               actor: e.actor,
               target: e.target,
-              timestamp: new Date(e.timestamp),
+              timestamp: toInstant(e.timestamp),
             })
         );
       } else {
@@ -307,7 +308,7 @@ suggestRoutes.post(
               description: e.description,
               actor: e.actor,
               target: e.target,
-              timestamp: new Date(e.timestamp),
+              timestamp: toInstant(e.timestamp),
             })
         );
       }

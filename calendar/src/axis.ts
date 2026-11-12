@@ -53,17 +53,7 @@ export function alignedYearTicks(
 ): { ticks: Date[]; step: number } | null {
   if (!calendar || ticks.length < 2) return null
   const yearOf = (d: Date) => (utc ? d.getUTCFullYear() : d.getFullYear())
-  const isYearStart = (d: Date) =>
-    utc
-      ? d.getUTCMonth() === 0 && d.getUTCDate() === 1 && d.getUTCHours() === 0 && d.getUTCMinutes() === 0
-      : d.getMonth() === 0 && d.getDate() === 1 && d.getHours() === 0 && d.getMinutes() === 0
-  if (!ticks.every(isYearStart)) return null
-  const step = yearOf(ticks[1]!) - yearOf(ticks[0]!)
-  if (step < 2) return null
-  for (let i = 2; i < ticks.length; i++) {
-    if (yearOf(ticks[i]!) - yearOf(ticks[i - 1]!) !== step) return null
-  }
-
+  /** New Year's Day as d3 marks it: local midnight, or the first instant after it where a zone change skips midnight (Nepal, 1 January 1986). */
   const yearStart = (year: number) => {
     const date = new Date(0)
     if (utc) {
@@ -75,6 +65,14 @@ export function alignedYearTicks(
     }
     return date
   }
+  const isYearStart = (d: Date) => +d === +yearStart(yearOf(d))
+  if (!ticks.every(isYearStart)) return null
+  const step = yearOf(ticks[1]!) - yearOf(ticks[0]!)
+  if (step < 2) return null
+  for (let i = 2; i < ticks.length; i++) {
+    if (yearOf(ticks[i]!) - yearOf(ticks[i - 1]!) !== step) return null
+  }
+
   const ends = [+domain[0]!, +domain[domain.length - 1]!]
   const [lo, hi] = [Math.min(...ends), Math.max(...ends)]
   const first = worldYear(yearOf(new Date(lo)), calendar)

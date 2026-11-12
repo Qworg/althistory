@@ -902,7 +902,8 @@ describe('Graph Model', () => {
       expect(renamed.calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
       expect(renamed.toJSON().calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
       expect(renamed.toStoredJSON().calendar).toEqual(stored);
-      expect(graph.branch('Branch').toStoredJSON().calendar).toEqual(stored);
+      // A branch, like a copy, is a new graph: it starts from what checks out.
+      expect(graph.branch('Branch').toStoredJSON().calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
       // Setting a calendar replaces it whole, and clearing it clears it.
       expect(graph.update({ calendar: { epochYear: 1200 } }).toStoredJSON().calendar).toEqual({ epochYear: 1200 });
       expect(graph.update({ calendar: null }).toStoredJSON()).not.toHaveProperty('calendar');

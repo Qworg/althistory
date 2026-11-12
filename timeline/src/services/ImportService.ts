@@ -16,7 +16,7 @@
  */
 
 import { GraphRepository } from '../repositories/GraphRepository';
-import { storedCalendar } from '@althistory/calendar';
+import { storedCalendar, toInstant } from '@althistory/calendar';
 import { JobRepository } from '../repositories/JobRepository';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 import {
@@ -862,14 +862,14 @@ export class ImportService {
           message: 'Event timestamp is required',
           code: 'MISSING_FIELD',
         });
-      } else if (isNaN(Date.parse(e.timestamp))) {
+      } else if (isNaN(toInstant(e.timestamp).getTime())) {
         errors.push({
           path: `${path}.timestamp`,
           message: 'Event timestamp must be a valid ISO date string',
           code: 'INVALID_VALUE',
         });
       } else {
-        const date = new Date(e.timestamp);
+        const date = toInstant(e.timestamp);
         if (date > new Date()) {
           warnings.push({
             path: `${path}.timestamp`,
@@ -994,7 +994,7 @@ export class ImportService {
           message: 'Arc start_time is required',
           code: 'MISSING_FIELD',
         });
-      } else if (isNaN(Date.parse(a.start_time))) {
+      } else if (isNaN(toInstant(a.start_time).getTime())) {
         errors.push({
           path: `${path}.start_time`,
           message: 'Arc start_time must be a valid ISO date string',
@@ -1008,7 +1008,7 @@ export class ImportService {
           message: 'Arc end_time is required',
           code: 'MISSING_FIELD',
         });
-      } else if (isNaN(Date.parse(a.end_time))) {
+      } else if (isNaN(toInstant(a.end_time).getTime())) {
         errors.push({
           path: `${path}.end_time`,
           message: 'Arc end_time must be a valid ISO date string',
@@ -1018,8 +1018,8 @@ export class ImportService {
 
       // Validate temporal consistency
       if (a.start_time && a.end_time) {
-        const start = new Date(a.start_time);
-        const end = new Date(a.end_time);
+        const start = toInstant(a.start_time);
+        const end = toInstant(a.end_time);
         if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start > end) {
           errors.push({
             path: `${path}`,
@@ -1108,7 +1108,7 @@ export class ImportService {
           if (event.id) {
             eventIds.add(event.id);
             if (event.timestamp) {
-              eventTimestamps.set(event.id, new Date(event.timestamp));
+              eventTimestamps.set(event.id, toInstant(event.timestamp));
             }
           }
         }
@@ -1370,7 +1370,7 @@ export class ImportService {
     // assignments are visible to control-flow analysis at the read below.
     for (const e of events) {
       if (e.timestamp) {
-        const date = new Date(e.timestamp);
+        const date = toInstant(e.timestamp);
         if (!isNaN(date.getTime())) {
           if (!minDate || date < minDate) minDate = date;
           if (!maxDate || date > maxDate) maxDate = date;
@@ -1381,13 +1381,13 @@ export class ImportService {
 
     for (const a of arcs) {
       if (a.start_time) {
-        const date = new Date(a.start_time);
+        const date = toInstant(a.start_time);
         if (!isNaN(date.getTime())) {
           if (!minDate || date < minDate) minDate = date;
         }
       }
       if (a.end_time) {
-        const date = new Date(a.end_time);
+        const date = toInstant(a.end_time);
         if (!isNaN(date.getTime())) {
           if (!maxDate || date > maxDate) maxDate = date;
         }
@@ -1448,8 +1448,8 @@ export class ImportService {
     const arcDates = new Map<string, { start: Date; end: Date }>();
     (exportData.arcs || []).forEach((arc) => {
       arcMap.set(arc.id, arc);
-      const start = new Date(arc.start_time);
-      const end = new Date(arc.end_time);
+      const start = toInstant(arc.start_time);
+      const end = toInstant(arc.end_time);
       // FIX B#20: Only store valid dates
       if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
         arcDates.set(arc.id, { start, end });
@@ -1467,7 +1467,7 @@ export class ImportService {
 
     // FIX #1: Validate events within arc boundaries
     (exportData.events || []).forEach((event, index) => {
-      const eventTime = new Date(event.timestamp);
+      const eventTime = toInstant(event.timestamp);
       // FIX B#20: Skip NaN dates
       if (isNaN(eventTime.getTime())) {
         errors.push({
@@ -1500,10 +1500,10 @@ export class ImportService {
       if (arc.parent_arc_id) {
         const parent = arcMap.get(arc.parent_arc_id);
         if (parent) {
-          const childStart = new Date(arc.start_time);
-          const childEnd = new Date(arc.end_time);
-          const parentStart = new Date(parent.start_time);
-          const parentEnd = new Date(parent.end_time);
+          const childStart = toInstant(arc.start_time);
+          const childEnd = toInstant(arc.end_time);
+          const parentStart = toInstant(parent.start_time);
+          const parentEnd = toInstant(parent.end_time);
 
           // FIX B#20: Check for NaN before comparing
           if (isNaN(childStart.getTime()) || isNaN(childEnd.getTime())) {
@@ -1742,12 +1742,12 @@ export class ImportService {
         // exactly the same paradoxes as before.
         const { timestamp } = e;
         if (typeof timestamp === 'string' || typeof timestamp === 'number') {
-          allEvents.set(e.id, new Date(timestamp));
+          allEvents.set(e.id, toInstant(timestamp));
         }
       });
       (exportData.events || []).forEach((e) => {
         if (!allEvents.has(e.id)) {
-          allEvents.set(e.id, new Date(e.timestamp));
+          allEvents.set(e.id, toInstant(e.timestamp));
         }
       });
 
@@ -1801,7 +1801,7 @@ export class ImportService {
 
       // Incoming events assigned to an existing arc must fall within its boundaries
       (exportData.events || []).forEach((event) => {
-        const eventTime = new Date(event.timestamp);
+        const eventTime = toInstant(event.timestamp);
         if (isNaN(eventTime.getTime())) return;
 
         const metadata = event.metadata as Record<string, unknown> | undefined;
@@ -1839,8 +1839,8 @@ export class ImportService {
 
       // Incoming arcs that overlap existing arcs must respect hierarchy containment
       (exportData.arcs || []).forEach((arc) => {
-        const incomingStart = new Date(arc.start_time);
-        const incomingEnd = new Date(arc.end_time);
+        const incomingStart = toInstant(arc.start_time);
+        const incomingEnd = toInstant(arc.end_time);
         if (isNaN(incomingStart.getTime()) || isNaN(incomingEnd.getTime())) return;
 
         for (const [existingId, existingArc] of existingArcsMap.entries()) {

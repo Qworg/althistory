@@ -288,6 +288,28 @@ describe('GraphRepository Unit Tests', () => {
   });
 
   describe('findAll()', () => {
+    it('lists a calendar as far as it checks out, as a graph read by id shows it', async () => {
+      const rlo = String.fromCodePoint(0x202e);
+      const graphData = {
+        id: 'graph1',
+        name: 'Vael',
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-02T00:00:00Z',
+        version: 1,
+        status: 'active',
+        metadata: { eventCount: 0, arcCount: 0, relationshipCount: 0, pressureCount: 0 },
+        // Stored before the rule: an open right-to-left override would reverse the graph's card.
+        calendar: { epochYear: 1000, eraLabel: `${rlo}AR`, name: 'n'.repeat(500) },
+      };
+      vi.mocked(fs.promises.readFile)
+        .mockResolvedValueOnce(JSON.stringify({ graphs: ['graph1'], activeGraphId: 'graph1' }))
+        .mockResolvedValueOnce(JSON.stringify(graphData));
+
+      const result = await repository.findAll();
+
+      expect(result.graphs[0]?.calendar).toEqual({ epochYear: 1000 });
+    });
+
     it('should return all graphs', async () => {
       const indexData = { graphs: ['graph1', 'graph2'], activeGraphId: 'graph1' };
       const graph1Data: IGraph = {

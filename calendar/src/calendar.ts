@@ -60,18 +60,26 @@ const FORBIDDEN_IN_MONTH_NAME = /[,|"[\]\p{Cc}\p{Zl}\p{Zp}]/u
 const FORBIDDEN_IN_LABEL = /[|\p{Cc}\p{Zl}\p{Zp}]/u
 
 /**
- * Whether every text-direction control in the text is closed in order: an
- * embedding or override (\u202A, B, D, E) by \u202C, an isolate
- * (\u2066-8) by \u2069. Closed, they keep their effect inside the text,
+ * Whether every text-direction control the text opens is closed, as Unicode's
+ * bidi algorithm (UAX #9) closes them: an embedding or override
+ * (\u202A, B, D, E) by \u202C (PDF), an isolate (\u2066-8) by
+ * \u2069 (PDI), which also closes any embedding opened inside it. A PDF
+ * never closes an isolate, and a closer with nothing open does nothing, so
+ * neither is refused. Closed, the controls keep their effect inside the text,
  * which is how right-to-left text is set into a label; one left open would
  * reorder every date the label is written into.
  */
 function bidiClosed(text: string): boolean {
-  const open: string[] = []
+  const open: Array<'embedding' | 'isolate'> = []
   for (const char of text) {
-    if (char === '\u202A' || char === '\u202B' || char === '\u202D' || char === '\u202E') open.push('\u202C')
-    else if (char === '\u2066' || char === '\u2067' || char === '\u2068') open.push('\u2069')
-    else if ((char === '\u202C' || char === '\u2069') && open.pop() !== char) return false
+    if (char === '\u202A' || char === '\u202B' || char === '\u202D' || char === '\u202E') open.push('embedding')
+    else if (char === '\u2066' || char === '\u2067' || char === '\u2068') open.push('isolate')
+    else if (char === '\u202C') {
+      if (open[open.length - 1] === 'embedding') open.pop()
+    } else if (char === '\u2069') {
+      const at = open.lastIndexOf('isolate')
+      if (at >= 0) open.length = at
+    }
   }
   return open.length === 0
 }
@@ -79,11 +87,12 @@ function bidiClosed(text: string): boolean {
 /**
  * What a reader cannot see: spaces, the characters Unicode says to render as
  * nothing (Default_Ignorable_Code_Point: zero-width spaces and joiners, soft
- * hyphens, variation selectors, the Hangul fillers) and the blank braille
- * pattern. Text may hold them (Persian writes a zero-width non-joiner inside
- * words) but cannot be made of them alone.
+ * hyphens, variation selectors, the Hangul fillers), the blank braille
+ * pattern and the interlinear annotation marks (U+FFF9 to U+FFFB). Text may
+ * hold them (Persian writes a zero-width non-joiner inside words) but cannot
+ * be made of them alone.
  */
-const INVISIBLE = /[\s\p{Default_Ignorable_Code_Point}\u2800]/u
+const INVISIBLE = /[\s\p{Default_Ignorable_Code_Point}\u2800\uFFF9-\uFFFB]/u
 
 /** Whether text has a character a reader can see. */
 function hasVisible(text: string): boolean {
@@ -93,13 +102,15 @@ function hasVisible(text: string): boolean {
 /**
  * The key two month names are compared by: without what a reader cannot
  * see, composed alike, in lower case, so "Thaw", "THAW" and "Thaw\u200B"
- * are one name. The tag characters that spell a subdivision flag
- * (\u{E0020}-\u{E007F} after a black flag) are kept: they make the
- * flag, not padding.
+ * are one name. A subdivision flag (a black flag, tag letters and a cancel
+ * tag: Scotland, Wales) is kept whole, since its tags are what tell one flag
+ * from another; a tag character anywhere else is padding like the rest.
  */
+const NOT_SEEN = /(\u{1F3F4}[\u{E0020}-\u{E007E}]+\u{E007F})|[\p{Default_Ignorable_Code_Point}\u2800\uFFF9-\uFFFB]/gu
+
 function sameNameKey(name: string): string {
   return name
-    .replace(/[\p{Default_Ignorable_Code_Point}\u2800]/gu, (char) => (/[\u{E0020}-\u{E007F}]/u.test(char) ? char : ''))
+    .replace(NOT_SEEN, (_char: string, flag: string | undefined) => flag ?? '')
     .normalize('NFC')
     .toLowerCase()
 }

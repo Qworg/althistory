@@ -47,7 +47,7 @@ describe('OpenAIClient', () => {
     expect(events[0]).toMatchObject({
       actor: 'William, Duke of Normandy',
       target: 'Harold Godwinson',
-      timestamp: '1066-10-14T00:00:00Z',
+      timestamp: '1066-10-14T00:00:00.000Z',
       confidence: 0.94,
       source: { type: 'llm' },
       selected: true,

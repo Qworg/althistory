@@ -2,6 +2,7 @@
  * Graph Repository for managing multiple graphs with versioning
  */
 
+import { storedCalendar } from '@althistory/calendar';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -134,7 +135,12 @@ export class GraphRepository {
           continue;
         }
         
-        graphs.push(metadata);
+        // What the list shows is what a graph read by id shows: the calendar
+        // as far as it checks out, never the stored text a newer rule refuses
+        // (an open text-direction control would reorder the graph's card).
+        const { calendar: asStored, ...rest } = metadata;
+        const calendar = storedCalendar(asStored);
+        graphs.push(calendar ? { ...rest, calendar } : rest);
       } catch {
         // Skip graphs that can't be loaded
         continue;

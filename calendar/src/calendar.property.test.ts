@@ -114,15 +114,17 @@ describe('text that only looks right', () => {
     )
   })
 
-  it('refuses a text-direction control left open or closed out of turn, and keeps one closed in order', () => {
+  it('refuses a text-direction control left open, and keeps one closed as Unicode closes it', () => {
     fc.assert(
       fc.property(fc.constantFrom(...arb.BIDI_PAIRS), arb.eraLabel, fc.nat(11), ([open, close], text, month) => {
         const inner = text.slice(0, 12)
         // Closed around the text: kept, in a label, a name and a month name.
         const wrapped = `${open}${inner}${close}`
         expect(calendarIssues({ epochYear: 1000, eraLabel: wrapped, name: `Vael ${wrapped}` })).toEqual([])
-        // Left open, or a close with nothing open: refused, wherever it is.
-        for (const bad of [`${open}${inner}`, `${inner}${open}`, `${inner}${close}`, `${close}${inner}${open}`]) {
+        // A closer with nothing open does nothing (UAX #9), so it is no leak.
+        expect(calendarIssues({ epochYear: 1000, eraLabel: `${inner}${close}` })).toEqual([])
+        // Left open, wherever it is: refused.
+        for (const bad of [`${open}${inner}`, `${inner}${open}`, `${close}${inner}${open}`]) {
           expect(calendarIssues({ epochYear: 1000, eraLabel: bad }), JSON.stringify(bad)).toContainEqual({ field: 'eraLabel', code: 'bidi' })
           const months = Array.from({ length: 12 }, (_, i) => `M${i}`)
           months[month] = `M${bad}`
@@ -130,13 +132,35 @@ describe('text that only looks right', () => {
         }
       })
     )
+    const [lre, rle, pdf, lri, rli, pdi] = [0x202a, 0x202b, 0x202c, 0x2066, 0x2067, 0x2069].map((c) => String.fromCodePoint(c))
     // An Israeli author's era label, isolated right-to-left: kept.
-    const rtl = `${String.fromCodePoint(0x2067)}עידן${String.fromCodePoint(0x2069)}`
+    const rtl = `${rli}עידן${pdi}`
     expect(storedCalendar({ epochYear: 1000, eraLabel: rtl })).toEqual({ epochYear: 1000, eraLabel: rtl })
-    // Isolates nest; crossing them is not closing them in order.
-    const [lri, rli, pdi] = [0x2066, 0x2067, 0x2069].map((c) => String.fromCodePoint(c))
+    // Isolates nest.
     expect(calendarIssues({ epochYear: 1000, eraLabel: `${lri}A${rli}B${pdi}${pdi}` })).toEqual([])
-    expect(calendarIssues({ epochYear: 1000, eraLabel: `${lri}A${String.fromCodePoint(0x202c)}${pdi}` })).toContainEqual({ field: 'eraLabel', code: 'bidi' })
+    // A PDI closes the embeddings opened inside its isolate too.
+    expect(calendarIssues({ epochYear: 1000, eraLabel: `${rli}${rle}שנה${pdi}` })).toEqual([])
+    // A PDF does not close an isolate: one inside it does nothing, one outside leaves it open.
+    expect(calendarIssues({ epochYear: 1000, eraLabel: `${lri}A${pdf}${pdi}` })).toEqual([])
+    expect(calendarIssues({ epochYear: 1000, eraLabel: `${lri}A${pdf}` })).toContainEqual({ field: 'eraLabel', code: 'bidi' })
+    // A PDI does not reach past an embedding opened before its isolate.
+    expect(calendarIssues({ epochYear: 1000, eraLabel: `${lre}A${lri}B${pdi}` })).toContainEqual({ field: 'eraLabel', code: 'bidi' })
+  })
+
+  it('tells subdivision flags apart, and strips a tag character anywhere else', () => {
+    const tags = (letters: string) => [...letters].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join('')
+    const flag = (code: string) => `${String.fromCodePoint(0x1f3f4)}${tags(code)}${String.fromCodePoint(0xe007f)}`
+    const months = (a: string, b: string) => [a, b, 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']
+    // Scotland and Wales: two flags, two names.
+    expect(calendarIssues({ epochYear: 1000, monthNames: months(`Thaw ${flag('gbsct')}`, `Thaw ${flag('gbwls')}`) })).toEqual([])
+    // A tag letter hidden in a name is padding: the same name twice.
+    expect(calendarIssues({ epochYear: 1000, monthNames: months('Thaw', `Thaw${tags('A')}`) })).toContainEqual(
+      expect.objectContaining({ code: 'duplicate' })
+    )
+    // The interlinear annotation marks are not seen either.
+    const annotation = String.fromCodePoint(0xfff9)
+    expect(calendarIssues({ epochYear: 1000, monthNames: months('Thaw', `Thaw${annotation}`) })).toContainEqual(expect.objectContaining({ code: 'duplicate' }))
+    expect(calendarIssues({ epochYear: 1000, eraLabel: String.fromCodePoint(0xfffa) })).toContainEqual({ field: 'eraLabel', code: 'invisible' })
   })
 
   it('keeps a zero-width non-joiner inside a word, as Persian writes it', () => {

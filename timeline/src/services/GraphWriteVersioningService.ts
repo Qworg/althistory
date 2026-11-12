@@ -27,6 +27,7 @@
  * commit message for this service was inaccurate.
  */
 
+import { toInstant } from '@althistory/calendar';
 import { GraphRepository } from '@/repositories/GraphRepository';
 import { EntityChanges } from '@/repositories/VersionRepository';
 import { EntityType } from '@/models/Graph';
@@ -129,8 +130,8 @@ function entityName(type: EntityType, data: Record<string, unknown> | undefined)
 }
 
 function sameInstant(a: unknown, b: unknown): boolean {
-  const ta = new Date(a as string).getTime();
-  const tb = new Date(b as string).getTime();
+  const ta = toInstant(a as string).getTime();
+  const tb = toInstant(b as string).getTime();
   return Number.isFinite(ta) && Number.isFinite(tb) ? ta === tb : a === b;
 }
 

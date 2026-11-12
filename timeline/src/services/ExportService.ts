@@ -2,6 +2,7 @@
  * Export Service for generating Althistory export files
  */
 
+import { toInstant } from '@althistory/calendar';
 import type { GraphCalendar } from '@althistory/calendar';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -874,7 +875,7 @@ export class ExportService {
 
     // Check time range
     if (filters.timeRange) {
-      const timestamp = new Date(event.timestamp as string).getTime();
+      const timestamp = toInstant(event.timestamp as string).getTime();
       const start = new Date(filters.timeRange.start).getTime();
       const end = new Date(filters.timeRange.end).getTime();
       
@@ -910,8 +911,8 @@ export class ExportService {
 
     // Check time range (arc must overlap with filter range)
     if (filters.timeRange) {
-      const arcStart = new Date(arc.start_time as string).getTime();
-      const arcEnd = new Date(arc.end_time as string).getTime();
+      const arcStart = toInstant(arc.start_time as string).getTime();
+      const arcEnd = toInstant(arc.end_time as string).getTime();
       const filterStart = new Date(filters.timeRange.start).getTime();
       const filterEnd = new Date(filters.timeRange.end).getTime();
       

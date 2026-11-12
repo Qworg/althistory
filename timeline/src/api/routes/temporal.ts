@@ -1,3 +1,4 @@
+import { toInstant } from '@althistory/calendar';
 import { Router, Request, Response, NextFunction } from 'express';
 import { ValidationError, NotFoundError } from '@/utils/errors';
 import { TimeRange, IEvent } from '@/models/Event';
@@ -62,8 +63,8 @@ temporalRoutes.get('/timeline', ...entityPermission('read:events', 'read:arcs'),
     }
 
     const timeRange: TimeRange = {
-      start: new Date(startTime as string),
-      end: new Date(endTime as string)
+      start: toInstant(startTime as string),
+      end: toInstant(endTime as string)
     };
 
     if (isNaN(timeRange.start.getTime()) || isNaN(timeRange.end.getTime())) {
@@ -263,8 +264,8 @@ temporalRoutes.get('/overlaps', ...entityPermission('read:events', 'read:arcs'),
     }
 
     const timeRange: TimeRange = {
-      start: new Date(startTime as string),
-      end: new Date(endTime as string)
+      start: toInstant(startTime as string),
+      end: toInstant(endTime as string)
     };
 
     if (isNaN(timeRange.start.getTime()) || isNaN(timeRange.end.getTime())) {
@@ -337,8 +338,8 @@ temporalRoutes.get('/gaps', ...entityPermission('read:events', 'read:arcs'), asy
     }
 
     const timeRange: TimeRange = {
-      start: new Date(startTime as string),
-      end: new Date(endTime as string)
+      start: toInstant(startTime as string),
+      end: toInstant(endTime as string)
     };
 
     if (isNaN(timeRange.start.getTime()) || isNaN(timeRange.end.getTime())) {
@@ -409,8 +410,8 @@ temporalRoutes.get('/density', ...entityPermission('read:events', 'read:arcs'), 
     }
 
     const timeRange: TimeRange = {
-      start: new Date(startTime as string),
-      end: new Date(endTime as string)
+      start: toInstant(startTime as string),
+      end: toInstant(endTime as string)
     };
 
     if (isNaN(timeRange.start.getTime()) || isNaN(timeRange.end.getTime())) {
