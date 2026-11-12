@@ -117,6 +117,15 @@ describe('the OpenAPI description', () => {
     }
   })
 
+  it('declares the optional X-Graph-Id of text extraction, with no active-graph fallback', () => {
+    const operation = (document.paths as Record<string, Record<string, { parameters?: Array<Record<string, unknown>> }>>)[
+      '/api/ingest/text'
+    ]!.post!
+    const header = operation.parameters?.find((parameter) => parameter.name === 'X-Graph-Id')
+    expect(header).toMatchObject({ in: 'header', required: false })
+    expect(String(header?.description)).toContain('no active-graph fallback')
+  })
+
   it('uses only OpenAPI 3.0 schema syntax', () => {
     // 3.0 has no union types: `type` is a single string, and a nullable field
     // is `nullable: true`.

@@ -193,6 +193,17 @@ describe('historical dates in a world calendar that names its months', () => {
     expect(text).toContain('312 AR')
   })
 
+  it("drops a numeric month's dots and dashes along with the number", () => {
+    for (const locale of ['bg-BG', 'fi-FI', 'cs-CZ', 'lt-LT']) {
+      const day = formatHistoricalDate('1311-03-04T00:00:00Z', locale, NAMED)
+      const month = formatHistoricalDateAt('1311-03-01T00:00:00Z', 'month', locale, NAMED)
+      expect(day, locale).toMatch(/(^|\s)Greening(\s|$)/u)
+      expect(day, locale).toContain('312 AR')
+      expect(month, locale).toMatch(/(^|\s)Greening(\s|$)/u)
+      expect(`${day} ${month}`, locale).not.toMatch(/[.-]Greening|Greening[.-]/u)
+    }
+  })
+
   it('follows the active calendar when none is passed', () => {
     useWorldCalendarStore.getState().setCalendar(NAMED)
     expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'en-US')).toBe('Greening 4, 312 AR')

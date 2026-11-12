@@ -7,11 +7,17 @@ import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/histori
  *
  * `value` is what a date field holds: a `datetime-local` value
  * (YYYY-MM-DDTHH:mm) or a `date` value (YYYY-MM-DD), both read as UTC, as the
- * forms read them.
+ * forms read them, or a full ISO 8601 timestamp. Anything else (a free-text
+ * field part-way through "1066", or "March 1066") has no hint: the browser's
+ * lenient parser would read "1" as 2001 and show a date nothing else uses.
  */
+const ISO_DATE = /^\d{4,}-\d{2}-\d{2}$/
+const ISO_DATE_TIME = /^\d{4,}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d\d:\d\d)?$/
+
 export function worldDateOf(value: string | null | undefined, calendar: GraphCalendar | null): string | null {
   if (!calendar || !value) return null
-  const dateOnly = /^\d{4,}-\d{2}-\d{2}$/.test(value)
+  if (!ISO_DATE.test(value) && !ISO_DATE_TIME.test(value)) return null
+  const dateOnly = ISO_DATE.test(value)
   const hasZone = /(Z|[+-]\d\d:\d\d)$/.test(value)
   const date = new Date(dateOnly ? `${value}T00:00:00Z` : hasZone ? value : `${value}Z`)
   if (Number.isNaN(date.getTime())) return null

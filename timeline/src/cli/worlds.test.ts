@@ -497,6 +497,13 @@ describe('invented worlds', () => {
       expect(JSON.stringify(short.body)).toContain('all 12 months');
     });
 
+    it('reads month names sent as JSON text as the list, not as names with brackets', async () => {
+      const months = ['Thaw', 'Seedfall', 'Greening', 'Highsun', 'Brine', 'Harvest', 'Ember', 'Ashfall', 'Gale', 'Dimming', 'Frost', 'Deepwinter'];
+      const graph = await callTool(server, 'althistory_create_graph', { name: 'JSON months', epochYear: 1000, monthNames: JSON.stringify(months) });
+      created.push(graph.id);
+      expect(graph.calendar.monthNames).toEqual(months);
+    });
+
     it('takes month names as a list over MCP, and dates the export in them', async () => {
       const months = ['Thaw', 'Seedfall', 'Greening', 'Highsun', 'Brine', 'Harvest', 'Ember', 'Ashfall', 'Gale', 'Dimming', 'Frost', 'Deepwinter'];
       const graph = await callTool(server, 'althistory_create_graph', { name: 'Named months', epochYear: 1000, eraLabel: 'AR', monthNames: months });
@@ -510,7 +517,7 @@ describe('invented worlds', () => {
       const context = await callTool(server, 'althistory_export_context', { graphId: graph.id });
       const text = typeof context === 'string' ? context : JSON.stringify(context);
       expect(text).toContain('Greening 4, 141 AR (1140-03-04)');
-      expect(text).toContain('the months January to December are Thaw');
+      expect(text).toContain('the months: January is Thaw, February is Seedfall');
     });
 
     it('refuses a label without an epoch, and a year that is not a whole number', async () => {

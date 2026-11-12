@@ -136,7 +136,7 @@
           <h2 id="world-h">Inventing a world, start to finish</h2>
           <p>An abridged session with the <code>worldbuild</code> prompt. The agent sets up the calendar first, lays out three ages, writes the events and links their causes.</p>
           <p>Then one link is refused: the agent claimed the glassmakers started the Tide War, but they only joined it eleven years in. Instead of forcing the link, the agent writes the grievance that actually turned them.</p>
-          <p class="note">Dates stay ISO 8601 underneath. The calendar names the stored year that is the world’s year 1, and can name the months. With an epoch of 1000, 141&nbsp;AR is stored as 1140, the third month (Thaw) is March, and the tools’ Markdown shows both.</p>
+          <p class="note">Dates stay ISO 8601 underneath. The calendar names the stored year that is the world’s year 1, and can name the months. With an epoch of 1000, 141&nbsp;AR is stored as 1140, the third month (Thaw) is March, and the tools’ Markdown shows the world’s date and the stored date side by side.</p>
           <h3 class="doc-h3">See your world</h3>
           <p>The agent’s graphs are files in <code>timeline/data</code> in your clone, the same store the app reads. Start the app with <code>./start-local.sh</code>, open <span class="mono">localhost:5173</span>, and pick the graph: its timeline, causal graph and dates read in the world’s years.</p>
           <p><a class="teaser-link" href="demo/?start=world">Open Vael in the demo</a></p>
@@ -151,6 +151,8 @@
 <span class="t-who">Claude</span> <span class="c">calls</span> althistory_create_graph
        { <span class="k">"name"</span>: <span class="s">"Vael"</span>,
          <span class="k">"epochYear"</span>: 1000, <span class="k">"eraLabel"</span>: <span class="s">"AR"</span>,
+         <span class="k">"calendarName"</span>:
+           <span class="s">"the Reckoning of the Rising"</span>,
          <span class="k">"monthNames"</span>: [<span class="s">"Lowtide"</span>, <span class="s">"Greywater"</span>,
            <span class="s">"Thaw"</span>, … <span class="s">"Longnight"</span>] }
        <span class="c">calls</span> althistory_create_arc <span class="c">×3</span>

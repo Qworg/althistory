@@ -833,13 +833,6 @@ export class DirectEngine implements IEngine {
     };
   }
 
-  /**
-   * The graph an ingestion writes into.
-   *
-   * A dry run writes nothing, so it must not create a graph either: the
-   * preview names the graph it would have written to, and the graph is only
-   * created when the ingestion is committed.
-   */
   /** The calendar of a stored graph; none for a dry run's placeholder or a missing graph. */
   private async calendarOf(graphId: string): Promise<GraphCalendar | undefined> {
     const container = await this.getInitializedContainer();
@@ -847,6 +840,13 @@ export class DirectEngine implements IEngine {
     return graph?.calendar;
   }
 
+  /**
+   * The graph an ingestion writes into.
+   *
+   * A dry run writes nothing, so it must not create a graph either: the
+   * preview names the graph it would have written to, and the graph is only
+   * created when the ingestion is committed.
+   */
   private async resolveTargetGraph(
     graphId: string | undefined,
     graphName: string | undefined,

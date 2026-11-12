@@ -75,7 +75,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'althistory_set_calendar',
     description:
-      "Give a graph an invented world's calendar, or remove it with clear. The calendar only relabels years (and, with monthNames, months) when they are shown; stored dates do not move.",
+      "Give a graph an invented world's calendar, or remove it with clear. The calendar only relabels years (and, with monthNames, months) when they are shown; stored dates do not move. It replaces the graph's whole calendar: give every field to keep (to add month names, send epochYear, eraLabel and calendarName again with them).",
     inputSchema: {
       type: 'object',
       properties: {
@@ -305,18 +305,18 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         eraLabel: {
           type: 'string',
-          description: 'Written after a world year, as in "312 AR". Without one, years read "Year 312". Needs epochYear.',
+          description: 'Written after a world year, as in "312 AR". Without one, years read "Year 312". With world.',
         },
         calendarName: {
           type: 'string',
-          description: "What the world's calendar is called, e.g. \"the Reckoning of Vael\". Needs epochYear.",
+          description: "What the world's calendar is called, e.g. \"the Reckoning of Vael\". With world.",
         },
         monthNames: {
           type: 'array',
           items: { type: 'string' },
           minItems: 12,
           maxItems: 12,
-          description: "The world's twelve month names, January's first, so March 4 reads e.g. \"Thaw 4\". The months keep their stored lengths. Needs epochYear.",
+          description: "The world's twelve month names, January's first, so March 4 reads e.g. \"Thaw 4\". The months keep their stored lengths. With world.",
         },
         startDate: {
           type: 'string',

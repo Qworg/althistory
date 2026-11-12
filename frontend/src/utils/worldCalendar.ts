@@ -21,11 +21,22 @@ export const MAX_EPOCH_YEAR = 9999
 export const MAX_ERA_LABEL_LENGTH = 16
 export const MAX_CALENDAR_NAME_LENGTH = 80
 export const MONTH_COUNT = 12
+/**
+ * What no month name may hold, as the backend checks: a comma (the list's
+ * separator), a `|` (a Markdown table's) or a control character.
+ */
+const FORBIDDEN_IN_MONTH_NAME = /[,|\p{Cc}]/u
 export const MAX_MONTH_NAME_LENGTH = 24
 
 /** The world's name for a month (0 = January), or null when the calendar does not name its months. */
 export function worldMonthName(monthIndex: number, calendar: GraphCalendar | null | undefined): string | null {
-  return calendar?.monthNames?.[monthIndex] ?? null
+  const months = calendar?.monthNames
+  return hasUsableMonths(months) ? months[monthIndex] || null : null
+}
+
+/** Twelve strings: month names the formatters can use. The backend checks the rest. */
+function hasUsableMonths(months: unknown): months is string[] {
+  return Array.isArray(months) && months.length === MONTH_COUNT && months.every((month) => typeof month === 'string')
 }
 
 /** The world's year for a stored year: the epoch year is 1, the year before it 0. */
@@ -69,18 +80,25 @@ export function describeCalendar(calendar: GraphCalendar): string {
   return calendar.monthNames ? `${years}; the months January to December are ${calendar.monthNames.join(', ')}` : years
 }
 
-/**
- * A calendar the formatters can use: an object with an integer epoch year, and
- * month names, if any, that are twelve strings (the backend checks the rest).
- */
+/** A calendar the formatters can use: an object with an integer epoch year. */
 export function isUsableCalendar(value: unknown): value is GraphCalendar {
   if (typeof value !== 'object' || value === null) return false
   const epoch = (value as { epochYear?: unknown }).epochYear
-  const months = (value as { monthNames?: unknown }).monthNames
-  const monthsUsable =
-    months === undefined ||
-    (Array.isArray(months) && months.length === MONTH_COUNT && months.every((month) => typeof month === 'string'))
-  return typeof epoch === 'number' && Number.isInteger(epoch) && monthsUsable
+  return typeof epoch === 'number' && Number.isInteger(epoch)
+}
+
+/**
+ * The calendar as the app uses it, or null when there is none to use. Month
+ * names that are not twelve strings are left out rather than losing the
+ * world's years with them (the backend never sends such a list; a hand-edited
+ * data file could).
+ */
+export function usableCalendar(value: unknown): GraphCalendar | null {
+  if (!isUsableCalendar(value)) return null
+  if (value.monthNames === undefined || hasUsableMonths(value.monthNames)) return value
+  const withoutMonths: GraphCalendar = { ...value }
+  delete withoutMonths.monthNames
+  return withoutMonths
 }
 
 function sameMonthNames(a: string[] | undefined, b: string[] | undefined): boolean {
@@ -116,21 +134,22 @@ export function draftFromCalendar(calendar: GraphCalendar | null | undefined): C
     epochYear: String(calendar.epochYear),
     eraLabel: calendar.eraLabel ?? '',
     name: calendar.name ?? '',
-    monthNames: calendar.monthNames?.join('\n') ?? '',
+    monthNames: hasUsableMonths(calendar.monthNames) ? calendar.monthNames.join('\n') : '',
   }
 }
 
 /**
  * The month names a draft holds: one per line, or, typed on a single line,
  * separated by commas. Blank lines around them are ignored; none at all is
- * an empty list (no month names).
+ * an empty list (no month names). One per line, a comma ending a line is a
+ * separator typed out of habit ("Thaw,"), not part of the name.
  */
 export function parseMonthNames(text: string): string[] {
   const trimmed = text.trim()
   if (!trimmed) return []
   // A blank line in the middle is kept, and refused as an empty name.
-  const parts = trimmed.includes('\n') ? trimmed.split(/\r?\n/) : trimmed.split(',')
-  return parts.map((part) => part.trim())
+  if (!trimmed.includes('\n')) return trimmed.split(',').map((part) => part.trim())
+  return trimmed.split(/\r?\n/).map((line) => line.trim().replace(/,$/, '').trim())
 }
 
 export type CalendarDraftErrors = Partial<Record<keyof CalendarDraft, string>>
@@ -168,6 +187,9 @@ function monthNamesError(names: string[]): string | null {
     return `Name all ${MONTH_COUNT} months, or none (${names.length === 1 ? '1 name' : `${names.length} names`} given).`
   }
   if (names.some((name) => name.length === 0)) return 'A month name cannot be empty.'
+  if (names.some((name) => FORBIDDEN_IN_MONTH_NAME.test(name))) {
+    return 'A month name cannot contain a comma, a “|” or a tab.'
+  }
   if (names.some((name) => name.length > MAX_MONTH_NAME_LENGTH)) {
     return `A month name can be at most ${MAX_MONTH_NAME_LENGTH} characters.`
   }

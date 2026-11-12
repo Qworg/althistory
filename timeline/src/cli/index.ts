@@ -214,7 +214,7 @@ export function createProgram(): Command {
   graphCmd
     .command('calendar <id>')
     .description(
-      "Give a graph an invented world's calendar, which relabels its years (and, with --month-names, its months) when they are shown (the stored dates do not change), or remove it"
+      "Give a graph an invented world's calendar, which relabels its years (and, with --month-names, its months) when they are shown (the stored dates do not change), or remove it. It replaces the whole calendar, so give every flag to keep"
     )
     .option('--epoch-year <year>', "The stored year that is the world's year 1 (e.g. 1000)")
     .option('--era-label <label>', 'Written after a world year, as in "312 AR"; without one a year reads "Year 312"')

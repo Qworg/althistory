@@ -42,7 +42,7 @@ Ingesting text into a graph with a world calendar (see
 [the MCP guide](mcp-agent-guide.md#inventing-a-world)) tells the model how the
 world's years are stored, so "the Tide War began in 141 AR" lands on the
 stored year 1140, and, when the calendar names its months, which month is
-which ("Thaw of 141 AR" is January 1140). The patterns cannot read invented
+which (in Vael, "Thaw of 141 AR" is March 1140). The patterns cannot read invented
 dates: with `pattern`, or the pattern half of `hybrid`, give the dates in
 ISO 8601, or use `llm`.
 

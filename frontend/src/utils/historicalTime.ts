@@ -106,19 +106,26 @@ function formatInWorld(
 /**
  * The parts with the month named as the world names it; unchanged when the
  * calendar does not name its months. A locale that writes the month as a
- * number with a mark after it (ja's "3月", ko's "3월") loses the mark, which
- * would read "Thaw月", and gets a space instead.
+ * number with marks around it (ja's "3月", bg's "4.03.", lt's "03-04") loses
+ * them, and gets spaces instead.
  */
 function withWorldMonth(parts: Intl.DateTimeFormatPart[], monthName: string | null): Intl.DateTimeFormatPart[] {
   if (!monthName) return parts
   const at = parts.findIndex((part) => part.type === 'month')
   if (at < 0) return parts
   const renamed = [...parts]
-  const numeric = /^\p{Nd}+$/u.test(parts[at]!.value)
   renamed[at] = { type: 'month', value: monthName }
-  const next = renamed[at + 1]
-  if (numeric && next?.type === 'literal' && /\p{L}/u.test(next.value)) {
-    renamed[at + 1] = { type: 'literal', value: ' ' }
+  if (!/^\p{Nd}+$/u.test(parts[at]!.value)) return renamed
+  // A numeric month's marks belong to the number: the 月 of "3月", the dots
+  // of bg's "4.03." and the dash of lt's "03-04". Around a name they read
+  // "Thaw月", "4.Thaw." and "Thaw-04", so the marks become spaces, and one
+  // with nothing after it goes.
+  const isMark = (part: Intl.DateTimeFormatPart | undefined) =>
+    part?.type === 'literal' && !/^\s*$/.test(part.value) && !/[,،]/.test(part.value)
+  if (isMark(renamed[at - 1])) renamed[at - 1] = { type: 'literal', value: ' ' }
+  if (isMark(renamed[at + 1])) {
+    if (at + 1 === renamed.length - 1) renamed.pop()
+    else renamed[at + 1] = { type: 'literal', value: ' ' }
   }
   return renamed
 }

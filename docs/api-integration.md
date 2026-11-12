@@ -145,6 +145,12 @@ that is omitted. A key restricted to some graphs gets `403` for a
 `targetGraphId` (or, on `validate-incremental`, a `graphId`) outside them, and
 an import job is visible to, and cancellable by, only the key that started it.
 
+**Text extraction reads a graph only when named.** `POST /api/ingest/text`
+reads `X-Graph-Id` to find the graph the text is for (its world calendar tells
+the model how the text's dates are stored), but has no active-graph fallback:
+with no header, no graph is read. A graph that does not exist is a `404`, and
+one the key may not access a `403`.
+
 **Merge reads two graphs.** `POST /api/graphs/:id/merge` checks the key against
 both the target `:id` and the body's `sourceGraphId`.
 

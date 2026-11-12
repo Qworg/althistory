@@ -309,7 +309,8 @@ function formatAxisLabel(name: string, tick: Date, calendar: GraphCalendar | nul
   const fullYear = utc ? tick.getUTCFullYear() : tick.getFullYear()
   if (calendar) {
     const year = formatWorldYear(fullYear, calendar)
-    const month = worldMonthName(utc ? tick.getUTCMonth() : tick.getMonth(), calendar) ?? timeFormat('%b')(tick)
+    // `||`, not `??`: an empty name (only from a hand-edited data file) falls back too.
+    const month = worldMonthName(utc ? tick.getUTCMonth() : tick.getMonth(), calendar) || timeFormat('%b')(tick)
     if (name === 'decade' || name === '%Y') return year
     if (name === '%b %Y') return `${month} ${year}`
     if (name === '%b %d') return `${month} ${timeFormat('%d')(tick)}`

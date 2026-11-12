@@ -21,7 +21,7 @@ import { ImportPreviewStep } from './ImportPreviewStep'
 import { ImportConflictStep } from './ImportConflictStep'
 import { ImportExecuteStep } from './ImportExecuteStep'
 import { AlthistoryExport, ImportMode, ConflictResolution, ImportResult, ExecuteImportResponse, SyncImportResponse } from '@/types'
-import { isUsableCalendar } from '@/utils/worldCalendar'
+import { usableCalendar } from '@/utils/worldCalendar'
 import { apiClient } from '@/services/api'
 import { ModalBase } from '@/components/modals/ModalBase'
 
@@ -470,7 +470,7 @@ export function ImportWizard({
           {state.step === 'validate' && state.validation && (
             <ImportValidationStep
               validation={state.validation}
-              calendar={isUsableCalendar(state.data?.metadata?.calendar) ? state.data.metadata.calendar : null}
+              calendar={usableCalendar(state.data?.metadata?.calendar)}
               onContinue={handleValidationContinue}
               onBack={handleBack}
               isLoading={previewMutation.isPending}

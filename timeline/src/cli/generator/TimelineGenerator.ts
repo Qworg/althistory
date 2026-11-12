@@ -1428,7 +1428,7 @@ Generate ${eventCount} chronological historical events demonstrating this counte
     const offset = calendar.epochYear - 1;
     const yearWord = calendar.eraLabel ? `"312 ${calendar.eraLabel}"` : '"Year 312"';
     const months = calendar.monthNames
-      ? ` Its months, January to December, are called ${calendar.monthNames.join(', ')}; use those names in descriptions, and the ISO months in timestamps.`
+      ? ` Its months are the ISO months under other names (${calendar.monthNames.map((name, index) => `${index + 1} = ${name}`).join('; ')}); use those names in descriptions, and the ISO months in timestamps.`
       : '';
     const calendarLine = `Calendar: ${calendar.name ? `${calendar.name}. ` : ''}The world's year 1 is stored as ISO year ${calendar.epochYear}, so the world's year N is ISO year N + ${offset} (the world writes year 312 as ${yearWord}, stored as ${312 + offset}).${months}`;
     const range = `between ${new Date(plan.startMs).toISOString()} and ${new Date(plan.endMs).toISOString()}`;

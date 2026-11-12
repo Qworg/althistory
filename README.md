@@ -115,8 +115,9 @@ premise in your next message):
 | `grow_history` | Extending a graph you already have, and branching where it forks. |
 
 An invented world gets its own **calendar**: the graph records which stored
-year is the world's year 1 (`epochYear`) and a label (`eraLabel`), and the app
-and the exports show "Mar 4, 312 AR" instead of 1311. Dates stay ISO 8601
+year is the world's year 1 (`epochYear`), a label (`eraLabel`) and, if you
+like, the months' own names (`monthNames`), and the app and the exports show
+"Mar 4, 312 AR" (or "Thaw 4, 312 AR") instead of 1311. Dates stay ISO 8601
 underneath, so sorting and validation are unchanged.
 
 `generate timeline` (and the `generate_timeline` tool) drafts a graph

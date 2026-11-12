@@ -95,10 +95,15 @@ relabels them when they are shown. `--epoch-year` is the stored year that is
 the world's year 1, `--era-label` is written after a year ("312 AR"; without
 one, "Year 312"), `--calendar-name` names the calendar, and `--month-names`
 gives the twelve months the world's names, January's first, separated by
-commas (with "Thaw,Seedfall,Greening,…", March 4 reads "Greening 4"). The
-months keep their stored lengths. `graph create`,
-`graph calendar` and `generate timeline --world` take the four flags; a label,
-a name or month names without an epoch is refused.
+commas (with Vael's "Lowtide,Greywater,Thaw,…", March 4 reads "Thaw 4"). The
+months keep their stored lengths, and a name cannot contain a comma, a `|` or
+a control character. `graph create`, `graph calendar` and
+`generate timeline --world` take the four flags. `graph create` and
+`graph calendar` refuse a label, a name or month names without
+`--epoch-year`; `generate timeline --world` fills the epoch in. `graph
+calendar` replaces the whole calendar, so give every flag you want to keep:
+adding month names to Vael means giving `--epoch-year 1000 --era-label AR
+--calendar-name "the Reckoning of the Rising"` with them.
 
 `generate timeline --world <text>` chronicles an invented world from its
 founding instead of turning real history at a point of divergence: give
@@ -113,8 +118,8 @@ grouped into are named in its years.
 `--plain export --format markdown` (without `--plain` the Markdown comes inside the JSON envelope) dates a world in its calendar with the stored date
 beside it ("Mar 4, 312 AR (1311-03-04)") and states the offset, so an agent
 reading it knows which dates to write. `ingest text` into a graph with a
-calendar tells the model how the text's years are stored; the pattern reader
-cannot read invented years. See [the MCP guide](../../../docs/mcp-agent-guide.md#inventing-a-world).
+calendar tells the model how the text's years and months are stored; the
+pattern reader cannot read invented dates. See [the MCP guide](../../../docs/mcp-agent-guide.md#inventing-a-world).
 
 ## What the daemon cannot do
 

@@ -9,6 +9,7 @@ import {
   type CalendarDraft,
 } from '@/utils/worldCalendar'
 import type { CalendarDraftState } from './useCalendarDraft'
+import { describedBy } from '@/utils/worldDateHint'
 
 interface WorldCalendarFieldsProps {
   /** From `useCalendarDraft`. */
@@ -190,9 +191,9 @@ export function WorldCalendarFields({ state, idPrefix, sampleYear, disabled = fa
               autoComplete="off"
               value={draft.monthNames}
               onChange={(e) => setField('monthNames', e.target.value)}
-              placeholder={'Thaw\nSeedfall\n…'}
+              placeholder={'Lowtide\nGreywater\nThaw\n…'}
               aria-invalid={monthError ? true : undefined}
-              aria-describedby={monthError ? `${ids.months}-error ${ids.months}-count` : `${ids.months}-count`}
+              aria-describedby={describedBy(monthError && `${ids.months}-error`, `${ids.months}-count`, ids.preview)}
               className={`${INPUT_CLASS} ${monthError ? 'border-red-500 dark:border-red-400' : 'border-line'}`}
             />
             <p id={`${ids.months}-count`} className="mt-1 text-xs text-ink-muted">

@@ -45,6 +45,17 @@ function readText(value: unknown, what: string): string | undefined {
  */
 function readMonthNames(value: unknown): string[] | undefined {
   if (isUnset(value)) return undefined;
+  // A client that sends the list as JSON text ('["Lowtide", …]') means the list,
+  // not twelve names with brackets and quotes in them.
+  if (typeof value === 'string' && value.trim().startsWith('[')) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new ValidationErrorCLI('The month names look like a JSON list but are not one');
+    }
+    return readMonthNames(parsed);
+  }
   if (typeof value === 'string') return value.split(',').map((name) => name.trim());
   if (Array.isArray(value) && value.every((name) => typeof name === 'string')) {
     return value.map((name) => (name as string).trim());

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { GraphCalendar } from '@/types'
-import { isUsableCalendar, sameCalendar } from '@/utils/worldCalendar'
+import { sameCalendar, usableCalendar } from '@/utils/worldCalendar'
 
 /**
  * The calendar of the graph on screen, or null when it has none.
@@ -32,7 +32,7 @@ interface WorldCalendarState {
 export const useWorldCalendarStore = create<WorldCalendarState>()((set, get) => ({
   calendar: null,
   setCalendar: (calendar) => {
-    const next = isUsableCalendar(calendar) ? calendar : null
+    const next = usableCalendar(calendar)
     // Same labels, same object: an unchanged calendar must not remount the views.
     if (sameCalendar(get().calendar, next)) return
     set({ calendar: next })

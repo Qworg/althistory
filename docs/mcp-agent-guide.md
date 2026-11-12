@@ -138,12 +138,16 @@ an agent writing new events knows what to send. Without `eraLabel` a year reads
 "Year 312". Years before the epoch count back ("1 before AR"). Choose an epoch
 of 1000 or later: some date libraries read years below 100 as 19xx.
 
-`monthNames`, twelve distinct names with January's first, names the world's
-months: with `["Thaw", "Seedfall", "Greening", …]` March 4 shows as
-"Greening 4, 312 AR". The months keep their stored order and lengths, and the
+`monthNames`, twelve distinct names, January's first, names the world's
+months: with Vael's `["Lowtide", "Greywater", "Thaw", …]` March 4 shows as
+"Thaw 4, 312 AR". The months keep their stored order and lengths, and the
 days their numbers; a world with thirteen months, or months of other lengths,
-cannot be written, because every date is a Gregorian one underneath. Without
-`monthNames` the months are shown as stored ("Mar").
+cannot be written, because every date is a Gregorian one underneath. A name
+cannot contain a comma, a `|` or a control character. Without `monthNames`
+the months are shown as stored ("Mar").
+
+Setting a calendar replaces the whole calendar. To add month names to one
+you have, send `epochYear`, `eraLabel` and `calendarName` again with them.
 
 The calendar is kept when the graph is branched or copied, travels in the
 export document's `metadata.calendar`, and comes back on import.
@@ -198,12 +202,12 @@ Every causal path from one event to another.
 #### `althistory_create_graph`
 Create an empty graph to write into.
 - `name` *(required)*, `description`
-- `epochYear`, `eraLabel`, `calendarName`, `monthNames`: an invented world's calendar. A label, name or month names need `epochYear`. `monthNames` is a list of twelve (or the twelve separated by commas).
+- `epochYear`, `eraLabel`, `calendarName`, `monthNames`: an invented world's calendar. A label, name or month names need `epochYear`. `monthNames` is a list of twelve.
 
 #### `althistory_set_calendar`
 Give a graph a world calendar, change it, or remove it.
 - `graphId` *(required)*
-- `epochYear`, `eraLabel`, `calendarName`, `monthNames`; or `clear` set to `true` to remove it (not both).
+- `epochYear`, `eraLabel`, `calendarName`, `monthNames`; or `clear` set to `true` to remove it (not both). The fields given replace the whole calendar, so a field left out is removed.
 
 #### `althistory_create_arc`
 An age, era, reign or campaign that holds events.
@@ -231,7 +235,7 @@ Record that one event caused another.
 Draft a new graph whole-cloth. Give **either** `premise` and `divergencePoint`
 (an alternate history) **or** `world` (an invented world), not both.
 - `premise`, `divergencePoint`: the what-if, and where real history turns.
-- `world`: the world in a few sentences. The graph gets a calendar: `epochYear` defaults to the start date's year, or 1000; `eraLabel`, `calendarName` and `monthNames` as above. A calendar on an alternate history is refused.
+- `world`: the world in a few sentences. The graph gets a calendar: `epochYear` defaults to the start date's year, or 1000, so `eraLabel`, `calendarName` and `monthNames` can be given without it. A calendar on an alternate history is refused.
 - `startDate`, `endDate`: ISO 8601 (a date-time without a zone is read as UTC). An alternate history starts in the first year from 1000 to 2099 named in the premise or the divergence point (1914 if there is none, so give `startDate` for earlier history) and runs 15 years; a world starts at `startDate`, or its epoch, and runs 300 years, never past 9999.
 - `eventCount` (default 8), `style`: `"academic"` | `"narrative"` | `"concise"`, `dryRun`.
 - The result's `source` is `"model"`, or `"template"` when there was no model key or the model's answer was unusable: a generic skeleton to rewrite, not a history.

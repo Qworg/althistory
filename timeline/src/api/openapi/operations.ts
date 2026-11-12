@@ -50,6 +50,12 @@ export interface OperationSpec {
   status?: number
   /** Whether the operation is scoped to a graph by the `X-Graph-Id` header. */
   graphScoped?: boolean
+  /**
+   * Request headers of the operation's own, for one that reads a header in a
+   * way `graphScoped` does not describe (an optional `X-Graph-Id` with no
+   * active-graph fallback).
+   */
+  headers?: Array<{ name: string; required?: boolean; description: string }>
   /** Query parameters the operation takes. */
   query?: Array<{ name: string; type?: string; required?: boolean; description?: string }>
   /** Response codes this operation can answer with, beyond the usual ones. */
@@ -763,9 +769,16 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     auth: 'required',
   },
   'POST /api/ingest/text': {
-    summary:
-      'Extract entities from a piece of text. An optional X-Graph-Id names the graph it is for: a world ' +
-      "calendar on that graph tells the model how the text's dates are stored. Without it, no graph is read.",
+    summary: 'Extract entities from a piece of text.',
+    headers: [
+      {
+        name: 'X-Graph-Id',
+        description:
+          "The graph the text is for: a world calendar on it tells the model how the text's dates are stored. " +
+          'Optional, and unlike the graph-scoped routes there is no active-graph fallback: without it no graph ' +
+          'is read. A graph that does not exist is a 404; one the key may not access, a 403.',
+      },
+    ],
     request: 'IngestTextRequest',
     requestRequired: true,
     response: 'IngestPreview',

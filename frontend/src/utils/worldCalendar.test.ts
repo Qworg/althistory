@@ -4,6 +4,8 @@ import {
   calendarFromDraft,
   calendarRequest,
   parseMonthNames,
+  usableCalendar,
+  worldMonthName,
   describeCalendar,
   draftFromCalendar,
   formatWorldYear,
@@ -90,7 +92,7 @@ describe('the calendar form draft', () => {
     expect(parseMonthNames('  \n ')).toEqual([])
     expect(parseMonthNames(`\n${MONTHS.join('\n')}\n`)).toEqual(MONTHS)
     expect(parseMonthNames(MONTHS.join(', '))).toEqual(MONTHS)
-    // A name with a comma in it survives one per line.
+    // One per line, a comma inside a line stays in the name (and is refused there).
     expect(parseMonthNames('Ash, Late\nB')).toEqual(['Ash, Late', 'B'])
   })
 
@@ -122,5 +124,42 @@ describe('the calendar form draft', () => {
       calendar: { epochYear: 1000, monthNames: renamed },
     })
     expect(calendarRequest(true, draft('1000'), calendar)).toEqual({ ok: true, calendar: { epochYear: 1000 } })
+  })
+})
+
+describe('month names from the server', () => {
+  const MONTHS = ['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun', 'Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Longnight']
+
+  it('keeps the years when the month names are unusable, rather than losing the calendar', () => {
+    expect(usableCalendar({ epochYear: 1000, eraLabel: 'AR', monthNames: MONTHS.slice(0, 11) })).toEqual({ epochYear: 1000, eraLabel: 'AR' })
+    expect(usableCalendar({ epochYear: 1000, monthNames: null })).toEqual({ epochYear: 1000 })
+    expect(usableCalendar({ epochYear: 1000, monthNames: MONTHS })).toEqual({ epochYear: 1000, monthNames: MONTHS })
+    expect(usableCalendar({ epochYear: '1000' })).toBeNull()
+    expect(usableCalendar(null)).toBeNull()
+  })
+
+  it('names no month from an unusable or empty list', () => {
+    expect(worldMonthName(2, { epochYear: 1000, monthNames: MONTHS })).toBe('Thaw')
+    expect(worldMonthName(2, { epochYear: 1000, monthNames: Array(12).fill('') })).toBeNull()
+    expect(worldMonthName(2, { epochYear: 1000, monthNames: 'Thaw' as unknown as string[] })).toBeNull()
+  })
+
+  it('does not throw on a draft from a malformed calendar', () => {
+    expect(draftFromCalendar({ epochYear: 1000, monthNames: 'Thaw' as unknown as string[] }).monthNames).toBe('')
+  })
+})
+
+describe('month names as typed', () => {
+  it('drops a comma ending a line, one per line', () => {
+    expect(parseMonthNames('Thaw,\nGale,\nEbb')).toEqual(['Thaw', 'Gale', 'Ebb'])
+  })
+
+  it('refuses a comma, a "|" or a control character, as the backend does', () => {
+    for (const bad of ['Ash, late', 'Th|aw', 'L\tM']) {
+      const names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', bad]
+      expect(calendarDraftErrors({ epochYear: '1000', eraLabel: '', name: '', monthNames: names.join('\n') }).monthNames, bad).toMatch(
+        /cannot contain a comma/
+      )
+    }
   })
 })

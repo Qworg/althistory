@@ -24,7 +24,9 @@ export interface GraphCalendar {
   name?: string;
   /**
    * The world's names for the twelve months, January's first. Absent shows the
-   * stored months' names ("Mar"). Exactly twelve, distinct, none empty.
+   * stored months' names ("Mar"). Exactly twelve, distinct, none empty, and
+   * none holding a comma (the separator wherever the list is written out), a
+   * `|` (a Markdown table's) or a control character.
    */
   monthNames?: string[];
 }
@@ -36,6 +38,14 @@ export const MAX_ERA_LABEL_LENGTH = 16;
 export const MAX_CALENDAR_NAME_LENGTH = 80;
 export const MONTH_COUNT = 12;
 export const MAX_MONTH_NAME_LENGTH = 24;
+/**
+ * What no month name may hold: a comma, which separates the names in the
+ * flags, the export and what a model is told ("Thaw, early" would read as two
+ * months and shift the rest); a `|`, which splits a Markdown table cell; and a
+ * control character, such as a newline that would start a line of its own in
+ * a model's instructions.
+ */
+const FORBIDDEN_IN_MONTH_NAME = /[,|\p{Cc}]/u;
 
 /**
  * Check a calendar from outside (a request body, a tool argument, an import).
@@ -91,6 +101,9 @@ function monthNameProblems(value: unknown): string[] {
   }
   if (names.some((name) => name.length > MAX_MONTH_NAME_LENGTH)) {
     problems.push(`calendar.monthNames must each be at most ${MAX_MONTH_NAME_LENGTH} characters`);
+  }
+  if (names.some((name) => FORBIDDEN_IN_MONTH_NAME.test(name))) {
+    problems.push('calendar.monthNames cannot contain a comma, a "|" or a control character');
   }
   const seen = new Set<string>();
   for (const name of names) {
@@ -181,9 +194,19 @@ export function describeCalendar(calendar: GraphCalendar): string {
   return calendar.monthNames ? `${years}; ${describeMonths(calendar.monthNames)}` : years;
 }
 
-/** "the months January to December are Thaw, Seed, …": which name is which stored month. */
+const MONTH_WORDS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** "January is Lowtide, February is Greywater, …": which name is which stored month. */
+function monthPairs(monthNames: string[]): string {
+  return monthNames.map((name, index) => `${MONTH_WORDS[index]} is ${name}`).join(', ');
+}
+
+/** "the months: January is Lowtide, …", for a calendar's one-line description. */
 function describeMonths(monthNames: string[]): string {
-  return `the months January to December are ${monthNames.join(', ')}`;
+  return `the months: ${monthPairs(monthNames)}`;
 }
 
 /**
@@ -195,11 +218,13 @@ export function calendarExtractionInstructions(calendar: GraphCalendar): string 
   const named = calendar.name ? ` (${calendar.name})` : '';
   const written = calendar.eraLabel ? ` (written "N ${calendar.eraLabel}")` : '';
   const months = calendar.monthNames
-    ? ` Its months, in order, are ${calendar.monthNames.join(', ')}: the first is January, the twelfth December, and a day keeps its number.`
+    ? ` Its months are the ISO months under other names: ${monthPairs(calendar.monthNames)}. A day keeps its number.`
     : '';
+  const before = calendar.eraLabel ? `"N before ${calendar.eraLabel}"` : '"N before Year 1"';
   return (
     `The text dates events in an invented world's calendar${named}. ` +
-    `Its year N${written} is the ISO year N + ${calendar.epochYear - 1}.${months} ` +
+    `Its year N${written} is the ISO year N + ${calendar.epochYear - 1}, and a year counted back, ${before}, ` +
+    `is the ISO year ${calendar.epochYear} - N.${months} ` +
     'Give every timestamp as that ISO date.'
   );
 }

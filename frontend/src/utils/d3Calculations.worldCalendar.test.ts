@@ -33,6 +33,12 @@ describe('time axis labels in a world calendar', () => {
     expect(formatTimeAxisTicks(days, 50 * 24 * 60 * 60 * 1000, named)).toEqual(['Greening 04', 'Greening 11'])
   })
 
+  it('falls back to the stored month for an empty name', () => {
+    const blank: GraphCalendar = { ...AR, monthNames: Array(12).fill('') }
+    const ticks = [new Date(1311, 2, 1), new Date(1311, 5, 1)]
+    expect(formatTimeAxisTicks(ticks, YEAR_MS, blank)).toEqual(['Mar 312 AR', 'Jun 312 AR'])
+  })
+
   it('labels a decade tick by its own world year', () => {
     const ticks = [localYear(1309), localYear(1319), localYear(1329)]
     expect(formatTimeAxisTicks(ticks, 40 * YEAR_MS, AR)).toEqual(['310 AR', '320 AR', '330 AR'])

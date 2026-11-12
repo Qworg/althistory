@@ -18,6 +18,18 @@ import { apiClient } from '@/services/api'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import type { ApproveIngestionRequest, ImportResult, IngestResponse } from '@/types'
 
+// The active graph, which the wizard imports into when it is given no target.
+// Left undefined, as in most tests, the real hook would ask the mocked client.
+const activeGraph = vi.hoisted(() => ({ current: undefined as { id: string; name: string } | undefined }))
+vi.mock('@/hooks/useGraphs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useGraphs')>()
+  return {
+    ...actual,
+    useActiveGraph: (...args: Parameters<typeof actual.useActiveGraph>) =>
+      activeGraph.current ? ({ data: activeGraph.current } as ReturnType<typeof actual.useActiveGraph>) : actual.useActiveGraph(...args),
+  }
+})
+
 vi.mock('@/services/api', () => ({
   apiClient: {
     ingest: {
@@ -544,6 +556,19 @@ describe('IngestionWizard', () => {
       renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} targetGraphId="vael" />)
       await extractFromText(user)
       expect(mockedText).toHaveBeenCalledWith(expect.objectContaining({ targetGraphId: 'vael' }))
+    })
+
+    it('falls back to the active graph when it is given no target', async () => {
+      const user = userEvent.setup()
+      activeGraph.current = { id: 'graph_vael', name: 'Vael' }
+      try {
+        mockedText.mockResolvedValue(makePreview())
+        renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+        await extractFromText(user)
+        expect(mockedText).toHaveBeenCalledWith(expect.objectContaining({ targetGraphId: 'graph_vael' }))
+      } finally {
+        activeGraph.current = undefined
+      }
     })
 
     it('says the model reads the world’s dates and the patterns do not, and shows the time range in world dates', async () => {

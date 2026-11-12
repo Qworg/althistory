@@ -89,7 +89,7 @@ rather than dropped silently.
 
 ## 7. Graphs and branches
 
-![The graph selector open, listing the main graph and a branch](images/graphs-and-branches.png)
+![The graph selector open, listing Vael (an invented world, in its own years), the main graph and a branch](images/graphs-and-branches.png)
 
 You can keep as many graphs as you like. **Branching** forks a graph so you
 can explore a counterfactual, here *Clerks Prevail*, in which Parliament

@@ -886,6 +886,15 @@ export function buildOpenApiDocument(routes: RouteEntry[]): Record<string, unkno
     if (spec.graphScoped) {
       parameters.push(GRAPH_HEADER_PARAMETER)
     }
+    for (const header of spec.headers ?? []) {
+      parameters.push({
+        name: header.name,
+        in: 'header',
+        required: header.required ?? false,
+        schema: { type: 'string' },
+        description: header.description,
+      })
+    }
 
     const successStatus = String(spec.status ?? 200)
     const operation: Record<string, unknown> = {

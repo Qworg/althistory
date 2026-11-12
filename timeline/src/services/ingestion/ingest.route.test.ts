@@ -244,7 +244,7 @@ describe('Ingestion routes', () => {
       expect(response.status).toBe(200);
       const instructions = contextOf(textExtract)?.instructions ?? '';
       expect(instructions).toContain('is the ISO year N + 999');
-      expect(instructions).toContain('Its months, in order, are Thaw');
+      expect(instructions).toContain('Its months are the ISO months under other names: January is Thaw, February is B');
       expect(instructions.indexOf('ISO year')).toBeLessThan(instructions.indexOf('Skip the footnotes.'));
     });
 
