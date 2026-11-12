@@ -505,21 +505,30 @@ describe('invented worlds', () => {
     });
 
     it('refuses a bracketed list that is not JSON, rather than keeping the brackets in the names', async () => {
-      const short = await cli(['graph', 'create', 'Wrapped', '--epoch-year', '1000', '--month-names', '[Lowtide, Greywater, Thaw, Seedtide, Brightwater, Highsun, Saltreap, Panfire, Gale, Ebb, Wrack, Longnight]']);
-      expect(short.code).toBe(ExitCode.VALIDATION_FAILED);
-      expect(JSON.stringify(short.body)).toContain('not a JSON list');
+      for (const months of [
+        '[Lowtide, Greywater, Thaw, Seedtide, Brightwater, Highsun, Saltreap, Panfire, Gale, Ebb, Wrack, Longnight]',
+        '[Lowtide, Greywater, Thaw, Seedtide, Brightwater, Highsun, Saltreap, Panfire, Gale, Ebb, Wrack, Longnight],',
+      ]) {
+        const wrapped = await cli(['graph', 'create', 'Wrapped', '--epoch-year', '1000', '--month-names', months]);
+        expect(wrapped.code, months).toBe(ExitCode.VALIDATION_FAILED);
+        expect(JSON.stringify(wrapped.body), months).toContain('brackets');
+      }
       const none = await cli(['graph', 'create', 'No names', '--epoch-year', '1000', '--month-names', ',']);
       expect(none.code).toBe(ExitCode.VALIDATION_FAILED);
       expect(JSON.stringify(none.body)).toContain('got 0');
     });
 
-    it('takes a name in brackets on the command line, and ignores a comma after the last name', async () => {
-      const months = '[Lowtide],Greywater,Thaw,Seedtide,Brightwater,Highsun,Saltreap,Panfire,Gale,Ebb,Wrack,Longnight,';
-      const made = await cli(['graph', 'create', 'Bracketed', '--epoch-year', '1000', '--month-names', months]);
-      expect(made.code).toBe(ExitCode.SUCCESS);
-      created.push(made.body.data.id);
-      expect(made.body.data.calendar.monthNames[0]).toBe('[Lowtide]');
-      expect(made.body.data.calendar.monthNames).toHaveLength(12);
+    it('ignores a comma after the last name, and reads one name per line', async () => {
+      for (const months of [
+        'Lowtide,Greywater,Thaw,Seedtide,Brightwater,Highsun,Saltreap,Panfire,Gale,Ebb,Wrack,Longnight,',
+        'Lowtide\nGreywater\nThaw\nSeedtide\nBrightwater\nHighsun\nSaltreap\nPanfire\nGale\nEbb\nWrack\nLongnight',
+      ]) {
+        const made = await cli(['graph', 'create', 'Listed', '--epoch-year', '1000', '--month-names', months]);
+        expect(made.code, months).toBe(ExitCode.SUCCESS);
+        created.push(made.body.data.id);
+        expect(made.body.data.calendar.monthNames, months).toHaveLength(12);
+        expect(made.body.data.calendar.monthNames[11]).toBe('Longnight');
+      }
     });
 
     it('takes month names as a list over MCP, and dates the export in them', async () => {

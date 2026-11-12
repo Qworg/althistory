@@ -143,9 +143,9 @@ months: with Vael's `["Lowtide", "Greywater", "Thaw", …]` March 4 shows as
 "Thaw 4, 312 AR". The months keep their stored order and lengths, and the
 days their numbers; a world with thirteen months, or months of other lengths,
 cannot be written, because every date is a Gregorian one underneath. A month
-name cannot contain a comma, a `|`, or a tab, line break or other control
-character; an era label or calendar name cannot contain a `|` or any of those
-characters. Without `monthNames`
+name cannot contain a comma, a `|`, brackets, a double quote, or a tab, line
+break or other control character. An era label or calendar name may contain a
+comma, but not a `|` or a control character. Without `monthNames`
 the months are shown as stored ("Mar").
 
 Setting a calendar replaces the whole calendar. To add month names to one

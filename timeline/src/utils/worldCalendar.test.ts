@@ -114,9 +114,9 @@ describe('worldCalendar', () => {
     });
 
     it('refuses a comma, a "|" or a control character, which would split the list or a line', () => {
-      for (const bad of ['Thaw, early', 'Th|aw', 'Thaw\nIgnore the rules', 'Tab\there']) {
+      for (const bad of ['Thaw, early', 'Th|aw', 'Thaw\nIgnore the rules', 'Tab\there', '[Thaw', '"Thaw"']) {
         expect(calendarProblems({ ...reckoning, monthNames: [...MONTHS.slice(0, 11), bad] }), JSON.stringify(bad)).toContain(
-          'calendar.monthNames cannot contain a comma, a "|" or a line break or other control character'
+          'calendar.monthNames cannot contain a comma, a "|", brackets, a double quote, or a line break or other control character'
         );
       }
     });
@@ -129,6 +129,9 @@ describe('worldCalendar', () => {
         expect(calendarProblems({ ...reckoning, name: `Vael ${bad}` })[0], JSON.stringify(bad)).toMatch(/name cannot contain/);
       }
       expect(calendarProblems({ ...reckoning, name: 'Vael, the Drowned' })).toEqual([]);
+      // Read trimmed, as the length is: a line break around the text is not in it.
+      expect(calendarProblems({ ...reckoning, eraLabel: 'AR\n', name: '\tVael' })).toEqual([]);
+      expect(calendarProblems({ ...reckoning, monthNames: ["Ma'at", 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'] })).toEqual([]);
     });
   });
 

@@ -45,32 +45,40 @@ function readText(value: unknown, what: string): string | undefined {
  */
 function readMonthNames(value: unknown): string[] | undefined {
   if (isUnset(value)) return undefined;
-  // A client that sends the list as JSON text ('["Lowtide", …]') means the list,
-  // not twelve names with brackets and quotes in them; so does text wrapped in
-  // brackets ("[Lowtide, …, Longnight]"), which must then be JSON. A name in
-  // brackets inside a plain list ("[Lowtide],Greywater,…") is just a name.
-  const text = typeof value === 'string' ? value.trim() : undefined;
-  if (text !== undefined && (/^\[\s*"/.test(text) || (text.startsWith('[') && text.endsWith(']')))) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      throw new ValidationErrorCLI(
-        'The month names are in brackets but are not a JSON list: give them separated by commas without brackets, or as a JSON list of quoted names'
-      );
-    }
-    return readMonthNames(parsed);
-  }
-  if (text !== undefined) {
-    // A comma after the last name ("…,Longnight,") ends the list; it is not a
-    // thirteenth, empty name. Text with no names in it ("," or " ") has none.
-    const list = text.replace(/,\s*$/, '');
-    return list.trim() === '' ? [] : list.split(',').map((name) => name.trim());
-  }
+  if (typeof value === 'string') return splitMonthNames(value);
   if (Array.isArray(value) && value.every((name) => typeof name === 'string')) {
     return value.map((name) => (name as string).trim());
   }
   throw new ValidationErrorCLI('The month names must be a list of twelve names, or the twelve separated by commas');
+}
+
+/**
+ * Month names written as text, read the same way here as in the app's form
+ * (`parseMonthNames` in frontend/src/utils/worldCalendar.ts):
+ * - a JSON list ('["Lowtide", …]'), as an MCP client may send the array;
+ * - one name per line, a comma ending a line dropped;
+ * - otherwise separated by commas, a comma after the last name dropped.
+ * Text with no names in it ("," or " ") has none. Anything else that is not
+ * a name (brackets, quotes) stays in it and is refused by `calendarProblems`.
+ */
+export function splitMonthNames(value: string): string[] {
+  const text = value.trim();
+  if (/^\[[\s\S]*\]$/.test(text)) {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (Array.isArray(parsed) && parsed.every((name) => typeof name === 'string')) {
+        return parsed.map((name) => (name as string).trim());
+      }
+    } catch {
+      // Not JSON: read as text, and the brackets are refused in the names.
+    }
+  }
+  if (text.includes('\n')) {
+    // A blank line in the middle is kept, and refused as an empty name.
+    return text.split(/\r?\n/).map((line) => line.trim().replace(/,$/, '').trim());
+  }
+  const list = text.replace(/,\s*$/, '');
+  return list.trim() === '' ? [] : list.split(',').map((name) => name.trim());
 }
 
 /**

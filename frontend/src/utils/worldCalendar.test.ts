@@ -172,6 +172,19 @@ describe('month names as typed', () => {
     expect(calendarDraftErrors({ epochYear: '1000', eraLabel: 'AR', name: 'Vael, the Drowned', monthNames: '' })).toEqual({})
   })
 
+  it('reads a pasted JSON list as the list, and refuses a bracketed list that is not JSON', () => {
+    const json = JSON.stringify(MONTHS_ONE_LINE.split(','))
+    expect(parseMonthNames(json)).toEqual(MONTHS_ONE_LINE.split(','))
+    expect(calendarDraftErrors({ epochYear: '1000', eraLabel: '', name: '', monthNames: json }).monthNames).toBeUndefined()
+    for (const bad of [`[${MONTHS_ONE_LINE}]`, `[${MONTHS_ONE_LINE}],`, MONTHS_ONE_LINE.split(',').map((m) => `"${m}"`).join(',')]) {
+      expect(calendarDraftErrors({ epochYear: '1000', eraLabel: '', name: '', monthNames: bad }).monthNames, bad).toMatch(/brackets, a double quote/)
+    }
+  })
+
+  it('reads the era label and name trimmed, so a line break around them is not in them', () => {
+    expect(calendarDraftErrors({ epochYear: '1000', eraLabel: 'AR\n', name: '\tVael', monthNames: '' })).toEqual({})
+  })
+
   it('ignores a comma after the last name on one line', () => {
     expect(parseMonthNames(`${MONTHS_ONE_LINE},`)).toHaveLength(12)
     expect(parseMonthNames(',')).toEqual([])

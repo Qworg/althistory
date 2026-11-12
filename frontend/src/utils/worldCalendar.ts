@@ -23,10 +23,11 @@ export const MAX_CALENDAR_NAME_LENGTH = 80
 export const MONTH_COUNT = 12
 /**
  * What no month name may hold, as the backend checks: a comma (the list's
- * separator), a `|` (a Markdown table's) or a line break or other control
- * character. The era label and the name may hold a comma.
+ * separator), a `|` (a Markdown table's), a line break or other control
+ * character, and brackets and double quotes (a list pasted as text and split
+ * in the wrong place). The era label and the name may hold a comma.
  */
-const FORBIDDEN_IN_MONTH_NAME = /[,|\p{Cc}\p{Zl}\p{Zp}]/u
+const FORBIDDEN_IN_MONTH_NAME = /[,|"[\]\p{Cc}\p{Zl}\p{Zp}]/u
 const FORBIDDEN_IN_LABEL = /[|\p{Cc}\p{Zl}\p{Zp}]/u
 export const MAX_MONTH_NAME_LENGTH = 24
 
@@ -155,14 +156,28 @@ export function draftFromCalendar(calendar: GraphCalendar | null | undefined): C
 }
 
 /**
- * The month names a draft holds: one per line, or, typed on a single line,
- * separated by commas. Blank lines around them are ignored; none at all is
- * an empty list (no month names). One per line, a comma ending a line is a
- * separator typed out of habit ("Thaw,"), not part of the name.
+ * The month names a draft holds: a pasted JSON list, one per line, or, typed
+ * on a single line, separated by commas. Blank lines around them are ignored;
+ * none at all is an empty list (no month names). One per line, a comma ending
+ * a line is a separator typed out of habit ("Thaw,"), not part of the name.
+ * The backend reads `--month-names` and the MCP tools' text the same way
+ * (`splitMonthNames` in timeline/src/cli/utils/calendarOptions.ts).
  */
 export function parseMonthNames(text: string): string[] {
   const trimmed = text.trim()
   if (!trimmed) return []
+  // A JSON list pasted in ('["Lowtide", …]') is the list. Brackets that are
+  // not JSON stay in the names, which refuse them.
+  if (/^\[[\s\S]*\]$/.test(trimmed)) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      if (Array.isArray(parsed) && parsed.every((name) => typeof name === 'string')) {
+        return parsed.map((name: string) => name.trim())
+      }
+    } catch {
+      // Not JSON: read as text below.
+    }
+  }
   // A blank line in the middle is kept, and refused as an empty name.
   // A comma after the last name ends the list; it is not a thirteenth, empty
   // name. A line with no names in it ("," alone) has none.
@@ -213,7 +228,7 @@ function monthNamesError(names: string[]): string | null {
   }
   if (names.some((name) => name.length === 0)) return 'A month name cannot be empty.'
   if (names.some((name) => FORBIDDEN_IN_MONTH_NAME.test(name))) {
-    return 'A month name cannot contain a comma, a “|”, a tab or a line break.'
+    return 'A month name cannot contain a comma, a “|”, brackets, a double quote, a tab or a line break.'
   }
   if (names.some((name) => name.length > MAX_MONTH_NAME_LENGTH)) {
     return `A month name can be at most ${MAX_MONTH_NAME_LENGTH} characters.`

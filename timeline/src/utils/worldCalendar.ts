@@ -41,11 +41,13 @@ export const MAX_MONTH_NAME_LENGTH = 24;
 /**
  * What no month name may hold: a comma, which separates the names in the
  * flags, the export and what a model is told ("Thaw, early" would read as two
- * months and shift the rest); a `|`, which splits a Markdown table cell; and a
+ * months and shift the rest); a `|`, which splits a Markdown table cell; a
  * control character, such as a newline that would start a line of its own in
- * a model's instructions.
+ * a model's instructions; and brackets and double quotes, which in a name
+ * mean a list was pasted as text ('["Lowtide", …]', "[Lowtide, …]") and split
+ * in the wrong place. An apostrophe is fine.
  */
-const FORBIDDEN_IN_MONTH_NAME = /[,|\p{Cc}\p{Zl}\p{Zp}]/u;
+const FORBIDDEN_IN_MONTH_NAME = /[,|"[\]\p{Cc}\p{Zl}\p{Zp}]/u;
 /**
  * What the era label and the calendar's name may not hold, for the same
  * reasons: the label is in every date of an export's tables, and both go into
@@ -113,7 +115,9 @@ function monthNameProblems(value: unknown): string[] {
     problems.push(`calendar.monthNames must each be at most ${MAX_MONTH_NAME_LENGTH} characters`);
   }
   if (names.some((name) => FORBIDDEN_IN_MONTH_NAME.test(name))) {
-    problems.push('calendar.monthNames cannot contain a comma, a "|" or a line break or other control character');
+    problems.push(
+      'calendar.monthNames cannot contain a comma, a "|", brackets, a double quote, or a line break or other control character'
+    );
   }
   const seen = new Set<string>();
   for (const name of names) {
