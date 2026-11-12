@@ -23,9 +23,11 @@ export const MAX_CALENDAR_NAME_LENGTH = 80
 export const MONTH_COUNT = 12
 /**
  * What no month name may hold, as the backend checks: a comma (the list's
- * separator), a `|` (a Markdown table's) or a control character.
+ * separator), a `|` (a Markdown table's) or a line break or other control
+ * character. The era label and the name may hold a comma.
  */
-const FORBIDDEN_IN_MONTH_NAME = /[,|\p{Cc}]/u
+const FORBIDDEN_IN_MONTH_NAME = /[,|\p{Cc}\p{Zl}\p{Zp}]/u
+const FORBIDDEN_IN_LABEL = /[|\p{Cc}\p{Zl}\p{Zp}]/u
 export const MAX_MONTH_NAME_LENGTH = 24
 
 /** The world's name for a month (0 = January), or null when the calendar does not name its months. */
@@ -70,16 +72,6 @@ export function formatWorldYear(
   return label ? `${formatNumber(before)} before ${label}` : `${formatNumber(before)} before Year ${formatNumber(1)}`
 }
 
-/**
- * One line saying how the calendar maps: "the Reckoning of Vael: stored year
- * 1000 is 1 AR", and which month is which when it names them.
- */
-export function describeCalendar(calendar: GraphCalendar): string {
-  const named = calendar.name ? `${calendar.name}: ` : ''
-  const years = `${named}stored year ${calendar.epochYear} is ${formatWorldYear(calendar.epochYear, calendar)}`
-  return calendar.monthNames ? `${years}; the months January to December are ${calendar.monthNames.join(', ')}` : years
-}
-
 /** A calendar the formatters can use: an object with an integer epoch year. */
 export function isUsableCalendar(value: unknown): value is GraphCalendar {
   if (typeof value !== 'object' || value === null) return false
@@ -88,17 +80,30 @@ export function isUsableCalendar(value: unknown): value is GraphCalendar {
 }
 
 /**
- * The calendar as the app uses it, or null when there is none to use. Month
- * names that are not twelve strings are left out rather than losing the
- * world's years with them (the backend never sends such a list; a hand-edited
- * data file could).
+ * The calendar as the app uses it, or null when there is none to use. A field
+ * that does not check out (month names that are not twelve good names, a
+ * label with a "|") is left out rather than losing the world's years with it,
+ * which is what the backend keeps of the same calendar when it reads one back
+ * (`storedCalendar`), so an import's preview shows what the import keeps.
  */
 export function usableCalendar(value: unknown): GraphCalendar | null {
   if (!isUsableCalendar(value)) return null
-  if (value.monthNames === undefined || hasUsableMonths(value.monthNames)) return value
-  const withoutMonths: GraphCalendar = { ...value }
-  delete withoutMonths.monthNames
-  return withoutMonths
+  const usable: GraphCalendar = { ...value }
+  if (usable.eraLabel !== undefined && !isGoodText(usable.eraLabel, MAX_ERA_LABEL_LENGTH)) delete usable.eraLabel
+  if (usable.name !== undefined && !isGoodText(usable.name, MAX_CALENDAR_NAME_LENGTH)) delete usable.name
+  if (
+    usable.monthNames !== undefined &&
+    !(hasUsableMonths(usable.monthNames) && monthNamesError(usable.monthNames.map((month) => month.trim())) === null)
+  ) {
+    delete usable.monthNames
+  }
+  const unchanged =
+    usable.eraLabel === value.eraLabel && usable.name === value.name && usable.monthNames === value.monthNames
+  return unchanged ? value : usable
+}
+
+function isGoodText(value: unknown, maxLength: number): boolean {
+  return typeof value === 'string' && value.trim().length <= maxLength && !FORBIDDEN_IN_LABEL.test(value)
 }
 
 function sameMonthNames(a: string[] | undefined, b: string[] | undefined): boolean {
@@ -148,7 +153,8 @@ export function parseMonthNames(text: string): string[] {
   const trimmed = text.trim()
   if (!trimmed) return []
   // A blank line in the middle is kept, and refused as an empty name.
-  if (!trimmed.includes('\n')) return trimmed.split(',').map((part) => part.trim())
+  // A comma after the last name ends the list; it is not a thirteenth, empty name.
+  if (!trimmed.includes('\n')) return trimmed.replace(/,\s*$/, '').split(',').map((part) => part.trim())
   return trimmed.split(/\r?\n/).map((line) => line.trim().replace(/,$/, '').trim())
 }
 
@@ -171,9 +177,13 @@ export function calendarDraftErrors(draft: CalendarDraft): CalendarDraftErrors {
   }
   if (draft.eraLabel.trim().length > MAX_ERA_LABEL_LENGTH) {
     errors.eraLabel = `The era label can be at most ${MAX_ERA_LABEL_LENGTH} characters.`
+  } else if (FORBIDDEN_IN_LABEL.test(draft.eraLabel)) {
+    errors.eraLabel = 'The era label cannot contain a “|”, a tab or a line break.'
   }
   if (draft.name.trim().length > MAX_CALENDAR_NAME_LENGTH) {
     errors.name = `The calendar name can be at most ${MAX_CALENDAR_NAME_LENGTH} characters.`
+  } else if (FORBIDDEN_IN_LABEL.test(draft.name)) {
+    errors.name = 'The calendar name cannot contain a “|”, a tab or a line break.'
   }
   const monthError = monthNamesError(parseMonthNames(draft.monthNames))
   if (monthError) errors.monthNames = monthError
@@ -188,7 +198,7 @@ function monthNamesError(names: string[]): string | null {
   }
   if (names.some((name) => name.length === 0)) return 'A month name cannot be empty.'
   if (names.some((name) => FORBIDDEN_IN_MONTH_NAME.test(name))) {
-    return 'A month name cannot contain a comma, a “|” or a tab.'
+    return 'A month name cannot contain a comma, a “|”, a tab or a line break.'
   }
   if (names.some((name) => name.length > MAX_MONTH_NAME_LENGTH)) {
     return `A month name can be at most ${MAX_MONTH_NAME_LENGTH} characters.`

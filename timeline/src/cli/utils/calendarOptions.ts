@@ -46,8 +46,9 @@ function readText(value: unknown, what: string): string | undefined {
 function readMonthNames(value: unknown): string[] | undefined {
   if (isUnset(value)) return undefined;
   // A client that sends the list as JSON text ('["Lowtide", …]') means the list,
-  // not twelve names with brackets and quotes in them.
-  if (typeof value === 'string' && value.trim().startsWith('[')) {
+  // not twelve names with brackets and quotes in them. Only a quoted first
+  // name counts as JSON, so a name like "[Thaw]" can still be typed.
+  if (typeof value === 'string' && /^\[\s*"/.test(value.trim())) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(value);
@@ -56,7 +57,8 @@ function readMonthNames(value: unknown): string[] | undefined {
     }
     return readMonthNames(parsed);
   }
-  if (typeof value === 'string') return value.split(',').map((name) => name.trim());
+  // A comma after the last name ("…,Longnight,") ends the list; it is not a thirteenth, empty name.
+  if (typeof value === 'string') return value.trim().replace(/,\s*$/, '').split(',').map((name) => name.trim());
   if (Array.isArray(value) && value.every((name) => typeof name === 'string')) {
     return value.map((name) => (name as string).trim());
   }

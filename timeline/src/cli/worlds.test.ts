@@ -504,6 +504,15 @@ describe('invented worlds', () => {
       expect(graph.calendar.monthNames).toEqual(months);
     });
 
+    it('takes a name in brackets on the command line, and ignores a comma after the last name', async () => {
+      const months = '[Lowtide],Greywater,Thaw,Seedtide,Brightwater,Highsun,Saltreap,Panfire,Gale,Ebb,Wrack,Longnight,';
+      const made = await cli(['graph', 'create', 'Bracketed', '--epoch-year', '1000', '--month-names', months]);
+      expect(made.code).toBe(ExitCode.SUCCESS);
+      created.push(made.body.data.id);
+      expect(made.body.data.calendar.monthNames[0]).toBe('[Lowtide]');
+      expect(made.body.data.calendar.monthNames).toHaveLength(12);
+    });
+
     it('takes month names as a list over MCP, and dates the export in them', async () => {
       const months = ['Thaw', 'Seedfall', 'Greening', 'Highsun', 'Brine', 'Harvest', 'Ember', 'Ashfall', 'Gale', 'Dimming', 'Frost', 'Deepwinter'];
       const graph = await callTool(server, 'althistory_create_graph', { name: 'Named months', epochYear: 1000, eraLabel: 'AR', monthNames: months });

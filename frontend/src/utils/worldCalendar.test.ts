@@ -6,7 +6,6 @@ import {
   parseMonthNames,
   usableCalendar,
   worldMonthName,
-  describeCalendar,
   draftFromCalendar,
   formatWorldYear,
   sameCalendar,
@@ -30,12 +29,6 @@ describe('world calendar arithmetic (same as the backend)', () => {
     expect(formatWorldYear(999, AR)).toBe('1 before AR')
     expect(formatWorldYear(999, { epochYear: 1000 })).toBe('1 before Year 1')
     expect(formatWorldYear(900, { epochYear: 1000, eraLabel: ' AR ' })).toBe('100 before AR')
-  })
-
-  it('describes a calendar in one line', () => {
-    expect(describeCalendar({ ...AR, name: 'the Reckoning of Vael' })).toBe(
-      'the Reckoning of Vael: stored year 1000 is 1 AR'
-    )
   })
 
   it('compares calendars by what they show', () => {
@@ -138,6 +131,14 @@ describe('month names from the server', () => {
     expect(usableCalendar(null)).toBeNull()
   })
 
+  it('drops what the backend would drop when it reads the calendar back, so an import preview shows what the import keeps', () => {
+    const commaMonths = [...MONTHS.slice(0, 11), 'Long, night']
+    expect(usableCalendar({ epochYear: 1000, eraLabel: 'AR', monthNames: commaMonths })).toEqual({ epochYear: 1000, eraLabel: 'AR' })
+    expect(usableCalendar({ epochYear: 1000, eraLabel: 'A|R', name: 'Vael\nnow', monthNames: MONTHS })).toEqual({ epochYear: 1000, monthNames: MONTHS })
+    const good = { epochYear: 1000, eraLabel: 'AR', name: 'Vael, the Drowned', monthNames: MONTHS }
+    expect(usableCalendar(good)).toBe(good)
+  })
+
   it('names no month from an unusable or empty list', () => {
     expect(worldMonthName(2, { epochYear: 1000, monthNames: MONTHS })).toBe('Thaw')
     expect(worldMonthName(2, { epochYear: 1000, monthNames: Array(12).fill('') })).toBeNull()
@@ -150,8 +151,21 @@ describe('month names from the server', () => {
 })
 
 describe('month names as typed', () => {
+  const MONTHS_ONE_LINE = 'Lowtide,Greywater,Thaw,Seedtide,Brightwater,Highsun,Saltreap,Panfire,Gale,Ebb,Wrack,Longnight'
+
   it('drops a comma ending a line, one per line', () => {
     expect(parseMonthNames('Thaw,\nGale,\nEbb')).toEqual(['Thaw', 'Gale', 'Ebb'])
+  })
+
+  it('refuses a "|" or a line break in the era label and the name, but not a comma', () => {
+    const errors = calendarDraftErrors({ epochYear: '1000', eraLabel: 'A|R', name: 'Vael\u2028now', monthNames: '' })
+    expect(errors.eraLabel).toMatch(/cannot contain/)
+    expect(errors.name).toMatch(/cannot contain/)
+    expect(calendarDraftErrors({ epochYear: '1000', eraLabel: 'AR', name: 'Vael, the Drowned', monthNames: '' })).toEqual({})
+  })
+
+  it('ignores a comma after the last name on one line', () => {
+    expect(parseMonthNames(`${MONTHS_ONE_LINE},`)).toHaveLength(12)
   })
 
   it('refuses a comma, a "|" or a control character, as the backend does', () => {

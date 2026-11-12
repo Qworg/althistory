@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { GraphCalendar, calendarProblems, normalizeCalendar } from '@/utils/worldCalendar';
+import { GraphCalendar, storedCalendar } from '@/utils/worldCalendar';
 import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
 import { ImportResultDto } from '../types';
@@ -11,7 +11,7 @@ import { ValidationErrorCLI } from '../utils/exitCodes';
  */
 function importedCalendar(metadata: Record<string, unknown> | undefined): GraphCalendar | undefined {
   const value = metadata?.calendar;
-  return value !== undefined && calendarProblems(value).length === 0 ? normalizeCalendar(value) : undefined;
+  return storedCalendar(value);
 }
 
 export class GraphImporter {

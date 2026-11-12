@@ -20,7 +20,7 @@ export interface GraphCalendar {
   epochYear: number;
   /** Written after the year: "AR" shows the year as "312 AR". Absent or empty shows "Year 312". */
   eraLabel?: string;
-  /** What the calendar is called, e.g. "the Reckoning of Vael". Display only. */
+  /** What the calendar is called, e.g. "the Reckoning of the Rising". Display only. */
   name?: string;
   /**
    * The world's names for the twelve months, January's first. Absent shows the
@@ -45,7 +45,13 @@ export const MAX_MONTH_NAME_LENGTH = 24;
  * control character, such as a newline that would start a line of its own in
  * a model's instructions.
  */
-const FORBIDDEN_IN_MONTH_NAME = /[,|\p{Cc}]/u;
+const FORBIDDEN_IN_MONTH_NAME = /[,|\p{Cc}\p{Zl}\p{Zp}]/u;
+/**
+ * What the era label and the calendar's name may not hold, for the same
+ * reasons: the label is in every date of an export's tables, and both go into
+ * a model's instructions. A comma is fine in them; nothing lists them.
+ */
+const FORBIDDEN_IN_LABEL = /[|\p{Cc}\p{Zl}\p{Zp}]/u;
 
 /**
  * Check a calendar from outside (a request body, a tool argument, an import).
@@ -72,6 +78,8 @@ export function calendarProblems(value: unknown): string[] {
       problems.push('calendar.eraLabel must be a string');
     } else if (record.eraLabel.trim().length > MAX_ERA_LABEL_LENGTH) {
       problems.push(`calendar.eraLabel must be at most ${MAX_ERA_LABEL_LENGTH} characters`);
+    } else if (FORBIDDEN_IN_LABEL.test(record.eraLabel)) {
+      problems.push('calendar.eraLabel cannot contain a "|" or a line break or other control character');
     }
   }
   if (record.name !== undefined) {
@@ -79,6 +87,8 @@ export function calendarProblems(value: unknown): string[] {
       problems.push('calendar.name must be a string');
     } else if (record.name.trim().length > MAX_CALENDAR_NAME_LENGTH) {
       problems.push(`calendar.name must be at most ${MAX_CALENDAR_NAME_LENGTH} characters`);
+    } else if (FORBIDDEN_IN_LABEL.test(record.name)) {
+      problems.push('calendar.name cannot contain a "|" or a line break or other control character');
     }
   }
   if (record.monthNames !== undefined) {
@@ -103,7 +113,7 @@ function monthNameProblems(value: unknown): string[] {
     problems.push(`calendar.monthNames must each be at most ${MAX_MONTH_NAME_LENGTH} characters`);
   }
   if (names.some((name) => FORBIDDEN_IN_MONTH_NAME.test(name))) {
-    problems.push('calendar.monthNames cannot contain a comma, a "|" or a control character');
+    problems.push('calendar.monthNames cannot contain a comma, a "|" or a line break or other control character');
   }
   const seen = new Set<string>();
   for (const name of names) {
@@ -131,6 +141,29 @@ export function normalizeCalendar(value: unknown): GraphCalendar {
   if (name) calendar.name = name;
   if (record.monthNames) calendar.monthNames = record.monthNames.map((month) => month.trim());
   return calendar;
+}
+
+/**
+ * A calendar read back from where it was stored or carried (the graph index,
+ * an export being imported, an answer from the app), keeping what still
+ * checks out. A calendar written before a rule was added (a "|" in its label,
+ * a comma in a month name) loses that field, not its epoch: dropping the whole
+ * calendar would turn the world's years back into stored ones without a word.
+ * Without a usable epoch there is no calendar. Writes refuse a bad calendar
+ * outright (`calendarProblems`); this is only for reading.
+ */
+export function storedCalendar(value: unknown): GraphCalendar | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const base = { epochYear: record.epochYear };
+  if (calendarProblems(base).length > 0) return undefined;
+  const kept: Record<string, unknown> = { ...base };
+  for (const field of ['eraLabel', 'name', 'monthNames'] as const) {
+    if (record[field] !== undefined && calendarProblems({ ...base, [field]: record[field] }).length === 0) {
+      kept[field] = record[field];
+    }
+  }
+  return normalizeCalendar(kept);
 }
 
 /** The world's year for a stored year: the epoch year is 1, the year before it 0. */

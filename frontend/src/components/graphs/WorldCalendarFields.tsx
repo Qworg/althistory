@@ -168,7 +168,7 @@ export function WorldCalendarFields({ state, idPrefix, sampleYear, disabled = fa
                 autoComplete="off"
                 value={draft.name}
                 onChange={(e) => setField('name', e.target.value)}
-                placeholder="the Reckoning of Vael"
+                placeholder="the Reckoning of the Rising"
                 aria-invalid={errors.name ? true : undefined}
                 aria-describedby={errors.name ? `${ids.name}-error` : undefined}
                 className={`${INPUT_CLASS} ${errors.name ? 'border-red-500 dark:border-red-400' : 'border-line'}`}

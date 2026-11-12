@@ -202,6 +202,9 @@ describe('historical dates in a world calendar that names its months', () => {
       expect(month, locale).toMatch(/(^|\s)Greening(\s|$)/u)
       expect(`${day} ${month}`, locale).not.toMatch(/[.-]Greening|Greening[.-]/u)
     }
+    // The dot after the day is its ordinal, as de writes "4. Greening".
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'cs-CZ', NAMED)).toBe('4. Greening 312 AR')
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'de-DE', NAMED)).toBe('4. Greening 312 AR')
   })
 
   it('follows the active calendar when none is passed', () => {

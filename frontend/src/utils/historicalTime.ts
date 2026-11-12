@@ -119,10 +119,14 @@ function withWorldMonth(parts: Intl.DateTimeFormatPart[], monthName: string | nu
   // A numeric month's marks belong to the number: the 月 of "3月", the dots
   // of bg's "4.03." and the dash of lt's "03-04". Around a name they read
   // "Thaw月", "4.Thaw." and "Thaw-04", so the marks become spaces, and one
-  // with nothing after it goes.
+  // with nothing after it goes. A dot after the day is the day's own (the
+  // ordinal of cs, fi, bg: "4. Thaw", as de writes "4. März") and stays.
   const isMark = (part: Intl.DateTimeFormatPart | undefined) =>
     part?.type === 'literal' && !/^\s*$/.test(part.value) && !/[,،]/.test(part.value)
-  if (isMark(renamed[at - 1])) renamed[at - 1] = { type: 'literal', value: ' ' }
+  if (isMark(renamed[at - 1])) {
+    const afterDay = renamed[at - 2]?.type === 'day' && renamed[at - 1]!.value.trim() === '.'
+    renamed[at - 1] = { type: 'literal', value: afterDay ? '. ' : ' ' }
+  }
   if (isMark(renamed[at + 1])) {
     if (at + 1 === renamed.length - 1) renamed.pop()
     else renamed[at + 1] = { type: 'literal', value: ' ' }

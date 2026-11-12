@@ -886,6 +886,9 @@ export function buildOpenApiDocument(routes: RouteEntry[]): Record<string, unkno
     if (spec.graphScoped) {
       parameters.push(GRAPH_HEADER_PARAMETER)
     }
+    if (spec.graphScoped && spec.headers?.some((header) => header.name.toLowerCase() === 'x-graph-id')) {
+      throw new Error(`${key} declares X-Graph-Id twice: as graphScoped and in its headers`)
+    }
     for (const header of spec.headers ?? []) {
       parameters.push({
         name: header.name,

@@ -880,6 +880,12 @@ describe('Graph Model', () => {
       expect(new Graph(stored).calendar).toBeUndefined();
     });
 
+    it("keeps a stored calendar's years when only a field written under older rules fails", () => {
+      const months = ['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun', 'Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Long, night'];
+      const stored = { name: 'Vael', calendar: { epochYear: 1000, eraLabel: 'AR', monthNames: months } };
+      expect(new Graph(stored).calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
+    });
+
     it('keeps the calendar on update unless cleared with null, and on a branch', () => {
       const graph = new Graph({ name: 'World', calendar: { epochYear: 1000 } });
       expect(graph.update({ name: 'Renamed' }).calendar).toEqual({ epochYear: 1000 });

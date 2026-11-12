@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { GraphCalendar, calendarProblems, normalizeCalendar } from '@/utils/worldCalendar';
+import { GraphCalendar, storedCalendar } from '@/utils/worldCalendar';
 import { IEngine } from './IEngine';
 import {
   HealthInfo,
@@ -233,9 +233,7 @@ export class RemoteEngine implements IEngine {
         typeof graph.branchPoint === 'number' ? `v${graph.branchPoint}` : undefined,
       createdAt: readString(graph.createdAt, new Date().toISOString()),
       updatedAt: readString(graph.updatedAt, new Date().toISOString()),
-      ...(graph.calendar !== undefined && calendarProblems(graph.calendar).length === 0
-        ? { calendar: normalizeCalendar(graph.calendar) }
-        : {}),
+      ...(storedCalendar(graph.calendar) ? { calendar: storedCalendar(graph.calendar) } : {}),
     };
   }
 

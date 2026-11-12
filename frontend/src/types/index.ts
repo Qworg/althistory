@@ -346,7 +346,7 @@ export interface GraphCalendar {
   epochYear: number
   /** Written after the year: "AR" shows 312 as "312 AR". Absent or empty shows "Year 312". */
   eraLabel?: string
-  /** What the calendar is called ("the Reckoning of Vael"). Display only. */
+  /** What the calendar is called ("the Reckoning of the Rising"). Display only. */
   name?: string
   /** The world's names for the twelve months, January's first. Absent shows the stored months' names. */
   monthNames?: string[]

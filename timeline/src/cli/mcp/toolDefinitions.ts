@@ -59,7 +59,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         calendarName: {
           type: 'string',
-          description: "What the world's calendar is called, e.g. \"the Reckoning of Vael\". Needs epochYear.",
+          description: "What the world's calendar is called, e.g. \"the Reckoning of the Rising\". Needs epochYear.",
         },
         monthNames: {
           type: 'array',
@@ -93,7 +93,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         calendarName: {
           type: 'string',
-          description: "What the world's calendar is called, e.g. \"the Reckoning of Vael\". Needs epochYear.",
+          description: "What the world's calendar is called, e.g. \"the Reckoning of the Rising\". Needs epochYear.",
         },
         monthNames: {
           type: 'array',
@@ -309,7 +309,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         calendarName: {
           type: 'string',
-          description: "What the world's calendar is called, e.g. \"the Reckoning of Vael\". With world.",
+          description: "What the world's calendar is called, e.g. \"the Reckoning of the Rising\". With world.",
         },
         monthNames: {
           type: 'array',

@@ -14,7 +14,7 @@
 import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
 import { ExportRelationship } from './GraphExporter';
-import { GraphCalendar, calendarProblems, normalizeCalendar } from '@/utils/worldCalendar';
+import { GraphCalendar, storedCalendar } from '@/utils/worldCalendar';
 
 export interface ParsedExportDocument {
   graphId: string;
@@ -148,8 +148,6 @@ export function parseExportDocument(document: unknown): ParsedExportDocument {
     events,
     arcs,
     relationships,
-    ...(metadata.calendar !== undefined && calendarProblems(metadata.calendar).length === 0
-      ? { calendar: normalizeCalendar(metadata.calendar) }
-      : {}),
+    ...(storedCalendar(metadata.calendar) ? { calendar: storedCalendar(metadata.calendar) } : {}),
   };
 }

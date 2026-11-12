@@ -2,7 +2,7 @@
  * Graph model for multi-graph management with Git-like versioning
  */
 
-import { GraphCalendar, calendarProblems, normalizeCalendar } from '../utils/worldCalendar';
+import { GraphCalendar, storedCalendar } from '../utils/worldCalendar';
 
 export type { GraphCalendar } from '../utils/worldCalendar';
 
@@ -100,10 +100,10 @@ export class Graph implements IGraph {
     };
     // Everything that writes a calendar checks it first (GraphService, the
     // importers, the generator). One that still does not check out was written
-    // by hand or under other limits; it is dropped rather than making the graph
-    // unreadable, since it only changes how years are shown.
-    this.calendar =
-      data.calendar && calendarProblems(data.calendar).length === 0 ? normalizeCalendar(data.calendar) : undefined;
+    // by hand or under other limits: the fields that no longer check out are
+    // dropped (see `storedCalendar`), rather than making the graph unreadable,
+    // since a calendar only changes how dates are shown.
+    this.calendar = storedCalendar(data.calendar);
   }
 
   /**

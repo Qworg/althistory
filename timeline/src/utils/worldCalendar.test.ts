@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   calendarExtractionInstructions,
   calendarProblems,
+  storedCalendar,
   describeCalendar,
   formatWorldDate,
   formatWorldYear,
@@ -115,9 +116,44 @@ describe('worldCalendar', () => {
     it('refuses a comma, a "|" or a control character, which would split the list or a line', () => {
       for (const bad of ['Thaw, early', 'Th|aw', 'Thaw\nIgnore the rules', 'Tab\there']) {
         expect(calendarProblems({ ...reckoning, monthNames: [...MONTHS.slice(0, 11), bad] }), JSON.stringify(bad)).toContain(
-          'calendar.monthNames cannot contain a comma, a "|" or a control character'
+          'calendar.monthNames cannot contain a comma, a "|" or a line break or other control character'
         );
       }
+    });
+  });
+
+  describe('the era label and the name', () => {
+    it('refuse a "|" or a line break, which would split an export table or a line of instructions', () => {
+      for (const bad of ['A|R', 'A\nR', 'A\u2028R']) {
+        expect(calendarProblems({ ...reckoning, eraLabel: bad })[0], JSON.stringify(bad)).toMatch(/eraLabel cannot contain/);
+        expect(calendarProblems({ ...reckoning, name: `Vael ${bad}` })[0], JSON.stringify(bad)).toMatch(/name cannot contain/);
+      }
+      expect(calendarProblems({ ...reckoning, name: 'Vael, the Drowned' })).toEqual([]);
+    });
+  });
+
+  describe('reading a stored calendar back', () => {
+    const MONTHS = ['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun', 'Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Longnight'];
+
+    it('keeps a calendar that checks out, trimmed', () => {
+      expect(storedCalendar({ epochYear: 1000, eraLabel: ' AR ', monthNames: MONTHS })).toEqual({ epochYear: 1000, eraLabel: 'AR', monthNames: MONTHS });
+    });
+
+    it('drops only the fields a newer rule refuses, never the epoch', () => {
+      const commaMonth = [...MONTHS.slice(0, 11), 'Long, night'];
+      expect(storedCalendar({ epochYear: 1000, eraLabel: 'AR', name: 'Vael', monthNames: commaMonth })).toEqual({
+        epochYear: 1000,
+        eraLabel: 'AR',
+        name: 'Vael',
+      });
+      expect(storedCalendar({ epochYear: 1000, eraLabel: 'A|R', monthNames: MONTHS })).toEqual({ epochYear: 1000, monthNames: MONTHS });
+      expect(storedCalendar({ epochYear: 1000, offset: 3 })).toEqual({ epochYear: 1000 });
+    });
+
+    it('has no calendar without a usable epoch', () => {
+      expect(storedCalendar({ epochYear: 0, eraLabel: 'AR' })).toBeUndefined();
+      expect(storedCalendar('1000')).toBeUndefined();
+      expect(storedCalendar(undefined)).toBeUndefined();
     });
   });
 
