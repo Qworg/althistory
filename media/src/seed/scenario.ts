@@ -336,6 +336,8 @@ export interface CalendarSeed {
   epochYear: number
   eraLabel?: string
   name?: string
+  /** The twelve months' names, January's first. */
+  monthNames?: string[]
 }
 
 export interface WorldScenario {
@@ -352,13 +354,22 @@ export interface WorldScenario {
  * two the same.
  *
  * Its calendar counts from the Rising: stored 1000 is 1 AR, so the Siege of
- * Hollow Isle (stored 1162) shows as 163 AR.
+ * Hollow Isle (stored 1162) shows as 163 AR. It names its months too: March is
+ * Thaw, so a stored March 4 reads "Thaw 4".
  */
 export const world: WorldScenario = {
   graph: {
     name: 'Vael',
     description: 'A drowned archipelago where salt is money and the tide-priests keep the count of years.',
-    calendar: { epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning of the Rising' },
+    calendar: {
+      epochYear: 1000,
+      eraLabel: 'AR',
+      name: 'the Reckoning of the Rising',
+      monthNames: [
+        'Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun',
+        'Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Longnight',
+      ],
+    },
   },
 
   arcs: [

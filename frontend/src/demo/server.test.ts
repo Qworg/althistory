@@ -136,7 +136,12 @@ describe('demo server', () => {
     const active = await reloaded.respond(request('get', '/graphs/active'))
     expect(active.data.data).toMatchObject({ id: branch.id, calendar: { epochYear: 1000, eraLabel: 'AR' } })
     const byId = await reloaded.respond(request('get', `/graphs/${branch.id}`))
-    expect(byId.data.data.calendar).toEqual({ epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning of the Rising' })
+    expect(byId.data.data.calendar).toEqual({
+      epochYear: 1000,
+      eraLabel: 'AR',
+      name: 'the Reckoning of the Rising',
+      monthNames: ['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun', 'Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Longnight'],
+    })
     // The main history still has no calendar.
     const main = await reloaded.respond(request('get', '/graphs/graph_engine_age'))
     expect(main.data.data.calendar).toBeUndefined()
