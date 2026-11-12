@@ -38,13 +38,15 @@ pattern output as the model's.
 
 ### Prose about an invented world
 
-Ingesting text into a graph with a world calendar (see
-[the MCP guide](mcp-agent-guide.md#inventing-a-world)) tells the model how the
-world's years are stored, so "the Tide War began in 141 AR" lands on the
-stored year 1140, and, when the calendar names its months, which month is
-which (in Vael, "Thaw of 141 AR" is March 1140). The patterns cannot read invented
-dates: with `pattern`, or the pattern half of `hybrid`, give the dates in
-ISO 8601, or use `llm`.
+Ingesting text into a graph with world calendars (see
+[the MCP guide](mcp-agent-guide.md#inventing-a-world) and
+[the spec](specs/world-calendars.md)) tells the model how each of them names
+a date, and has it write every date that way: "the Tide War began on
+Midyear's Day, 141 AR" is read by the graph's own calendar, a month or a year
+alone ("in Thaw of 141 AR") with that precision. The review step shows and
+takes dates in the world's notation too. The patterns read only Gregorian
+dates, which an invented world does not use: with `pattern`, or the pattern
+half of `hybrid`, give the dates in ISO 8601, or use `llm`.
 
 Both ingestion paths do this. The CLI's in-process ingestion (the CLI and the
 MCP server when no app is running) reads the target graph's calendar, and

@@ -2,6 +2,7 @@ import { Event, Arc } from '@/models';
 import { CausalRelationship, CausalRelationshipType } from '@/models/relationships';
 import { ValidationIssueDto, ValidationReportDto } from '../types';
 import { isTemporalInversion } from '@/utils/causalOrder';
+import { type WorldCalendarSet, formatInWorld } from '@althistory/calendar';
 
 export interface ScopedGraphServices {
   eventRepository: {
@@ -113,9 +114,14 @@ export interface ValidationOptions {
   autoRepair?: boolean;
   /** Finds the graph that owns an entity referenced by a broken reference. */
   crossGraphLookup?: CrossGraphLookup;
+  /** The graph's world calendars: a message then names each date as the world does, its instant beside it. */
+  calendar?: WorldCalendarSet;
 }
 
 export class GraphValidator {
+  /** A date as a message names it (the details keep the instant alone). */
+  private when: (date: Date) => string = (date) => date.toISOString();
+
   /**
    * Validates graph data and optionally performs self-healing repairs.
    */
@@ -124,6 +130,10 @@ export class GraphValidator {
     scoped: ScopedGraphServices,
     options?: ValidationOptions
   ): Promise<ValidationReportDto> {
+    const calendar = options?.calendar;
+    this.when = calendar
+      ? (date) => `${formatInWorld(calendar, date.getTime())}, ${date.toISOString()}`
+      : (date) => date.toISOString();
     const strict = options?.strict ?? false;
     const autoRepair = options?.autoRepair ?? false;
 
@@ -181,7 +191,7 @@ export class GraphValidator {
         issues.push({
           type: 'temporal',
           severity: 'error',
-          message: `Arc "${arc.name}" (${arc.id}) start_time (${arc.start_time.toISOString()}) is after end_time (${arc.end_time.toISOString()})`,
+          message: `Arc "${arc.name}" (${arc.id}) start_time (${this.when(arc.start_time)}) is after end_time (${this.when(arc.end_time)})`,
           entityId: arc.id,
           entityType: 'arc',
           details: {
@@ -248,7 +258,7 @@ export class GraphValidator {
             issues.push({
               type: 'containment',
               severity: 'error',
-              message: `Event "${event.description}" (${event.id}, ${event.timestamp.toISOString()}) falls outside arc "${arc.name}" bounds (${arc.start_time.toISOString()} - ${arc.end_time.toISOString()})`,
+              message: `Event "${event.description}" (${event.id}, ${this.when(event.timestamp)}) falls outside arc "${arc.name}" bounds (${this.when(arc.start_time)} - ${this.when(arc.end_time)})`,
               entityId: event.id,
               entityType: 'event',
               details: {
@@ -314,7 +324,7 @@ export class GraphValidator {
           issues.push({
             type: 'causal_direction',
             severity: 'error',
-            message: `Temporal paradox: cause "${cause.description}" (${cause.timestamp.toISOString()}) occurs after effect "${effect.description}" (${effect.timestamp.toISOString()})`,
+            message: `Temporal paradox: cause "${cause.description}" (${this.when(cause.timestamp)}) occurs after effect "${effect.description}" (${this.when(effect.timestamp)})`,
             entityId: rel.id,
             entityType: 'relationship',
             details: {
@@ -468,7 +478,7 @@ export class GraphValidator {
               metadata: arc.metadata,
             }));
             repairsApplied.push(
-              `Expanded arc "${arc.name}" (${arc.id}) boundaries to [${newStart.toISOString()} - ${newEnd.toISOString()}] to enclose event ${event.id}`
+              `Expanded arc "${arc.name}" (${arc.id}) boundaries to [${this.when(newStart)} - ${this.when(newEnd)}] to enclose event ${event.id}`
             );
           }
         }

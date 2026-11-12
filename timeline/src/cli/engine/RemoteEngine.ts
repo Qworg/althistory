@@ -1272,6 +1272,7 @@ export class RemoteEngine implements IEngine {
         strict,
         autoRepair,
         crossGraphLookup: this.createCrossGraphLookup(graphId),
+        calendar: (await this.getGraph(graphId).catch(() => undefined))?.calendar,
       });
     } catch (err) {
       return this.handleError(err, 'validating graph');

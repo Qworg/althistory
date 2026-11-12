@@ -37,9 +37,10 @@ export function readAgentTimestamp(text: string, calendar?: WorldCalendarSet, ed
       `Invalid timestamp: ${text}. Give ${example}an ISO 8601 date, such as 1843-11-20, 1843-11-20T14:30 (UTC) or 1871-03`
     );
   }
-  if (edge === 'end' && calendar && !isIsoText(text) && read.precision !== 'day') {
+  // An end in the world's notation without a time is the last moment of the day, month or year it names.
+  if (edge === 'end' && calendar && !isIsoText(text)) {
     const world = parseWorldText(calendar, String(text));
-    if (world.ok) {
+    if (world.ok && !world.timed) {
       const period = worldPeriod(calendarIn(calendar, world.calendar), world.fields, world.precision);
       if (period) return { iso: new Date(period.end).toISOString(), precision: read.precision };
     }

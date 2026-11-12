@@ -619,6 +619,23 @@ describe('invented worlds', () => {
       expect(broken.code).toBe(ExitCode.VALIDATION_FAILED);
     });
 
+    it("names its dates as the world does when it refuses a later cause, and when it validates", async () => {
+      const graph = await callTool(server, 'althistory_create_graph', { name: 'Vael ordered', calendar: VAEL });
+      created.push(graph.id);
+      const later = await engine.createEvent(graph.id, { description: 'The glassmakers join', timestamp: 'Seedtide 12, 152 AR' });
+      const earlier = await engine.createEvent(graph.id, { description: 'The harbours close', timestamp: "Midyear's Day, 141 AR" });
+      await expect(engine.createCausalLink(graph.id, { causeId: later.id, effectId: earlier.id })).rejects.toThrow(
+        /cause timestamp \(Seedtide 12, 152 AR, \d{4}-\d\d-\d\dT[^)]*\) must not be after effect timestamp \(Midyear's Day, 141 AR, /
+      );
+
+      // An event outside its age is reported in the world's dates too.
+      const arc = await engine.createArc(graph.id, { name: 'The Age of Salt', startTime: '1 AR', endTime: '100 AR' });
+      await engine.assignEventToArc(graph.id, later.id, arc.id).catch(() => undefined);
+      const report = await engine.validateGraph(graph.id);
+      const outside = report.issues.find((issue) => /falls outside arc/.test(issue.message));
+      expect(outside?.message).toMatch(/\(.*, Seedtide 12, 152 AR, [^)]*\) falls outside arc "The Age of Salt" bounds \(Lowtide 1, 1 AR, /);
+    });
+
     it('is chronicled from a start written in its own calendar', async () => {
       const result = await engine.generateTimeline({ world: 'Vael', calendar: VAEL as never, startDate: 'Lowtide 1, 300 AR', eventCount: 3, dryRun: true });
       expect(formatInWorld(result.calendar!, Date.parse(result.events[0]!.timestamp), 'year')).toBe('300 AR');

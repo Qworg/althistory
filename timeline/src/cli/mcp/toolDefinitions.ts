@@ -22,8 +22,9 @@ export interface McpToolDefinition {
 
 /** The timestamp note every authoring tool carries, so an agent working on an invented world dates correctly. */
 const STORED_DATE_NOTE =
-  "An ISO 8601 stored date. For a graph with a world calendar, the world's year N is stored as year N + epochYear - 1 " +
-  '(althistory_export_context states the offset).';
+  'ISO 8601 (1871-03-18, or 1871-03 for a month, 1871 for a year). In a graph with world calendars, also a date as the ' +
+  'world writes it: "Thaw 4, 312 AR", "Thaw 312 AR" (a month), "312 AR" (a year), a time after a comma ' +
+  '(althistory_export_context shows how its calendars write dates). A month or a year records that the day is not known.';
 
 export const MCP_TOOLS: McpToolDefinition[] = [
   {

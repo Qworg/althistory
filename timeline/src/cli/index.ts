@@ -285,7 +285,7 @@ export function createProgram(): Command {
     .command('add [description]')
     .description('Add a new historical event to a graph')
     .requiredOption('-g, --graph-id <id>', 'Target graph ID')
-    .requiredOption('-t, --timestamp <iso>', 'Event occurrence timestamp (ISO-8601)')
+    .requiredOption('-t, --timestamp <date>', 'When it happened: ISO-8601, or in a graph with world calendars a date as the world writes it ("Thaw 4, 312 AR")')
     .requiredOption('-a, --actor <actor>', 'Primary actor or entity')
     .requiredOption('--target <target>', 'Target actor or entity')
     .option('-d, --desc <description>', 'Event description')
@@ -371,7 +371,7 @@ export function createProgram(): Command {
     .description('Update an existing event')
     .requiredOption('-g, --graph-id <id>', 'Target graph ID')
     .option('-d, --description <desc>', 'New description')
-    .option('-t, --timestamp <iso>', 'New timestamp (ISO-8601)')
+    .option('-t, --timestamp <date>', 'When it happened: ISO-8601, or in a graph with world calendars a date as the world writes it ("Thaw 4, 312 AR")')
     .option('-a, --actor <actor>', 'New actor')
     .option('--target <target>', 'New target')
     .action(async (id: string, cmdOpts?: Record<string, unknown>) => {
@@ -424,8 +424,8 @@ export function createProgram(): Command {
     .command('create <name>')
     .description('Create a new narrative arc in a graph')
     .requiredOption('-g, --graph-id <id>', 'Target graph ID')
-    .requiredOption('-s, --start <iso>', 'Arc start timestamp (ISO-8601)')
-    .requiredOption('-e, --end <iso>', 'Arc end timestamp (ISO-8601)')
+    .requiredOption('-s, --start <date>', 'When the arc begins: ISO-8601, or in a graph with world calendars a date as the world writes it ("Thaw 4, 312 AR")')
+    .requiredOption('-e, --end <date>', 'When the arc ends: ISO-8601, or in a graph with world calendars a date as the world writes it ("Thaw 4, 312 AR"); a day, month or year without a time ends at its last moment')
     .option('-d, --description <desc>', 'Arc narrative description')
     .option('-p, --parent <parentArcId>', 'Parent arc ID for hierarchical nesting')
     .action(async (name: string, cmdOpts?: Record<string, unknown>) => {

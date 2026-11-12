@@ -109,7 +109,7 @@
           </article>
           <article class="recipe">
             <h3>Invent a world</h3>
-            <p>No real history underneath: the agent writes the world’s ages, events and causes, and althistory keeps them consistent. The graph has the world’s own calendar, so the app and the exports show “312 AR”, not 1311.</p>
+            <p>No real history underneath: the agent writes the world’s ages, events and causes, and althistory keeps them consistent. The graph keeps the world’s own calendars, of any shape, so the app, the tools and the exports write “Thaw 4, 312 AR” in a year of thirteen months and a day of thirty hours.</p>
             <p class="recipe-ask">“Help me build the history of Vael, a drowned archipelago where salt is money.”</p>
             <dl class="recipe-meta">
               <dt>Prompt</dt><dd><code>worldbuild</code></dd>
@@ -134,11 +134,11 @@
       <div class="wrap doc-grid">
         <div>
           <h2 id="world-h">Inventing a world, start to finish</h2>
-          <p>An abridged session with the <code>worldbuild</code> prompt. The agent sets up the calendar first, lays out three ages, writes the events and links their causes.</p>
+          <p>An abridged session with the <code>worldbuild</code> prompt. The agent settles the calendars first, lays out three ages, writes the events and links their causes.</p>
           <p>Then one link is refused: the agent claimed the glassmakers started the Tide War, but they only joined it eleven years in. Instead of forcing the link, the agent writes the grievance that actually turned them.</p>
-          <p class="note">Dates stay ISO 8601 underneath. The calendar names the stored year that is the world’s year 1, and can name the months. With an epoch of 1000, 141&nbsp;AR is stored as 1140, the third month (Thaw) is March, and the tools’ Markdown shows the world’s date and the stored date side by side.</p>
+          <p class="note">Every date is one moment on the graph’s timeline, and the world’s calendars name it. Vael’s Reckoning has thirteen months of thirty days, Midyear’s Day and the four Drowned Days, in a day of thirty Earth hours divided into twenty of its own; the coast keeps the Tide-count beside it. The tools take dates as the world writes them (“Midyear’s Day, 141&nbsp;AR”, or “Thaw 312&nbsp;AR” for a month), and the Markdown export shows each one beside its place on the timeline.</p>
           <h3 class="doc-h3">See your world</h3>
-          <p>The agent’s graphs are files in <code>timeline/data</code> in your clone, the same store the app reads. Start the app with <code>./start-local.sh</code>, open <span class="mono">localhost:5173</span>, and pick the graph: its timeline, causal graph and dates read in the world’s years.</p>
+          <p>The agent’s graphs are files in <code>timeline/data</code> in your clone, the same store the app reads. Start the app with <code>./start-local.sh</code>, open <span class="mono">localhost:5173</span>, and pick the graph: its timeline, causal graph and dates read in the world’s calendars, and the header switches between them.</p>
           <p><a class="teaser-link" href="demo/?start=world">Open Vael in the demo</a></p>
         </div>
         <figure class="code transcript">
@@ -149,12 +149,16 @@
        count of years.
 
 <span class="t-who">Claude</span> <span class="c">calls</span> althistory_create_graph
-       { <span class="k">"name"</span>: <span class="s">"Vael"</span>,
-         <span class="k">"epochYear"</span>: 1000, <span class="k">"eraLabel"</span>: <span class="s">"AR"</span>,
-         <span class="k">"calendarName"</span>:
+       { <span class="k">"name"</span>: <span class="s">"Vael"</span>, <span class="k">"calendar"</span>: {
+         <span class="k">"version"</span>: 2, <span class="k">"dayLength"</span>: 108000,
+         <span class="k">"calendars"</span>: [{ <span class="k">"name"</span>:
            <span class="s">"the Reckoning of the Rising"</span>,
-         <span class="k">"monthNames"</span>: [<span class="s">"Lowtide"</span>, <span class="s">"Greywater"</span>,
-           <span class="s">"Thaw"</span>, … <span class="s">"Longnight"</span>] }
+           <span class="k">"parts"</span>: [<span class="s">"Lowtide"</span> …
+             <span class="s">"Midyear's Day"</span> …
+             <span class="s">"The Drowned Days"</span>],
+           <span class="k">"eras"</span>: [{ <span class="k">"label"</span>: <span class="s">"AR"</span>,
+             <span class="k">"from"</span>: 1 }], … },
+           { <span class="k">"name"</span>: <span class="s">"the Tide-count"</span>, … }] } }
        <span class="c">calls</span> althistory_create_arc <span class="c">×3</span>
        The Age of Salt · The Tide War ·
        The Glass Republic
@@ -166,9 +170,9 @@
        <span class="c">#   → the Tide War begins</span>
        <span class="c">returns</span> <span class="s">Temporal ordering violation:</span>
          <span class="s">cause timestamp</span>
-         <span class="s">(1151-04-12T00:00:00.000Z) must not</span>
+         <span class="s">(Seedtide 12, 152 AR, …) must not</span>
          <span class="s">be after effect timestamp</span>
-         <span class="s">(1140-06-01T00:00:00.000Z)</span>
+         <span class="s">(Midyear's Day, 141 AR, …)</span>
 
 <span class="t-who">Claude</span> The glassmakers joined in 152 AR,
        eleven years into the war, so they
@@ -230,15 +234,15 @@
 <span class="p">$ </span>althistory --plain export &lt;graph&gt; --format markdown</code></pre>
           </figure>
           <figure class="code">
-            <figcaption><span>Invented worlds</span><button class="copy" type="button" aria-live="polite" data-copy="althistory generate timeline --world &quot;A drowned archipelago ruled by salt-kings&quot; --era-label AR&#10;althistory graph calendar &lt;graph&gt; --epoch-year 1000 --era-label AR&#10;althistory prompt worldbuild world=&quot;A drowned archipelago&quot; --plain">Copy</button></figcaption>
+            <figcaption><span>Invented worlds</span><button class="copy" type="button" aria-live="polite" data-copy="althistory generate timeline --world &quot;A drowned archipelago ruled by salt-kings&quot; --era-label AR&#10;althistory graph calendar &lt;graph&gt; --calendar-file vael-calendars.json&#10;althistory prompt worldbuild world=&quot;A drowned archipelago&quot; --plain">Copy</button></figcaption>
 <pre aria-label="Example CLI commands for an invented world"><code><span class="c"># Draft a world from a description</span>
 <span class="p">$ </span>althistory generate timeline \
     --world <span class="s">"A drowned archipelago ruled by salt-kings"</span> \
     --era-label AR
 
-<span class="c"># Give a graph you already have its own calendar</span>
+<span class="c"># Give a graph you already have its own calendars</span>
 <span class="p">$ </span>althistory graph calendar &lt;graph&gt; \
-    --epoch-year 1000 --era-label AR
+    --calendar-file vael-calendars.json
 
 <span class="c"># Print the worldbuilding brief for any agent</span>
 <span class="p">$ </span>althistory prompt worldbuild \

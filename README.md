@@ -118,11 +118,19 @@ premise in your next message):
 | `alternate_history` | Real history turned at one moment, grounded in what really happened before it. |
 | `grow_history` | Extending a graph you already have, and branching where it forks. |
 
-An invented world gets its own **calendar**: the graph records which stored
-year is the world's year 1 (`epochYear`), a label (`eraLabel`) and, if you
-like, the months' own names (`monthNames`), and the app and the exports show
-"Mar 4, 312 AR" (or "Thaw 4, 312 AR") instead of 1311. Dates stay ISO 8601
-underneath, so sorting and validation are unchanged.
+An invented world keeps its own **calendars**, of any shape: a day of any
+length divided its own way, months and festival days of any length, leap
+years, eras, a week, and how its dates are written. Vael's Reckoning has
+thirteen months of thirty days, Midyear's Day, and four Drowned Days at the
+year's end (five every sixth year), in a day of thirty Earth hours; its coast
+keeps the Tide-count beside it. The app, the API, the CLI, the MCP tools and
+the exports all read and write the world's dates ("Thaw 4, 312 AR", "Thaw
+312 AR" for a month), and the app can show them in any of its calendars.
+Every date is still one moment on the graph's timeline, so sorting, causal
+order and validation are unchanged. The calendars are defined in
+[docs/specs/world-calendars.md](docs/specs/world-calendars.md); a world that
+keeps Earth's calendar and only counts its own years can give just the year
+that is its year 1 (`epochYear`) and a label (`eraLabel`).
 
 `generate timeline` (and the `generate_timeline` tool) drafts a graph
 whole-cloth from a premise or a world description. It uses a model only when
@@ -137,8 +145,9 @@ add `--direct` while the app runs; two processes would write the same files.
 ./bin/althistory schema                 # the JSON Schema of every command
 ./bin/althistory schema --mcp           # the MCP tools
 
-# An invented world
-./bin/althistory graph create "Vael" --epoch-year 1000 --era-label AR
+# An invented world, with its calendars from a file (see docs/specs/world-calendars.md)
+./bin/althistory graph create "Vael" --calendar-file vael-calendars.json
+./bin/althistory event add "The harbours close" -g <graphId> -a Priests --target Kings -t "Midyear's Day, 141 AR"
 ./bin/althistory generate timeline --world "A drowned archipelago ruled by salt-kings" --era-label AR   # app stopped
 ./bin/althistory prompt worldbuild world="A drowned archipelago" --plain   # the brief, for any agent
 

@@ -44,7 +44,7 @@ import {
 import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { calendarSetInstructions, type WorldCalendarSet, toInstant } from '@althistory/calendar';
+import { calendarSetInstructions, type WorldCalendarSet, toInstant, formatInWorld } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
 import { isIsoText, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import type { IGraph } from '@/models/Graph';
@@ -512,8 +512,11 @@ export class DirectEngine implements IEngine {
     if (!effect) throw new NotFoundErrorCLI(`Effect event not found: ${data.effectId}`);
 
     if (isTemporalInversion(cause.timestamp, effect.timestamp)) {
+      // In a world, each date as the world names it, its instant beside it.
+      const calendar = await this.calendarOf(graphId);
+      const when = (date: Date) => (calendar ? `${formatInWorld(calendar, date.getTime())}, ${date.toISOString()}` : date.toISOString());
       throw new ValidationErrorCLI(
-        `Temporal ordering violation: cause timestamp (${cause.timestamp.toISOString()}) must not be after effect timestamp (${effect.timestamp.toISOString()})`
+        `Temporal ordering violation: cause timestamp (${when(cause.timestamp)}) must not be after effect timestamp (${when(effect.timestamp)})`
       );
     }
 
@@ -1033,6 +1036,7 @@ export class DirectEngine implements IEngine {
       strict,
       autoRepair,
       crossGraphLookup: this.createCrossGraphLookup(graphId),
+      calendar: await this.calendarOf(graphId),
     });
   }
 

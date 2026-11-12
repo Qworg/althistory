@@ -89,24 +89,32 @@ an arc, a child of the arc it expands when there is one.
 
 ## Invented worlds
 
-A graph can have a world calendar, so an invented world's years are shown in
-its own count. Dates are still stored as ISO-8601 instants; the calendar only
-relabels them when they are shown. `--epoch-year` is the stored year that is
-the world's year 1, `--era-label` is written after a year ("312 AR"; without
-one, "Year 312"), `--calendar-name` names the calendar, and `--month-names`
-gives the twelve months the world's names, January's first, separated by
-commas (with Vael's "Lowtide,Greywater,Thaw,…", March 4 reads "Thaw 4"). The
-months keep their stored lengths. `--month-names` also takes one name per
-line, or a JSON list (`'["Lowtide", …]'`). A month name cannot contain a
-comma, a `|`, brackets, a double quote, or a control character such as a tab
-or line break; an era label or calendar name cannot contain a `|` or a control
-character. `graph create`, `graph calendar` and
-`generate timeline --world` take the four flags. `graph create` and
-`graph calendar` refuse a label, a name or month names without
-`--epoch-year`; `generate timeline --world` fills the epoch in. `graph
-calendar` replaces the whole calendar, so give every flag you want to keep:
-adding month names to Vael means giving `--epoch-year 1000 --era-label AR
---calendar-name "the Reckoning of the Rising"` with them.
+A graph can keep an invented world's own calendars, of any shape: a day of
+any length divided its own way, months and festival days, leap years, eras, a
+week, and how dates are written; several at once, one of them shown first.
+`--calendar-file <path>` gives them as JSON, in the shape
+[docs/specs/world-calendars.md](../../../docs/specs/world-calendars.md)
+defines (`{ "version": 2, "dayLength": 108000, "calendars": [ … ],
+"primary": "reckoning" }`). The command refuses a set it could not read
+dates back in, and says which field is wrong.
+
+In such a graph every command that takes a date takes it as the world writes
+it: a day ("Thaw 4, 312 AR", with a time after a comma if it matters), a month
+("Thaw 312 AR") or a year ("312 AR"), in any of its calendars. A month or a
+year is recorded with that precision, and an arc's end without a time is the
+last moment of the day, month or year it names. ISO-8601 text is still read,
+as a moment on the graph's timeline.
+
+For a world that keeps Earth's calendar and only counts its own years, the
+simple flags are enough: `--epoch-year` is the stored year that is the world's
+year 1, `--era-label` is written after a year ("312 AR"; without one, "Year
+312"), `--calendar-name` names the calendar, and `--month-names` gives the
+twelve months the world's names, January's first, separated by commas, one per
+line, or as a JSON list. A month name cannot contain a comma, a `|`, brackets,
+a double quote, or a control character; an era label cannot contain a digit.
+`graph create`, `graph calendar` and `generate timeline --world` take these
+flags, and the first two take `--calendar-file` instead. `graph calendar`
+replaces the whole calendar, so give everything you want to keep.
 
 `generate timeline --world <text>` chronicles an invented world from its
 founding instead of turning real history at a point of divergence: give
@@ -118,11 +126,12 @@ without one it is a template of ages to rewrite. `generate branch` of a world
 stays in that world and its calendar, and the arcs a world's timeline is
 grouped into are named in its years.
 
-`--plain export --format markdown` (without `--plain` the Markdown comes inside the JSON envelope) dates a world in its calendar with the stored date
-beside it ("Mar 4, 312 AR (1311-03-04)") and states the offset, so an agent
-reading it knows which dates to write. `ingest text` into a graph with a
-calendar tells the model how the text's years and months are stored; the
-pattern reader cannot read invented dates. See [the MCP guide](../../../docs/mcp-agent-guide.md#inventing-a-world).
+`--plain export --format markdown` (without `--plain` the Markdown comes inside the JSON envelope) describes the world's calendars and dates each
+event in the one shown, with its place on the timeline beside it ("Thaw 4,
+312 AR (2358-11-19T06:00:00.000Z)"), so an agent reading it knows how to write
+the world's dates. `ingest text` into a graph with calendars tells the model
+how they name a date and has it write dates that way; the pattern reader
+reads only Gregorian dates. See [the MCP guide](../../../docs/mcp-agent-guide.md#inventing-a-world).
 
 ## What the daemon cannot do
 

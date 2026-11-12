@@ -177,7 +177,7 @@ test('a link opens on the invented world, in its own years', async ({ page }) =>
   await expect(page.getByRole('button', { name: /^Vael/ }).first()).toBeVisible()
   expect(new URL(page.url()).searchParams.has('start')).toBe(false)
 
-  // Stored 1000-03-04 is the world's year 1, in its month Thaw; stored 1162 is 163 AR.
+  // The Reckoning's own dates: thirteen months and its festivals, on its own 30-hour days.
   const marks = page.locator('g[data-timeline-mark="event"]')
   await expect(marks).toHaveCount(9)
   await expect(page.locator('g[data-timeline-mark="event"][aria-label*="the first salt-king"]')).toHaveAttribute('aria-label', /at Thaw 4, 1 AR\b/)
@@ -194,6 +194,23 @@ test('a link opens on the invented world, in its own years', async ({ page }) =>
   // The causal graph opens on the world too (its labels are drawn on a canvas).
   await page.goto('./#/causal-graph')
   await expect(page.getByText('9 events · 9 links')).toBeVisible()
+})
+
+test("the world's dates read in either of its calendars", async ({ page }) => {
+  await page.goto('./?start=world')
+  await expect(page.getByText(WORLD_COUNTS)).toBeVisible()
+  const siege = page.locator('g[data-timeline-mark="event"][aria-label*="Siege of Hollow Isle"]')
+  await expect(siege).toHaveAttribute('aria-label', /at Gale 1, 163 AR\b/)
+
+  // The coast's Tide-count: every date, and the axis, in its half-years and years.
+  const calendar = page.getByLabel('Calendar', { exact: true })
+  await calendar.selectOption({ label: 'the Tide-count' })
+  await expect(siege).toHaveAttribute('aria-label', /at (Ebbing|Flooding) \d+, \d+ TC\b/)
+  await expect.poll(async () => (await axisLabels(page)).filter((l) => /^\d+ TC$/.test(l)).length).toBeGreaterThan(2)
+  expect((await axisLabels(page)).filter((l) => / AR$/.test(l))).toEqual([])
+
+  await calendar.selectOption({ label: 'the Reckoning of the Rising' })
+  await expect(siege).toHaveAttribute('aria-label', /at Gale 1, 163 AR\b/)
 })
 
 test('the graph picker shows the world in its own years', async ({ page }) => {

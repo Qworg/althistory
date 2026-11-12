@@ -14,18 +14,40 @@ It has no runtime dependencies and reads no ambient state:
 
 ## What is in it
 
+### World calendars (`src/world/`)
+
+An invented world keeps its own calendars, of any shape, on the graph's one
+timeline (positions in milliseconds, the timestamps every route already
+stores). [docs/specs/world-calendars.md](../docs/specs/world-calendars.md)
+states the requirements; the `Req N` numbers in the code point there.
+
 | Module | What it does |
 | --- | --- |
-| `calendar.ts` | The `GraphCalendar` type and its limits. The rules are written once, as `calendarIssues`; `calendarProblems` turns them into the API's messages. Text must have something visible in it, any text-direction control it opens must be closed as Unicode's bidi algorithm closes it (so right-to-left text can be isolated in a label, but nothing leaks into the date around it), and two month names that differ only by case, composition or characters drawn as nothing are the same name (a subdivision flag's tags excepted). Also `normalizeCalendar`, `storedCalendar` (reading a calendar back without losing its epoch), `usableCalendar` and `sameCalendar`. |
-| `years.ts` | Stored years ↔ world years, `formatWorldYear` ("312 AR", "1 before AR"), and month names. |
-| `parse.ts` | One reader each for what people type: `parseEpochYear` and `parseMonthNames` (a JSON list, one per line, or comma-separated). The CLI, MCP and the app's form all use them. |
-| `draft.ts` | The app's calendar form. A draft is checked by the same `calendarIssues`, so the form accepts exactly what the API accepts. |
-| `describe.ts` | Plain English for the exports, the CLI and model prompts: `formatWorldDate`, `describeCalendar`, `calendarExtractionInstructions`. |
-| `instant.ts` | `parseIsoInstant` / `toInstant`: every timestamp given as text is read here (by the app, the API's ingestion, the CLI and the MCP tools), as ISO 8601 in UTC, with its fields checked by arithmetic. It takes the forms people and models write: a year or a month alone, a space for the `T`, lower case, `+0545`. `toInstant` is the one reader the whole app uses: ISO 8601 and the near spellings other programs write (`2023-1-5`, `12:00:00 UTC`, Go's `+0000 UTC`) exactly, UTC when no zone is given; text that starts like an ISO date and is not one (`2019-2-31`, `T24:00`) as no date, never the day V8 rolls it into; and text of another shape (`January 1, 2023`, which only data stored before or an API client holds) as JavaScript always read it. Where text first enters from a person or a model (ingestion and its review, the CLI and MCP event and arc tools, `generate timeline`'s dates), `readTimestamp` takes ISO 8601 only and stores `toISOString`'s spelling plus the precision the text stated. An import stores ISO 8601 in that spelling too, and keeps any other text a document holds as it was. |
-| `locale.ts` | Locale-aware formatting for the app (`formatHistoricalDate` and family), with the world's year and month names spliced into each locale's own layout. The locale names the months and writes the digits, but the calendar is always the Gregorian one the dates are stored on, and a year before 1 CE shows its era. |
-| `bounds.ts` | Typed filter bounds (`1843`, `1843-11`, `44-03-15 BCE`) and date-field values, read as UTC. A date that does not exist (`2019-02-31`, `T24:00`) is refused. |
-| `axis.ts` | Moves a time axis's year ticks onto the world's round years, using a smaller step when the given one leaves fewer than two in view (but never more ticks than d3 chose room for, and one). |
+| `definition.ts` | The `WorldCalendarSet` shape: a day of any length, and calendars of months and festival days, leap rules, eras, a week, a division of the day and a notation. `calendarSetIssues` is the one set of rules (a set the API stores is one whose every date reads back as itself), and `normalizeCalendarSet` stores it. |
+| `engine.ts` | Positions to dates and back (`dateAt`, `positionOf`), a whole leap cycle at a time rather than year by year, so a date millions of years from the epoch costs no more than one near it. |
+| `notation.ts` | Writing a date in a calendar's notation and reading it back (`formatWorldPosition`, `parseWorldText`, `readWorldInput` for structured fields), and the period a month or a year names (`worldPeriod`). Text two of a world's calendars read as different dates is refused. |
+| `axis.ts` | Timeline ticks on a calendar's round years, months, days and hours (`worldTicks`), and filter bounds in its notation (`worldBound`, `formatWorldBound`). |
+| `describe.ts` | `formatInWorld`, `readWorldTimestamp` (the world's notation, then ISO 8601, where a date first enters), and the calendars in words for exports and what a model is told. |
+| `legacy.ts` | A calendar of the earlier form (a relabelled Gregorian year count) read as a set, `storedCalendarSet` (reading a stored calendar without losing what still checks out), and `sameCalendarSet`. |
+| `draft.ts` | The app's calendar editor: a whole set as a form holds it, its problems filed under its fields by the same `calendarSetIssues`, so the editor accepts exactly what the API accepts. |
+
+### Historical dates
+
+| Module | What it does |
+| --- | --- |
+| `instant.ts` | `parseIsoInstant` / `toInstant`: every timestamp given as text is read here (by the app, the API's ingestion, the CLI and the MCP tools), as ISO 8601 in UTC, with its fields checked by arithmetic. It takes the forms people and models write: a year or a month alone, a space for the `T`, lower case, `+0545`. `toInstant` is the one reader the whole app uses: ISO 8601 and the near spellings other programs write exactly, UTC when no zone is given; text that starts like an ISO date and is not one (`2019-2-31`, `T24:00`) as no date, never the day V8 rolls it into; and text of another shape as JavaScript always read it. Where text first enters from a person or a model, `readTimestamp` (or, in a world, `readWorldTimestamp`) stores `toISOString`'s spelling plus the precision the text stated. |
+| `entry.ts` | A date typed into a form (`readDateEntry` / `formatDateEntry`): year first without a world (`1843`, `1843-11`, `1843-11-20 14:30`, `44 BCE`), in its notation within one, a month or a year naming its period. |
+| `bounds.ts` | Filter bounds (`readDateBound` / `formatDateBound`; `1843-11` or, in a world, `Thaw 312 AR`) and native date-field values (`readDateField`), read as UTC. A date that does not exist is refused. |
+| `locale.ts` | Formatting for the app (`formatHistoricalDate` and family): in the viewer's locale on the Gregorian calendar the dates are stored on, a year before 1 CE showing its era; in a world, its notation. |
+| `describe.ts` | Plain text: the ISO date part of an instant, and a date in a calendar of the earlier form (the oracle the world calendars are checked against). |
 | `gregorian.ts` | Leap years, month lengths and day counts by arithmetic, so a typed date can be checked, and an instant built, without a `Date`. |
+
+### The earlier form of calendar
+
+`calendar.ts`, `years.ts` and `parse.ts` hold the rules of the calendar graphs
+stored before calendar sets (an epoch year, an era label and twelve month
+names), which `legacy.ts` reads as a set. `parse.ts` also reads the CLI's and
+the MCP tools' simple calendar flags.
 
 ## How the apps use it
 
@@ -71,22 +93,28 @@ each project really runs in its zone.
 The `*.property.test.ts` files use [fast-check](https://fast-check.dev). Each
 one states something that must hold for every input. Examples:
 
-- every calendar the API accepts is stored unchanged, and reads the same in
-  the app as in the API;
-- the form accepts a draft exactly when the API would, field by field;
-- every way of writing twelve month names reads back as the same twelve;
-- a world year is never 0 or negative, and two years never share a label;
-- what a model is told about the calendar converts years exactly as the app
-  displays them;
-- in every locale, a date holds the world's year and month as clean phrases,
-  never shows the stored year, and two days never format the same;
+- every world date converts to a position and back unchanged, later dates
+  give later positions, and no position lacks a date; on a Gregorian-shaped
+  calendar the dates are exactly `Date`'s, and a calendar of the earlier form
+  reads exactly as it did;
+- a date written in a calendar's notation reads back as itself, at its
+  precision, and the period a month or a year names starts and ends where the
+  next one does;
+- the generated worlds have one, two or three calendars of any shape, with
+  days from 7 seconds to 30 hours;
+- axis ticks lie inside the domain, in order, on round units, each labelled
+  differently, and as many as the room allows;
+- a typed date, a filter bound and a date field each read back as they are
+  written, on the right side of the instant, with or without a world;
+- the calendar editor holds any set the API accepts and sends it back
+  unchanged, and files every problem under a field it has;
+- every calendar of the earlier form the API accepts is stored unchanged, and
+  reads the same in the app as in the API;
 - a typed bound or an ISO timestamp names exactly the instant an arithmetic
   oracle (Hinnant's `days_from_civil`, no `Date`) says it does, or is refused
-  for the right reason;
-- every precision of a date names the same year;
-- axis ticks fall on round world years inside the domain, and none is missing.
+  for the right reason.
 
-Generators live in `src/test/arbitraries.ts`. They lean towards edge cases:
+Generators live in `src/test/arbitraries.ts` (and, for world calendars, `src/test/worldArbitraries.ts`). They lean towards edge cases:
 
 - years 0, 1 and 99, the ends of what a `Date` holds, and 29 February in 1900
   and 2000;

@@ -50,7 +50,7 @@ Three versions are in play and they mean different things:
 | `graphVersion` | number | The committed version exported, or `0` for the head. |
 | `checksum` | string | Lowercase hex SHA-256 of the `data` section. See below. |
 | `filters` | object? | Present **only** when `scope=filtered`; records the filters that were applied, so a reader can tell a partial export from a full one. |
-| `calendar` | object? | The graph's world calendar, when it has one: `epochYear` (the stored year that is the world's year 1), and optionally `eraLabel`, `name` and `monthNames` (the twelve months' names, January's first). It only changes how dates are shown; the dates in `data` are stored dates. Import restores it on a new graph. A field that does not check out is dropped rather than failing the import, and a calendar without a usable `epochYear` is dropped whole. |
+| `calendar` | object? | The graph's world calendars, when it has them: a calendar set, `{ version: 2, dayLength, calendars, primary }`, in the shape [docs/specs/world-calendars.md](specs/world-calendars.md) defines. They name the dates; the dates in `data` are positions on the timeline, as every graph stores them. Import restores the set on a new graph: a calendar in it that no longer checks out is left out rather than failing the import, and a file written before calendar sets (`epochYear`, `eraLabel`, `name`, `monthNames`) is read as the set it stands for. |
 
 ## `data`
 

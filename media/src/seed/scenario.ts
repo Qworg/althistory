@@ -329,19 +329,32 @@ export const scenario: Scenario = {
 }
 
 /**
- * A graph's own calendar: `POST /api/graphs` takes it as `calendar`. Stored
- * dates stay Gregorian ISO; the app shows year `stored - epochYear + 1`.
+ * A world's calendars: `POST /api/graphs` takes them as `calendar`, in the
+ * shape `@althistory/calendar` checks (docs/specs/world-calendars.md). Every
+ * date is still one moment on the graph's timeline; the calendars say how the
+ * world names it.
  */
-export interface CalendarSeed {
-  epochYear: number
-  eraLabel?: string
-  name?: string
-  /** The twelve months' names, January's first. */
-  monthNames?: string[]
+export interface CalendarSetSeed {
+  version: 2
+  /** Seconds of the timeline in the world's day. */
+  dayLength: number
+  calendars: Array<{
+    id: string
+    name: string
+    parts: Array<{ name: string; days: number; intercalary?: boolean }>
+    leapRules?: Array<{ every: number; offset?: number; part: number; days: number }>
+    epoch: number
+    eras?: Array<{ label: string; from: number }>
+    beforeEra?: string
+    week?: { days: string[]; epochWeekday?: number; skipsIntercalary?: boolean }
+    time?: { hoursPerDay: number; minutesPerHour: number; secondsPerMinute: number }
+    notation?: Partial<Record<'date' | 'month' | 'year' | 'festival' | 'time', string>>
+  }>
+  primary: string
 }
 
 export interface WorldScenario {
-  graph: { name: string; description: string; calendar: CalendarSeed }
+  graph: { name: string; description: string; calendar: CalendarSetSeed }
   arcs: ArcSeed[]
   events: EventSeed[]
   links: LinkSeed[]
@@ -353,21 +366,48 @@ export interface WorldScenario {
  * builds with an agent, so a reader can open the result in the demo. Keep the
  * two the same.
  *
- * Its calendar counts from the Rising: stored 1000 is 1 AR, so the Siege of
- * Hollow Isle (stored 1162) shows as 163 AR. It names its months too: March is
- * Thaw, so a stored March 4 reads "Thaw 4".
+ * Its calendars are its own. The tide-priests' Reckoning counts from the
+ * Rising: thirteen months of thirty days, Midyear's Day between Highsun and
+ * Saltreap, and the four Drowned Days at the year's end (five every sixth
+ * year), in a day of thirty Earth hours that the priests divide into twenty
+ * hours of a hundred minutes. The coast keeps the Tide-count beside it, two
+ * half-years from a year 1 a hundred days earlier. The dates below are written
+ * in the Reckoning, as the API reads them for this graph.
  */
 export const world: WorldScenario = {
   graph: {
     name: 'Vael',
     description: 'A drowned archipelago where salt is money and the tide-priests keep the count of years.',
     calendar: {
-      epochYear: 1000,
-      eraLabel: 'AR',
-      name: 'the Reckoning of the Rising',
-      monthNames: [
-        'Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun',
-        'Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Longnight',
+      version: 2,
+      dayLength: 30 * 3600,
+      primary: 'reckoning',
+      calendars: [
+        {
+          id: 'reckoning',
+          name: 'the Reckoning of the Rising',
+          parts: [
+            ...['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun'].map((name) => ({ name, days: 30 })),
+            { name: "Midyear's Day", days: 1, intercalary: true },
+            ...['Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Longnight'].map((name) => ({ name, days: 30 })),
+            { name: 'The Drowned Days', days: 4, intercalary: true },
+          ],
+          leapRules: [{ every: 6, part: 13, days: 1 }],
+          epoch: 0,
+          eras: [{ label: 'AR', from: 1 }],
+          week: { days: ['Firstfast', 'Netday', 'Saltday', 'Moonsday', 'Restday'], skipsIntercalary: true },
+          time: { hoursPerDay: 20, minutesPerHour: 100, secondsPerMinute: 100 },
+        },
+        {
+          id: 'tide',
+          name: 'the Tide-count',
+          parts: [
+            { name: 'Ebbing', days: 183 },
+            { name: 'Flooding', days: 183 },
+          ],
+          epoch: -100,
+          eras: [{ label: 'TC', from: 1 }],
+        },
       ],
     },
   },
@@ -377,24 +417,24 @@ export const world: WorldScenario = {
       key: 'salt',
       name: 'The Age of Salt',
       description: 'From the Rising to the closing of the harbours: the salt-kings rule Hollow Isle.',
-      start: '1000-01-01T00:00:00Z',
-      end: '1140-06-01T00:00:00Z',
+      start: '1 AR',
+      end: 'Highsun 30, 141 AR',
       level: 0,
     },
     {
       key: 'tidewar',
       name: 'The Tide War',
       description: 'The tide-priests against the salt-kings, and the glassmakers who decided it.',
-      start: '1140-06-01T00:00:00Z',
-      end: '1162-09-01T00:00:00Z',
+      start: "Midyear's Day, 141 AR",
+      end: 'Gale 1, 163 AR',
       level: 0,
     },
     {
       key: 'glass',
       name: 'The Glass Republic',
       description: "Ambry's republic of glassmakers, after the last salt-king.",
-      start: '1172-03-01T00:00:00Z',
-      end: '1240-01-01T00:00:00Z',
+      start: 'Thaw 1, 173 AR',
+      end: '240 AR',
       level: 0,
     },
   ],
@@ -405,7 +445,7 @@ export const world: WorldScenario = {
       description: 'The waters rise; the survivors crown the first salt-king on Hollow Isle',
       actor: 'Salt-kings',
       target: 'Vael',
-      timestamp: '1000-03-04T00:00:00Z',
+      timestamp: 'Thaw 4, 1 AR',
       arc: 'salt',
     },
     {
@@ -413,7 +453,7 @@ export const world: WorldScenario = {
       description: 'The salt-kings fix the weight of the salt coin',
       actor: 'Salt-kings',
       target: 'Merchants of Vael',
-      timestamp: '1036-05-01T00:00:00Z',
+      timestamp: 'Brightwater 1, 37 AR',
       arc: 'salt',
     },
     {
@@ -421,7 +461,7 @@ export const world: WorldScenario = {
       description: 'The tide-priests begin the Reckoning, counting years from the Rising',
       actor: 'Tide-priests',
       target: 'Vael',
-      timestamp: '1087-09-21T00:00:00Z',
+      timestamp: 'Gale 21, 88 AR',
       arc: 'salt',
     },
     {
@@ -429,7 +469,7 @@ export const world: WorldScenario = {
       description: "A salt ban forbids Ambry's glassmakers to trade without the king's salt",
       actor: 'Salt-kings',
       target: 'Glassmakers of Ambry',
-      timestamp: '1121-02-10T00:00:00Z',
+      timestamp: 'Greywater 10, 122 AR',
       arc: 'salt',
     },
     {
@@ -437,7 +477,7 @@ export const world: WorldScenario = {
       description: "The salt-kings tax the tide-priests' shrines",
       actor: 'Salt-kings',
       target: 'Tide-priests',
-      timestamp: '1130-11-30T00:00:00Z',
+      timestamp: 'Longnight 30, 131 AR',
       arc: 'salt',
     },
     {
@@ -445,7 +485,7 @@ export const world: WorldScenario = {
       description: 'The priests close the harbours; the Tide War begins',
       actor: 'Tide-priests',
       target: 'Salt-kings',
-      timestamp: '1140-06-01T00:00:00Z',
+      timestamp: "Midyear's Day, 141 AR",
       arc: 'tidewar',
     },
     {
@@ -453,7 +493,7 @@ export const world: WorldScenario = {
       description: 'The glassmakers of Ambry side with the priests',
       actor: 'Glassmakers of Ambry',
       target: 'Salt-kings',
-      timestamp: '1151-04-12T00:00:00Z',
+      timestamp: 'Seedtide 12, 152 AR',
       arc: 'tidewar',
     },
     {
@@ -461,7 +501,7 @@ export const world: WorldScenario = {
       description: 'The last salt-king drowns at the Siege of Hollow Isle',
       actor: 'Tide-priests',
       target: 'Salt-kings',
-      timestamp: '1162-09-01T00:00:00Z',
+      timestamp: 'Gale 1, 163 AR',
       arc: 'tidewar',
     },
     {
@@ -469,7 +509,7 @@ export const world: WorldScenario = {
       description: 'The Glass Republic is proclaimed in Ambry',
       actor: 'Glassmakers of Ambry',
       target: 'Vael',
-      timestamp: '1172-03-01T00:00:00Z',
+      timestamp: 'Thaw 1, 173 AR',
       arc: 'glass',
     },
   ],
