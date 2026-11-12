@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { GraphCalendar, storedCalendar, toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, storedCalendarSet, toInstant } from '@althistory/calendar';
 import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
 import { ImportResultDto } from '../types';
@@ -8,11 +8,10 @@ import { ValidationErrorCLI } from '../utils/exitCodes';
 /**
  * The calendar an export carries. A field that does not check out is dropped
  * rather than failing the import, and without a usable epoch there is no
- * calendar (see `storedCalendar`): it only changes how dates are shown.
+ * calendar (see `storedCalendarSet`): it only changes how dates are shown.
  */
-function importedCalendar(metadata: Record<string, unknown> | undefined): GraphCalendar | undefined {
-  const value = metadata?.calendar;
-  return storedCalendar(value);
+function importedCalendar(metadata: Record<string, unknown> | undefined): WorldCalendarSet | undefined {
+  return storedCalendarSet(metadata?.calendar) ?? undefined;
 }
 
 export class GraphImporter {

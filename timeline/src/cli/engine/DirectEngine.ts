@@ -44,8 +44,9 @@ import {
 import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { calendarExtractionInstructions, type GraphCalendar, toInstant } from '@althistory/calendar';
-import { precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
+import { calendarSetInstructions, type WorldCalendarSet, toInstant } from '@althistory/calendar';
+import type { CalendarInput } from '../../models/Graph';
+import { isIsoText, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import type { IGraph } from '@/models/Graph';
 import { validateCausalRelationshipFields } from '@/services/CausalService';
 
@@ -139,7 +140,7 @@ export class DirectEngine implements IEngine {
     return result.graphs.map((g) => toGraphSummary(g));
   }
 
-  async createGraph(name: string, description?: string, calendar?: GraphCalendar): Promise<GraphSummaryDto> {
+  async createGraph(name: string, description?: string, calendar?: CalendarInput): Promise<GraphSummaryDto> {
     const container = await this.getInitializedContainer();
     const created = await container.graphService.createGraph({
       name,
@@ -149,7 +150,7 @@ export class DirectEngine implements IEngine {
     return toGraphSummary(created);
   }
 
-  async setGraphCalendar(id: string, calendar: GraphCalendar | null): Promise<GraphSummaryDto> {
+  async setGraphCalendar(id: string, calendar: CalendarInput | null): Promise<GraphSummaryDto> {
     const container = await this.getInitializedContainer();
     const updated = await container.graphService.updateGraph(id, { calendar });
     return toGraphSummary(updated);
@@ -241,7 +242,7 @@ export class DirectEngine implements IEngine {
   ): Promise<EventDto> {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
-    const read = readAgentTimestamp(data.timestamp);
+    const read = readAgentTimestamp(data.timestamp, await this.worldCalendarFor(graphId, data.timestamp));
 
     const created = await scoped.eventRepository.create({
       description: data.description,
@@ -327,7 +328,7 @@ export class DirectEngine implements IEngine {
     if (data.actor !== undefined) updatePayload.actor = data.actor;
     if (data.target !== undefined) updatePayload.target = data.target;
     if (data.timestamp !== undefined) {
-      const read = readAgentTimestamp(data.timestamp);
+      const read = readAgentTimestamp(data.timestamp, await this.worldCalendarFor(graphId, data.timestamp));
       updatePayload.timestamp = new Date(read.iso);
       const existing = await scoped.eventRepository.findById(eventId);
       if (existing) updatePayload.metadata = withNewDatePrecision(existing.metadata, read);
@@ -371,8 +372,8 @@ export class DirectEngine implements IEngine {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
     // Read as the event tools read a time, and as the remote engine reads it.
-    const start = new Date(readAgentTimestamp(data.startTime).iso);
-    const end = new Date(readAgentTimestamp(data.endTime).iso);
+    const start = new Date(readAgentTimestamp(data.startTime, await this.worldCalendarFor(graphId, data.startTime)).iso);
+    const end = new Date(readAgentTimestamp(data.endTime, await this.worldCalendarFor(graphId, data.endTime), 'end').iso);
     if (start.getTime() > end.getTime()) {
       throw new ValidationErrorCLI(`Arc startTime (${data.startTime}) must precede endTime (${data.endTime})`);
     }
@@ -833,8 +834,13 @@ export class DirectEngine implements IEngine {
     };
   }
 
+  /** The graph's world calendars, when text is not ISO 8601 and may be a world date; read only then. */
+  private async worldCalendarFor(graphId: string, text: string): Promise<WorldCalendarSet | undefined> {
+    return isIsoText(text) ? undefined : this.calendarOf(graphId);
+  }
+
   /** The calendar of a stored graph; none for a dry run's placeholder or a missing graph. */
-  private async calendarOf(graphId: string): Promise<GraphCalendar | undefined> {
+  private async calendarOf(graphId: string): Promise<WorldCalendarSet | undefined> {
     const container = await this.getInitializedContainer();
     const graph = await container.graphRepository.findById(graphId);
     return graph?.calendar;
@@ -874,7 +880,7 @@ export class DirectEngine implements IEngine {
     text: string,
     extractor: TextExtractor,
     mode: 'pattern' | 'llm' | 'hybrid',
-    calendar?: GraphCalendar
+    calendar?: WorldCalendarSet
   ): Promise<ExtractionResult> {
     if (mode === 'pattern') {
       return extractor.extract({ text, useLLM: false });
@@ -882,7 +888,7 @@ export class DirectEngine implements IEngine {
 
     // Prose about an invented world dates things in the world's years; the
     // model is told how they are stored. Pattern extraction cannot read them.
-    const context = calendar ? { instructions: calendarExtractionInstructions(calendar) } : undefined;
+    const context = calendar ? { instructions: calendarSetInstructions(calendar), calendar } : undefined;
     const llmResult = await extractor.extractWithLLM({ text }, context);
 
     if (mode === 'llm') {

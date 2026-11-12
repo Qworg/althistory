@@ -122,41 +122,67 @@ text for any agent that can run a command.
 
 ### Inventing a world
 
-An invented world has no real dates, but every timestamp is still an ISO 8601
-instant, because sorting, validation and the causal-order checks all read
-them. A **world calendar** on the graph relabels the year (and, if you like, the month) when a date is shown:
+An invented world keeps its own time. Every event still sits at a position on
+one linear timeline (its `timestamp`), because sorting, validation and the
+causal-order checks read positions. The graph's **world calendars** name those
+positions in the world's own terms, and they can have any shape: any number of
+months of any length, festival days that belong to no month, leap rules,
+weeks, a day of the world's own length divided into its own hours, eras
+counted up and back, and several calendars at once (two cultures' reckonings
+of the same days). The full description is in
+[`docs/specs/world-calendars.md`](specs/world-calendars.md).
+
+There are two ways to give a graph a calendar:
+
+- **Simple:** `epochYear`, `eraLabel`, `calendarName` and `monthNames`. This is
+  the Gregorian calendar with the world's own year count and month names:
+  with `{ "epochYear": 1000, "eraLabel": "AR" }`, the position stored as
+  1311-03-04 reads "Mar 4, 312 AR". Without `eraLabel` a year reads
+  "Year 312"; years before the epoch count back ("1 before AR").
+- **Any shape:** `calendar`, a calendar set:
 
 ```json
-{ "epochYear": 1000, "eraLabel": "AR", "name": "the Reckoning of the Rising" }
+{
+  "version": 2,
+  "dayLength": 108000,
+  "primary": "reckoning",
+  "calendars": [{
+    "id": "reckoning",
+    "name": "the Reckoning of the Rising",
+    "parts": [
+      { "name": "Lowtide", "days": 30 }, { "name": "Greywater", "days": 30 },
+      { "name": "Midyear's Day", "days": 1, "intercalary": true },
+      { "name": "Longnight", "days": 30 },
+      { "name": "The Drowned Days", "days": 4, "intercalary": true }
+    ],
+    "leapRules": [{ "every": 6, "part": 4, "days": 1 }],
+    "epoch": 0,
+    "eras": [{ "label": "AR", "from": 1 }],
+    "week": { "days": ["Firstfast", "Netday", "Saltday"], "skipsIntercalary": true },
+    "time": { "hoursPerDay": 20, "minutesPerHour": 100, "secondsPerMinute": 100 }
+  }]
+}
 ```
 
-`epochYear` is the stored year that is the world's year 1, so the world's year
-N is stored as year N + epochYear − 1: with the calendar above, 312 AR is
-stored as 1311. The app, the Markdown export and `althistory_export_context`
-show "Mar 4, 312 AR"; the export also gives the stored date and the offset, so
-an agent writing new events knows what to send. Without `eraLabel` a year reads
-"Year 312". Years before the epoch count back ("1 before AR"). Choose an epoch
-of 1000 or later: some date libraries read years below 100 as 19xx.
+Dates then go in and come out in the world's notation. `althistory_create_event`
+takes `timestamp: "Greywater 4, 312 AR"` (or an ISO 8601 timestamp), and
+`althistory_create_arc` takes the same for `startTime` and `endTime`. A month or a
+year alone ("Greywater 312 AR") is stored at its first day, with its precision
+recorded; as an arc's `endTime` it means that period's last moment.
+`althistory_export_context` shows each date in the world's notation, with its
+place on the timeline in brackets. Text written about the world, sent to
+`althistory_ingest_text` with the graph named, has its dates read in the
+world's notation too.
 
-`monthNames`, twelve distinct names, January's first, names the world's
-months: with Vael's `["Lowtide", "Greywater", "Thaw", …]` March 4 shows as
-"Thaw 4, 312 AR". The months keep their stored order and lengths, and the
-days their numbers; a world with thirteen months, or months of other lengths,
-cannot be written, because every date is a Gregorian one underneath. A month
-name cannot contain a comma, a `|`, brackets, a double quote, or a tab, line
-break or other control character. An era label or calendar name may contain a
-comma, but not a `|` or a control character. Without `monthNames`
-the months are shown as stored ("Mar").
-
-Setting a calendar replaces the whole calendar. To add month names to one
-you have, send `epochYear`, `eraLabel` and `calendarName` again with them.
+Setting a calendar replaces the whole calendar. Names cannot contain a comma
+(month names), a `|`, braces, or a control character.
 
 The calendar is kept when the graph is branched or copied, travels in the
 export document's `metadata.calendar`, and comes back on import.
 
 A session that builds a world by hand:
 
-1. `althistory_create_graph` with `epochYear` (and `eraLabel`, `calendarName`, `monthNames`).
+1. `althistory_create_graph` with `calendar` (or the simple `epochYear`, `eraLabel`, `calendarName`, `monthNames`).
 2. `althistory_create_arc` for each age; `parentArcId` nests a reign inside an age.
 3. `althistory_create_event` for each event, with `arcId` to place it.
 4. `althistory_link_events` from each cause to its effect. A cause dated after
@@ -168,7 +194,7 @@ A session that builds a world by hand:
 
 `althistory_generate_timeline` with `world` drafts a skeleton instead: a model
 writes it when the server has `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, told
-that the world is not Earth and how its years are stored; without a key it is a
+that the world is not Earth and to date events in the world's own calendar; without a key it is a
 template of generic ages to rewrite. The result's `source` says which.
 
 Give `reasoning` on every `althistory_link_events` call: without it the link
@@ -204,20 +230,21 @@ Every causal path from one event to another.
 #### `althistory_create_graph`
 Create an empty graph to write into.
 - `name` *(required)*, `description`
-- `epochYear`, `eraLabel`, `calendarName`, `monthNames`: an invented world's calendar. A label, name or month names need `epochYear`. `monthNames` is a list of twelve.
+- `epochYear`, `eraLabel`, `calendarName`, `monthNames`: a simple world calendar (the Gregorian one with the world's year count and month names). A label, name or month names need `epochYear`. `monthNames` is a list of twelve.
+- `calendar`: instead, world calendars of any shape (a calendar set; see *Inventing a world*). Not with the simple fields.
 
 #### `althistory_set_calendar`
 Give a graph a world calendar, change it, or remove it.
 - `graphId` *(required)*
-- `epochYear`, `eraLabel`, `calendarName`, `monthNames`; or `clear` set to `true` to remove it (not both). The fields given replace the whole calendar, so a field left out is removed.
+- `epochYear`, `eraLabel`, `calendarName`, `monthNames`; or `calendar` (a calendar set of any shape); or `clear` set to `true` to remove it. The fields given replace the whole calendar, so a field left out is removed.
 
 #### `althistory_create_arc`
 An age, era, reign or campaign that holds events.
-- `graphId`, `name`, `startTime`, `endTime` *(required)*
+- `graphId`, `name`, `startTime`, `endTime` *(required)*: ISO 8601, or in a world graph a date in the world's notation (an `endTime` of a month or a year means its last moment).
 - `description`, `parentArcId` (the arc it sits inside; it is placed one level below it).
 
 #### `althistory_create_event`
-- `graphId`, `description`, `timestamp` *(required)*
+- `graphId`, `description`, `timestamp` *(required)*: ISO 8601, or in a world graph a date in the world's notation ("Greywater 4, 312 AR"; a month or a year alone records its precision).
 - `actor`, `target`, `arcId` (puts the event in that arc; if that fails, the error names the event that was created).
 
 #### `althistory_assign_to_arc`

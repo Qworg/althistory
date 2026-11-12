@@ -36,7 +36,7 @@ import {
   asyncHandler,
   GRAPH_ID_HEADER,
 } from '../middleware';
-import { GraphCalendar, calendarExtractionInstructions } from '@althistory/calendar';
+import { type GraphCalendar, type WorldCalendarSet, calendarSetInstructions, storedCalendarSet } from '@althistory/calendar';
 import { ValidationError, NotFoundError, UpstreamServiceError } from '../../utils/errors';
 import { ImportService } from '../../services/ImportService';
 import type { HeadReplacedHook } from '../../services/LiveStoreSyncService';
@@ -86,10 +86,10 @@ export interface IngestRouterConfig {
    * The calendar of a graph, for text about an invented world. Defaults to
    * the graph repository's; a test seam.
    */
-  graphCalendar?: (graphId: string) => Promise<GraphCalendar | undefined>;
+  graphCalendar?: (graphId: string) => Promise<WorldCalendarSet | GraphCalendar | undefined>;
 }
 
-async function repositoryCalendar(graphId: string): Promise<GraphCalendar | undefined> {
+async function repositoryCalendar(graphId: string): Promise<WorldCalendarSet | undefined> {
   const graph = await getContainer().graphRepository.findById(graphId);
   return graph?.calendar;
 }
@@ -115,15 +115,16 @@ function graphScopeWhenNamed(): RequestHandler[] {
 }
 
 /**
- * The extraction context for text bound for a graph: the caller's, plus how the
- * graph's world calendar dates things, so the model writes "141 AR" as the
- * stored year 1140. A graph without a calendar leaves the context as it was.
+ * The extraction context for text bound for a graph: the caller's, plus the
+ * graph's world calendars, so the model writes dates in the world's notation
+ * ("Thaw 4, 312 AR") and they are read with those calendars. A graph without
+ * a calendar leaves the context as it was.
  */
-function withCalendar(context: ExtractionContext | undefined, calendar: GraphCalendar | undefined): ExtractionContext | undefined {
+function withCalendar(context: ExtractionContext | undefined, calendar: WorldCalendarSet | undefined): ExtractionContext | undefined {
   if (!calendar) return context;
-  const calendarLine = calendarExtractionInstructions(calendar);
+  const calendarLine = calendarSetInstructions(calendar);
   const instructions = context?.instructions ? `${calendarLine}\n${context.instructions}` : calendarLine;
-  return { ...context, instructions };
+  return { ...context, instructions, calendar };
 }
 
 /**
@@ -330,7 +331,8 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
         text: body.text,
         useLLM: body.useLLM !== false,
       };
-      const calendar = req.graphId ? await graphCalendar(req.graphId) : undefined;
+      // As a set, whatever form it was stored in.
+      const calendar = req.graphId ? (storedCalendarSet(await graphCalendar(req.graphId)) ?? undefined) : undefined;
       const preview = await orchestrator.ingest(
         { source: 'text', text: input },
         withCalendar(parseExtractionContext(body.context), calendar),

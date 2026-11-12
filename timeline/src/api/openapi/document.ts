@@ -73,7 +73,7 @@ const AUTH_ERROR_RESPONSES: Record<string, string> = {
 }
 
 
-/** An invented world's calendar (see `@althistory/calendar`). */
+/** The simple form of a world calendar: the Gregorian one with the world's year count and month names (see `@althistory/calendar`). */
 const GRAPH_CALENDAR_SCHEMA = {
   type: 'object',
   description:
@@ -95,6 +95,73 @@ const GRAPH_CALENDAR_SCHEMA = {
   additionalProperties: false,
 };
 
+/** A world's calendars of any shape (docs/specs/world-calendars.md). */
+const WORLD_CALENDAR_SET_SCHEMA = {
+  type: 'object',
+  description:
+    "An invented world's calendars, of any shape, naming positions on the graph's one timeline. Responses always " +
+    'carry the calendar as a set; a calendar sent in the simple form is stored as one Gregorian-shaped calendar.',
+  properties: {
+    version: { type: 'integer', enum: [2] },
+    dayLength: { type: 'integer', minimum: 1, maximum: 1000000, description: "Seconds of the timeline in the world's day (86400 for Earth's)." },
+    primary: { type: 'string', description: 'The id of the calendar shown unless another is picked.' },
+    calendars: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 8,
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{0,31}$' },
+          name: { type: 'string', maxLength: 80 },
+          parts: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 100,
+            description: 'The year in order: months, and runs of festival days (intercalary) that belong to no month.',
+            items: {
+              type: 'object',
+              properties: { name: { type: 'string', maxLength: 24 }, days: { type: 'integer', minimum: 1, maximum: 1000 }, intercalary: { type: 'boolean' } },
+              required: ['name', 'days'],
+            },
+          },
+          leapRules: {
+            type: 'array',
+            maxItems: 20,
+            description: 'Days added to (or taken from) a part in year Y when (Y - offset) is a multiple of every.',
+            items: {
+              type: 'object',
+              properties: { every: { type: 'integer', minimum: 1 }, offset: { type: 'integer' }, part: { type: 'integer', minimum: 0 }, days: { type: 'integer' } },
+              required: ['every', 'part', 'days'],
+            },
+          },
+          epoch: { type: 'integer', description: 'The timeline day on which year 1 begins.' },
+          eras: {
+            type: 'array',
+            items: { type: 'object', properties: { label: { type: 'string', maxLength: 16 }, from: { type: 'integer' } }, required: ['label', 'from'] },
+          },
+          beforeEra: { type: 'string', maxLength: 16 },
+          week: {
+            type: 'object',
+            properties: { days: { type: 'array', items: { type: 'string' } }, epochWeekday: { type: 'integer' }, skipsIntercalary: { type: 'boolean' } },
+            required: ['days'],
+          },
+          time: {
+            type: 'object',
+            properties: { hoursPerDay: { type: 'integer' }, minutesPerHour: { type: 'integer' }, secondsPerMinute: { type: 'integer' } },
+          },
+          notation: {
+            type: 'object',
+            properties: { date: { type: 'string' }, month: { type: 'string' }, year: { type: 'string' }, festival: { type: 'string' }, time: { type: 'string' } },
+          },
+        },
+        required: ['id', 'name', 'parts', 'epoch'],
+      },
+    },
+  },
+  required: ['version', 'dayLength', 'calendars', 'primary'],
+};
+
 const SCHEMAS: Record<string, Record<string, unknown>> = {
   /**
    * The shape of a request or response this document does not describe in
@@ -105,7 +172,12 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     description: 'An object whose properties depend on the operation.',
     additionalProperties: true,
   },
-  GraphCalendar: GRAPH_CALENDAR_SCHEMA,
+  SimpleCalendar: GRAPH_CALENDAR_SCHEMA,
+  WorldCalendarSet: WORLD_CALENDAR_SET_SCHEMA,
+  CalendarInput: {
+    description: 'A calendar set of any shape, or the simple form (stored as a set).',
+    oneOf: [{ $ref: '#/components/schemas/WorldCalendarSet' }, { $ref: '#/components/schemas/SimpleCalendar' }],
+  },
   Graph: {
     type: 'object',
     properties: {
@@ -117,7 +189,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       parentGraphId: { type: 'string' },
       createdAt: { type: 'string', format: 'date-time' },
       updatedAt: { type: 'string', format: 'date-time' },
-      calendar: { $ref: '#/components/schemas/GraphCalendar' },
+      calendar: { $ref: '#/components/schemas/WorldCalendarSet' },
     },
     required: ['id', 'name', 'status', 'version'],
   },
@@ -126,7 +198,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       name: { type: 'string' },
       description: { type: 'string' },
-      calendar: { $ref: '#/components/schemas/GraphCalendar' },
+      calendar: { $ref: '#/components/schemas/CalendarInput' },
     },
     required: ['name'],
   },
@@ -139,9 +211,10 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       // Inline rather than a $ref: in OpenAPI 3.0 `nullable` only counts next
       // to a `type`, so a nullable reference cannot be written.
       calendar: {
-        ...GRAPH_CALENDAR_SCHEMA,
-        description: 'A new calendar, or null to remove it.',
+        type: 'object',
+        description: 'A new calendar (a calendar set of any shape, or the simple form), or null to remove it.',
         nullable: true,
+        oneOf: [{ $ref: '#/components/schemas/WorldCalendarSet' }, { $ref: '#/components/schemas/SimpleCalendar' }],
       },
     },
   },

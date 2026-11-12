@@ -28,7 +28,22 @@ import {
 import { clusterEventsIntoArcs } from './arcClustering';
 import { ExtractedArc, ExtractedEvent } from '@/services/ingestion/types';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { GraphCalendar, formatWorldYear, normalizeCalendar, parseIsoInstant, toInstant } from '@althistory/calendar';
+import {
+  type WorldCalendarSet,
+  calendarIn,
+  calendarSetFromInput,
+  calendarSetInstructions,
+  dateAt,
+  formatInWorld,
+  formatWorldYearOf,
+  isCalendarSet,
+  legacyCalendarSet,
+  normalizeCalendar,
+  parseIsoInstant,
+  positionOf,
+  readWorldTimestamp,
+  toInstant,
+} from '@althistory/calendar';
 import { ValidationErrorCLI } from '../utils/exitCodes';
 
 export interface TimelineGeneratorConfig {
@@ -72,8 +87,8 @@ interface GenerationPlan {
   subject: string;
   /** Where real history turns; empty for an invented world. */
   divergencePoint: string;
-  /** The world's calendar; only an invented world has one. */
-  calendar?: GraphCalendar;
+  /** The world's calendars; only an invented world has them. */
+  calendar?: WorldCalendarSet;
   startMs: number;
   endMs: number;
 }
@@ -474,10 +489,11 @@ export class TimelineGenerator {
    * its parent. A child is therefore never at the same level as its parent,
    * and never above it.
    */
-  private buildArcHierarchy(baseArcs: ExtractedArc[], depth: number, calendar?: GraphCalendar): StructuredArc[] {
+  private buildArcHierarchy(baseArcs: ExtractedArc[], depth: number, calendar?: WorldCalendarSet): StructuredArc[] {
     const yearOf = (timestamp: string): string => {
-      const year = toInstant(timestamp).getUTCFullYear();
-      return calendar ? formatWorldYear(year, calendar) : timestamp.slice(0, 4);
+      if (!calendar) return timestamp.slice(0, 4);
+      const primary = calendarIn(calendar);
+      return formatWorldYearOf(primary.definition, dateAt(primary, toInstant(timestamp).getTime()).year);
     };
     const maxDepth = Math.max(1, Math.min(Math.trunc(depth) || 1, 4));
 
@@ -1241,12 +1257,14 @@ export class TimelineGenerator {
     const world = options.world?.trim() ?? '';
     const premise = options.premise?.trim() ?? '';
     const divergencePoint = options.divergencePoint?.trim() ?? '';
-    const startParsed = parseInstant(options.startDate);
-    const endParsed = parseInstant(options.endDate);
-    if (options.startDate && Number.isNaN(startParsed)) {
+    let startParsed = parseInstant(options.startDate);
+    let endParsed = parseInstant(options.endDate);
+    // An invented world's dates may be written in its own notation; they are
+    // read once its calendar is settled, below.
+    if (!world && options.startDate && Number.isNaN(startParsed)) {
       throw new ValidationErrorCLI(`Invalid start date "${options.startDate}": expected an ISO-8601 date`);
     }
-    if (options.endDate && Number.isNaN(endParsed)) {
+    if (!world && options.endDate && Number.isNaN(endParsed)) {
       throw new ValidationErrorCLI(`Invalid end date "${options.endDate}": expected an ISO-8601 date`);
     }
 
@@ -1257,18 +1275,34 @@ export class TimelineGenerator {
         );
       }
       const startYear = Number.isNaN(startParsed) ? undefined : new Date(startParsed).getUTCFullYear();
-      let calendar: GraphCalendar;
+      // A calendar set given whole (any shape), or the simple form: the
+      // Gregorian calendar with its years counted from an epoch.
+      let calendar: WorldCalendarSet;
       try {
-        calendar = normalizeCalendar({
-          ...options.calendar,
-          epochYear: options.calendar?.epochYear ?? startYear ?? WORLD_DEFAULT_EPOCH_YEAR,
-        });
+        if (isCalendarSet(options.calendar)) calendar = calendarSetFromInput(options.calendar);
+        else {
+          const simple = (options.calendar ?? {}) as { epochYear?: number };
+          calendar = legacyCalendarSet(
+            normalizeCalendar({ ...simple, epochYear: simple.epochYear ?? startYear ?? WORLD_DEFAULT_EPOCH_YEAR })
+          );
+        }
       } catch (err) {
         throw new ValidationErrorCLI((err as Error).message);
       }
-      const startMs = Number.isNaN(startParsed)
-        ? Date.parse(`${String(calendar.epochYear).padStart(4, '0')}-01-01T00:00:00Z`)
-        : startParsed;
+      // Dates in the world's notation ("Thaw 4, 312 AR") or ISO 8601.
+      const readDate = (text: string | undefined, what: string): number => {
+        if (!text) return NaN;
+        const read = readWorldTimestamp(calendar, text);
+        if (!read) {
+          throw new ValidationErrorCLI(`Invalid ${what} date "${text}": give it in the world's calendar ("${formatInWorld(calendar, 0)}") or as an ISO-8601 date`);
+        }
+        return Date.parse(read.iso);
+      };
+      startParsed = readDate(options.startDate, 'start');
+      endParsed = readDate(options.endDate, 'end');
+      // The world's year 1, unless a start is given.
+      const yearOne = positionOf(calendarIn(calendar), { year: 1, part: 0, day: 1, hour: 0, minute: 0, second: 0 }) ?? 0;
+      const startMs = Number.isNaN(startParsed) ? yearOne : startParsed;
       // A stored year has four digits; past 9999 a timestamp needs an expanded
       // year, which the rest of the system does not read. The default span
       // stops there, and an end date past it is refused.
@@ -1345,6 +1379,8 @@ Generate ${eventCount} chronological historical events demonstrating this counte
             start: new Date(plan.startMs).toISOString(),
             end: new Date(plan.endMs).toISOString(),
           },
+          // A world's dates come back in its notation, read with its calendars.
+          ...(plan.calendar ? { calendar: plan.calendar } : {}),
         });
         if (extracted.length >= 3) {
           const sorted = [...extracted].sort(
@@ -1423,27 +1459,24 @@ Generate ${eventCount} chronological historical events demonstrating this counte
    * told how the world's years are stored so its dates land where they belong.
    */
   private worldPrompt(plan: GenerationPlan, style: NarrativeStyle, eventCount: number): string {
-    const calendar = plan.calendar as GraphCalendar;
-    const offset = calendar.epochYear - 1;
-    const yearWord = calendar.eraLabel ? `"312 ${calendar.eraLabel}"` : '"Year 312"';
-    const months = calendar.monthNames
-      ? ` Its months are the ISO months under other names (${calendar.monthNames.map((name, index) => `${index + 1} = ${name}`).join('; ')}); use those names in descriptions, and the ISO months in timestamps.`
-      : '';
-    const calendarLine = `Calendar: ${calendar.name ? `${calendar.name}. ` : ''}The world's year 1 is stored as ISO year ${calendar.epochYear}, so the world's year N is ISO year N + ${offset} (the world writes year 312 as ${yearWord}, stored as ${312 + offset}).${months}`;
-    const range = `between ${new Date(plan.startMs).toISOString()} and ${new Date(plan.endMs).toISOString()}`;
+    const calendar = plan.calendar as WorldCalendarSet;
+    // The world keeps its own time: the model writes dates in its notation,
+    // which the server converts (readWorldTimestamp), whatever the calendar's shape.
+    const calendarLine = `Calendar: ${calendarSetInstructions(calendar)}`;
+    const range = `between ${formatInWorld(calendar, plan.startMs)} and ${formatInWorld(calendar, plan.endMs)}`;
     if (plan.divergencePoint) {
       return `You are a worldbuilder writing another course for the chronicle of an invented world. It is not Earth: do not borrow real people, nations, places or events.
 The chronicle turns at: ${plan.divergencePoint}
 In this telling: ${plan.subject}
 ${calendarLine}
 Style: ${style} (${STYLE_GUIDANCE[style]})
-Generate ${eventCount} chronological events that follow from this turn, dated with ISO-8601 timestamps ${range}. Give each a named actor and target from the world itself.`;
+Generate ${eventCount} chronological events that follow from this turn, dated in the world's own calendar ${range}. Give each a named actor and target from the world itself.`;
     }
     return `You are a worldbuilder writing the chronicle of an invented world. It is not Earth: do not borrow real people, nations, places or events.
 World: ${plan.subject}
 ${calendarLine}
 Style: ${style} (${STYLE_GUIDANCE[style]})
-Generate ${eventCount} chronological events of this world's history, from its founding onwards, dated with ISO-8601 timestamps ${range}. Give each a named actor and target from the world itself.`;
+Generate ${eventCount} chronological events of this world's history, from its founding onwards, dated in the world's own calendar ${range}. Give each a named actor and target from the world itself.`;
   }
 
   /**

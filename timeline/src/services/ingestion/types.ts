@@ -8,6 +8,7 @@
  */
 
 import { DataSource } from '../ExportService';
+import type { WorldCalendarSet } from '@althistory/calendar';
 
 /** Which source produced an extracted entity. */
 export type ExtractionSourceType = 'wikipedia' | 'wikidata' | 'text' | 'llm';
@@ -88,6 +89,11 @@ export interface ExtractionContext {
   knownEntities?: string[];
   locale?: string;
   instructions?: string;
+  /**
+   * The graph's world calendars, when it has them: the model writes dates in
+   * the world's notation, and they are read with these (`readWorldTimestamp`).
+   */
+  calendar?: WorldCalendarSet;
 }
 
 export interface ValidationIssue {

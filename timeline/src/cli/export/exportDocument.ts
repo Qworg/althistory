@@ -14,7 +14,7 @@
 import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
 import { ExportRelationship } from './GraphExporter';
-import { GraphCalendar, storedCalendar, toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, storedCalendarSet, toInstant } from '@althistory/calendar';
 
 export interface ParsedExportDocument {
   graphId: string;
@@ -23,8 +23,8 @@ export interface ParsedExportDocument {
   events: Event[];
   arcs: Arc[];
   relationships: ExportRelationship[];
-  /** The graph's calendar; one that does not check out is left out. */
-  calendar?: GraphCalendar;
+  /** The graph's calendars; one that does not check out is left out. */
+  calendar?: WorldCalendarSet;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -148,6 +148,6 @@ export function parseExportDocument(document: unknown): ParsedExportDocument {
     events,
     arcs,
     relationships,
-    ...(storedCalendar(metadata.calendar) ? { calendar: storedCalendar(metadata.calendar) } : {}),
+    ...(storedCalendarSet(metadata.calendar) ? { calendar: storedCalendarSet(metadata.calendar)! } : {}),
   };
 }

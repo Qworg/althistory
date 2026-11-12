@@ -76,7 +76,7 @@ export class OpenAIClient implements LLMClient {
   async extractEvents(text: string, context?: ExtractionContext): Promise<ExtractedEvent[]> {
     const prompt = buildEventExtractionPrompt(text, context);
     const content = await this.chat(prompt.systemPrompt, prompt.userPrompt);
-    return parseExtractedEvents(coerceJsonPayload(content), this.source());
+    return parseExtractedEvents(coerceJsonPayload(content), this.source(), context?.calendar);
   }
 
   async suggestRelationships(events: ExtractedEvent[]): Promise<ExtractedRelationship[]> {

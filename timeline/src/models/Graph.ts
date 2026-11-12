@@ -2,9 +2,12 @@
  * Graph model for multi-graph management with Git-like versioning
  */
 
-import { GraphCalendar, storedCalendar } from '@althistory/calendar';
+import { type GraphCalendar, type WorldCalendarSet, storedCalendarSet } from '@althistory/calendar';
 
-export type { GraphCalendar } from '@althistory/calendar';
+export type { GraphCalendar, WorldCalendarSet } from '@althistory/calendar';
+
+/** A calendar as a request may give it: a set, or the earlier form (a relabelled Gregorian calendar). */
+export type CalendarInput = WorldCalendarSet | GraphCalendar;
 
 /**
  * Represents a historical graph containing events, arcs, and relationships
@@ -43,7 +46,7 @@ export interface IGraph {
    * The world's own calendar, for an invented history: how stored years are
    * shown (see `@althistory/calendar`). Absent means plain Gregorian years.
    */
-  calendar?: GraphCalendar;
+  calendar?: WorldCalendarSet;
 }
 
 export type GraphStatus = 'active' | 'archived' | 'deleted';
@@ -74,7 +77,7 @@ export class Graph implements IGraph {
   public readonly branchPoint?: number | null;
   public readonly status: GraphStatus;
   public readonly metadata: GraphMetadata;
-  public readonly calendar?: GraphCalendar;
+  public readonly calendar?: WorldCalendarSet;
   /**
    * The calendar exactly as it was stored. `calendar` is what of it still
    * checks out; this is what is written back when nothing sets a new one, so
@@ -111,7 +114,7 @@ export class Graph implements IGraph {
     // dropped (see `storedCalendar`), rather than making the graph unreadable,
     // since a calendar only changes how dates are shown.
     this.calendarAsStored = data.calendar;
-    this.calendar = storedCalendar(data.calendar);
+    this.calendar = storedCalendarSet(data.calendar) ?? undefined;
   }
 
   /**
@@ -158,7 +161,7 @@ export class Graph implements IGraph {
       status: updates.status ?? this.status,
       metadata: updates.metadata ?? this.metadata,
       // `null` clears the calendar; `undefined` keeps it, as it was stored.
-      calendar: updates.calendar === null ? undefined : (updates.calendar ?? (this.calendarAsStored as GraphCalendar | undefined)),
+      calendar: updates.calendar === null ? undefined : (updates.calendar ?? (this.calendarAsStored as WorldCalendarSet | undefined)),
     });
   }
 
@@ -208,7 +211,7 @@ export class Graph implements IGraph {
    */
   toStoredJSON(): IGraph {
     const { calendar: _shown, ...rest } = this.toJSON();
-    return this.calendarAsStored === undefined ? rest : { ...rest, calendar: this.calendarAsStored as GraphCalendar };
+    return this.calendarAsStored === undefined ? rest : { ...rest, calendar: this.calendarAsStored as WorldCalendarSet };
   }
 
   private generateId(): string {
@@ -226,7 +229,8 @@ export interface CreateGraphData {
   branchPoint?: number | null;
   status?: GraphStatus;
   metadata?: GraphMetadata;
-  calendar?: GraphCalendar;
+  /** As stored: a set, or a calendar written in the earlier form (read as a set). */
+  calendar?: CalendarInput;
 }
 
 export interface UpdateGraphData {
@@ -235,7 +239,7 @@ export interface UpdateGraphData {
   status?: GraphStatus;
   metadata?: GraphMetadata;
   /** A new calendar, or `null` to remove it. */
-  calendar?: GraphCalendar | null;
+  calendar?: CalendarInput | null;
 }
 
 export interface GraphValidationResult {
@@ -249,7 +253,7 @@ export interface GraphValidationResult {
 export interface CreateGraphRequest {
   name: string;
   description?: string;
-  calendar?: GraphCalendar;
+  calendar?: CalendarInput;
 }
 
 export interface UpdateGraphRequest {
@@ -257,7 +261,7 @@ export interface UpdateGraphRequest {
   description?: string;
   status?: 'active' | 'archived';
   /** A new calendar, or `null` to remove it. */
-  calendar?: GraphCalendar | null;
+  calendar?: CalendarInput | null;
 }
 
 export interface BranchGraphRequest {

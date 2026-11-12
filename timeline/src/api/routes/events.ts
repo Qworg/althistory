@@ -1,3 +1,4 @@
+import { readRequestTime } from '../worldDates';
 import { toInstant } from '@althistory/calendar';
 import { Router, Response, NextFunction } from 'express';
 import { CreateEventRequest, UpdateEventRequest, TimeRange } from '@/models/Event';
@@ -43,10 +44,13 @@ eventRoutes.post('/', ...entityPermission('write:events'), async (req: RequestWi
       );
     }
 
-    // Convert timestamp string to Date if needed
-    if (typeof eventData.timestamp === 'string') {
-      eventData.timestamp = toInstant(eventData.timestamp);
-    }
+    // ISO 8601, or in a graph with world calendars a date in the world's
+    // notation or as fields; a month or a year alone records its precision.
+    const graphId = requireGraphId(req);
+    const calendarOf = async () => (await req.container.graphRepository.findById(graphId))?.calendar;
+    const time = await readRequestTime(eventData.timestamp, 'timestamp', calendarOf);
+    eventData.timestamp = time.date;
+    if (time.precision) eventData.metadata = { ...(eventData.metadata ?? {}), datePrecision: time.precision };
 
     // Repositories bound to this request's graph; never the global store.
     const { eventRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
@@ -258,9 +262,13 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
       throw new ValidationError('Event ID is required', 'id', id);
     }
 
-    // Convert timestamp string to Date if provided
-    if (updates.timestamp && typeof updates.timestamp === 'string') {
-      updates.timestamp = toInstant(updates.timestamp);
+    // Read as on create; a world date at month or year precision records it.
+    let precision: 'month' | 'year' | undefined;
+    if (updates.timestamp !== undefined && updates.timestamp !== null) {
+      const graphId = requireGraphId(req);
+      const time = await readRequestTime(updates.timestamp, 'timestamp', async () => (await req.container.graphRepository.findById(graphId))?.calendar);
+      updates.timestamp = time.date;
+      precision = time.precision;
     }
 
     const { eventRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
@@ -270,6 +278,7 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
     if (!existingEvent) {
       throw new NotFoundError(`Event with ID ${id} not found`, 'Event', id);
     }
+    if (precision) updates.metadata = { ...(updates.metadata ?? existingEvent.metadata ?? {}), datePrecision: precision };
 
     const updatedEvent = await repository.update(id, updates);
     

@@ -9,9 +9,11 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { formatInWorld, legacyCalendarSet } from '@althistory/calendar';
 import { PassThrough } from 'stream';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { DirectEngine } from './engine/DirectEngine';
 import { McpServer } from './mcp/McpServer';
 import { MCP_TOOLS } from './mcp/toolDefinitions';
@@ -93,7 +95,7 @@ describe('invented worlds', () => {
         calendarName: 'the Reckoning',
       });
       created.push(graph.id);
-      expect(graph.calendar).toEqual(CALENDAR);
+      expect(graph.calendar).toEqual(legacyCalendarSet(CALENDAR));
 
       const age = await callTool(server, 'althistory_create_arc', {
         graphId: graph.id,
@@ -139,8 +141,8 @@ describe('invented worlds', () => {
       expect(link.weight).toBe(0.6);
 
       const markdown = await callTool(server, 'althistory_export_context', { graphId: graph.id });
-      expect(markdown).toContain('the Reckoning: stored year 1000 is 1 AR');
-      expect(markdown).toContain('the world\'s year plus 999');
+      expect(markdown).toContain('the Reckoning: 12 months');
+      expect(markdown).toContain("tools take a date in the world's notation");
       expect(markdown).toContain('Mar 4, 2 AR (1001-03-04)');
       expect(markdown).toContain('Jan 1, 1 AR (1000-01-01) to Jan 1, 201 AR (1200-01-01)');
       // The arc each event sits in is named, so an agent can find empty ages.
@@ -148,7 +150,7 @@ describe('invented worlds', () => {
       expect(markdown).toMatch(/The Tide War breaks the salt-kings \| The Reign of Ysolde \|/);
 
       const json = await callTool(server, 'althistory_export_context', { graphId: graph.id, format: 'json' });
-      expect(json.metadata.calendar).toEqual(CALENDAR);
+      expect(json.metadata.calendar).toEqual(legacyCalendarSet(CALENDAR));
     });
 
     it('refuses a link from a later cause to an earlier effect, and a link type it does not know', async () => {
@@ -256,7 +258,7 @@ describe('invented worlds', () => {
       created.push(graph.id);
 
       const set = await callTool(server, 'althistory_set_calendar', { graphId: graph.id, epochYear: 1200 });
-      expect(set.calendar).toEqual({ epochYear: 1200 });
+      expect(set.calendar).toEqual(legacyCalendarSet({ epochYear: 1200 }));
 
       await expect(callTool(server, 'althistory_set_calendar', { graphId: graph.id })).rejects.toThrow(/or clear: true/);
       await expect(
@@ -281,7 +283,7 @@ describe('invented worlds', () => {
       });
       expect(result.world).toBe('A drowned archipelago ruled by salt-kings');
       expect(result.source).toBe('template');
-      expect(result.calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
+      expect(result.calendar).toEqual(legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' }));
       expect(result.graphName).toBe('World: A drowned archipelago ruled by…');
       expect(result.events[0].timestamp.startsWith('1000-01-01')).toBe(true);
       expect(result.events[0].description).toBe('The founding of the world: A drowned archipelago ruled by salt-kings');
@@ -300,7 +302,7 @@ describe('invented worlds', () => {
     it('reads its start and end dates as ISO 8601, refusing prose rather than reading it in the host zone', async () => {
       await expect(engine.generateTimeline({ world: 'Isles', startDate: 'Feb 14 1870', dryRun: true })).rejects.toThrow(/Invalid start date/);
       const zoneless = await engine.generateTimeline({ world: 'Isles', startDate: '1870-02-14T00:00', eventCount: 3, dryRun: true });
-      expect(zoneless.calendar?.epochYear).toBe(1870);
+      expect(zoneless.calendar).toEqual(legacyCalendarSet({ epochYear: 1870 }));
     });
 
     it('takes the epoch from the start date when none is given, and writes the calendar on the graph', async () => {
@@ -310,8 +312,8 @@ describe('invented worlds', () => {
         eventCount: 3,
       });
       created.push(result.graphId);
-      expect(result.calendar).toEqual({ epochYear: 1500 });
-      expect((await engine.getGraph(result.graphId)).calendar).toEqual({ epochYear: 1500 });
+      expect(result.calendar).toEqual(legacyCalendarSet({ epochYear: 1500 }));
+      expect((await engine.getGraph(result.graphId)).calendar).toEqual(legacyCalendarSet({ epochYear: 1500 }));
       // Every event is placed in an arc that holds it, as the app and exports read it.
       const arcIds = new Set(result.arcs.map((arc) => arc.id));
       for (const event of await engine.listEvents(result.graphId)) {
@@ -360,8 +362,10 @@ describe('invented worlds', () => {
       const prompt = vi.mocked(llm.extractEvents).mock.calls[0][0];
       expect(prompt).toContain('invented world');
       expect(prompt).not.toContain('counterfactual');
-      expect(prompt).toContain('ISO year N + 999');
-      expect(prompt).toContain('"312 AR", stored as 1311');
+      // The model writes dates in the world's notation, which the server reads with its calendars.
+      expect(prompt).toContain("dated in the world's own calendar");
+      expect(prompt).toContain('write a date as "Jan 1, 1 AR"');
+      expect(prompt).toContain('do not convert it to an ISO date');
       expect(result.events[0].actor).toBe('Unnamed Realm');
       expect(result.source).toBe('model');
     });
@@ -377,7 +381,7 @@ describe('invented worlds', () => {
         eventCount: 3,
       });
       created.push(branch.graphId);
-      expect((await engine.getGraph(branch.graphId)).calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
+      expect((await engine.getGraph(branch.graphId)).calendar).toEqual(legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' }));
       expect(JSON.stringify(branch.events)).not.toMatch(/counterfactual|Divergent/i);
       expect(branch.events.some((event) => event.description === 'The chronicle turns: The salt-kings make peace')).toBe(
         true
@@ -410,7 +414,7 @@ describe('invented worlds', () => {
 
     it('reads a start date without a zone as UTC', async () => {
       const result = await engine.generateTimeline({ world: 'Isles', startDate: '1000-01-01T00:00', eventCount: 3, dryRun: true });
-      expect(result.calendar).toEqual({ epochYear: 1000 });
+      expect(result.calendar).toEqual(legacyCalendarSet({ epochYear: 1000 }));
       expect(result.events[0].timestamp.startsWith('1000-01-01T00:00')).toBe(true);
     });
 
@@ -543,15 +547,93 @@ describe('invented worlds', () => {
     });
   });
 
+  describe('a world of its own shape', () => {
+    // Twelve months and two festivals (one with a leap day every sixth year), and a 30-hour day of twenty hours.
+    const VAEL = {
+      version: 2,
+      dayLength: 30 * 3600,
+      primary: 'reckoning',
+      calendars: [
+        {
+          id: 'reckoning',
+          name: 'the Reckoning of the Rising',
+          parts: [
+            ...['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun'].map((name) => ({ name, days: 30 })),
+            { name: "Midyear's Day", days: 1, intercalary: true },
+            ...['Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Longnight'].map((name) => ({ name, days: 30 })),
+            { name: 'The Drowned Days', days: 4, intercalary: true },
+          ],
+          leapRules: [{ every: 6, part: 13, days: 1 }],
+          epoch: 0,
+          eras: [{ label: 'AR', from: 1 }],
+          time: { hoursPerDay: 20, minutesPerHour: 100, secondsPerMinute: 100 },
+        },
+        { id: 'tide', name: 'the Tide-count', parts: [{ name: 'Ebbing', days: 183 }, { name: 'Flooding', days: 183 }], epoch: -100, eras: [{ label: 'TC', from: 1 }] },
+      ],
+    };
+
+    it('is created over MCP, and takes and gives its dates in its own notation', async () => {
+      const graph = await callTool(server, 'althistory_create_graph', { name: 'Vael', calendar: VAEL });
+      created.push(graph.id);
+      expect(graph.calendar.calendars.map((definition: { id: string }) => definition.id)).toEqual(['reckoning', 'tide']);
+
+      const war = await callTool(server, 'althistory_create_event', {
+        graphId: graph.id,
+        description: 'The Tide War begins',
+        timestamp: 'Greywater 4, 312 AR, 13:50',
+        actor: 'Tide-folk',
+        target: 'Salt-kings',
+      });
+      const shown = (timestamp: string, precision: 'day' | 'month' = 'day', calendar?: string) =>
+        formatInWorld(graph.calendar, Date.parse(timestamp), precision, calendar);
+      expect(shown(war.timestamp)).toBe('Greywater 4, 312 AR, 13:50');
+
+      // A date in the other calendar names the same timeline.
+      const tide = await callTool(server, 'althistory_create_event', { graphId: graph.id, description: 'Flood', timestamp: 'Flooding 20, 5 TC' });
+      expect(shown(tide.timestamp, 'day', 'tide')).toBe('Flooding 20, 5 TC');
+
+      const month = await engine.createEvent(graph.id, { description: 'Some time in Thaw', timestamp: 'Thaw 312 AR' });
+      expect((await engine.getEvent(graph.id, month.id)).metadata?.datePrecision).toBe('month');
+      await expect(engine.createEvent(graph.id, { description: 'x', timestamp: 'Greywater 31, 312 AR' })).rejects.toThrow(/Invalid timestamp/);
+
+      const arc = await callTool(server, 'althistory_create_arc', { graphId: graph.id, name: 'The war years', startTime: 'Lowtide 312 AR', endTime: 'Longnight 312 AR' });
+      expect(shown(arc.startTime)).toBe('Lowtide 1, 312 AR');
+      expect(shown(arc.endTime)).toBe('Longnight 30, 312 AR, 19:99');
+
+      const markdown = await callTool(server, 'althistory_export_context', { graphId: graph.id });
+      expect(markdown).toContain('Greywater 4, 312 AR, 13:50 (');
+      expect(markdown).toContain('the Reckoning of the Rising (primary): 12 months and 2 festivals, 365 to 366 days a year, eras AR');
+    });
+
+    it('is set from a JSON file on the command line, and not mixed with the simple flags', async () => {
+      const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vael-')), 'vael-calendar.json');
+      fs.writeFileSync(file, JSON.stringify(VAEL));
+      const made = await cli(['graph', 'create', 'Filed', '--calendar-file', file]);
+      expect(made.code).toBe(ExitCode.SUCCESS);
+      created.push(made.body.data.id);
+      expect(made.body.data.calendar.primary).toBe('reckoning');
+      const mixed = await cli(['graph', 'create', 'Mixed', '--calendar-file', file, '--epoch-year', '1000']);
+      expect(mixed.code).toBe(ExitCode.VALIDATION_FAILED);
+      expect(JSON.stringify(mixed.body)).toContain('not both');
+      const broken = await cli(['graph', 'create', 'Broken', '--calendar-file', file.replace('.json', '-missing.json')]);
+      expect(broken.code).toBe(ExitCode.VALIDATION_FAILED);
+    });
+
+    it('is chronicled from a start written in its own calendar', async () => {
+      const result = await engine.generateTimeline({ world: 'Vael', calendar: VAEL as never, startDate: 'Lowtide 1, 300 AR', eventCount: 3, dryRun: true });
+      expect(formatInWorld(result.calendar!, Date.parse(result.events[0]!.timestamp), 'year')).toBe('300 AR');
+    });
+  });
+
   describe('the CLI calendar flags', () => {
     it('creates a graph with a calendar, changes it, and clears it', async () => {
       const made = await cli(['graph', 'create', 'Flagged', '--epoch-year', '1000', '--era-label', 'AR']);
       expect(made.code).toBe(ExitCode.SUCCESS);
       created.push(made.body.data.id);
-      expect(made.body.data.calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
+      expect(made.body.data.calendar).toEqual(legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' }));
 
       const changed = await cli(['graph', 'calendar', made.body.data.id, '--epoch-year', '1100']);
-      expect(changed.body.data.calendar).toEqual({ epochYear: 1100 });
+      expect(changed.body.data.calendar).toEqual(legacyCalendarSet({ epochYear: 1100 }));
 
       const cleared = await cli(['graph', 'calendar', made.body.data.id, '--clear']);
       expect(cleared.body.data.calendar).toBeUndefined();
@@ -562,7 +644,7 @@ describe('invented worlds', () => {
       const made = await cli(['graph', 'create', 'Months', '--epoch-year', '1000', '--month-names', months]);
       expect(made.code).toBe(ExitCode.SUCCESS);
       created.push(made.body.data.id);
-      expect(made.body.data.calendar).toEqual({ epochYear: 1000, monthNames: months.split(',') });
+      expect(made.body.data.calendar).toEqual(legacyCalendarSet({ epochYear: 1000, monthNames: months.split(',') }));
 
       const short = await cli(['graph', 'calendar', made.body.data.id, '--epoch-year', '1000', '--month-names', 'A,B']);
       expect(short.code).toBe(ExitCode.VALIDATION_FAILED);
@@ -573,7 +655,7 @@ describe('invented worlds', () => {
       const months = ['Thaw', 'Seedfall', 'Greening', 'Highsun', 'Brine', 'Harvest', 'Ember', 'Ashfall', 'Gale', 'Dimming', 'Frost', 'Deepwinter'];
       const graph = await callTool(server, 'althistory_create_graph', { name: 'JSON months', epochYear: 1000, monthNames: JSON.stringify(months) });
       created.push(graph.id);
-      expect(graph.calendar.monthNames).toEqual(months);
+      expect(graph.calendar.calendars[0].parts.map((part: { name: string }) => part.name)).toEqual(months);
     });
 
     it('refuses a bracketed list that is not JSON, rather than keeping the brackets in the names', async () => {
@@ -598,8 +680,9 @@ describe('invented worlds', () => {
         const made = await cli(['graph', 'create', 'Listed', '--epoch-year', '1000', '--month-names', months]);
         expect(made.code, months).toBe(ExitCode.SUCCESS);
         created.push(made.body.data.id);
-        expect(made.body.data.calendar.monthNames, months).toHaveLength(12);
-        expect(made.body.data.calendar.monthNames[11]).toBe('Longnight');
+        const parts = made.body.data.calendar.calendars[0].parts.map((part: { name: string }) => part.name);
+        expect(parts, months).toHaveLength(12);
+        expect(parts[11]).toBe('Longnight');
       }
     });
 
@@ -607,7 +690,7 @@ describe('invented worlds', () => {
       const months = ['Thaw', 'Seedfall', 'Greening', 'Highsun', 'Brine', 'Harvest', 'Ember', 'Ashfall', 'Gale', 'Dimming', 'Frost', 'Deepwinter'];
       const graph = await callTool(server, 'althistory_create_graph', { name: 'Named months', epochYear: 1000, eraLabel: 'AR', monthNames: months });
       created.push(graph.id);
-      expect(graph.calendar).toEqual({ epochYear: 1000, eraLabel: 'AR', monthNames: months });
+      expect(graph.calendar).toEqual(legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR', monthNames: months }));
       await callTool(server, 'althistory_create_event', {
         graphId: graph.id,
         description: 'The first thaw',
@@ -616,7 +699,7 @@ describe('invented worlds', () => {
       const context = await callTool(server, 'althistory_export_context', { graphId: graph.id });
       const text = typeof context === 'string' ? context : JSON.stringify(context);
       expect(text).toContain('Greening 4, 141 AR (1140-03-04)');
-      expect(text).toContain('the months: January is Thaw, February is Seedfall');
+      expect(text).toContain('Thaw (31), Seedfall (28)');
     });
 
     it('refuses a label without an epoch, and a year that is not a whole number', async () => {
@@ -630,7 +713,7 @@ describe('invented worlds', () => {
       const made = await cli(['graph', 'create', 'Signed', '--epoch-year', '+1000']);
       expect(made.code).toBe(ExitCode.SUCCESS);
       created.push(made.body.data.id);
-      expect(made.body.data.calendar).toEqual({ epochYear: 1000 });
+      expect(made.body.data.calendar).toEqual(legacyCalendarSet({ epochYear: 1000 }));
       // Read, then refused for its range, with the range in the message.
       const zero = await cli(['graph', 'create', 'Zero', '--epoch-year', '-5']);
       expect(zero.code).toBe(ExitCode.VALIDATION_FAILED);
@@ -649,7 +732,7 @@ describe('invented worlds', () => {
 
       const imported = await engine.importGraph(JSON.stringify(document));
       created.push(imported.graphId!);
-      expect((await engine.getGraph(imported.graphId!)).calendar).toEqual(CALENDAR);
+      expect((await engine.getGraph(imported.graphId!)).calendar).toEqual(legacyCalendarSet(CALENDAR));
     });
   });
 

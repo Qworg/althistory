@@ -11,6 +11,17 @@ import { MCP_PROMPTS, renderPrompt } from './mcp/prompts';
 import { buildCommandJsonSchema } from './schema/commandSchema';
 import { readInputText } from './utils/inputText';
 import { calendarFrom, partialCalendarFrom } from './utils/calendarOptions';
+import * as fsSync from 'fs';
+
+/** The flags with --calendar-file read: its text is the whole calendar set. */
+function withCalendarFile<T extends { calendarFile?: unknown }>(cmdOpts: T): T & { calendar?: string } {
+  if (typeof cmdOpts.calendarFile !== 'string') return cmdOpts;
+  try {
+    return { ...cmdOpts, calendar: fsSync.readFileSync(cmdOpts.calendarFile, 'utf8') };
+  } catch {
+    throw new ValidationErrorCLI(`Cannot read the calendar file "${cmdOpts.calendarFile}"`);
+  }
+}
 import { formatSuccessJson } from './formatters/jsonFormatter';
 
 export function createProgram(): Command {
@@ -92,12 +103,13 @@ export function createProgram(): Command {
     .option('--era-label <label>', 'Written after a world year, as in "312 AR" (needs --epoch-year)')
     .option('--calendar-name <name>', "What the world's calendar is called (needs --epoch-year)")
     .option('--month-names <names>', "The world's twelve month names, January's first, separated by commas or one per line, or as a JSON list (needs --epoch-year)")
-    .action(async (name: string, cmdOpts: { description?: string; epochYear?: string; eraLabel?: string; calendarName?: string; monthNames?: string }) => {
+    .option('--calendar-file <path>', "An invented world's calendars of any shape, as a JSON file ({ version: 2, dayLength, calendars, primary }; see docs/specs/world-calendars.md), instead of the simple flags")
+    .action(async (name: string, cmdOpts: { description?: string; epochYear?: string; eraLabel?: string; calendarName?: string; monthNames?: string; calendarFile?: string }) => {
       const opts = program.opts<GlobalCLIOptions>();
       const ctx = new ExecutionContext(opts);
       const start = Date.now();
       try {
-        const calendar = calendarFrom(cmdOpts);
+        const calendar = calendarFrom(withCalendarFile(cmdOpts));
         const engine = await ctx.getEngine();
         const graph = await engine.createGraph(name, cmdOpts.description, calendar);
         const output = formatOutput(graph, getFormat(opts), engine.mode, {
@@ -220,18 +232,19 @@ export function createProgram(): Command {
     .option('--era-label <label>', 'Written after a world year, as in "312 AR"; without one a year reads "Year 312"')
     .option('--calendar-name <name>', "What the world's calendar is called")
     .option('--month-names <names>', "The world's twelve month names, January's first, separated by commas or one per line, or as a JSON list")
+    .option('--calendar-file <path>', "An invented world's calendars of any shape, as a JSON file ({ version: 2, dayLength, calendars, primary }; see docs/specs/world-calendars.md), instead of the simple flags")
     .option('--clear', 'Remove the calendar, so years show as stored')
-    .action(async (id: string, cmdOpts: { epochYear?: string; eraLabel?: string; calendarName?: string; monthNames?: string; clear?: boolean }) => {
+    .action(async (id: string, cmdOpts: { epochYear?: string; eraLabel?: string; calendarName?: string; monthNames?: string; calendarFile?: string; clear?: boolean }) => {
       const opts = program.opts<GlobalCLIOptions>();
       const ctx = new ExecutionContext(opts);
       const start = Date.now();
       try {
-        const calendar = calendarFrom(cmdOpts);
+        const calendar = calendarFrom(withCalendarFile(cmdOpts));
         if (cmdOpts.clear && calendar) {
           throw new ValidationErrorCLI('Give either --clear or a calendar, not both');
         }
         if (!cmdOpts.clear && !calendar) {
-          throw new ValidationErrorCLI('Give --epoch-year (with --era-label, --calendar-name and --month-names if wanted), or --clear');
+          throw new ValidationErrorCLI('Give --epoch-year (with --era-label, --calendar-name and --month-names if wanted), --calendar-file, or --clear');
         }
         const engine = await ctx.getEngine();
         const graph = await engine.setGraphCalendar(id, cmdOpts.clear ? null : (calendar ?? null));
@@ -799,8 +812,9 @@ export function createProgram(): Command {
     .option('--era-label <label>', 'With --world: written after a world year, as in "312 AR"')
     .option('--calendar-name <name>', "With --world: what the world's calendar is called")
     .option('--month-names <names>', "With --world: the world's twelve month names, January's first, separated by commas or one per line, or as a JSON list")
-    .option('--start-date <iso>', 'Earliest timeline date boundary (ISO-8601)')
-    .option('--end-date <iso>', 'Latest timeline date boundary (ISO-8601)')
+    .option('--calendar-file <path>', "With --world: the world's calendars of any shape, as a JSON file (see docs/specs/world-calendars.md), instead of the simple flags")
+    .option('--start-date <date>', "Earliest timeline date boundary (ISO-8601, or with --world a date in the world's calendar)")
+    .option('--end-date <date>', "Latest timeline date boundary (ISO-8601, or with --world a date in the world's calendar)")
     .option('-n, --event-count <count>', 'Number of pivotal events to synthesize (default: 8)', '8')
     .option('--depth <levels>', 'Arc hierarchy depth (default: 1)', '1')
     .option('--style <style>', 'Narrative style: academic, narrative, or concise', 'academic')
@@ -828,7 +842,7 @@ export function createProgram(): Command {
           premise: cmdOpts?.premise as string | undefined,
           divergencePoint: cmdOpts?.divergencePoint as string | undefined,
           world: cmdOpts?.world as string | undefined,
-          calendar: partialCalendarFrom(cmdOpts ?? {}),
+          calendar: partialCalendarFrom(withCalendarFile(cmdOpts ?? {})),
           startDate: cmdOpts?.startDate as string | undefined,
           endDate: cmdOpts?.endDate as string | undefined,
           eventCount: cmdOpts?.eventCount ? parseInt(String(cmdOpts.eventCount), 10) : 8,

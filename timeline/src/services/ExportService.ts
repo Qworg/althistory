@@ -3,7 +3,7 @@
  */
 
 import { toInstant } from '@althistory/calendar';
-import type { GraphCalendar } from '@althistory/calendar';
+import type { WorldCalendarSet } from '@althistory/calendar';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -36,7 +36,7 @@ export interface ExportMetadata {
   checksum: string;
   filters?: ExportFilters;
   /** The graph's own calendar, when it has one. Outside the checksum, like the rest of `metadata`. */
-  calendar?: GraphCalendar;
+  calendar?: WorldCalendarSet;
 }
 
 export interface ExportData {

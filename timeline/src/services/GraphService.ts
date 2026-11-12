@@ -31,7 +31,7 @@ import {
 } from './mergedEntityValidation';
 import { createLogger, ILogger } from '../utils/logger';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { GraphCalendar, calendarProblems, normalizeCalendar } from '@althistory/calendar';
+import { type WorldCalendarSet, calendarSetFromInput } from '@althistory/calendar';
 import type { HeadReplacedHook } from './LiveStoreSyncService';
 
 /**
@@ -65,13 +65,17 @@ export interface GraphServiceConfig {
 /**
  * Simple in-memory rate limiter for expensive operations
  */
-/** A calendar from a request, or a ValidationError naming what is wrong with it. */
-function checkedCalendar(value: unknown): GraphCalendar {
-  const problems = calendarProblems(value);
-  if (problems.length > 0) {
-    throw new ValidationError(problems.join('; '), 'calendar', value);
+/**
+ * A calendar from a request, as the set to store: a set, or the earlier form
+ * (a relabelled Gregorian calendar) converted; a ValidationError naming what
+ * is wrong with it otherwise.
+ */
+function checkedCalendar(value: unknown): WorldCalendarSet {
+  try {
+    return calendarSetFromInput(value);
+  } catch (err) {
+    throw new ValidationError((err as Error).message, 'calendar', value);
   }
-  return normalizeCalendar(value);
 }
 
 class OperationRateLimiter {

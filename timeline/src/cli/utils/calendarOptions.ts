@@ -6,7 +6,7 @@
  * `calendarName` and `monthNames`.
  */
 
-import { GraphCalendar, normalizeCalendar, parseEpochYear, parseMonthNames } from '@althistory/calendar';
+import { type GraphCalendar, type WorldCalendarSet, calendarSetFromInput, normalizeCalendar, parseEpochYear, parseMonthNames } from '@althistory/calendar';
 import { ValidationErrorCLI } from './exitCodes';
 
 export interface CalendarInput {
@@ -14,7 +14,28 @@ export interface CalendarInput {
   eraLabel?: unknown;
   calendarName?: unknown;
   monthNames?: unknown;
+  /** A whole calendar set (an object, or its JSON text): calendars of any shape. */
+  calendar?: unknown;
 }
+
+/** A whole calendar set given as an object or as JSON text; a CLI error naming what is wrong otherwise. */
+function calendarSetFrom(value: unknown): WorldCalendarSet {
+  let parsed = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new ValidationErrorCLI('The calendar must be a JSON object: { "version": 2, "dayLength": 86400, "calendars": [...], "primary": "..." }');
+    }
+  }
+  try {
+    return calendarSetFromInput(parsed);
+  } catch (err) {
+    throw new ValidationErrorCLI((err as Error).message);
+  }
+}
+
+const SIMPLE_FIELDS = ['epochYear', 'eraLabel', 'calendarName', 'monthNames'] as const
 
 /** An integer year from a flag ("1000", "+1000") or a tool argument (1000), read as the app's form reads it. */
 function readYear(value: unknown): number {
@@ -59,7 +80,9 @@ function readMonthNames(value: unknown): string[] | undefined {
  */
 export function partialCalendarFrom(
   input: CalendarInput
-): { epochYear?: number; eraLabel?: string; name?: string; monthNames?: string[] } | undefined {
+): { epochYear?: number; eraLabel?: string; name?: string; monthNames?: string[] } | WorldCalendarSet | undefined {
+  const whole = wholeCalendarFrom(input);
+  if (whole) return whole;
   const epochYear = isUnset(input.epochYear) ? undefined : readYear(input.epochYear);
   const eraLabel = readText(input.eraLabel, 'The era label');
   const name = readText(input.calendarName, 'The calendar name');
@@ -76,12 +99,27 @@ export function partialCalendarFrom(
 }
 
 /**
+ * A whole calendar set when `calendar` is given, refusing it alongside the
+ * simple fields (which describe a different calendar); undefined otherwise.
+ */
+function wholeCalendarFrom(input: CalendarInput): WorldCalendarSet | undefined {
+  if (isUnset(input.calendar)) return undefined;
+  const mixed = SIMPLE_FIELDS.filter((field) => !isUnset(input[field]));
+  if (mixed.length > 0) {
+    throw new ValidationErrorCLI(`Give either a whole calendar or the simple fields (${mixed.join(', ')}), not both`);
+  }
+  return calendarSetFrom(input.calendar);
+}
+
+/**
  * A complete, checked calendar, or undefined when no calendar was asked for.
  * A label, a name or month names without an epoch year is a mistake: the epoch is what
  * places the world's years.
  */
-export function calendarFrom(input: CalendarInput): GraphCalendar | undefined {
-  const partial = partialCalendarFrom(input);
+export function calendarFrom(input: CalendarInput): GraphCalendar | WorldCalendarSet | undefined {
+  const whole = wholeCalendarFrom(input);
+  if (whole) return whole;
+  const partial = partialCalendarFrom(input) as { epochYear?: number } | undefined;
   if (!partial) return undefined;
   if (partial.epochYear === undefined) {
     throw new ValidationErrorCLI(

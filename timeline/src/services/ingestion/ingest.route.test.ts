@@ -243,9 +243,10 @@ describe('Ingestion routes', () => {
 
       expect(response.status).toBe(200);
       const instructions = contextOf(textExtract)?.instructions ?? '';
-      expect(instructions).toContain('is the ISO year N + 999');
-      expect(instructions).toContain('Its months are the ISO months under other names: January is Thaw, February is B');
-      expect(instructions.indexOf('ISO year')).toBeLessThan(instructions.indexOf('Skip the footnotes.'));
+      // The model writes dates in the world's notation; the server reads them with the calendar.
+      expect(instructions).toContain('write a date as "Thaw 1, 1 AR"');
+      expect(instructions).toContain('its months and festivals, in order, are Thaw, B');
+      expect(instructions.indexOf('invented world')).toBeLessThan(instructions.indexOf('Skip the footnotes.'));
     });
 
     it('leaves the context alone without an X-Graph-Id, as before', async () => {

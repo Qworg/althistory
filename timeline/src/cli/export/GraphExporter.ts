@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Event, Arc } from '@/models';
 import { ExportFormat, ExportResultDto } from '../types';
-import { GraphCalendar, describeCalendar, formatWorldDate } from '@althistory/calendar';
+import { type WorldCalendarSet, describeCalendarSet, formatInWorld } from '@althistory/calendar';
 
 /** The formats an export can be rendered in. */
 export type { ExportFormat };
@@ -18,10 +18,10 @@ export interface ExportRelationship {
   relationship_type: string;
 }
 
-/** "1311-03-04", or with a calendar "Mar 4, 312 AR (1311-03-04)". */
-function markdownDate(date: Date, calendar: GraphCalendar | undefined): string {
+/** "1311-03-04", or in a world calendar "Thaw 4, 312 AR (1311-03-04)": its date, then its place on the timeline. */
+function markdownDate(date: Date, calendar: WorldCalendarSet | undefined): string {
   const stored = date.toISOString().split('T')[0];
-  return calendar ? `${formatWorldDate(date, calendar)} (${stored})` : stored;
+  return calendar ? `${formatInWorld(calendar, date.getTime())} (${stored})` : stored;
 }
 
 export class GraphExporter {
@@ -34,7 +34,7 @@ export class GraphExporter {
     relationships: ExportRelationship[],
     format: ExportFormat = 'json',
     outputPath?: string,
-    calendar?: GraphCalendar
+    calendar?: WorldCalendarSet
   ): Promise<ExportResultDto> {
     let content = '';
 
@@ -81,7 +81,7 @@ export class GraphExporter {
     events: Event[],
     arcs: Arc[],
     relationships: ExportRelationship[],
-    calendar?: GraphCalendar
+    calendar?: WorldCalendarSet
   ): string {
     const dataSection = {
       events: events.map((e) => ({
@@ -149,7 +149,7 @@ export class GraphExporter {
     events: Event[],
     arcs: Arc[],
     relationships: ExportRelationship[],
-    calendar?: GraphCalendar
+    calendar?: WorldCalendarSet
   ): string {
     const sortedEvents = [...events].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     const sortedArcs = [...arcs].sort((a, b) => a.start_time.getTime() - b.start_time.getTime());
@@ -159,9 +159,8 @@ export class GraphExporter {
     md += `> **Graph ID:** \`${graphId}\` | **Exported:** ${new Date().toISOString()} | **Events:** ${events.length} | **Arcs:** ${arcs.length} | **Causal Links:** ${relationships.length}\n\n`;
 
     if (calendar) {
-      const offset = calendar.epochYear - 1;
-      md += `> **Calendar:** ${describeCalendar(calendar)}. Each date below is the world's date, then the stored date in brackets; `;
-      md += `tools take and return the stored date, which is the world's year plus ${offset}.\n\n`;
+      md += `> **Calendar:** ${describeCalendarSet(calendar).split('\n').join('; ')}. Each date below is the world's date, then its place on the timeline in brackets; `;
+      md += `tools take a date in the world's notation (as written here) or a timeline timestamp.\n\n`;
     }
 
     if (description) {

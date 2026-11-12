@@ -11,7 +11,7 @@
  * `../ingestion/index.ts`).
  */
 
-import { readTimestamp } from '@althistory/calendar';
+import { type WorldCalendarSet, readWorldTimestamp } from '@althistory/calendar';
 import { ExtractedEvent, ExtractedRelationship, ExtractionContext, ExtractionSource } from '../ingestion/types';
 import { JsonValue, parseJsonBody } from '../ingestion/http';
 import { newTempId } from '../ingestion/ids';
@@ -92,7 +92,8 @@ function extractItems(payload: JsonValue, key: string): JsonValue[] {
  */
 export function parseExtractedEvents(
   payload: JsonValue,
-  source: ExtractionSource
+  source: ExtractionSource,
+  calendar?: WorldCalendarSet
 ): ExtractedEvent[] {
   const items = extractItems(payload, 'events');
   const events: ExtractedEvent[] = [];
@@ -106,7 +107,8 @@ export function parseExtractedEvents(
     // zone-less "1870-02-14 09:30" is 09:30 UTC on any server. A month or a
     // year alone ("1871-03") is stored as its first day with its precision,
     // as the text extractor stores one.
-    const read = readTimestamp(asString(item.timestamp));
+    // In a world calendar's notation first ("Thaw 4, 312 AR"), then ISO 8601.
+    const read = readWorldTimestamp(calendar, asString(item.timestamp));
     if (!description || !read) continue;
 
     const actor = asString(item.actor).trim();

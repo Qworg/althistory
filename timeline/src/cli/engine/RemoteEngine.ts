@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
-import { GraphCalendar, storedCalendar, toInstant } from '@althistory/calendar';
-import { precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
+import { type WorldCalendarSet, storedCalendarSet, toInstant } from '@althistory/calendar';
+import type { CalendarInput } from '../../models/Graph';
+import { isIsoText, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import { IEngine } from './IEngine';
 import {
   HealthInfo,
@@ -234,7 +235,7 @@ export class RemoteEngine implements IEngine {
         typeof graph.branchPoint === 'number' ? `v${graph.branchPoint}` : undefined,
       createdAt: readString(graph.createdAt, new Date().toISOString()),
       updatedAt: readString(graph.updatedAt, new Date().toISOString()),
-      ...(storedCalendar(graph.calendar) ? { calendar: storedCalendar(graph.calendar) } : {}),
+      ...(storedCalendarSet(graph.calendar) ? { calendar: storedCalendarSet(graph.calendar)! } : {}),
     };
   }
 
@@ -247,7 +248,7 @@ export class RemoteEngine implements IEngine {
     }
   }
 
-  async createGraph(name: string, description?: string, calendar?: GraphCalendar): Promise<GraphSummaryDto> {
+  async createGraph(name: string, description?: string, calendar?: CalendarInput): Promise<GraphSummaryDto> {
     try {
       const res = await this.client.post('/api/graphs', { name, description, calendar });
       return this.toGraphSummary(unwrap(res.data));
@@ -256,13 +257,20 @@ export class RemoteEngine implements IEngine {
     }
   }
 
-  async setGraphCalendar(id: string, calendar: GraphCalendar | null): Promise<GraphSummaryDto> {
+  async setGraphCalendar(id: string, calendar: CalendarInput | null): Promise<GraphSummaryDto> {
     try {
       const res = await this.client.put(`/api/graphs/${encodeURIComponent(id)}`, { calendar });
       return this.toGraphSummary(unwrap(res.data));
     } catch (err) {
       return this.handleError(err, `setting the calendar of graph ${id}`);
     }
+  }
+
+  /** The graph's world calendars, when text is not ISO 8601 and may be a world date; fetched only then. */
+  private async worldCalendarFor(graphId: string, text: string): Promise<WorldCalendarSet | undefined> {
+    if (isIsoText(text)) return undefined;
+    // A graph that cannot be read gives no calendar: the text is then refused as a date.
+    return (await this.getGraph(graphId).catch(() => undefined))?.calendar;
   }
 
   async getGraph(id: string): Promise<GraphSummaryDto> {
@@ -416,7 +424,7 @@ export class RemoteEngine implements IEngine {
     }
   ): Promise<EventDto> {
     // Read here, as the direct engine reads it, so both modes take the same text.
-    const read = readAgentTimestamp(data.timestamp);
+    const read = readAgentTimestamp(data.timestamp, await this.worldCalendarFor(graphId, data.timestamp));
     try {
       const res = await this.client.post(
         '/api/events',
@@ -491,7 +499,7 @@ export class RemoteEngine implements IEngine {
     eventId: string,
     data: Partial<{ description: string; timestamp: string; actor?: string; target?: string }>
   ): Promise<EventDto> {
-    const read = data.timestamp !== undefined ? readAgentTimestamp(data.timestamp) : undefined;
+    const read = data.timestamp !== undefined ? readAgentTimestamp(data.timestamp, await this.worldCalendarFor(graphId, data.timestamp)) : undefined;
     try {
       // A new date replaces the old one's precision, as in the direct engine.
       // The PUT replaces metadata whole, so it is sent only as read back and
@@ -535,8 +543,8 @@ export class RemoteEngine implements IEngine {
     data: { name: string; startTime: string; endTime: string; description?: string; parentArcId?: string }
   ): Promise<ArcDto> {
     // Read here, as the direct engine reads them, so both modes take the same text.
-    const startTime = readAgentTimestamp(data.startTime).iso;
-    const endTime = readAgentTimestamp(data.endTime).iso;
+    const startTime = readAgentTimestamp(data.startTime, await this.worldCalendarFor(graphId, data.startTime)).iso;
+    const endTime = readAgentTimestamp(data.endTime, await this.worldCalendarFor(graphId, data.endTime), 'end').iso;
     try {
       // A child arc sits one level below the arc it belongs to, which has to
       // exist; the direct engine places it the same way.

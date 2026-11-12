@@ -1,5 +1,5 @@
 import { ExtractedEvent, ExtractedArc, ExtractionSource } from '@/services/ingestion/types';
-import { GraphCalendar, formatWorldYear, toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, calendarIn, dateAt, formatWorldYearOf, toInstant } from '@althistory/calendar';
 
 /** How the arcs are named. */
 export interface ArcNamingOptions {
@@ -7,7 +7,7 @@ export interface ArcNamingOptions {
    * The world's calendar: the years in an arc's name are the world's years,
    * and an arc is an "Age" rather than a "Campaign / Period".
    */
-  calendar?: GraphCalendar;
+  calendar?: WorldCalendarSet;
 }
 
 /**
@@ -51,11 +51,12 @@ export function clusterEventsIntoArcs(
   naming: ArcNamingOptions = {}
 ): ExtractedArc[] {
   const { calendar } = naming;
-  // The UTC year, as every historical date is stored; a calendar relabels it.
+  // The UTC year without a calendar; in a world, the year its primary calendar names.
+  const primary = calendar ? calendarIn(calendar) : null;
   const yearOf = (timestamp: string): string => {
-    const year = toInstant(timestamp).getUTCFullYear();
-    if (Number.isNaN(year)) return '';
-    return calendar ? formatWorldYear(year, calendar) : String(year);
+    const position = toInstant(timestamp).getTime();
+    if (Number.isNaN(position)) return '';
+    return primary ? formatWorldYearOf(primary.definition, dateAt(primary, position).year) : String(new Date(position).getUTCFullYear());
   };
 
   if (events.length === 0) {

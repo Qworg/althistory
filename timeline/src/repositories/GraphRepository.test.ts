@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { legacyCalendarSet } from '@althistory/calendar';
 import * as fs from 'fs';
 import * as path from 'path';
 import { GraphRepository } from './GraphRepository';
@@ -307,7 +308,7 @@ describe('GraphRepository Unit Tests', () => {
 
       const result = await repository.findAll();
 
-      expect(result.graphs[0]?.calendar).toEqual({ epochYear: 1000 });
+      expect(result.graphs[0]?.calendar).toEqual(legacyCalendarSet({ epochYear: 1000 }));
     });
 
     it('should return all graphs', async () => {
@@ -461,7 +462,7 @@ describe('GraphRepository Unit Tests', () => {
 
       const result = await repository.update('test-id', { name: 'Vael, renamed' });
 
-      expect(result?.calendar).toEqual({ epochYear: 1000, eraLabel: 'AR' });
+      expect(result?.calendar).toEqual(legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' }));
       const written = vi.mocked(fs.promises.writeFile).mock.calls.map(([, body]) => String(body)).find((body) => body.includes('Vael, renamed'));
       expect(JSON.parse(written!).calendar).toEqual(calendar);
     });

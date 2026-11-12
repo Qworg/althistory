@@ -13,6 +13,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import { formatInWorld, legacyCalendarSet, storedCalendarSet } from '@althistory/calendar';
 import request from 'supertest';
 import express, { Express } from 'express';
 import * as fs from 'fs/promises';
@@ -187,10 +188,77 @@ describe('Graph routes (request-level)', () => {
         .set('X-API-Key', writeKey)
         .send({ name: 'Vael', calendar })
         .expect(201);
-      expect(created.body.data.calendar).toEqual(calendar);
+      expect(created.body.data.calendar).toEqual(legacyCalendarSet(calendar));
 
       const read = await request(app).get(`/api/graphs/${created.body.data.id}`).set('X-API-Key', readKey).expect(200);
-      expect(read.body.data.calendar).toEqual(calendar);
+      expect(read.body.data.calendar).toEqual(legacyCalendarSet(calendar));
+    });
+
+    it('keeps a world of its own shape: festival days outside its months, a leap cycle and a day of twenty hours', async () => {
+      const vael = {
+        version: 2,
+        dayLength: 30 * 3600,
+        primary: 'reckoning',
+        calendars: [
+          {
+            id: 'reckoning',
+            name: 'the Reckoning of the Rising',
+            parts: [
+              ...['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun'].map((name) => ({ name, days: 30 })),
+              { name: "Midyear's Day", days: 1, intercalary: true },
+              ...['Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Longnight'].map((name) => ({ name, days: 30 })),
+              { name: 'The Drowned Days', days: 4, intercalary: true },
+            ],
+            leapRules: [{ every: 6, part: 13, days: 1 }],
+            epoch: 0,
+            eras: [{ label: 'AR', from: 1 }],
+            time: { hoursPerDay: 20, minutesPerHour: 100, secondsPerMinute: 100 },
+          },
+        ],
+      };
+      const key = (
+        await container.authService.createApiKey({
+          name: 'World writer',
+          permissions: ['read:graphs', 'write:graphs', 'read:events', 'write:events', 'read:arcs', 'write:arcs'],
+        })
+      ).key;
+      const created = await request(app).post('/api/graphs').set('X-API-Key', key).send({ name: 'Vael', calendar: vael }).expect(201);
+      const graphId = created.body.data.id;
+      expect(created.body.data.calendar.calendars[0].parts).toHaveLength(14);
+
+      const set = storedCalendarSet(created.body.data.calendar)!;
+      const shown = (timestamp: string, precision: 'day' | 'month' | 'year' = 'day') => formatInWorld(set, Date.parse(timestamp), precision);
+      const post = (path: string, body: Record<string, unknown>, status = 201) =>
+        request(app).post(path).set('X-API-Key', key).set('X-Graph-Id', graphId).send(body).expect(status);
+
+      // Text in the world's notation, and fields: the same day both ways.
+      const byText = await post('/api/events', { description: 'The Tide War', actor: 'Tide-folk', target: 'Salt-kings', timestamp: 'Greywater 4, 312 AR, 13:50' });
+      expect(shown(byText.body.data.timestamp)).toBe('Greywater 4, 312 AR, 13:50');
+      const byFields = await post('/api/events', {
+        description: 'The truce',
+        actor: 'Salt-kings',
+        target: 'Tide-folk',
+        timestamp: { era: 'AR', year: 312, month: 'Greywater', day: 4 },
+      });
+      expect(shown(byFields.body.data.timestamp)).toBe('Greywater 4, 312 AR');
+
+      // A festival, and a month alone, which records its precision.
+      const festival = await post('/api/events', { description: 'Midyear', actor: 'All', target: 'All', timestamp: "Midyear's Day, 312 AR" });
+      expect(shown(festival.body.data.timestamp)).toBe("Midyear's Day, 312 AR");
+      const month = await post('/api/events', { description: 'Some time in Thaw', actor: 'A', target: 'B', timestamp: 'Thaw 312 AR' });
+      expect(month.body.data.metadata.datePrecision).toBe('month');
+      expect(shown(month.body.data.timestamp, 'month')).toBe('Thaw 312 AR');
+
+      // A day the month does not have, and the leap day of a year without one, are refused.
+      const refused = await post('/api/events', { description: 'x', actor: 'A', target: 'B', timestamp: 'Greywater 31, 312 AR' }, 400);
+      expect(refused.body.error.message).toContain('Greywater has 30 days');
+      await post('/api/events', { description: 'x', actor: 'A', target: 'B', timestamp: 'The Drowned Days 5, 313 AR' }, 400);
+      await post('/api/events', { description: 'Leap', actor: 'A', target: 'B', timestamp: 'The Drowned Days 5, 312 AR' });
+
+      // An arc ending in a month ends at that month's last moment.
+      const arc = await post('/api/arcs', { name: 'The war years', start_time: 'Lowtide 312 AR', end_time: 'Longnight 312 AR', level: 0 });
+      expect(shown(arc.body.data.start_time)).toBe('Lowtide 1, 312 AR');
+      expect(shown(arc.body.data.end_time)).toBe('Longnight 30, 312 AR, 19:99');
     });
 
     it('refuses a calendar that does not check out, saying why', async () => {
@@ -210,14 +278,14 @@ describe('Graph routes (request-level)', () => {
         .set('X-API-Key', writeKey)
         .send({ calendar: { epochYear: 1200 } })
         .expect(200);
-      expect(set.body.data.calendar).toEqual({ epochYear: 1200 });
+      expect(set.body.data.calendar).toEqual(legacyCalendarSet({ epochYear: 1200 }));
 
       const renamed = await request(app)
         .put(`/api/graphs/${graph.id}`)
         .set('X-API-Key', writeKey)
         .send({ name: 'Calendar Kept' })
         .expect(200);
-      expect(renamed.body.data.calendar).toEqual({ epochYear: 1200 });
+      expect(renamed.body.data.calendar).toEqual(legacyCalendarSet({ epochYear: 1200 }));
 
       const cleared = await request(app)
         .put(`/api/graphs/${graph.id}`)
@@ -230,7 +298,7 @@ describe('Graph routes (request-level)', () => {
     it('carries the calendar to a branch and to a copy, which are the same world', async () => {
       const world = await container.graphService.createGraph({ name: 'World To Fork', calendar });
       const branch = await container.graphService.branchGraph(world.id, { name: 'World Branch' });
-      expect(branch.calendar).toEqual(calendar);
+      expect(branch.calendar).toEqual(legacyCalendarSet(calendar));
 
       const copy = await request(app)
         .post('/api/graphs/copy')
@@ -238,7 +306,7 @@ describe('Graph routes (request-level)', () => {
         .send({ sourceGraphId: world.id, targetName: 'World Copy' })
         .expect(201);
       const copied = await container.graphService.getGraph(copy.body.data.id);
-      expect(copied.calendar).toEqual(calendar);
+      expect(copied.calendar).toEqual(legacyCalendarSet(calendar));
     });
 
     it('lets the remote CLI engine create a world, change its calendar, and nest an arc one level down', async () => {
@@ -263,9 +331,9 @@ describe('Graph routes (request-level)', () => {
         const engine = new RemoteEngine(`http://127.0.0.1:${port}`, authorKey);
 
         const made = await engine.createGraph('Remote World', undefined, calendar);
-        expect(made.calendar).toEqual(calendar);
+        expect(made.calendar).toEqual(legacyCalendarSet(calendar));
         const changed = await engine.setGraphCalendar(made.id, { epochYear: 1200 });
-        expect(changed.calendar).toEqual({ epochYear: 1200 });
+        expect(changed.calendar).toEqual(legacyCalendarSet({ epochYear: 1200 }));
         const cleared = await engine.setGraphCalendar(made.id, null);
         expect(cleared.calendar).toBeUndefined();
 
@@ -362,7 +430,7 @@ describe('Graph routes (request-level)', () => {
       await importService.initialize();
       const restored = await importService.executeImport(exported.body, { mode: 'create-new', conflictResolution: 'skip' });
       expect(restored.success).toBe(true);
-      expect((await container.graphService.getGraph(restored.graphId)).calendar).toEqual(calendar);
+      expect((await container.graphService.getGraph(restored.graphId)).calendar).toEqual(legacyCalendarSet(calendar));
 
       const tampered = { ...exported.body, metadata: { ...exported.body.metadata, calendar: { epochYear: 'soon' } } };
       const dropped = await importService.executeImport(tampered, { mode: 'create-new', conflictResolution: 'skip' });
@@ -377,7 +445,7 @@ describe('Graph routes (request-level)', () => {
         .set('X-API-Key', writeKey)
         .set('X-Graph-Id', world.id)
         .expect(200);
-      expect(response.body.metadata.calendar).toEqual(calendar);
+      expect(response.body.metadata.calendar).toEqual(legacyCalendarSet(calendar));
       expect(response.body.data.calendar).toBeUndefined();
     });
   });

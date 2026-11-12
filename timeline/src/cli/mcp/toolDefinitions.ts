@@ -37,7 +37,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'althistory_create_graph',
     description:
-      'Create an empty history graph to write into, optionally with an invented world\'s calendar so its years are shown in the world\'s own count',
+      'Create an empty history graph to write into, optionally with an invented world\'s calendar: either a simple one (the Gregorian calendar with the world\'s own year count and month names), or calendars of any shape (`calendar`)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -68,6 +68,11 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           maxItems: 12,
           description: "The world's twelve month names, January's first, so March 4 reads e.g. \"Thaw 4\". The months keep their stored lengths. Needs epochYear.",
         },
+        calendar: {
+          type: 'object',
+          description:
+            "An invented world's own calendars, of any shape, instead of the simple fields above: { version: 2, dayLength (seconds in the world's day, 86400 for Earth's), calendars: [{ id, name, parts: [{ name, days, intercalary? }] (months, and festival days that belong to no month), leapRules?: [{ every, offset?, part, days }], epoch (the timeline day year 1 begins on), eras?: [{ label, from }], beforeEra?, week?: { days, epochWeekday?, skipsIntercalary? }, time?: { hoursPerDay, minutesPerHour, secondsPerMinute }, notation?: { date, month, year, festival, time } }], primary (the id shown by default) }. See docs/specs/world-calendars.md.",
+        },
       },
       required: ['name'],
     },
@@ -75,7 +80,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'althistory_set_calendar',
     description:
-      "Give a graph an invented world's calendar, or remove it with clear. The calendar only relabels years (and, with monthNames, months) when they are shown; stored dates do not move. It replaces the graph's whole calendar: give every field to keep (to add month names, send epochYear, eraLabel and calendarName again with them).",
+      "Give a graph an invented world's calendars, or remove them with clear. Either the simple fields (the Gregorian calendar with the world's year count and month names), or `calendar`: calendars of any shape (any months and lengths, festival days, leap rules, weeks, hours, eras; several at once). Positions on the timeline do not move; the calendars name them. It replaces the graph's whole calendar.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -101,6 +106,11 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           minItems: 12,
           maxItems: 12,
           description: "The world's twelve month names, January's first, so March 4 reads e.g. \"Thaw 4\". The months keep their stored lengths. Needs epochYear.",
+        },
+        calendar: {
+          type: 'object',
+          description:
+            "An invented world's own calendars, of any shape, instead of the simple fields above: { version: 2, dayLength (seconds in the world's day, 86400 for Earth's), calendars: [{ id, name, parts: [{ name, days, intercalary? }] (months, and festival days that belong to no month), leapRules?: [{ every, offset?, part, days }], epoch (the timeline day year 1 begins on), eras?: [{ label, from }], beforeEra?, week?: { days, epochWeekday?, skipsIntercalary? }, time?: { hoursPerDay, minutesPerHour, secondsPerMinute }, notation?: { date, month, year, festival, time } }], primary (the id shown by default) }. See docs/specs/world-calendars.md.",
         },
         clear: {
           type: 'boolean',

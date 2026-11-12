@@ -20,7 +20,7 @@
  * cannot be imported twice.
  */
 
-import { parseIsoInstant, readTimestamp } from '@althistory/calendar';
+import { type WorldCalendarSet, parseIsoInstant, readWorldTimestamp } from '@althistory/calendar';
 import * as crypto from 'crypto';
 import { AppError } from '../../utils/errors';
 import {
@@ -76,6 +76,8 @@ export interface IngestionJob {
    * was driven directly without an owner; the ingest routes always set it.
    */
   ownerKeyId?: string;
+  /** The graph's world calendars the text was read with, so a reviewer's dates are read with them too. */
+  calendar?: WorldCalendarSet;
 }
 
 type ExtractionResultSource = 'wikipedia' | 'wikidata' | 'text' | 'llm';
@@ -243,6 +245,7 @@ export class IngestionOrchestrator {
       extraction,
       validationIssues,
       ownerKeyId,
+      ...(context?.calendar ? { calendar: context.calendar } : {}),
     };
     this.jobStore.set(job);
 
@@ -305,7 +308,7 @@ export class IngestionOrchestrator {
         `Ingestion job ${job.id} is not awaiting review (status: ${job.status})`
       );
     }
-    const selected = selectForImport(job.extraction, request);
+    const selected = selectForImport(job.extraction, request, job.calendar);
 
     const issues = validateExtraction(selected);
     const errors = issues.filter((issue) => issue.severity === 'error');
@@ -352,18 +355,19 @@ export class IngestionOrchestrator {
 /** Apply edits and the approved selection to produce the subset to import. */
 export function selectForImport(
   extraction: ExtractionResult,
-  request: ApproveIngestionRequest
+  request: ApproveIngestionRequest,
+  calendar?: WorldCalendarSet
 ): ExtractionResult {
   const edits = request.edits ?? {};
   const events = extraction.events
-    .map((event) => mergeEvent(event, edits[event.tempId]))
+    .map((event) => mergeEvent(event, edits[event.tempId], calendar))
     .filter((event) =>
       hasApproved(request.approvedEventIds, event.tempId, event.selected)
     );
   const eventIds = new Set(events.map((event) => event.tempId));
 
   const arcs = extraction.arcs
-    .map((arc) => mergeArc(arc, edits[arc.tempId]))
+    .map((arc) => mergeArc(arc, edits[arc.tempId], calendar))
     .filter((arc) => hasApproved(request.approvedArcIds, arc.tempId, arc.selected));
 
   const relationships = extraction.relationships
@@ -395,11 +399,11 @@ function hasApproved(approved: string[] | undefined, tempId: string, fallback: b
  * ("1871-03" is a month). Text it cannot read is kept as typed, for the
  * validation to refuse by name. Unchanged text keeps the extraction's own.
  */
-function typedTimestamp(typed: unknown, event: ExtractedEvent): Pick<ExtractedEvent, 'timestamp' | 'datePrecision'> {
+function typedTimestamp(typed: unknown, event: ExtractedEvent, calendar?: WorldCalendarSet): Pick<ExtractedEvent, 'timestamp' | 'datePrecision'> {
   if (typeof typed !== 'string' || typed === event.timestamp) {
     return { timestamp: event.timestamp, datePrecision: event.datePrecision };
   }
-  const read = readTimestamp(typed);
+  const read = readWorldTimestamp(calendar, typed);
   if (!read) return { timestamp: typed, datePrecision: undefined };
   return { timestamp: read.iso, datePrecision: read.precision === 'day' ? undefined : read.precision };
 }
@@ -414,28 +418,28 @@ function strictTime(text: string): number {
   return parseIsoInstant(String(text).trim())?.date.getTime() ?? NaN;
 }
 
-function mergeEvent(event: ExtractedEvent, edit: ExtractedEdit | undefined): ExtractedEvent {
+function mergeEvent(event: ExtractedEvent, edit: ExtractedEdit | undefined, calendar?: WorldCalendarSet): ExtractedEvent {
   if (!edit) return event;
   return {
     ...event,
     description: typeof edit.description === 'string' ? edit.description : event.description,
     actor: typeof edit.actor === 'string' ? edit.actor : event.actor,
     target: typeof edit.target === 'string' ? edit.target : event.target,
-    ...typedTimestamp(edit.timestamp, event),
+    ...typedTimestamp(edit.timestamp, event, calendar),
     confidence: typeof edit.confidence === 'number' ? edit.confidence : event.confidence,
     selected: typeof edit.selected === 'boolean' ? edit.selected : event.selected,
     edited: true,
   };
 }
 
-function mergeArc(arc: ExtractedArc, edit: ExtractedEdit | undefined): ExtractedArc {
+function mergeArc(arc: ExtractedArc, edit: ExtractedEdit | undefined, calendar?: WorldCalendarSet): ExtractedArc {
   if (!edit) return arc;
   return {
     ...arc,
     name: typeof edit.name === 'string' ? edit.name : arc.name,
     description: typeof edit.description === 'string' ? edit.description : arc.description,
-    start_time: typeof edit.start_time === 'string' ? (readTimestamp(edit.start_time)?.iso ?? edit.start_time) : arc.start_time,
-    end_time: typeof edit.end_time === 'string' ? (readTimestamp(edit.end_time)?.iso ?? edit.end_time) : arc.end_time,
+    start_time: typeof edit.start_time === 'string' ? (readWorldTimestamp(calendar, edit.start_time)?.iso ?? edit.start_time) : arc.start_time,
+    end_time: typeof edit.end_time === 'string' ? (readWorldTimestamp(calendar, edit.end_time)?.iso ?? edit.end_time) : arc.end_time,
     level: typeof edit.level === 'number' ? edit.level : arc.level,
     confidence: typeof edit.confidence === 'number' ? edit.confidence : arc.confidence,
     selected: typeof edit.selected === 'boolean' ? edit.selected : arc.selected,

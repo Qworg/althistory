@@ -1,3 +1,4 @@
+import { readRequestTime } from '../worldDates';
 import { toInstant } from '@althistory/calendar';
 import { Router, Response, NextFunction } from 'express';
 import { CreateArcRequest, UpdateArcRequest } from '@/models/Arc';
@@ -45,12 +46,13 @@ arcRoutes.post('/', ...entityPermission('write:arcs'), async (req: RequestWithCo
       );
     }
 
-    // Convert timestamp strings to Date if needed
-    if (typeof arcData.start_time === 'string') {
-      arcData.start_time = toInstant(arcData.start_time);
-    }
-    if (typeof arcData.end_time === 'string') {
-      arcData.end_time = toInstant(arcData.end_time);
+    // ISO 8601, or in a graph with world calendars a date in the world's
+    // notation or as fields: a month or a year as an arc's end is its last moment.
+    {
+      const graphId = requireGraphId(req);
+      const calendarOf = async () => (await req.container.graphRepository.findById(graphId))?.calendar;
+      arcData.start_time = (await readRequestTime(arcData.start_time, 'start_time', calendarOf)).date;
+      arcData.end_time = (await readRequestTime(arcData.end_time, 'end_time', calendarOf, 'end')).date;
     }
 
     // Repositories bound to this request's graph; never the global store.
@@ -307,12 +309,12 @@ arcRoutes.put('/:id', ...entityPermission('write:arcs'), async (req: RequestWith
       throw new ValidationError('Arc ID is required', 'id', id);
     }
 
-    // Convert timestamp strings to Date if provided
-    if (updates.start_time && typeof updates.start_time === 'string') {
-      updates.start_time = toInstant(updates.start_time);
-    }
-    if (updates.end_time && typeof updates.end_time === 'string') {
-      updates.end_time = toInstant(updates.end_time);
+    // Read as on create.
+    {
+      const graphId = requireGraphId(req);
+      const calendarOf = async () => (await req.container.graphRepository.findById(graphId))?.calendar;
+      if (updates.start_time) updates.start_time = (await readRequestTime(updates.start_time, 'start_time', calendarOf)).date;
+      if (updates.end_time) updates.end_time = (await readRequestTime(updates.end_time, 'end_time', calendarOf, 'end')).date;
     }
 
     const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));

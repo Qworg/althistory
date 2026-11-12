@@ -16,7 +16,7 @@
  */
 
 import { GraphRepository } from '../repositories/GraphRepository';
-import { readTimestamp, storedCalendar, toInstant } from '@althistory/calendar';
+import { readTimestamp, storedCalendarSet, toInstant } from '@althistory/calendar';
 import { JobRepository } from '../repositories/JobRepository';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 import {
@@ -2343,7 +2343,7 @@ export class ImportService {
           // What does not check out in a calendar is dropped rather than
           // failing the import (see `storedCalendar`): it only changes how
           // dates are shown.
-          calendar: storedCalendar(importData.metadata.calendar),
+          calendar: storedCalendarSet(importData.metadata.calendar) ?? undefined,
         });
         targetGraphId = newGraph.id;
         createdNewGraphId = newGraph.id;

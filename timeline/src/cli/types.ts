@@ -3,7 +3,7 @@
  */
 
 import type { SimulationDomain } from '@/services/SimulationService';
-import type { GraphCalendar } from '@althistory/calendar';
+import type { WorldCalendarSet } from '@althistory/calendar';
 
 
 export type OutputFormat = 'json' | 'ndjson' | 'markdown' | 'plain';
@@ -57,8 +57,8 @@ export interface GraphSummaryDto {
   eventCount?: number;
   arcCount?: number;
   relationshipCount?: number;
-  /** The world's own calendar, when the graph has one (see `@althistory/calendar`). */
-  calendar?: GraphCalendar;
+  /** The world's own calendars, when the graph has them (see `@althistory/calendar`). */
+  calendar?: WorldCalendarSet;
 }
 
 export interface EventDto {
@@ -266,7 +266,7 @@ export interface GenerateTimelineOptions {
    * The invented world's calendar. `epochYear` defaults to the start date's
    * year, or 1000 when there is no start date.
    */
-  calendar?: { epochYear?: number; eraLabel?: string; name?: string; monthNames?: string[] };
+  calendar?: { epochYear?: number; eraLabel?: string; name?: string; monthNames?: string[] } | WorldCalendarSet;
   startDate?: string;
   endDate?: string;
   eventCount?: number;
@@ -325,7 +325,7 @@ export interface GenerationResultDto {
   /** The invented world, when the timeline chronicles one. */
   world?: string;
   /** The calendar the generated graph counts its years in. */
-  calendar?: GraphCalendar;
+  calendar?: WorldCalendarSet;
   /**
    * Who wrote the events: `model`, or `template` when there was no model key
    * or the model's answer could not be used. A template is a skeleton to
