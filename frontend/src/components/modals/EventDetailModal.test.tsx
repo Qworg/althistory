@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'vitest-axe'
 import type { ReactElement } from 'react'
@@ -690,6 +690,29 @@ describe('EventDetailModal: what the form records', () => {
           })
         )
       })
+    })
+
+    it('saves a date left as shown unchanged, though another calendar is shown, and rewrites only the date on a switch', async () => {
+      const user = userEvent.setup()
+      const onSave = vi.fn().mockResolvedValue(undefined)
+      useWorldCalendarStore.getState().setCalendar(VAEL)
+      useWorldCalendarStore.getState().showCalendar('tide')
+      const stored = vael(312, 2, 1).toISOString()
+      const event = createMockEvent({ timestamp: stored, metadata: { datePrecision: 'month' } })
+      withClient(<EventDetailModal {...props} event={event} onSave={onSave} />)
+      const date = screen.getByLabelText(/^date/i)
+      expect((date as HTMLInputElement).value).toMatch(/ TC$/)
+      const description = screen.getByLabelText(/description/i)
+      await user.clear(description)
+      await user.type(description, 'Edited')
+      // Back to the Reckoning: the description stays, the date is written in it.
+      act(() => useWorldCalendarStore.getState().showCalendar('reckoning'))
+      expect(screen.getByLabelText(/description/i)).toHaveValue('Edited')
+      expect(screen.getByLabelText(/^date/i)).toHaveValue('Thaw 312 AR')
+      await user.click(screen.getByRole('button', { name: /save/i }))
+      await waitFor(() =>
+        expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ description: 'Edited', timestamp: stored, metadata: expect.objectContaining({ datePrecision: 'month' }) }))
+      )
     })
 
     it('shows an event at the precision it is known to, and refuses a day the world lacks', async () => {

@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Arc, Event, UpdateArcRequest, CreateArcRequest } from '@/types'
 import { formatDuration } from '../timeline/arcHierarchyUtils'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 import { DateField } from '@/components/ui/DateField'
-import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { describedBy } from '@/utils/aria'
-import { dateFieldIso, dateFieldValue, readDateFieldValue } from '@/utils/dateField'
+import { readDateFieldValue } from '@/utils/dateField'
+import { useDateFieldText } from '@/hooks/useDateFieldText'
 
 export interface ArcDetailPanelProps {
   arc: Arc | null
@@ -33,19 +33,27 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
   parentArc = null,
   className = ''
 }) => {
-  // The graph's world calendar, for the hint under each stored date.
-  const worldCalendar = useWorldCalendar()
-  // A field's value and its instant: a UTC picker, or the world's notation.
-  // (A new calendar shown rewrites the fields: their text is read in it.)
-  const toField = useCallback(
-    (iso: string, edge: 'start' | 'end') => dateFieldValue(iso, 'datetime', { calendar: worldCalendar, edge }),
-    [worldCalendar]
-  )
-  const toIso = (value: string, edge: 'start' | 'end') => dateFieldIso(value, { calendar: worldCalendar, edge })
   const isCreateMode = !arc
   const [formData, setFormData] = useState<UpdateArcRequest>({})
   const [isLoading, setIsLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  // The dates' fields: a UTC picker, or the world's notation (see useDateFieldText).
+  const dates = useDateFieldText('datetime')
+  const worldCalendar = dates.calendar
+  const toField = dates.fill
+  const toIso = dates.toIso
+
+  // Another calendar shown rewrites the dates (and only the dates) in it.
+  const { takeSwitch, rewrite } = dates
+  useEffect(() => {
+    const switched = takeSwitch()
+    if (!switched) return
+    setFormData((current) => ({
+      ...current,
+      start_time: rewrite(current.start_time || '', 'start', switched.from),
+      end_time: rewrite(current.end_time || '', 'end', switched.from),
+    }))
+  }, [takeSwitch, rewrite])
 
   // Update form data when arc changes or reset for create mode
   useEffect(() => {

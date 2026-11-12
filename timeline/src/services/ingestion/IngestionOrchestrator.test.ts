@@ -4,12 +4,14 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+import { type WorldCalendarSet, formatInWorld } from '@althistory/calendar';
 import {
   ImportExecutor,
   IngestionJobNotFoundError,
   IngestionJobStateError,
   IngestionOrchestrator,
   IngestionValidationError,
+  selectForImport,
   toAlthistoryExport,
   validateExtraction,
 } from './IngestionOrchestrator';
@@ -413,5 +415,36 @@ describe('toAlthistoryExport', () => {
     const [month, day] = exported.data.events;
     expect(month?.metadata).toMatchObject({ datePrecision: 'month' });
     expect(day?.metadata).not.toHaveProperty('datePrecision');
+  });
+});
+
+describe('review edits in a world', () => {
+  const VAEL: WorldCalendarSet = {
+    version: 2,
+    dayLength: 30 * 3600,
+    primary: 'reckoning',
+    calendars: [
+      {
+        id: 'reckoning',
+        name: 'the Reckoning of the Rising',
+        parts: ['Lowtide', 'Greywater', 'Thaw', 'Seedtide'].map((name) => ({ name, days: 30 })),
+        epoch: 0,
+        eras: [{ label: 'AR', from: 1 }],
+      },
+    ],
+  };
+
+  it("reads an arc's edited end as the last moment of the month it names, as the API does", () => {
+    const extraction = {
+      events: [],
+      arcs: [{ tempId: 'a1', name: 'War', description: '', start_time: '', end_time: '', level: 0, confidence: 1, source: 'llm', selected: true, edited: false }],
+      relationships: [],
+      sources: [],
+      overallConfidence: 1,
+    } as unknown as Parameters<typeof selectForImport>[0];
+    const selected = selectForImport(extraction, { edits: { a1: { start_time: 'Seedtide 312 AR', end_time: 'Seedtide 312 AR' } } } as never, VAEL);
+    const arc = selected.arcs[0]!;
+    expect(formatInWorld(VAEL, Date.parse(arc.start_time))).toBe('Seedtide 1, 312 AR');
+    expect(formatInWorld(VAEL, Date.parse(arc.end_time))).toBe('Seedtide 30, 312 AR, 23:59');
   });
 });

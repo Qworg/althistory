@@ -1,16 +1,13 @@
 /**
- * A graph's own calendar, for invented worlds: what it is, and the one set of
- * rules that says whether one is usable.
+ * The earlier form of a graph's calendar, and the one set of rules that says
+ * whether one is usable. A world's calendars are now sets of any shape
+ * (world/); this form is still read (as the set it stands for, world/legacy.ts)
+ * and still taken from the simple flags of the CLI and the tools.
  *
- * Every timestamp is still a UTC instant on the proleptic Gregorian calendar;
- * that is what sorting, validation, the time scales and the causal-order checks
- * read, and nothing here changes it. A calendar relabels a date when it is
- * shown: with `epochYear: 1000` and `eraLabel: "AR"`, the stored year 1000 is
- * shown as "1 AR" and 1311 as "312 AR". It can also name the twelve months
- * (`monthNames`), so March 4 reads "Thaw 4". The months keep their stored
- * lengths and order, and the days their numbers: a world with thirteen months,
- * or months of other lengths, cannot be written, because every date is still a
- * Gregorian one underneath.
+ * It is the Gregorian calendar with the world's own year count: with
+ * `epochYear: 1000` and `eraLabel: "AR"`, the stored year 1000 is "1 AR" and
+ * 1311 is "312 AR". It can also rename the twelve months (`monthNames`), so
+ * March 4 reads "Thaw 4"; the months keep their lengths and order.
  *
  * The rules are written once, as {@link calendarIssues}. The API's messages
  * ({@link calendarProblems}) and the app form's (`calendarDraftErrors` in

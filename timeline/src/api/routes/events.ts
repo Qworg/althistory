@@ -264,7 +264,8 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
 
     // Read as on create; a world date at month or year precision records it.
     let precision: 'month' | 'year' | undefined;
-    if (updates.timestamp !== undefined && updates.timestamp !== null) {
+    const newTimestamp = updates.timestamp !== undefined && updates.timestamp !== null;
+    if (newTimestamp) {
       const graphId = requireGraphId(req);
       const time = await readRequestTime(updates.timestamp, 'timestamp', async () => (await req.container.graphRepository.findById(graphId))?.calendar);
       updates.timestamp = time.date;
@@ -278,7 +279,15 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
     if (!existingEvent) {
       throw new NotFoundError(`Event with ID ${id} not found`, 'Event', id);
     }
-    if (precision) updates.metadata = { ...(updates.metadata ?? existingEvent.metadata ?? {}), datePrecision: precision };
+    // A new date replaces what was known of the old one: its precision is the
+    // new date's (a world month or year), the one the request's metadata
+    // states, or none (a day).
+    if (newTimestamp) {
+      const metadata: Record<string, unknown> = { ...(updates.metadata ?? existingEvent.metadata ?? {}) };
+      if (precision) metadata.datePrecision = precision;
+      else if (!(updates.metadata && 'datePrecision' in updates.metadata)) delete metadata.datePrecision;
+      updates.metadata = metadata;
+    }
 
     const updatedEvent = await repository.update(id, updates);
     

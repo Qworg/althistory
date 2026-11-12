@@ -15,11 +15,31 @@ export interface WorldTick {
 
 type Unit = 'year' | 'month' | 'day' | 'hour' | 'minute'
 
-const STEPS: Record<Exclude<Unit, 'year'>, number[]> = {
+const BASE_STEPS: Record<Exclude<Unit, 'year'>, number[]> = {
   month: [1, 2, 3, 6],
   day: [1, 2, 5, 10],
   hour: [1, 2, 3, 6, 12],
   minute: [1, 5, 10, 15, 30],
+}
+
+/**
+ * A unit's round steps: the usual ones, then 1-2-5 steps past them up to the
+ * most the calendar has of it (a day of a thousand hours steps by 200).
+ */
+function stepsOf(calendar: CompiledCalendar, unit: Exclude<Unit, 'year'>): number[] {
+  const most =
+    unit === 'month'
+      ? calendar.definition.parts.length
+      : unit === 'day'
+        ? Math.max(...calendar.definition.parts.map((part) => part.days)) + 2
+        : unit === 'hour'
+          ? calendar.time.hoursPerDay
+          : calendar.time.minutesPerHour
+  const steps = [...BASE_STEPS[unit]]
+  for (let power = 10; power < most; power *= 10) {
+    for (const step of [power, 2 * power, 5 * power]) if (step > steps[steps.length - 1]! && step < most) steps.push(step)
+  }
+  return steps
 }
 
 /** Year steps of the 1-2-5 series, as far as a span of `years` needs (a calendar's year can be two days long). */
@@ -113,7 +133,10 @@ function ticksOf(calendar: CompiledCalendar, unit: Unit, step: number, lo: numbe
         continue
       }
       const { hoursPerDay, minutesPerHour } = calendar.time
-      for (let hour = 0; hour < hoursPerDay; hour += unit === 'hour' ? step : 1) {
+      // Only the hours the domain reaches (a day can have a thousand).
+      const fromHour = axisDay === firstDay ? first.hour - (first.hour % (unit === 'hour' ? step : 1)) : 0
+      const toHour = axisDay === lastDay ? last.hour : hoursPerDay - 1
+      for (let hour = fromHour; hour <= toHour; hour += unit === 'hour' ? step : 1) {
         for (let minute = 0; minute < (unit === 'hour' ? 1 : minutesPerHour); minute += unit === 'minute' ? step : minutesPerHour) {
           if (!push(positionOf(calendar, { ...date, hour, minute, second: 0 }))) return null
         }
@@ -139,7 +162,7 @@ export function worldTicks(calendar: CompiledCalendar, domain: readonly [number,
   // Coarse to fine: once a unit's coarsest step has too many ticks, every finer one does.
   search: for (const unit of units) {
     const length = unitMs(calendar, unit)
-    const steps = unit === 'year' ? yearSteps(span / length) : STEPS[unit]
+    const steps = unit === 'year' ? yearSteps(span / length) : stepsOf(calendar, unit)
     for (const [index, step] of [...steps].reverse().entries()) {
       const tooMany = span / (length * step) > maxTicks * 2
       const ticks = tooMany ? null : ticksOf(calendar, unit, step, lo, hi, maxTicks)
@@ -156,7 +179,7 @@ export function worldTicks(calendar: CompiledCalendar, domain: readonly [number,
     // Every tick still falls on that unit's boundary.
     for (const unit of units) {
       const length = unitMs(calendar, unit)
-      const steps = unit === 'year' ? yearSteps(span / length) : STEPS[unit]
+      const steps = unit === 'year' ? yearSteps(span / length) : stepsOf(calendar, unit)
       for (const step of [...steps].reverse()) {
         if (span / (length * step) > maxTicks * 8) break
         const ticks = ticksOf(calendar, unit, step, lo, hi, maxTicks * 8)

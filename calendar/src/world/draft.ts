@@ -17,9 +17,8 @@ import {
   DEFAULT_TIME,
   LIMITS,
   type WorldCalendarSet,
-  calendarSetIssues,
-  normalizeCalendarSet,
 } from './definition'
+import { calendarSetIssues, normalizeCalendarSet } from './check'
 import { gregorianDefinition } from './legacy'
 
 export interface PartDraft {
@@ -136,9 +135,17 @@ export function newCalendarDraft(world: WorldDraft | null, name = 'Calendar'): C
   while (existingIds.includes(id)) id = `calendar-${++index}`
   const draft = draftFromDefinition(gregorianDefinition({ id, name }))
   const first = world?.calendars[0]
-  return first
-    ? { ...draft, hoursPerDay: first.hoursPerDay, minutesPerHour: first.minutesPerHour, secondsPerMinute: first.secondsPerMinute }
-    : draft
+  if (!first || !world) return draft
+  // Its own era label, so its dates are never another calendar's text ("Year 5").
+  const taken = new Set(world.calendars.flatMap((calendar) => calendar.eras.map((era) => era.label.trim().toLowerCase())))
+  const letter = [...'BCDEFGHIJKLMNOPQRSTUVWXYZ'].find((candidate) => !taken.has(`era ${candidate.toLowerCase()}`)) ?? 'Z'
+  return {
+    ...draft,
+    eras: [{ label: `Era ${letter}`, from: '1' }],
+    hoursPerDay: first.hoursPerDay,
+    minutesPerHour: first.minutesPerHour,
+    secondsPerMinute: first.secondsPerMinute,
+  }
 }
 
 /** A new world: one calendar, Earth's day. */
@@ -158,9 +165,9 @@ function wholeNumber(value: string): number | string | undefined {
 
 function dayLengthOf(hours: string): number | string {
   const trimmed = hours.trim()
-  const clock = /^(\d{1,7}):([0-5]\d)(?::([0-5]\d))?$/.exec(trimmed)
+  const clock = /^\+?(\d{1,7}):([0-5]\d)(?::([0-5]\d))?$/.exec(trimmed)
   if (clock) return Number(clock[1]) * 3600 + Number(clock[2]) * 60 + Number(clock[3] ?? 0)
-  if (!/^\d{1,7}(?:\.\d{1,12})?$/.test(trimmed)) return trimmed
+  if (!/^\+?\d{1,7}(?:\.\d{1,12})?$/.test(trimmed)) return trimmed
   const seconds = Number(trimmed) * 3600
   const whole = Math.round(seconds)
   // A day is a whole number of seconds: "0.5" hours is, "0.0001" is not.
@@ -246,7 +253,11 @@ function errorKey(path: string): string {
   if (key === 'dayLength' || key === '') return key === '' ? 'calendars' : 'dayHours'
   return key
     .replace(/\.intercalary$/, '.festival')
-    .replace(/\.week\.epochWeekday$/, '.epochWeekday')
+    // A whole part or era (a repeated name) is about its name; the first
+    // weekday is picked beside the week's days.
+    .replace(/(\.parts\.\d+)$/, '$1.name')
+    .replace(/(\.eras\.\d+)$/, '$1.label')
+    .replace(/\.week\.epochWeekday$/, '.weekDays')
     .replace(/\.week\.skipsIntercalary$/, '.skipsIntercalary')
     .replace(/\.week(\.days(\.\d+)?)?$/, '.weekDays')
     .replace(/\.time\.(hoursPerDay|minutesPerHour|secondsPerMinute)$/, '.$1')
@@ -258,7 +269,8 @@ function fieldMessage(path: string, message: string): string {
   if (path === 'calendar.dayLength') {
     return `A day must last a whole number of seconds, from 1 second to ${hoursText(LIMITS.dayLength)} hours.`
   }
-  let rest = message.startsWith(path) ? message.slice(path.length).trim() : message
+  // The message names where the problem is; beside its field it need not.
+  let rest = message.replace(/^calendar(?:\.[A-Za-z]+|\[\d+\])*:?\s*/, '')
   rest = rest.charAt(0).toUpperCase() + rest.slice(1)
   return /[.!?]$/.test(rest) ? rest : `${rest}.`
 }

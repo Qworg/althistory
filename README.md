@@ -121,11 +121,14 @@ premise in your next message):
 An invented world keeps its own **calendars**, of any shape: a day of any
 length divided its own way, months and festival days of any length, leap
 years, eras, a week, and how its dates are written. Vael's Reckoning has
-thirteen months of thirty days, Midyear's Day, and four Drowned Days at the
+twelve months of thirty days, Midyear's Day, and four Drowned Days at the
 year's end (five every sixth year), in a day of thirty Earth hours; its coast
-keeps the Tide-count beside it. The app, the API, the CLI, the MCP tools and
-the exports all read and write the world's dates ("Thaw 4, 312 AR", "Thaw
-312 AR" for a month), and the app can show them in any of its calendars.
+keeps the Tide-count beside it. The app, the API, the CLI and the MCP tools
+all take the world's dates ("Thaw 4, 312 AR", "Thaw 312 AR" for a month); the
+app, the MCP tools and the exports write them, and the app can show them in
+any of the world's calendars. A set whose text could read back as another
+date (in its own calendar or another of the world's) is refused, with an
+example.
 Every date is still one moment on the graph's timeline, so sorting, causal
 order and validation are unchanged. The calendars are defined in
 [docs/specs/world-calendars.md](docs/specs/world-calendars.md); a world that

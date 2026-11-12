@@ -69,4 +69,20 @@ describe('a filter bound in a world calendar (Req 15)', () => {
       arb.runs(500)
     )
   })
+
+  it('fills the room in a day divided very finely, and quickly', () => {
+    const set = {
+      version: 2 as const,
+      dayLength: 86_400,
+      primary: 'fine',
+      calendars: [{ id: 'fine', name: 'Fine', parts: [{ name: 'Qaa', days: 10 }], epoch: 0, time: { hoursPerDay: 1000, minutesPerHour: 1000, secondsPerMinute: 1 } }],
+    }
+    const calendar = calendarIn(set)
+    const day = worldTicks(calendar, [0, calendar.dayMs], 10)
+    expect(day.length).toBeGreaterThanOrEqual(5)
+    expect(day.length).toBeLessThanOrEqual(10)
+    const started = performance.now()
+    worldTicks(calendar, [calendar.dayMs * 3, calendar.dayMs * 3 + 1000], 10)
+    expect(performance.now() - started).toBeLessThan(100)
+  })
 })

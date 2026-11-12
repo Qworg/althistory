@@ -329,13 +329,18 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           maxItems: 12,
           description: "The world's twelve month names, January's first, so March 4 reads e.g. \"Thaw 4\". The months keep their stored lengths. With world.",
         },
+        calendar: {
+          type: 'object',
+          description:
+            "For an invented world, instead of the simple fields above: its own calendars, of any shape (the set althistory_create_graph takes; see docs/specs/world-calendars.md). With world.",
+        },
         startDate: {
           type: 'string',
-          description: 'Starting ISO timestamp for timeline generation',
+          description: "Where the timeline starts: ISO 8601, or for an invented world a date in its calendar (\"Thaw 1, 300 AR\")",
         },
         endDate: {
           type: 'string',
-          description: 'Ending ISO timestamp for timeline generation (an invented world defaults to 300 years after the start)',
+          description: "Where the timeline ends: ISO 8601, or for an invented world a date in its calendar, its last moment (an invented world defaults to 300 years after the start)",
         },
         eventCount: {
           type: 'number',

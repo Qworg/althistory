@@ -4,6 +4,7 @@
  */
 
 export * from './definition'
+export * from './check'
 export * from './engine'
 export * from './legacy'
 export * from './notation'

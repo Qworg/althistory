@@ -114,7 +114,7 @@ describe('World calendars section: creating a graph', () => {
     expect(calendar.primary).toBe(calendar.calendars[1].id)
   })
 
-  it('takes a whole set pasted as JSON', async () => {
+  it('takes a whole set pasted as JSON, without another click', async () => {
     const onCreate = await openForm()
     await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
     await user.click(screen.getByRole('button', { name: 'Edit as JSON' }))
@@ -122,20 +122,24 @@ describe('World calendars section: creating a graph', () => {
     await user.clear(json)
     await user.click(json)
     await user.paste(JSON.stringify(VAEL))
-    await user.click(screen.getByRole('button', { name: 'Use this JSON' }))
     await user.click(screen.getByRole('button', { name: 'Create Graph' }))
     expect(sent(onCreate)).toEqual(VAEL)
   })
 
-  it('says what is wrong with pasted JSON, and keeps the form as it was', async () => {
-    await openForm()
+  it('will not send while the JSON is not a set, and says why', async () => {
+    const onCreate = await openForm()
     await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
     await user.click(screen.getByRole('button', { name: 'Edit as JSON' }))
     const json = screen.getByLabelText(/The calendars as JSON/)
     await user.clear(json)
     await user.type(json, 'not json')
-    await user.click(screen.getByRole('button', { name: 'Use this JSON' }))
-    expect(screen.getByText('That is not JSON.')).toBeInTheDocument()
+    expect(screen.getByText('That is not JSON yet.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Create Graph' }))
+    expect(onCreate).not.toHaveBeenCalled()
+    // Back to the form: what was last taken is the draft, and it sends.
+    await user.click(screen.getByRole('button', { name: 'Edit with the form' }))
+    await user.click(screen.getByRole('button', { name: 'Create Graph' }))
+    expect(onCreate).toHaveBeenCalled()
   })
 
   it('keeps focus in the section when it is added and removed, and sends nothing once removed', async () => {

@@ -1290,9 +1290,10 @@ export class TimelineGenerator {
         throw new ValidationErrorCLI((err as Error).message);
       }
       // Dates in the world's notation ("Thaw 4, 312 AR") or ISO 8601.
-      const readDate = (text: string | undefined, what: string): number => {
+      // The end of the chronicle is the last moment of the day, month or year it names.
+      const readDate = (text: string | undefined, what: 'start' | 'end'): number => {
         if (!text) return NaN;
-        const read = readWorldTimestamp(calendar, text);
+        const read = readWorldTimestamp(calendar, text, what);
         if (!read) {
           throw new ValidationErrorCLI(`Invalid ${what} date "${text}": give it in the world's calendar ("${formatInWorld(calendar, 0)}") or as an ISO-8601 date`);
         }

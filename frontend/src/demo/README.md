@@ -19,7 +19,7 @@ The recording holds three graphs:
 | --- | --- | --- |
 | `branch` | `graph_clerks_prevail` | The example branch, where the fork is. **Start over** opens here. |
 | `main` | `graph_engine_age` | The Engine Age, the main history. |
-| `world` | `graph_vael` | Vael, an invented world with its own calendar (stored 1000 is 1 AR, and March is Thaw), so every date reads in its years and months. The site's agents page builds it with an agent. |
+| `world` | `graph_vael` | Vael, an invented world with calendars of its own: the Reckoning (twelve months of thirty days, Midyear's Day and the Drowned Days, in a day of thirty hours) and the Tide-count beside it, so every date reads in the world's terms, in either. The site's agents page builds it with an agent. |
 
 A link can also open on one event: `?start=main#/timeline?event=<id>`. The
 app itself handles `?event=` on the timeline (it selects the event and drops

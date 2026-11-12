@@ -558,9 +558,11 @@ describe('Event API Endpoints', () => {
         .send(updateWithStringTimestamp)
         .expect(200);
 
+      // A new date also clears the old one's recorded precision (the rest of the metadata stays).
       expect(mockRepository.update).toHaveBeenCalledWith('test-id', {
         ...updateData,
-        timestamp: new Date('2023-01-02T10:00:00Z')
+        timestamp: new Date('2023-01-02T10:00:00Z'),
+        metadata: expect.not.objectContaining({ datePrecision: expect.anything() }),
       });
     });
 

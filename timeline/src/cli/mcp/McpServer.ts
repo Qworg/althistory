@@ -5,6 +5,8 @@ import { MCP_PROMPTS, renderPrompt } from './prompts';
 import { isSimulationDomain } from '@/services/SimulationService';
 import { calendarFrom, partialCalendarFrom } from '../utils/calendarOptions';
 import { ValidationErrorCLI } from '../utils/exitCodes';
+import { storedCalendarSet } from '@althistory/calendar';
+import { withWorldDates } from './worldDates';
 
 const CAUSAL_LINK_TYPES = ['direct', 'indirect', 'contributory'] as const;
 
@@ -187,7 +189,7 @@ export class McpServer {
             throw new Error('Give either clear or a calendar, not both');
           }
           if (args.clear !== true && !calendar) {
-            throw new Error('Give epochYear (with eraLabel, calendarName and monthNames if wanted), or clear: true');
+            throw new Error('Give calendar (calendars of any shape), or epochYear (with eraLabel, calendarName and monthNames if wanted), or clear: true');
           }
           toolOutput = await this.engine.setGraphCalendar(String(args.graphId), calendar ?? null);
           break;
@@ -359,6 +361,16 @@ export class McpServer {
               },
             ],
           };
+      }
+
+      // In a world, every date in the result also as the world writes it.
+      if (typeof toolOutput === 'object' && toolOutput !== null) {
+        const outputRecord = toolOutput as { graphId?: unknown; calendar?: unknown };
+        const graphId = typeof args.graphId === 'string' ? args.graphId : typeof outputRecord.graphId === 'string' ? outputRecord.graphId : undefined;
+        const calendar =
+          storedCalendarSet(outputRecord.calendar) ??
+          (graphId ? storedCalendarSet((await this.engine.getGraph(graphId).catch(() => undefined))?.calendar) : null);
+        if (calendar) toolOutput = withWorldDates(toolOutput, calendar);
       }
 
       return {

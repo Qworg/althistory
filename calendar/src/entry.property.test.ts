@@ -95,3 +95,20 @@ describe('a typed date in a world', () => {
     )
   })
 })
+
+describe('an ISO date typed as an end', () => {
+  it('is the last moment of its day, in a world as without one', () => {
+    fc.assert(
+      fc.property(warb.calendarSet, arb.fieldInstant, (set, date) => {
+        const day = date.toISOString().slice(0, 10)
+        fc.pre(!parseWorldText(set, day).ok)
+        const end = `${day}T23:59:59.999Z`
+        expect(readDateEntry(day, set, 'end')).toEqual({ ok: true, iso: end, precision: 'day' })
+        expect(readDateEntry(day, null, 'end')).toEqual({ ok: true, iso: end, precision: 'day' })
+        expect(readDateEntry(`${day}T06:00:00Z`, set, 'end')).toEqual({ ok: true, iso: `${day}T06:00:00.000Z`, precision: 'day' })
+      }),
+      arb.runs(300)
+    )
+    expect(readDateEntry('1843 14:30', null).ok).toBe(false)
+  })
+})

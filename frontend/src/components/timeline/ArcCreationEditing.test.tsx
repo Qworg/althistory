@@ -783,6 +783,25 @@ describe('Arc Creation and Editing', () => {
   describe('ArcDetailPanel in a world calendar', () => {
     afterEach(() => useWorldCalendarStore.getState().setCalendar(null))
 
+    it('saves dates left as shown exactly as stored, and keeps other edits when the calendar shown changes', async () => {
+      const user = userEvent.setup()
+      const onSave = vi.fn().mockResolvedValue(undefined)
+      useWorldCalendarStore.getState().setCalendar(VAEL)
+      // Seconds the field does not show: they must survive a save.
+      const arc = { ...mockArc, start_time: new Date(vael(312, 2, 1).getTime() + 1234).toISOString(), end_time: new Date(vael(312, 3, 1).getTime() - 1).toISOString() }
+      render(<ArcDetailPanel {...defaultProps} arc={arc} onSave={onSave} childArcs={[]} containedEvents={[]} />)
+      const name = screen.getByDisplayValue('Test Arc')
+      await user.clear(name)
+      await user.type(name, 'Renamed')
+      act(() => useWorldCalendarStore.getState().showCalendar('tide'))
+      expect(screen.getByDisplayValue('Renamed')).toBeInTheDocument()
+      expect((screen.getByLabelText(/End Time/) as HTMLInputElement).value).toMatch(/ TC$/)
+      await user.click(screen.getByRole('button', { name: /save/i }))
+      await waitFor(() =>
+        expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: 'Renamed', start_time: arc.start_time, end_time: arc.end_time }))
+      )
+    })
+
     it("shows the arc's span in the world's notation, and saves a month-long span as the whole month", async () => {
       const user = userEvent.setup()
       const onSave = vi.fn().mockResolvedValue(undefined)

@@ -259,6 +259,57 @@ describe('Graph routes (request-level)', () => {
       const arc = await post('/api/arcs', { name: 'The war years', start_time: 'Lowtide 312 AR', end_time: 'Longnight 312 AR', level: 0 });
       expect(shown(arc.body.data.start_time)).toBe('Lowtide 1, 312 AR');
       expect(shown(arc.body.data.end_time)).toBe('Longnight 30, 312 AR, 19:99');
+
+      // Text that is neither ISO 8601 nor the world's notation is refused, not
+      // read as a Gregorian date in the server's zone.
+      for (const text of ['Year 312', '312', 'Mar 4, 312']) {
+        await post('/api/events', { description: 'x', actor: 'A', target: 'B', timestamp: text }, 400);
+        await post('/api/arcs', { name: 'x', start_time: text, end_time: 'Longnight 312 AR', level: 0 }, 400);
+      }
+
+      // A new date replaces the old one's precision.
+      const put = (id: string, body: Record<string, unknown>) =>
+        request(app).put(`/api/events/${id}`).set('X-API-Key', key).set('X-Graph-Id', graphId).send(body).expect(200);
+      const toDay = await put(month.body.data.id, { timestamp: 'Thaw 4, 312 AR' });
+      expect(toDay.body.data.metadata.datePrecision).toBeUndefined();
+      const toYear = await put(month.body.data.id, { timestamp: '313 AR' });
+      expect(toYear.body.data.metadata.datePrecision).toBe('year');
+      const toIso = await put(month.body.data.id, { timestamp: '2400-01-01T00:00:00Z' });
+      expect(toIso.body.data.metadata.datePrecision).toBeUndefined();
+      // Unless the request says what it is (the app sends ISO with the precision it read).
+      const stated = await put(month.body.data.id, { timestamp: '2400-01-01T00:00:00Z', metadata: { datePrecision: 'month' } });
+      expect(stated.body.data.metadata.datePrecision).toBe('month');
+
+      // A batch reads its dates the same way.
+      const batch = await request(app)
+        .post('/api/batch/events')
+        .set('X-API-Key', key)
+        .set('X-Graph-Id', graphId)
+        .send({ graphId, events: [{ description: 'Batched', actor: 'A', target: 'B', timestamp: 'Thaw 312 AR' }] });
+      expect(batch.status).toBeLessThan(300);
+      const batched = await request(app).get(`/api/events/${batch.body.data?.created?.[0] ?? batch.body.created?.[0]}`).set('X-API-Key', key).set('X-Graph-Id', graphId).expect(200);
+      expect(shown(batched.body.data.timestamp, 'month')).toBe('Thaw 312 AR');
+      expect(batched.body.data.metadata.datePrecision).toBe('month');
+
+      // A remote CLI with a key for events but not the graph sends world text
+      // as written, and the server reads it with the graph's calendars.
+      const eventsOnly = (
+        await container.authService.createApiKey({ name: 'Events only', permissions: ['read:events', 'write:events', 'read:arcs', 'write:arcs'] })
+      ).key;
+      const server = app.listen(0);
+      try {
+        const { port } = server.address() as AddressInfo;
+        const remote = new RemoteEngine(`http://127.0.0.1:${port}`, eventsOnly);
+        const day = await remote.createEvent(graphId, { description: 'Remote', actor: 'A', target: 'B', timestamp: 'Thaw 4, 312 AR' });
+        expect(shown(day.timestamp)).toBe('Thaw 4, 312 AR');
+        const inMonth = await remote.createEvent(graphId, { description: 'Remote month', actor: 'A', target: 'B', timestamp: 'Thaw 312 AR' });
+        expect(inMonth.metadata?.datePrecision).toBe('month');
+        const remoteArc = await remote.createArc(graphId, { name: 'Remote arc', startTime: 'Thaw 312 AR', endTime: 'Thaw 312 AR' });
+        expect(shown(remoteArc.endTime)).toBe('Thaw 30, 312 AR, 19:99');
+        await expect(remote.createEvent(graphId, { description: 'x', actor: 'A', target: 'B', timestamp: 'Year 312' })).rejects.toThrow(/not a date/);
+      } finally {
+        server.close();
+      }
     });
 
     it('refuses a calendar that does not check out, saying why', async () => {

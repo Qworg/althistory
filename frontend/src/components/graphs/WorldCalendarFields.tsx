@@ -586,26 +586,33 @@ function CalendarEditor({
   )
 }
 
-/** The set as JSON, to copy into a file for the CLI, or to paste one in. */
+/**
+ * The set as JSON, to copy into a file for the CLI, or to paste one in. What
+ * is typed is the draft as soon as it is a set the API takes; until then the
+ * form will not send, and says why.
+ */
 function JsonEditor({ state, idPrefix }: { state: CalendarDraftState; idPrefix: string }) {
   const [text, setText] = useState(() => JSON.stringify(draftAsSet(state.draft), null, 2))
-  const [problem, setProblem] = useState<string | null>(null)
   const textId = `${idPrefix}-calendar-json`
-  const apply = () => {
+  const { replace, setBlocked } = state
+  // Leaving the JSON (back to the form, or the section closed) leaves only what was taken.
+  useEffect(() => () => setBlocked(null), [setBlocked])
+  const change = (next: string) => {
+    setText(next)
     let value: unknown
     try {
-      value = JSON.parse(text)
+      value = JSON.parse(next)
     } catch {
-      setProblem('That is not JSON.')
+      setBlocked('That is not JSON yet.')
       return
     }
     const issues = calendarSetIssues(value)
     if (issues.length > 0) {
-      setProblem(issues.map((issue) => issue.message).slice(0, 3).join('; '))
+      setBlocked(issues.map((issue) => issue.message).slice(0, 3).join('; '))
       return
     }
-    setProblem(null)
-    state.replace(normalizeCalendarSet(value))
+    setBlocked(null)
+    replace(normalizeCalendarSet(value))
   }
   return (
     <div className="space-y-2">
@@ -617,14 +624,13 @@ function JsonEditor({ state, idPrefix }: { state: CalendarDraftState; idPrefix: 
         rows={10}
         value={text}
         spellCheck={false}
-        onChange={(event) => setText(event.target.value)}
-        aria-describedby={problem ? `${textId}-error` : undefined}
-        className={`${INPUT_CLASS} font-mono-code text-xs ${problem ? 'border-red-500 dark:border-red-400' : 'border-line'}`}
+        onChange={(event) => change(event.target.value)}
+        aria-invalid={state.blocked ? true : undefined}
+        aria-describedby={state.blocked ? `${textId}-error` : undefined}
+        className={`${INPUT_CLASS} font-mono-code text-xs ${state.blocked ? 'border-red-500 dark:border-red-400' : 'border-line'}`}
       />
-      <ListError id={`${textId}-error`} error={problem ?? undefined} />
-      <button type="button" className={SMALL_BUTTON} onClick={apply}>
-        Use this JSON
-      </button>
+      <ListError id={`${textId}-error`} error={state.blocked ?? undefined} />
+      {!state.blocked && <p className="text-xs text-ink-muted">Taken as typed: saving sends it.</p>}
     </div>
   )
 }

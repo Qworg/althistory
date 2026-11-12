@@ -144,6 +144,24 @@ function fromInputDate(value: string, edge: DateBoundEdge, calendar: CalendarArg
 }
 
 /**
+ * A bound as a link carries it. In a world the instant it names (ISO 8601):
+ * its text depends on the calendar the viewer picked, which a link does not
+ * carry, and two calendars can write the same text for different days.
+ * Without a world, the bound as typed (`1843-11`), as links always held it.
+ */
+export function boundToUrl(text: string, edge: DateBoundEdge, calendar: CalendarArg): string {
+  if (!calendar || text === '') return text
+  const read = readDateBound(text, edge, calendar)
+  return read.ok ? read.date.toISOString() : text
+}
+
+/** A bound from a link, as the panel shows it in the calendar shown (see {@link boundToUrl}). */
+export function boundFromUrl(value: string, edge: DateBoundEdge, calendar: CalendarArg): string {
+  if (!calendar || value === '') return value
+  return formatDateBound(value, edge, calendar) || value
+}
+
+/**
  * Store filter shape (`Date` bounds) -> the string-bounded shape `FilterPanel`
  * renders, with the bounds in the world calendar shown (the open graph's by
  * default; `null` for stored dates).

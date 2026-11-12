@@ -12,6 +12,7 @@ import {
   newWorldDraft,
   readWorldDraft,
   calendarSetIssues,
+  calendarSetShapeIssues,
   sameCalendarSet,
   storedCalendarSet,
   worldDraftErrors,
@@ -31,7 +32,7 @@ function canonical(set: WorldCalendarSet): unknown {
 
 /** Every key an error can be filed under is a field the editor has. */
 const FIELD_KEY =
-  /^(dayHours|primary|calendars(\.\d+(\.(id|name|epoch|beforeEra|weekDays|epochWeekday|skipsIntercalary|hoursPerDay|minutesPerHour|secondsPerMinute|notation(\.(date|month|year|festival|time))?|time|parts(\.\d+(\.(name|days|festival))?)?|leapRules(\.\d+(\.(every|offset|part|days))?)?|eras(\.\d+(\.(label|from))?)?))?)?)$/
+  /^(dayHours|primary|calendars(\.\d+(\.(id|name|epoch|beforeEra|weekDays|skipsIntercalary|hoursPerDay|minutesPerHour|secondsPerMinute|notation(\.(date|month|year|festival|time))?|time|parts(\.\d+\.(name|days|festival))?|leapRules(\.\d+(\.(every|offset|part|days))?)?|eras(\.\d+\.(label|from))?))?)?)$/
 
 describe('the world calendar editor', () => {
   it('holds any calendar set, and sends it back as the API stores it', () => {
@@ -80,6 +81,8 @@ describe('the world calendar editor', () => {
         const draft: WorldDraft = draftFromSet(set)
         const calendar = draft.calendars[index % draft.calendars.length]!
         const targets: Array<() => void> = [
+          () => calendar.parts.length > 1 && (calendar.parts[1]!.name = calendar.parts[0]!.name),
+          () => (calendar.epochWeekday = bad),
           () => (draft.dayHours = bad),
           () => (draft.primary = bad),
           () => (calendar.name = bad),
@@ -97,7 +100,7 @@ describe('the world calendar editor', () => {
         for (const [key, message] of Object.entries(errors)) {
           expect(key).toMatch(FIELD_KEY)
           expect(message).toMatch(/^[A-Z"].*[.!?]$/)
-          expect(message).not.toMatch(/calendar\.calendars\[/)
+          expect(message).not.toMatch(/calendar\.calendars\[|calendars\[\d/i)
         }
         // The draft is sent only when it has no problems.
         expect(readWorldDraft(draft).ok).toBe(Object.keys(errors).length === 0)
@@ -124,7 +127,9 @@ describe('telling two calendar sets apart', () => {
         // cannot, as what of it a set can hold.
         const set = legacyCalendarSet(calendar)
         if (calendarSetIssues(set).length === 0) expect(sameCalendarSet(calendar, set)).toBe(true)
-        else expect(calendarSetIssues(storedCalendarSet(calendar)).length).toBe(0)
+        // One it cannot write unambiguously is still shown (stored data is
+        // never hidden); new input in that form is refused.
+        else expect(calendarSetShapeIssues(storedCalendarSet(calendar)).length).toBe(0)
       }),
       arb.runs(300)
     )

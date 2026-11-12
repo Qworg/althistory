@@ -72,3 +72,21 @@ describe('keyboardTimeStep / offsetByStep', () => {
     expect(offsetByStep(start, { unit: 'day', count: 7 }, 1).toISOString()).toBe('1843-03-22T00:00:00.000Z')
   })
 })
+
+describe('keyboard steps in a world calendar', () => {
+  // VAEL: fourteen parts in the Reckoning (twelve months, two festivals), Midyear's Day after Highsun, the Drowned Days last; days of 30 hours.
+  it("steps by the world's own days, months and years", async () => {
+    const { VAEL, vael } = await import('@/test/fixtures/worldCalendars')
+    const day = offsetByStep(vael(312, 2, 4, 6), { unit: 'day', count: 1 }, 1, VAEL)
+    expect(day.getTime() - vael(312, 2, 4, 6).getTime()).toBe(30 * 3600 * 1000)
+    expect(offsetByStep(vael(312, 2, 4, 6), { unit: 'month', count: 1 }, 1, VAEL)).toEqual(vael(312, 3, 4, 6))
+    // A month past Highsun 30 is Midyear's Day, its one day.
+    expect(offsetByStep(vael(312, 5, 30), { unit: 'month', count: 1 }, 1, VAEL)).toEqual(vael(312, 6, 1))
+    // Back across the year's start.
+    expect(offsetByStep(vael(312, 0, 4), { unit: 'month', count: 1 }, -1, VAEL)).toEqual(vael(311, 13, 4))
+    // The Drowned Days' fifth day (a leap year) a year on is its fourth.
+    expect(offsetByStep(vael(312, 13, 5), { unit: 'year', count: 1 }, 1, VAEL)).toEqual(vael(313, 13, 4))
+    // The step fits the world's units: a world year in view steps by its days.
+    expect(keyboardTimeStep(vael(313, 0, 1).getTime() - vael(312, 0, 1).getTime(), VAEL)).toEqual({ unit: 'day', count: 7 })
+  })
+})

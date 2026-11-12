@@ -143,8 +143,9 @@ describe('invented worlds', () => {
       const markdown = await callTool(server, 'althistory_export_context', { graphId: graph.id });
       expect(markdown).toContain('the Reckoning: 12 months');
       expect(markdown).toContain("tools take a date in the world's notation");
-      expect(markdown).toContain('Mar 4, 2 AR (1001-03-04)');
-      expect(markdown).toContain('Jan 1, 1 AR (1000-01-01) to Jan 1, 201 AR (1200-01-01)');
+      expect(markdown).toContain('Mar 4, 2 AR (1001-03-04T00:00:00.000Z)');
+      // The arc ends at the first moment of 201 AR: as an end, that is written with its time.
+      expect(markdown).toContain('Jan 1, 1 AR (1000-01-01T00:00:00.000Z) to Jan 1, 201 AR, 00:00 (1200-01-01T00:00:00.000Z)');
       // The arc each event sits in is named, so an agent can find empty ages.
       expect(markdown).toMatch(/The salt-kings found Vael \| The Age of Salt \|/);
       expect(markdown).toMatch(/The Tide War breaks the salt-kings \| The Reign of Ysolde \|/);
@@ -587,6 +588,8 @@ describe('invented worlds', () => {
       const shown = (timestamp: string, precision: 'day' | 'month' = 'day', calendar?: string) =>
         formatInWorld(graph.calendar, Date.parse(timestamp), precision, calendar);
       expect(shown(war.timestamp)).toBe('Greywater 4, 312 AR, 13:50');
+      // The tool gives the date back as the world writes it, beside its timestamp.
+      expect(war.worldDate).toBe('Greywater 4, 312 AR, 13:50');
 
       // A date in the other calendar names the same timeline.
       const tide = await callTool(server, 'althistory_create_event', { graphId: graph.id, description: 'Flood', timestamp: 'Flooding 20, 5 TC' });
@@ -599,9 +602,13 @@ describe('invented worlds', () => {
       const arc = await callTool(server, 'althistory_create_arc', { graphId: graph.id, name: 'The war years', startTime: 'Lowtide 312 AR', endTime: 'Longnight 312 AR' });
       expect(shown(arc.startTime)).toBe('Lowtide 1, 312 AR');
       expect(shown(arc.endTime)).toBe('Longnight 30, 312 AR, 19:99');
+      expect([arc.worldStart, arc.worldEnd]).toEqual(['Lowtide 1, 312 AR', 'Longnight 30, 312 AR']);
 
       const markdown = await callTool(server, 'althistory_export_context', { graphId: graph.id });
-      expect(markdown).toContain('Greywater 4, 312 AR, 13:50 (');
+      expect(markdown).toContain(`Greywater 4, 312 AR, 13:50 (${war.timestamp})`);
+      // A month is written as the month, an arc's end as the day it ends.
+      expect(markdown).toContain(`Thaw 312 AR (`);
+      expect(markdown).toContain('to Longnight 30, 312 AR (');
       expect(markdown).toContain('the Reckoning of the Rising (primary): 12 months and 2 festivals, 365 to 366 days a year, eras AR');
     });
 
@@ -715,7 +722,7 @@ describe('invented worlds', () => {
       });
       const context = await callTool(server, 'althistory_export_context', { graphId: graph.id });
       const text = typeof context === 'string' ? context : JSON.stringify(context);
-      expect(text).toContain('Greening 4, 141 AR (1140-03-04)');
+      expect(text).toContain('Greening 4, 141 AR (1140-03-04T00:00:00.000Z)');
       expect(text).toContain('Thaw (31), Seedfall (28)');
     });
 

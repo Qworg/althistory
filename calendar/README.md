@@ -23,7 +23,8 @@ states the requirements; the `Req N` numbers in the code point there.
 
 | Module | What it does |
 | --- | --- |
-| `definition.ts` | The `WorldCalendarSet` shape: a day of any length, and calendars of months and festival days, leap rules, eras, a week, a division of the day and a notation. `calendarSetIssues` is the one set of rules (a set the API stores is one whose every date reads back as itself), and `normalizeCalendarSet` stores it. |
+| `definition.ts` | The `WorldCalendarSet` shape: a day of any length, and calendars of months and festival days, leap rules, eras, a week, a division of the day and a notation, with the rules for that shape (`calendarSetShapeIssues`). |
+| `check.ts` | `calendarSetIssues`, the one set of rules the API, the CLI, the tools and the editor apply: the shape, and that every date the set writes reads back as itself and as no other calendar's (a sample of each calendar's dates is written and read back). `normalizeCalendarSet` stores a set that passes. A set stored before a rule was added is still read for display (`storedCalendarSet`). |
 | `engine.ts` | Positions to dates and back (`dateAt`, `positionOf`), a whole leap cycle at a time rather than year by year, so a date millions of years from the epoch costs no more than one near it. |
 | `notation.ts` | Writing a date in a calendar's notation and reading it back (`formatWorldPosition`, `parseWorldText`, `readWorldInput` for structured fields), and the period a month or a year names (`worldPeriod`). Text two of a world's calendars read as different dates is refused. |
 | `axis.ts` | Timeline ticks on a calendar's round years, months, days and hours (`worldTicks`), and filter bounds in its notation (`worldBound`, `formatWorldBound`). |
@@ -100,6 +101,8 @@ one states something that must hold for every input. Examples:
 - a date written in a calendar's notation reads back as itself, at its
   precision, and the period a month or a year names starts and ends where the
   next one does;
+- in any set the rules accept, every date of every calendar reads back from
+  its text alone, as that calendar's (the sampled check holds on random dates);
 - the generated worlds have one, two or three calendars of any shape, with
   days from 7 seconds to 30 hours;
 - axis ticks lie inside the domain, in order, on round units, each labelled

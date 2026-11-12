@@ -16,7 +16,7 @@
 
 import { type DateBoundEdge, boundPrecision, formatBoundAt, parseHistoricalDate } from './bounds'
 import type { DatePrecision } from './describe'
-import { readTimestamp, toInstant } from './instant'
+import { parseIsoInstant, readTimestamp, toInstant } from './instant'
 import type { WorldCalendarSet } from './world/definition'
 import { calendarIn, dateAt } from './world/engine'
 import { formatWorldFields, parseWorldDate, parseWorldText, worldPeriod } from './world/notation'
@@ -47,15 +47,21 @@ export function readDateEntry(text: string, calendar: WorldCalendarSet | null, e
       }
       return { ok: true, iso: new Date(position).toISOString(), precision: read.precision }
     }
-    // A full ISO 8601 timestamp (pasted, say) is a position too.
+    // A full ISO 8601 date (pasted, say) is a position too; as an end
+    // without a time, the last moment of its (Gregorian, UTC) day, as without a world.
     const iso = readTimestamp(trimmed)
-    if (iso && iso.precision === 'day') return { ok: true, iso: iso.iso, precision: 'day' }
+    if (iso && iso.precision === 'day') {
+      const dateOnly = parseIsoInstant(trimmed)?.dateOnly ?? false
+      const position = Date.parse(iso.iso) + (edge === 'end' && dateOnly ? 86_400_000 - 1 : 0)
+      return { ok: true, iso: new Date(position).toISOString(), precision: 'day' }
+    }
     return { ok: false, error: sentence(read.error) }
   }
   const timed = TIME_SUFFIX.exec(trimmed)
   const datePart = timed ? timed[1]! : trimmed
   const parsed = parseHistoricalDate(datePart, timed ? 'start' : edge)
   if (!parsed.ok) return { ok: false, error: parsed.error }
+  if (timed && boundPrecision(parsed.text) !== 'day') return { ok: false, error: 'A time needs a whole date: 1843-11-20 14:30.' }
   const date = new Date(parsed.date.getTime())
   if (timed) {
     const hours = Number(timed[2])

@@ -367,7 +367,7 @@ export interface WorldScenario {
  * two the same.
  *
  * Its calendars are its own. The tide-priests' Reckoning counts from the
- * Rising: thirteen months of thirty days, Midyear's Day between Highsun and
+ * Rising: twelve months of thirty days, Midyear's Day between Highsun and
  * Saltreap, and the four Drowned Days at the year's end (five every sixth
  * year), in a day of thirty Earth hours that the priests divide into twenty
  * hours of a hundred minutes. The coast keeps the Tide-count beside it, two

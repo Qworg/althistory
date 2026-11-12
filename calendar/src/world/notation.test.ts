@@ -13,7 +13,7 @@ import {
   worldPeriod,
 } from './index'
 
-/** Vael's calendar: thirteen months, two festivals (one with a leap day every sixth year), a five-day week that skips the festivals, a day of 30 Earth hours divided into 20 of its own. */
+/** Vael's calendar: twelve months and two festivals (one with a leap day every sixth year), a five-day week that skips the festivals, a day of 30 Earth hours divided into 20 of its own. */
 const reckoning: CalendarDefinition = {
   id: 'reckoning',
   name: 'the Reckoning of the Rising',

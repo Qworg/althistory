@@ -439,7 +439,7 @@ function mergeArc(arc: ExtractedArc, edit: ExtractedEdit | undefined, calendar?:
     name: typeof edit.name === 'string' ? edit.name : arc.name,
     description: typeof edit.description === 'string' ? edit.description : arc.description,
     start_time: typeof edit.start_time === 'string' ? (readWorldTimestamp(calendar, edit.start_time)?.iso ?? edit.start_time) : arc.start_time,
-    end_time: typeof edit.end_time === 'string' ? (readWorldTimestamp(calendar, edit.end_time)?.iso ?? edit.end_time) : arc.end_time,
+    end_time: typeof edit.end_time === 'string' ? (readWorldTimestamp(calendar, edit.end_time, 'end')?.iso ?? edit.end_time) : arc.end_time,
     level: typeof edit.level === 'number' ? edit.level : arc.level,
     confidence: typeof edit.confidence === 'number' ? edit.confidence : arc.confidence,
     selected: typeof edit.selected === 'boolean' ? edit.selected : arc.selected,

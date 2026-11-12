@@ -13,9 +13,10 @@ import {
   DEFAULT_TIME,
   type WorldCalendarSet,
   calendarDefinitionIssues,
-  calendarSetIssues,
-  normalizeCalendarSet,
+  calendarSetShapeIssues,
+  trimCalendarSet,
 } from './definition'
+import { normalizeCalendarSet } from './check'
 
 const GREGORIAN_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
@@ -90,11 +91,13 @@ export function storedCalendarSet(value: unknown): WorldCalendarSet | null {
     const candidates = [legacy, { ...years, ...(monthNames ? { monthNames } : {}) }, { ...years, ...(eraLabel ? { eraLabel } : {}) }, years]
     for (const candidate of candidates) {
       const set = legacyCalendarSet(candidate)
-      if (calendarSetIssues(set).length === 0) return set
+      if (calendarSetShapeIssues(set).length === 0) return set
     }
     return null
   }
-  if (calendarSetIssues(value).length === 0) return normalizeCalendarSet(value)
+  // A stored set is read for display: its shape must check out, but text it
+  // would not read back (a rule added after it was stored) does not hide it.
+  if (calendarSetShapeIssues(value).length === 0) return trimCalendarSet(value as WorldCalendarSet)
   const record = value as Partial<WorldCalendarSet>
   const dayLength = record.dayLength
   if (typeof dayLength !== 'number' || !Number.isInteger(dayLength) || dayLength < 1) return null
@@ -106,7 +109,7 @@ export function storedCalendarSet(value: unknown): WorldCalendarSet | null {
   if (calendars.length === 0) return null
   const primary = calendars.some((definition) => definition.id === record.primary) ? record.primary! : calendars[0]!.id
   const kept = { version: 2 as const, dayLength, calendars: calendars.slice(0, 8), primary }
-  return calendarSetIssues(kept).length === 0 ? normalizeCalendarSet(kept) : null
+  return calendarSetShapeIssues(kept).length === 0 ? trimCalendarSet(kept) : null
 }
 
 /** A calendar given in either form (a set, or the earlier one), as the set to store; throws on an unusable one. */
@@ -129,6 +132,8 @@ function canonicalText(set: WorldCalendarSet | null): string {
     if (key === 'leapRules' && Array.isArray(value) && value.length === 0) return undefined
     if ((key === 'intercalary' || key === 'skipsIntercalary') && value === false) return undefined
     if ((key === 'offset' || key === 'epochWeekday') && value === 0) return undefined
+    // One unlabelled era from year 1 is what no eras means.
+    if (key === 'eras' && Array.isArray(value) && value.length === 1 && value[0]?.label === '' && value[0]?.from === 1) return undefined
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return value
     let entries = Object.entries(value as Record<string, unknown>)
     if (key === 'time') entries = entries.filter(([unit, count]) => DEFAULT_TIME[unit as keyof typeof DEFAULT_TIME] !== count)
@@ -140,5 +145,14 @@ function canonicalText(set: WorldCalendarSet | null): string {
 
 /** Two calendars (in either stored form, or none) that say the same of every position. */
 export function sameCalendarSet(a: unknown, b: unknown): boolean {
-  return canonicalText(storedCalendarSet(a)) === canonicalText(storedCalendarSet(b))
+  // A set is compared as it is (checking it again is the costly part); the earlier form, as the set it stands for.
+  const asSet = (value: unknown) => {
+    if (!isCalendarSet(value)) return storedCalendarSet(value)
+    try {
+      return trimCalendarSet(value as WorldCalendarSet)
+    } catch {
+      return value as WorldCalendarSet
+    }
+  }
+  return canonicalText(asSet(a)) === canonicalText(asSet(b))
 }

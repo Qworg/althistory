@@ -4,14 +4,14 @@
  * Panel for exporting graph data with filtering options and job management.
  */
 
-import { useState, useCallback, memo } from 'react'
+import { useState, useCallback, useEffect, useRef, memo } from 'react'
 import { ExportHistoryList } from './ExportHistoryList'
 import { useExportManagement } from '@/hooks/useExport'
 import { useActiveGraphId, useActiveGraph } from '@/hooks/useGraphs'
 import { ExportFilters } from '@/types'
 import { DateField } from '@/components/ui/DateField'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { dateFieldIso } from '@/utils/dateField'
+import { dateFieldIso, dateFieldValue } from '@/utils/dateField'
 
 interface ExportPanelProps {
   className?: string
@@ -109,7 +109,8 @@ export const ExportPanel = memo(function ExportPanel({
   // requires both, so the not-yet-entered bound falls back to an empty string.
   const handleTimeRangeChange = useCallback((bound: 'start' | 'end', value: string) => {
     setRangeText(prev => ({ ...prev, [bound]: value }))
-    const instant = value.trim() === '' ? '' : dateFieldIso(value, { calendar: worldCalendar, edge: bound }) || value
+    // Text that names no date sends nothing (the field says why, and the export waits).
+    const instant = value.trim() === '' ? '' : dateFieldIso(value, { calendar: worldCalendar, edge: bound })
     setFilters(prev => {
       const previous = prev.timeRange
       const timeRange = bound === 'start'
@@ -118,6 +119,22 @@ export const ExportPanel = memo(function ExportPanel({
       return { ...prev, timeRange }
     })
   }, [worldCalendar])
+
+  // Another calendar shown rewrites the range in it, from the instants it names.
+  const rangeCalendar = useRef(worldCalendar)
+  useEffect(() => {
+    if (rangeCalendar.current === worldCalendar) return
+    rangeCalendar.current = worldCalendar
+    setRangeText((prev) => ({
+      start: filters.timeRange?.start ? dateFieldValue(filters.timeRange.start, 'date', { calendar: worldCalendar, edge: 'start' }) : prev.start,
+      end: filters.timeRange?.end ? dateFieldValue(filters.timeRange.end, 'date', { calendar: worldCalendar, edge: 'end' }) : prev.end,
+    }))
+  }, [worldCalendar, filters.timeRange])
+
+  // A bound typed but not read: the export would get no range, or half of one.
+  const rangeUnread =
+    scope === 'filtered' &&
+    ((rangeText.start.trim() !== '' && !filters.timeRange?.start) || (rangeText.end.trim() !== '' && !filters.timeRange?.end))
 
   if (!activeGraphId) {
     return (
@@ -301,9 +318,14 @@ export const ExportPanel = memo(function ExportPanel({
             </label>
 
             {/* Start Export Button */}
+            {rangeUnread && (
+              <p className="text-xs text-red-700 dark:text-red-300" role="status">
+                A date in the range is not one this graph can read: fix it, or clear it, to export.
+              </p>
+            )}
             <button
               onClick={handleExport}
-              disabled={isCreating}
+              disabled={isCreating || rangeUnread}
               className="w-full px-4 py-2 border border-line bg-card text-ink rounded-md hover:bg-subtle disabled:opacity-50 text-sm font-medium"
             >
               {isCreating ? 'Preparing…' : 'Prepare export file'}

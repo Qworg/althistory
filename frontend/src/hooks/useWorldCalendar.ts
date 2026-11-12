@@ -29,11 +29,11 @@ export function useWorldCalendarSync(): void {
 
   useEffect(() => {
     if (!activeGraphId || graphGone || (error && !hasGraph)) {
-      setCalendar(null)
+      setCalendar(null, null)
       return
     }
     if (!graph || graph.id !== activeGraphId) return
-    setCalendar(graph.calendar ?? null)
+    setCalendar(graph.calendar ?? null, graph.id)
   }, [activeGraphId, graph, error, graphGone, hasGraph, setCalendar])
 }
 

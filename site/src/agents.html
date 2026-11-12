@@ -109,7 +109,7 @@
           </article>
           <article class="recipe">
             <h3>Invent a world</h3>
-            <p>No real history underneath: the agent writes the world’s ages, events and causes, and althistory keeps them consistent. The graph keeps the world’s own calendars, of any shape, so the app, the tools and the exports write “Thaw 4, 312 AR” in a year of thirteen months and a day of thirty hours.</p>
+            <p>No real history underneath: the agent writes the world’s ages, events and causes, and althistory keeps them consistent. The graph keeps the world’s own calendars, of any shape, so the app, the tools and the exports write “Thaw 4, 312 AR” in a year of twelve months and two festivals, and a day of thirty hours.</p>
             <p class="recipe-ask">“Help me build the history of Vael, a drowned archipelago where salt is money.”</p>
             <dl class="recipe-meta">
               <dt>Prompt</dt><dd><code>worldbuild</code></dd>
@@ -136,7 +136,7 @@
           <h2 id="world-h">Inventing a world, start to finish</h2>
           <p>An abridged session with the <code>worldbuild</code> prompt. The agent settles the calendars first, lays out three ages, writes the events and links their causes.</p>
           <p>Then one link is refused: the agent claimed the glassmakers started the Tide War, but they only joined it eleven years in. Instead of forcing the link, the agent writes the grievance that actually turned them.</p>
-          <p class="note">Every date is one moment on the graph’s timeline, and the world’s calendars name it. Vael’s Reckoning has thirteen months of thirty days, Midyear’s Day and the four Drowned Days, in a day of thirty Earth hours divided into twenty of its own; the coast keeps the Tide-count beside it. The tools take dates as the world writes them (“Midyear’s Day, 141&nbsp;AR”, or “Thaw 312&nbsp;AR” for a month), and the Markdown export shows each one beside its place on the timeline.</p>
+          <p class="note">Every date is one moment on the graph’s timeline, and the world’s calendars name it. Vael’s Reckoning has twelve months of thirty days, Midyear’s Day and the four Drowned Days, in a day of thirty Earth hours divided into twenty of its own; the coast keeps the Tide-count beside it. The tools take dates as the world writes them (“Midyear’s Day, 141&nbsp;AR”, or “Thaw 312&nbsp;AR” for a month) and give them back the same way beside each date’s place on the timeline, as the Markdown export does.</p>
           <h3 class="doc-h3">See your world</h3>
           <p>The agent’s graphs are files in <code>timeline/data</code> in your clone, the same store the app reads. Start the app with <code>./start-local.sh</code>, open <span class="mono">localhost:5173</span>, and pick the graph: its timeline, causal graph and dates read in the world’s calendars, and the header switches between them.</p>
           <p><a class="teaser-link" href="demo/?start=world">Open Vael in the demo</a></p>
@@ -151,14 +151,18 @@
 <span class="t-who">Claude</span> <span class="c">calls</span> althistory_create_graph
        { <span class="k">"name"</span>: <span class="s">"Vael"</span>, <span class="k">"calendar"</span>: {
          <span class="k">"version"</span>: 2, <span class="k">"dayLength"</span>: 108000,
-         <span class="k">"calendars"</span>: [{ <span class="k">"name"</span>:
-           <span class="s">"the Reckoning of the Rising"</span>,
-           <span class="k">"parts"</span>: [<span class="s">"Lowtide"</span> …
-             <span class="s">"Midyear's Day"</span> …
-             <span class="s">"The Drowned Days"</span>],
-           <span class="k">"eras"</span>: [{ <span class="k">"label"</span>: <span class="s">"AR"</span>,
-             <span class="k">"from"</span>: 1 }], … },
-           { <span class="k">"name"</span>: <span class="s">"the Tide-count"</span>, … }] } }
+         <span class="k">"primary"</span>: <span class="s">"reckoning"</span>,
+         <span class="k">"calendars"</span>: [{
+           <span class="k">"id"</span>: <span class="s">"reckoning"</span>, <span class="k">"name"</span>:
+             <span class="s">"the Reckoning of the Rising"</span>,
+           <span class="k">"parts"</span>: [
+             { <span class="k">"name"</span>: <span class="s">"Lowtide"</span>, <span class="k">"days"</span>: 30 }, …
+             { <span class="k">"name"</span>: <span class="s">"Midyear's Day"</span>, <span class="k">"days"</span>: 1,
+               <span class="k">"intercalary"</span>: true }, … ],
+           <span class="k">"epoch"</span>: 0,
+           <span class="k">"eras"</span>: [{ <span class="k">"label"</span>: <span class="s">"AR"</span>, <span class="k">"from"</span>: 1 }], … },
+           { <span class="k">"id"</span>: <span class="s">"tide"</span>, <span class="k">"name"</span>: <span class="s">"the Tide-count"</span>,
+             … }] } }
        <span class="c">calls</span> althistory_create_arc <span class="c">×3</span>
        The Age of Salt · The Tide War ·
        The Glass Republic

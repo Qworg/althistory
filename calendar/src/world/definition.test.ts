@@ -29,7 +29,7 @@ const vael: CalendarDefinition = {
 const set = (calendars: unknown[], extra: Record<string, unknown> = {}) => ({ version: 2, dayLength: 30 * 3600, calendars, primary: 'reckoning', ...extra })
 
 describe('a calendar set', () => {
-  it('accepts a world calendar with thirteen months, festival days, a leap cycle, a five-day week and its own hours', () => {
+  it('accepts a world calendar of twelve months and two festivals, a leap cycle, a five-day week and its own hours', () => {
     expect(calendarSetIssues(set([vael]))).toEqual([])
     expect(normalizeCalendarSet(set([vael])).calendars[0]!.parts).toHaveLength(14)
   })
@@ -42,7 +42,7 @@ describe('a calendar set', () => {
     const cases: Array<[Partial<CalendarDefinition> | Record<string, unknown>, RegExp]> = [
       [{ parts: [] }, /parts must list 1 to 100/],
       [{ parts: [{ name: 'A', days: 0 }] }, /days must be a whole number from 1 to 1000/],
-      [{ parts: [{ name: 'Thaw', days: 3 }, { name: 'thaw', days: 3 }] }, /names "thaw" twice/],
+      [{ parts: [{ name: 'Thaw', days: 3 }, { name: 'thaw', days: 3 }] }, /another month or festival is already called "thaw"/],
       [{ parts: [{ name: 'Fest', days: 3, intercalary: true }] }, /at least one month/],
       [{ parts: [{ name: 'Th{aw', days: 3 }] }, /braces/],
       [{ leapRules: [{ every: 4, part: 0, days: -30 }] }, /leave Lowtide with 0 days/],
@@ -95,5 +95,50 @@ describe('a stored calendar set read back', () => {
   it('has none without a calendar that checks out', () => {
     expect(storedCalendarSet(null)).toBeNull()
     expect(storedCalendarSet({ version: 2, dayLength: 86_400, calendars: [], primary: 'x' })).toBeNull()
+  })
+})
+
+describe('a set whose text would not read back', () => {
+  const base = (parts: Array<{ name: string; days: number; intercalary?: boolean }>, extra: Record<string, unknown> = {}) => ({
+    version: 2,
+    dayLength: 86_400,
+    primary: 'a',
+    calendars: [{ id: 'a', name: 'A', parts, epoch: 0, eras: [{ label: 'AR', from: 1 }], ...extra }],
+  })
+
+  it('is refused when a festival writes what reads as a day of a month', () => {
+    const issues = calendarSetIssues(base([{ name: 'Midyear', days: 30 }, { name: 'Midyear 3', days: 1, intercalary: true }]))
+    expect(issues.map((issue) => issue.path)).toEqual(['calendar.calendars[0].parts'])
+    expect(issues[0]!.message).toMatch(/writes "Midyear 3, \d+ AR", which reads back as "Midyear 3, \d+ AR"|reads back as/)
+  })
+
+  it('is refused when a year reads as a month', () => {
+    const issues = calendarSetIssues({
+      ...base([{ name: 'Year', days: 30 }, { name: 'Thaw', days: 30 }]),
+      calendars: [{ id: 'a', name: 'A', parts: [{ name: 'Year', days: 30 }, { name: 'Thaw', days: 30 }], epoch: 0, notation: { year: 'Year {year}' } }],
+    })
+    expect(issues.length).toBeGreaterThan(0)
+  })
+
+  it('is refused when two calendars write the same text for different days', () => {
+    const one = { id: 'a', name: 'A', parts: [{ name: 'Thaw', days: 30 }], epoch: 0 }
+    const issues = calendarSetIssues({ version: 2, dayLength: 86_400, primary: 'a', calendars: [one, { ...one, id: 'b', name: 'B', epoch: 5 }] })
+    expect(issues.some((issue) => /also a date in A|also a date in B/.test(issue.message))).toBe(true)
+    // An era label of its own tells them apart.
+    expect(
+      calendarSetIssues({ version: 2, dayLength: 86_400, primary: 'a', calendars: [one, { ...one, id: 'b', name: 'B', epoch: 5, eras: [{ label: 'TC', from: 1 }] }] })
+    ).toEqual([])
+  })
+
+  it('accepts the default templates written out', () => {
+    expect(
+      calendarSetIssues(base([{ name: 'Thaw', days: 30 }], { notation: { date: '{month} {day}, {year}', month: '{month} {year}', festival: '{month}, {year}' } }))
+    ).toEqual([])
+    expect(calendarSetIssues(base([{ name: 'Thaw', days: 30 }], { notation: { date: '{day}{month} {year}' } }))[0]!.message).toMatch(/separate its placeholders/)
+  })
+
+  it('is still shown when stored before the rule', () => {
+    const stored = base([{ name: 'Midyear', days: 30 }, { name: 'Midyear 3', days: 1, intercalary: true }])
+    expect(storedCalendarSet(stored)?.calendars[0]!.parts).toHaveLength(2)
   })
 })

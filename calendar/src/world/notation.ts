@@ -179,40 +179,82 @@ export type WorldParse =
     }
   | { ok: false; error: string }
 
-/** A date written in one calendar's notation, at whatever precision it names (Req 14). */
-export function parseWorldDate(calendar: CompiledCalendar, input: string): WorldParse {
+interface CompiledForm {
+  pattern: RegExp
+  /** The template's placeholders, in the order its groups capture them. */
+  dateOrder: string[]
+  timeOrder: string[]
+  precision: WorldPrecision
+  festival: boolean
+}
+
+/** A calendar's notation as patterns, built once per compiled calendar (the read-back check reads thousands of dates). */
+const formsCache = new WeakMap<CompiledCalendar, CompiledForm[]>()
+
+function formsOf(calendar: CompiledCalendar): CompiledForm[] {
+  const cached = formsCache.get(calendar)
+  if (cached) return cached
   const definition = calendar.definition
   const notation = notationOf(definition)
-  const text = input.trim().replace(/\s+/g, ' ')
   const number = '\\d{1,6}'
   const allParts = definition.parts.map((part) => part.name)
   const festivals = definition.parts.filter((part) => part.intercalary).map((part) => part.name)
   const year = yearPattern(definition)
   const time = templatePattern(notation.time, { hour: number, minute: number, second: number })
-  const forms: Array<{ template: string; precision: WorldPrecision; festival?: boolean; timed: boolean }> = [
-    { template: notation.date, precision: 'day', timed: true },
+  const specs: Array<{ template: string; precision: WorldPrecision; festival: boolean; timed: boolean }> = [
+    { template: notation.date, precision: 'day', festival: false, timed: true },
     ...(festivals.length > 0 ? [{ template: notation.festival, precision: 'day' as const, festival: true, timed: true }] : []),
-    { template: notation.month, precision: 'month', timed: false },
-    { template: notation.year, precision: 'year', timed: false },
+    { template: notation.month, precision: 'month', festival: false, timed: false },
+    { template: notation.year, precision: 'year', festival: false, timed: false },
   ]
+  const forms = specs.map((spec) => {
+    const date = templatePattern(spec.template, { month: alternation(spec.festival ? festivals : allParts), day: number, year })
+    return {
+      pattern: new RegExp(`^${date.source}${spec.timed ? `(?:\\s*,\\s*${time.source})?` : ''}$`, 'iu'),
+      dateOrder: date.order,
+      timeOrder: spec.timed ? time.order : [],
+      precision: spec.precision,
+      festival: spec.festival,
+    }
+  })
+  formsCache.set(calendar, forms)
+  return forms
+}
+
+/**
+ * The part a name read from text is: matched as the pattern matched it (the
+ * same case folding), so a name the pattern took is always found.
+ */
+function partNamed(calendar: CompiledCalendar, text: string, festivalsOnly: boolean): number {
+  const parts = calendar.definition.parts
+  const matches = (name: string) => new RegExp(`^${escape(name)}$`, 'iu').test(text)
+  const exact = parts.findIndex((part) => (!festivalsOnly || part.intercalary) && sameNameKey(part.name) === sameNameKey(text))
+  return exact >= 0 ? exact : parts.findIndex((part) => (!festivalsOnly || part.intercalary) && matches(part.name))
+}
+
+/** A date written in one calendar's notation, at whatever precision it names (Req 14). */
+export function parseWorldDate(calendar: CompiledCalendar, input: string): WorldParse {
+  const definition = calendar.definition
+  const text = input.trim().replace(/\s+/g, ' ')
   let reason: string | null = null
-  for (const form of forms) {
-    const months = form.festival ? festivals : allParts
-    const date = templatePattern(form.template, { month: alternation(months), day: number, year })
-    const pattern = new RegExp(`^${date.source}${form.timed ? `(?:\\s*,\\s*${time.source})?` : ''}$`, 'iu')
-    const match = pattern.exec(text)
+  for (const form of formsOf(calendar)) {
+    const match = form.pattern.exec(text)
     if (!match) continue
     const values: Record<string, string> = {}
-    date.order.forEach((name, index) => (values[name] = match[index + 1]!))
+    form.dateOrder.forEach((name, index) => (values[name] = match[index + 1]!))
     const timeValues: Record<string, string | undefined> = {}
-    time.order.forEach((name, index) => (timeValues[name] = match[date.order.length + 1 + index]))
+    form.timeOrder.forEach((name, index) => (timeValues[name] = match[form.dateOrder.length + 1 + index]))
 
     const lineYearOrError = readYearPhrase(definition, values.year!)
     if (typeof lineYearOrError === 'string') {
       reason = lineYearOrError
       continue
     }
-    const part = values.month === undefined ? 0 : definition.parts.findIndex((candidate) => sameNameKey(candidate.name) === sameNameKey(values.month!))
+    const part = values.month === undefined ? 0 : partNamed(calendar, values.month, form.festival)
+    if (part < 0) {
+      reason = `${definition.name} has no month "${values.month}"`
+      continue
+    }
     let day = values.day === undefined ? 1 : Number(values.day)
     if (form.festival) {
       const length = partLengths(calendar, lineYearOrError)[part]!

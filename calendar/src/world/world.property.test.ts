@@ -17,6 +17,7 @@ import {
   gregorianDefinition,
   legacyCalendarSet,
   parseWorldDate,
+  parseWorldText,
   partLengths,
   positionOf,
   worldPeriod,
@@ -255,6 +256,26 @@ describe('any world calendar', () => {
         expect(parsed.ok).toBe(true)
       }),
       arb.runs(1000)
+    )
+  })
+})
+
+describe('a set the rules accept (Req 3, 14)', () => {
+  it('reads every date back, in every one of its calendars, from the text alone', () => {
+    fc.assert(
+      fc.property(warb.calendarSet, fc.integer({ min: -1e13, max: 1e13 }), fc.constantFrom('day', 'month', 'year') as fc.Arbitrary<'day' | 'month' | 'year'>, fc.boolean(), (set, position, precision, withTime) => {
+        for (const definition of set.calendars) {
+          const calendar = calendarIn(set, definition.id)
+          const date = dateAt(calendar, position)
+          const text = formatWorldFields(calendar, date, precision, withTime && precision === 'day')
+          const read = parseWorldText(set, text)
+          expect(read.ok, `${definition.name}: ${text}`).toBe(true)
+          if (!read.ok) return
+          expect(read.calendar).toBe(definition.id)
+          expect(formatWorldFields(calendar, read.fields, precision, withTime && precision === 'day')).toBe(text)
+        }
+      }),
+      arb.runs(3000)
     )
   })
 })

@@ -4,7 +4,7 @@ import { type CalendarDefinition, type WorldCalendarSet, legacyCalendarSet, posi
 export const AR: WorldCalendarSet = legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning of Vael' })
 
 /**
- * Vael's reckoning: thirteen months of thirty days, two festivals (the
+ * Vael's reckoning: twelve months of thirty days and two festivals (the
  * Drowned Days gaining a fifth day every sixth year), a five-day week that
  * skips the festivals, and a day of 30 Earth hours divided into 20 of its own.
  */

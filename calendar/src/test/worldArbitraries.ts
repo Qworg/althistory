@@ -10,8 +10,8 @@ import {
   type CalendarDefinition,
   type WorldCalendarSet,
   calendarDefinitionIssues,
-  calendarSetIssues,
 } from '../world/definition'
+import { calendarSetIssues } from '../world/check'
 
 const nameUnit = fc.constantFrom(...'abcdefghijklmnopqrstuvwxyzþæéß'.split(''))
 const name = fc.string({ unit: nameUnit, minLength: 2, maxLength: 8 }).map((text) => `Q${text}`)
@@ -92,7 +92,15 @@ const CALENDAR_NAMES = ['The Reckoning', 'The Tide Count', 'The Old Count']
 export const calendarSet: fc.Arbitrary<WorldCalendarSet> = fc
   .tuple(fc.array(definition, { minLength: 1, maxLength: 3 }), dayLength, fc.nat(2))
   .map(([definitions, length, shown]) => {
-    const calendars = definitions.map((calendar, index) => ({ ...calendar, id: IDS[index]!, name: CALENDAR_NAMES[index]! }))
+    // Each calendar counts its own eras (two that both write "5 AR" or
+    // "Year 5" are refused, rightly); names may still collide, and are filtered.
+    const calendars = definitions.map((calendar, index) => ({
+      ...calendar,
+      id: IDS[index]!,
+      name: CALENDAR_NAMES[index]!,
+      eras: index === 0 ? calendar.eras : calendar.eras!.map((era) => ({ ...era, label: `${era.label || 'Count'} ${'XY'[index - 1]}` })),
+      ...(index > 0 && calendar.beforeEra ? { beforeEra: `${calendar.beforeEra} ${'XY'[index - 1]}` } : {}),
+    }))
     return { version: 2 as const, dayLength: length, calendars, primary: calendars[shown % calendars.length]!.id }
   })
   .filter((set) => calendarSetIssues(set).length === 0)

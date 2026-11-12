@@ -45,3 +45,18 @@ describe('the world calendar store', () => {
     expect(getActiveCalendar()?.primary).toBe('calendar')
   })
 })
+
+describe('the calendar the viewer picked', () => {
+  it("is that graph's: another world with a calendar of the same id opens on its own primary", () => {
+    const store = useWorldCalendarStore.getState()
+    store.setCalendar(TWO, 'vael')
+    store.showCalendar('tide')
+    expect(getActiveCalendar()?.primary).toBe('tide')
+    // A refetch of the same graph keeps it.
+    store.setCalendar(TWO, 'vael')
+    expect(getActiveCalendar()?.primary).toBe('tide')
+    // Another graph, with calendars of the same ids, does not inherit it.
+    store.setCalendar({ ...TWO, calendars: TWO.calendars.map((c) => ({ ...c, name: `${c.name} elsewhere` })) }, 'other')
+    expect(getActiveCalendar()?.primary).toBe('calendar')
+  })
+})

@@ -18,7 +18,7 @@ read positions and never need a calendar. A calendar is only a way to name a
 position.
 
 **Req 2. Days.** A world's day is the same length for all its calendars:
-`dayLength` seconds of the axis (86,400 by default). Axis day *n* starts at
+`dayLength` seconds of the axis (Earth's is 86,400; a set must give it). Axis day *n* starts at
 *n* × `dayLength` × 1000 ms. All the world's calendars begin their days at the
 same moment.
 
@@ -63,7 +63,7 @@ leaves out Midyear's Day), so the week resumes after them.
 year precision, for a festival of a single day, and for a time. The defaults
 are "{month} {day}, {year}", "{month} {year}", "{year}", "{month}, {year}"
 ("Midyear's Day, 312 AR") and "{hour}:{minute}". Placeholders are separated
-by text, so a written date reads back unambiguously. The weekday is a field
+by a space or other text. The weekday is a field
 of a date, not part of its notation: a festival day the week leaves out has
 none.
 
@@ -72,12 +72,16 @@ none.
 **Req 11. A world's calendar set.** A graph's calendar is a set:
 `{ version: 2, dayLength, calendars, primary }`. Every calendar names the same
 positions. `primary` is the one shown unless the viewer picks another, and
-the one assumed for text that names no calendar.
+the one assumed for text that names no calendar. Text one calendar writes is
+never a date in another of the set's (Req 14).
 
 **Req 12. Calendars stored before.** A calendar stored in the earlier form
 (`{ epochYear, eraLabel, name, monthNames }`, a relabelled Gregorian calendar)
-is read as a set holding one Gregorian-shaped calendar. Every date it shows
-reads exactly as it did.
+is read as a set holding one Gregorian-shaped calendar, which writes each date
+with the same year, month and day as before, in the calendar's notation
+("Mar 4, 312 AR") rather than the viewer's locale. An era label or month
+names a set cannot hold (a label with a digit) are dropped when it is read,
+the rest kept; given as new input, such a calendar is refused.
 
 ## Dates in and out
 
@@ -88,7 +92,12 @@ Every valid set of fields converts to a position and back unchanged. Later
 fields give later positions, and no position lacks a date.
 
 **Req 14. Text.** A date written in a calendar's notation, at any precision,
-reads back as the date it names: `parse(format(d)) = d`. Text that names a
+reads back as the date it names: `parse(format(d)) = d`, in its own calendar
+and as the only date it names in the world's set. A set is checked for this
+when it is given: a sample of each calendar's dates (every month and festival,
+each precision, a time, years before and in each era) is written and read
+back, and a set whose text reads as another date, or as a date in another of
+its calendars, is refused with the text that collides. Text that names a
 day, month or year that does not exist is refused, with the reason.
 Structured input (`{ calendar, era, year, month, day, hour, minute, second }`)
 is accepted wherever text is.
@@ -96,7 +105,9 @@ is accepted wherever text is.
 **Req 15. Periods.** A date at month or year precision names a period. Its
 start is the first position in it, and its end the last millisecond before the
 next one. Filters and time ranges written in a calendar's notation use these
-periods.
+periods, and so does an end (of an arc, a range) written without a time,
+whether a day, a month or a year; a time, even "00:00", names that moment.
+Query-string filters of the API take ISO 8601 instants.
 
 **Req 16. Precision.** A date given as a month or a year is stored at its
 period's start, with `datePrecision` recorded, and shown at that precision.

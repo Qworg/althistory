@@ -2,8 +2,9 @@
  * The time a request gives for an event or an arc, read for the graph it is
  * bound for (docs/specs/world-calendars.md, Req 14, 16, 18).
  *
- * ISO 8601 (and any other text, as the API always read it) is a position on
- * the timeline. In a graph with world calendars, a date may also be written
+ * ISO 8601 is a position on the timeline. In a graph without world
+ * calendars, other text is read as the API always read it; in a graph with
+ * them, text must be ISO 8601 or the world's notation. In a graph with world calendars, a date may also be written
  * in the world's notation ("Thaw 4, 312 AR", "Thaw 312 AR") or given as
  * fields ({ calendar, era, year, month, day, hour, minute, second }); a date
  * at month or year precision names its period, whose start (or end, for the
@@ -45,11 +46,10 @@ export async function readRequestTime(
         }
         return withPrecision(new Date(read.position), read.precision);
       }
-      if (typeof value === 'object') throw new ValidationError(`${field}: ${read.error}`, field, value);
-      // Not the world's notation: read as the API always read text, below.
-      const legacy = toInstant(value);
-      if (Number.isNaN(legacy.getTime())) throw new ValidationError(`${field}: ${read.error}`, field, value);
-      return { date: legacy };
+      // Neither ISO 8601 nor the world's notation. Read leniently, "312" or
+      // "Year 312" would land in the Gregorian year 312 of the server's time
+      // zone, a date the world never named: refused, with what it could be.
+      throw new ValidationError(`${field}: ${read.error}`, field, value);
     }
     if (typeof value === 'object') throw new ValidationError(`${field}: a date given as fields needs a graph with a world calendar`, field, value);
   }

@@ -122,7 +122,7 @@ const WORLD_CALENDAR_SET_SCHEMA = {
             items: {
               type: 'object',
               properties: { name: { type: 'string', maxLength: 24 }, days: { type: 'integer', minimum: 1, maximum: 1000 }, intercalary: { type: 'boolean' } },
-              required: ['name', 'days'],
+              additionalProperties: false, required: ['name', 'days'],
             },
           },
           leapRules: {
@@ -132,34 +132,36 @@ const WORLD_CALENDAR_SET_SCHEMA = {
             items: {
               type: 'object',
               properties: { every: { type: 'integer', minimum: 1 }, offset: { type: 'integer' }, part: { type: 'integer', minimum: 0 }, days: { type: 'integer' } },
-              required: ['every', 'part', 'days'],
+              additionalProperties: false, required: ['every', 'part', 'days'],
             },
           },
           epoch: { type: 'integer', description: 'The timeline day on which year 1 begins.' },
           eras: {
             type: 'array',
-            items: { type: 'object', properties: { label: { type: 'string', maxLength: 16 }, from: { type: 'integer' } }, required: ['label', 'from'] },
+            items: { type: 'object', properties: { label: { type: 'string', maxLength: 16 }, from: { type: 'integer' } }, additionalProperties: false, required: ['label', 'from'] },
           },
           beforeEra: { type: 'string', maxLength: 16 },
           week: {
             type: 'object',
             properties: { days: { type: 'array', items: { type: 'string' } }, epochWeekday: { type: 'integer' }, skipsIntercalary: { type: 'boolean' } },
-            required: ['days'],
+            additionalProperties: false, required: ['days'],
           },
           time: {
             type: 'object',
             properties: { hoursPerDay: { type: 'integer' }, minutesPerHour: { type: 'integer' }, secondsPerMinute: { type: 'integer' } },
+            additionalProperties: false,
           },
           notation: {
             type: 'object',
             properties: { date: { type: 'string' }, month: { type: 'string' }, year: { type: 'string' }, festival: { type: 'string' }, time: { type: 'string' } },
+            additionalProperties: false,
           },
         },
-        required: ['id', 'name', 'parts', 'epoch'],
+        additionalProperties: false, required: ['id', 'name', 'parts', 'epoch'],
       },
     },
   },
-  required: ['version', 'dayLength', 'calendars', 'primary'],
+  additionalProperties: false, required: ['version', 'dayLength', 'calendars', 'primary'],
 };
 
 const SCHEMAS: Record<string, Record<string, unknown>> = {
@@ -312,13 +314,39 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     },
     required: ['id', 'description', 'actor', 'target', 'timestamp'],
   },
+  WorldDate: {
+    description:
+      "A date to store. ISO 8601 (a position on the graph's timeline). In a graph with world calendars, also a date in the world's notation " +
+      '("Thaw 4, 312 AR", "Thaw 312 AR" for a month, "312 AR" for a year; a time after a comma), or its fields. A month or a year records ' +
+      "`metadata.datePrecision`; as an arc's end, a day, month or year without a time is its last moment. In such a graph, text that is " +
+      'neither is refused (docs/specs/world-calendars.md, Req 14-18).',
+    oneOf: [
+      { type: 'string' },
+      {
+        type: 'object',
+        description: "A date in one of the graph's calendars, as fields. `year` counts in `era` (a label, or \"before\"), or is the line year.",
+        properties: {
+          calendar: { type: 'string', description: "The calendar's id (the primary one when left out)" },
+          era: { type: 'string' },
+          year: { type: 'integer' },
+          month: { oneOf: [{ type: 'string' }, { type: 'integer', minimum: 1 }] },
+          day: { type: 'integer', minimum: 1 },
+          hour: { type: 'integer', minimum: 0 },
+          minute: { type: 'integer', minimum: 0 },
+          second: { type: 'integer', minimum: 0 },
+        },
+        required: ['year'],
+        additionalProperties: false,
+      },
+    ],
+  },
   EventRequest: {
     type: 'object',
     properties: {
       description: { type: 'string' },
       actor: { type: 'string' },
       target: { type: 'string' },
-      timestamp: { type: 'string', format: 'date-time' },
+      timestamp: { $ref: '#/components/schemas/WorldDate' },
       metadata: { type: 'object' },
     },
     required: ['description', 'actor', 'target', 'timestamp'],
@@ -329,7 +357,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       description: { type: 'string' },
       actor: { type: 'string' },
       target: { type: 'string' },
-      timestamp: { type: 'string', format: 'date-time' },
+      timestamp: { $ref: '#/components/schemas/WorldDate' },
       metadata: { type: 'object' },
     },
   },
@@ -350,8 +378,8 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       name: { type: 'string' },
       description: { type: 'string' },
-      start_time: { type: 'string', format: 'date-time' },
-      end_time: { type: 'string', format: 'date-time' },
+      start_time: { $ref: '#/components/schemas/WorldDate' },
+      end_time: { $ref: '#/components/schemas/WorldDate' },
       level: { type: 'integer' },
       parent_arc_id: { type: 'string', nullable: true },
     },
@@ -362,8 +390,8 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       name: { type: 'string' },
       description: { type: 'string' },
-      start_time: { type: 'string', format: 'date-time' },
-      end_time: { type: 'string', format: 'date-time' },
+      start_time: { $ref: '#/components/schemas/WorldDate' },
+      end_time: { $ref: '#/components/schemas/WorldDate' },
       level: { type: 'integer' },
     },
   },

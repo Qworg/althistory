@@ -4,8 +4,8 @@ import { useCreateArc } from '@/hooks/useAPI'
 import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 import { DateField } from '@/components/ui/DateField'
-import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { dateFieldIso, dateFieldValue, readDateFieldValue } from '@/utils/dateField'
+import { readDateFieldValue } from '@/utils/dateField'
+import { useDateFieldText } from '@/hooks/useDateFieldText'
 
 export interface ArcCreationModalProps {
   isOpen: boolean
@@ -26,15 +26,11 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
   onSuccess,
   className = ''
 }) => {
-  // The graph's world calendar, for the hint under each stored date.
-  const worldCalendar = useWorldCalendar()
-  // A field's value and its instant: a UTC picker, or the world's notation.
-  // (A new calendar shown rewrites the fields: their text is read in it.)
-  const toField = useCallback(
-    (iso: string, edge: 'start' | 'end') => dateFieldValue(iso, 'datetime', { calendar: worldCalendar, edge }),
-    [worldCalendar]
-  )
-  const toIso = (value: string, edge: 'start' | 'end') => dateFieldIso(value, { calendar: worldCalendar, edge })
+  // The dates' fields: a UTC picker, or the world's notation (see useDateFieldText).
+  const dates = useDateFieldText('datetime')
+  const worldCalendar = dates.calendar
+  const toField = dates.fill
+  const toIso = dates.toIso
   const [formData, setFormData] = useState<CreateArcRequest>({
     name: '',
     description: '',
@@ -45,6 +41,18 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [selectedParentId, setSelectedParentId] = useState<string | null>(null)
+
+  // Another calendar shown rewrites the dates (and only the dates) in it.
+  const { takeSwitch, rewrite } = dates
+  useEffect(() => {
+    const switched = takeSwitch()
+    if (!switched) return
+    setFormData((current) => ({
+      ...current,
+      start_time: rewrite(current.start_time || '', 'start', switched.from),
+      end_time: rewrite(current.end_time || '', 'end', switched.from),
+    }))
+  }, [takeSwitch, rewrite])
 
   const createArcMutation = useCreateArc({
     onSuccess: (outcome) => {

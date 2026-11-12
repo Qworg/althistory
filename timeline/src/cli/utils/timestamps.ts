@@ -8,7 +8,7 @@
  * guessed at in the host's zone.
  */
 
-import { type WorldCalendarSet, calendarIn, formatInWorld, parseIsoInstant, parseWorldText, readWorldTimestamp, worldPeriod } from '@althistory/calendar';
+import { type WorldCalendarSet, calendarIn, formatInWorld, parseIsoInstant, readWorldTimestamp } from '@althistory/calendar';
 import { ValidationErrorCLI } from './exitCodes';
 
 export interface AgentTimestamp {
@@ -26,24 +26,17 @@ export function isIsoText(text: string): boolean {
 /**
  * An agent's timestamp: ISO 8601, or in a graph with world calendars a date
  * in the world's notation ("Thaw 4, 312 AR", "Thaw 312 AR"). With `edge:
- * 'end'`, a world date at month or year precision is that period's last
- * moment (an arc's end).
+ * 'end'`, a world date without a time is the last moment of the day, month
+ * or year it names (an arc's end); ISO text is the instant it names.
  */
 export function readAgentTimestamp(text: string, calendar?: WorldCalendarSet, edge: 'start' | 'end' = 'start'): AgentTimestamp {
-  const read = readWorldTimestamp(calendar, String(text));
+  // As an end, a world date without a time is the last moment of what it names (the package's rule).
+  const read = readWorldTimestamp(calendar, String(text), edge);
   if (!read) {
     const example = calendar ? `a date in the world's calendar, such as "${worldExample(calendar)}", or ` : '';
     throw new ValidationErrorCLI(
       `Invalid timestamp: ${text}. Give ${example}an ISO 8601 date, such as 1843-11-20, 1843-11-20T14:30 (UTC) or 1871-03`
     );
-  }
-  // An end in the world's notation without a time is the last moment of the day, month or year it names.
-  if (edge === 'end' && calendar && !isIsoText(text)) {
-    const world = parseWorldText(calendar, String(text));
-    if (world.ok && !world.timed) {
-      const period = worldPeriod(calendarIn(calendar, world.calendar), world.fields, world.precision);
-      if (period) return { iso: new Date(period.end).toISOString(), precision: read.precision };
-    }
   }
   return read;
 }

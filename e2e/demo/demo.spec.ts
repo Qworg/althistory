@@ -177,7 +177,7 @@ test('a link opens on the invented world, in its own years', async ({ page }) =>
   await expect(page.getByRole('button', { name: /^Vael/ }).first()).toBeVisible()
   expect(new URL(page.url()).searchParams.has('start')).toBe(false)
 
-  // The Reckoning's own dates: thirteen months and its festivals, on its own 30-hour days.
+  // The Reckoning's own dates: twelve months and two festivals, on its own 30-hour days.
   const marks = page.locator('g[data-timeline-mark="event"]')
   await expect(marks).toHaveCount(9)
   await expect(page.locator('g[data-timeline-mark="event"][aria-label*="the first salt-king"]')).toHaveAttribute('aria-label', /at Thaw 4, 1 AR\b/)

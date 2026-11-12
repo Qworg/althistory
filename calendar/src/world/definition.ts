@@ -178,11 +178,11 @@ function nameProblems(path: string, value: unknown, maxLength: number, forbidden
   return []
 }
 
-function distinctNames(path: string, names: string[]): WorldCalendarIssue[] {
+function distinctNames(path: string, names: string[], what: string): WorldCalendarIssue[] {
   const seen = new Map<string, number>()
   for (const [index, name] of names.entries()) {
     const key = sameNameKey(name.trim())
-    if (seen.has(key)) return [{ path: `${path}[${index}]`, message: `${path} names "${name.trim()}" twice` }]
+    if (seen.has(key)) return [{ path: `${path}[${index}]`, message: `${path}[${index}]: another ${what} is already called "${name.trim()}"` }]
     seen.set(key, index)
   }
   return []
@@ -203,8 +203,8 @@ function templateProblems(path: string, value: unknown, kind: keyof typeof PLACE
     if (found.filter((f) => f === name).length !== 1) return [{ path, message: `${path} must hold {${name}} exactly once` }]
   }
   if (found.length !== new Set(found).size) return [{ path, message: `${path} holds a placeholder twice` }]
-  // Two placeholders side by side cannot be told apart when read back.
-  if (/\}\s*\{/.test(value)) return [{ path, message: `${path} must separate its placeholders with text` }]
+  // Two placeholders with nothing between them cannot be told apart when read back.
+  if (/\}\{/.test(value)) return [{ path, message: `${path} must separate its placeholders with a space or other text` }]
   if (/[{}]/.test(value.replace(/\{[a-z]+\}/g, ''))) return [{ path, message: `${path} has a stray brace` }]
   return []
 }
@@ -248,7 +248,7 @@ export function calendarDefinitionIssues(value: unknown, path: string, dayLength
     }
     if (nameIssues.length > 0) partsOk = false
   })
-  if (partsOk) issues.push(...distinctNames(`${path}.parts`, (parts as CalendarPart[]).map((part) => part.name)))
+  if (partsOk) issues.push(...distinctNames(`${path}.parts`, (parts as CalendarPart[]).map((part) => part.name), 'month or festival'))
   if (partsOk && (parts as CalendarPart[]).every((part) => part.intercalary)) {
     issues.push({ path: `${path}.parts`, message: `${path}.parts must hold at least one month that is not festival days` })
   }
@@ -295,15 +295,25 @@ export function calendarDefinitionIssues(value: unknown, path: string, dayLength
     if (!Number.isFinite(cycle)) {
       issues.push({ path: `${path}.leapRules`, message: `${path}.leapRules repeat over more than ${LIMITS.cycleYears} years` })
     } else {
-      for (let year = 1; year <= cycle; year++) {
-        const lengths = partLengthsIn(year, parts as CalendarPart[], typedRules)
-        const short = lengths.findIndex((days) => days < 1 || days > LIMITS.partDays)
-        if (short >= 0) {
-          issues.push({
-            path: `${path}.leapRules`,
-            message: `${path}.leapRules leave ${(parts as CalendarPart[])[short]!.name} with ${lengths[short]} days in some years; a part has 1 to ${LIMITS.partDays}`,
-          })
-          break
+      // Part by part, over the cycle of the rules that touch it (no array per year).
+      const typedParts = parts as CalendarPart[]
+      outer: for (const [index, part] of typedParts.entries()) {
+        const own = (typedRules ?? []).filter((rule) => rule.part === index)
+        if (own.length === 0) continue
+        const partCycle = cycleYears(own)
+        for (let year = 1; year <= partCycle; year++) {
+          let days = part.days
+          for (const rule of own) {
+            const offset = rule.offset ?? 0
+            if ((((year - offset) % rule.every) + rule.every) % rule.every === 0) days += rule.days
+          }
+          if (days < 1 || days > LIMITS.partDays) {
+            issues.push({
+              path: `${path}.leapRules`,
+              message: `${path}.leapRules leave ${part.name} with ${days} days in some years; a part has 1 to ${LIMITS.partDays}`,
+            })
+            break outer
+          }
         }
       }
     }
@@ -336,12 +346,12 @@ export function calendarDefinitionIssues(value: unknown, path: string, dayLength
             issues.push({ path: `${at}.label`, message: `${at}.label cannot start with "before" or be "Year", which name years before an era` })
           }
         }
-        if (!isInt(era.from) || era.from <= previous) {
-          issues.push({ path: `${at}.from`, message: `${at}.from must be a whole year after the previous era's` })
+        if (!isInt(era.from) || era.from <= previous || Math.abs(era.from) > 1e9) {
+          issues.push({ path: `${at}.from`, message: `${at}.from must be a whole year after the previous era's, within a billion years of year 1` })
         } else previous = era.from
       })
       if (eras.every((era) => isRecord(era) && typeof era.label === 'string' && era.label !== '')) {
-        issues.push(...distinctNames(`${path}.eras`, (eras as CalendarEra[]).map((era) => era.label)))
+        issues.push(...distinctNames(`${path}.eras`, (eras as CalendarEra[]).map((era) => era.label), 'era'))
       }
     }
   }
@@ -365,7 +375,7 @@ export function calendarDefinitionIssues(value: unknown, path: string, dayLength
         nameProblems(`${path}.week.days[${index}]`, day, LIMITS.nameLength, FORBIDDEN_IN_MONTH_NAME, 'a comma, a "|", brackets or a double quote')
       )
       issues.push(...dayIssues)
-      if (dayIssues.length === 0) issues.push(...distinctNames(`${path}.week.days`, week.days as string[]))
+      if (dayIssues.length === 0) issues.push(...distinctNames(`${path}.week.days`, week.days as string[], 'day of the week'))
       if (week.epochWeekday !== undefined && (!isInt(week.epochWeekday) || week.epochWeekday < 0 || week.epochWeekday >= week.days.length)) {
         issues.push({ path: `${path}.week.epochWeekday`, message: `${path}.week.epochWeekday must be the index of one of its days` })
       }
@@ -414,8 +424,13 @@ export function calendarDefinitionIssues(value: unknown, path: string, dayLength
   return issues
 }
 
-/** Every issue with a calendar set from outside (a request, a tool, an import). Empty when usable. */
-export function calendarSetIssues(value: unknown): WorldCalendarIssue[] {
+/**
+ * Every issue with a set's shape: each calendar's parts, rules, eras, week,
+ * time and notation, and the set's day and ids. A set can have none and still
+ * write text that reads back as another date; `calendarSetIssues` (check.ts)
+ * checks that too.
+ */
+export function calendarSetShapeIssues(value: unknown): WorldCalendarIssue[] {
   if (!isRecord(value)) return [{ path: 'calendar', message: 'calendar must be an object' }]
   const issues: WorldCalendarIssue[] = []
   for (const key of Object.keys(value)) {
@@ -441,11 +456,8 @@ export function calendarSetIssues(value: unknown): WorldCalendarIssue[] {
   return issues
 }
 
-/** A checked calendar set, its names trimmed. Throws on an unusable one. */
-export function normalizeCalendarSet(value: unknown): WorldCalendarSet {
-  const issues = calendarSetIssues(value)
-  if (issues.length > 0) throw new Error(issues.map((issue) => issue.message).join('; '))
-  const set = value as WorldCalendarSet
+/** A set whose shape checks out, its names trimmed (what `normalizeCalendarSet` stores). */
+export function trimCalendarSet(set: WorldCalendarSet): WorldCalendarSet {
   return {
     version: 2,
     dayLength: set.dayLength,

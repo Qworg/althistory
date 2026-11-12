@@ -7,6 +7,10 @@
  * Timeline.tsx wires these to the DOM; nothing here touches it.
  */
 
+import { type CompiledCalendar, type WorldCalendarSet, calendarIn, dateAt, partLengths, positionOf } from '@althistory/calendar'
+import { getActiveCalendar } from '@/stores/worldCalendarStore'
+
+
 /** A mark's identity in the DOM (`data-mark-key`) and in the model. */
 export type MarkKey = string
 
@@ -182,17 +186,37 @@ const STEPS_PER_VIEW = 40
  * visible move at any zoom (a day when a year is in view, five years when two
  * centuries are).
  */
-export function keyboardTimeStep(visibleSpanMs: number): TimeStep {
+export function keyboardTimeStep(visibleSpanMs: number, calendar: WorldCalendarSet | null = getActiveCalendar()): TimeStep {
   const target = visibleSpanMs / STEPS_PER_VIEW
+  const approx = calendar ? worldUnitMs(calendar) : APPROX_MS
   let chosen = STEPS[0]!
   for (const step of STEPS) {
-    if (APPROX_MS[step.unit] * step.count <= target) chosen = step
+    if (approx[step.unit] * step.count <= target) chosen = step
   }
   return chosen
 }
 
-/** `date` moved by `direction` steps, in UTC (historical dates are UTC instants). */
-export function offsetByStep(date: Date, step: TimeStep, direction: number): Date {
+/** A world calendar's units, in milliseconds (a month and a year on average). */
+function worldUnitMs(set: WorldCalendarSet): Record<Unit, number> {
+  const calendar = calendarIn(set)
+  const yearMs = (calendar.cycleDays / calendar.cycleYears) * calendar.dayMs
+  return {
+    minute: calendar.dayMs / (calendar.time.hoursPerDay * calendar.time.minutesPerHour),
+    hour: calendar.dayMs / calendar.time.hoursPerDay,
+    day: calendar.dayMs,
+    month: yearMs / calendar.definition.parts.length,
+    year: yearMs,
+  }
+}
+
+/**
+ * `date` moved by `direction` steps. In a world, by its own minutes, hours,
+ * days, months and years (a month or a year keeps the day, the last day of a
+ * shorter month or festival when it has fewer); otherwise in UTC on the
+ * Gregorian calendar (historical dates are UTC instants).
+ */
+export function offsetByStep(date: Date, step: TimeStep, direction: number, calendar: WorldCalendarSet | null = getActiveCalendar()): Date {
+  if (calendar) return new Date(offsetInWorld(calendarIn(calendar), date.getTime(), step, direction))
   const next = new Date(date.getTime())
   const n = step.count * direction
   switch (step.unit) {
@@ -209,4 +233,27 @@ export function offsetByStep(date: Date, step: TimeStep, direction: number): Dat
       break
   }
   return next
+}
+
+function offsetInWorld(calendar: CompiledCalendar, position: number, step: TimeStep, direction: number): number {
+  const n = step.count * direction
+  if (step.unit === 'minute' || step.unit === 'hour' || step.unit === 'day') {
+    const unit = step.unit === 'day' ? calendar.dayMs : step.unit === 'hour' ? calendar.dayMs / calendar.time.hoursPerDay : calendar.dayMs / (calendar.time.hoursPerDay * calendar.time.minutesPerHour)
+    return position + Math.round(n * unit)
+  }
+  const date = dateAt(calendar, position)
+  const parts = calendar.definition.parts.length
+  let year = date.year
+  let part = date.part
+  if (step.unit === 'year') year += n
+  else {
+    const index = date.part + n
+    year += Math.floor(index / parts)
+    part = ((index % parts) + parts) % parts
+  }
+  const day = Math.min(date.day, partLengths(calendar, year)[part]!)
+  // The same time into the new day.
+  const intoDay = position - Math.floor(position / calendar.dayMs) * calendar.dayMs
+  const start = positionOf(calendar, { year, part, day, hour: 0, minute: 0, second: 0 })
+  return start === null ? position : start + intoDay
 }

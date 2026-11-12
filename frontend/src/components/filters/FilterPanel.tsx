@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { HistoricalDateInput } from './HistoricalDateInput'
-import { readDateBound } from './filterUtils'
+import { boundFromUrl, boundToUrl, readDateBound } from './filterUtils'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { worldBoundExamples } from '@althistory/calendar'
 
@@ -75,11 +75,13 @@ export function FilterPanel({
   // when it runs.
   const filtersRef = useRef(filters)
   const onFiltersChangeRef = useRef(onFiltersChange)
+  const calendarRef = useRef(worldCalendar)
 
   useEffect(() => {
     filtersRef.current = filters
     onFiltersChangeRef.current = onFiltersChange
-  }, [filters, onFiltersChange])
+    calendarRef.current = worldCalendar
+  }, [filters, onFiltersChange, worldCalendar])
 
   // Sync filters with URL parameters
   useEffect(() => {
@@ -103,9 +105,10 @@ export function FilterPanel({
     
     // Either bound alone is a filter (an open-ended range).
     if (searchParams.get('startDate') || searchParams.get('endDate')) {
+      // In a world a link holds instants; the panel writes them in the calendar shown.
       urlFilters.dateRange = {
-        start: searchParams.get('startDate') ?? '',
-        end: searchParams.get('endDate') ?? ''
+        start: boundFromUrl(searchParams.get('startDate') ?? '', 'start', calendarRef.current),
+        end: boundFromUrl(searchParams.get('endDate') ?? '', 'end', calendarRef.current)
       }
     }
     
@@ -138,15 +141,15 @@ export function FilterPanel({
       newParams.set('eventTypes', filters.eventTypes.join(','))
     }
     
-    if (filters.dateRange?.start) newParams.set('startDate', filters.dateRange.start)
-    if (filters.dateRange?.end) newParams.set('endDate', filters.dateRange.end)
+    if (filters.dateRange?.start) newParams.set('startDate', boundToUrl(filters.dateRange.start, 'start', worldCalendar))
+    if (filters.dateRange?.end) newParams.set('endDate', boundToUrl(filters.dateRange.end, 'end', worldCalendar))
     
     if (filters.confidenceThreshold > 0) {
       newParams.set('confidence', filters.confidenceThreshold.toString())
     }
     
     setSearchParams(newParams, { replace: true })
-  }, [filters, setSearchParams])
+  }, [filters, setSearchParams, worldCalendar])
 
   const handleFilterChange = (key: keyof FilterState, value: unknown) => {
     onFiltersChange({

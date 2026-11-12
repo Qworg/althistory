@@ -146,8 +146,8 @@ that is omitted. A key restricted to some graphs gets `403` for a
 an import job is visible to, and cancellable by, only the key that started it.
 
 **Text extraction reads a graph only when named.** `POST /api/ingest/text`
-reads `X-Graph-Id` to find the graph the text is for (its world calendar tells
-the model how the text's dates are stored), but has no active-graph fallback:
+reads `X-Graph-Id` to find the graph the text is for (its world calendars tell
+the model how the world writes a date), but has no active-graph fallback:
 with no header, no graph is read. A graph that does not exist is a `404`, and
 one the key may not access a `403`.
 
@@ -165,15 +165,29 @@ active graph is outside the key's list.
 Send historical dates and times as ISO 8601: `1843-11-20`, `1843-11-20T14:30:00Z`,
 `1066-10-14T09:30+05:00`. A time with no zone (`1843-11-20T14:30`) is UTC, never
 the server's local time, and a year or a month alone (`1066`, `1871-03`) is its
-first day. Every route reads dates with the same reader (`toInstant` in
+first moment. Every route reads ISO 8601 with the same reader (`toInstant` in
 [`calendar/`](../calendar/README.md)), so a time means the same instant in an
 event, an arc, a filter and an export.
 
-A date that does not exist (`2019-02-31`, `1870-13-01`) is refused. Text that is
-not ISO 8601 at all (`January 1, 2023`) is still read as JavaScript reads it,
-in the server's zone, so that data and clients written before keep working;
-do not rely on it. Responses always write dates as `toISOString` does
-(`1843-11-20T14:30:00.000Z`).
+A date that does not exist (`2019-02-31`, `1870-13-01`) is refused. In a graph
+without world calendars, text that is not ISO 8601 at all (`January 1, 2023`)
+is still read as JavaScript reads it, in the server's zone, so that data and
+clients written before keep working; do not rely on it. Responses always
+write dates as `toISOString` does (`1843-11-20T14:30:00.000Z`).
+
+**In a graph with world calendars** ([the spec](specs/world-calendars.md)),
+the event and arc routes, and `POST /api/batch/*`, also take a date as the
+world writes it (`"Thaw 4, 312 AR"`, `"Thaw 312 AR"` for a month, `"312 AR"`
+for a year, a time after a comma), in any of its calendars, or as fields:
+`{ "calendar": "reckoning", "era": "AR", "year": 312, "month": "Thaw",
+"day": 4 }`. A month or a year is stored at its first moment with
+`metadata.datePrecision` recorded; as an arc's `end_time`, a day, month or
+year written without a time is its last moment. Text that is neither ISO 8601
+nor the world's notation is refused (`400`), never read as a Gregorian date.
+A new date on `PUT /api/events/:id` replaces the old one's precision (unless
+the request's `metadata` states one). Responses give each date's place on the
+timeline as ISO 8601; the query-string filters (`startTime`, `endTime`) and
+the temporal and inference routes take those ISO instants.
 
 ## Responses
 

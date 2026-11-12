@@ -113,7 +113,7 @@ twelve months the world's names, January's first, separated by commas, one per
 line, or as a JSON list. A month name cannot contain a comma, a `|`, brackets,
 a double quote, or a control character; an era label cannot contain a digit.
 `graph create`, `graph calendar` and `generate timeline --world` take these
-flags, and the first two take `--calendar-file` instead. `graph calendar`
+flags, and all three take `--calendar-file` instead. `graph calendar`
 replaces the whole calendar, so give everything you want to keep.
 
 `generate timeline --world <text>` chronicles an invented world from its
@@ -121,7 +121,7 @@ founding instead of turning real history at a point of divergence: give
 `--world`, or `--premise` and `--divergence-point`, never both. The graph gets
 a calendar, its epoch defaulting to `--start-date`'s year or 1000, and the
 chronicle runs for 300 years unless `--end-date` says otherwise. With a model
-key the model is told the world is not Earth and how its years are stored;
+key the model is told the world is not Earth and how its calendars write a date;
 without one it is a template of ages to rewrite. `generate branch` of a world
 stays in that world and its calendar, and the arcs a world's timeline is
 grouped into are named in its years.

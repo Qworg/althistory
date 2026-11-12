@@ -1,8 +1,8 @@
-import { useState, useEffect, useContext, useMemo } from 'react'
+import { useState, useEffect, useContext, useMemo, useRef } from 'react'
 import { QueryClientContext } from '@tanstack/react-query'
 import { Arc, CausalRelationship, Event, type GraphCalendar } from '@/types'
 import { useEvents } from '@/hooks/useAPI'
-import { type DateEntryRead, type DatePrecision, datePrecisionOf, formatDateEntry, readDateEntry, worldBoundExamples } from '@althistory/calendar'
+import { type DateEntryRead, type DatePrecision, datePrecisionOf, formatDateEntry, readDateEntry, toInstant, worldBoundExamples } from '@althistory/calendar'
 import { getActiveCalendar, useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatHistoricalDate, formatHistoricalDateAt } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
@@ -232,29 +232,55 @@ export function EventDetailModal({
     setPendingFocus(null)
   }, [pendingFocus])
 
+  // The date as the form first showed it, and the calendar it is written in.
+  // A date left as shown is saved as it was stored: the text names the whole
+  // day, month or year it falls in (in the calendar shown), not the instant.
+  const shownDate = useRef('')
+  const fieldCalendar = useRef(worldCalendar)
+
   // Update form data when event changes
   useEffect(() => {
+    const calendar = fieldCalendar.current
     if (event) {
+      shownDate.current = toDateField(event.timestamp || '', datePrecisionOf(event.metadata), calendar)
       setFormData({
         ...EMPTY_FORM,
         description: event.description || '',
         actor: event.actor || '',
         target: event.target || '',
-        timestamp: toDateField(event.timestamp || '', datePrecisionOf(event.metadata), worldCalendar),
+        timestamp: shownDate.current,
         // Kept in the event's metadata, where the timeline reads confidence.
         event_type: metadataText(event, 'eventType'),
         confidence: confidenceField(event),
         evidence: metadataText(event, 'evidence'),
       })
     } else {
+      shownDate.current = ''
       setFormData({
         ...EMPTY_FORM,
-        timestamp: initialTimestamp ? toDateField(initialTimestamp, 'day', worldCalendar) : '',
+        timestamp: initialTimestamp ? toDateField(initialTimestamp, 'day', calendar) : '',
       })
     }
     setErrors({})
     setShowDeleteConfirm(false)
-  }, [event, isOpen, initialTimestamp, worldCalendar])
+  }, [event, isOpen, initialTimestamp])
+
+  // Another calendar shown rewrites the date in it (and only the date): text
+  // in the old calendar could read as another day in the new one.
+  useEffect(() => {
+    const previous = fieldCalendar.current
+    if (previous === worldCalendar) return
+    fieldCalendar.current = worldCalendar
+    setFormData((current) => {
+      const untouched = event && current.timestamp === shownDate.current
+      if (untouched) {
+        shownDate.current = toDateField(event.timestamp || '', datePrecisionOf(event.metadata), worldCalendar)
+        return { ...current, timestamp: shownDate.current }
+      }
+      const read = current.timestamp.trim() ? fromDateField(current.timestamp, previous) : null
+      return read?.ok ? { ...current, timestamp: toDateField(read.iso, read.precision, worldCalendar) } : current
+    })
+  }, [worldCalendar, event])
 
   // Handle escape key
   useEffect(() => {
@@ -337,6 +363,7 @@ export function EventDetailModal({
       // Only pass fields that exist on Event type
       // Convert datetime-local format to ISO string for API
       const parsedDate = fromDateField(formData.timestamp, worldCalendar)
+      const dateUntouched = Boolean(event) && formData.timestamp === shownDate.current
       // The rest of the metadata is the event's own; only the fields this form
       // edits are replaced (an empty one is removed rather than saved blank).
       const metadata: Record<string, unknown> = { ...(event?.metadata ?? {}) }
@@ -350,12 +377,12 @@ export function EventDetailModal({
       // The field states the date's precision ("1871-03" a month), and shows
       // an event at the precision it is known to (toDateField), so saving it
       // untouched keeps a month a month and a day on the 1st a day.
-      if (parsedDate.ok) setOrDrop('datePrecision', parsedDate.precision === 'day' ? undefined : parsedDate.precision)
+      if (parsedDate.ok && !dateUntouched) setOrDrop('datePrecision', parsedDate.precision === 'day' ? undefined : parsedDate.precision)
       const eventData: Partial<Event> = {
         description: formData.description,
         actor: formData.actor,
         target: formData.target,
-        timestamp: parsedDate.ok ? parsedDate.iso : '',
+        timestamp: dateUntouched && event ? toInstant(event.timestamp).toISOString() : parsedDate.ok ? parsedDate.iso : '',
         metadata,
       }
       const extras: EventSaveExtras | undefined =

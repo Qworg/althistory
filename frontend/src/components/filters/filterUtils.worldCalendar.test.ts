@@ -49,3 +49,16 @@ describe('date bounds in a world calendar', () => {
     expect(bound.ok && bound.date.toISOString()).toBe('1843-11-01T00:00:00.000Z')
   })
 })
+
+describe('date bounds in a link', () => {
+  it('in a world, are the instants they name, whatever calendar the viewer picked', async () => {
+    const { boundFromUrl, boundToUrl } = await import('./filterUtils')
+    const start = boundToUrl('Thaw 312 AR', 'start', VAEL)
+    expect(start).toBe(vael(312, 2, 1).toISOString())
+    expect(boundToUrl(boundFromUrl(start, 'start', SHOWN_TIDE), 'start', SHOWN_TIDE)).toBe(start)
+    expect(boundFromUrl(start, 'start', VAEL)).toBe('Thaw 312 AR')
+    // Without a world, as typed (links made before keep working).
+    expect(boundToUrl('1843-11', 'start', null)).toBe('1843-11')
+    expect(boundFromUrl('1843-11', 'start', null)).toBe('1843-11')
+  })
+})

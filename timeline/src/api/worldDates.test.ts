@@ -3,7 +3,7 @@ import { type WorldCalendarSet, calendarIn, positionOf } from '@althistory/calen
 import { readRequestTime } from './worldDates';
 import { ValidationError } from '../utils/errors';
 
-/** Vael's Reckoning alone: thirteen months of thirty days and a festival, a 30-hour day of 20 hours. */
+/** A Reckoning of twelve months of thirty days and five festival days, in a 30-hour day of 20 hours. */
 const VAEL: WorldCalendarSet = {
   version: 2,
   dayLength: 30 * 3600,

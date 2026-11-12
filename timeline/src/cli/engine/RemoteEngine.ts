@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { type WorldCalendarSet, storedCalendarSet, toInstant } from '@althistory/calendar';
+import { storedCalendarSet, toInstant } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
 import { isIsoText, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import { IEngine } from './IEngine';
@@ -266,11 +266,27 @@ export class RemoteEngine implements IEngine {
     }
   }
 
-  /** The graph's world calendars, when text is not ISO 8601 and may be a world date; fetched only then. */
-  private async worldCalendarFor(graphId: string, text: string): Promise<WorldCalendarSet | undefined> {
-    if (isIsoText(text)) return undefined;
-    // A graph that cannot be read gives no calendar: the text is then refused as a date.
-    return (await this.getGraph(graphId).catch(() => undefined))?.calendar;
+  /**
+   * A date to send, read here as the direct engine reads it. When the graph
+   * cannot be read (a key allowed its events but not the graph), text that is
+   * not ISO 8601 goes to the server as written: the event and arc routes read
+   * it with the graph's own calendars, and record its precision themselves.
+   */
+  private async readDate(
+    graphId: string,
+    text: string,
+    edge: 'start' | 'end' = 'start'
+  ): Promise<{ iso: string; precision: 'day' | 'month' | 'year'; deferred: boolean }> {
+    if (isIsoText(text)) return { ...readAgentTimestamp(text, undefined, edge), deferred: false };
+    let refused = false;
+    const graph = await this.getGraph(graphId).catch((err: unknown) => {
+      refused = err instanceof AuthErrorCLI;
+      return undefined;
+    });
+    // Only a key refused the graph defers; one that is gone, or a daemon that
+    // cannot answer, leaves the text to be refused here as in direct mode.
+    if (!graph && refused && String(text).trim() !== '') return { iso: String(text), precision: 'day', deferred: true };
+    return { ...readAgentTimestamp(text, graph?.calendar, edge), deferred: false };
   }
 
   async getGraph(id: string): Promise<GraphSummaryDto> {
@@ -424,7 +440,7 @@ export class RemoteEngine implements IEngine {
     }
   ): Promise<EventDto> {
     // Read here, as the direct engine reads it, so both modes take the same text.
-    const read = readAgentTimestamp(data.timestamp, await this.worldCalendarFor(graphId, data.timestamp));
+    const read = await this.readDate(graphId, data.timestamp);
     try {
       const res = await this.client.post(
         '/api/events',
@@ -499,7 +515,7 @@ export class RemoteEngine implements IEngine {
     eventId: string,
     data: Partial<{ description: string; timestamp: string; actor?: string; target?: string }>
   ): Promise<EventDto> {
-    const read = data.timestamp !== undefined ? readAgentTimestamp(data.timestamp, await this.worldCalendarFor(graphId, data.timestamp)) : undefined;
+    const read = data.timestamp !== undefined ? await this.readDate(graphId, data.timestamp) : undefined;
     try {
       // A new date replaces the old one's precision, as in the direct engine.
       // The PUT replaces metadata whole, so it is sent only as read back and
@@ -543,8 +559,8 @@ export class RemoteEngine implements IEngine {
     data: { name: string; startTime: string; endTime: string; description?: string; parentArcId?: string }
   ): Promise<ArcDto> {
     // Read here, as the direct engine reads them, so both modes take the same text.
-    const startTime = readAgentTimestamp(data.startTime, await this.worldCalendarFor(graphId, data.startTime)).iso;
-    const endTime = readAgentTimestamp(data.endTime, await this.worldCalendarFor(graphId, data.endTime), 'end').iso;
+    const startTime = (await this.readDate(graphId, data.startTime)).iso;
+    const endTime = (await this.readDate(graphId, data.endTime, 'end')).iso;
     try {
       // A child arc sits one level below the arc it belongs to, which has to
       // exist; the direct engine places it the same way.

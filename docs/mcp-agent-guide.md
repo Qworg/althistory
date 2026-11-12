@@ -168,14 +168,20 @@ Dates then go in and come out in the world's notation. `althistory_create_event`
 takes `timestamp: "Greywater 4, 312 AR"` (or an ISO 8601 timestamp), and
 `althistory_create_arc` takes the same for `startTime` and `endTime`. A month or a
 year alone ("Greywater 312 AR") is stored at its first day, with its precision
-recorded; as an arc's `endTime` it means that period's last moment.
-`althistory_export_context` shows each date in the world's notation, with its
-place on the timeline in brackets. Text written about the world, sent to
+recorded; as an arc's `endTime`, a day, month or year written without a time
+means its last moment. Every tool result gives an event's date as the world
+writes it (`worldDate`) beside its `timestamp`, and an arc's as `worldStart` and
+`worldEnd`. `althistory_export_context` shows each date in the world's
+notation, with its place on the timeline (an ISO 8601 instant) in brackets. Text written about the world, sent to
 `althistory_ingest_text` with the graph named, has its dates read in the
 world's notation too.
 
-Setting a calendar replaces the whole calendar. Names cannot contain a comma
-(month names), a `|`, braces, or a control character.
+Setting a calendar replaces the whole calendar. Names cannot contain a `|`,
+braces or a control character; month, festival and weekday names cannot
+contain a comma, brackets or a double quote either, and era labels cannot
+contain a digit. A set whose text would read back as another date (a festival
+"Midyear 3" beside a month "Midyear"; two calendars that both write "Year 5")
+is refused, with the text that collides.
 
 The calendar is kept when the graph is branched or copied, travels in the
 export document's `metadata.calendar`, and comes back on import.
@@ -240,7 +246,7 @@ Give a graph a world calendar, change it, or remove it.
 
 #### `althistory_create_arc`
 An age, era, reign or campaign that holds events.
-- `graphId`, `name`, `startTime`, `endTime` *(required)*: ISO 8601, or in a world graph a date in the world's notation (an `endTime` of a month or a year means its last moment).
+- `graphId`, `name`, `startTime`, `endTime` *(required)*: ISO 8601, or in a world graph a date in the world's notation (an `endTime` without a time, a day, month or year, means its last moment).
 - `description`, `parentArcId` (the arc it sits inside; it is placed one level below it).
 
 #### `althistory_create_event`

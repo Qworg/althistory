@@ -757,6 +757,11 @@ describe('ExportPanel in a world calendar', () => {
     await user.tab()
     expect(screen.getByText(/Thaw has 30 days/)).toBeInTheDocument()
     expect(start).toHaveAttribute('aria-invalid', 'true')
+    // Nothing is sent for it: the export waits until it reads, or is cleared.
+    expect(screen.getByText(/not one this graph can read/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Prepare export file/i })).toBeDisabled()
+    await user.clear(start)
+    expect(screen.getByRole('button', { name: /Prepare export file/i })).toBeEnabled()
   })
 
   it('keeps the date pickers without a calendar', async () => {

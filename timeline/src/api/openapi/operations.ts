@@ -774,7 +774,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
       {
         name: 'X-Graph-Id',
         description:
-          "The graph the text is for: a world calendar on it tells the model how the text's dates are stored. " +
+          "The graph the text is for: its world calendars tell the model how the world writes a date, and the dates it gives are read in them. " +
           'Optional, and unlike the graph-scoped routes there is no active-graph fallback: without it no graph ' +
           'is read. A graph that does not exist is a 404; one the key may not access, a 403.',
       },

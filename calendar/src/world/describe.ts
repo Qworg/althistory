@@ -8,7 +8,7 @@
 import { readTimestamp } from '../instant'
 import type { CalendarDefinition, WorldCalendarSet } from './definition'
 import { calendarIn, dateAt } from './engine'
-import { type WorldPrecision, formatWorldFields, formatWorldPosition, parseWorldText } from './notation'
+import { type WorldPrecision, formatWorldFields, formatWorldPosition, parseWorldText, worldPeriod } from './notation'
 
 /** A position in a world's calendar (its primary unless another is named), at a precision. */
 export function formatInWorld(set: WorldCalendarSet, position: number, precision: WorldPrecision = 'day', calendarId?: string): string {
@@ -19,15 +19,24 @@ export function formatInWorld(set: WorldCalendarSet, position: number, precision
  * A date as a person or a model wrote it, in a graph that may have a world
  * calendar: the world's notation first (in any of its calendars), then ISO
  * 8601. Read once where it enters, as toISOString's spelling with the
- * precision it stated. Null when it is neither.
+ * precision it stated; an ISO timestamp is the instant it names, at either
+ * edge. Null when it is neither.
  */
 export function readWorldTimestamp(
   set: WorldCalendarSet | null | undefined,
-  text: string
+  text: string,
+  edge: 'start' | 'end' = 'start'
 ): { iso: string; precision: WorldPrecision } | null {
   if (set) {
     const world = parseWorldText(set, text)
-    if (world.ok) return { iso: new Date(world.position).toISOString(), precision: world.precision }
+    if (world.ok) {
+      // As an end, a day, month or year written without a time is its last moment (Req 15).
+      if (edge === 'end' && !world.timed) {
+        const period = worldPeriod(calendarIn(set, world.calendar), world.fields, world.precision)
+        if (period) return { iso: new Date(period.end).toISOString(), precision: world.precision }
+      }
+      return { iso: new Date(world.position).toISOString(), precision: world.precision }
+    }
   }
   return readTimestamp(text)
 }

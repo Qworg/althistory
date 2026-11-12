@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Event, Arc } from '@/models';
 import { ExportFormat, ExportResultDto } from '../types';
-import { type WorldCalendarSet, describeCalendarSet, formatInWorld } from '@althistory/calendar';
+import { type DatePrecision, type WorldCalendarSet, datePrecisionOf, describeCalendarSet, formatDateEntry } from '@althistory/calendar';
 
 /** The formats an export can be rendered in. */
 export type { ExportFormat };
@@ -18,10 +18,20 @@ export interface ExportRelationship {
   relationship_type: string;
 }
 
-/** "1311-03-04", or in a world calendar "Thaw 4, 312 AR (1311-03-04)": its date, then its place on the timeline. */
-function markdownDate(date: Date, calendar: WorldCalendarSet | undefined): string {
-  const stored = date.toISOString().split('T')[0];
-  return calendar ? `${formatInWorld(calendar, date.getTime())} (${stored})` : stored;
+/**
+ * "1311-03-04", or in a world "Thaw 4, 312 AR (2358-11-19T06:00:00.000Z)":
+ * the world's date at the precision the source gave (an arc's end as the day
+ * it ends), then its place on the timeline, whole: a world's day need not
+ * start at a UTC midnight, so the ISO date alone could name another day.
+ */
+function markdownDate(
+  date: Date,
+  calendar: WorldCalendarSet | undefined,
+  precision: DatePrecision = 'day',
+  edge: 'start' | 'end' = 'start'
+): string {
+  if (!calendar) return date.toISOString().split('T')[0]!;
+  return `${formatDateEntry(date, precision, calendar, edge)} (${date.toISOString()})`;
 }
 
 export class GraphExporter {
@@ -173,7 +183,7 @@ export class GraphExporter {
       md += `|:---|:---|:---|:---|:---|\n`;
       for (const a of sortedArcs) {
         const start = markdownDate(a.start_time, calendar);
-        const end = markdownDate(a.end_time, calendar);
+        const end = markdownDate(a.end_time, calendar, 'day', 'end');
         md += `| \`${a.id}\` | **${a.name}** | ${start} to ${end} | ${a.level} | ${a.description || '-'} |\n`;
       }
       md += `\n`;
@@ -185,7 +195,7 @@ export class GraphExporter {
     md += `|:---|:---|:---|:---|:---|:---|:---|\n`;
 
     for (const e of sortedEvents) {
-      const dateStr = markdownDate(e.timestamp, calendar);
+      const dateStr = markdownDate(e.timestamp, calendar, datePrecisionOf(e.metadata));
       const causes = relationships
         .filter((r) => r.cause_event_id === e.id)
         .map((r) => `\`${r.effect_event_id}\` (${r.relationship_type})`)

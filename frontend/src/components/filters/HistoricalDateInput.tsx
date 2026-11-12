@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { WorldCalendarSet } from '@althistory/calendar'
 import { readDateBound, type DateBoundEdge } from './filterUtils'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
@@ -49,8 +49,14 @@ export function HistoricalDateInput({
   // replaces the draft unless the draft already stands for the same instant.
   // (By instant, not by spelling: the store hands `1843-01` back as `1843`,
   // and rewriting the field mid-word would break the typing.)
+  // Another calendar shown rewrites the draft in it, whatever it reads as:
+  // text in the old calendar may still read (in the world's other calendars).
+  const shownRef = useRef(calendar)
   useEffect(() => {
+    const switched = shownRef.current !== calendar
+    shownRef.current = calendar
     setDraft((current) => {
+      if (switched) return value
       if (current.trim() === '' && value === '') return current
       const draftInstant = instantOf(current, edge, calendar)
       return draftInstant !== null && draftInstant === instantOf(value, edge, calendar) ? current : value

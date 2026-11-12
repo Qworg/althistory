@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useMemo, useState } from 'react'
 import type { GraphCalendar } from '@/types'
 import {
   type WorldCalendarSet,
@@ -21,6 +21,9 @@ export interface CalendarDraftState {
   update: (change: (draft: WorldDraft) => WorldDraft) => void
   /** Replace the draft with a whole set (pasted as JSON, say). */
   replace: (set: WorldCalendarSet) => void
+  /** Why the form cannot be sent as it stands outside the draft (JSON being typed that is not a set yet); null when it can. */
+  blocked: string | null
+  setBlocked: (reason: string | null) => void
   /** The problems with the draft, by field (see `draftErrorAt`); empty while the section is off. */
   errors: WorldDraftErrors
   /** True once the form tried to submit, so an empty field is shown as missing. */
@@ -46,8 +49,11 @@ export function useCalendarDraft(initial?: GraphCalendar | null): CalendarDraftS
   const [enabled, setEnabled] = useState(Boolean(initial))
   const [draft, setDraft] = useState<WorldDraft>(() => draftOf(initial))
   const [submitted, setSubmitted] = useState(false)
+  const [blocked, setBlocked] = useState<string | null>(null)
 
-  const errors = useMemo(() => (enabled ? worldDraftErrors(draft) : {}), [enabled, draft])
+  // Checked on a deferred copy, so typing never waits on a large set's check.
+  const checked = useDeferredValue(draft)
+  const errors = useMemo(() => (enabled ? worldDraftErrors(checked) : {}), [enabled, checked])
 
   const update = useCallback((change: (draft: WorldDraft) => WorldDraft) => setDraft(change), [])
   const replace = useCallback((set: WorldCalendarSet) => setDraft(draftFromSet(set)), [])
@@ -57,15 +63,17 @@ export function useCalendarDraft(initial?: GraphCalendar | null): CalendarDraftS
     setEnabled(Boolean(calendar))
     setDraft(draftOf(calendar))
     setSubmitted(false)
+    setBlocked(null)
   }, [])
 
   const resolve = useCallback((): ReturnType<CalendarDraftState['resolve']> => {
     setSubmitted(true)
     if (!enabled) return { ok: true, calendar: original ? null : undefined }
+    if (blocked) return { ok: false }
     const read = readWorldDraft(draft)
     if (!read.ok) return { ok: false }
     return { ok: true, calendar: original && sameCalendarSet(original, read.set) ? undefined : read.set }
-  }, [enabled, draft, original])
+  }, [enabled, draft, original, blocked])
 
-  return { enabled, setEnabled, draft, update, replace, errors, submitted, hadCalendar: original !== null, reset, resolve }
+  return { enabled, setEnabled, draft, update, replace, blocked, setBlocked, errors, submitted, hadCalendar: original !== null, reset, resolve }
 }

@@ -30,7 +30,14 @@ interface WorldCalendarState {
   shown: string | null
   /** The view the formatters read: `set` with `shown` as its primary. */
   calendar: WorldCalendarSet | null
-  setCalendar: (calendar: unknown) => void
+  /** The graph the calendars are, when known: the choice of calendar is that graph's. */
+  owner: string | null
+  /**
+   * The open graph's calendars (either stored form). The calendar picked
+   * stays picked while the same graph is open, and goes with it: another
+   * world's calendar with the same id is not the same calendar.
+   */
+  setCalendar: (calendar: unknown, owner?: string | null) => void
   showCalendar: (id: string | null) => void
 }
 
@@ -44,12 +51,15 @@ export const useWorldCalendarStore = create<WorldCalendarState>()((set, get) => 
   set: null,
   shown: null,
   calendar: null,
-  setCalendar: (value) => {
+  owner: null,
+  setCalendar: (value, owner) => {
     const next = storedCalendarSet(value)
-    // Same calendars, same object: an unchanged calendar must not remount the views.
-    if (calendarKey(get().set) === calendarKey(next)) return
-    const shown = next && next.calendars.some((calendar) => calendar.id === get().shown) ? get().shown : null
-    set({ set: next, shown, calendar: viewOf(next, shown) })
+    const sameOwner = owner === undefined || owner === get().owner
+    // Same graph and calendars, same object: an unchanged calendar must not remount the views.
+    if (sameOwner && calendarKey(get().set) === calendarKey(next)) return
+    const kept = sameOwner ? get().shown : null
+    const shown = next && next.calendars.some((calendar) => calendar.id === kept) ? kept : null
+    set({ set: next, shown, calendar: viewOf(next, shown), ...(owner !== undefined ? { owner } : {}) })
   },
   showCalendar: (id) => {
     const { set: current, shown } = get()
