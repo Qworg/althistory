@@ -91,10 +91,14 @@ an arc, a child of the arc it expands when there is one.
 
 A graph can have a world calendar, so an invented world's years are shown in
 its own count. Dates are still stored as ISO-8601 instants; the calendar only
-relabels the year. `--epoch-year` is the stored year that is the world's year
-1, `--era-label` is written after a year ("312 AR"; without one, "Year 312"),
-and `--calendar-name` names the calendar. `graph create` and `graph calendar`
-take the three flags; a label or a name without an epoch is refused.
+relabels them when they are shown. `--epoch-year` is the stored year that is
+the world's year 1, `--era-label` is written after a year ("312 AR"; without
+one, "Year 312"), `--calendar-name` names the calendar, and `--month-names`
+gives the twelve months the world's names, January's first, separated by
+commas (with "Thaw,Seedfall,Greening,…", March 4 reads "Greening 4"). The
+months keep their stored lengths. `graph create`,
+`graph calendar` and `generate timeline --world` take the four flags; a label,
+a name or month names without an epoch is refused.
 
 `generate timeline --world <text>` chronicles an invented world from its
 founding instead of turning real history at a point of divergence: give

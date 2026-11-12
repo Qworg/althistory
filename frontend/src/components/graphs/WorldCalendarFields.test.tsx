@@ -65,6 +65,42 @@ describe('World calendar section: creating a graph', () => {
     })
   })
 
+  it("sends the world's month names, and holds the count error until twelve are typed or the form is sent", async () => {
+    const onCreate = await openForm()
+    await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
+    await user.type(screen.getByLabelText(/Year 1 is stored year/), '1000')
+    const months = screen.getByLabelText(/Month names/)
+
+    await user.type(months, 'Thaw,Seedfall')
+    expect(screen.getByText('2 of 12 named.')).toBeInTheDocument()
+    expect(months).not.toHaveAttribute('aria-invalid')
+
+    await user.clear(months)
+    await user.type(months, 'Thaw,Seedfall,Greening,Highsun,Brine,Harvest,Ember,Ashfall,Gale,Dimming,Frost,Deepwinter')
+    expect(document.getElementById('create-graph-calendar-preview')).toHaveTextContent('March 4 shows as Greening 4')
+
+    await user.click(screen.getByRole('button', { name: 'Create Graph' }))
+    expect(onCreate).toHaveBeenCalledWith({
+      name: 'The Vael Chronicle',
+      description: undefined,
+      calendar: {
+        epochYear: 1000,
+        monthNames: ['Thaw', 'Seedfall', 'Greening', 'Highsun', 'Brine', 'Harvest', 'Ember', 'Ashfall', 'Gale', 'Dimming', 'Frost', 'Deepwinter'],
+      },
+    })
+  })
+
+  it('refuses eleven month names when the form is sent', async () => {
+    const onCreate = await openForm()
+    await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
+    await user.type(screen.getByLabelText(/Year 1 is stored year/), '1000')
+    await user.type(screen.getByLabelText(/Month names/), 'A,B,C,D,E,F,G,H,I,J,K')
+    await user.click(screen.getByRole('button', { name: 'Create Graph' }))
+    expect(onCreate).not.toHaveBeenCalled()
+    expect(screen.getByLabelText(/Month names/)).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByText(/Name all 12 months, or none \(11 names given\)/)).toBeInTheDocument()
+  })
+
   it('previews "Year N" without a label', async () => {
     await openForm()
     await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))

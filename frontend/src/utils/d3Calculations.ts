@@ -29,7 +29,7 @@
 import * as d3 from 'd3'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { formatWorldYear, storedYear, worldYear } from '@/utils/worldCalendar'
+import { formatWorldYear, storedYear, worldMonthName, worldYear } from '@/utils/worldCalendar'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
 /**
@@ -294,7 +294,8 @@ export function formatTimeAxisTick(
 
 /**
  * One tick label in a named format. With a world calendar the year is the
- * world's ("312 AR", "Mar 312 AR"), so the axis says what the event labels say
+ * world's ("312 AR", "Mar 312 AR"), and so is the month when it names them
+ * ("Thaw 312 AR", "Thaw 04"), so the axis says what the event labels say
  * (see utils/historicalTime.ts); a decade becomes the tick's own world year,
  * since the world's decades do not start where the Gregorian ones do (the
  * ticks are moved onto them by {@link alignYearTicksToCalendar}).
@@ -308,8 +309,10 @@ function formatAxisLabel(name: string, tick: Date, calendar: GraphCalendar | nul
   const fullYear = utc ? tick.getUTCFullYear() : tick.getFullYear()
   if (calendar) {
     const year = formatWorldYear(fullYear, calendar)
+    const month = worldMonthName(utc ? tick.getUTCMonth() : tick.getMonth(), calendar) ?? timeFormat('%b')(tick)
     if (name === 'decade' || name === '%Y') return year
-    if (name === '%b %Y') return `${timeFormat('%b')(tick)} ${year}`
+    if (name === '%b %Y') return `${month} ${year}`
+    if (name === '%b %d') return `${month} ${timeFormat('%d')(tick)}`
     return timeFormat(name)(tick)
   }
   if (name === 'decade') return `${Math.floor(fullYear / 10) * 10}s`

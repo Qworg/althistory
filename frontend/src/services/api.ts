@@ -1156,10 +1156,15 @@ class APIClient {
     // the server's own ingest budget (INGEST_TIMEOUT_MS, 5 min) plus a margin,
     // letting the server's answer arrive before the client gives up.
     ingest = {
+        // `targetGraphId` goes in the `X-Graph-Id` header, as on approve: the
+        // server reads that graph's world calendar to date the text.
         text: async (data: TextIngestRequest): Promise<IngestResponse> => {
             try {
-                const response: AxiosResponse<IngestResponse> =
-                    await this.client.post('/ingest/text', data, { timeout: INGEST_REQUEST_TIMEOUT_MS })
+                const { targetGraphId, ...body } = data
+                const response: AxiosResponse<IngestResponse> = await this.client.post('/ingest/text', body, {
+                    timeout: INGEST_REQUEST_TIMEOUT_MS,
+                    ...(targetGraphId ? { headers: { 'X-Graph-Id': targetGraphId } } : {}),
+                })
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)

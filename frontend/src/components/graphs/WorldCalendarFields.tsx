@@ -3,7 +3,9 @@ import type { GraphCalendar } from '@/types'
 import {
   MAX_CALENDAR_NAME_LENGTH,
   MAX_ERA_LABEL_LENGTH,
+  MONTH_COUNT,
   formatWorldYear,
+  parseMonthNames,
   type CalendarDraft,
 } from '@/utils/worldCalendar'
 import type { CalendarDraftState } from './useCalendarDraft'
@@ -24,18 +26,26 @@ interface WorldCalendarFieldsProps {
 const INPUT_CLASS =
   'w-full px-3 py-2 border rounded-md bg-card text-ink text-sm placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-selected disabled:opacity-50'
 
-/** The calendar to preview: the epoch alone has to be valid, the label is shown as typed. */
-function previewCalendar(draft: CalendarDraft, epochValid: boolean): GraphCalendar | null {
+/**
+ * The calendar to preview: the epoch alone has to be valid, the label is shown
+ * as typed, and the month names once they check out.
+ */
+function previewCalendar(draft: CalendarDraft, epochValid: boolean, monthsValid: boolean): GraphCalendar | null {
   if (!epochValid || draft.epochYear.trim() === '') return null
   const eraLabel = draft.eraLabel.trim()
-  return { epochYear: Number(draft.epochYear.trim()), ...(eraLabel ? { eraLabel } : {}) }
+  const monthNames = monthsValid ? parseMonthNames(draft.monthNames) : []
+  return {
+    epochYear: Number(draft.epochYear.trim()),
+    ...(eraLabel ? { eraLabel } : {}),
+    ...(monthNames.length > 0 ? { monthNames } : {}),
+  }
 }
 
 /**
  * The optional "World calendar" section of a graph form: the stored year that
- * is the world's year 1, an era label and a name, with a live preview. Dates
- * stay stored as Gregorian UTC instants; the calendar only relabels the year
- * when one is shown.
+ * is the world's year 1, an era label, a name and the months' names, with a
+ * live preview. Dates stay stored as Gregorian UTC instants; the calendar only
+ * relabels the year (and the month) when one is shown.
  */
 export function WorldCalendarFields({ state, idPrefix, sampleYear, disabled = false }: WorldCalendarFieldsProps) {
   const { enabled, setEnabled, draft, setField, errors, submitted, hadCalendar } = state
@@ -56,13 +66,18 @@ export function WorldCalendarFields({ state, idPrefix, sampleYear, disabled = fa
     epoch: `${idPrefix}-calendar-epoch`,
     label: `${idPrefix}-calendar-era`,
     name: `${idPrefix}-calendar-name`,
+    months: `${idPrefix}-calendar-months`,
     preview: `${idPrefix}-calendar-preview`,
   }
 
   // An empty epoch year is "not yet", not a mistake, until the form is submitted.
   const epochError = errors.epochYear && (submitted || draft.epochYear.trim() !== '') ? errors.epochYear : undefined
-  const calendar = previewCalendar(draft, !errors.epochYear)
+  const calendar = previewCalendar(draft, !errors.epochYear, !errors.monthNames)
   const sample = calendar ? sampleYear ?? calendar.epochYear : null
+  // Too few months is "not yet" while they are being typed (the count comes
+  // first, so it is the error then); too many, or a bad name, shows at once.
+  const monthCount = parseMonthNames(draft.monthNames).length
+  const monthError = errors.monthNames && (submitted || monthCount >= MONTH_COUNT) ? errors.monthNames : undefined
 
   return (
     <fieldset className="rounded-lg border border-line p-3" disabled={disabled}>
@@ -73,8 +88,9 @@ export function WorldCalendarFields({ state, idPrefix, sampleYear, disabled = fa
       {!enabled ? (
         <div className="space-y-2">
           <p className="text-xs text-ink-muted">
-            For an invented world: show its years in the world’s own reckoning, such as “312 AR”. Dates are still
-            entered, stored and ordered as calendar dates; only the year is relabelled.
+            For an invented world: show its years in the world’s own reckoning, such as “312 AR”, and its months by
+            their own names if you like. Dates are still entered, stored and ordered as calendar dates; only the
+            year and the month’s name are relabelled.
           </p>
           {hadCalendar && (
             <p className="text-xs text-ink-secondary" role="status">
@@ -164,6 +180,33 @@ export function WorldCalendarFields({ state, idPrefix, sampleYear, disabled = fa
             </div>
           </div>
 
+          <div>
+            <label htmlFor={ids.months} className="block text-xs font-medium text-ink-secondary mb-1">
+              Month names <span className="font-normal text-ink-muted">(optional: all {MONTH_COUNT}, January’s first, one per line)</span>
+            </label>
+            <textarea
+              id={ids.months}
+              rows={3}
+              autoComplete="off"
+              value={draft.monthNames}
+              onChange={(e) => setField('monthNames', e.target.value)}
+              placeholder={'Thaw\nSeedfall\n…'}
+              aria-invalid={monthError ? true : undefined}
+              aria-describedby={monthError ? `${ids.months}-error ${ids.months}-count` : `${ids.months}-count`}
+              className={`${INPUT_CLASS} ${monthError ? 'border-red-500 dark:border-red-400' : 'border-line'}`}
+            />
+            <p id={`${ids.months}-count`} className="mt-1 text-xs text-ink-muted">
+              {monthCount === 0
+                ? 'Without them, months keep their usual names. The months keep their lengths either way.'
+                : `${monthCount} of ${MONTH_COUNT} named.`}
+            </p>
+            {monthError && (
+              <p id={`${ids.months}-error`} className="mt-1 text-xs text-red-700 dark:text-red-300">
+                {monthError}
+              </p>
+            )}
+          </div>
+
           <div id={ids.preview} className="text-xs text-ink-muted" aria-live="polite">
             {calendar && sample !== null ? (
               <>
@@ -175,6 +218,12 @@ export function WorldCalendarFields({ state, idPrefix, sampleYear, disabled = fa
                   Earlier years count back: stored <span className="font-mono-code">{calendar.epochYear - 1}</span> shows
                   as {formatWorldYear(calendar.epochYear - 1, calendar)}.
                 </p>
+                {calendar.monthNames && (
+                  <p>
+                    March 4 shows as {calendar.monthNames[2]} 4; January is {calendar.monthNames[0]}, December{' '}
+                    {calendar.monthNames[11]}.
+                  </p>
+                )}
               </>
             ) : (
               <p>

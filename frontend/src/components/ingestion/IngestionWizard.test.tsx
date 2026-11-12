@@ -8,13 +8,14 @@
  * is what is sent.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'vitest-axe'
 import { renderWithProviders } from '@/test/utils'
 import { IngestionWizard } from './IngestionWizard'
 import { apiClient } from '@/services/api'
+import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import type { ApproveIngestionRequest, ImportResult, IngestResponse } from '@/types'
 
 vi.mock('@/services/api', () => ({
@@ -530,5 +531,44 @@ describe('IngestionWizard', () => {
 
     await extractFromText(user)
     expect(current()).toHaveTextContent('Review')
+  })
+
+  describe('text about an invented world', () => {
+    afterEach(() => {
+      useWorldCalendarStore.getState().setCalendar(null)
+    })
+
+    it('sends the text with the graph it will enter, so the server reads its calendar', async () => {
+      const user = userEvent.setup()
+      mockedText.mockResolvedValue(makePreview())
+      renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} targetGraphId="vael" />)
+      await extractFromText(user)
+      expect(mockedText).toHaveBeenCalledWith(expect.objectContaining({ targetGraphId: 'vael' }))
+    })
+
+    it('says the model reads the world’s dates and the patterns do not, and shows the time range in world dates', async () => {
+      const user = userEvent.setup()
+      useWorldCalendarStore.getState().setCalendar({ epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning' })
+      renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+      await user.click(screen.getByRole('tab', { name: 'Text' }))
+      const panel = screen.getByRole('tabpanel')
+
+      expect(within(panel).getByRole('note')).toHaveTextContent('This graph keeps the Reckoning. The model is told')
+      expect(within(panel).getByRole('note')).toHaveTextContent('“1 AR” (stored as 1000)')
+      await user.click(within(panel).getByLabelText('Use LLM extraction'))
+      expect(within(panel).getByRole('note')).toHaveTextContent('the pattern reader only reads stored dates')
+
+      const start = within(panel).getByLabelText('Time range start')
+      await user.type(start, '1140-03-04')
+      expect(within(panel).getByText('= Mar 4, 141 AR')).toBeInTheDocument()
+      expect(start).toHaveAttribute('aria-describedby', 'ingest-text-start-date-world')
+    })
+
+    it('shows no note in a graph without a calendar', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+      await user.click(screen.getByRole('tab', { name: 'Text' }))
+      expect(within(screen.getByRole('tabpanel')).queryByRole('note')).not.toBeInTheDocument()
+    })
   })
 })

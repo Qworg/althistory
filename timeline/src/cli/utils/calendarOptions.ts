@@ -1,8 +1,9 @@
 /**
  * Reading a world calendar from command-line flags or tool arguments.
  *
- * The flags are `--epoch-year`, `--era-label` and `--calendar-name`; the MCP
- * tools take the same three as `epochYear`, `eraLabel` and `calendarName`.
+ * The flags are `--epoch-year`, `--era-label`, `--calendar-name` and
+ * `--month-names`; the MCP tools take the same four as `epochYear`, `eraLabel`,
+ * `calendarName` and `monthNames`.
  */
 
 import { GraphCalendar, normalizeCalendar } from '@/utils/worldCalendar';
@@ -12,6 +13,7 @@ export interface CalendarInput {
   epochYear?: unknown;
   eraLabel?: unknown;
   calendarName?: unknown;
+  monthNames?: unknown;
 }
 
 /** An integer year from a flag ("1000") or a tool argument (1000). */
@@ -37,26 +39,44 @@ function readText(value: unknown, what: string): string | undefined {
 }
 
 /**
+ * Month names from a flag ("Thaw,Seed,…", comma-separated) or a tool argument
+ * (a list, or the same comma-separated text). Counting and checking them is
+ * `calendarProblems`'s job, so its message is the one every surface gives.
+ */
+function readMonthNames(value: unknown): string[] | undefined {
+  if (isUnset(value)) return undefined;
+  if (typeof value === 'string') return value.split(',').map((name) => name.trim());
+  if (Array.isArray(value) && value.every((name) => typeof name === 'string')) {
+    return value.map((name) => (name as string).trim());
+  }
+  throw new ValidationErrorCLI('The month names must be a list of twelve names, or the twelve separated by commas');
+}
+
+/**
  * The parts of a calendar that were given, unchecked: what `generate timeline`
  * takes, since it fills in the epoch year itself. Undefined when none was given.
  */
 export function partialCalendarFrom(
   input: CalendarInput
-): { epochYear?: number; eraLabel?: string; name?: string } | undefined {
+): { epochYear?: number; eraLabel?: string; name?: string; monthNames?: string[] } | undefined {
   const epochYear = isUnset(input.epochYear) ? undefined : readYear(input.epochYear);
   const eraLabel = readText(input.eraLabel, 'The era label');
   const name = readText(input.calendarName, 'The calendar name');
-  if (epochYear === undefined && eraLabel === undefined && name === undefined) return undefined;
+  const monthNames = readMonthNames(input.monthNames);
+  if (epochYear === undefined && eraLabel === undefined && name === undefined && monthNames === undefined) {
+    return undefined;
+  }
   return {
     ...(epochYear !== undefined ? { epochYear } : {}),
     ...(eraLabel !== undefined ? { eraLabel } : {}),
     ...(name !== undefined ? { name } : {}),
+    ...(monthNames !== undefined ? { monthNames } : {}),
   };
 }
 
 /**
  * A complete, checked calendar, or undefined when no calendar was asked for.
- * A label or a name without an epoch year is a mistake: the epoch is what
+ * A label, a name or month names without an epoch year is a mistake: the epoch is what
  * places the world's years.
  */
 export function calendarFrom(input: CalendarInput): GraphCalendar | undefined {

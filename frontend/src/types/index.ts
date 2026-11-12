@@ -338,7 +338,7 @@ export interface GraphMetadata {
 
 /**
  * An invented world's calendar. Stored dates stay UTC instants on the
- * Gregorian calendar; the calendar only relabels the year when a date is shown
+ * Gregorian calendar; the calendar only relabels the year (and names the months) when a date is shown
  * (see `utils/worldCalendar.ts`).
  */
 export interface GraphCalendar {
@@ -348,6 +348,8 @@ export interface GraphCalendar {
   eraLabel?: string
   /** What the calendar is called ("the Reckoning of Vael"). Display only. */
   name?: string
+  /** The world's names for the twelve months, January's first. Absent shows the stored months' names. */
+  monthNames?: string[]
 }
 
 export interface Graph {
@@ -939,6 +941,11 @@ export interface TextIngestRequest {
   text: string
   useLLM?: boolean
   context?: TextIngestContext
+  /**
+   * The graph the text is bound for, sent as `X-Graph-Id` (not in the body).
+   * A graph with a world calendar has the model read the text's dates in it.
+   */
+  targetGraphId?: string
 }
 
 export interface ApproveIngestionRequest {

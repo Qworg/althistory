@@ -52,5 +52,6 @@ export function useWorldCalendar(): GraphCalendar | null {
 /** A string that changes exactly when the labels change: the boundary's key. */
 export function calendarKey(calendar: GraphCalendar | null): string {
   if (!calendar) return 'gregorian'
-  return `world:${calendar.epochYear}:${calendar.eraLabel?.trim() ?? ''}`
+  const months = calendar.monthNames ? JSON.stringify(calendar.monthNames) : ''
+  return `world:${calendar.epochYear}:${calendar.eraLabel?.trim() ?? ''}:${months}`
 }

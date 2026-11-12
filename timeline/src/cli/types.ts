@@ -266,7 +266,7 @@ export interface GenerateTimelineOptions {
    * The invented world's calendar. `epochYear` defaults to the start date's
    * year, or 1000 when there is no start date.
    */
-  calendar?: { epochYear?: number; eraLabel?: string; name?: string };
+  calendar?: { epochYear?: number; eraLabel?: string; name?: string; monthNames?: string[] };
   startDate?: string;
   endDate?: string;
   eventCount?: number;

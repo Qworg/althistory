@@ -22,7 +22,8 @@
  * `services/ingestion/index.ts`. It has no separate report file.
  */
 
-import { Router, RequestHandler, Response } from 'express';
+import { Router, RequestHandler, Response, NextFunction } from 'express';
+import { getContainer } from '@/container';
 import {
   AuthenticatedRequest,
   authenticate,
@@ -33,7 +34,9 @@ import {
   authorizeGraphAccess,
   requireGraphId,
   asyncHandler,
+  GRAPH_ID_HEADER,
 } from '../middleware';
+import { GraphCalendar, calendarExtractionInstructions } from '../../utils/worldCalendar';
 import { ValidationError, NotFoundError, UpstreamServiceError } from '../../utils/errors';
 import { ImportService } from '../../services/ImportService';
 import type { HeadReplacedHook } from '../../services/LiveStoreSyncService';
@@ -79,6 +82,48 @@ export interface IngestRouterConfig {
   llm?: LLMClientFactoryConfig;
   /** Test seam: supply a fully wired orchestrator. */
   orchestrator?: IngestionOrchestrator;
+  /**
+   * The calendar of a graph, for text about an invented world. Defaults to
+   * the graph repository's; a test seam.
+   */
+  graphCalendar?: (graphId: string) => Promise<GraphCalendar | undefined>;
+}
+
+async function repositoryCalendar(graphId: string): Promise<GraphCalendar | undefined> {
+  const graph = await getContainer().graphRepository.findById(graphId);
+  return graph?.calendar;
+}
+
+/**
+ * Scope a request to the graph its `X-Graph-Id` names, and check the key may
+ * read it, but only when it names one: extraction writes nothing, so a request
+ * without the header stays unscoped, as it always was.
+ */
+function graphScopeWhenNamed(): RequestHandler[] {
+  const resolve = resolveGraphContext();
+  const authorizeAccess = authorizeGraphAccess((req) => req.graphId);
+  const whenNamed =
+    (handler: RequestHandler): RequestHandler =>
+    (req, res, next: NextFunction) => {
+      if (req.get(GRAPH_ID_HEADER) === undefined) {
+        next();
+        return;
+      }
+      handler(req, res, next);
+    };
+  return [whenNamed(resolve), whenNamed(authorizeAccess as RequestHandler)];
+}
+
+/**
+ * The extraction context for text bound for a graph: the caller's, plus how the
+ * graph's world calendar dates things, so the model writes "141 AR" as the
+ * stored year 1140. A graph without a calendar leaves the context as it was.
+ */
+function withCalendar(context: ExtractionContext | undefined, calendar: GraphCalendar | undefined): ExtractionContext | undefined {
+  if (!calendar) return context;
+  const calendarLine = calendarExtractionInstructions(calendar);
+  const instructions = context?.instructions ? `${calendarLine}\n${context.instructions}` : calendarLine;
+  return { ...context, instructions };
 }
 
 /**
@@ -264,9 +309,18 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
     rateLimit() as RequestHandler
   );
 
-  /** POST /api/ingest/text — synchronous pattern/LLM extraction. */
+  const graphCalendar = config.graphCalendar ?? repositoryCalendar;
+
+  /**
+   * POST /api/ingest/text — synchronous pattern/LLM extraction.
+   *
+   * With an `X-Graph-Id` naming a graph that has a world calendar, the model is
+   * told how that world's dates are stored. The pattern reader cannot read
+   * invented years either way.
+   */
   router.post(
     '/text',
+    ...graphScopeWhenNamed(),
     asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       const body = isRecord(req.body) ? req.body : {};
       if (typeof body.text !== 'string' || body.text.trim().length === 0) {
@@ -276,9 +330,10 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
         text: body.text,
         useLLM: body.useLLM !== false,
       };
+      const calendar = req.graphId ? await graphCalendar(req.graphId) : undefined;
       const preview = await orchestrator.ingest(
         { source: 'text', text: input },
-        parseExtractionContext(body.context),
+        withCalendar(parseExtractionContext(body.context), calendar),
         ownerKeyId(req)
       );
       res.status(200).json(preview);

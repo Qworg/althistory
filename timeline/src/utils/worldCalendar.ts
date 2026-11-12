@@ -3,10 +3,13 @@
  *
  * Every timestamp is still a UTC instant on the proleptic Gregorian calendar;
  * that is what sorting, validation, the time scales and the causal-order checks
- * read, and none of it changes. A calendar only relabels the *year* when a date
- * is shown: with `epochYear: 1000` and `eraLabel: "AR"`, the stored year 1000 is
- * shown as "1 AR" and 1311 as "312 AR". Months and days are shown as they are
- * stored.
+ * read, and none of it changes. A calendar relabels a date when it is shown:
+ * with `epochYear: 1000` and `eraLabel: "AR"`, the stored year 1000 is shown as
+ * "1 AR" and 1311 as "312 AR". It can also name the twelve months
+ * (`monthNames`), so March 4 reads "Thaw 4". The months keep their stored
+ * lengths and order, and the days their numbers: a world with thirteen months,
+ * or months of other lengths, cannot be written, because every date is still a
+ * Gregorian one underneath.
  *
  * The frontend has the same arithmetic in `frontend/src/utils/historicalTime.ts`;
  * the two must agree.
@@ -19,6 +22,11 @@ export interface GraphCalendar {
   eraLabel?: string;
   /** What the calendar is called, e.g. "the Reckoning of Vael". Display only. */
   name?: string;
+  /**
+   * The world's names for the twelve months, January's first. Absent shows the
+   * stored months' names ("Mar"). Exactly twelve, distinct, none empty.
+   */
+  monthNames?: string[];
 }
 
 /** The years a timestamp can hold without an expanded (six-digit) year. */
@@ -26,6 +34,8 @@ export const MIN_EPOCH_YEAR = 1;
 export const MAX_EPOCH_YEAR = 9999;
 export const MAX_ERA_LABEL_LENGTH = 16;
 export const MAX_CALENDAR_NAME_LENGTH = 80;
+export const MONTH_COUNT = 12;
+export const MAX_MONTH_NAME_LENGTH = 24;
 
 /**
  * Check a calendar from outside (a request body, a tool argument, an import).
@@ -37,7 +47,7 @@ export function calendarProblems(value: unknown): string[] {
   }
   const record = value as Record<string, unknown>;
   const problems: string[] = [];
-  const known = new Set(['epochYear', 'eraLabel', 'name']);
+  const known = new Set(['epochYear', 'eraLabel', 'name', 'monthNames']);
   for (const key of Object.keys(record)) {
     if (!known.has(key)) problems.push(`calendar has an unknown field "${key}"`);
   }
@@ -61,6 +71,36 @@ export function calendarProblems(value: unknown): string[] {
       problems.push(`calendar.name must be at most ${MAX_CALENDAR_NAME_LENGTH} characters`);
     }
   }
+  if (record.monthNames !== undefined) {
+    problems.push(...monthNameProblems(record.monthNames));
+  }
+  return problems;
+}
+
+function monthNameProblems(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    return [`calendar.monthNames must be a list of ${MONTH_COUNT} names`];
+  }
+  const names = (value as string[]).map((entry) => entry.trim());
+  if (names.length !== MONTH_COUNT) {
+    return [`calendar.monthNames must name all ${MONTH_COUNT} months (got ${names.length})`];
+  }
+  const problems: string[] = [];
+  if (names.some((name) => name.length === 0)) {
+    problems.push('calendar.monthNames cannot have an empty name');
+  }
+  if (names.some((name) => name.length > MAX_MONTH_NAME_LENGTH)) {
+    problems.push(`calendar.monthNames must each be at most ${MAX_MONTH_NAME_LENGTH} characters`);
+  }
+  const seen = new Set<string>();
+  for (const name of names) {
+    const key = name.toLowerCase();
+    if (name && seen.has(key)) {
+      problems.push(`calendar.monthNames names "${name}" twice`);
+      break;
+    }
+    seen.add(key);
+  }
   return problems;
 }
 
@@ -76,6 +116,7 @@ export function normalizeCalendar(value: unknown): GraphCalendar {
   if (eraLabel) calendar.eraLabel = eraLabel;
   const name = record.name?.trim();
   if (name) calendar.name = name;
+  if (record.monthNames) calendar.monthNames = record.monthNames.map((month) => month.trim());
   return calendar;
 }
 
@@ -104,8 +145,14 @@ export function formatWorldYear(storedYearValue: number, calendar: GraphCalendar
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+/** A month (0 = January) by the world's name for it, or the stored month's short name. */
+export function worldMonthName(monthIndex: number, calendar: GraphCalendar | undefined): string {
+  return calendar?.monthNames?.[monthIndex] ?? MONTHS[monthIndex];
+}
+
 /**
- * A stored timestamp as a date in the world's calendar: "Mar 4, 312 AR".
+ * A stored timestamp as a date in the world's calendar: "Mar 4, 312 AR", or
+ * "Thaw 4, 312 AR" when the calendar names its months.
  * Without a calendar it is the ISO date ("1311-03-04"), as exports always wrote it.
  * `precision` drops the parts its source did not state.
  */
@@ -121,7 +168,7 @@ export function formatWorldDate(
     return precision === 'year' ? iso.slice(0, 4) : precision === 'month' ? iso.slice(0, 7) : iso.slice(0, 10);
   }
   const year = formatWorldYear(date.getUTCFullYear(), calendar);
-  const month = MONTHS[date.getUTCMonth()];
+  const month = worldMonthName(date.getUTCMonth(), calendar);
   if (precision === 'year') return year;
   if (precision === 'month') return `${month} ${year}`;
   return `${month} ${date.getUTCDate()}, ${year}`;
@@ -130,5 +177,29 @@ export function formatWorldDate(
 /** One line saying how the calendar maps, for exports and tool output. */
 export function describeCalendar(calendar: GraphCalendar): string {
   const named = calendar.name ? `${calendar.name}: ` : '';
-  return `${named}stored year ${calendar.epochYear} is ${formatWorldYear(calendar.epochYear, calendar)}`;
+  const years = `${named}stored year ${calendar.epochYear} is ${formatWorldYear(calendar.epochYear, calendar)}`;
+  return calendar.monthNames ? `${years}; ${describeMonths(calendar.monthNames)}` : years;
+}
+
+/** "the months January to December are Thaw, Seed, …": which name is which stored month. */
+function describeMonths(monthNames: string[]): string {
+  return `the months January to December are ${monthNames.join(', ')}`;
+}
+
+/**
+ * What a reader of prose about the world (a language model extracting events)
+ * needs to turn the world's dates into stored ones: how its years are counted
+ * and, if it names them, which month is which.
+ */
+export function calendarExtractionInstructions(calendar: GraphCalendar): string {
+  const named = calendar.name ? ` (${calendar.name})` : '';
+  const written = calendar.eraLabel ? ` (written "N ${calendar.eraLabel}")` : '';
+  const months = calendar.monthNames
+    ? ` Its months, in order, are ${calendar.monthNames.join(', ')}: the first is January, the twelfth December, and a day keeps its number.`
+    : '';
+  return (
+    `The text dates events in an invented world's calendar${named}. ` +
+    `Its year N${written} is the ISO year N + ${calendar.epochYear - 1}.${months} ` +
+    'Give every timestamp as that ISO date.'
+  );
 }

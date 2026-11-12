@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  calendarExtractionInstructions,
   calendarProblems,
   describeCalendar,
   formatWorldDate,
@@ -76,6 +77,48 @@ describe('worldCalendar', () => {
 
     it('throws with every problem when normalizing a bad calendar', () => {
       expect(() => normalizeCalendar({ epochYear: 0, eraLabel: 5 })).toThrow(/epochYear.*eraLabel/);
+    });
+  });
+
+  describe('month names', () => {
+    const MONTHS = ['Thaw', 'Seedfall', 'Greening', 'Highsun', 'Brine', 'Harvest', 'Ember', 'Ashfall', 'Gale', 'Dimming', 'Frost', 'Deepwinter'];
+    const named = { ...reckoning, monthNames: MONTHS };
+
+    it("writes the world's month, keeping the day and the year's relabelling", () => {
+      expect(formatWorldDate('1311-03-04T00:00:00Z', named)).toBe('Greening 4, 312 AR');
+      expect(formatWorldDate('1311-12-01T00:00:00Z', named, 'month')).toBe('Deepwinter 312 AR');
+      expect(formatWorldDate('1311-03-04T00:00:00Z', named, 'year')).toBe('312 AR');
+    });
+
+    it('says which month is which', () => {
+      expect(describeCalendar(named)).toBe(
+        `stored year 1000 is 1 AR; the months January to December are ${MONTHS.join(', ')}`
+      );
+    });
+
+    it('accepts twelve distinct names, trimmed', () => {
+      expect(calendarProblems(named)).toEqual([]);
+      expect(normalizeCalendar({ ...reckoning, monthNames: MONTHS.map((m) => ` ${m} `) }).monthNames).toEqual(MONTHS);
+    });
+
+    it('refuses the wrong count, an empty, a long or a repeated name', () => {
+      expect(calendarProblems({ ...reckoning, monthNames: 'Thaw' })[0]).toMatch(/list of 12/);
+      expect(calendarProblems({ ...reckoning, monthNames: [...MONTHS, 1] })[0]).toMatch(/list of 12/);
+      expect(calendarProblems({ ...reckoning, monthNames: MONTHS.slice(0, 11) })[0]).toMatch(/all 12 months \(got 11\)/);
+      expect(calendarProblems({ ...reckoning, monthNames: [...MONTHS.slice(0, 11), '  '] })[0]).toMatch(/empty/);
+      expect(calendarProblems({ ...reckoning, monthNames: [...MONTHS.slice(0, 11), 'x'.repeat(25)] })[0]).toMatch(/at most 24/);
+      expect(calendarProblems({ ...reckoning, monthNames: [...MONTHS.slice(0, 11), 'THAW'] })[0]).toMatch(/"THAW" twice/);
+    });
+  });
+
+  describe('instructions for a reader of prose about the world', () => {
+    it('gives the year offset, and the months when it names them', () => {
+      const plain = calendarExtractionInstructions({ ...reckoning, name: 'the Reckoning' });
+      expect(plain).toContain('(the Reckoning)');
+      expect(plain).toContain('year N (written "N AR") is the ISO year N + 999');
+      expect(plain).not.toContain('months');
+      const months = calendarExtractionInstructions({ ...reckoning, monthNames: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'] });
+      expect(months).toContain('Its months, in order, are A, B, C, D, E, F, G, H, I, J, K, L: the first is January');
     });
   });
 });

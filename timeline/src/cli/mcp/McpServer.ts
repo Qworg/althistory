@@ -187,7 +187,7 @@ export class McpServer {
             throw new Error('Give either clear or a calendar, not both');
           }
           if (args.clear !== true && !calendar) {
-            throw new Error('Give epochYear (with eraLabel and calendarName if wanted), or clear: true');
+            throw new Error('Give epochYear (with eraLabel, calendarName and monthNames if wanted), or clear: true');
           }
           toolOutput = await this.engine.setGraphCalendar(String(args.graphId), calendar ?? null);
           break;

@@ -485,6 +485,34 @@ describe('invented worlds', () => {
       expect(cleared.body.data.calendar).toBeUndefined();
     });
 
+    it('names the months from --month-names, and refuses the wrong count', async () => {
+      const months = 'Thaw,Seedfall,Greening,Highsun,Brine,Harvest,Ember,Ashfall,Gale,Dimming,Frost,Deepwinter';
+      const made = await cli(['graph', 'create', 'Months', '--epoch-year', '1000', '--month-names', months]);
+      expect(made.code).toBe(ExitCode.SUCCESS);
+      created.push(made.body.data.id);
+      expect(made.body.data.calendar).toEqual({ epochYear: 1000, monthNames: months.split(',') });
+
+      const short = await cli(['graph', 'calendar', made.body.data.id, '--epoch-year', '1000', '--month-names', 'A,B']);
+      expect(short.code).toBe(ExitCode.VALIDATION_FAILED);
+      expect(JSON.stringify(short.body)).toContain('all 12 months');
+    });
+
+    it('takes month names as a list over MCP, and dates the export in them', async () => {
+      const months = ['Thaw', 'Seedfall', 'Greening', 'Highsun', 'Brine', 'Harvest', 'Ember', 'Ashfall', 'Gale', 'Dimming', 'Frost', 'Deepwinter'];
+      const graph = await callTool(server, 'althistory_create_graph', { name: 'Named months', epochYear: 1000, eraLabel: 'AR', monthNames: months });
+      created.push(graph.id);
+      expect(graph.calendar).toEqual({ epochYear: 1000, eraLabel: 'AR', monthNames: months });
+      await callTool(server, 'althistory_create_event', {
+        graphId: graph.id,
+        description: 'The first thaw',
+        timestamp: '1140-03-04T00:00:00Z',
+      });
+      const context = await callTool(server, 'althistory_export_context', { graphId: graph.id });
+      const text = typeof context === 'string' ? context : JSON.stringify(context);
+      expect(text).toContain('Greening 4, 141 AR (1140-03-04)');
+      expect(text).toContain('the months January to December are Thaw');
+    });
+
     it('refuses a label without an epoch, and a year that is not a whole number', async () => {
       expect((await cli(['graph', 'create', 'No Epoch', '--era-label', 'AR'])).code).toBe(ExitCode.VALIDATION_FAILED);
       expect((await cli(['graph', 'create', 'Bad Epoch', '--epoch-year', '10.5'])).code).toBe(

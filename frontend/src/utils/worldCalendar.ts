@@ -6,9 +6,10 @@
  *
  * Every timestamp is still a UTC instant on the proleptic Gregorian calendar;
  * sorting, the time scales and validation read that and nothing here changes
- * it. A calendar only relabels the *year* when a date is shown: with
+ * it. A calendar relabels the year when a date is shown: with
  * `epochYear: 1000` and `eraLabel: "AR"`, the stored year 1311 is "312 AR".
- * Months and days are shown as stored.
+ * With `monthNames` it names the twelve months too ("Thaw 4, 312 AR"); they
+ * keep their stored lengths and order, and the days their numbers.
  */
 
 import type { GraphCalendar } from '@/types'
@@ -19,6 +20,13 @@ export const MIN_EPOCH_YEAR = 1
 export const MAX_EPOCH_YEAR = 9999
 export const MAX_ERA_LABEL_LENGTH = 16
 export const MAX_CALENDAR_NAME_LENGTH = 80
+export const MONTH_COUNT = 12
+export const MAX_MONTH_NAME_LENGTH = 24
+
+/** The world's name for a month (0 = January), or null when the calendar does not name its months. */
+export function worldMonthName(monthIndex: number, calendar: GraphCalendar | null | undefined): string | null {
+  return calendar?.monthNames?.[monthIndex] ?? null
+}
 
 /** The world's year for a stored year: the epoch year is 1, the year before it 0. */
 export function worldYear(storedYear: number, calendar: GraphCalendar): number {
@@ -51,17 +59,33 @@ export function formatWorldYear(
   return label ? `${formatNumber(before)} before ${label}` : `${formatNumber(before)} before Year ${formatNumber(1)}`
 }
 
-/** One line saying how the calendar maps: "the Reckoning of Vael: stored year 1000 is 1 AR". */
+/**
+ * One line saying how the calendar maps: "the Reckoning of Vael: stored year
+ * 1000 is 1 AR", and which month is which when it names them.
+ */
 export function describeCalendar(calendar: GraphCalendar): string {
   const named = calendar.name ? `${calendar.name}: ` : ''
-  return `${named}stored year ${calendar.epochYear} is ${formatWorldYear(calendar.epochYear, calendar)}`
+  const years = `${named}stored year ${calendar.epochYear} is ${formatWorldYear(calendar.epochYear, calendar)}`
+  return calendar.monthNames ? `${years}; the months January to December are ${calendar.monthNames.join(', ')}` : years
 }
 
-/** A calendar the formatters can use: an object with an integer epoch year. */
+/**
+ * A calendar the formatters can use: an object with an integer epoch year, and
+ * month names, if any, that are twelve strings (the backend checks the rest).
+ */
 export function isUsableCalendar(value: unknown): value is GraphCalendar {
   if (typeof value !== 'object' || value === null) return false
   const epoch = (value as { epochYear?: unknown }).epochYear
-  return typeof epoch === 'number' && Number.isInteger(epoch)
+  const months = (value as { monthNames?: unknown }).monthNames
+  const monthsUsable =
+    months === undefined ||
+    (Array.isArray(months) && months.length === MONTH_COUNT && months.every((month) => typeof month === 'string'))
+  return typeof epoch === 'number' && Number.isInteger(epoch) && monthsUsable
+}
+
+function sameMonthNames(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (!a || !b) return !a && !b
+  return a.length === b.length && a.every((month, index) => month.trim() === b[index]?.trim())
 }
 
 /** Two calendars that label every year the same (the name is display only, but compared too). */
@@ -70,7 +94,8 @@ export function sameCalendar(a: GraphCalendar | null | undefined, b: GraphCalend
   return (
     a.epochYear === b.epochYear &&
     (a.eraLabel?.trim() ?? '') === (b.eraLabel?.trim() ?? '') &&
-    (a.name?.trim() ?? '') === (b.name?.trim() ?? '')
+    (a.name?.trim() ?? '') === (b.name?.trim() ?? '') &&
+    sameMonthNames(a.monthNames, b.monthNames)
   )
 }
 
@@ -79,9 +104,11 @@ export interface CalendarDraft {
   epochYear: string
   eraLabel: string
   name: string
+  /** The month names as typed: one per line, or separated by commas on one line. Empty for none. */
+  monthNames: string
 }
 
-export const EMPTY_CALENDAR_DRAFT: CalendarDraft = { epochYear: '', eraLabel: '', name: '' }
+export const EMPTY_CALENDAR_DRAFT: CalendarDraft = { epochYear: '', eraLabel: '', name: '', monthNames: '' }
 
 export function draftFromCalendar(calendar: GraphCalendar | null | undefined): CalendarDraft {
   if (!calendar) return EMPTY_CALENDAR_DRAFT
@@ -89,7 +116,21 @@ export function draftFromCalendar(calendar: GraphCalendar | null | undefined): C
     epochYear: String(calendar.epochYear),
     eraLabel: calendar.eraLabel ?? '',
     name: calendar.name ?? '',
+    monthNames: calendar.monthNames?.join('\n') ?? '',
   }
+}
+
+/**
+ * The month names a draft holds: one per line, or, typed on a single line,
+ * separated by commas. Blank lines around them are ignored; none at all is
+ * an empty list (no month names).
+ */
+export function parseMonthNames(text: string): string[] {
+  const trimmed = text.trim()
+  if (!trimmed) return []
+  // A blank line in the middle is kept, and refused as an empty name.
+  const parts = trimmed.includes('\n') ? trimmed.split(/\r?\n/) : trimmed.split(',')
+  return parts.map((part) => part.trim())
 }
 
 export type CalendarDraftErrors = Partial<Record<keyof CalendarDraft, string>>
@@ -115,7 +156,28 @@ export function calendarDraftErrors(draft: CalendarDraft): CalendarDraftErrors {
   if (draft.name.trim().length > MAX_CALENDAR_NAME_LENGTH) {
     errors.name = `The calendar name can be at most ${MAX_CALENDAR_NAME_LENGTH} characters.`
   }
+  const monthError = monthNamesError(parseMonthNames(draft.monthNames))
+  if (monthError) errors.monthNames = monthError
   return errors
+}
+
+/** What is wrong with a list of month names, as the backend's `calendarProblems` would refuse it; null if fine. */
+function monthNamesError(names: string[]): string | null {
+  if (names.length === 0) return null
+  if (names.length !== MONTH_COUNT) {
+    return `Name all ${MONTH_COUNT} months, or none (${names.length === 1 ? '1 name' : `${names.length} names`} given).`
+  }
+  if (names.some((name) => name.length === 0)) return 'A month name cannot be empty.'
+  if (names.some((name) => name.length > MAX_MONTH_NAME_LENGTH)) {
+    return `A month name can be at most ${MAX_MONTH_NAME_LENGTH} characters.`
+  }
+  const seen = new Set<string>()
+  for (const name of names) {
+    const key = name.toLowerCase()
+    if (seen.has(key)) return `“${name}” names two months.`
+    seen.add(key)
+  }
+  return null
 }
 
 /** A valid draft as the calendar the API takes (trimmed, empty fields left out); null if invalid. */
@@ -126,6 +188,8 @@ export function calendarFromDraft(draft: CalendarDraft): GraphCalendar | null {
   if (eraLabel) calendar.eraLabel = eraLabel
   const name = draft.name.trim()
   if (name) calendar.name = name
+  const monthNames = parseMonthNames(draft.monthNames)
+  if (monthNames.length > 0) calendar.monthNames = monthNames
   return calendar
 }
 

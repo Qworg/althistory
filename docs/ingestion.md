@@ -41,12 +41,19 @@ pattern output as the model's.
 Ingesting text into a graph with a world calendar (see
 [the MCP guide](mcp-agent-guide.md#inventing-a-world)) tells the model how the
 world's years are stored, so "the Tide War began in 141 AR" lands on the
-stored year 1140. The patterns cannot read invented years: with `pattern`, or
-the pattern half of `hybrid`, give the dates in ISO 8601, or use `llm`. The
-arcs grouped from the events are named in the world's years. This is the CLI's
-in-process ingestion (the CLI and the MCP server when no app is running); the
-daemon's review flow, which they use while the app runs, does not read the
-calendar yet.
+stored year 1140, and, when the calendar names its months, which month is
+which ("Thaw of 141 AR" is January 1140). The patterns cannot read invented
+dates: with `pattern`, or the pattern half of `hybrid`, give the dates in
+ISO 8601, or use `llm`.
+
+Both ingestion paths do this. The CLI's in-process ingestion (the CLI and the
+MCP server when no app is running) reads the target graph's calendar, and
+also names the arcs it groups the events into in the world's years. The app's
+review flow, `POST /api/ingest/text`, reads the calendar of the graph its
+`X-Graph-Id` header names; the app's import wizard sends the graph it will
+import into, and the CLI sends `--graph-id`. A request without the header is read
+without a calendar. The review table shows every date in the world's calendar,
+with the stored date in the box you edit.
 
 ### Provider selection
 

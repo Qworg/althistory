@@ -91,7 +91,8 @@ export function createProgram(): Command {
     .option('--epoch-year <year>', "For an invented world: the stored year that is the world's year 1 (e.g. 1000)")
     .option('--era-label <label>', 'Written after a world year, as in "312 AR" (needs --epoch-year)')
     .option('--calendar-name <name>', "What the world's calendar is called (needs --epoch-year)")
-    .action(async (name: string, cmdOpts: { description?: string; epochYear?: string; eraLabel?: string; calendarName?: string }) => {
+    .option('--month-names <names>', "The world's twelve month names, January's first, separated by commas (needs --epoch-year)")
+    .action(async (name: string, cmdOpts: { description?: string; epochYear?: string; eraLabel?: string; calendarName?: string; monthNames?: string }) => {
       const opts = program.opts<GlobalCLIOptions>();
       const ctx = new ExecutionContext(opts);
       const start = Date.now();
@@ -213,13 +214,14 @@ export function createProgram(): Command {
   graphCmd
     .command('calendar <id>')
     .description(
-      "Give a graph an invented world's calendar, which relabels its years when they are shown (the stored dates do not change), or remove it"
+      "Give a graph an invented world's calendar, which relabels its years (and, with --month-names, its months) when they are shown (the stored dates do not change), or remove it"
     )
     .option('--epoch-year <year>', "The stored year that is the world's year 1 (e.g. 1000)")
     .option('--era-label <label>', 'Written after a world year, as in "312 AR"; without one a year reads "Year 312"')
     .option('--calendar-name <name>', "What the world's calendar is called")
+    .option('--month-names <names>', "The world's twelve month names, January's first, separated by commas")
     .option('--clear', 'Remove the calendar, so years show as stored')
-    .action(async (id: string, cmdOpts: { epochYear?: string; eraLabel?: string; calendarName?: string; clear?: boolean }) => {
+    .action(async (id: string, cmdOpts: { epochYear?: string; eraLabel?: string; calendarName?: string; monthNames?: string; clear?: boolean }) => {
       const opts = program.opts<GlobalCLIOptions>();
       const ctx = new ExecutionContext(opts);
       const start = Date.now();
@@ -229,7 +231,7 @@ export function createProgram(): Command {
           throw new ValidationErrorCLI('Give either --clear or a calendar, not both');
         }
         if (!cmdOpts.clear && !calendar) {
-          throw new ValidationErrorCLI('Give --epoch-year (with --era-label and --calendar-name if wanted), or --clear');
+          throw new ValidationErrorCLI('Give --epoch-year (with --era-label, --calendar-name and --month-names if wanted), or --clear');
         }
         const engine = await ctx.getEngine();
         const graph = await engine.setGraphCalendar(id, cmdOpts.clear ? null : (calendar ?? null));
@@ -796,6 +798,7 @@ export function createProgram(): Command {
     .option('--epoch-year <year>', "With --world: the stored year that is the world's year 1 (default: the start date's year, or 1000)")
     .option('--era-label <label>', 'With --world: written after a world year, as in "312 AR"')
     .option('--calendar-name <name>', "With --world: what the world's calendar is called")
+    .option('--month-names <names>', "With --world: the world's twelve month names, January's first, separated by commas")
     .option('--start-date <iso>', 'Earliest timeline date boundary (ISO-8601)')
     .option('--end-date <iso>', 'Latest timeline date boundary (ISO-8601)')
     .option('-n, --event-count <count>', 'Number of pivotal events to synthesize (default: 8)', '8')

@@ -13,15 +13,15 @@
  * committed -- are not historical and keep the viewer's local time.
  *
  * An invented world's calendar (see `utils/worldCalendar.ts`) relabels the
- * year and nothing else: "Nov 20, 1843" becomes "Nov 20, 844 AR", in the
- * locale's own order. Every formatter takes the calendar as its last argument;
+ * year, and the month when it names them: "Nov 20, 1843" becomes
+ * "Nov 20, 844 AR" (or "Frostfall 20, 844 AR"), in the locale's own order. Every formatter takes the calendar as its last argument;
  * left out, it is the active graph's (`getActiveCalendar()`), and `null` means
  * none. Without a calendar the output is exactly what it always was.
  */
 
 import type { GraphCalendar } from '@/types'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { formatWorldYear } from '@/utils/worldCalendar'
+import { formatWorldYear, worldMonthName } from '@/utils/worldCalendar'
 
 type DateInput = Date | string | number
 
@@ -48,7 +48,7 @@ function worldYearIn(date: Date, formatter: Intl.DateTimeFormat, locale: string 
  *
  * The locale still decides the month's name, the digits and, where it can,
  * the order (`formatToParts`), on the Gregorian calendar: the world keeps the
- * stored months and days, so a locale whose default calendar is another
+ * stored months (renamed, if it names them; see `withWorldMonth`) and days, so a locale whose default calendar is another
  * (th-TH's Buddhist one) must not renumber them.
  *
  * The year is a phrase ("312 AR", "1500 before AR"), not a number, so the
@@ -71,7 +71,10 @@ function formatInWorld(
 ): string {
   const formatter = new Intl.DateTimeFormat(locale, { ...options, calendar: 'gregory' })
   const year = worldYearIn(date, formatter, locale, calendar)
-  const parts = formatter.formatToParts(date).filter((part) => part.type !== 'era')
+  const parts = withWorldMonth(
+    formatter.formatToParts(date).filter((part) => part.type !== 'era'),
+    worldMonthName(date.getUTCMonth(), calendar)
+  )
   const at = parts.findIndex((part) => part.type === 'year')
   const text = (list: Intl.DateTimeFormatPart[]) => list.map((part) => part.value).join('')
   if (at < 0) return text(parts).trim()
@@ -98,6 +101,26 @@ function formatInWorld(
   }
   if (before[before.length - 1]?.type === 'literal') before.pop()
   return `${text(before).trim()} ${text(after).trim()}, ${year}`
+}
+
+/**
+ * The parts with the month named as the world names it; unchanged when the
+ * calendar does not name its months. A locale that writes the month as a
+ * number with a mark after it (ja's "3月", ko's "3월") loses the mark, which
+ * would read "Thaw月", and gets a space instead.
+ */
+function withWorldMonth(parts: Intl.DateTimeFormatPart[], monthName: string | null): Intl.DateTimeFormatPart[] {
+  if (!monthName) return parts
+  const at = parts.findIndex((part) => part.type === 'month')
+  if (at < 0) return parts
+  const renamed = [...parts]
+  const numeric = /^\p{Nd}+$/u.test(parts[at]!.value)
+  renamed[at] = { type: 'month', value: monthName }
+  const next = renamed[at + 1]
+  if (numeric && next?.type === 'literal' && /\p{L}/u.test(next.value)) {
+    renamed[at + 1] = { type: 'literal', value: ' ' }
+  }
+  return renamed
 }
 
 /**

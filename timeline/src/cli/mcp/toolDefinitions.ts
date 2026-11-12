@@ -12,6 +12,9 @@ export interface McpToolDefinition {
       description: string;
       enum?: string[];
       default?: unknown;
+      items?: { type: string };
+      minItems?: number;
+      maxItems?: number;
     }>;
     required?: string[];
   };
@@ -58,6 +61,13 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           type: 'string',
           description: "What the world's calendar is called, e.g. \"the Reckoning of Vael\". Needs epochYear.",
         },
+        monthNames: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 12,
+          maxItems: 12,
+          description: "The world's twelve month names, January's first, so March 4 reads e.g. \"Thaw 4\". The months keep their stored lengths. Needs epochYear.",
+        },
       },
       required: ['name'],
     },
@@ -65,7 +75,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'althistory_set_calendar',
     description:
-      "Give a graph an invented world's calendar, or remove it with clear. The calendar only relabels years when they are shown; stored dates do not move.",
+      "Give a graph an invented world's calendar, or remove it with clear. The calendar only relabels years (and, with monthNames, months) when they are shown; stored dates do not move.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -84,6 +94,13 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         calendarName: {
           type: 'string',
           description: "What the world's calendar is called, e.g. \"the Reckoning of Vael\". Needs epochYear.",
+        },
+        monthNames: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 12,
+          maxItems: 12,
+          description: "The world's twelve month names, January's first, so March 4 reads e.g. \"Thaw 4\". The months keep their stored lengths. Needs epochYear.",
         },
         clear: {
           type: 'boolean',
@@ -293,6 +310,13 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         calendarName: {
           type: 'string',
           description: "What the world's calendar is called, e.g. \"the Reckoning of Vael\". Needs epochYear.",
+        },
+        monthNames: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 12,
+          maxItems: 12,
+          description: "The world's twelve month names, January's first, so March 4 reads e.g. \"Thaw 4\". The months keep their stored lengths. Needs epochYear.",
         },
         startDate: {
           type: 'string',

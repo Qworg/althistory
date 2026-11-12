@@ -77,12 +77,19 @@ const AUTH_ERROR_RESPONSES: Record<string, string> = {
 const GRAPH_CALENDAR_SCHEMA = {
   type: 'object',
   description:
-    "An invented world's calendar. Timestamps stay Gregorian; the calendar relabels the year when a date is " +
-    'shown: the stored year `epochYear` is year 1 of the world.',
+    "An invented world's calendar. Timestamps stay Gregorian; the calendar relabels the year (and, with " +
+    '`monthNames`, the month) when a date is shown: the stored year `epochYear` is year 1 of the world.',
   properties: {
     epochYear: { type: 'integer', minimum: 1, maximum: 9999, description: 'The stored year that is year 1.' },
     eraLabel: { type: 'string', maxLength: 16, description: 'Written after the year ("312 AR"). Without one, "Year 312".' },
     name: { type: 'string', maxLength: 80, description: 'What the calendar is called.' },
+    monthNames: {
+      type: 'array',
+      items: { type: 'string', minLength: 1, maxLength: 24 },
+      minItems: 12,
+      maxItems: 12,
+      description: "The world's names for the twelve months, January's first; distinct. The months keep their stored lengths.",
+    },
   },
   required: ['epochYear'],
   additionalProperties: false,

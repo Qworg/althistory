@@ -214,12 +214,16 @@ export function IngestionWizard({
     [ingestWikidata, runExtraction]
   )
 
+  // The text is read for the graph it will enter, so a world's calendar
+  // dates it: the one named, or the active graph the approval falls back to.
+  const textGraphId = targetGraphId ?? activeGraph?.id
   const handleTextSubmit = useCallback(
     (request: TextIngestRequest) => {
       setLastTextRequest(request)
-      void runExtraction(() => ingestText.mutateAsync(request), 'text')
+      const scoped = textGraphId ? { ...request, targetGraphId: textGraphId } : request
+      void runExtraction(() => ingestText.mutateAsync(scoped), 'text')
     },
-    [ingestText, runExtraction]
+    [ingestText, runExtraction, textGraphId]
   )
 
   const handleToggleSelection = useCallback((collection: CollectionKey, tempId: string) => {

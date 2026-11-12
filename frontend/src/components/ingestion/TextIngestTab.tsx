@@ -4,10 +4,19 @@
  * Pasted-text source form for the ingestion wizard (Req 19.1). The `useLLM`
  * flag lets the user choose between the offline pattern extractor and the
  * configured LLM.
+ *
+ * In a graph with a world calendar the server tells the model how the world
+ * dates things, so "141 AR" lands on the stored year 1140; the pattern reader
+ * cannot read invented dates, and the tab says so. The time range takes stored
+ * dates, with the world date under each.
  */
 
 import { useEffect, useState, type FormEvent } from 'react'
-import type { TextIngestContext, TextIngestRequest } from '@/types'
+import type { GraphCalendar, TextIngestContext, TextIngestRequest } from '@/types'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { WorldDateHint } from '@/components/ui/WorldDateHint'
+import { describedBy, worldDateOf } from '@/utils/worldDateHint'
+import { formatWorldYear, storedYear } from '@/utils/worldCalendar'
 
 export interface TextIngestTabProps {
   onSubmit: (request: TextIngestRequest) => void
@@ -28,6 +37,7 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [locale, setLocale] = useState('')
+  const calendar = useWorldCalendar()
 
   const canSubmit = !isSubmitting && text.trim().length > 0
   useEffect(() => {
@@ -78,6 +88,8 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
         />
       </div>
 
+      {calendar && <WorldCalendarNote calendar={calendar} useLLM={useLLM} />}
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
         <div className="sm:col-span-2">
           <label htmlFor="ingest-text-actors" className="block text-xs font-medium text-ink-secondary">
@@ -101,9 +113,11 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
             type="text"
             value={startDate}
             onChange={(event) => setStartDate(event.target.value)}
+            aria-describedby={describedBy(worldDateOf(startDate.trim(), calendar) && 'ingest-text-start-date-world')}
             placeholder="e.g. 1066-01-01"
             className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
           />
+          <WorldDateHint value={startDate.trim()} id="ingest-text-start-date-world" />
         </div>
         <div>
           <label htmlFor="ingest-text-end-date" className="block text-xs font-medium text-ink-secondary">
@@ -114,9 +128,11 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
             type="text"
             value={endDate}
             onChange={(event) => setEndDate(event.target.value)}
+            aria-describedby={describedBy(worldDateOf(endDate.trim(), calendar) && 'ingest-text-end-date-world')}
             placeholder="e.g. 1066-12-31"
             className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
           />
+          <WorldDateHint value={endDate.trim()} id="ingest-text-end-date-world" />
         </div>
         <div>
           <label htmlFor="ingest-text-locale" className="block text-xs font-medium text-ink-secondary">
@@ -144,6 +160,31 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
       </label>
 
     </form>
+  )
+}
+
+/**
+ * What a world's calendar means for the text: the model reads its dates, the
+ * patterns do not. The example is the world's year 1 and where it is stored.
+ */
+function WorldCalendarNote({ calendar, useLLM }: { calendar: GraphCalendar; useLLM: boolean }) {
+  const example = formatWorldYear(storedYear(1, calendar), calendar)
+  return (
+    <p className="rounded-md border border-line bg-subtle px-3 py-2 text-xs text-ink-secondary" role="note">
+      {useLLM ? (
+        <>
+          This graph keeps {calendar.name ?? 'its own calendar'}. The model is told how its dates are stored, so
+          the text can say “{example}” (stored as <span className="font-mono-code">{calendar.epochYear}</span>)
+          {calendar.monthNames ? ' and name the world’s months' : ''}. Without the model, the text’s dates must be
+          the stored ones.
+        </>
+      ) : (
+        <>
+          This graph keeps {calendar.name ?? 'its own calendar'}, but the pattern reader only reads stored dates:
+          write “{example}” as <span className="font-mono-code">{calendar.epochYear}</span>, or use LLM extraction.
+        </>
+      )}
+    </p>
   )
 }
 

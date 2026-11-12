@@ -3,6 +3,7 @@ import {
   calendarDraftErrors,
   calendarFromDraft,
   calendarRequest,
+  parseMonthNames,
   describeCalendar,
   draftFromCalendar,
   formatWorldYear,
@@ -44,7 +45,8 @@ describe('world calendar arithmetic (same as the backend)', () => {
 })
 
 describe('the calendar form draft', () => {
-  const draft = (epochYear: string, eraLabel = '', name = '') => ({ epochYear, eraLabel, name })
+  const draft = (epochYear: string, eraLabel = '', name = '', monthNames = '') => ({ epochYear, eraLabel, name, monthNames })
+  const MONTHS = ['Thaw', 'Seedfall', 'Greening', 'Highsun', 'Brine', 'Harvest', 'Ember', 'Ashfall', 'Gale', 'Dimming', 'Frost', 'Deepwinter']
 
   it('validates like the backend: an integer epoch 1..9999, a label up to 16, a name up to 80', () => {
     expect(calendarDraftErrors(draft('1000', 'AR', 'Vael'))).toEqual({})
@@ -81,5 +83,44 @@ describe('the calendar form draft', () => {
     })
     expect(calendarRequest(true, draft('1000'), null)).toEqual({ ok: true, calendar: { epochYear: 1000 } })
     expect(calendarRequest(true, draft(''), null)).toEqual({ ok: false })
+  })
+
+  it('reads the month names one per line, or comma-separated on one line', () => {
+    expect(parseMonthNames('')).toEqual([])
+    expect(parseMonthNames('  \n ')).toEqual([])
+    expect(parseMonthNames(`\n${MONTHS.join('\n')}\n`)).toEqual(MONTHS)
+    expect(parseMonthNames(MONTHS.join(', '))).toEqual(MONTHS)
+    // A name with a comma in it survives one per line.
+    expect(parseMonthNames('Ash, Late\nB')).toEqual(['Ash, Late', 'B'])
+  })
+
+  it('checks the month names like the backend: all twelve, distinct, none empty or too long', () => {
+    expect(calendarDraftErrors(draft('1000', '', '', MONTHS.join('\n'))).monthNames).toBeUndefined()
+    expect(calendarDraftErrors(draft('1000', '', '', MONTHS.slice(0, 11).join('\n'))).monthNames).toMatch(/all 12.*11 names/)
+    expect(calendarDraftErrors(draft('1000', '', '', [...MONTHS, 'Extra'].join('\n'))).monthNames).toMatch(/13 names/)
+    const blank = [...MONTHS]
+    blank[4] = ''
+    expect(calendarDraftErrors(draft('1000', '', '', blank.join('\n'))).monthNames).toMatch(/empty/)
+    const twice = [...MONTHS]
+    twice[11] = 'thaw'
+    expect(calendarDraftErrors(draft('1000', '', '', twice.join('\n'))).monthNames).toMatch(/two months/)
+    const long = [...MONTHS]
+    long[0] = 'x'.repeat(25)
+    expect(calendarDraftErrors(draft('1000', '', '', long.join('\n'))).monthNames).toMatch(/24/)
+  })
+
+  it('sends the month names, and round-trips them through the form', () => {
+    const calendar = { epochYear: 1000, monthNames: MONTHS }
+    expect(calendarFromDraft(draft('1000', '', '', MONTHS.join(',')))).toEqual(calendar)
+    expect(calendarFromDraft(draftFromCalendar(calendar))).toEqual(calendar)
+    // Changing a month is a change; the same names are not.
+    expect(calendarRequest(true, draftFromCalendar(calendar), calendar)).toEqual({ ok: true, calendar: undefined })
+    const renamed = [...MONTHS]
+    renamed[0] = 'Melt'
+    expect(calendarRequest(true, draft('1000', '', '', renamed.join('\n')), calendar)).toEqual({
+      ok: true,
+      calendar: { epochYear: 1000, monthNames: renamed },
+    })
+    expect(calendarRequest(true, draft('1000'), calendar)).toEqual({ ok: true, calendar: { epochYear: 1000 } })
   })
 })

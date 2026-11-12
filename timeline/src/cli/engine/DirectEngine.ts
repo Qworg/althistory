@@ -44,7 +44,7 @@ import {
 import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import type { GraphCalendar } from '@/utils/worldCalendar';
+import { calendarExtractionInstructions, type GraphCalendar } from '@/utils/worldCalendar';
 import type { IGraph } from '@/models/Graph';
 import { validateCausalRelationshipFields } from '@/services/CausalService';
 
@@ -882,14 +882,7 @@ export class DirectEngine implements IEngine {
 
     // Prose about an invented world dates things in the world's years; the
     // model is told how they are stored. Pattern extraction cannot read them.
-    const context = calendar
-      ? {
-          instructions:
-            `The text dates events in an invented world's calendar${calendar.name ? ` (${calendar.name})` : ''}. ` +
-            `Its year N${calendar.eraLabel ? ` (written "N ${calendar.eraLabel}")` : ''} is the ISO year N + ${calendar.epochYear - 1}; ` +
-            'give every timestamp as that ISO date.',
-        }
-      : undefined;
+    const context = calendar ? { instructions: calendarExtractionInstructions(calendar) } : undefined;
     const llmResult = await extractor.extractWithLLM({ text }, context);
 
     if (mode === 'llm') {

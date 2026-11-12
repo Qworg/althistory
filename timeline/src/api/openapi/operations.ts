@@ -763,7 +763,9 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     auth: 'required',
   },
   'POST /api/ingest/text': {
-    summary: 'Extract entities from a piece of text.',
+    summary:
+      'Extract entities from a piece of text. An optional X-Graph-Id names the graph it is for: a world ' +
+      "calendar on that graph tells the model how the text's dates are stored. Without it, no graph is read.",
     request: 'IngestTextRequest',
     requestRequired: true,
     response: 'IngestPreview',

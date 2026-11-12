@@ -165,3 +165,36 @@ describe('a world year after a numeric date', () => {
     expect(formatHistoricalDateAt('1311-03-04T00:00:00Z', precision, locale, { epochYear: 1000, eraLabel: 'AR' })).toBe(expected)
   })
 })
+
+describe('historical dates in a world calendar that names its months', () => {
+  const MONTHS = ['Thaw', 'Seedfall', 'Greening', 'Highsun', 'Brine', 'Harvest', 'Ember', 'Ashfall', 'Gale', 'Dimming', 'Frost', 'Deepwinter']
+  const NAMED: GraphCalendar = { ...AR, monthNames: MONTHS }
+
+  it("writes the world's month in place of the stored one, keeping the day", () => {
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'en-US', NAMED)).toBe('Greening 4, 312 AR')
+    expect(formatHistoricalDate('1311-12-31T00:00:00Z', 'en-US', NAMED)).toBe('Deepwinter 31, 312 AR')
+    expect(formatHistoricalTimestamp('1311-03-04T14:30:00Z', 'en-US', NAMED)).toBe('Greening 4, 312 AR, 14:30 UTC')
+  })
+
+  it('names the month at month precision, and leaves year precision alone', () => {
+    expect(formatHistoricalDateAt('1311-03-01T00:00:00Z', 'month', 'en-US', NAMED)).toBe('Greening 312 AR')
+    expect(formatHistoricalDateAt('1311-03-01T00:00:00Z', 'year', 'en-US', NAMED)).toBe('312 AR')
+  })
+
+  it("keeps the locale's order", () => {
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'en-GB', NAMED)).toBe('4 Greening 312 AR')
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'de-DE', NAMED)).toBe('4. Greening 312 AR')
+  })
+
+  it('drops the mark after a numeric month rather than writing "Greening月"', () => {
+    const text = formatHistoricalDate('1311-03-04T00:00:00Z', 'ja-JP', NAMED)
+    expect(text).toContain('Greening')
+    expect(text).not.toContain('月')
+    expect(text).toContain('312 AR')
+  })
+
+  it('follows the active calendar when none is passed', () => {
+    useWorldCalendarStore.getState().setCalendar(NAMED)
+    expect(formatHistoricalDate('1311-03-04T00:00:00Z', 'en-US')).toBe('Greening 4, 312 AR')
+  })
+})
