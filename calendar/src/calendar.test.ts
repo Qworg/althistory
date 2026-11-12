@@ -9,7 +9,7 @@ import {
   normalizeCalendar,
   storedYear,
   worldYear,
-} from './worldCalendar';
+} from './index';
 
 describe('worldCalendar', () => {
   const reckoning = { epochYear: 1000, eraLabel: 'AR' };

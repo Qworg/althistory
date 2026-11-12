@@ -14,7 +14,7 @@
 import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
 import { ExportRelationship } from './GraphExporter';
-import { GraphCalendar, storedCalendar } from '@/utils/worldCalendar';
+import { GraphCalendar, storedCalendar } from '@althistory/calendar';
 
 export interface ParsedExportDocument {
   graphId: string;

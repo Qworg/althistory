@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { GraphCalendar, storedCalendar } from '@/utils/worldCalendar';
+import { GraphCalendar, storedCalendar } from '@althistory/calendar';
 import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
 import { ImportResultDto } from '../types';

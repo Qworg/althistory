@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { GraphCalendar } from '@/types'
-import { sameCalendar, usableCalendar } from '@/utils/worldCalendar'
+import { sameCalendar, usableCalendar } from '@althistory/calendar'
 
 /**
  * The calendar of the graph on screen, or null when it has none.

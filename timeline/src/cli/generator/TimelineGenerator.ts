@@ -28,7 +28,7 @@ import {
 import { clusterEventsIntoArcs } from './arcClustering';
 import { ExtractedArc, ExtractedEvent } from '@/services/ingestion/types';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { GraphCalendar, formatWorldYear, normalizeCalendar } from '@/utils/worldCalendar';
+import { GraphCalendar, formatWorldYear, normalizeCalendar } from '@althistory/calendar';
 import { ValidationErrorCLI } from '../utils/exitCodes';
 
 export interface TimelineGeneratorConfig {

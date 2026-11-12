@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router'
 import { HistoricalDateInput } from './HistoricalDateInput'
 import { parseHistoricalDate } from './filterUtils'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { formatWorldYear } from '@/utils/worldCalendar'
+import { formatWorldYear } from '@althistory/calendar'
 
 export interface FilterState {
   dateRange: {

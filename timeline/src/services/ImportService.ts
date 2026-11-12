@@ -16,7 +16,7 @@
  */
 
 import { GraphRepository } from '../repositories/GraphRepository';
-import { storedCalendar } from '@/utils/worldCalendar';
+import { storedCalendar } from '@althistory/calendar';
 import { JobRepository } from '../repositories/JobRepository';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 import {

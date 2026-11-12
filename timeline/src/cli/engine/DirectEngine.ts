@@ -44,7 +44,7 @@ import {
 import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { calendarExtractionInstructions, type GraphCalendar } from '@/utils/worldCalendar';
+import { calendarExtractionInstructions, type GraphCalendar } from '@althistory/calendar';
 import type { IGraph } from '@/models/Graph';
 import { validateCausalRelationshipFields } from '@/services/CausalService';
 

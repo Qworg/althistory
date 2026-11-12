@@ -99,7 +99,7 @@ vi.mock('@/api/middleware', async () => {
 // Imported after the mock so the route file picks up the stubbed middleware.
 import { createIngestRouter } from '@/api/routes/ingest';
 import { HttpRequestError } from '@/services/ingestion/http';
-import type { GraphCalendar } from '@/utils/worldCalendar';
+import type { GraphCalendar } from '@althistory/calendar';
 import { apiRouter } from '@/api/routes';
 import { errorHandler } from '@/api/middleware';
 

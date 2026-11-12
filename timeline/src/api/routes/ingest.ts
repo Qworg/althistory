@@ -36,7 +36,7 @@ import {
   asyncHandler,
   GRAPH_ID_HEADER,
 } from '../middleware';
-import { GraphCalendar, calendarExtractionInstructions } from '../../utils/worldCalendar';
+import { GraphCalendar, calendarExtractionInstructions } from '@althistory/calendar';
 import { ValidationError, NotFoundError, UpstreamServiceError } from '../../utils/errors';
 import { ImportService } from '../../services/ImportService';
 import type { HeadReplacedHook } from '../../services/LiveStoreSyncService';

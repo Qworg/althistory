@@ -553,6 +553,17 @@ describe('invented worlds', () => {
         ExitCode.VALIDATION_FAILED
       );
     });
+
+    it('reads the epoch year as the app\'s form does, a leading "+" included', async () => {
+      const made = await cli(['graph', 'create', 'Signed', '--epoch-year', '+1000']);
+      expect(made.code).toBe(ExitCode.SUCCESS);
+      created.push(made.body.data.id);
+      expect(made.body.data.calendar).toEqual({ epochYear: 1000 });
+      // Read, then refused for its range, with the range in the message.
+      const zero = await cli(['graph', 'create', 'Zero', '--epoch-year', '-5']);
+      expect(zero.code).toBe(ExitCode.VALIDATION_FAILED);
+      expect(JSON.stringify(zero.body)).toContain('between 1 and 9999');
+    });
   });
 
   describe('importing a world', () => {

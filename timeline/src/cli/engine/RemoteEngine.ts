@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { GraphCalendar, storedCalendar } from '@/utils/worldCalendar';
+import { GraphCalendar, storedCalendar } from '@althistory/calendar';
 import { IEngine } from './IEngine';
 import {
   HealthInfo,

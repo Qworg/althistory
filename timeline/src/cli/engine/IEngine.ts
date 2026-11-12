@@ -18,7 +18,7 @@ import {
   ExportResultDto,
   ImportResultDto,
 } from '../types';
-import type { GraphCalendar } from '@/utils/worldCalendar';
+import type { GraphCalendar } from '@althistory/calendar';
 
 export interface IEngine {
   readonly mode: 'direct' | 'remote';

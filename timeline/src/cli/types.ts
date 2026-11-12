@@ -3,7 +3,7 @@
  */
 
 import type { SimulationDomain } from '@/services/SimulationService';
-import type { GraphCalendar } from '@/utils/worldCalendar';
+import type { GraphCalendar } from '@althistory/calendar';
 
 
 export type OutputFormat = 'json' | 'ndjson' | 'markdown' | 'plain';
@@ -57,7 +57,7 @@ export interface GraphSummaryDto {
   eventCount?: number;
   arcCount?: number;
   relationshipCount?: number;
-  /** The world's own calendar, when the graph has one (see utils/worldCalendar.ts). */
+  /** The world's own calendar, when the graph has one (see `@althistory/calendar`). */
   calendar?: GraphCalendar;
 }
 

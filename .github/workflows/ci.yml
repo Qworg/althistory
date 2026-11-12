@@ -15,7 +15,19 @@
 #   npx tsc --noEmit                        npx tsc -b --noEmit --force
 #   npm run lint   (--max-warnings 0)       npx eslint .   (errors only)
 #   npx vitest --run --coverage             npx vitest --run --coverage
-#                                           npm run build
+#   npm run build                           npm run build
+#
+#   calendar (calendar/)
+#   ------------------------------------
+#   npm ci
+#   npm run type-check
+#   npm run lint   (--max-warnings 0)
+#   npm test       (property tests, once per time zone)
+#
+# `calendar/` is the date and world-calendar package both apps compile from
+# source (see calendar/README.md). Its property tests draw fresh inputs on
+# every run, so each CI run searches a little more of the input space; a
+# failure prints the seed that reproduces it (FC_SEED=<seed> npm test).
 #
 #   cloud (timeline/)                       e2e (e2e/)
 #   ------------------------------------    ------------------------------------
@@ -104,6 +116,42 @@ jobs:
 
       - name: Test (coverage report-only; no threshold is configured)
         run: npx vitest --run --coverage
+
+      - name: Build
+        # Compiles calendar/ first, then the backend against its declarations:
+        # the only check of the build's path mapping (tsconfig.build.json).
+        run: npm run build
+
+  calendar:
+    name: Calendar package (typecheck, lint, property tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: calendar
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # See the backend job for why Node 24.
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: calendar/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Property and unit tests (five time zones)
+        run: npm test
 
   frontend:
     name: Frontend (typecheck, lint, test, build)

@@ -2,10 +2,9 @@ import type {
   Event,
   Arc,
   CausalRelationship,
-  FilterState,
-  GraphCalendar
+  FilterState
 } from '@/types'
-import { formatHistoricalDate, formatHistoricalDateAt, type DatePrecision } from '@/utils/historicalTime'
+import { formatHistoricalDateBound, parseHistoricalDate, type DateBoundEdge } from '@althistory/calendar'
 import type { FilterState as PanelFilterState } from './FilterPanel'
 
 export type { PanelFilterState }
@@ -111,151 +110,19 @@ export function hasActiveFilters(filters: FilterState): boolean {
 
 // ── Historical date bounds ────────────────────────────────────────────────
 //
-// The filter's date bounds are typed, not picked: a native date input shows
-// the browser's locale order (mm/dd/yyyy in the US) and cannot reach BCE. A
-// bound is a year, a year and month, or a full date, written largest unit
-// first -- `1843`, `1843-11`, `1843-11-20` -- with `BCE` (or a minus sign) for
-// years before 1 CE. There is no year 0: 1 BCE is followed by 1 CE.
-//
-// Like every historical time in the app (see utils/historicalTime.ts) a bound
-// is a UTC instant. A start bound is the first moment of the period it names
-// and an end bound the last, so `1843` to `1843` is the whole year.
+// A bound is typed largest unit first -- `1843`, `1843-11`, `1843-11-20`, with
+// `BCE` for years before 1 CE -- and read as a UTC instant: a start bound is
+// the first moment of the period it names and an end bound the last. The
+// reading and writing are `@althistory/calendar` (calendar/src/bounds.ts),
+// property-tested against an arithmetic oracle for every year a Date holds.
 
-export type DateBoundEdge = 'start' | 'end'
-
-export type HistoricalDateParse =
-  | { ok: true; date: Date; text: string }
-  | { ok: false; error: string }
-
-const HISTORICAL_DATE_PATTERN = /^(-)?(\d{1,6})(?:-(\d{1,2})(?:-(\d{1,2}))?)?(?:\s*(BCE|BC|CE|AD))?$/i
-
-/** A UTC instant from an astronomical year (1 BCE = 0); safe for years 0-99. */
-function utcDate(astronomicalYear: number, monthIndex: number, day: number): Date {
-  const date = new Date(Date.UTC(2000, 0, 1))
-  date.setUTCFullYear(astronomicalYear, monthIndex, day)
-  return date
-}
-
-function pad2(value: number): string {
-  return String(value).padStart(2, '0')
-}
-
-/** The canonical spelling of a bound: `1843`, `1843-11`, `44-03-15 BCE`. */
-function formatBound(astronomicalYear: number, month?: number, day?: number): string {
-  const bce = astronomicalYear <= 0
-  const year = bce ? 1 - astronomicalYear : astronomicalYear
-  let text = String(year)
-  if (month !== undefined) text += `-${pad2(month)}`
-  if (day !== undefined) text += `-${pad2(day)}`
-  return bce ? `${text} BCE` : text
-}
-
-/**
- * Read a typed date bound. `edge` decides which end of the named period it
- * stands for. Returns the instant and the canonical spelling, or a message
- * that says what is wrong.
- */
-export function parseHistoricalDate(input: string, edge: DateBoundEdge): HistoricalDateParse {
-  const trimmed = input.trim().replace(/\s+/g, ' ')
-  const match = HISTORICAL_DATE_PATTERN.exec(trimmed)
-  if (!match) {
-    return { ok: false, error: 'Write the year first: 1843, 1843-11 or 1843-11-20 (add BCE before 1 CE).' }
-  }
-  const [, minus, yearText, monthText, dayText, era] = match
-  const eraUpper = era?.toUpperCase()
-  const isBce = Boolean(minus) || eraUpper === 'BCE' || eraUpper === 'BC'
-  if (minus && (eraUpper === 'BCE' || eraUpper === 'BC' || eraUpper === 'CE' || eraUpper === 'AD')) {
-    return { ok: false, error: 'Use a minus sign or an era, not both.' }
-  }
-  const year = Number(yearText)
-  if (year === 0) {
-    return { ok: false, error: 'There is no year 0: 1 BCE is followed by 1 CE.' }
-  }
-  const astronomicalYear = isBce ? 1 - year : year
-  const month = monthText === undefined ? undefined : Number(monthText)
-  const day = dayText === undefined ? undefined : Number(dayText)
-  if (month !== undefined && (month < 1 || month > 12)) {
-    return { ok: false, error: 'The month must be 01 to 12.' }
-  }
-  if (month !== undefined && day !== undefined) {
-    const check = utcDate(astronomicalYear, month - 1, day)
-    if (day < 1 || check.getUTCMonth() !== month - 1) {
-      return { ok: false, error: `That month has no day ${day}.` }
-    }
-  }
-
-  let date: Date
-  if (edge === 'start') {
-    date = utcDate(astronomicalYear, (month ?? 1) - 1, day ?? 1)
-  } else {
-    // The last millisecond of the period: the start of the next one, less 1ms.
-    const next = day !== undefined
-      ? utcDate(astronomicalYear, month! - 1, day + 1)
-      : month !== undefined
-        ? utcDate(astronomicalYear, month, 1)
-        : utcDate(astronomicalYear + 1, 0, 1)
-    date = new Date(next.getTime() - 1)
-  }
-  if (Number.isNaN(date.getTime())) {
-    return { ok: false, error: 'That date is out of range.' }
-  }
-  return { ok: true, date, text: formatBound(astronomicalYear, month, day) }
-}
-
-/**
- * The canonical spelling of an instant as a bound, the inverse of
- * {@link parseHistoricalDate}: a start on 1 January reads as the year, on the
- * 1st of a month as the month; an end on the last moment of a year or month
- * likewise. Anything else is the full date. Invalid -> ''.
- */
-export function formatHistoricalDateBound(value: Date | string | null | undefined, edge: DateBoundEdge): string {
-  if (value === null || value === undefined || value === '') return ''
-  if (typeof value === 'string') {
-    // A typed bound (from a link, say) keeps its own precision: `1843` as an
-    // end is the whole year, where Date would read it as 1 January.
-    const parsed = parseHistoricalDate(value, edge)
-    if (parsed.ok) return parsed.text
-  }
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  if (edge === 'end') {
-    const next = new Date(date.getTime() + 1)
-    const isMidnight = (d: Date) =>
-      d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0
-    if (isMidnight(next)) {
-      if (next.getUTCDate() === 1 && next.getUTCMonth() === 0) return formatBound(next.getUTCFullYear() - 1)
-      if (next.getUTCDate() === 1) {
-        return formatBound(date.getUTCFullYear(), date.getUTCMonth() + 1)
-      }
-      return formatBound(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate())
-    }
-  } else if (
-    date.getUTCHours() === 0 && date.getUTCMinutes() === 0 &&
-    date.getUTCSeconds() === 0 && date.getUTCMilliseconds() === 0
-  ) {
-    if (date.getUTCDate() === 1 && date.getUTCMonth() === 0) return formatBound(date.getUTCFullYear())
-    if (date.getUTCDate() === 1) return formatBound(date.getUTCFullYear(), date.getUTCMonth() + 1)
-  }
-  return formatBound(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate())
-}
-
-/**
- * A typed bound as it reads in a world calendar ("1843-11" -> "Nov 844 AR"),
- * at the precision it was typed; null without a calendar or a readable bound.
- * Bounds are typed as stored (Gregorian) dates, like every date field; this is
- * what the filter's hint and chip show beside them.
- */
-export function worldBoundLabel(text: string, edge: DateBoundEdge, calendar: GraphCalendar | null): string | null {
-  if (!calendar || text.trim() === '') return null
-  const parsed = parseHistoricalDate(text, edge)
-  if (!parsed.ok) return null
-  const parts = parsed.text.replace(/ BCE$/, '').split('-').length
-  const precision: DatePrecision = parts === 1 ? 'year' : parts === 2 ? 'month' : 'day'
-  // An end bound is the period's last moment; the date alone names it.
-  return precision === 'day'
-    ? formatHistoricalDate(parsed.date, undefined, calendar)
-    : formatHistoricalDateAt(parsed.date, precision, undefined, calendar)
-}
+export {
+  parseHistoricalDate,
+  formatHistoricalDateBound,
+  worldBoundLabel,
+  type DateBoundEdge,
+  type HistoricalDateParse,
+} from '@althistory/calendar'
 
 function toInputDate(value: Date | string | null | undefined, edge: DateBoundEdge): string {
   return formatHistoricalDateBound(value, edge)

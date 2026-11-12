@@ -29,6 +29,7 @@ is generated from the running app; see [Screenshots and video](#screenshots-and-
 | Path | What it is |
 | --- | --- |
 | `timeline/` | Express + TypeScript API and CLI (`bin/althistory`). Versioned graph storage (Git-like trees), export/import, inference, ingestion, WebSocket streaming, MCP server. |
+| `calendar/` | `@althistory/calendar`: historical dates and invented-world calendars, shared by the API, the CLI and the UI, and property-tested in five time zones. |
 | `frontend/` | React + Vite UI. Timeline, causal graph, actor and pressure views, graph/version/import/export panels. |
 | `e2e/` | Playwright end-to-end and visual-regression tests against a production build with the API stubbed. |
 | `media/` | The generator for the README screenshots and the walkthrough video (Playwright + [Revideo](https://github.com/midrender/revideo)). |

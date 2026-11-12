@@ -31,7 +31,7 @@ import {
 } from './mergedEntityValidation';
 import { createLogger, ILogger } from '../utils/logger';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { GraphCalendar, calendarProblems, normalizeCalendar } from '@/utils/worldCalendar';
+import { GraphCalendar, calendarProblems, normalizeCalendar } from '@althistory/calendar';
 import type { HeadReplacedHook } from './LiveStoreSyncService';
 
 /**

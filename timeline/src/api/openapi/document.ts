@@ -73,7 +73,7 @@ const AUTH_ERROR_RESPONSES: Record<string, string> = {
 }
 
 
-/** An invented world's calendar (see `utils/worldCalendar.ts`). */
+/** An invented world's calendar (see `@althistory/calendar`). */
 const GRAPH_CALENDAR_SCHEMA = {
   type: 'object',
   description:

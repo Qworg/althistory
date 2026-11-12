@@ -16,7 +16,7 @@ import type { GraphCalendar, TextIngestContext, TextIngestRequest } from '@/type
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { WorldDateHint } from '@/components/ui/WorldDateHint'
 import { describedBy, worldDateOf } from '@/utils/worldDateHint'
-import { formatWorldYear, storedYear } from '@/utils/worldCalendar'
+import { formatWorldYear, storedYear } from '@althistory/calendar'
 
 export interface TextIngestTabProps {
   onSubmit: (request: TextIngestRequest) => void

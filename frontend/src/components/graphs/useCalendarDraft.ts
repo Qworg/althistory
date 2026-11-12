@@ -7,7 +7,7 @@ import {
   draftFromCalendar,
   type CalendarDraft,
   type CalendarDraftErrors,
-} from '@/utils/worldCalendar'
+} from '@althistory/calendar'
 
 /** The state of a graph form's "World calendar" section (see WorldCalendarFields). */
 export interface CalendarDraftState {

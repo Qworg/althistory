@@ -2,9 +2,9 @@
  * Graph model for multi-graph management with Git-like versioning
  */
 
-import { GraphCalendar, storedCalendar } from '../utils/worldCalendar';
+import { GraphCalendar, storedCalendar } from '@althistory/calendar';
 
-export type { GraphCalendar } from '../utils/worldCalendar';
+export type { GraphCalendar } from '@althistory/calendar';
 
 /**
  * Represents a historical graph containing events, arcs, and relationships
@@ -41,7 +41,7 @@ export interface IGraph {
   metadata: GraphMetadata;
   /**
    * The world's own calendar, for an invented history: how stored years are
-   * shown (see `utils/worldCalendar.ts`). Absent means plain Gregorian years.
+   * shown (see `@althistory/calendar`). Absent means plain Gregorian years.
    */
   calendar?: GraphCalendar;
 }

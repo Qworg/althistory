@@ -76,6 +76,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
+      '@althistory/calendar': resolve(__dirname, '../calendar/src/index.ts'),
     },
   },
 });

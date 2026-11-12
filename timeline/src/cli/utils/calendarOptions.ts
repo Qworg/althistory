@@ -6,7 +6,7 @@
  * `calendarName` and `monthNames`.
  */
 
-import { GraphCalendar, normalizeCalendar } from '@/utils/worldCalendar';
+import { GraphCalendar, normalizeCalendar, parseEpochYear, parseMonthNames } from '@althistory/calendar';
 import { ValidationErrorCLI } from './exitCodes';
 
 export interface CalendarInput {
@@ -16,13 +16,13 @@ export interface CalendarInput {
   monthNames?: unknown;
 }
 
-/** An integer year from a flag ("1000") or a tool argument (1000). */
+/** An integer year from a flag ("1000", "+1000") or a tool argument (1000), read as the app's form reads it. */
 function readYear(value: unknown): number {
-  const text = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '';
-  if (!/^-?\d+$/.test(text)) {
+  const year = parseEpochYear(value);
+  if (year === null) {
     throw new ValidationErrorCLI(`Invalid epoch year "${String(value)}": expected a whole year such as 1000`);
   }
-  return Number(text);
+  return year;
 }
 
 /** Absent, null and empty all mean "not given": some clients send "" for an unset field. */
@@ -39,46 +39,18 @@ function readText(value: unknown, what: string): string | undefined {
 }
 
 /**
- * Month names from a flag ("Thaw,Seed,…", comma-separated) or a tool argument
- * (a list, or the same comma-separated text). Counting and checking them is
- * `calendarProblems`'s job, so its message is the one every surface gives.
+ * Month names from a flag ("Thaw,Seed,…") or a tool argument (a list, or the
+ * same text): text is read by `parseMonthNames`, as the app's form reads it
+ * (a JSON list, one per line, or comma-separated). Counting and checking them
+ * is `calendarProblems`'s job, so its message is the one every surface gives.
  */
 function readMonthNames(value: unknown): string[] | undefined {
   if (isUnset(value)) return undefined;
-  if (typeof value === 'string') return splitMonthNames(value);
+  if (typeof value === 'string') return parseMonthNames(value);
   if (Array.isArray(value) && value.every((name) => typeof name === 'string')) {
     return value.map((name) => (name as string).trim());
   }
   throw new ValidationErrorCLI('The month names must be a list of twelve names, or the twelve separated by commas');
-}
-
-/**
- * Month names written as text, read the same way here as in the app's form
- * (`parseMonthNames` in frontend/src/utils/worldCalendar.ts):
- * - a JSON list ('["Lowtide", …]'), as an MCP client may send the array;
- * - one name per line, a comma ending a line dropped;
- * - otherwise separated by commas, a comma after the last name dropped.
- * Text with no names in it ("," or " ") has none. Anything else that is not
- * a name (brackets, quotes) stays in it and is refused by `calendarProblems`.
- */
-export function splitMonthNames(value: string): string[] {
-  const text = value.trim();
-  if (/^\[[\s\S]*\]$/.test(text)) {
-    try {
-      const parsed: unknown = JSON.parse(text);
-      if (Array.isArray(parsed) && parsed.every((name) => typeof name === 'string')) {
-        return parsed.map((name) => (name as string).trim());
-      }
-    } catch {
-      // Not JSON: read as text, and the brackets are refused in the names.
-    }
-  }
-  if (text.includes('\n')) {
-    // A blank line in the middle is kept, and refused as an empty name.
-    return text.split(/\r?\n/).map((line) => line.trim().replace(/,$/, '').trim());
-  }
-  const list = text.replace(/,\s*$/, '');
-  return list.trim() === '' ? [] : list.split(',').map((name) => name.trim());
 }
 
 /**

@@ -1,5 +1,18 @@
 {
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    // Against the package's own build (`npm run build` makes it first), so
+    // its source stays out of this program and out of dist/.
+    "paths": {
+      "@/*": ["*"],
+      "@/models/*": ["models/*"],
+      "@/services/*": ["services/*"],
+      "@/api/*": ["api/*"],
+      "@/utils/*": ["utils/*"],
+      "@althistory/calendar": ["../../calendar/dist/index.d.ts"]
+    }
+  },
   "exclude": [
     "node_modules",
     "dist",

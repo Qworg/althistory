@@ -1,5 +1,5 @@
 import { ExtractedEvent, ExtractedArc, ExtractionSource } from '@/services/ingestion/types';
-import { GraphCalendar, formatWorldYear } from '@/utils/worldCalendar';
+import { GraphCalendar, formatWorldYear } from '@althistory/calendar';
 
 /** How the arcs are named. */
 export interface ArcNamingOptions {

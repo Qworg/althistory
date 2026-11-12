@@ -7,7 +7,7 @@
 
 import { memo, useCallback } from 'react'
 import { Graph, GraphStatus } from '@/types'
-import { formatWorldYear } from '@/utils/worldCalendar'
+import { formatWorldYear } from '@althistory/calendar'
 
 interface GraphCardProps {
   /** The graph to display */

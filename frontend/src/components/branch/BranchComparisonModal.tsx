@@ -11,7 +11,7 @@ import {
   type EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { sameCalendar } from '@/utils/worldCalendar'
+import { sameCalendar } from '@althistory/calendar'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { branchLabel } from '@/components/graphs/graphTree'
 import { CounterfactualTimelineCanvas } from './CounterfactualTimelineCanvas'

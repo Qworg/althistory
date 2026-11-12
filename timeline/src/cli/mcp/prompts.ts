@@ -10,7 +10,7 @@
  */
 
 import { ValidationErrorCLI } from '../utils/exitCodes';
-import { calendarProblems } from '@/utils/worldCalendar';
+import { calendarProblems } from '@althistory/calendar';
 
 /** A stored year as ISO 8601 writes it: four digits. */
 function isoYear(year: number): string {

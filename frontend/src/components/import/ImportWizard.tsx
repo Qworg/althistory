@@ -21,7 +21,7 @@ import { ImportPreviewStep } from './ImportPreviewStep'
 import { ImportConflictStep } from './ImportConflictStep'
 import { ImportExecuteStep } from './ImportExecuteStep'
 import { AlthistoryExport, ImportMode, ConflictResolution, ImportResult, ExecuteImportResponse, SyncImportResponse } from '@/types'
-import { usableCalendar } from '@/utils/worldCalendar'
+import { usableCalendar } from '@althistory/calendar'
 import { apiClient } from '@/services/api'
 import { ModalBase } from '@/components/modals/ModalBase'
 

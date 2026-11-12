@@ -7,7 +7,7 @@ import {
   formatWorldYear,
   parseMonthNames,
   type CalendarDraft,
-} from '@/utils/worldCalendar'
+} from '@althistory/calendar'
 import type { CalendarDraftState } from './useCalendarDraft'
 import { describedBy } from '@/utils/worldDateHint'
 

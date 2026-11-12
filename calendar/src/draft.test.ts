@@ -11,7 +11,7 @@ import {
   sameCalendar,
   storedYear,
   worldYear,
-} from './worldCalendar'
+} from './index'
 
 describe('world calendar arithmetic (same as the backend)', () => {
   const AR = { epochYear: 1000, eraLabel: 'AR' }

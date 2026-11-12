@@ -5,6 +5,7 @@ import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { WorldDateHint } from '@/components/ui/WorldDateHint'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { describedBy, worldDateOf } from '@/utils/worldDateHint'
+import { readDateField } from '@althistory/calendar'
 
 interface TimeRangeSelectorProps {
   value: TimeRange | null
@@ -54,10 +55,13 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
     if (startDate && endDate) {
       // The fields hold UTC wall-clock times (they are filled from
       // toISOString), as every historical date is; read in the browser's zone
-      // they moved by its offset on each round trip through `value`.
-      const start = new Date(`${startDate}Z`)
-      const end = new Date(`${endDate}Z`)
-      
+      // they moved by its offset on each round trip through `value`. A value
+      // that is not a real date and time sends no range, rather than an
+      // invalid one or (in Chrome) the day it rolls over into.
+      const start = readDateField(startDate)?.date
+      const end = readDateField(endDate)?.date
+      if (!start || !end) return
+
       if (start <= end) {
         onChange({ start, end })
       } else {

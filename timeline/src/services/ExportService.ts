@@ -2,7 +2,7 @@
  * Export Service for generating Althistory export files
  */
 
-import type { GraphCalendar } from '@/utils/worldCalendar';
+import type { GraphCalendar } from '@althistory/calendar';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';

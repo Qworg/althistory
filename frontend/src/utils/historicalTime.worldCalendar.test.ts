@@ -130,14 +130,19 @@ describe('historical dates without a world calendar', () => {
       for (const sample of samples) {
         const date = new Date(sample)
         expect(formatHistoricalDate(sample, locale)).toBe(date.toLocaleDateString(locale, DATE_OPTIONS))
+        // A month or a year is the Gregorian one whatever the locale's calendar:
+        // th-TH's Buddhist year 2386 started in April 1843, so "2386" for an
+        // event known only to be in 1843 named the wrong year for a quarter of
+        // it. (Every Gregorian locale reads as it did.)
         expect(formatHistoricalDateAt(sample, 'month', locale)).toBe(
-          date.toLocaleDateString(locale, { timeZone: 'UTC', year: 'numeric', month: 'short' })
+          date.toLocaleDateString(locale, { timeZone: 'UTC', year: 'numeric', month: 'short', calendar: 'gregory' })
         )
         expect(formatHistoricalDateAt(sample, 'year', locale)).toBe(
-          date.toLocaleDateString(locale, { timeZone: 'UTC', year: 'numeric' })
+          date.toLocaleDateString(locale, { timeZone: 'UTC', year: 'numeric', calendar: 'gregory' })
         )
       }
     }
+    expect(formatHistoricalDate('-000043-03-15T00:00:00Z', 'en-US')).toBe('Mar 15, 44 BC')
     expect(formatHistoricalTimestamp('1843-11-20T14:30:00Z', 'en-US')).toBe('Nov 20, 1843, 14:30 UTC')
     expect(formatHistoricalRange('1843-11-20T00:00:00Z', '1868-01-09T00:00:00Z', 'en-US')).toBe(
       'Nov 20, 1843 – Jan 9, 1868'

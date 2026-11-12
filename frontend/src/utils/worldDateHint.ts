@@ -1,28 +1,10 @@
-import type { GraphCalendar } from '@/types'
-import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
-
 /**
  * What a stored-date field's value reads as in a world calendar ("Mar 4,
- * 312 AR"), or null when there is no calendar or nothing readable to show.
- *
- * `value` is what a date field holds: a `datetime-local` value
- * (YYYY-MM-DDTHH:mm) or a `date` value (YYYY-MM-DD), both read as UTC, as the
- * forms read them, or a full ISO 8601 timestamp. Anything else (a free-text
- * field part-way through "1066", or "March 1066") has no hint: the browser's
- * lenient parser would read "1" as 2001 and show a date nothing else uses.
+ * 312 AR"), or null when there is no calendar or nothing readable to show:
+ * `worldDateOf` in `@althistory/calendar` (calendar/src/bounds.ts), which
+ * reads the field's value as UTC and refuses a date that does not exist.
  */
-const ISO_DATE = /^\d{4,}-\d{2}-\d{2}$/
-const ISO_DATE_TIME = /^\d{4,}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d\d:\d\d)?$/
-
-export function worldDateOf(value: string | null | undefined, calendar: GraphCalendar | null): string | null {
-  if (!calendar || !value) return null
-  if (!ISO_DATE.test(value) && !ISO_DATE_TIME.test(value)) return null
-  const dateOnly = ISO_DATE.test(value)
-  const hasZone = /(Z|[+-]\d\d:\d\d)$/.test(value)
-  const date = new Date(dateOnly ? `${value}T00:00:00Z` : hasZone ? value : `${value}Z`)
-  if (Number.isNaN(date.getTime())) return null
-  return dateOnly ? formatHistoricalDate(date, undefined, calendar) : formatHistoricalTimestamp(date, undefined, calendar)
-}
+export { worldDateOf } from '@althistory/calendar'
 
 /** An `aria-describedby` from the ids that apply, or undefined when none do. */
 export function describedBy(...ids: Array<string | false | null | undefined>): string | undefined {

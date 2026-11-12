@@ -1,7 +1,7 @@
 import { Event, CausalRelationship, GraphCalendar } from '@/types'
 import { formatHistoricalDate } from '@/utils/historicalTime'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { sameCalendar } from '@/utils/worldCalendar'
+import { sameCalendar } from '@althistory/calendar'
 
 /**
  * The world calendars of the two graphs compared. Each is the graph's own

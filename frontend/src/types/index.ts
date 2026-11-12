@@ -1,3 +1,5 @@
+import type { GraphCalendar } from '@althistory/calendar'
+
 // Core data types based on backend API
 export interface Event {
   id: string
@@ -338,19 +340,11 @@ export interface GraphMetadata {
 
 /**
  * An invented world's calendar. Stored dates stay UTC instants on the
- * Gregorian calendar; the calendar only relabels the year (and names the months) when a date is shown
- * (see `utils/worldCalendar.ts`).
+ * Gregorian calendar; the calendar only relabels the year (and names the
+ * months) when a date is shown. Defined, checked and formatted by
+ * `@althistory/calendar` (calendar/).
  */
-export interface GraphCalendar {
-  /** The stored (Gregorian) year that is year 1 of this world: an integer 1..9999. */
-  epochYear: number
-  /** Written after the year: "AR" shows 312 as "312 AR". Absent or empty shows "Year 312". */
-  eraLabel?: string
-  /** What the calendar is called ("the Reckoning of the Rising"). Display only. */
-  name?: string
-  /** The world's names for the twelve months, January's first. Absent shows the stored months' names. */
-  monthNames?: string[]
-}
+export type { GraphCalendar }
 
 export interface Graph {
   id: string

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Event, Arc } from '@/models';
 import { ExportFormat, ExportResultDto } from '../types';
-import { GraphCalendar, describeCalendar, formatWorldDate } from '@/utils/worldCalendar';
+import { GraphCalendar, describeCalendar, formatWorldDate } from '@althistory/calendar';
 
 /** The formats an export can be rendered in. */
 export type { ExportFormat };

@@ -7,6 +7,7 @@ Guidelines for AI coding agents working in the Althistory monorepo.
 Monorepo with two packages:
 - `timeline/` - Express backend (TypeScript, Neo4j/Redis or local JSON storage)
 - `frontend/` - React frontend (Vite, TypeScript, D3.js, Cytoscape.js)
+- `calendar/` - `@althistory/calendar`, the historical-date and world-calendar package both of them compile from source (see `calendar/README.md`)
 
 `timeline/src/cli/` is a second front end onto the same services
 (`bin/althistory`); it is part of the backend package, not a third one.
