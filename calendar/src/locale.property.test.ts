@@ -85,15 +85,63 @@ describe('a date in a world calendar, in every locale and time zone', () => {
   })
 
   it('gives two different days two different dates, and two different years two different years', () => {
+    // Pairs a formatter could confuse: the same date with one field moved a
+    // little (the next day, the month before, a year or a century on, the
+    // other side of the era), not two dates drawn thousands of years apart.
+    const nearby = fc
+      .tuple(instant, fc.constantFrom('day+1', 'day-1', 'day+2', 'month+1', 'month-1', 'year+1', 'year-1', 'year+10', 'year+100', 'era'))
+      .map(([a, change]) => {
+        const b = new Date(a)
+        const [field, by] = change === 'era' ? ['era', 0] : [change.slice(0, -2), Number(change.slice(-2))]
+        if (field === 'day') b.setUTCDate(b.getUTCDate() + by)
+        else if (field === 'month') b.setUTCMonth(b.getUTCMonth() + by)
+        else if (field === 'year') b.setUTCFullYear(b.getUTCFullYear() + by)
+        else if (field === 'year+') b.setUTCFullYear(b.getUTCFullYear() + Number(change.slice(5)))
+        else b.setUTCFullYear(1 - b.getUTCFullYear())
+        return [a, b] as const
+      })
+      .filter(([a, b]) => !Number.isNaN(b.getTime()) && day(a) !== day(b))
     fc.assert(
-      fc.property(instant, instant, arb.locale, fc.option(calendar, { nil: null }), (a, b, locale, world) => {
+      fc.property(fc.oneof(nearby, fc.tuple(instant, instant)), arb.locale, fc.option(calendar, { nil: null }), ([a, b], locale, world) => {
         fc.pre(day(a) !== day(b))
         expect(formatHistoricalDate(a, locale, world), `${a.toISOString()} ${b.toISOString()} ${locale}`).not.toBe(formatHistoricalDate(b, locale, world))
         if (a.getUTCFullYear() !== b.getUTCFullYear()) {
           expect(formatHistoricalDateAt(a, 'year', locale, world)).not.toBe(formatHistoricalDateAt(b, 'year', locale, world))
         }
       }),
+      arb.runs(5000)
+    )
+  })
+
+  it('names the same year at every precision', () => {
+    fc.assert(
+      fc.property(instant, arb.locale, fc.option(calendar, { nil: null }), (date, locale, world) => {
+        const year = formatHistoricalDateAt(date, 'year', locale, world)
+        // A world year is one phrase everywhere. A plain year's words can
+        // differ by precision (lt writes "1843 m." alone but not in a date; hi
+        // puts the era on the other side), so its number is what must match.
+        const parts = world ? [year] : year.match(/\p{Nd}+/gu) ?? []
+        expect(parts.length, `${locale}: ${year}`).toBeGreaterThan(0)
+        for (const part of parts) {
+          expect(formatHistoricalDate(date, locale, world), `${locale}: ${year}`).toContain(part)
+          expect(formatHistoricalDateAt(date, 'month', locale, world), `${locale}: ${year}`).toContain(part)
+        }
+      }),
       arb.runs(3000)
+    )
+  })
+
+  it('reads a timestamp without a zone as UTC, and text that is not ISO 8601 as no date', () => {
+    fc.assert(
+      fc.property(arb.fieldInstant, arb.locale, fc.option(calendar, { nil: null }), (date, locale, world) => {
+        const zoneless = date.toISOString().slice(0, 19)
+        const second = new Date(Math.floor(date.getTime() / 1000) * 1000)
+        expect(formatHistoricalTimestamp(zoneless, locale, world)).toBe(formatHistoricalTimestamp(second, locale, world))
+        expect(formatWorldDate(zoneless, world)).toBe(formatWorldDate(second, world))
+        expect(formatHistoricalDate(second.toString(), locale, world)).toBe('Invalid date')
+        expect(formatHistoricalDate(second.toUTCString(), locale, world)).toBe('Invalid date')
+      }),
+      arb.runs(1000)
     )
   })
 

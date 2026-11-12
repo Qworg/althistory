@@ -6,6 +6,10 @@ FRONTEND_EXIT=0
 
 echo "=== Running Calendar Tests (property tests, five time zones) ==="
 cd calendar
+# Not an npm workspace, so a root `npm install` does not install its test tools.
+if [ ! -d node_modules ]; then
+  npm install || CALENDAR_EXIT=$?
+fi
 npm test || CALENDAR_EXIT=$?
 cd ..
 

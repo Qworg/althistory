@@ -51,13 +51,35 @@ export const MAX_MONTH_NAME_LENGTH = 24
  * mean a list was pasted as text ('["Lowtide", …]', "[Lowtide, …]") and split
  * in the wrong place. An apostrophe is fine.
  */
-const FORBIDDEN_IN_MONTH_NAME = /[,|"[\]\p{Cc}\p{Zl}\p{Zp}]/u
+const FORBIDDEN_IN_MONTH_NAME = /[,|"[\]\p{Cc}\p{Zl}\p{Zp}\u202A-\u202E\u2066-\u2069]/u
 /**
  * What the era label and the calendar's name may not hold, for the same
  * reasons: the label is in every date of an export's tables, and both go into
  * a model's instructions. A comma is fine in them; nothing lists them.
  */
-const FORBIDDEN_IN_LABEL = /[|\p{Cc}\p{Zl}\p{Zp}]/u
+const FORBIDDEN_IN_LABEL = /[|\p{Cc}\p{Zl}\p{Zp}\u202A-\u202E\u2066-\u2069]/u
+/*
+ * Both refuse the bidi embeddings, overrides and isolates (U+202A-E,
+ * U+2066-9) too: one in a label would reorder every date it is written into.
+ * Other invisible format characters are allowed inside text (Persian writes
+ * a zero-width non-joiner within words), but text has to have something
+ * visible in it, and two month names that differ only by them are the same
+ * name (see `sameNameKey`).
+ */
+
+/** Whether text has a character a reader can see: not only spaces and invisible format characters. */
+function hasVisible(text: string): boolean {
+  return /[^\s\p{Cf}]/u.test(text)
+}
+
+/**
+ * The key two month names are compared by: without invisible format
+ * characters, composed alike, in lower case, so "Thaw", "THAW" and
+ * "Thaw\u200B" are one name.
+ */
+function sameNameKey(name: string): string {
+  return name.replace(/\p{Cf}/gu, '').normalize('NFC').toLowerCase()
+}
 
 const FIELDS = ['epochYear', 'eraLabel', 'name', 'monthNames'] as const
 
@@ -66,7 +88,7 @@ export type CalendarIssue =
   | { field: 'calendar'; code: 'not-object' }
   | { field: 'calendar'; code: 'unknown-field'; key: string }
   | { field: 'epochYear'; code: 'not-integer' | 'out-of-range' }
-  | { field: 'eraLabel' | 'name'; code: 'not-string' | 'too-long' | 'forbidden' }
+  | { field: 'eraLabel' | 'name'; code: 'not-string' | 'too-long' | 'forbidden' | 'invisible' }
   | { field: 'monthNames'; code: 'not-list' }
   | { field: 'monthNames'; code: 'count'; count: number }
   | { field: 'monthNames'; code: 'empty' | 'too-long' | 'forbidden' }
@@ -101,6 +123,8 @@ function textIssues(field: 'eraLabel' | 'name', value: unknown, maxLength: numbe
   const text = value.trim()
   if (text.length > maxLength) return [{ field, code: 'too-long' }]
   if (FORBIDDEN_IN_LABEL.test(text)) return [{ field, code: 'forbidden' }]
+  // Empty is fine (it is dropped); text that only looks empty is not.
+  if (text.length > 0 && !hasVisible(text)) return [{ field, code: 'invisible' }]
   return []
 }
 
@@ -111,13 +135,13 @@ function monthNameIssues(value: unknown): CalendarIssue[] {
   const names = (value as string[]).map((entry) => entry.trim())
   if (names.length !== MONTH_COUNT) return [{ field: 'monthNames', code: 'count', count: names.length }]
   const issues: CalendarIssue[] = []
-  if (names.some((name) => name.length === 0)) issues.push({ field: 'monthNames', code: 'empty' })
+  if (names.some((name) => !hasVisible(name))) issues.push({ field: 'monthNames', code: 'empty' })
   if (names.some((name) => name.length > MAX_MONTH_NAME_LENGTH)) issues.push({ field: 'monthNames', code: 'too-long' })
   if (names.some((name) => FORBIDDEN_IN_MONTH_NAME.test(name))) issues.push({ field: 'monthNames', code: 'forbidden' })
   const seen = new Set<string>()
   for (const name of names) {
-    const key = name.toLowerCase()
-    if (name && seen.has(key)) {
+    const key = sameNameKey(name)
+    if (key && seen.has(key)) {
       issues.push({ field: 'monthNames', code: 'duplicate', name })
       break
     }
@@ -152,7 +176,9 @@ export function problemMessage(issue: CalendarIssue): string {
     case 'count':
       return `calendar.monthNames must name all ${MONTH_COUNT} months (got ${issue.count})`
     case 'empty':
-      return 'calendar.monthNames cannot have an empty name'
+      return 'calendar.monthNames cannot have an empty name (or one of invisible characters only)'
+    case 'invisible':
+      return `calendar.${issue.field} cannot be made of invisible characters only`
     case 'duplicate':
       return `calendar.monthNames names "${issue.name}" twice`
   }

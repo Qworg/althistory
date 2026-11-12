@@ -40,10 +40,13 @@ is generated from the running app; see [Screenshots and video](#screenshots-and-
 
 - **Node.js** >= 20 (Node 22/24 recommended) and `npm`
 
-Install workspace dependencies from the repository root:
+Install workspace dependencies from the repository root, then the date and
+calendar package's test tools (it is not a workspace; the apps compile it
+from source and need nothing installed for it):
 
 ```bash
 npm install
+npm install --prefix calendar
 ```
 
 ## Quick start (no Neo4j or Redis)
@@ -154,12 +157,13 @@ through building a world with Claude, and the
 ## Tests
 
 ```bash
-./run-tests.sh            # backend + frontend unit/integration suites
+./run-tests.sh            # calendar + backend + frontend unit/integration suites
 ```
 
 ```bash
-cd timeline && npm test   # 100 files (2,051 tests)
-cd frontend && npm test   # 116 files (1,746 tests)
+cd calendar && npm test   # property tests, once in each of five time zones
+cd timeline && npm test
+cd frontend && npm test
 ```
 
 End-to-end, against a real browser and a production build (API stubbed):
@@ -171,9 +175,9 @@ npx playwright install chromium
 npx playwright test
 ```
 
-CI (`.github/workflows/ci.yml`) gates both packages on typecheck, ESLint, the
-test suites with coverage, the frontend production build, and the non-visual
-Playwright specs.
+CI (`.github/workflows/ci.yml`) gates all three packages on typecheck, ESLint
+and their test suites (the two apps with coverage), the backend and frontend
+production builds, and the non-visual Playwright specs.
 
 ## Screenshots and video
 

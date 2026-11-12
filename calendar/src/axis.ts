@@ -17,9 +17,13 @@ import { storedYear, worldYear } from './years'
  *
  * After the epoch they fall on multiples of the step; before it, on round
  * counts back ("20 before" is world year -19); and year 1 stands in for the
- * year 0 that a plain multiple would put at the epoch. Ticks that are not all
- * New Year's Days at an even step of two or more years (months, days, hours)
- * are returned unchanged, as they are without a calendar.
+ * year 0 that a plain multiple would put at the epoch. When fewer than two of
+ * the step's round years are in view (a narrow axis given two ticks a decade
+ * apart may hold only one), the next smaller step of d3's 1-2-5 series is
+ * used: an axis of world years never falls back to Gregorian round numbers
+ * ("841 AR", "851 AR"). Ticks that are not all New Year's Days at an even
+ * step of two or more years (months, days, hours) are returned unchanged, as
+ * they are without a calendar.
  *
  * @param ticks - The scale's ticks, in order
  * @param domain - The visible domain; moved ticks outside it are dropped
@@ -32,17 +36,30 @@ export function alignYearTicksToCalendar(
   calendar: GraphCalendar | null,
   utc = false
 ): Date[] {
-  if (!calendar || ticks.length < 2) return ticks
+  return alignedYearTicks(ticks, domain, calendar, utc)?.ticks ?? ticks
+}
+
+/**
+ * {@link alignYearTicksToCalendar}, saying which step the ticks were put on;
+ * null when they are left as they are.
+ */
+export function alignedYearTicks(
+  ticks: Date[],
+  domain: readonly Date[],
+  calendar: GraphCalendar | null,
+  utc = false
+): { ticks: Date[]; step: number } | null {
+  if (!calendar || ticks.length < 2) return null
   const yearOf = (d: Date) => (utc ? d.getUTCFullYear() : d.getFullYear())
   const isYearStart = (d: Date) =>
     utc
       ? d.getUTCMonth() === 0 && d.getUTCDate() === 1 && d.getUTCHours() === 0 && d.getUTCMinutes() === 0
       : d.getMonth() === 0 && d.getDate() === 1 && d.getHours() === 0 && d.getMinutes() === 0
-  if (!ticks.every(isYearStart)) return ticks
+  if (!ticks.every(isYearStart)) return null
   const step = yearOf(ticks[1]!) - yearOf(ticks[0]!)
-  if (step < 2) return ticks
+  if (step < 2) return null
   for (let i = 2; i < ticks.length; i++) {
-    if (yearOf(ticks[i]!) - yearOf(ticks[i - 1]!) !== step) return ticks
+    if (yearOf(ticks[i]!) - yearOf(ticks[i - 1]!) !== step) return null
   }
 
   const yearStart = (year: number) => {
@@ -58,15 +75,28 @@ export function alignYearTicksToCalendar(
   }
   const ends = [+domain[0]!, +domain[domain.length - 1]!]
   const [lo, hi] = [Math.min(...ends), Math.max(...ends)]
-  /** A world year an axis would name: year 1, a multiple of the step, or a round count before year 1. */
-  const isRound = (year: number) => (year >= 1 ? year === 1 || year % step === 0 : (1 - year) % step === 0)
+  const first = worldYear(yearOf(new Date(lo)), calendar)
+  const last = worldYear(yearOf(new Date(hi)), calendar) + 1
 
-  const aligned: Date[] = []
-  const last = worldYear(yearOf(ticks[ticks.length - 1]!), calendar) + step
-  for (let year = worldYear(yearOf(ticks[0]!), calendar) - step; year <= last; year++) {
-    if (!isRound(year)) continue
-    const date = yearStart(storedYear(year, calendar))
-    if (+date >= lo && +date <= hi) aligned.push(date)
+  for (const candidate of [step, ...smallerSteps(step)]) {
+    /** A world year an axis would name: year 1, a multiple of the step, or a round count before year 1. */
+    const isRound = (year: number) => (year >= 1 ? year === 1 || year % candidate === 0 : (1 - year) % candidate === 0)
+    const aligned: Date[] = []
+    for (let year = first; year <= last; year++) {
+      if (!isRound(year)) continue
+      const date = yearStart(storedYear(year, calendar))
+      if (+date >= lo && +date <= hi) aligned.push(date)
+    }
+    if (aligned.length > 1) return { ticks: aligned, step: candidate }
   }
-  return aligned.length > 1 ? aligned : ticks
+  return null
+}
+
+/** The steps of d3's 1-2-5 series below `step`, largest first: 20 -> 10, 5, 2, 1. */
+function smallerSteps(step: number): number[] {
+  const steps: number[] = []
+  for (let power = 1; power < step; power *= 10) {
+    for (const unit of [1, 2, 5]) if (unit * power < step) steps.push(unit * power)
+  }
+  return steps.reverse()
 }

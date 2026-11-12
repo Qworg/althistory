@@ -36,6 +36,7 @@ npm run type-check  # TypeScript type checking (tsc --noEmit)
 
 ### Calendar package (`calendar/`)
 ```bash
+npm install         # Its own test tools; not a workspace, so the root install skips it
 npm test            # Unit and property tests, once per time zone (5 projects)
 FC_SCALE=20 npm test  # Soak: twenty times the property runs
 npm run type-check  # tsc --noEmit

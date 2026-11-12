@@ -91,16 +91,17 @@ function formMessage(issue: CalendarIssue): string {
       if (issue.code === 'too-long') {
         return `${what} can be at most ${issue.field === 'eraLabel' ? MAX_ERA_LABEL_LENGTH : MAX_CALENDAR_NAME_LENGTH} characters.`
       }
-      if (issue.code === 'forbidden') return `${what} cannot contain a “|”, a tab or a line break.`
+      if (issue.code === 'forbidden') return `${what} cannot contain a “|”, a tab, a line break or a text-direction control.`
+      if (issue.code === 'invisible') return `${what} cannot be made of invisible characters only.`
       return problemMessage(issue)
     case 'monthNames':
       switch (issue.code) {
         case 'count':
           return `Name all ${MONTH_COUNT} months, or none (${issue.count === 1 ? '1 name' : `${issue.count} names`} given).`
         case 'empty':
-          return 'A month name cannot be empty.'
+          return 'A month name cannot be empty or invisible.'
         case 'forbidden':
-          return 'A month name cannot contain a comma, a “|”, brackets, a double quote, a tab or a line break.'
+          return 'A month name cannot contain a comma, a “|”, brackets, a double quote, a tab, a line break or a text-direction control.'
         case 'too-long':
           return `A month name can be at most ${MAX_MONTH_NAME_LENGTH} characters.`
         case 'duplicate':

@@ -1,6 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { alignYearTicksToCalendar, worldYear } from './index'
+import { alignYearTicksToCalendar, alignedYearTicks, worldYear } from './index'
 import * as arb from './test/arbitraries'
 
 /** The multi-year steps a d3 time scale ticks at. */
@@ -42,10 +42,14 @@ describe('year ticks in a world calendar, for every axis and time zone', () => {
   it("fall on the world's round years, in order, inside the domain, with none left out", () => {
     fc.assert(
       fc.property(axis, arb.calendar, ({ step, ticks, domain, utc }, calendar) => {
-        const aligned = alignYearTicksToCalendar(ticks, domain, calendar, utc)
-        if (aligned === ticks) return
+        // Even multi-year ticks in a world calendar are always moved: never left on Gregorian round years.
+        const result = alignedYearTicks(ticks, domain, calendar, utc)
+        expect(result).not.toBeNull()
+        const { ticks: aligned, step: used } = result!
+        expect(alignYearTicksToCalendar(ticks, domain, calendar, utc)).toEqual(aligned)
+        expect(used).toBeLessThanOrEqual(step)
         const yearOf = (d: Date) => (utc ? d.getUTCFullYear() : d.getFullYear())
-        const isRound = (year: number) => (year >= 1 ? year === 1 || year % step === 0 : (1 - year) % step === 0)
+        const isRound = (year: number) => (year >= 1 ? year === 1 || year % used === 0 : (1 - year) % used === 0)
         const [lo, hi] = [+domain[0]!, +domain[1]!]
 
         expect(aligned.length).toBeGreaterThanOrEqual(2)
@@ -57,7 +61,7 @@ describe('year ticks in a world calendar, for every axis and time zone', () => {
           if (i > 0) {
             const gap = yearOf(tick) - yearOf(aligned[i - 1]!)
             expect(gap).toBeGreaterThanOrEqual(1)
-            expect(gap).toBeLessThanOrEqual(step)
+            expect(gap).toBeLessThanOrEqual(used)
           }
         }
         // Every round world year whose New Year's Day is in the domain has a tick.
@@ -66,9 +70,26 @@ describe('year ticks in a world calendar, for every axis and time zone', () => {
           const at = +yearStart(year, utc)
           if (at >= lo && at <= hi && isRound(worldYear(year, calendar))) expect(years.has(year), String(year)).toBe(true)
         }
+        // A smaller step only when the given one had fewer than two round years in view.
+        if (used < step) {
+          const roundAtStep = Array.from({ length: yearOf(new Date(hi)) - yearOf(new Date(lo)) + 3 }, (_, i) => yearOf(new Date(lo)) - 1 + i).filter(
+            (year) => {
+              const at = +yearStart(year, utc)
+              const w = worldYear(year, calendar)
+              return at >= lo && at <= hi && (w >= 1 ? w === 1 || w % step === 0 : (1 - w) % step === 0)
+            }
+          )
+          expect(roundAtStep.length).toBeLessThan(2)
+        }
       }),
       arb.runs(2000)
     )
+  })
+
+  it('puts a narrow two-tick axis on round world years, not "841 AR" and "851 AR"', () => {
+    const ticks = [yearStart(1840, true), yearStart(1850, true)]
+    const aligned = alignYearTicksToCalendar(ticks, ticks, { epochYear: 1000, eraLabel: 'AR' }, true)
+    expect(aligned.map((tick) => worldYear(tick.getUTCFullYear(), { epochYear: 1000 }))).toEqual([845, 850])
   })
 
   it('leave ticks alone without a calendar, or when they are not even multi-year steps', () => {

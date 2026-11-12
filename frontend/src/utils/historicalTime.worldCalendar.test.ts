@@ -129,11 +129,12 @@ describe('historical dates without a world calendar', () => {
     for (const locale of locales) {
       for (const sample of samples) {
         const date = new Date(sample)
-        expect(formatHistoricalDate(sample, locale)).toBe(date.toLocaleDateString(locale, DATE_OPTIONS))
-        // A month or a year is the Gregorian one whatever the locale's calendar:
-        // th-TH's Buddhist year 2386 started in April 1843, so "2386" for an
-        // event known only to be in 1843 named the wrong year for a quarter of
-        // it. (Every Gregorian locale reads as it did.)
+        // Always on the Gregorian calendar, the one the dates are stored and
+        // the axis drawn on, whatever the locale's own: th-TH's Buddhist year
+        // 2386 began in April 1843, so a year-precision "2386" named the wrong
+        // year for a quarter of it, and a day read "2386" beside a month that
+        // read "1843". (Every Gregorian locale reads exactly as it did.)
+        expect(formatHistoricalDate(sample, locale)).toBe(date.toLocaleDateString(locale, { ...DATE_OPTIONS, calendar: 'gregory' }))
         expect(formatHistoricalDateAt(sample, 'month', locale)).toBe(
           date.toLocaleDateString(locale, { timeZone: 'UTC', year: 'numeric', month: 'short', calendar: 'gregory' })
         )

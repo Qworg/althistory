@@ -62,6 +62,14 @@ describe('the epoch year as typed or sent', () => {
         expect(parseEpochYear(new Intl.NumberFormat('ar-EG', { useGrouping: false }).format(year))).toBeNull()
       })
     )
+    // However many digits, a run of them is a whole number out of range, refused for its range.
+    fc.assert(
+      fc.property(fc.integer({ min: 16, max: 400 }), fc.constantFrom('', '+', '-'), (length, sign) => {
+        const year = parseEpochYear(`${sign}${'9'.repeat(length)}`)
+        expect(Number.isInteger(year)).toBe(true)
+        expect(calendarProblems({ epochYear: year })).toEqual(['calendar.epochYear must be between 1 and 9999'])
+      })
+    )
     for (const value of ['', ' ', '+', '-', NaN, Infinity, -Infinity, null, undefined, {}, [1000], true]) {
       expect(parseEpochYear(value), String(value)).toBeNull()
     }

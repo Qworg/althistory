@@ -7,8 +7,10 @@
 /**
  * An epoch year as typed ("1000", " +1000 ") or sent (1000): an integer, or
  * null when it is not one. Whether it is in range is `calendarIssues`'s job,
- * so "0" and "-5" are read (and then refused with the range in the message).
- * A number must already be an integer: 1000.5, NaN and Infinity are null.
+ * so "0" and "-5" are read (and then refused with the range in the message);
+ * digits too many for a safe integer read as ±Number.MAX_SAFE_INTEGER, out of
+ * range like the number typed. A number must already be an integer: 1000.5,
+ * NaN and Infinity are null.
  */
 export function parseEpochYear(value: unknown): number | null {
   if (typeof value === 'number') return Number.isInteger(value) ? value : null
@@ -16,9 +18,11 @@ export function parseEpochYear(value: unknown): number | null {
   const text = value.trim()
   if (!/^[+-]?\d+$/.test(text)) return null
   const year = Number(text)
-  // A run of digits too long for a double is still an integer to Number();
-  // it is out of range, and says so, rather than "not a year".
-  return Number.isFinite(year) ? year : null
+  // Digits are a whole number however many there are. Past what a double
+  // holds exactly (or at all: 400 nines are Infinity) it is clamped, still an
+  // integer and still out of range, so the message names the range rather
+  // than saying it is not a whole number.
+  return Number.isSafeInteger(year) ? year : year < 0 ? -Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER
 }
 
 /**

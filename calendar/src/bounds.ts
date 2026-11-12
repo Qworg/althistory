@@ -11,6 +11,7 @@
 import type { GraphCalendar } from './calendar'
 import type { DatePrecision } from './describe'
 import { daysInMonth } from './gregorian'
+import { parseIsoInstant, toInstant } from './instant'
 import { formatHistoricalDate, formatHistoricalDateAt, formatHistoricalTimestamp } from './locale'
 
 // ── Bounds ───────────────────────────────────────────────────────────────
@@ -117,7 +118,7 @@ export function formatHistoricalDateBound(value: Date | string | null | undefine
     const parsed = parseHistoricalDate(value, edge)
     if (parsed.ok) return parsed.text
   }
-  const date = value instanceof Date ? value : new Date(value)
+  const date = toInstant(value)
   if (Number.isNaN(date.getTime())) return ''
   if (edge === 'end') {
     const next = new Date(date.getTime() + 1)
@@ -172,9 +173,6 @@ export function worldBoundLabel(
 
 // ── Date fields ──────────────────────────────────────────────────────────
 
-const FIELD_VALUE =
-  /^(\d{4,})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-](\d\d):(\d\d))?)?$/
-
 /**
  * What a date field holds, as an instant: a `date` value (YYYY-MM-DD) is its
  * UTC midnight, a `datetime-local` value (YYYY-MM-DDTHH:mm) is that UTC
@@ -183,19 +181,10 @@ const FIELD_VALUE =
  * host's lenient parser would read "1" as 2001, and a date-time without a
  * zone as local time. So is a date or time that does not exist
  * ("2019-02-31", "T24:00"), which V8 would roll over into the next month or
- * day and other engines refuse.
+ * day and other engines refuse. See {@link parseIsoInstant}.
  */
 export function readDateField(value: string | null | undefined): { date: Date; dateOnly: boolean } | null {
-  if (!value) return null
-  const match = FIELD_VALUE.exec(value)
-  if (!match) return null
-  const [, year, month, day, hour, minute, second, zone, zoneHours, zoneMinutes] = match
-  if (Number(day) < 1 || Number(day) > daysInMonth(Number(year), Number(month))) return null
-  if (Number(hour ?? 0) > 23 || Number(minute ?? 0) > 59 || Number(second ?? 0) > 59) return null
-  if (Number(zoneHours ?? 0) > 23 || Number(zoneMinutes ?? 0) > 59) return null
-  const dateOnly = hour === undefined
-  const date = new Date(dateOnly ? `${value}T00:00:00Z` : zone ? value : `${value}Z`)
-  return Number.isNaN(date.getTime()) ? null : { date, dateOnly }
+  return value ? parseIsoInstant(value) : null
 }
 
 /**

@@ -5,6 +5,7 @@
  */
 
 import type { GraphCalendar } from './calendar'
+import { toInstant } from './instant'
 import { MONTH_WORDS, formatWorldYear, monthLabel } from './years'
 
 export type DatePrecision = 'day' | 'month' | 'year'
@@ -32,7 +33,7 @@ export function formatWorldDate(
   calendar: GraphCalendar | null | undefined,
   precision: DatePrecision = 'day'
 ): string {
-  const date = timestamp instanceof Date ? timestamp : new Date(timestamp)
+  const date = toInstant(timestamp)
   if (Number.isNaN(date.getTime())) return String(timestamp)
   if (!calendar) return isoDatePart(date, precision)
   const year = formatWorldYear(date.getUTCFullYear(), calendar)

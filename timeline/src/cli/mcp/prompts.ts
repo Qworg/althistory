@@ -10,7 +10,7 @@
  */
 
 import { ValidationErrorCLI } from '../utils/exitCodes';
-import { calendarProblems } from '@althistory/calendar';
+import { calendarProblems, parseEpochYear } from '@althistory/calendar';
 
 /** A stored year as ISO 8601 writes it: four digits. */
 function isoYear(year: number): string {
@@ -58,8 +58,9 @@ function worldbuild(args: Record<string, string>): string {
     : 'The author has not described the world yet. Before calling any tool, ask them for it in a few sentences: its peoples, its land, and what is at stake.';
   const label = args.eraLabel?.trim();
   const epochText = args.epochYear?.trim();
-  const epoch = epochText ? Number(epochText) : DEFAULT_EPOCH_YEAR;
-  if (!Number.isInteger(epoch) || epoch < 1 || epoch > 9999) {
+  // Read as the tools and the app's form read it: "1e3" and "0x3E8" are not years.
+  const epoch = epochText ? parseEpochYear(epochText) : DEFAULT_EPOCH_YEAR;
+  if (epoch === null || epoch < 1 || epoch > 9999) {
     throw new ValidationErrorCLI(`Invalid epochYear "${epochText}": expected a whole year between 1 and 9999`);
   }
   // The calendar the prompt tells the agent to create has to be one the tools accept.

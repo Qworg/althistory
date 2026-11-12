@@ -16,15 +16,16 @@ It has no runtime dependencies and reads no ambient state:
 
 | Module | What it does |
 | --- | --- |
-| `calendar.ts` | The `GraphCalendar` type and its limits. The rules are written once, as `calendarIssues`; `calendarProblems` turns them into the API's messages. Also `normalizeCalendar`, `storedCalendar` (reading a calendar back without losing its epoch), `usableCalendar` and `sameCalendar`. |
+| `calendar.ts` | The `GraphCalendar` type and its limits. The rules are written once, as `calendarIssues`; `calendarProblems` turns them into the API's messages. Text must have something visible in it, may not hold bidi controls, and two month names that differ only by case or invisible characters are the same name. Also `normalizeCalendar`, `storedCalendar` (reading a calendar back without losing its epoch), `usableCalendar` and `sameCalendar`. |
 | `years.ts` | Stored years ↔ world years, `formatWorldYear` ("312 AR", "1 before AR"), and month names. |
 | `parse.ts` | One reader each for what people type: `parseEpochYear` and `parseMonthNames` (a JSON list, one per line, or comma-separated). The CLI, MCP and the app's form all use them. |
 | `draft.ts` | The app's calendar form. A draft is checked by the same `calendarIssues`, so the form accepts exactly what the API accepts. |
 | `describe.ts` | Plain English for the exports, the CLI and model prompts: `formatWorldDate`, `describeCalendar`, `calendarExtractionInstructions`. |
-| `locale.ts` | Locale-aware formatting for the app (`formatHistoricalDate` and family), with the world's year and month names spliced into each locale's own layout. |
+| `instant.ts` | `parseIsoInstant` / `toInstant`: every timestamp given as text is read here, as ISO 8601 in UTC, with its fields checked by arithmetic. Text without a zone is UTC, not local, and text that is not ISO is no date at all. |
+| `locale.ts` | Locale-aware formatting for the app (`formatHistoricalDate` and family), with the world's year and month names spliced into each locale's own layout. The locale names the months and writes the digits, but the calendar is always the Gregorian one the dates are stored on, and a year before 1 CE shows its era. |
 | `bounds.ts` | Typed filter bounds (`1843`, `1843-11`, `44-03-15 BCE`) and date-field values, read as UTC. A date that does not exist (`2019-02-31`, `T24:00`) is refused. |
-| `axis.ts` | Moves a time axis's year ticks onto the world's round years. |
-| `gregorian.ts` | Leap years and month lengths by arithmetic, so a typed date can be checked before a `Date` is made from it. |
+| `axis.ts` | Moves a time axis's year ticks onto the world's round years, using a smaller step when the given one leaves fewer than two in view. |
+| `gregorian.ts` | Leap years, month lengths and day counts by arithmetic, so a typed date can be checked, and an instant built, without a `Date`. |
 
 ## How the apps use it
 
@@ -79,9 +80,10 @@ one states something that must hold for every input. Examples:
   displays them;
 - in every locale, a date holds the world's year and month as clean phrases,
   never shows the stored year, and two days never format the same;
-- a typed bound names exactly the period an arithmetic oracle (Hinnant's
-  `days_from_civil`, no `Date`) says it does, or gives the right reason it
-  cannot;
+- a typed bound or an ISO timestamp names exactly the instant an arithmetic
+  oracle (Hinnant's `days_from_civil`, no `Date`) says it does, or is refused
+  for the right reason;
+- every precision of a date names the same year;
 - axis ticks fall on round world years inside the domain, and none is missing.
 
 Generators live in `src/test/arbitraries.ts`. They lean towards edge cases:
@@ -94,4 +96,8 @@ Generators live in `src/test/arbitraries.ts`. They lean towards edge cases:
   Gregorian.
 
 When you add a function, add the property it must keep. When a property finds
-a bug, keep the counterexample as an example test too.
+a bug, keep the counterexample as an example test too, and check that the
+property fails with the bug put back: a property drawn too widely can pass
+for ever without meeting the case it is about. (The "two days never format the
+same" property once drew its dates thousands of years apart and missed a
+planted bug in 150,000 runs; it now compares dates one field apart.)

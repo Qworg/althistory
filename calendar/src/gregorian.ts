@@ -18,3 +18,17 @@ export function daysInMonth(year: number, month: number): number {
   if (!Number.isInteger(month) || month < 1 || month > 12) return 0
   return month === 2 && isLeapYear(year) ? 29 : DAYS_IN_MONTH[month - 1]!
 }
+
+/**
+ * Days from 1970-01-01 to a date (astronomical year, month 1 = January), by
+ * Howard Hinnant's days_from_civil: exact for every year, with no Date and so
+ * no limit on its range.
+ */
+export function daysFromCivil(year: number, month: number, day: number): number {
+  const y = month <= 2 ? year - 1 : year
+  const era = Math.floor(y / 400)
+  const yearOfEra = y - era * 400
+  const dayOfYear = Math.floor((153 * ((month + 9) % 12) + 2) / 5) + day - 1
+  const dayOfEra = yearOfEra * 365 + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100) + dayOfYear
+  return era * 146097 + dayOfEra - 719468
+}

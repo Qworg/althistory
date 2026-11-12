@@ -366,6 +366,11 @@ describe('invented worlds', () => {
       expect(text).toContain('Year 312 is 0361-01-01T00:00:00Z');
       expect(renderPrompt('worldbuild', { world: 'Late', epochYear: '9990' }).text).toContain('Year 2 is 9991-01-01T00:00:00Z');
       expect(() => renderPrompt('worldbuild', { world: 'Isles', eraLabel: 'x'.repeat(17) })).toThrow(/at most 16/);
+      // The epoch is read as the tools read it, so the prompt cannot promise a calendar they refuse.
+      for (const epochYear of ['1e3', '0x3E8', '1000.0']) {
+        expect(() => renderPrompt('worldbuild', { world: 'Isles', epochYear }), epochYear).toThrow(/Invalid epochYear/);
+      }
+      expect(renderPrompt('worldbuild', { world: 'Isles', epochYear: '+1000' }).text).toContain('epochYear 1000.');
       // `/althistory:worldbuild 1200` puts the number in the first argument, eraLabel.
       expect(renderPrompt('worldbuild', { eraLabel: '1200' }).text).toContain('epochYear 1200.');
     });

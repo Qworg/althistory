@@ -74,6 +74,51 @@ describe('checking a calendar, for every input', () => {
   })
 })
 
+describe('text that only looks right', () => {
+  it('refuses a label, a name or a month name of invisible characters only', () => {
+    fc.assert(
+      fc.property(arb.calendar, fc.array(fc.constantFrom(...arb.INVISIBLE_CHARS), { minLength: 1, maxLength: 4 }), fc.nat(11), (calendar, chars, month) => {
+        const invisible = chars.join('')
+        if (invisible.trim() === '') {
+          // trim() takes U+FEFF away: that label is empty, and dropped like any empty one.
+          expect(normalizeCalendar({ ...calendar, eraLabel: invisible }).eraLabel).toBeUndefined()
+        } else {
+          expect(calendarIssues({ ...calendar, eraLabel: invisible })).toContainEqual({ field: 'eraLabel', code: 'invisible' })
+          expect(calendarIssues({ ...calendar, name: ` ${invisible} ` })).toContainEqual({ field: 'name', code: 'invisible' })
+        }
+        const months = [...(calendar.monthNames ?? Array.from({ length: 12 }, (_, i) => `M${i}`))]
+        months[month] = invisible
+        expect(calendarIssues({ ...calendar, monthNames: months })).toContainEqual({ field: 'monthNames', code: 'empty' })
+      })
+    )
+  })
+
+  it('counts two month names that differ only by invisible characters or case as one', () => {
+    fc.assert(
+      fc.property(arb.monthNames, fc.constantFrom(...arb.INVISIBLE_CHARS), fc.nat(10), fc.nat(), (names, invisible, at, cut) => {
+        const original = names[at]!
+        const point = cut % (original.length + 1)
+        const months = [...names]
+        // The next month spelled the same, in capitals, with an invisible character inside it.
+        months[at + 1] = `${original.slice(0, point)}${invisible}${original.slice(point)}`.toUpperCase()
+        // Only where capitals come back to the same letters (not "ı", whose capital is "I").
+        fc.pre(months[at + 1]!.trim() === months[at + 1] && original.toUpperCase().toLowerCase() === original.toLowerCase())
+        expect(calendarIssues({ epochYear: 1000, monthNames: months })).toContainEqual(expect.objectContaining({ field: 'monthNames', code: 'duplicate' }))
+      })
+    )
+  })
+
+  it('counts a precomposed and a decomposed accent as one name', () => {
+    expect(calendarIssues({ epochYear: 1000, monthNames: ['Pr\u00e9', 'Pre\u0301', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'] })).toContainEqual(
+      expect.objectContaining({ code: 'duplicate' })
+    )
+  })
+
+  it('keeps a zero-width non-joiner inside a word, as Persian writes it', () => {
+    expect(calendarIssues({ epochYear: 1000, eraLabel: 'می\u200cرود' })).toEqual([])
+  })
+})
+
 describe('reading a calendar back, for every input', () => {
   it('keeps a calendar exactly when the epoch is usable, and never loses the epoch', () => {
     fc.assert(

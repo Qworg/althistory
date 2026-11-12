@@ -17,6 +17,7 @@
 
 import type { GraphCalendar } from './calendar'
 import type { DatePrecision } from './describe'
+import { toInstant } from './instant'
 import { formatWorldYear, worldMonthName } from './years'
 
 export type DateInput = Date | string | number
@@ -179,8 +180,9 @@ function writesOrdinalDay(locale: string): boolean {
   return known
 }
 
+/** A timestamp as a Date; text is read as ISO 8601 in UTC (see instant.ts), never in the host's zone. */
 export function toDate(value: DateInput): Date {
-  return value instanceof Date ? value : new Date(value)
+  return toInstant(value)
 }
 
 export function isUtcMidnight(date: Date): boolean {
@@ -192,11 +194,20 @@ export function isUtcMidnight(date: Date): boolean {
   )
 }
 
+/**
+ * Always the Gregorian calendar, whatever the locale's default: the dates are
+ * stored on it, the axis is drawn on it, and a month or a year (below) can
+ * only be named on it. On th-TH's Buddhist calendar 1843-11-20 read "2386"
+ * beside a month-precision "1843", and before 1582 ICU's Buddhist calendar
+ * is Julian, so 1300-03-03 read as 24 February. The locale still names the
+ * months and writes the digits.
+ */
 const DATE_OPTIONS: Intl.DateTimeFormatOptions = {
   timeZone: 'UTC',
   year: 'numeric',
   month: 'short',
   day: 'numeric',
+  calendar: 'gregory',
 }
 
 /**

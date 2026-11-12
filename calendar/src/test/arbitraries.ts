@@ -26,21 +26,29 @@ const LABEL_CHARS = [
   '年',
   'ع',
   'Ω',
-  ' ', // NBSP: trimmed at the ends, kept inside
-  '​', // zero-width space: not whitespace to trim()
+  '\u00a0', // NBSP: trimmed at the ends, kept inside
+  '\u200b', // zero-width space: not whitespace to trim()
   '😀', // two UTF-16 units: counts twice towards a length limit
 ]
 const MONTH_CHARS = LABEL_CHARS.filter((char) => char !== ',')
 
 /** Characters no label holds: what `calendarIssues` must refuse. */
-export const FORBIDDEN_LABEL_CHARS = ['|', '\n', '\r', '\t', '\u0000', '\u007f', '\u0085', ' ', ' ']
+export const FORBIDDEN_LABEL_CHARS = [
+  '|', '\n', '\r', '\t', '\u0000', '\u007f', '\u0085', '\u2028', '\u2029',
+  // Bidi embeddings, overrides and isolates, which would reorder every date.
+  '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066', '\u2067', '\u2068', '\u2069',
+]
+
+/** Invisible format characters a name may hold inside it, but not be made of. */
+export const INVISIBLE_CHARS = ['\u200b', '\u200c', '\u200d', '\u00ad', '\u2060', '\ufeff']
 export const FORBIDDEN_MONTH_CHARS = [...FORBIDDEN_LABEL_CHARS, ',', '[', ']', '"']
 
 function text(chars: string[], maxLength: number): fc.Arbitrary<string> {
   return fc
     .string({ unit: fc.constantFrom(...chars), minLength: 1, maxLength })
     .map((value) => value.trim())
-    .filter((value) => value.length > 0 && value.length <= maxLength)
+    // Something visible in it: text of invisible characters alone is refused.
+    .filter((value) => value.length > 0 && value.length <= maxLength && /[^\s\p{Cf}]/u.test(value))
 }
 
 export const epochYear = fc.integer({ min: 1, max: 9999 })
@@ -48,8 +56,12 @@ export const eraLabel = text(LABEL_CHARS, 16)
 export const calendarName = text(LABEL_CHARS, 80)
 export const monthName = text(MONTH_CHARS, 24)
 
-/** Twelve good, distinct (case-insensitively) month names. */
-export const monthNames = fc.uniqueArray(monthName, { minLength: 12, maxLength: 12, selector: (name) => name.toLowerCase() })
+/** Twelve good, distinct month names: not the same in another case, or once invisible characters are taken out. */
+export const monthNames = fc.uniqueArray(monthName, {
+  minLength: 12,
+  maxLength: 12,
+  selector: (name) => name.replace(/\p{Cf}/gu, '').normalize('NFC').toLowerCase(),
+})
 
 /** Month names made of letters alone, for checks that look for digits in formatted output. */
 export const letterMonthNames = fc.uniqueArray(
@@ -89,7 +101,7 @@ export const untrustedCalendar: fc.Arbitrary<unknown> = fc.oneof(
         fc.string({ maxLength: 20 }),
         fc.constantFrom('', '   ', 'A|R', 'A\nR', 'x'.repeat(17), 7, null)
       ),
-      name: fc.oneof(calendarName, fc.string({ maxLength: 90 }), fc.constantFrom('', 'Vael now', 'n'.repeat(81), {})),
+      name: fc.oneof(calendarName, fc.string({ maxLength: 90 }), fc.constantFrom('', 'Vael\u2028now', 'n'.repeat(81), {})),
       monthNames: fc.oneof(
         monthNames,
         monthNames.map((names) => names.map((name) => `  ${name} `)),
