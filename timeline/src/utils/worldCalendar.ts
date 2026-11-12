@@ -25,8 +25,8 @@ export interface GraphCalendar {
   /**
    * The world's names for the twelve months, January's first. Absent shows the
    * stored months' names ("Mar"). Exactly twelve, distinct, none empty, and
-   * none holding a comma (the separator wherever the list is written out), a
-   * `|` (a Markdown table's) or a control character.
+   * none holding a character `FORBIDDEN_IN_MONTH_NAME` lists (a comma, a `|`,
+   * brackets, a double quote, a control character).
    */
   monthNames?: string[];
 }
