@@ -29,12 +29,14 @@ import {
   describeExtractedEvent,
   eventLabel,
   findExtractedEvent,
-  isReadableReviewDate,
+  readReviewDate,
   reviewRowId,
   type ReviewEventLookup,
 } from './reviewLabels'
 import { findDuplicateEvent, matchKnownName, type NameMatch } from './reviewMatching'
 import { PRESELECT_THRESHOLD, formatSpan, isOutsideSpan, type HistorySpan } from './reviewDefaults'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { worldBoundExamples } from '@althistory/calendar'
 
 export type ReviewEntity = ExtractedEvent | ExtractedArc | ExtractedRelationship
 export type ReviewEntityType = 'event' | 'arc' | 'relationship'
@@ -651,16 +653,21 @@ interface ReviewDateFieldProps {
  */
 function ReviewDateField({ label, raw, describedBy, invalid, precision, className, onChange }: ReviewDateFieldProps) {
   const readingId = useId()
+  // In a world, dates are shown and typed in its notation (the server reads
+  // the reviewer's text with the graph's calendars).
+  const calendar = useWorldCalendar()
+  const compact = (value: string) => compactReviewDate(value, calendar, precision)
   // The reviewer's own text, so compaction never rewrites what they type. It
   // follows `raw` only when the value changes from outside this field.
-  const [draft, setDraft] = useState(() => compactReviewDate(raw))
+  const [draft, setDraft] = useState(() => compact(raw))
   const [seenRaw, setSeenRaw] = useState(raw)
   const [sent, setSent] = useState<string | null>(null)
   if (raw !== seenRaw) {
     setSeenRaw(raw)
-    if (raw !== sent) setDraft(compactReviewDate(raw))
+    if (raw !== sent) setDraft(compact(raw))
   }
-  const readable = isReadableReviewDate(draft)
+  const reading = readReviewDate(draft, calendar)
+  const readable = reading !== null
   const describedByIds = [readingId, describedBy].filter(Boolean).join(' ')
   return (
     <>
@@ -682,11 +689,15 @@ function ReviewDateField({ label, raw, describedBy, invalid, precision, classNam
         id={readingId}
         className={`mt-1 block text-xs ${readable ? 'text-ink-muted' : 'text-red-700 dark:text-red-300'}`}
       >
-        {!readable
-          ? 'Not a date: use YYYY-MM-DD'
-          : precision && precision !== 'day' && draft === compactReviewDate(raw)
+        {!reading
+          ? calendar
+            ? `Not a date: write one as ${worldBoundExamples(calendar).day}`
+            : 'Not a date: use YYYY-MM-DD'
+          : precision && precision !== 'day' && draft === compact(raw)
             ? `${formatHistoricalDateAt(raw, precision)}: the text gives no ${precision === 'month' ? 'day' : 'month or day'}`
-            : formatHistoricalTimestamp(draft.trim())}
+            : reading.precision !== 'day'
+              ? formatHistoricalDateAt(reading.iso, reading.precision)
+              : formatHistoricalTimestamp(reading.iso)}
       </span>
     </>
   )

@@ -7,7 +7,8 @@
 
 import { memo, useCallback } from 'react'
 import { Graph, GraphStatus } from '@/types'
-import { formatWorldYear } from '@althistory/calendar'
+import { historicalYear } from '@/utils/historicalTime'
+import { storedCalendarSet } from '@althistory/calendar'
 
 interface GraphCardProps {
   /** The graph to display */
@@ -138,10 +139,8 @@ export const GraphCard = memo(function GraphCard({
       {/* Time Range (if available) */}
       {graph.metadata.temporalRange && (
         <div className="mt-2 text-xs text-ink-muted">
-          {/* A world calendar relabels the years (the graph's own, not the open graph's). */}
-          {graph.calendar
-            ? `${formatWorldYear(new Date(graph.metadata.temporalRange.start).getUTCFullYear(), graph.calendar)} - ${formatWorldYear(new Date(graph.metadata.temporalRange.end).getUTCFullYear(), graph.calendar)}`
-            : `${new Date(graph.metadata.temporalRange.start).getUTCFullYear()} - ${new Date(graph.metadata.temporalRange.end).getUTCFullYear()}`}
+          {/* In the graph's own calendar, not the open graph's. */}
+          {`${historicalYear(graph.metadata.temporalRange.start, storedCalendarSet(graph.calendar))} - ${historicalYear(graph.metadata.temporalRange.end, storedCalendarSet(graph.calendar))}`}
         </div>
       )}
 

@@ -4,8 +4,9 @@ import { BranchComparisonModal } from './BranchComparisonModal'
 import { renderWithProviders } from '@/test/utils'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import type { Event, GraphCalendar } from '@/types'
+import { legacyCalendarSet } from '@althistory/calendar'
 
-const AR: GraphCalendar = { epochYear: 1000, eraLabel: 'AR' }
+const AR: GraphCalendar = legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' })
 
 const causalGraph = vi.hoisted(() => ({ props: null as Record<string, unknown> | null }))
 vi.mock('@/components/causal-graph/CausalGraphComponent', () => ({

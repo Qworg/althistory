@@ -1,5 +1,5 @@
 import type { Event, ExtractionResult } from '@/types'
-import { worldYearLabel } from '@/utils/historicalTime'
+import { historicalYear } from '@/utils/historicalTime'
 
 /**
  * The confidence a row needs to start selected. The review's "Select rows
@@ -39,11 +39,7 @@ export function isOutsideSpan(timestamp: string, span: HistorySpan | null): bool
 
 /** "1834–1868" (or "835 AR–869 AR" in a world calendar), for the flag on an out-of-span row. */
 export function formatSpan(span: HistorySpan): string {
-  const year = (ms: number) => {
-    const stored = new Date(ms).getUTCFullYear()
-    return worldYearLabel(stored) ?? String(stored)
-  }
-  return `${year(span.start)}–${year(span.end)}`
+  return `${historicalYear(span.start)}–${historicalYear(span.end)}`
 }
 
 /**

@@ -1,5 +1,6 @@
 import type { Event, GraphCalendar } from '@/types'
-import { formatHistoricalTimestamp, worldYearLabel } from '@/utils/historicalTime'
+import { formatHistoricalTimestamp, historicalYear } from '@/utils/historicalTime'
+import { getActiveCalendar } from '@/stores/worldCalendarStore'
 
 /**
  * How an event reads on the causal graph.
@@ -50,9 +51,10 @@ export function eventNodeLabel(event: Pick<Event, 'description' | 'actor' | 'tar
 export function eventYear(timestamp: string | Date, calendar?: GraphCalendar | null): string {
   const date = new Date(timestamp)
   if (Number.isNaN(date.getTime())) return ''
+  // In a world, the year as its calendar names it.
+  const world = calendar === undefined ? getActiveCalendar() : calendar
+  if (world) return historicalYear(date, world)
   const year = date.getUTCFullYear()
-  const world = worldYearLabel(year, calendar)
-  if (world !== null) return world
   // Astronomical year 0 is 1 BCE, -1 is 2 BCE, and so on.
   return year <= 0 ? `${1 - year} BCE` : String(year)
 }

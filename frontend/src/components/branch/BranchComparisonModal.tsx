@@ -11,7 +11,7 @@ import {
   type EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { sameCalendar } from '@althistory/calendar'
+import { sameCalendarSet, storedCalendarSet } from '@althistory/calendar'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { branchLabel } from '@/components/graphs/graphTree'
 import { CounterfactualTimelineCanvas } from './CounterfactualTimelineCanvas'
@@ -324,11 +324,11 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
   const calendars = useMemo<ComparisonCalendars>(() => {
     const of = (id: string) => {
       const graph = graphList.find(g => g.id === id)
-      return graph ? graph.calendar ?? null : activeCalendar
+      return graph ? storedCalendarSet(graph.calendar) : activeCalendar
     }
     return { baseline: of(baselineGraphId), counterfactual: of(counterfactualGraphId) }
   }, [graphList, baselineGraphId, counterfactualGraphId, activeCalendar])
-  const calendarsDiffer = !sameCalendar(calendars.baseline, calendars.counterfactual)
+  const calendarsDiffer = !sameCalendarSet(calendars.baseline, calendars.counterfactual)
   /** The calendar for a date from one side, or one both share (see comparisonCalendar). */
   const calendarFor = useCallback(
     (status: Parameters<typeof comparisonSide>[0]) => comparisonCalendar(comparisonSide(status), calendars),

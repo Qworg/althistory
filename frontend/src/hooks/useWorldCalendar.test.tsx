@@ -9,6 +9,7 @@ import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import { WorldCalendarBoundary } from '@/components/layout/WorldCalendarBoundary'
 import { formatHistoricalDate } from '@/utils/historicalTime'
 import type { Graph, GraphCalendar } from '@/types'
+import { legacyCalendarSet } from '@althistory/calendar'
 
 vi.mock('@/services/api', () => ({
   apiClient: { graphs: { getById: vi.fn() } },
@@ -16,7 +17,7 @@ vi.mock('@/services/api', () => ({
 
 const getById = vi.mocked(apiClient.graphs.getById)
 
-const AR: GraphCalendar = { epochYear: 1000, eraLabel: 'AR' }
+const AR: GraphCalendar = legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' })
 
 const graph = (id: string, calendar?: GraphCalendar) =>
   ({ id, name: id, metadata: { eventCount: 0 }, ...(calendar ? { calendar } : {}) }) as unknown as Graph
@@ -79,8 +80,8 @@ describe('useWorldCalendarSync', () => {
     await waitFor(() => expect(getById).toHaveBeenCalledWith('earth'))
     expect(activeCalendar()).toBeNull()
 
-    act(() => client.setQueryData(graphKeys.detail('earth'), graph('earth', { epochYear: 1200, eraLabel: 'NE' })))
-    await waitFor(() => expect(activeCalendar()).toEqual({ epochYear: 1200, eraLabel: 'NE' }))
+    act(() => client.setQueryData(graphKeys.detail('earth'), graph('earth', legacyCalendarSet({ epochYear: 1200, eraLabel: 'NE' }))))
+    await waitFor(() => expect(activeCalendar()).toEqual(legacyCalendarSet({ epochYear: 1200, eraLabel: 'NE' })))
 
     // Removing it (PUT with calendar: null) returns the graph without one.
     act(() => client.setQueryData(graphKeys.detail('earth'), graph('earth')))

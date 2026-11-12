@@ -8,6 +8,7 @@ import { useGlobalStore } from '@/stores/globalStore'
 import { useCopyStore } from '@/stores/copyStore'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import { TimeRange, EntityFilter, CopyResult } from '@/types'
+import { legacyCalendarSet } from '@althistory/calendar'
 
 // Mock the API client
 vi.mock('@/services/api', () => ({
@@ -226,7 +227,8 @@ describe('useGraphCopy', () => {
     // Switching graphs afterwards does not change the copy's calendar.
     useWorldCalendarStore.getState().setCalendar(null)
     const operation = [...result.current.copyState.activeOperations, ...result.current.copyState.completedOperations][0]
-    expect(operation?.sourceCalendar).toEqual({ epochYear: 1000, eraLabel: 'AR' })
+    // Read as the calendar set it stands for.
+    expect(operation?.sourceCalendar).toEqual(legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' }))
   })
 
   it('should create time range copy successfully', async () => {

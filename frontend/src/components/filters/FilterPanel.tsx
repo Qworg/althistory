@@ -1,9 +1,9 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { HistoricalDateInput } from './HistoricalDateInput'
-import { parseHistoricalDate } from './filterUtils'
+import { readDateBound } from './filterUtils'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { formatWorldYear } from '@althistory/calendar'
+import { worldBoundExamples } from '@althistory/calendar'
 
 export interface FilterState {
   dateRange: {
@@ -171,8 +171,9 @@ export function FilterPanel({
     handleFilterChange('dateRange', start === '' && end === '' ? null : { start, end })
   }
 
-  const startBound = filters.dateRange?.start ? parseHistoricalDate(filters.dateRange.start, 'start') : null
-  const endBound = filters.dateRange?.end ? parseHistoricalDate(filters.dateRange.end, 'end') : null
+  const startBound = filters.dateRange?.start ? readDateBound(filters.dateRange.start, 'start', worldCalendar) : null
+  const endBound = filters.dateRange?.end ? readDateBound(filters.dateRange.end, 'end', worldCalendar) : null
+  const examples = worldCalendar ? worldBoundExamples(worldCalendar) : null
   const dateRangeInverted =
     startBound?.ok === true && endBound?.ok === true && startBound.date.getTime() > endBound.date.getTime()
 
@@ -282,13 +283,14 @@ export function FilterPanel({
               />
             </div>
             <p id={dateHintId} className="mt-1.5 text-xs text-ink-muted">
-              A year, year-month or full date, year first: 1843, 1843-11, 1843-11-20. Add BCE for earlier years (44 BCE). Each bound covers the whole period it names.
-              {worldCalendar && (
+              {examples ? (
                 <>
-                  {' '}Type stored years: in this world’s calendar, stored {worldCalendar.epochYear} is{' '}
-                  {formatWorldYear(worldCalendar.epochYear, worldCalendar)}.
+                  A year, month or day in this world’s calendar: {examples.year}, {examples.month}, {examples.day}.
                 </>
-              )}
+              ) : (
+                <>A year, year-month or full date, year first: 1843, 1843-11, 1843-11-20. Add BCE for earlier years (44 BCE).</>
+              )}{' '}
+              Each bound covers the whole period it names.
             </p>
             {dateRangeInverted && (
               <p className="mt-1 text-xs text-amber-800 dark:text-amber-300" role="status">

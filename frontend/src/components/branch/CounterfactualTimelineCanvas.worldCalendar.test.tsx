@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { CounterfactualTimelineCanvas } from './CounterfactualTimelineCanvas'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import type { Event, GraphCalendar } from '@/types'
+import { legacyCalendarSet } from '@althistory/calendar'
 
-const AR: GraphCalendar = { epochYear: 1000, eraLabel: 'AR' }
+const AR: GraphCalendar = legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' })
 
 const event = (id: string, description: string, timestamp: string): Event => ({
   id,

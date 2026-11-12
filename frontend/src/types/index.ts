@@ -1,4 +1,4 @@
-import type { GraphCalendar } from '@althistory/calendar'
+import type { WorldCalendarSet } from '@althistory/calendar'
 
 // Core data types based on backend API
 export interface Event {
@@ -339,12 +339,13 @@ export interface GraphMetadata {
 }
 
 /**
- * An invented world's calendar. Stored dates stay UTC instants on the
- * Gregorian calendar; the calendar only relabels the year (and names the
- * months) when a date is shown. Defined, checked and formatted by
- * `@althistory/calendar` (calendar/).
+ * An invented world's calendars, of any shape, naming positions on the
+ * graph's one timeline (docs/specs/world-calendars.md). Defined, checked and
+ * formatted by `@althistory/calendar`.
  */
-export type { GraphCalendar }
+export type { WorldCalendarSet }
+/** The name the app's components use for a graph's world calendars: a calendar set. */
+export type GraphCalendar = WorldCalendarSet
 
 export interface Graph {
   id: string

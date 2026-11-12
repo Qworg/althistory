@@ -9,9 +9,9 @@ import { ExportHistoryList } from './ExportHistoryList'
 import { useExportManagement } from '@/hooks/useExport'
 import { useActiveGraphId, useActiveGraph } from '@/hooks/useGraphs'
 import { ExportFilters } from '@/types'
-import { WorldDateHint } from '@/components/ui/WorldDateHint'
+import { DateField } from '@/components/ui/DateField'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { describedBy, worldDateOf } from '@/utils/worldDateHint'
+import { dateFieldIso } from '@/utils/dateField'
 
 interface ExportPanelProps {
   className?: string
@@ -33,8 +33,11 @@ export const ExportPanel = memo(function ExportPanel({
   const [includeProvenance, setIncludeProvenance] = useState(false)
   const [filters, setFilters] = useState<ExportFilters>({})
   const [showFilters, setShowFilters] = useState(false)
-  // The open graph's world calendar: the dates are typed as stored, and read back in its years.
+  // The range as typed: a date picker's value, or in a world its notation.
+  // What is sent is the instant each names (an end, the end of its day,
+  // month or year in a world).
   const worldCalendar = useWorldCalendar()
+  const [rangeText, setRangeText] = useState({ start: '', end: '' })
 
 
   const activeGraphId = useActiveGraphId()
@@ -105,14 +108,16 @@ export const ExportPanel = memo(function ExportPanel({
   // The two time-range bounds are edited independently while ExportFilters
   // requires both, so the not-yet-entered bound falls back to an empty string.
   const handleTimeRangeChange = useCallback((bound: 'start' | 'end', value: string) => {
+    setRangeText(prev => ({ ...prev, [bound]: value }))
+    const instant = value.trim() === '' ? '' : dateFieldIso(value, { calendar: worldCalendar, edge: bound }) || value
     setFilters(prev => {
       const previous = prev.timeRange
       const timeRange = bound === 'start'
-        ? { start: value, end: previous?.end ?? '' }
-        : { start: previous?.start ?? '', end: value }
+        ? { start: instant, end: previous?.end ?? '' }
+        : { start: previous?.start ?? '', end: instant }
       return { ...prev, timeRange }
     })
-  }, [])
+  }, [worldCalendar])
 
   if (!activeGraphId) {
     return (
@@ -244,24 +249,24 @@ export const ExportPanel = memo(function ExportPanel({
                       <label className="text-xs text-ink-muted">Between</label>
                       <div className="flex gap-2">
                         <div className="flex-1 min-w-0">
-                          <input
-                            type="date"
-                            value={filters.timeRange?.start || ''}
-                            onChange={(e) => handleTimeRangeChange('start', e.target.value)}
-                            aria-describedby={describedBy(worldDateOf(filters.timeRange?.start, worldCalendar) && 'export-start-world')}
+                          <DateField
+                            kind="date"
+                            edge="start"
+                            aria-label="Export from"
+                            value={rangeText.start}
+                            onChange={(value) => handleTimeRangeChange('start', value)}
                             className="w-full px-2 py-1 border border-line bg-card text-ink rounded text-sm"
                           />
-                          <WorldDateHint id="export-start-world" value={filters.timeRange?.start || ''} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <input
-                            type="date"
-                            value={filters.timeRange?.end || ''}
-                            onChange={(e) => handleTimeRangeChange('end', e.target.value)}
-                            aria-describedby={describedBy(worldDateOf(filters.timeRange?.end, worldCalendar) && 'export-end-world')}
+                          <DateField
+                            kind="date"
+                            edge="end"
+                            aria-label="Export until"
+                            value={rangeText.end}
+                            onChange={(value) => handleTimeRangeChange('end', value)}
                             className="w-full px-2 py-1 border border-line bg-card text-ink rounded text-sm"
                           />
-                          <WorldDateHint id="export-end-world" value={filters.timeRange?.end || ''} />
                         </div>
                       </div>
                     </div>

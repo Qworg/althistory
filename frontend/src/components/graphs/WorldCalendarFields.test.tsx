@@ -5,6 +5,7 @@ import { CreateGraphModal } from './CreateGraphModal'
 import { GraphManagerModal } from './GraphManagerModal'
 import { useGraphManagement, useGraphBranches, useGraphHeadVersion } from '@/hooks/useGraphs'
 import type { Graph } from '@/types'
+import { VAEL } from '@/test/fixtures/worldCalendars'
 
 vi.mock('@/hooks/useGraphs')
 
@@ -22,12 +23,13 @@ const vael: Graph = {
     pressureCount: 0,
     temporalRange: { start: '1311-03-04T00:00:00Z', end: '1320-01-01T00:00:00Z' },
   },
-  calendar: { epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning of Vael' },
+  // Stored in the earlier form, as graphs made before calendar sets were.
+  calendar: { epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning of Vael' } as unknown as Graph['calendar'],
 }
 
 const earth: Graph = { ...vael, id: 'earth', name: 'Earth', calendar: undefined }
 
-describe('World calendar section: creating a graph', () => {
+describe('World calendars section: creating a graph', () => {
   const user = userEvent.setup()
 
   async function openForm() {
@@ -37,125 +39,117 @@ describe('World calendar section: creating a graph', () => {
     return onCreate
   }
 
+  /** The calendar set the form sent. */
+  const sent = (onCreate: ReturnType<typeof vi.fn>) => onCreate.mock.calls[0]![0].calendar
+
   it('sends no calendar unless one is added', async () => {
     const onCreate = await openForm()
     await user.click(screen.getByRole('button', { name: 'Create Graph' }))
     expect(onCreate).toHaveBeenCalledWith({ name: 'The Vael Chronicle', description: undefined })
   })
 
-  it('previews the mapping as it is typed and sends the calendar', async () => {
+  it('starts from the Gregorian shape, and sends the months, festivals, eras and day it is changed to', async () => {
     const onCreate = await openForm()
     await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
-    const epoch = screen.getByLabelText(/Year 1 is stored year/)
-    expect(epoch).toHaveFocus()
+    const day = screen.getByLabelText('Length of the world’s day')
+    expect(day).toHaveFocus()
+    expect(day).toHaveValue('24')
+    await user.clear(day)
+    await user.type(day, '30')
 
-    await user.type(epoch, '1000')
-    await user.type(screen.getByLabelText('Era label'), 'AR')
-    await user.type(screen.getByLabelText('Calendar name'), ' the Reckoning of Vael ')
-
-    const preview = document.getElementById('create-graph-calendar-preview')!
-    expect(preview).toHaveTextContent('Stored year 1000 shows as 1 AR.')
-    expect(preview).toHaveTextContent('stored 999 shows as 1 before AR')
+    const name = screen.getByLabelText('Calendar name')
+    await user.clear(name)
+    await user.type(name, 'the Reckoning of the Rising')
+    const first = screen.getByLabelText('Month 1 name')
+    await user.clear(first)
+    await user.type(first, 'Lowtide')
+    await user.click(screen.getByRole('button', { name: 'Add festival days' }))
+    await user.type(screen.getByLabelText('Festival 13 name'), 'The Drowned Days')
+    const festivalDays = screen.getByLabelText('The Drowned Days: days')
+    await user.clear(festivalDays)
+    await user.type(festivalDays, '4')
+    await user.type(screen.getByLabelText('Era 1 label'), 'AR')
 
     await user.click(screen.getByRole('button', { name: 'Create Graph' }))
-    expect(onCreate).toHaveBeenCalledWith({
-      name: 'The Vael Chronicle',
-      description: undefined,
-      calendar: { epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning of Vael' },
-    })
+    const calendar = sent(onCreate)
+    expect(calendar.dayLength).toBe(30 * 3600)
+    const [definition] = calendar.calendars
+    expect(definition.name).toBe('the Reckoning of the Rising')
+    expect(definition.parts[0]).toEqual({ name: 'Lowtide', days: 31 })
+    expect(definition.parts[12]).toEqual({ name: 'The Drowned Days', days: 4, intercalary: true })
+    expect(definition.eras).toEqual([{ label: 'AR', from: 1 }])
+    expect(calendar.primary).toBe(definition.id)
   })
 
-  it("sends the world's month names, and holds the count error until twelve are typed or the form is sent", async () => {
+  it('keeps the leap rules on their month when a month before it is removed', async () => {
     const onCreate = await openForm()
     await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
-    await user.type(screen.getByLabelText(/Year 1 is stored year/), '1000')
-    const months = screen.getByLabelText(/Month names/)
-
-    await user.type(months, 'Thaw,Seedfall')
-    expect(screen.getByText('2 of 12 named.')).toBeInTheDocument()
-    expect(months).not.toHaveAttribute('aria-invalid')
-
-    await user.clear(months)
-    await user.type(months, 'Thaw,Seedfall,Greening,Highsun,Brine,Harvest,Ember,Ashfall,Gale,Dimming,Frost,Deepwinter')
-    expect(document.getElementById('create-graph-calendar-preview')).toHaveTextContent('March 4 shows as Greening 4')
-
+    await user.click(screen.getByRole('button', { name: 'Remove Jan' }))
     await user.click(screen.getByRole('button', { name: 'Create Graph' }))
-    expect(onCreate).toHaveBeenCalledWith({
-      name: 'The Vael Chronicle',
-      description: undefined,
-      calendar: {
-        epochYear: 1000,
-        monthNames: ['Thaw', 'Seedfall', 'Greening', 'Highsun', 'Brine', 'Harvest', 'Ember', 'Ashfall', 'Gale', 'Dimming', 'Frost', 'Deepwinter'],
-      },
-    })
+    const [definition] = sent(onCreate).calendars
+    expect(definition.parts[0].name).toBe('Feb')
+    expect(definition.leapRules.map((rule: { part: number }) => rule.part)).toEqual([0, 0, 0])
   })
 
-  it('refuses eleven month names when the form is sent', async () => {
+  it('refuses what the API would refuse, says why, and sends nothing', async () => {
     const onCreate = await openForm()
     await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
-    await user.type(screen.getByLabelText(/Year 1 is stored year/), '1000')
-    await user.type(screen.getByLabelText(/Month names/), 'A,B,C,D,E,F,G,H,I,J,K')
+    const days = screen.getByLabelText('Jan: days')
+    await user.clear(days)
+    await user.type(days, 'many')
+    expect(screen.getByText('Must be a whole number from 1 to 1000.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Create Graph' }))
     expect(onCreate).not.toHaveBeenCalled()
-    expect(screen.getByLabelText(/Month names/)).toHaveAttribute('aria-invalid', 'true')
-    expect(screen.getByText(/Name all 12 months, or none \(11 names given\)/)).toBeInTheDocument()
+    expect(days).toHaveAttribute('aria-invalid', 'true')
   })
 
-  it('previews "Year N" without a label', async () => {
+  it('keeps several calendars, and the one dates are shown in', async () => {
+    const onCreate = await openForm()
+    await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
+    await user.click(screen.getByRole('button', { name: 'Add another calendar' }))
+    await user.selectOptions(screen.getByLabelText('Dates are shown in'), 'Calendar 2')
+    await user.click(screen.getByRole('button', { name: 'Create Graph' }))
+    const calendar = sent(onCreate)
+    expect(calendar.calendars).toHaveLength(2)
+    expect(calendar.primary).toBe(calendar.calendars[1].id)
+  })
+
+  it('takes a whole set pasted as JSON', async () => {
+    const onCreate = await openForm()
+    await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
+    await user.click(screen.getByRole('button', { name: 'Edit as JSON' }))
+    const json = screen.getByLabelText(/The calendars as JSON/)
+    await user.clear(json)
+    await user.click(json)
+    await user.paste(JSON.stringify(VAEL))
+    await user.click(screen.getByRole('button', { name: 'Use this JSON' }))
+    await user.click(screen.getByRole('button', { name: 'Create Graph' }))
+    expect(sent(onCreate)).toEqual(VAEL)
+  })
+
+  it('says what is wrong with pasted JSON, and keeps the form as it was', async () => {
     await openForm()
     await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
-    await user.type(screen.getByLabelText(/Year 1 is stored year/), '1000')
-    expect(document.getElementById('create-graph-calendar-preview')).toHaveTextContent(
-      'Stored year 1000 shows as Year 1.'
-    )
+    await user.click(screen.getByRole('button', { name: 'Edit as JSON' }))
+    const json = screen.getByLabelText(/The calendars as JSON/)
+    await user.clear(json)
+    await user.type(json, 'not json')
+    await user.click(screen.getByRole('button', { name: 'Use this JSON' }))
+    expect(screen.getByText('That is not JSON.')).toBeInTheDocument()
   })
 
-  it('refuses what the API would refuse, and says why', async () => {
+  it('keeps focus in the section when it is added and removed, and sends nothing once removed', async () => {
     const onCreate = await openForm()
     await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
-
-    // An empty year is only "missing" once the form is submitted.
-    expect(screen.queryByText(/whole number/)).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Create Graph' }))
-    expect(onCreate).not.toHaveBeenCalled()
-    expect(screen.getByText(/whole number/)).toBeInTheDocument()
-
-    const epoch = screen.getByLabelText(/Year 1 is stored year/)
-    await user.type(epoch, '10000')
-    expect(screen.getByText(/must be a stored year from 1 to 9999/)).toBeInTheDocument()
-    expect(epoch).toHaveAttribute('aria-invalid', 'true')
-
-    await user.clear(epoch)
-    await user.type(epoch, '1000')
-    await user.type(screen.getByLabelText('Era label'), 'A'.repeat(17))
-    expect(screen.getByText(/at most 16 characters/)).toBeInTheDocument()
-    await user.type(screen.getByLabelText('Calendar name'), 'n'.repeat(81))
-    expect(screen.getByText(/at most 80 characters/)).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Create Graph' }))
-    expect(onCreate).not.toHaveBeenCalled()
-  })
-
-  it('keeps focus in the section when it is added and removed', async () => {
-    await openForm()
-    await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
-    expect(screen.getByLabelText(/Year 1 is stored year/)).toHaveFocus()
-    // "Remove calendar" unmounts itself: focus goes to the button that replaces it, not <body>.
-    await user.click(screen.getByRole('button', { name: 'Remove calendar' }))
+    expect(screen.getByLabelText('Length of the world’s day')).toHaveFocus()
+    await user.click(screen.getByRole('button', { name: 'Remove the calendars' }))
     expect(screen.getByRole('button', { name: 'Add a world calendar' })).toHaveFocus()
-  })
-
-  it('sends nothing once the section is removed again', async () => {
-    const onCreate = await openForm()
-    await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
-    await user.type(screen.getByLabelText(/Year 1 is stored year/), '0')
-    await user.click(screen.getByRole('button', { name: 'Remove calendar' }))
     await user.click(screen.getByRole('button', { name: 'Create Graph' }))
     expect(onCreate).toHaveBeenCalledWith({ name: 'The Vael Chronicle', description: undefined })
   })
 })
 
-describe('World calendar section: editing a graph', () => {
+describe('World calendars section: editing a graph', () => {
   const user = userEvent.setup()
   const updateGraph = vi.fn()
 
@@ -181,15 +175,11 @@ describe('World calendar section: editing a graph', () => {
     return row
   }
 
-  it("starts from the graph's calendar, previews its own first year, and leaves an unchanged one out", async () => {
+  it("starts from the graph's calendar (stored in the earlier form), previews its history, and leaves it out unchanged", async () => {
     await edit('Vael')
-    expect(screen.getByLabelText(/Year 1 is stored year/)).toHaveValue('1000')
-    expect(screen.getByLabelText('Era label')).toHaveValue('AR')
     expect(screen.getByLabelText('Calendar name')).toHaveValue('the Reckoning of Vael')
-    expect(document.getElementById('edit-graph-vael-calendar-preview')).toHaveTextContent(
-      'Stored year 1311 shows as 312 AR.'
-    )
-
+    expect(screen.getByLabelText('Era 1 label')).toHaveValue('AR')
+    expect(screen.getByText(/The history begins on/)).toHaveTextContent('The history begins on Mar 4, 312 AR')
     await user.click(screen.getByRole('button', { name: 'Save' }))
     expect(updateGraph).toHaveBeenCalledWith({
       id: 'vael',
@@ -197,48 +187,39 @@ describe('World calendar section: editing a graph', () => {
     })
   })
 
-  it('sends a changed calendar', async () => {
+  it('sends a changed calendar as a set', async () => {
     await edit('Vael')
-    const epoch = screen.getByLabelText(/Year 1 is stored year/)
-    await user.clear(epoch)
-    await user.type(epoch, '1300')
+    const label = screen.getByLabelText('Era 1 label')
+    await user.clear(label)
+    await user.type(label, 'NR')
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    expect(updateGraph).toHaveBeenCalledWith({
-      id: 'vael',
-      data: expect.objectContaining({
-        calendar: { epochYear: 1300, eraLabel: 'AR', name: 'the Reckoning of Vael' },
-      }),
-    })
+    const data = updateGraph.mock.calls[0]![0].data
+    expect(data.calendar.version).toBe(2)
+    expect(data.calendar.calendars[0].eras).toEqual([{ label: 'NR', from: 1 }])
   })
 
-  it('sends null to remove the calendar', async () => {
+  it('sends null to remove the calendars', async () => {
     await edit('Vael')
-    await user.click(screen.getByRole('button', { name: 'Remove calendar' }))
-    expect(screen.getByText(/Saving removes the calendar/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Remove the calendars' }))
+    expect(screen.getByText(/Saving removes the calendars/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    expect(updateGraph).toHaveBeenCalledWith({
-      id: 'vael',
-      data: expect.objectContaining({ calendar: null }),
-    })
+    expect(updateGraph).toHaveBeenCalledWith({ id: 'vael', data: expect.objectContaining({ calendar: null }) })
   })
 
   it('adds a calendar to a graph without one', async () => {
     await edit('Earth')
     await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
-    await user.type(screen.getByLabelText(/Year 1 is stored year/), '1000')
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    expect(updateGraph).toHaveBeenCalledWith({
-      id: 'earth',
-      data: expect.objectContaining({ calendar: { epochYear: 1000 } }),
-    })
+    const data = updateGraph.mock.calls[0]![0].data
+    expect(data.calendar.calendars).toHaveLength(1)
   })
 
   it('keeps the form open while the calendar is invalid', async () => {
     await edit('Vael')
-    const epoch = screen.getByLabelText(/Year 1 is stored year/)
-    await user.clear(epoch)
+    const day = screen.getByLabelText('Length of the world’s day')
+    await user.clear(day)
     await user.click(screen.getByRole('button', { name: 'Save' }))
     expect(updateGraph).not.toHaveBeenCalled()
-    expect(screen.getByText(/whole number/)).toBeInTheDocument()
+    expect(screen.getByText(/A day must last a whole number of seconds/)).toBeInTheDocument()
   })
 })

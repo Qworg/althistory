@@ -2,8 +2,8 @@ import { memo, useMemo, useState, useCallback, useRef, useLayoutEffect, useEffec
 import type React from 'react'
 import * as d3 from 'd3'
 import { Event, Arc, GraphCalendar } from '@/types'
-import { formatHistoricalDate, formatHistoricalTimestamp, worldYearLabel } from '@/utils/historicalTime'
-import { alignYearTicksToCalendar } from '@/utils/d3Calculations'
+import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { axisTicks } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import {
   analyzeEventDivergence,
@@ -100,7 +100,7 @@ const TOOLTIP_WIDTH_PX = 240
  * that all fall on New Year's Day name the year alone; otherwise each tick is
  * a full UTC date ("May 10, 1940"), never shifted by the viewer's zone.
  */
-function formatTicks(dates: readonly Date[], calendar: GraphCalendar | null): string[] {
+function formatTicks(dates: readonly Date[]): string[] {
   const allYearStarts = dates.every(
     d =>
       d.getUTCMonth() === 0 &&
@@ -108,12 +108,7 @@ function formatTicks(dates: readonly Date[], calendar: GraphCalendar | null): st
       d.getUTCHours() === 0 &&
       d.getUTCMinutes() === 0
   )
-  // A world calendar relabels the year, on the axis as in the event labels.
-  return dates.map(d =>
-    allYearStarts
-      ? worldYearLabel(d.getUTCFullYear(), calendar) ?? String(d.getUTCFullYear())
-      : formatHistoricalDate(d, undefined, calendar)
-  )
+  return dates.map(d => (allYearStarts ? String(d.getUTCFullYear()) : formatHistoricalDate(d, undefined, null)))
 }
 
 /**
@@ -379,20 +374,16 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
 
   // 5. Ticks for time axis
   const timeTicks = useMemo(() => {
-    const dates = alignYearTicksToCalendar(
-      xScale.ticks(Math.max(2, Math.min(6, Math.floor(innerWidth / 110)))),
-      xScale.domain(),
-      worldCalendar,
-      true
-    )
-    const labels = formatTicks(dates, worldCalendar)
-    const kept = thinTicks(
-      dates.map((date, i) => ({
-        date,
-        x: xScale(date),
-        label: labels[i] ?? '',
-      }))
-    )
+    const count = Math.max(2, Math.min(6, Math.floor(innerWidth / 110)))
+    // In a world calendar, its own years, months and days, in its notation.
+    const ticks = worldCalendar
+      ? axisTicks(xScale.domain(), count, worldCalendar)
+      : (() => {
+          const dates = xScale.ticks(count)
+          const labels = formatTicks(dates)
+          return dates.map((date, i) => ({ date, label: labels[i] ?? '' }))
+        })()
+    const kept = thinTicks(ticks.map(({ date, label }) => ({ date, x: xScale(date), label })))
     // A date centred on an end tick would run off the SVG: anchor it inward.
     return kept.map(tick => {
       const half = (tick.label.length * TICK_CHAR_PX) / 2

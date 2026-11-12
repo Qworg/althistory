@@ -4,8 +4,9 @@ import { CopyCompletionNotification } from './CopyCompletionNotification'
 import { ImportValidationStep } from '@/components/import/ImportValidationStep'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import type { CopyOperation, ImportValidationResult } from '@/types'
+import { legacyCalendarSet } from '@althistory/calendar'
 
-const AR = { epochYear: 1000, eraLabel: 'AR' }
+const AR = legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' })
 
 const copy = (sourceCalendar?: CopyOperation['sourceCalendar']): CopyOperation => ({
   id: 'copy-1',

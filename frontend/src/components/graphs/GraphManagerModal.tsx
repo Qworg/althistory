@@ -17,6 +17,7 @@ import { CreateGraphModal } from './CreateGraphModal'
 import { Portal } from '@/components/ui/Portal'
 import { branchLabel } from './graphTree'
 import { WorldCalendarFields } from './WorldCalendarFields'
+import { toInstant } from '@althistory/calendar'
 import { useCalendarDraft, type CalendarDraftState } from './useCalendarDraft'
 
 interface GraphManagerModalProps {
@@ -419,7 +420,7 @@ const GraphsTab = memo(function GraphsTab({
                 <WorldCalendarFields
                   state={calendarDraft}
                   idPrefix={`edit-graph-${graph.id}`}
-                  sampleYear={firstStoredYear(graph)}
+                  samplePosition={firstPosition(graph)}
                 />
                 <div className="flex gap-2">
                   <button
@@ -610,11 +611,12 @@ const BranchesTab = memo(function BranchesTab({
 export default GraphManagerModal
 
 /** The UTC year of a graph's first event, for the calendar preview; undefined when it has none. */
-function firstStoredYear(graph: Graph): number | undefined {
+/** Where a graph's history begins on the timeline, for the calendar preview. */
+function firstPosition(graph: Graph): number | undefined {
   const start = graph.metadata.temporalRange?.start
   if (!start) return undefined
-  const year = new Date(start).getUTCFullYear()
-  return Number.isNaN(year) ? undefined : year
+  const time = toInstant(start).getTime()
+  return Number.isNaN(time) ? undefined : time
 }
 
 /**

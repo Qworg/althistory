@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'vitest-axe'
@@ -10,6 +10,8 @@ import {
   createMockArc,
   createMockCausalRelationship
 } from '@/test/fixtures/modalFixtures'
+import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
+import { VAEL, vael } from '@/test/fixtures/worldCalendars'
 
 vi.mock('@/hooks/useAPI', () => ({
   useEvents: vi.fn(() => ({
@@ -663,4 +665,45 @@ describe('EventDetailModal: what the form records', () => {
     await waitFor(() => expect(onSave).toHaveBeenCalled())
     expect(onSave.mock.calls[0]![1]).toEqual({ cause: { eventId: 'e1', type: 'contributory' } })
   })
+
+  describe('in a world calendar', () => {
+    const props = { event: null, isOpen: true, onClose: vi.fn(), onSave: vi.fn().mockResolvedValue(undefined) }
+    afterEach(() => useWorldCalendarStore.getState().setCalendar(null))
+
+    it("takes the date in the world's notation, and saves the instant and precision it names", async () => {
+      const user = userEvent.setup()
+      const onSave = vi.fn().mockResolvedValue(undefined)
+      useWorldCalendarStore.getState().setCalendar(VAEL)
+      withClient(<EventDetailModal {...props} onSave={onSave} />)
+      await user.type(screen.getByLabelText(/description/i), 'The harbour freezes')
+      await user.type(screen.getByLabelText(/actor/i), 'Winter')
+      await user.type(screen.getByLabelText(/target/i), 'Harbour')
+      const date = screen.getByLabelText(/^date/i)
+      await user.type(date, 'Thaw 312 AR')
+      expect(screen.getByText('Reads as Thaw 312 AR.')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: /save/i }))
+      await waitFor(() => {
+        expect(onSave).toHaveBeenCalledWith(
+          expect.objectContaining({
+            timestamp: vael(312, 2, 1).toISOString(),
+            metadata: expect.objectContaining({ datePrecision: 'month' }),
+          })
+        )
+      })
+    })
+
+    it('shows an event at the precision it is known to, and refuses a day the world lacks', async () => {
+      const user = userEvent.setup()
+      useWorldCalendarStore.getState().setCalendar(VAEL)
+      const event = createMockEvent({ timestamp: vael(312, 6, 1).toISOString() })
+      withClient(<EventDetailModal {...props} event={event} />)
+      const date = screen.getByLabelText(/^date/i)
+      expect(date).toHaveValue("Midyear's Day, 312 AR")
+      await user.clear(date)
+      await user.type(date, 'Thaw 31, 312 AR')
+      await user.click(screen.getByRole('button', { name: /save/i }))
+      expect(await screen.findByText('Thaw has 30 days that year, so no day 31.')).toBeInTheDocument()
+    })
+  })
 })
+

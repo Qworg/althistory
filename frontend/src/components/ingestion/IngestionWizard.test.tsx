@@ -17,6 +17,7 @@ import { IngestionWizard } from './IngestionWizard'
 import { apiClient } from '@/services/api'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import type { ApproveIngestionRequest, ImportResult, IngestResponse } from '@/types'
+import { VAEL } from '@/test/fixtures/worldCalendars'
 
 // The active graph, which the wizard imports into when it is given no target.
 // Left undefined, as in most tests, the real hook would ask the mocked client.
@@ -571,22 +572,20 @@ describe('IngestionWizard', () => {
       }
     })
 
-    it('says the model reads the world’s dates and the patterns do not, and shows the time range in world dates', async () => {
+    it('says the model reads the world’s dates and the patterns do not, and asks for the range in them', async () => {
       const user = userEvent.setup()
-      useWorldCalendarStore.getState().setCalendar({ epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning' })
+      useWorldCalendarStore.getState().setCalendar(VAEL)
       renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
       await user.click(screen.getByRole('tab', { name: 'Text' }))
       const panel = screen.getByRole('tabpanel')
 
-      expect(within(panel).getByRole('note')).toHaveTextContent('This graph keeps the Reckoning. The model is told')
-      expect(within(panel).getByRole('note')).toHaveTextContent('“1 AR” (stored as 1000)')
+      const note = within(panel).getByRole('note')
+      expect(note).toHaveTextContent('This graph keeps the Reckoning of the Rising and 1 other calendar.')
+      expect(note).toHaveTextContent('“Lowtide 1, 1 AR”')
       await user.click(within(panel).getByLabelText('Use LLM extraction'))
-      expect(within(panel).getByRole('note')).toHaveTextContent('the pattern reader only reads stored dates')
+      expect(within(panel).getByRole('note')).toHaveTextContent('the pattern reader only reads Gregorian dates')
 
-      const start = within(panel).getByLabelText('Time range start')
-      await user.type(start, '1140-03-04')
-      expect(within(panel).getByText('= Mar 4, 141 AR')).toBeInTheDocument()
-      expect(start).toHaveAttribute('aria-describedby', 'ingest-text-start-date-world')
+      expect(within(panel).getByLabelText('Time range start')).toHaveAttribute('placeholder', 'e.g. Lowtide 1, 1 AR')
     })
 
     it('shows no note in a graph without a calendar', async () => {

@@ -13,8 +13,9 @@ import {
   useGraphHeadVersion,
 } from '@/hooks/useGraphs'
 import { useGlobalStore } from '@/stores/globalStore'
-import { GraphCalendar, GraphStatus } from '@/types'
-import { formatHistoricalRange, worldYearLabel } from '@/utils/historicalTime'
+import { GraphStatus } from '@/types'
+import { formatHistoricalRange, historicalYear } from '@/utils/historicalTime'
+import { storedCalendarSet } from '@althistory/calendar'
 import { buildGraphTree, branchLabel } from './graphTree'
 
 /** The fork glyph, in the divergence accent: this graph is a branch. */
@@ -27,16 +28,6 @@ function ForkGlyph({ className = 'h-4 w-4' }: { className?: string }) {
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 7v10M18 11c0 4-6 3-11.2 6.4" />
     </svg>
   )
-}
-
-/**
- * The UTC year of a timestamp, so a range never shifts by the viewer's zone;
- * in the graph's own years when it has a world calendar. Each graph in the
- * list is labelled by its own calendar, not the open graph's.
- */
-function utcYear(value: string, calendar: GraphCalendar | null): string {
-  const year = new Date(value).getUTCFullYear()
-  return Number.isNaN(year) ? '?' : worldYearLabel(year, calendar) ?? String(year)
 }
 
 /**
@@ -316,10 +307,10 @@ export const GraphSelector = memo(function GraphSelector({
                               graph.metadata.temporalRange.start,
                               graph.metadata.temporalRange.end,
                               undefined,
-                              graph.calendar ?? null
+                              storedCalendarSet(graph.calendar)
                             )}
                           >
-                            {utcYear(graph.metadata.temporalRange.start, graph.calendar ?? null)}–{utcYear(graph.metadata.temporalRange.end, graph.calendar ?? null)}
+                            {/* Each graph in its own calendar, not the open graph's. */}{historicalYear(graph.metadata.temporalRange.start, storedCalendarSet(graph.calendar))}–{historicalYear(graph.metadata.temporalRange.end, storedCalendarSet(graph.calendar))}
                           </span>
                         )}
                       </div>

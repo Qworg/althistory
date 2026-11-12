@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { analyzeEventDivergence, comparisonCalendar, comparisonSide } from './divergenceAnalysis'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import type { Event, GraphCalendar } from '@/types'
+import { legacyCalendarSet } from '@althistory/calendar'
 
-const AR: GraphCalendar = { epochYear: 1000, eraLabel: 'AR' }
-const NE: GraphCalendar = { epochYear: 1200, eraLabel: 'NE' }
+const AR: GraphCalendar = legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' })
+const NE: GraphCalendar = legacyCalendarSet({ epochYear: 1200, eraLabel: 'NE' })
 
 const event = (id: string, timestamp: string): Event => ({
   id,
@@ -32,8 +33,8 @@ describe('comparisonCalendar', () => {
 
   it("falls back to the open graph's calendar for a side not given", () => {
     useWorldCalendarStore.getState().setCalendar(AR)
-    expect(comparisonCalendar('both')).toBe(AR)
-    expect(comparisonCalendar('counterfactual', { baseline: null })).toBe(AR)
+    expect(comparisonCalendar('both')).toEqual(AR)
+    expect(comparisonCalendar('counterfactual', { baseline: null })).toEqual(AR)
   })
 
   it('maps statuses to sides', () => {

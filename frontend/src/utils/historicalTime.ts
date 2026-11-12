@@ -9,7 +9,9 @@
  *
  * The formatting itself is `@althistory/calendar` (calendar/src/locale.ts),
  * which the backend shares and which is property-tested in every locale and
- * in five time zones. What this module adds is the app's default: every
+ * in five time zones. In a world, a date is written in its calendar's
+ * notation (the calendar the viewer picked: see stores/worldCalendarStore.ts).
+ * What this module adds is the app's default: every
  * formatter takes the calendar as its last argument, and left out it is the
  * active graph's (`getActiveCalendar()`); `null` means none. Without a
  * calendar the output is the locale's own.
@@ -28,16 +30,6 @@ type CalendarArg = GraphCalendar | null | undefined
 
 function resolveCalendar(calendar: CalendarArg): GraphCalendar | null {
   return calendar === undefined ? getActiveCalendar() : calendar
-}
-
-/**
- * A stored year (a UTC year, as the timestamps hold it) in the world's
- * calendar, or null when there is no calendar, so a caller keeps its own
- * spelling of a plain year: `worldYearLabel(year) ?? String(year)`.
- */
-export function worldYearLabel(storedYear: number, calendar?: CalendarArg): string | null {
-  const active = resolveCalendar(calendar)
-  return active ? calendarLib.formatWorldYear(storedYear, active) : null
 }
 
 /** "Nov 20, 1843" (in the viewer's locale), never shifted by their time zone. */
@@ -76,4 +68,15 @@ export function formatEventDate(
 /** "Nov 20, 1843 – Jan 9, 1868". */
 export function formatHistoricalRange(start: DateInput, end: DateInput, locale?: string, calendar?: CalendarArg): string {
   return calendarLib.formatHistoricalRange(start, end, locale, resolveCalendar(calendar))
+}
+
+/**
+ * The year of a date: in a world, as its calendar names it ("312 AR"); without
+ * one, the UTC year ("1843"). '?' when there is no date.
+ */
+export function historicalYear(value: DateInput, calendar?: CalendarArg): string {
+  const date = calendarLib.toDate(value)
+  if (Number.isNaN(date.getTime())) return '?'
+  const world = resolveCalendar(calendar)
+  return world ? calendarLib.formatHistoricalDateAt(date, 'year', undefined, world) : String(date.getUTCFullYear())
 }

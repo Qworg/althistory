@@ -4,7 +4,8 @@ import type {
   CausalRelationship,
   FilterState
 } from '@/types'
-import { formatHistoricalDateBound, parseHistoricalDate, toInstant, type DateBoundEdge } from '@althistory/calendar'
+import { type WorldCalendarSet, formatDateBound, readDateBound, toInstant, type DateBoundEdge } from '@althistory/calendar'
+import { getActiveCalendar } from '@/stores/worldCalendarStore'
 import type { FilterState as PanelFilterState } from './FilterPanel'
 
 export type { PanelFilterState }
@@ -112,39 +113,47 @@ export function hasActiveFilters(filters: FilterState): boolean {
 //
 // A bound is typed largest unit first -- `1843`, `1843-11`, `1843-11-20`, with
 // `BCE` for years before 1 CE -- and read as a UTC instant: a start bound is
-// the first moment of the period it names and an end bound the last. The
-// reading and writing are `@althistory/calendar` (calendar/src/bounds.ts),
-// property-tested against an arithmetic oracle for every year a Date holds.
+// the first moment of the period it names and an end bound the last. In a
+// world it is written in the calendar shown ("Thaw 312 AR"). The reading and
+// writing are `@althistory/calendar` (calendar/src/bounds.ts), property-tested
+// against an arithmetic oracle and in calendars of every shape.
 
 export {
   parseHistoricalDate,
   formatHistoricalDateBound,
-  worldBoundLabel,
+  readDateBound,
+  formatDateBound,
   type DateBoundEdge,
   type HistoricalDateParse,
 } from '@althistory/calendar'
 
-function toInputDate(value: Date | string | null | undefined, edge: DateBoundEdge): string {
-  return formatHistoricalDateBound(value, edge)
+type CalendarArg = WorldCalendarSet | null
+
+function toInputDate(value: Date | string | null | undefined, edge: DateBoundEdge, calendar: CalendarArg): string {
+  return formatDateBound(value, edge, calendar)
 }
 
 /** A typed bound -> its instant; an empty or unreadable bound is an invalid
  * `Date`, which {@link boundTimestamp} treats as open. */
-function fromInputDate(value: string, edge: DateBoundEdge): Date {
+function fromInputDate(value: string, edge: DateBoundEdge, calendar: CalendarArg): Date {
   if (!value) return new Date(NaN)
-  const parsed = parseHistoricalDate(value, edge)
+  const parsed = readDateBound(value, edge, calendar)
   // Anything else (a full timestamp from a link) by the app's one reader: UTC
   // when it has no zone, and no date rather than the day V8 rolls "1870-02-31" into.
   return parsed.ok ? parsed.date : toInstant(value)
 }
 
-/** Store filter shape (`Date` bounds) -> the string-bounded shape `FilterPanel` renders. */
-export function toPanelFilters(filters: FilterState): PanelFilterState {
+/**
+ * Store filter shape (`Date` bounds) -> the string-bounded shape `FilterPanel`
+ * renders, with the bounds in the world calendar shown (the open graph's by
+ * default; `null` for stored dates).
+ */
+export function toPanelFilters(filters: FilterState, calendar: CalendarArg = getActiveCalendar()): PanelFilterState {
   return {
     dateRange: filters.dateRange
       ? {
-          start: toInputDate(filters.dateRange.start, 'start'),
-          end: toInputDate(filters.dateRange.end, 'end')
+          start: toInputDate(filters.dateRange.start, 'start', calendar),
+          end: toInputDate(filters.dateRange.end, 'end', calendar)
         }
       : null,
     actors: filters.actors,
@@ -159,12 +168,12 @@ export function toPanelFilters(filters: FilterState): PanelFilterState {
 
 /** `FilterPanel` string bounds -> the store filter shape. An empty bound stays
  * as an invalid `Date`, which {@link boundTimestamp} treats as open. */
-export function fromPanelFilters(filters: PanelFilterState): FilterState {
+export function fromPanelFilters(filters: PanelFilterState, calendar: CalendarArg = getActiveCalendar()): FilterState {
   return {
     dateRange: filters.dateRange
       ? {
-          start: fromInputDate(filters.dateRange.start, 'start'),
-          end: fromInputDate(filters.dateRange.end, 'end')
+          start: fromInputDate(filters.dateRange.start, 'start', calendar),
+          end: fromInputDate(filters.dateRange.end, 'end', calendar)
         }
       : null,
     actors: filters.actors,

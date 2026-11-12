@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
-import { alignYearTicksToCalendar, formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
+import { axisTicks, formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
@@ -214,15 +214,22 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
   const worldCalendar = useWorldCalendar()
   const xTicks = useMemo(() => {
     const timeSpanMs = state.visibleTimeRange.end.getTime() - state.visibleTimeRange.start.getTime()
+    // In a world calendar, its own years, months, days and hours; otherwise
     // UTC ticks and labels, as the event labels read every date (the
     // positions are the same linear scale either way).
+    if (worldCalendar) {
+      const [start = 0, end = 0] = timeScale.range()
+      return axisTicks(timeScale.domain(), Math.max(2, Math.floor(Math.abs(end - start) / 96)), worldCalendar).map(({ date, label }) => ({
+        key: date.getTime(),
+        x: timeScale(date),
+        label,
+      }))
+    }
     const interval = getTimeAxisInterval(timeSpanMs, true)
-    const ticks = d3.scaleUtc().domain(timeScale.domain()).ticks(interval)
-    // In a world calendar, multi-year steps land on the world's round years.
-    return alignYearTicksToCalendar(ticks, timeScale.domain(), worldCalendar, true).map(date => ({
+    return d3.scaleUtc().domain(timeScale.domain()).ticks(interval).map(date => ({
       key: date.getTime(),
       x: timeScale(date),
-      label: formatTimeAxisTick(date, timeSpanMs, worldCalendar, true)
+      label: formatTimeAxisTick(date, timeSpanMs, true)
     }))
   }, [timeScale, state.visibleTimeRange, worldCalendar])
 

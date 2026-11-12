@@ -29,7 +29,7 @@
 import * as d3 from 'd3'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { alignYearTicksToCalendar as alignYearTicks, formatWorldYear, worldMonthName } from '@althistory/calendar'
+import { calendarIn, worldTicks } from '@althistory/calendar'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
 /**
@@ -276,101 +276,67 @@ export function getTimeAxisFormat(timeSpanMs: number): string {
 }
 
 /**
- * Formats a tick value based on the visible time span.
- * Handles standard D3 formats and special cases like decades.
- *
- * @param tick - The Date to format
- * @param timeSpanMs - The visible time span in milliseconds
- * @returns Formatted string for the tick label
+ * One tick label for a time axis without a world calendar, in the format the
+ * visible span calls for. `utc` reads the tick in UTC, as the event labels
+ * read every historical date (a world calendar's ticks come from
+ * {@link axisTicks} instead).
  */
-export function formatTimeAxisTick(
-  tick: Date,
-  timeSpanMs: number,
-  calendar: GraphCalendar | null = getActiveCalendar(),
-  utc = false
-): string {
-  return formatAxisLabel(getTimeAxisFormat(timeSpanMs), tick, calendar, utc)
+export function formatTimeAxisTick(tick: Date, timeSpanMs: number, utc = false): string {
+  return formatAxisLabel(getTimeAxisFormat(timeSpanMs), tick, utc)
 }
 
-/**
- * One tick label in a named format. With a world calendar the year is the
- * world's ("312 AR", "Mar 312 AR"), and so is the month when it names them
- * ("Thaw 312 AR", "Thaw 04"), so the axis says what the event labels say
- * (see utils/historicalTime.ts); a decade becomes the tick's own world year,
- * since the world's decades do not start where the Gregorian ones do (the
- * ticks are moved onto them by {@link alignYearTicksToCalendar}).
- *
- * `utc` reads the tick in UTC, as the event labels read every historical date
- * (utils/historicalTime.ts); pass it with ticks from a UTC scale or interval.
- * Without it the tick is read in local time, as d3's `scaleTime` makes them.
- */
-function formatAxisLabel(name: string, tick: Date, calendar: GraphCalendar | null, utc: boolean): string {
+function formatAxisLabel(name: string, tick: Date, utc: boolean): string {
   const timeFormat = utc ? d3.utcFormat : d3.timeFormat
   const fullYear = utc ? tick.getUTCFullYear() : tick.getFullYear()
-  if (calendar) {
-    const year = formatWorldYear(fullYear, calendar)
-    // `||`, not `??`: an empty name (only from a hand-edited data file) falls back too.
-    const month = worldMonthName(utc ? tick.getUTCMonth() : tick.getMonth(), calendar) || timeFormat('%b')(tick)
-    if (name === 'decade' || name === '%Y') return year
-    if (name === '%b %Y') return `${month} ${year}`
-    if (name === '%b %d') return `${month} ${timeFormat('%d')(tick)}`
-    return timeFormat(name)(tick)
-  }
   if (name === 'decade') return `${Math.floor(fullYear / 10) * 10}s`
   return timeFormat(name)(tick)
 }
 
-/** Axis label formats, coarsest first. */
+/** The axis label formats from coarsest to finest. */
 const TIME_AXIS_FORMAT_LADDER = ['decade', '%Y', '%b %Y', '%b %d', '%a %d', '%H:%M:%S'] as const
 
 /**
- * Labels for a whole set of axis ticks.
- *
- * The span decides the preferred format, but the ticks decide whether it can
- * be used: a count-based `scale.ticks(n)` over ~35 years steps every 5 years,
- * and labelling those by decade printed "1840s" under both 1840 and 1845. The
- * preferred format is used when it gives every tick a distinct label;
- * otherwise the next finer format that does.
+ * Labels for a whole axis without a world calendar: the format the span
+ * prefers, or the next finer one when two ticks would read the same. d3's
+ * count-based `scale.ticks(n)` over ~35 years steps every 5 years, and
+ * labelling those by decade printed "1840s" under both 1840 and 1845.
  *
  * @param ticks - The tick values, in order
  * @param timeSpanMs - The visible time span in milliseconds
  * @returns One label per tick
  */
-export function formatTimeAxisTicks(
-  ticks: Date[],
-  timeSpanMs: number,
-  calendar: GraphCalendar | null = getActiveCalendar(),
-  utc = false
-): string[] {
+export function formatTimeAxisTicks(ticks: Date[], timeSpanMs: number, utc = false): string[] {
   const preferred = getTimeAxisFormat(timeSpanMs)
   const start = Math.max(0, TIME_AXIS_FORMAT_LADDER.indexOf(preferred as (typeof TIME_AXIS_FORMAT_LADDER)[number]))
-  const format = (name: string, tick: Date) => formatAxisLabel(name, tick, calendar, utc)
-
   for (const name of TIME_AXIS_FORMAT_LADDER.slice(start)) {
-    const labels = ticks.map((tick) => format(name, tick))
+    const labels = ticks.map((tick) => formatAxisLabel(name, tick, utc))
     if (new Set(labels).size === labels.length) return labels
   }
-  return ticks.map((tick) => format('%H:%M:%S', tick))
+  return ticks.map((tick) => formatAxisLabel('%H:%M:%S', tick, utc))
 }
 
 /**
- * Move year ticks onto the world's round years ("20 before AR", "1 AR",
- * "20 AR", ...), keeping d3's step: `alignYearTicksToCalendar` in
- * `@althistory/calendar` (calendar/src/axis.ts), with the active graph's
- * calendar when none is given.
- *
- * @param ticks - The scale's ticks, in order
- * @param domain - The visible domain; moved ticks outside it are dropped
- * @param calendar - The world calendar (default: the active graph's)
- * @param utc - Whether the ticks are UTC (`d3.scaleUtc`) or local time (`d3.scaleTime`)
+ * A time axis's ticks and their labels. In a world calendar, its own: years,
+ * months, days and hours of the world, labelled in its notation
+ * (`worldTicks`, docs/specs/world-calendars.md Req 17). Otherwise d3's UTC
+ * ticks, labelled by the span. At most about `count` ticks either way.
  */
-export function alignYearTicksToCalendar(
-  ticks: Date[],
-  domain: [Date, Date] | Date[],
-  calendar: GraphCalendar | null = getActiveCalendar(),
-  utc = false
-): Date[] {
-  return alignYearTicks(ticks, domain, calendar, utc)
+export function axisTicks(
+  domain: readonly [Date, Date] | readonly Date[],
+  count: number,
+  calendar: GraphCalendar | null = getActiveCalendar()
+): Array<{ date: Date; label: string }> {
+  const start = +domain[0]!
+  const end = +domain[domain.length - 1]!
+  if (calendar) {
+    return worldTicks(calendarIn(calendar), [start, end], Math.max(2, count)).map((tick) => ({
+      date: new Date(tick.position),
+      label: tick.label,
+    }))
+  }
+  const ticks = d3.scaleUtc().domain([new Date(start), new Date(end)]).ticks(Math.max(2, count))
+  const labels = formatTimeAxisTicks(ticks, Math.abs(end - start), true)
+  return ticks.map((date, index) => ({ date, label: labels[index]! }))
 }
 
 /**

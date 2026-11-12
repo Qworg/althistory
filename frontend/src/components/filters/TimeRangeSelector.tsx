@@ -2,10 +2,9 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { TimeRange } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
-import { WorldDateHint } from '@/components/ui/WorldDateHint'
+import { DateField } from '@/components/ui/DateField'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { describedBy, worldDateOf } from '@/utils/worldDateHint'
-import { readDateField } from '@althistory/calendar'
+import { dateFieldIso, dateFieldValue } from '@/utils/dateField'
 
 interface TimeRangeSelectorProps {
   value: TimeRange | null
@@ -29,16 +28,17 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
 
-  // Update local state when value changes
+  // Update local state when value changes: a UTC picker's value, or the
+  // world's notation in the calendar shown.
   useEffect(() => {
     if (value) {
-      setStartDate(value.start.toISOString().slice(0, 16))
-      setEndDate(value.end.toISOString().slice(0, 16))
+      setStartDate(dateFieldValue(value.start, 'datetime', { calendar: worldCalendar, edge: 'start' }))
+      setEndDate(dateFieldValue(value.end, 'datetime', { calendar: worldCalendar, edge: 'end' }))
     } else {
       setStartDate('')
       setEndDate('')
     }
-  }, [value])
+  }, [value, worldCalendar])
 
   // Calculate date range from events
   const eventDateRange = React.useMemo(() => {
@@ -53,14 +53,16 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
 
   const handleDateChange = useCallback(() => {
     if (startDate && endDate) {
-      // The fields hold UTC wall-clock times (they are filled from
-      // toISOString), as every historical date is; read in the browser's zone
-      // they moved by its offset on each round trip through `value`. A value
-      // that is not a real date and time sends no range, rather than an
-      // invalid one or (in Chrome) the day it rolls over into.
-      const start = readDateField(startDate)?.date
-      const end = readDateField(endDate)?.date
-      if (!start || !end) return
+      // The fields hold UTC wall-clock times, as every historical date is
+      // (read in the browser's zone they moved by its offset on each round
+      // trip through `value`), or dates in the world's notation. A value
+      // that is not a real date sends no range, rather than an invalid one
+      // or (in Chrome) the day it rolls over into.
+      const startIso = dateFieldIso(startDate, { calendar: worldCalendar, edge: 'start' })
+      const endIso = dateFieldIso(endDate, { calendar: worldCalendar, edge: 'end' })
+      if (!startIso || !endIso) return
+      const start = new Date(startIso)
+      const end = new Date(endIso)
 
       if (start <= end) {
         onChange({ start, end })
@@ -71,7 +73,7 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
     } else if (!startDate && !endDate) {
       onChange(null)
     }
-  }, [startDate, endDate, onChange])
+  }, [startDate, endDate, onChange, worldCalendar])
 
   // Apply date changes when inputs change
   useEffect(() => {
@@ -137,35 +139,33 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
           <label htmlFor="startDate" className="block text-sm font-medium text-ink-secondary mb-1">
             Start Date & Time
           </label>
-          <input
+          <DateField
             id="startDate"
-            type="datetime-local"
+            kind="datetime"
+            edge="start"
             value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            aria-describedby={describedBy(worldDateOf(startDate, worldCalendar) && 'time-range-start-world')}
+            onChange={setStartDate}
             className="w-full px-3 py-2 border border-line bg-card text-ink rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent"
             disabled={disabled}
             min={eventDateRange?.min.toISOString().slice(0, 16)}
             max={eventDateRange?.max.toISOString().slice(0, 16)}
           />
-          <WorldDateHint id="time-range-start-world" value={startDate} />
         </div>
         <div>
           <label htmlFor="endDate" className="block text-sm font-medium text-ink-secondary mb-1">
             End Date & Time
           </label>
-          <input
+          <DateField
             id="endDate"
-            type="datetime-local"
+            kind="datetime"
+            edge="end"
             value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            aria-describedby={describedBy(worldDateOf(endDate, worldCalendar) && 'time-range-end-world')}
+            onChange={setEndDate}
             className="w-full px-3 py-2 border border-line bg-card text-ink rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent"
             disabled={disabled}
             min={eventDateRange?.min.toISOString().slice(0, 16)}
             max={eventDateRange?.max.toISOString().slice(0, 16)}
           />
-          <WorldDateHint id="time-range-end-world" value={endDate} />
         </div>
       </div>
 

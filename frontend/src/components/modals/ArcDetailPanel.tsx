@@ -1,44 +1,12 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Arc, Event, UpdateArcRequest, CreateArcRequest } from '@/types'
 import { formatDuration } from '../timeline/arcHierarchyUtils'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
-import { WorldDateHint } from '@/components/ui/WorldDateHint'
+import { DateField } from '@/components/ui/DateField'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { describedBy, worldDateOf } from '@/utils/worldDateHint'
-
-// Helper to convert an ISO instant to a datetime-local value (YYYY-MM-DDTHH:mm), in UTC
-const isoToDatetimeLocal = (isoString: string): string => {
-  if (!isoString) return ''
-  try {
-    const date = new Date(isoString)
-    if (isNaN(date.getTime())) return ''
-    const year = String(date.getUTCFullYear()).padStart(4, '0')
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0')
-    const day = String(date.getUTCDate()).padStart(2, '0')
-    const hours = String(date.getUTCHours()).padStart(2, '0')
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0')
-    return `${year}-${month}-${day}T${hours}:${minutes}`
-  } catch {
-    return ''
-  }
-}
-
-// Helper to convert a datetime-local value, read as UTC, to an ISO instant
-const datetimeLocalToIso = (datetimeLocal: string): string => {
-  if (!datetimeLocal) return ''
-  try {
-    // The field is a UTC wall-clock time: historical dates are stored as UTC
-    // instants, and reading it in the browser's zone shifted them (before
-    // standard time, by local mean time's odd seconds as well).
-    const hasZone = /(Z|[+-]\d\d:\d\d)$/.test(datetimeLocal)
-    const date = new Date(hasZone ? datetimeLocal : `${datetimeLocal}Z`)
-    if (isNaN(date.getTime())) return ''
-    return date.toISOString()
-  } catch {
-    return ''
-  }
-}
+import { describedBy } from '@/utils/aria'
+import { dateFieldIso, dateFieldValue, readDateFieldValue } from '@/utils/dateField'
 
 export interface ArcDetailPanelProps {
   arc: Arc | null
@@ -67,6 +35,13 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
 }) => {
   // The graph's world calendar, for the hint under each stored date.
   const worldCalendar = useWorldCalendar()
+  // A field's value and its instant: a UTC picker, or the world's notation.
+  // (A new calendar shown rewrites the fields: their text is read in it.)
+  const toField = useCallback(
+    (iso: string, edge: 'start' | 'end') => dateFieldValue(iso, 'datetime', { calendar: worldCalendar, edge }),
+    [worldCalendar]
+  )
+  const toIso = (value: string, edge: 'start' | 'end') => dateFieldIso(value, { calendar: worldCalendar, edge })
   const isCreateMode = !arc
   const [formData, setFormData] = useState<UpdateArcRequest>({})
   const [isLoading, setIsLoading] = useState(false)
@@ -78,8 +53,8 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
       setFormData({
         name: arc.name,
         description: arc.description,
-        start_time: isoToDatetimeLocal(arc.start_time),
-        end_time: isoToDatetimeLocal(arc.end_time),
+        start_time: toField(arc.start_time, 'start'),
+        end_time: toField(arc.end_time, 'end'),
         parent_arc_id: arc.parent_arc_id
       })
     } else {
@@ -94,7 +69,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
       })
     }
     setErrors({})
-  }, [arc, isOpen])
+  }, [arc, isOpen, toField])
 
   // Close panel when Escape key is pressed
   useEffect(() => {
@@ -135,9 +110,16 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
       newErrors.end_time = 'End time is required'
     }
 
+    // A date the field cannot read says why (in a world, typed in its notation).
+    for (const edge of ['start', 'end'] as const) {
+      const value = formData[`${edge}_time`]
+      const read = value ? readDateFieldValue(value, { calendar: worldCalendar, edge }) : null
+      if (read && !read.ok) newErrors[`${edge}_time`] = read.error
+    }
+
     if (formData.start_time && formData.end_time) {
-      const startTime = new Date(datetimeLocalToIso(formData.start_time))
-      const endTime = new Date(datetimeLocalToIso(formData.end_time))
+      const startTime = new Date(toIso(formData.start_time, 'start'))
+      const endTime = new Date(toIso(formData.end_time, 'end'))
       
       if (startTime >= endTime) {
         newErrors.end_time = 'End time must be after start time'
@@ -167,8 +149,8 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
     setIsLoading(true)
     try {
       // Convert datetime-local format to ISO strings for API
-      const start_time = datetimeLocalToIso(formData.start_time || '')
-      const end_time = datetimeLocalToIso(formData.end_time || '')
+      const start_time = toIso(formData.start_time || '', 'start')
+      const end_time = toIso(formData.end_time || '', 'end')
 
       if (isCreateMode && onCreate) {
         // Create mode - ensure all required fields are present
@@ -310,19 +292,19 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
                   <label htmlFor="arc-start-time" className="block text-sm font-medium text-ink-secondary mb-1">
                     Start Time <span className="text-red-500">*</span>
                   </label>
-                  <input
+                  <DateField
                     id="arc-start-time"
-                    type="datetime-local"
+                    kind="datetime"
+                    edge="start"
                     value={formData.start_time || ''}
-                    onChange={(e) => handleInputChange('start_time', e.target.value)}
+                    onChange={(value) => handleInputChange('start_time', value)}
                     aria-required="true"
                     aria-invalid={!!errors.start_time}
-                    aria-describedby={describedBy(errors.start_time && 'arc-start-time-error', worldDateOf(formData.start_time, worldCalendar) && 'arc-start-time-world')}
+                    aria-describedby={describedBy(errors.start_time && 'arc-start-time-error')}
                     className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
                       errors.start_time ? 'border-red-300' : 'border-line'
                     }`}
                   />
-                  <WorldDateHint id="arc-start-time-world" value={formData.start_time || ''} />
                   {errors.start_time && <p id="arc-start-time-error" role="alert" className="mt-1 text-sm text-red-600">{errors.start_time}</p>}
                 </div>
 
@@ -330,19 +312,19 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
                   <label htmlFor="arc-end-time" className="block text-sm font-medium text-ink-secondary mb-1">
                     End Time <span className="text-red-500">*</span>
                   </label>
-                  <input
+                  <DateField
                     id="arc-end-time"
-                    type="datetime-local"
+                    kind="datetime"
+                    edge="end"
                     value={formData.end_time || ''}
-                    onChange={(e) => handleInputChange('end_time', e.target.value)}
+                    onChange={(value) => handleInputChange('end_time', value)}
                     aria-required="true"
                     aria-invalid={!!errors.end_time}
-                    aria-describedby={describedBy(errors.end_time && 'arc-end-time-error', worldDateOf(formData.end_time, worldCalendar) && 'arc-end-time-world')}
+                    aria-describedby={describedBy(errors.end_time && 'arc-end-time-error')}
                     className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
                       errors.end_time ? 'border-red-300' : 'border-line'
                     }`}
                   />
-                  <WorldDateHint id="arc-end-time-world" value={formData.end_time || ''} />
                   {errors.end_time && <p id="arc-end-time-error" role="alert" className="mt-1 text-sm text-red-600">{errors.end_time}</p>}
                 </div>
               </div>

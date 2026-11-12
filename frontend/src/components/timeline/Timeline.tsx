@@ -3,7 +3,7 @@ import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { type ArcWithUIState, calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
-import { alignYearTicksToCalendar, formatDuration, formatTimeAxisTicks } from '@/utils/d3Calculations'
+import { axisTicks, formatDuration } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import EventArcAssignment from './EventArcAssignment'
 import PressureIndicators from './PressureIndicators'
@@ -1707,21 +1707,15 @@ const Timeline = memo(function Timeline({
           <g transform={`translate(0,${axisY})`}>
             <line x1={0} y1={0} x2={innerWidth} y2={0} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
             {(() => {
-              const range = currentRange
-              const timeSpanMs = range.end.getTime() - range.start.getTime()
               // 12px monospace labels need about 96px each.
               const maxTicks = Math.min(10, Math.floor(innerWidth / 96))
-              // Use count-based ticks for reliability, format based on time span
-              // Ticks and labels in UTC, as the event labels read every
-              // date: local-time ticks put 1 January 1843 (UTC) on the wrong
-              // side of the "1843" tick west of Greenwich. The positions are
-              // the same linear scale either way.
-              const utcTicks = d3.scaleUtc().domain(xScale.domain()).ticks(maxTicks > 0 ? maxTicks : 5)
-              // In a world calendar, multi-year steps land on the world's round years.
-              const ticks = alignYearTicksToCalendar(utcTicks, xScale.domain(), worldCalendar, true)
-              // Labelled as a set, so two ticks never share a label.
-              const labels = formatTimeAxisTicks(ticks, timeSpanMs, worldCalendar, true)
-              return ticks.map((tick, i) => (
+              // Ticks and labels in UTC, as the event labels read every date
+              // (local-time ticks put 1 January 1843 (UTC) on the wrong side
+              // of the "1843" tick west of Greenwich); in a world calendar, on
+              // its own years, months, days and hours. Labelled as a set, so
+              // two ticks never share a label.
+              const ticks = axisTicks(xScale.domain(), maxTicks > 0 ? maxTicks : 5, worldCalendar)
+              return ticks.map(({ date: tick, label }, i) => (
                 <g key={i} transform={`translate(${xScale(tick)},0)`}>
                   <line y1={0} y2={6} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
                   <text
@@ -1731,7 +1725,7 @@ const Timeline = memo(function Timeline({
                     className="font-mono-code"
                     style={{ fill: 'var(--text-muted)' }}
                   >
-                    {labels[i]}
+                    {label}
                   </text>
                 </g>
               ))

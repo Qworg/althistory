@@ -1,7 +1,7 @@
 import { Event, CausalRelationship, GraphCalendar } from '@/types'
 import { formatHistoricalDate } from '@/utils/historicalTime'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { sameCalendar } from '@althistory/calendar'
+import { sameCalendarSet } from '@althistory/calendar'
 
 /**
  * The world calendars of the two graphs compared. Each is the graph's own
@@ -28,7 +28,7 @@ export function comparisonCalendar(
   const counterfactual = calendars.counterfactual === undefined ? getActiveCalendar() : calendars.counterfactual
   if (side === 'baseline') return baseline
   if (side === 'counterfactual') return counterfactual
-  return sameCalendar(baseline, counterfactual) ? baseline : null
+  return sameCalendarSet(baseline, counterfactual) ? baseline : null
 }
 
 /** Which side an item's date belongs to. */

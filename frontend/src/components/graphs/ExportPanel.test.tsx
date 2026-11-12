@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { UseQueryResult } from '@tanstack/react-query'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ExportPanel } from './ExportPanel'
 import { useExportManagement } from '@/hooks/useExport'
 import { useActiveGraphId, useActiveGraph } from '@/hooks/useGraphs'
 import { AlthistoryExport, ExportJob, Graph } from '@/types'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
+import { VAEL, vael } from '@/test/fixtures/worldCalendars'
 
 // Mock dependencies
 vi.mock('@/hooks/useExport')
@@ -717,27 +718,52 @@ describe('ExportPanel in a world calendar', () => {
 
   afterEach(() => useWorldCalendarStore.getState().setCalendar(null))
 
-  it('says what a typed (stored) date reads as, and ties the hint to its field', async () => {
-    useWorldCalendarStore.getState().setCalendar({ epochYear: 1000, eraLabel: 'AR' })
-    const { container } = render(<ExportPanel />)
+  it("takes the range in the world's notation, and sends the instants it names", async () => {
+    useWorldCalendarStore.getState().setCalendar(VAEL)
+    const mockExportManagement = createMockExportManagement()
+    vi.mocked(useExportManagement).mockReturnValue(mockExportManagement)
+    render(<ExportPanel />)
     await user.click(screen.getByRole('button', { name: /Export/i }))
     await user.click(screen.getByText('Only some events'))
     await user.click(screen.getByText('Choose which events'))
 
-    const [start] = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]'))
-    expect(start).not.toHaveAttribute('aria-describedby')
-    fireEvent.change(start!, { target: { value: '1311-03-04' } })
-    expect(screen.getByText('= Mar 4, 312 AR')).toHaveAttribute('id', 'export-start-world')
-    expect(start).toHaveAttribute('aria-describedby', 'export-start-world')
+    const start = screen.getByLabelText('Export from')
+    const end = screen.getByLabelText('Export until')
+    expect(start).toHaveAttribute('type', 'text')
+    await user.type(start, 'Thaw 312 AR')
+    await user.type(end, 'Thaw 4, 312 AR')
+    await user.click(screen.getByRole('button', { name: /Prepare export file/i }))
+
+    await waitFor(() => {
+      expect(mockExportManagement.createExport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filters: expect.objectContaining({
+            // The month from its first moment; the day to its last.
+            timeRange: { start: vael(312, 2, 1).toISOString(), end: new Date(vael(312, 2, 5).getTime() - 1).toISOString() },
+          }),
+        })
+      )
+    })
   })
 
-  it('shows no hint without a calendar', async () => {
+  it('says what it cannot read once the field is left', async () => {
+    useWorldCalendarStore.getState().setCalendar(VAEL)
+    render(<ExportPanel />)
+    await user.click(screen.getByRole('button', { name: /Export/i }))
+    await user.click(screen.getByText('Only some events'))
+    await user.click(screen.getByText('Choose which events'))
+    const start = screen.getByLabelText('Export from')
+    await user.type(start, 'Thaw 31, 312 AR')
+    await user.tab()
+    expect(screen.getByText(/Thaw has 30 days/)).toBeInTheDocument()
+    expect(start).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('keeps the date pickers without a calendar', async () => {
     const { container } = render(<ExportPanel />)
     await user.click(screen.getByRole('button', { name: /Export/i }))
     await user.click(screen.getByText('Only some events'))
     await user.click(screen.getByText('Choose which events'))
-    const [start] = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]'))
-    fireEvent.change(start!, { target: { value: '1311-03-04' } })
-    expect(screen.queryByText(/^= /)).not.toBeInTheDocument()
+    expect(container.querySelectorAll('input[type="date"]')).toHaveLength(2)
   })
 })

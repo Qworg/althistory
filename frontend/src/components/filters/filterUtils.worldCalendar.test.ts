@@ -1,20 +1,51 @@
 import { describe, expect, it } from 'vitest'
-import { worldBoundLabel } from './filterUtils'
+import { fromPanelFilters, readDateBound, toPanelFilters } from './filterUtils'
+import type { FilterState } from '@/types'
+import { VAEL, vael } from '@/test/fixtures/worldCalendars'
 
-const AR = { epochYear: 1000, eraLabel: 'AR' }
+const SHOWN_TIDE = { ...VAEL, primary: 'tide' }
 
-describe('worldBoundLabel', () => {
-  it('reads a typed (stored) bound in the world calendar, at the precision typed', () => {
-    expect(worldBoundLabel('1311', 'start', AR)).toBe('312 AR')
-    expect(worldBoundLabel('1311', 'end', AR)).toBe('312 AR')
-    expect(worldBoundLabel('1311-03', 'end', AR)).toBe('Mar 312 AR')
-    expect(worldBoundLabel('1311-03-04', 'end', AR)).toBe('Mar 4, 312 AR')
-    expect(worldBoundLabel('999', 'start', AR)).toBe('1 before AR')
+const NO_FILTERS: FilterState = {
+  dateRange: null,
+  actors: [],
+  targets: [],
+  eventTypes: [],
+  arcLevels: [],
+  causalWeightRange: [0, 1],
+  confidenceThreshold: 0,
+  searchQuery: '',
+}
+
+describe('date bounds in a world calendar', () => {
+  it("reads a year, a month or a day in the world's notation, as the whole period", () => {
+    const year = readDateBound('312 AR', 'start', VAEL)
+    expect(year.ok && year.date.getTime()).toBe(vael(312, 0, 1).getTime())
+    const month = readDateBound('Thaw 312 AR', 'end', VAEL)
+    expect(month.ok && month.date.getTime()).toBe(vael(312, 3, 1).getTime() - 1)
+    const festival = readDateBound("Midyear's Day, 312 AR", 'start', VAEL)
+    expect(festival.ok && festival.text).toBe("Midyear's Day, 312 AR")
   })
 
-  it('is null without a calendar or a readable bound', () => {
-    expect(worldBoundLabel('1311', 'start', null)).toBeNull()
-    expect(worldBoundLabel('', 'start', AR)).toBeNull()
-    expect(worldBoundLabel('13x1', 'start', AR)).toBeNull()
+  it('refuses a day the world does not have, and a time of day, with the reason', () => {
+    const missing = readDateBound('Thaw 31, 312 AR', 'start', VAEL)
+    expect(missing.ok).toBe(false)
+    if (!missing.ok) expect(missing.error).toMatch(/Thaw has 30 days/)
+    expect(readDateBound('Thaw 4, 312 AR, 06:00', 'start', VAEL).ok).toBe(false)
+  })
+
+  it('writes the store’s bounds in the calendar shown, and reads them back as the same instants', () => {
+    const filters = { ...NO_FILTERS, dateRange: { start: vael(312, 0, 1), end: new Date(vael(313, 0, 1).getTime() - 1) } }
+    const panel = toPanelFilters(filters, VAEL)
+    expect(panel.dateRange).toEqual({ start: '312 AR', end: '312 AR' })
+    expect(fromPanelFilters(panel, VAEL).dateRange).toEqual(filters.dateRange)
+    // In the Tide-count the same instants are days of its own.
+    const tide = toPanelFilters(filters, SHOWN_TIDE)
+    expect(tide.dateRange?.start).toMatch(/ TC$/)
+    expect(fromPanelFilters(tide, SHOWN_TIDE).dateRange?.start.getTime()).toBeLessThanOrEqual(vael(312, 0, 1).getTime())
+  })
+
+  it('still reads a stored bound from a link made before', () => {
+    const bound = readDateBound('1843-11', 'start', VAEL)
+    expect(bound.ok && bound.date.toISOString()).toBe('1843-11-01T00:00:00.000Z')
   })
 })
