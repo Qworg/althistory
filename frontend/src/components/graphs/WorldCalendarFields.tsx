@@ -35,6 +35,8 @@ interface WorldCalendarFieldsProps {
 
 const INPUT_CLASS =
   'w-full min-w-0 px-2 py-1.5 border rounded-md bg-card text-ink text-sm placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-selected disabled:opacity-50'
+const SELECT_CLASS =
+  'min-w-0 max-w-full px-2 py-1.5 border border-line rounded-md bg-card text-ink text-sm focus:outline-none focus:ring-2 focus:ring-selected disabled:opacity-50'
 const SMALL_BUTTON = 'rounded border border-line px-2 py-1 text-xs text-ink hover:bg-subtle disabled:opacity-40'
 const ICON_BUTTON = 'rounded px-1.5 py-1 text-xs text-ink-secondary hover:bg-subtle hover:text-ink disabled:opacity-30'
 
@@ -222,8 +224,9 @@ function CalendarEditor({
         </p>
         <ul className="mt-2 space-y-1.5">
           {calendar.parts.map((part, partIndex) => (
-            <li key={partIndex} className="flex flex-wrap items-start gap-1.5">
-              <div className="flex-[2_1_8rem]">
+            <li key={partIndex} className="flex flex-wrap items-start gap-1 sm:flex-nowrap">
+              {/* On a phone the name has the line to itself; its days and controls go under it. */}
+              <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
                 <Field
                   id={id(`part${partIndex}-name`)}
                   label={`${part.festival ? 'Festival' : 'Month'} ${partIndex + 1} name`}
@@ -235,7 +238,7 @@ function CalendarEditor({
                   placeholder={part.festival ? 'Midwinter' : 'Thaw'}
                 />
               </div>
-              <div className="w-20">
+              <div className="w-14 shrink-0">
                 <Field
                   id={id(`part${partIndex}-days`)}
                   label={`${part.name || `Part ${partIndex + 1}`}: days`}
@@ -249,7 +252,7 @@ function CalendarEditor({
                   mono
                 />
               </div>
-              <label className="flex items-center gap-1 py-1.5 text-xs text-ink-secondary">
+              <label className="flex shrink-0 items-center gap-1 py-1.5 text-xs text-ink-secondary">
                 <input
                   type="checkbox"
                   checked={part.festival}
@@ -257,7 +260,7 @@ function CalendarEditor({
                 />
                 Festival
               </label>
-              <span className="flex">
+              <span className="flex shrink-0">
                 <button
                   type="button"
                   className={ICON_BUTTON}
@@ -335,7 +338,7 @@ function CalendarEditor({
                   mono
                 />
               </div>
-              <span>years from year</span>
+              <span>years, counting from year</span>
               <div className="w-16">
                 <Field
                   id={id(`rule${ruleIndex}-offset`)}
@@ -350,7 +353,7 @@ function CalendarEditor({
                   mono
                 />
               </div>
-              <span>,</span>
+              <span>:</span>
               <label className="sr-only" htmlFor={id(`rule${ruleIndex}-part`)}>
                 Rule {ruleIndex + 1}: which month
               </label>
@@ -358,7 +361,7 @@ function CalendarEditor({
                 id={id(`rule${ruleIndex}-part`)}
                 value={rule.part}
                 onChange={(event) => changeRule(ruleIndex, { part: event.target.value })}
-                className={`${INPUT_CLASS} w-auto border-line`}
+                className={SELECT_CLASS}
               >
                 {calendar.parts.map((part, partIndex) => (
                   <option key={partIndex} value={String(partIndex)}>
@@ -380,7 +383,7 @@ function CalendarEditor({
                   mono
                 />
               </div>
-              <span>days</span>
+              <span>more days</span>
               <button
                 type="button"
                 className={ICON_BUTTON}
@@ -420,8 +423,8 @@ function CalendarEditor({
         />
         <ul className="space-y-1.5">
           {calendar.eras.map((era, eraIndex) => (
-            <li key={eraIndex} className="flex flex-wrap items-start gap-1.5">
-              <div className="flex-[2_1_8rem]">
+            <li key={eraIndex} className="flex items-start gap-1.5">
+              <div className="min-w-0 flex-1">
                 <Field
                   id={id(`era${eraIndex}-label`)}
                   label={`Era ${eraIndex + 1} label`}
@@ -434,7 +437,7 @@ function CalendarEditor({
                   placeholder="AR"
                 />
               </div>
-              <div className="w-28">
+              <div className="w-24 shrink-0">
                 <Field
                   id={id(`era${eraIndex}-from`)}
                   label="Its year 1 is year"
@@ -450,7 +453,7 @@ function CalendarEditor({
               </div>
               <button
                 type="button"
-                className={`${ICON_BUTTON} mt-5`}
+                className={`${ICON_BUTTON} self-end mb-1`}
                 aria-label={`Remove era ${era.label || eraIndex + 1}`}
                 onClick={() => change({ eras: calendar.eras.filter((_, position) => position !== eraIndex) })}
               >
@@ -506,7 +509,7 @@ function CalendarEditor({
               <select
                 value={calendar.epochWeekday || '0'}
                 onChange={(event) => change({ epochWeekday: event.target.value })}
-                className={`${INPUT_CLASS} w-auto border-line`}
+                className={SELECT_CLASS}
               >
                 {weekDayNames.map((name, position) => (
                   <option key={position} value={String(position)}>
