@@ -1,4 +1,4 @@
-import { type WorldCalendarSet, datePrecisionOf, formatDateEntry, parseIsoInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, dateCalendarOf, datePrecisionOf, formatDateEntry, parseIsoInstant } from '@althistory/calendar';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -21,7 +21,9 @@ export function withWorldDates(output: unknown, calendar: WorldCalendarSet): unk
     result[key] = key === 'calendar' || key === 'metadata' ? value : withWorldDates(value, calendar);
   }
   const metadata = isRecord(output.metadata) ? output.metadata : undefined;
-  if (isIso(output.timestamp)) result.worldDate = formatDateEntry(output.timestamp, datePrecisionOf(metadata), calendar);
+  if (isIso(output.timestamp)) {
+    result.worldDate = formatDateEntry(output.timestamp, datePrecisionOf(metadata), calendar, 'start', dateCalendarOf(metadata));
+  }
   if (isIso(output.startTime)) result.worldStart = formatDateEntry(output.startTime, 'day', calendar, 'start');
   if (isIso(output.endTime)) result.worldEnd = formatDateEntry(output.endTime, 'day', calendar, 'end');
   return result;

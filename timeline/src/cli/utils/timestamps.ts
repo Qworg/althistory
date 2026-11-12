@@ -8,7 +8,16 @@
  * guessed at in the host's zone.
  */
 
-import { type WorldCalendarSet, calendarIn, formatInWorld, parseIsoInstant, readWorldTimestamp } from '@althistory/calendar';
+import {
+  type WorldCalendarSet,
+  calendarIn,
+  datePrecisionMetadata,
+  formatInWorld,
+  parseIsoInstant,
+  readWorldTimestamp,
+  unreadDateReason,
+  withDatePrecision,
+} from '@althistory/calendar';
 import { ValidationErrorCLI } from './exitCodes';
 
 export interface AgentTimestamp {
@@ -16,6 +25,8 @@ export interface AgentTimestamp {
   iso: string;
   /** How much the text stated: a month or a year alone is stored as its first day with this noted. */
   precision: 'day' | 'month' | 'year';
+  /** The world calendar it was written in, when it was. */
+  calendar?: string;
 }
 
 /** Whether text is ISO 8601, which needs no calendar to read. */
@@ -33,9 +44,11 @@ export function readAgentTimestamp(text: string, calendar?: WorldCalendarSet, ed
   // As an end, a world date without a time is the last moment of what it names (the package's rule).
   const read = readWorldTimestamp(calendar, String(text), edge);
   if (!read) {
-    const example = calendar ? `a date in the world's calendar, such as "${worldExample(calendar)}", or ` : '';
+    if (calendar) {
+      throw new ValidationErrorCLI(`Invalid timestamp: ${unreadDateReason(calendar, String(text))} A date in the world's calendar reads like "${worldExample(calendar)}".`);
+    }
     throw new ValidationErrorCLI(
-      `Invalid timestamp: ${text}. Give ${example}an ISO 8601 date, such as 1843-11-20, 1843-11-20T14:30 (UTC) or 1871-03`
+      `Invalid timestamp: ${text}. Give an ISO 8601 date, such as 1843-11-20, 1843-11-20T14:30 (UTC) or 1871-03`
     );
   }
   return read;
@@ -47,9 +60,9 @@ function worldExample(calendar: WorldCalendarSet): string {
   return formatInWorld(calendar, primary.definition.epoch * primary.dayMs);
 }
 
-/** The metadata that records a month or a year given alone, as ingestion records it. */
+/** The metadata that records a month or a year given alone (and its calendar), as every door records it. */
 export function precisionMetadata(read: AgentTimestamp): Record<string, unknown> {
-  return read.precision === 'day' ? {} : { datePrecision: read.precision };
+  return datePrecisionMetadata(read);
 }
 
 /**
@@ -61,6 +74,5 @@ export function withNewDatePrecision(
   metadata: Record<string, unknown> | undefined,
   read: AgentTimestamp
 ): Record<string, unknown> {
-  const { datePrecision: _replaced, ...rest } = metadata ?? {};
-  return { ...rest, ...precisionMetadata(read) };
+  return withDatePrecision(metadata, read);
 }

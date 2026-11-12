@@ -2,7 +2,7 @@ import { Event, Arc } from '@/models';
 import { CausalRelationship, CausalRelationshipType } from '@/models/relationships';
 import { ValidationIssueDto, ValidationReportDto } from '../types';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { type WorldCalendarSet, formatInWorld } from '@althistory/calendar';
+import { type WorldCalendarSet, formatDateEntry, formatInWorld } from '@althistory/calendar';
 
 export interface ScopedGraphServices {
   eventRepository: {
@@ -121,6 +121,8 @@ export interface ValidationOptions {
 export class GraphValidator {
   /** A date as a message names it (the details keep the instant alone). */
   private when: (date: Date) => string = (date) => date.toISOString();
+  /** An arc's end as a message names it: the day it ends, when it ends with that day. */
+  private whenEnd: (date: Date) => string = (date) => date.toISOString();
 
   /**
    * Validates graph data and optionally performs self-healing repairs.
@@ -133,6 +135,9 @@ export class GraphValidator {
     const calendar = options?.calendar;
     this.when = calendar
       ? (date) => `${formatInWorld(calendar, date.getTime())}, ${date.toISOString()}`
+      : (date) => date.toISOString();
+    this.whenEnd = calendar
+      ? (date) => `${formatDateEntry(date, 'day', calendar, 'end')}, ${date.toISOString()}`
       : (date) => date.toISOString();
     const strict = options?.strict ?? false;
     const autoRepair = options?.autoRepair ?? false;
@@ -191,7 +196,7 @@ export class GraphValidator {
         issues.push({
           type: 'temporal',
           severity: 'error',
-          message: `Arc "${arc.name}" (${arc.id}) start_time (${this.when(arc.start_time)}) is after end_time (${this.when(arc.end_time)})`,
+          message: `Arc "${arc.name}" (${arc.id}) start_time (${this.when(arc.start_time)}) is after end_time (${this.whenEnd(arc.end_time)})`,
           entityId: arc.id,
           entityType: 'arc',
           details: {
@@ -258,7 +263,7 @@ export class GraphValidator {
             issues.push({
               type: 'containment',
               severity: 'error',
-              message: `Event "${event.description}" (${event.id}, ${this.when(event.timestamp)}) falls outside arc "${arc.name}" bounds (${this.when(arc.start_time)} - ${this.when(arc.end_time)})`,
+              message: `Event "${event.description}" (${event.id}, ${this.when(event.timestamp)}) falls outside arc "${arc.name}" bounds (${this.when(arc.start_time)} - ${this.whenEnd(arc.end_time)})`,
               entityId: event.id,
               entityType: 'event',
               details: {
@@ -478,7 +483,7 @@ export class GraphValidator {
               metadata: arc.metadata,
             }));
             repairsApplied.push(
-              `Expanded arc "${arc.name}" (${arc.id}) boundaries to [${this.when(newStart)} - ${this.when(newEnd)}] to enclose event ${event.id}`
+              `Expanded arc "${arc.name}" (${arc.id}) boundaries to [${this.when(newStart)} - ${this.whenEnd(newEnd)}] to enclose event ${event.id}`
             );
           }
         }

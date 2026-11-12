@@ -44,9 +44,11 @@ describe('date bounds in a world calendar', () => {
     expect(fromPanelFilters(tide, SHOWN_TIDE).dateRange?.start.getTime()).toBeLessThanOrEqual(vael(312, 0, 1).getTime())
   })
 
-  it('still reads a stored bound from a link made before', () => {
-    const bound = readDateBound('1843-11', 'start', VAEL)
-    expect(bound.ok && bound.date.toISOString()).toBe('1843-11-01T00:00:00.000Z')
+  it("reads a link's instant as itself, and refuses year-first text, which names no date of the world's", () => {
+    const bound = readDateBound('2358-11-15T12:00:00.000Z', 'start', VAEL)
+    expect(bound.ok && bound.date.toISOString()).toBe('2358-11-15T12:00:00.000Z')
+    expect(readDateBound('1843-11', 'start', VAEL).ok).toBe(false)
+    expect(readDateBound('312', 'start', VAEL).ok).toBe(false)
   })
 })
 

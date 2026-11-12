@@ -5,8 +5,8 @@
  * Req 18).
  */
 
-import { readTimestamp } from '../instant'
-import type { CalendarDefinition, WorldCalendarSet } from './definition'
+import { parseIsoInstant } from '../instant'
+import { type CalendarDefinition, MAX_TIME, type WorldCalendarSet } from './definition'
 import { calendarIn, dateAt } from './engine'
 import { type WorldPrecision, formatWorldFields, formatWorldPosition, parseWorldText, worldPeriod } from './notation'
 
@@ -15,30 +15,79 @@ export function formatInWorld(set: WorldCalendarSet, position: number, precision
   return formatWorldPosition(calendarIn(set, calendarId), position, precision)
 }
 
+/** What a date read where it enters names: its instant, how much of it is known, and (a world's) the calendar it was given in. */
+export interface ReadTimestamp {
+  iso: string
+  precision: WorldPrecision
+  /** The world calendar the text was written in; absent for ISO 8601. */
+  calendar?: string
+}
+
+/** The last millisecond of the UTC day, month or year an ISO date names. */
+function isoPeriodEnd(start: Date, precision: WorldPrecision): number {
+  const next = new Date(start.getTime())
+  if (precision === 'year') next.setUTCFullYear(next.getUTCFullYear() + 1)
+  else if (precision === 'month') next.setUTCMonth(next.getUTCMonth() + 1)
+  else next.setUTCDate(next.getUTCDate() + 1)
+  return next.getTime() - 1
+}
+
 /**
- * A date as a person or a model wrote it, in a graph that may have a world
- * calendar: the world's notation first (in any of its calendars), then ISO
- * 8601. Read once where it enters, as toISOString's spelling with the
- * precision it stated; an ISO timestamp is the instant it names, at either
- * edge. Null when it is neither.
+ * A date as a person, a program or a model wrote it, read once where it
+ * enters: the one rule every door applies (the API, the CLI and MCP tools,
+ * ingestion, the app's forms).
+ *
+ * - In a world, its notation first, in any of its calendars ("Thaw 4, 312
+ *   AR", "Thaw 312 AR", "312 AR"; a time after a comma).
+ * - Then ISO 8601: a date and time is that instant; a date, a month or a year
+ *   alone ("1871-03") names that UTC period, with its precision. In a world a
+ *   Gregorian month or year is no period of the world's, so only an ISO date
+ *   or date and time is read there.
+ * - With `edge: 'end'`, a day, month or year written without a time is its
+ *   period's last moment (Req 15); a time, even "00:00", is that moment.
+ *
+ * Null when it is none of these: {@link unreadDateReason} says why.
  */
 export function readWorldTimestamp(
   set: WorldCalendarSet | null | undefined,
   text: string,
   edge: 'start' | 'end' = 'start'
-): { iso: string; precision: WorldPrecision } | null {
+): ReadTimestamp | null {
   if (set) {
     const world = parseWorldText(set, text)
     if (world.ok) {
-      // As an end, a day, month or year written without a time is its last moment (Req 15).
-      if (edge === 'end' && !world.timed) {
-        const period = worldPeriod(calendarIn(set, world.calendar), world.fields, world.precision)
-        if (period) return { iso: new Date(period.end).toISOString(), precision: world.precision }
-      }
-      return { iso: new Date(world.position).toISOString(), precision: world.precision }
+      const at = edge === 'end' && !world.timed ? worldPeriod(calendarIn(set, world.calendar), world.fields, world.precision)?.end : world.position
+      if (at === undefined) return null
+      return { iso: new Date(at).toISOString(), precision: world.precision, calendar: world.calendar }
     }
   }
-  return readTimestamp(text)
+  const iso = parseIsoInstant(String(text).trim())
+  if (!iso) return null
+  const precision: WorldPrecision = iso.precision === 'year' || iso.precision === 'month' ? iso.precision : 'day'
+  if (set && precision !== 'day') return null
+  const at = edge === 'end' && iso.dateOnly ? isoPeriodEnd(iso.date, precision) : iso.date.getTime()
+  if (!Number.isFinite(at) || Math.abs(at) > MAX_TIME) return null
+  return { iso: new Date(at).toISOString(), precision }
+}
+
+/** Why {@link readWorldTimestamp} read nothing from the text, as a sentence. */
+export function unreadDateReason(set: WorldCalendarSet | null | undefined, text: string): string {
+  const trimmed = String(text).trim()
+  if (set) {
+    const iso = parseIsoInstant(trimmed)
+    if (iso && (iso.precision === 'year' || iso.precision === 'month')) {
+      const example = formatInWorld(set, calendarIn(set).definition.epoch * calendarIn(set).dayMs, iso.precision)
+      return `"${trimmed}" is a Gregorian ${iso.precision}, which is no ${iso.precision} of this world: give it in the world's calendar ("${example}"), or give a day.`
+    }
+    const world = parseWorldText(set, trimmed)
+    if (!world.ok) return sentence(world.error)
+  }
+  return `"${trimmed}" is not a date: give an ISO 8601 date (1843-11-20, 1843-11-20T14:30, 1871-03).`
+}
+
+const sentence = (text: string) => {
+  const capital = text.trim().charAt(0).toUpperCase() + text.trim().slice(1)
+  return /[.!?]$/.test(capital) ? capital : `${capital}.`
 }
 
 /** "13 months and 2 festivals, 366 or 367 days a year; eras AR": a calendar's shape in a line. */

@@ -826,6 +826,8 @@ export interface ExtractedEvent {
   timestamp: string
   /** How much of the date the source stated; absent means a full date. */
   datePrecision?: 'day' | 'month' | 'year'
+  /** The world calendar a month or year was given in. */
+  dateCalendar?: string
   confidence: number
   source: ExtractionSource
   selected: boolean

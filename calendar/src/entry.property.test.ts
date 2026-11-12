@@ -1,6 +1,19 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { type DateBoundEdge, type DatePrecision, calendarIn, dateAt, formatDateEntry, parseWorldText, readDateEntry } from './index'
+import {
+  type DateBoundEdge,
+  type DatePrecision,
+  calendarIn,
+  dateAt,
+  datePrecisionMetadata,
+  formatDateEntry,
+  formatEventDate,
+  formatHistoricalEnd,
+  parseWorldText,
+  readDateEntry,
+  readWorldTimestamp,
+  withDatePrecision,
+} from './index'
 import * as arb from './test/arbitraries'
 import * as warb from './test/worldArbitraries'
 
@@ -110,5 +123,76 @@ describe('an ISO date typed as an end', () => {
       arb.runs(300)
     )
     expect(readDateEntry('1843 14:30', null).ok).toBe(false)
+  })
+})
+
+describe('one rule for ISO text, at every door', () => {
+  const isoText = fc.tuple(arb.fieldInstant, fc.constantFrom('day', 'month', 'year', 'time') as fc.Arbitrary<'day' | 'month' | 'year' | 'time'>).map(([date, cut]) => {
+    const iso = date.toISOString()
+    return cut === 'time' ? iso : cut === 'day' ? iso.slice(0, 10) : cut === 'month' ? iso.slice(0, 7) : iso.slice(0, 4)
+  })
+
+  it('reads the same instant and precision in a form as the API, CLI and ingestion do', () => {
+    fc.assert(
+      fc.property(isoText, edge, (text, side) => {
+        const door = readWorldTimestamp(null, text, side)
+        const form = readDateEntry(text, null, side)
+        expect(door, text).not.toBeNull()
+        expect(form.ok, text).toBe(true)
+        if (form.ok && door) expect({ iso: form.iso, precision: form.precision }).toEqual({ iso: door.iso, precision: door.precision })
+      }),
+      arb.runs(500)
+    )
+  })
+
+  it('in a world, reads an ISO date or date and time as it does elsewhere, and refuses an ISO month or year, saying why', () => {
+    fc.assert(
+      fc.property(warb.calendarSet, isoText, edge, (set, text, side) => {
+        fc.pre(!parseWorldText(set, text).ok)
+        const plain = readWorldTimestamp(null, text, side)!
+        const world = readWorldTimestamp(set, text, side)
+        const form = readDateEntry(text, set, side)
+        if (plain.precision === 'day') {
+          expect(world).toEqual(plain)
+          expect(form.ok && { iso: form.iso, precision: form.precision }).toEqual(plain)
+        } else {
+          expect(world).toBeNull()
+          expect(form.ok).toBe(false)
+          if (!form.ok) expect(form.error).toMatch(/is a Gregorian (month|year), which is no (month|year) of this world/)
+        }
+      }),
+      arb.runs(500)
+    )
+  })
+
+  it('records the calendar a world date was written in, and shows a month in it', () => {
+    const tide = readWorldTimestamp(VAEL_SET, 'Flooding 312 TC')!
+    expect(tide).toMatchObject({ precision: 'month', calendar: 'tide' })
+    const metadata = datePrecisionMetadata(tide)
+    expect(metadata).toEqual({ datePrecision: 'month', dateCalendar: 'tide' })
+    expect(formatEventDate({ timestamp: tide.iso, metadata }, undefined, VAEL_SET)).toBe('Flooding 312 TC')
+    expect(formatDateEntry(tide.iso, 'month', VAEL_SET, 'start', 'tide')).toBe('Flooding 312 TC')
+    // A new date replaces both.
+    expect(withDatePrecision({ keep: 1, ...metadata }, { precision: 'day' })).toEqual({ keep: 1 })
+  })
+})
+
+/** Two calendars on a world of 30-hour days: the Reckoning and the Tide-count. */
+const VAEL_SET = {
+  version: 2 as const,
+  dayLength: 30 * 3600,
+  primary: 'reckoning',
+  calendars: [
+    { id: 'reckoning', name: 'the Reckoning', parts: ['Lowtide', 'Greywater', 'Thaw', 'Seedtide'].map((name) => ({ name, days: 30 })), epoch: 0, eras: [{ label: 'AR', from: 1 }] },
+    { id: 'tide', name: 'the Tide-count', parts: [{ name: 'Ebbing', days: 60 }, { name: 'Flooding', days: 60 }], epoch: -100, eras: [{ label: 'TC', from: 1 }] },
+  ],
+}
+
+describe("an arc's end as it is shown", () => {
+  it('is the day alone when it ends that day, in a world and without one', () => {
+    expect(formatHistoricalEnd('1871-03-31T23:59:59.999Z', 'en-US', null)).toBe('Mar 31, 1871')
+    expect(formatHistoricalEnd('1871-03-31T12:00:00.000Z', 'en-US', null)).toBe('Mar 31, 1871, 12:00 UTC')
+    const end = readWorldTimestamp(VAEL_SET, 'Thaw 312 AR', 'end')!
+    expect(formatHistoricalEnd(end.iso, undefined, VAEL_SET)).toBe('Thaw 30, 312 AR')
   })
 })

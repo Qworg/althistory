@@ -96,9 +96,14 @@ const ISO_WHOLE_MINUTE = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::00(?:\.0+)?)?Z$/
  * reviewer is typing) is shown as it is. In a world, an extracted timestamp is
  * shown in its notation, at the precision the text gave ("Thaw 312 AR").
  */
-export function compactReviewDate(raw: string, calendar: WorldCalendarSet | null = null, precision: DatePrecision = 'day'): string {
+export function compactReviewDate(
+  raw: string,
+  calendar: WorldCalendarSet | null = null,
+  precision: DatePrecision = 'day',
+  calendarId?: string
+): string {
   const value = raw.trim()
-  if (calendar) return parseIsoInstant(value) ? formatDateEntry(value, precision, calendar) : raw
+  if (calendar) return parseIsoInstant(value) ? formatDateEntry(value, precision, calendar, 'start', calendarId) : raw
   const midnight = ISO_MIDNIGHT.exec(value)
   if (midnight) return `${midnight[1]}-${midnight[2]}-${midnight[3]}`
   const minute = ISO_WHOLE_MINUTE.exec(value)
@@ -112,7 +117,7 @@ export function compactReviewDate(raw: string, calendar: WorldCalendarSet | null
  * same `readWorldTimestamp` as the server's ingestion, so a date that reads
  * here never reads "Invalid date" beneath the field.
  */
-export function readReviewDate(raw: string, calendar: WorldCalendarSet | null = null): { iso: string; precision: DatePrecision } | null {
+export function readReviewDate(raw: string, calendar: WorldCalendarSet | null = null): { iso: string; precision: DatePrecision; calendar?: string } | null {
   return readWorldTimestamp(calendar, raw.trim())
 }
 

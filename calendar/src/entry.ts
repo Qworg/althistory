@@ -16,12 +16,16 @@
 
 import { type DateBoundEdge, boundPrecision, formatBoundAt, parseHistoricalDate } from './bounds'
 import type { DatePrecision } from './describe'
-import { parseIsoInstant, readTimestamp, toInstant } from './instant'
+import { parseIsoInstant, toInstant } from './instant'
+import { formatHistoricalDate, formatHistoricalTimestamp } from './locale'
 import type { WorldCalendarSet } from './world/definition'
 import { calendarIn, dateAt } from './world/engine'
-import { formatWorldFields, parseWorldDate, parseWorldText, worldPeriod } from './world/notation'
+import { readWorldTimestamp, unreadDateReason } from './world/describe'
+import { formatWorldFields, parseWorldDate, worldPeriod } from './world/notation'
 
-export type DateEntryRead = { ok: true; iso: string; precision: DatePrecision } | { ok: false; error: string }
+export type DateEntryRead =
+  | { ok: true; iso: string; precision: DatePrecision; /** The world calendar it was written in. */ calendar?: string }
+  | { ok: false; error: string }
 
 const TIME_SUFFIX = /^(.+?)(?:[ T](\d{1,2}):(\d{2}))$/
 
@@ -37,25 +41,24 @@ export function readDateEntry(text: string, calendar: WorldCalendarSet | null, e
     // itself; then in the world's others (which refuse text two of them read
     // as different dates).
     const shown = parseWorldDate(calendarIn(calendar), trimmed)
-    const read = shown.ok ? shown : parseWorldText(calendar, trimmed)
-    if (read.ok) {
-      let position = read.position
-      if (edge === 'end' && !read.timed) {
-        const period = worldPeriod(calendarIn(calendar, read.calendar), read.fields, read.precision)
+    if (shown.ok) {
+      let position = shown.position
+      if (edge === 'end' && !shown.timed) {
+        const period = worldPeriod(calendarIn(calendar, shown.calendar), shown.fields, shown.precision)
         if (!period) return { ok: false, error: 'That date is beyond the range a date can hold.' }
         position = period.end
       }
-      return { ok: true, iso: new Date(position).toISOString(), precision: read.precision }
+      return { ok: true, iso: new Date(position).toISOString(), precision: shown.precision, calendar: shown.calendar }
     }
-    // A full ISO 8601 date (pasted, say) is a position too; as an end
-    // without a time, the last moment of its (Gregorian, UTC) day, as without a world.
-    const iso = readTimestamp(trimmed)
-    if (iso && iso.precision === 'day') {
-      const dateOnly = parseIsoInstant(trimmed)?.dateOnly ?? false
-      const position = Date.parse(iso.iso) + (edge === 'end' && dateOnly ? 86_400_000 - 1 : 0)
-      return { ok: true, iso: new Date(position).toISOString(), precision: 'day' }
-    }
-    return { ok: false, error: sentence(read.error) }
+    // The world's other calendars, and ISO 8601, as every other door reads them.
+    const read = readWorldTimestamp(calendar, trimmed, edge)
+    if (read) return { ok: true, ...read }
+    return { ok: false, error: unreadDateReason(calendar, trimmed) }
+  }
+  // ISO 8601 as every door reads it (a pasted timestamp; "1871-03" alike either way).
+  if (parseIsoInstant(trimmed)) {
+    const iso = readWorldTimestamp(null, trimmed, edge)
+    if (iso) return { ok: true, iso: iso.iso, precision: iso.precision }
   }
   const timed = TIME_SUFFIX.exec(trimmed)
   const datePart = timed ? timed[1]! : trimmed
@@ -85,7 +88,9 @@ export function formatDateEntry(
   value: string | Date | null | undefined,
   precision: DatePrecision,
   calendar: WorldCalendarSet | null,
-  edge: DateBoundEdge = 'start'
+  edge: DateBoundEdge = 'start',
+  /** In a world, the calendar a month or year was given in (`dateCalendarOf`); it is written in that one. */
+  calendarId?: string
 ): string {
   if (value === null || value === undefined || value === '') return ''
   const position = toInstant(value).getTime()
@@ -93,7 +98,8 @@ export function formatDateEntry(
   // An end on the last moment of its day names the day, as a start on its first does.
   const endsDay = edge === 'end' && isDayStart(position + 1, calendar)
   if (calendar) {
-    const shown = calendarIn(calendar)
+    const own = precision !== 'day' && calendarId && calendar.calendars.some((definition) => definition.id === calendarId) ? calendarId : undefined
+    const shown = calendarIn(calendar, own)
     const date = dateAt(shown, position)
     const day = formatWorldFields(shown, date, precision)
     if (endsDay || precision !== 'day') return day
@@ -118,9 +124,15 @@ function isDayStart(position: number, calendar: WorldCalendarSet | null): boolea
   return position % shown.dayMs === 0
 }
 
-/** A reason as a sentence: capitalised, with a full stop. */
-function sentence(text: string): string {
-  const trimmed = text.trim()
-  const capital = trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
-  return /[.!?]$/.test(capital) ? capital : `${capital}.`
+/**
+ * An end as it is shown (an arc's): the day alone when it is that day's last
+ * moment, as it was typed; otherwise the date and time. "Thaw 30, 312 AR", not
+ * "Thaw 30, 312 AR, 19:99"; "Mar 31, 1871", not "Mar 31, 1871, 23:59 UTC".
+ */
+export function formatHistoricalEnd(value: string | Date | null | undefined, locale: string | undefined, calendar: WorldCalendarSet | null): string {
+  if (value === null || value === undefined || value === '') return 'Invalid date'
+  const date = toInstant(value)
+  if (Number.isNaN(date.getTime())) return 'Invalid date'
+  if (calendar) return formatDateEntry(date, 'day', calendar, 'end')
+  return isDayStart(date.getTime() + 1, null) ? formatHistoricalDate(date, locale, null) : formatHistoricalTimestamp(date, locale, null)
 }

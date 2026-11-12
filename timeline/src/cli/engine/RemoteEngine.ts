@@ -489,8 +489,10 @@ export class RemoteEngine implements IEngine {
         // The daemon only filters by a range when both ends are given, so a
         // one-sided filter is completed with the widest bound that keeps the
         // meaning ("from this date onwards" / "up to this date").
-        params.startTime = filters?.from ?? '0000-01-01T00:00:00.000Z';
-        params.endTime = filters?.to ?? '9999-12-31T23:59:59.999Z';
+        // Each read as every date an agent gives is (in a world, its notation
+        // too); the daemon's filter takes the instants.
+        params.startTime = filters?.from ? (await this.readDate(graphId, filters.from)).iso : '-271821-04-20T00:00:00.000Z';
+        params.endTime = filters?.to ? (await this.readDate(graphId, filters.to, 'end')).iso : '+275760-09-13T00:00:00.000Z';
       }
       const events = await this.fetchAll('/api/events', graphId, params);
       return events.map((e) => this.toEventDto(e, graphId));

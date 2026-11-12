@@ -108,18 +108,46 @@ export function datePrecisionOf(metadata: Record<string, unknown> | undefined): 
   return value === 'month' || value === 'year' ? value : 'day'
 }
 
+/**
+ * The world calendar a month or a year was given in (`metadata.dateCalendar`):
+ * "Flooding 312 TC" is a half-year of the Tide-count, not the month of the
+ * calendar shown that holds its first day, and is shown as what it is.
+ */
+export function dateCalendarOf(metadata: Record<string, unknown> | undefined): string | undefined {
+  const value = metadata?.dateCalendar
+  return datePrecisionOf(metadata) !== 'day' && typeof value === 'string' ? value : undefined
+}
+
+/** What a date read with its precision records in an event's metadata: nothing for a day. */
+export function datePrecisionMetadata(read: { precision: DatePrecision; calendar?: string }): Record<string, unknown> {
+  if (read.precision === 'day') return {}
+  return read.calendar ? { datePrecision: read.precision, dateCalendar: read.calendar } : { datePrecision: read.precision }
+}
+
+/** An event's metadata once its date is replaced: the old date's precision goes, the new one's comes. */
+export function withDatePrecision(
+  metadata: Record<string, unknown> | undefined,
+  read: { precision: DatePrecision; calendar?: string }
+): Record<string, unknown> {
+  const { datePrecision: _precision, dateCalendar: _calendar, ...rest } = metadata ?? {}
+  return { ...rest, ...datePrecisionMetadata(read) }
+}
+
 /** "Nov 20, 1843", "Mar 1871" or "1871", by how much of the date is known. */
 export function formatHistoricalDateAt(
   value: DateInput,
   precision: DatePrecision,
   locale: string | undefined,
-  calendar: WorldCalendarSet | null
+  calendar: WorldCalendarSet | null,
+  /** In a world, the calendar a month or year was given in (see {@link dateCalendarOf}); the one shown otherwise. */
+  calendarId?: string
 ): string {
   if (precision === 'day') return formatHistoricalTimestamp(value, locale, calendar)
   const date = toDate(value)
   if (Number.isNaN(date.getTime())) return 'Invalid date'
   if (calendar) {
-    const primary = calendarIn(calendar)
+    const own = calendarId && calendar.calendars.some((definition) => definition.id === calendarId) ? calendarId : undefined
+    const primary = calendarIn(calendar, own)
     return formatWorldFields(primary, dateAt(primary, date.getTime()), precision)
   }
   // On the Gregorian calendar whatever the locale's own: a day is a day in any
@@ -139,7 +167,7 @@ export function formatEventDate(
   locale: string | undefined,
   calendar: WorldCalendarSet | null
 ): string {
-  return formatHistoricalDateAt(event.timestamp, datePrecisionOf(event.metadata), locale, calendar)
+  return formatHistoricalDateAt(event.timestamp, datePrecisionOf(event.metadata), locale, calendar, dateCalendarOf(event.metadata))
 }
 
 /** "Nov 20, 1843 – Jan 9, 1868". */

@@ -142,3 +142,33 @@ describe('a set whose text would not read back', () => {
     expect(storedCalendarSet(stored)?.calendars[0]!.parts).toHaveLength(2)
   })
 })
+
+describe('the read-back check, in years it might have missed', () => {
+  it('refuses a festival that collides only in leap years', () => {
+    const issues = calendarSetIssues({
+      version: 2,
+      dayLength: 86_400,
+      primary: 'a',
+      calendars: [{
+        id: 'a', name: 'A', epoch: 0, eras: [{ label: 'AR', from: 1 }],
+        parts: [{ name: 'Thaw', days: 30 }, { name: 'Sun', days: 30 }, { name: 'Thaw 31', days: 1, intercalary: true }],
+        leapRules: [{ every: 4, offset: 2, part: 0, days: 1 }],
+      }],
+    })
+    expect(issues.map((issue) => issue.path)).toContain('calendar.calendars[0].parts')
+  })
+
+  it('refuses a collision though the first era begins beyond the reach of a date', () => {
+    const issues = calendarSetIssues({
+      version: 2,
+      dayLength: 86_400,
+      primary: 'a',
+      calendars: [{
+        id: 'a', name: 'A', epoch: 0, eras: [{ label: 'AR', from: 1_000_000_000 }],
+        parts: [{ name: 'Midyear', days: 30 }, { name: 'Midyear 3', days: 1, intercalary: true }],
+      }],
+    })
+    expect(issues.length).toBeGreaterThan(0)
+    expect(issues[0]!.message).not.toMatch(/reads back as "([^"]+)".*\1/)
+  })
+})

@@ -2,7 +2,7 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import * as arb from '../test/arbitraries'
 import * as warb from '../test/worldArbitraries'
-import { MAX_TIME, calendarIn, dateAt, formatWorldFields, positionOf, worldBound, worldBoundExamples, worldTicks } from './index'
+import { MAX_TIME, calendarIn, compileCalendar, dateAt, formatWorldFields, gregorianDefinition, positionOf, worldBound, worldBoundExamples, worldTicks } from './index'
 
 /** A domain as a timeline shows one: minutes to tens of thousands of years wide. */
 const domain = fc
@@ -84,5 +84,14 @@ describe('a filter bound in a world calendar (Req 15)', () => {
     const started = performance.now()
     worldTicks(calendar, [calendar.dayMs * 3, calendar.dayMs * 3 + 1000], 10)
     expect(performance.now() - started).toBeLessThan(100)
+  })
+
+  it("keeps Earth's even steps in a Gregorian-shaped calendar", () => {
+    const calendar = compileCalendar(gregorianDefinition({ eraLabel: 'AR' }), 86_400)
+    const at = (iso: string) => Date.parse(iso)
+    const labels = (from: string, to: string, max: number) => worldTicks(calendar, [at(from), at(to)], max).map((tick) => tick.label)
+    expect(labels('2020-01-01T00:00:00Z', '2020-01-01T01:50:00Z', 4)).toEqual(['Jan 1, 2020 AR', '00:30', '01:00', '01:30'])
+    expect(labels('2020-01-01T00:00:00Z', '2020-01-02T12:00:00Z', 3)).toEqual(['Jan 1, 2020 AR', 'Jan 2, 2020 AR'])
+    expect(labels('2020-01-01T00:00:00Z', '2021-11-30T00:00:00Z', 5)).toEqual(['Jan 2020 AR', 'Jul 2020 AR', 'Jan 2021 AR', 'Jul 2021 AR'])
   })
 })

@@ -36,6 +36,9 @@ function stepsOf(calendar: CompiledCalendar, unit: Exclude<Unit, 'year'>): numbe
           ? calendar.time.hoursPerDay
           : calendar.time.minutesPerHour
   const steps = [...BASE_STEPS[unit]]
+  // Only a unit divided far more finely than Earth's (a thousand hours) needs
+  // more: 24 hours stepped by 20, or 12 months by 10, would tick unevenly.
+  if (most <= steps[steps.length - 1]! * 4) return steps
   for (let power = 10; power < most; power *= 10) {
     for (const step of [power, 2 * power, 5 * power]) if (step > steps[steps.length - 1]! && step < most) steps.push(step)
   }

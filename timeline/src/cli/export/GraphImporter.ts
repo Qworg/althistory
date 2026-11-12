@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { type WorldCalendarSet, storedCalendarSet, toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, calendarSetIssues, storedCalendarSet, toInstant } from '@althistory/calendar';
 import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
 import { ImportResultDto } from '../types';
@@ -11,7 +11,9 @@ import { ValidationErrorCLI } from '../utils/exitCodes';
  * calendar (see `storedCalendarSet`): it only changes how dates are shown.
  */
 function importedCalendar(metadata: Record<string, unknown> | undefined): WorldCalendarSet | undefined {
-  return storedCalendarSet(metadata?.calendar) ?? undefined;
+  // A set whose dates would not read back (the rules every new calendar meets) is left out whole.
+  const set = storedCalendarSet(metadata?.calendar);
+  return set && calendarSetIssues(set).length === 0 ? set : undefined;
 }
 
 export class GraphImporter {

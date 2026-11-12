@@ -25,7 +25,7 @@ describe('a date field in a world calendar', () => {
   })
 
   it('reads a month or a year as the start of it, or as an end its last moment, with its precision', () => {
-    expect(readDateFieldValue('Thaw 312 AR', { calendar: VAEL })).toEqual({ ok: true, iso: vael(312, 2, 1).toISOString(), precision: 'month' })
+    expect(readDateFieldValue('Thaw 312 AR', { calendar: VAEL })).toEqual({ ok: true, iso: vael(312, 2, 1).toISOString(), precision: 'month', calendar: 'reckoning' })
     expect(dateFieldIso('Thaw 312 AR', { calendar: VAEL, edge: 'end' })).toBe(new Date(vael(312, 3, 1).getTime() - 1).toISOString())
     // An end on a day's last moment is shown as the day.
     expect(dateFieldValue(new Date(vael(312, 2, 5).getTime() - 1), 'datetime', { calendar: VAEL, edge: 'end' })).toBe('Thaw 4, 312 AR')

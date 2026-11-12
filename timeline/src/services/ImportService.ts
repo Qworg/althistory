@@ -16,7 +16,7 @@
  */
 
 import { GraphRepository } from '../repositories/GraphRepository';
-import { readTimestamp, storedCalendarSet, toInstant } from '@althistory/calendar';
+import { calendarSetIssues, readTimestamp, storedCalendarSet, toInstant } from '@althistory/calendar';
 import { JobRepository } from '../repositories/JobRepository';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 import {
@@ -564,8 +564,10 @@ export class ImportService {
       }
     }
 
-    // Validate events
-    this.validateEvents(exportData.events, errors, warnings);
+    // Validate events. An invented world's timeline has no "now": its dates
+    // are positions, which can lie anywhere, so none is "in the future".
+    const world = Boolean(storedCalendarSet((metadata as { calendar?: unknown } | undefined)?.calendar));
+    this.validateEvents(exportData.events, errors, warnings, world);
 
     // Validate arcs
     this.validateArcs(exportData.arcs, errors, warnings);
@@ -788,7 +790,8 @@ export class ImportService {
   private validateEvents(
     events: unknown,
     errors: ImportError[],
-    warnings: ImportWarning[]
+    warnings: ImportWarning[],
+    world = false
   ): void {
     if (!Array.isArray(events)) {
       errors.push({
@@ -870,7 +873,7 @@ export class ImportService {
         });
       } else {
         const date = toInstant(e.timestamp);
-        if (date > new Date()) {
+        if (!world && date > new Date()) {
           warnings.push({
             path: `${path}.timestamp`,
             message: `Event timestamp is in the future: ${e.timestamp}`,
@@ -2341,9 +2344,10 @@ export class ImportService {
           name: importData.metadata.graphName,
           description: importData.metadata.description,
           // What does not check out in a calendar is dropped rather than
-          // failing the import (see `storedCalendar`): it only changes how
-          // dates are shown.
-          calendar: storedCalendarSet(importData.metadata.calendar) ?? undefined,
+          // failing the import (see `storedCalendarSet`); a set whose dates
+          // would not read back (the rules every new calendar meets) is left
+          // out whole: the graph would take text it then misreads.
+          calendar: readableCalendar(importData.metadata.calendar),
         });
         targetGraphId = newGraph.id;
         createdNewGraphId = newGraph.id;
@@ -2877,4 +2881,10 @@ export class ImportService {
  */
 function storedTimeText(value: unknown): unknown {
   return typeof value === 'string' ? (readTimestamp(value)?.iso ?? value) : value;
+}
+
+/** An imported calendar as a new graph stores it: what still checks out, if its dates read back. */
+function readableCalendar(value: unknown) {
+  const set = storedCalendarSet(value);
+  return set && calendarSetIssues(set).length === 0 ? set : undefined;
 }

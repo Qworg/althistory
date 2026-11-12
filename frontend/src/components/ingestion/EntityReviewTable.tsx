@@ -462,6 +462,7 @@ export function EntityReviewTable({
                             describedBy={issuesId}
                             invalid={hasError}
                             precision={'datePrecision' in entity ? entity.datePrecision : undefined}
+                            dateCalendar={'dateCalendar' in entity ? entity.dateCalendar : undefined}
                             className={`${fieldClass} font-mono-code`}
                             onChange={(value) => onEdit(entity.tempId, edit(value))}
                           />
@@ -641,6 +642,8 @@ interface ReviewDateFieldProps {
   invalid: boolean
   /** How much of the extracted date the source stated (month: "March 1871"). */
   precision?: DatePrecision
+  /** The world calendar the extracted month or year was given in. */
+  dateCalendar?: string
   className: string
   onChange: (value: string) => void
 }
@@ -651,12 +654,12 @@ interface ReviewDateFieldProps {
  * in words as the rest of the app writes it ("Feb 14, 1870"), or a note when
  * the importer could not read what was typed.
  */
-function ReviewDateField({ label, raw, describedBy, invalid, precision, className, onChange }: ReviewDateFieldProps) {
+function ReviewDateField({ label, raw, describedBy, invalid, precision, dateCalendar, className, onChange }: ReviewDateFieldProps) {
   const readingId = useId()
   // In a world, dates are shown and typed in its notation (the server reads
   // the reviewer's text with the graph's calendars).
   const calendar = useWorldCalendar()
-  const compact = (value: string) => compactReviewDate(value, calendar, precision)
+  const compact = (value: string) => compactReviewDate(value, calendar, precision, dateCalendar)
   // The reviewer's own text, so compaction never rewrites what they type. It
   // follows `raw` only when the value changes from outside this field.
   const [draft, setDraft] = useState(() => compact(raw))
@@ -694,9 +697,9 @@ function ReviewDateField({ label, raw, describedBy, invalid, precision, classNam
             ? `Not a date: write one as ${worldBoundExamples(calendar).day}`
             : 'Not a date: use YYYY-MM-DD'
           : precision && precision !== 'day' && draft === compact(raw)
-            ? `${formatHistoricalDateAt(raw, precision)}: the text gives no ${precision === 'month' ? 'day' : 'month or day'}`
+            ? `${formatHistoricalDateAt(raw, precision, undefined, undefined, dateCalendar)}: the text gives no ${precision === 'month' ? 'day' : 'month or day'}`
             : reading.precision !== 'day'
-              ? formatHistoricalDateAt(reading.iso, reading.precision)
+              ? formatHistoricalDateAt(reading.iso, reading.precision, undefined, undefined, reading.calendar)
               : formatHistoricalTimestamp(reading.iso)}
       </span>
     </>

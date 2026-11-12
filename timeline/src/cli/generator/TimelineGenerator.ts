@@ -36,6 +36,7 @@ import {
   dateAt,
   formatInWorld,
   formatWorldYearOf,
+  unreadDateReason,
   isCalendarSet,
   legacyCalendarSet,
   normalizeCalendar,
@@ -1295,7 +1296,7 @@ export class TimelineGenerator {
         if (!text) return NaN;
         const read = readWorldTimestamp(calendar, text, what);
         if (!read) {
-          throw new ValidationErrorCLI(`Invalid ${what} date "${text}": give it in the world's calendar ("${formatInWorld(calendar, 0)}") or as an ISO-8601 date`);
+          throw new ValidationErrorCLI(`Invalid ${what} date: ${unreadDateReason(calendar, text)}`);
         }
         return Date.parse(read.iso);
       };

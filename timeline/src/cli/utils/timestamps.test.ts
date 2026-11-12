@@ -27,9 +27,9 @@ const before = (iso: string) => new Date(Date.parse(iso) - 1).toISOString();
 
 describe('a date an agent gives', () => {
   it("reads the world's notation, with the precision it states", () => {
-    expect(readAgentTimestamp('Thaw 4, 312 AR', VAEL)).toEqual({ iso: at(312, 2, 4), precision: 'day' });
-    expect(readAgentTimestamp('Thaw 312 AR', VAEL)).toEqual({ iso: at(312, 2, 1), precision: 'month' });
-    expect(readAgentTimestamp('312 AR', VAEL)).toEqual({ iso: at(312, 0, 1), precision: 'year' });
+    expect(readAgentTimestamp('Thaw 4, 312 AR', VAEL)).toEqual({ iso: at(312, 2, 4), precision: 'day', calendar: 'reckoning' });
+    expect(readAgentTimestamp('Thaw 312 AR', VAEL)).toEqual({ iso: at(312, 2, 1), precision: 'month', calendar: 'reckoning' });
+    expect(readAgentTimestamp('312 AR', VAEL)).toEqual({ iso: at(312, 0, 1), precision: 'year', calendar: 'reckoning' });
     expect(readAgentTimestamp('1843-11-20', VAEL)).toEqual({ iso: '1843-11-20T00:00:00.000Z', precision: 'day' });
   });
 
@@ -37,13 +37,16 @@ describe('a date an agent gives', () => {
     expect(readAgentTimestamp('Thaw 4, 312 AR', VAEL, 'end').iso).toBe(before(at(312, 2, 5)));
     expect(readAgentTimestamp('Thaw 312 AR', VAEL, 'end').iso).toBe(before(at(312, 3, 1)));
     expect(readAgentTimestamp('312 AR', VAEL, 'end').iso).toBe(before(at(313, 0, 1)));
-    // A time names that moment, midnight included; ISO text is read as it is.
+    // A time names that moment, midnight included; an ISO date alone, as an end, is its UTC day's last moment.
     expect(readAgentTimestamp('Thaw 4, 312 AR, 00:00', VAEL, 'end').iso).toBe(at(312, 2, 4));
-    expect(readAgentTimestamp('1843-11-20', VAEL, 'end').iso).toBe('1843-11-20T00:00:00.000Z');
+    expect(readAgentTimestamp('1843-11-20', VAEL, 'end').iso).toBe('1843-11-20T23:59:59.999Z');
+    expect(readAgentTimestamp('1843-11-20T00:00:00Z', VAEL, 'end').iso).toBe('1843-11-20T00:00:00.000Z');
+    // A Gregorian month is no month of the world's.
+    expect(() => readAgentTimestamp('1871-03', VAEL)).toThrow(/Gregorian month/);
   });
 
   it("refuses what it cannot read, with an example in the world's notation", () => {
-    expect(() => readAgentTimestamp('Thaw 31, 312 AR', VAEL)).toThrow(/such as "Lowtide 1, 1 AR"/);
+    expect(() => readAgentTimestamp('Thaw 31, 312 AR', VAEL)).toThrow(/Thaw has 30 days.*reads like "Lowtide 1, 1 AR"/);
     expect(() => readAgentTimestamp('soon', undefined)).toThrow(/an ISO 8601 date/);
   });
 });

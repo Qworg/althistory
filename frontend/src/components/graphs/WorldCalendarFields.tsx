@@ -15,7 +15,8 @@ import {
   draftErrorAt,
   formatWorldFields,
   newCalendarDraft,
-  normalizeCalendarSet,
+  trimCalendarSet,
+  type WorldCalendarSet,
   readWorldDraft,
 } from '@althistory/calendar'
 import type { CalendarDraftState } from './useCalendarDraft'
@@ -595,24 +596,37 @@ function JsonEditor({ state, idPrefix }: { state: CalendarDraftState; idPrefix: 
   const [text, setText] = useState(() => JSON.stringify(draftAsSet(state.draft), null, 2))
   const textId = `${idPrefix}-calendar-json`
   const { replace, setBlocked } = state
-  // Leaving the JSON (back to the form, or the section closed) leaves only what was taken.
-  useEffect(() => () => setBlocked(null), [setBlocked])
-  const change = (next: string) => {
-    setText(next)
+  /** Why the text is not a set the API takes, or the set it is. */
+  const check = (next: string): { problem: string } | { set: WorldCalendarSet } => {
     let value: unknown
     try {
       value = JSON.parse(next)
     } catch {
-      setBlocked('That is not JSON yet.')
-      return
+      return { problem: 'That is not JSON yet.' }
     }
     const issues = calendarSetIssues(value)
-    if (issues.length > 0) {
-      setBlocked(issues.map((issue) => issue.message).slice(0, 3).join('; '))
+    if (issues.length > 0) return { problem: issues.map((issue) => issue.message).slice(0, 3).join('; ') }
+    return { set: trimCalendarSet(value as WorldCalendarSet) }
+  }
+  // The draft as it was when the JSON opened may already not check out:
+  // say so here, where its fields are not shown. Leaving the JSON (back to
+  // the form, or the section closed) leaves only what was taken.
+  useEffect(() => {
+    const opened = check(text)
+    setBlocked('problem' in opened ? opened.problem : null)
+    return () => setBlocked(null)
+    // Once, on opening: later text is checked as it is typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setBlocked])
+  const change = (next: string) => {
+    setText(next)
+    const checked = check(next)
+    if ('problem' in checked) {
+      setBlocked(checked.problem)
       return
     }
     setBlocked(null)
-    replace(normalizeCalendarSet(value))
+    replace(checked.set)
   }
   return (
     <div className="space-y-2">

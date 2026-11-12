@@ -34,6 +34,8 @@ export interface ExtractedEvent {
    * the day was never given. Absent means a full date (or unknown).
    */
   datePrecision?: 'day' | 'month' | 'year';
+  /** The world calendar a month or year was given in ("Flooding 312 TC" is the Tide-count's). */
+  dateCalendar?: string;
   confidence: number;
   source: ExtractionSource;
   /** Whether the reviewer has selected this entity for import. */

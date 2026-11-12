@@ -167,9 +167,9 @@ export function boundPrecision(text: string): DatePrecision {
 
 /**
  * A typed bound for a graph. In a world, it is written in the world's
- * notation ("Thaw 312 AR", "312 AR"), read by {@link worldBound}; a stored
- * bound ("1843-11", from a link made before) still reads as the instant it
- * names. Without a world, {@link parseHistoricalDate}. The text returned is
+ * notation ("Thaw 312 AR", "312 AR"), read by {@link worldBound}; a link's
+ * bound, an ISO 8601 date and time, is the instant it names. Year-first text
+ * ("312", "1843-11") is no date of the world's, and is refused. Without a world, {@link parseHistoricalDate}. The text returned is
  * the canonical spelling (in a world, in the calendar shown): what the field
  * shows once it is left.
  */
@@ -187,8 +187,10 @@ export function readDateBound(input: string, edge: DateBoundEdge, calendar: Worl
         : formatWorldBound(calendar, world.position, edge)
     return { ok: true, date: new Date(world.position), text }
   }
-  const stored = parseHistoricalDate(input, edge)
-  if (stored.ok) return { ok: true, date: stored.date, text: formatWorldBound(calendar, stored.date.getTime(), edge) }
+  // A link carries a bound as the instant it names (a date and time): read
+  // as that instant. A bare "312" or "1843-11" is no date of the world's.
+  const instant = parseIsoInstant(input.trim())
+  if (instant && !instant.dateOnly) return { ok: true, date: instant.date, text: formatWorldBound(calendar, instant.date.getTime(), edge) }
   return world
 }
 

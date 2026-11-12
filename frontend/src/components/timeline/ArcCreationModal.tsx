@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { TimeRange, CreateArcRequest, Event, Arc } from '@/types'
 import { useCreateArc } from '@/hooks/useAPI'
-import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatHistoricalDate, formatHistoricalTimestamp, formatHistoricalEnd } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 import { DateField } from '@/components/ui/DateField'
 import { readDateFieldValue } from '@/utils/dateField'
@@ -42,16 +42,23 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [selectedParentId, setSelectedParentId] = useState<string | null>(null)
 
-  // Another calendar shown rewrites the dates (and only the dates) in it.
+  // The dates as they are now, for the switch below (read, not set, in an effect).
+  const dateTexts = useRef({ start: formData.start_time || '', end: formData.end_time || '' })
+  useEffect(() => {
+    dateTexts.current = { start: formData.start_time || '', end: formData.end_time || '' }
+  }, [formData.start_time, formData.end_time])
+
+  // Another calendar shown rewrites the dates (and only the dates) in it. The
+  // new text is worked out here, once; the update only sets it (React may run
+  // an updater twice).
   const { takeSwitch, rewrite } = dates
   useEffect(() => {
     const switched = takeSwitch()
     if (!switched) return
-    setFormData((current) => ({
-      ...current,
-      start_time: rewrite(current.start_time || '', 'start', switched.from),
-      end_time: rewrite(current.end_time || '', 'end', switched.from),
-    }))
+    const start_time = rewrite(dateTexts.current.start, 'start', switched.from)
+    const end_time = rewrite(dateTexts.current.end, 'end', switched.from)
+    dateTexts.current = { start: start_time, end: end_time }
+    setFormData((current) => ({ ...current, start_time, end_time }))
   }, [takeSwitch, rewrite])
 
   const createArcMutation = useCreateArc({
@@ -252,7 +259,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
               <h3 className="text-base font-semibold text-blue-900 mb-2">Selected Time Range</h3>
               <div className="text-sm text-blue-700 space-y-1">
                 <div>Start: <span className="font-mono-code">{formatHistoricalTimestamp(toIso(formData.start_time, 'start'))}</span></div>
-                <div>End: <span className="font-mono-code">{formatHistoricalTimestamp(toIso(formData.end_time, 'end'))}</span></div>
+                <div>End: <span className="font-mono-code">{formatHistoricalEnd(toIso(formData.end_time, 'end'))}</span></div>
                 <div>Duration: {duration}</div>
                 {containedEvents.length > 0 && (
                   <div>Contains {containedEvents.length} event{containedEvents.length !== 1 ? 's' : ''}</div>

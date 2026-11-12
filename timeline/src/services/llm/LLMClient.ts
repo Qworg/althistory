@@ -120,7 +120,7 @@ export function parseExtractedEvents(
       actor,
       target,
       timestamp: read.iso,
-      ...(read.precision !== 'day' ? { datePrecision: read.precision } : {}),
+      ...(read.precision !== 'day' ? { datePrecision: read.precision, ...(read.calendar ? { dateCalendar: read.calendar } : {}) } : {}),
       confidence: Math.max(0, Math.min(1, asNumber(item.confidence, 0.5))),
       source,
       selected: actor.length > 0 && target.length > 0,

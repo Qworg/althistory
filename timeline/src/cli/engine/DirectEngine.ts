@@ -277,12 +277,14 @@ export class DirectEngine implements IEngine {
     if (filters?.actor) {
       events = events.filter((e) => e.actor.toLowerCase().includes(filters.actor!.toLowerCase()));
     }
+    // Read as every date an agent gives is (in a world, its notation too): a
+    // "to" of a day, month or year is its last moment.
     if (filters?.from) {
-      const fromTime = toInstant(filters.from).getTime();
+      const fromTime = Date.parse(readAgentTimestamp(filters.from, await this.worldCalendarFor(graphId, filters.from)).iso);
       events = events.filter((e) => e.timestamp.getTime() >= fromTime);
     }
     if (filters?.to) {
-      const toTime = toInstant(filters.to).getTime();
+      const toTime = Date.parse(readAgentTimestamp(filters.to, await this.worldCalendarFor(graphId, filters.to), 'end').iso);
       events = events.filter((e) => e.timestamp.getTime() <= toTime);
     }
 

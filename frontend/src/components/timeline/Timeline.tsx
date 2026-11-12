@@ -17,7 +17,7 @@ import {
   filterEventsInWindow,
   filterPressuresInWindow
 } from './timelineVirtualization'
-import { formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
+import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
 import { layoutEventLabels, LABEL_FONT_SIZE, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
 import {
@@ -1106,9 +1106,14 @@ const Timeline = memo(function Timeline({
     }
     const arc = arcsById.get(parsed.id)
     if (!arc) return
+    // The arc moves whole: its start by the step, its end by as much, so a
+    // move never stretches or shrinks it (months, and a world's festivals,
+    // differ in length).
+    const start = new Date(arc.start_time)
+    const movedStart = offsetByStep(start, step, direction)
     onArcResizeRef.current?.(arc, {
-      start: offsetByStep(new Date(arc.start_time), step, direction),
-      end: offsetByStep(new Date(arc.end_time), step, direction),
+      start: movedStart,
+      end: new Date(new Date(arc.end_time).getTime() + (movedStart.getTime() - start.getTime())),
     })
   }, [eventsById, arcsById, keyboardStep])
 
@@ -1746,7 +1751,7 @@ const Timeline = memo(function Timeline({
         const anchorY = dragPreview.kind === 'event' ? eventY - 44 : dragPreview.y - 30
         const label = dragPreview.kind === 'event'
           ? formatHistoricalTimestamp(dragPreview.timestamp)
-          : `${formatHistoricalTimestamp(dragPreview.bounds.start)} – ${formatHistoricalTimestamp(dragPreview.bounds.end)}`
+          : `${formatHistoricalTimestamp(dragPreview.bounds.start)} – ${formatHistoricalEnd(dragPreview.bounds.end)}`
         return (
           <div
             data-testid="timeline-drag-readout"
@@ -1797,7 +1802,7 @@ const Timeline = memo(function Timeline({
             <>
               <div className="text-sm font-semibold">{hovered.arc.name}</div>
               <div className="mt-0.5 font-mono-code text-ink-muted">
-                {formatHistoricalTimestamp(hovered.arc.start_time)} – {formatHistoricalTimestamp(hovered.arc.end_time)}
+                {formatHistoricalTimestamp(hovered.arc.start_time)} – {formatHistoricalEnd(hovered.arc.end_time)}
               </div>
               <div className="tabular-nums">
                 {formatDuration(new Date(hovered.arc.start_time), new Date(hovered.arc.end_time))}

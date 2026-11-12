@@ -286,6 +286,20 @@ describe('ImportService', () => {
       );
     });
 
+    it("does not call an invented world's dates future: its timeline has no now", async () => {
+      const world = createValidExport({
+        data: {
+          events: [{ id: 'event-1', description: 'Thaw 4, 312 AR', actor: 'A', target: 'B', timestamp: '2358-11-19T06:00:00.000Z' }],
+          arcs: [],
+          causalRelationships: [],
+          inferredPressures: [],
+        },
+      });
+      (world.metadata as unknown as Record<string, unknown>).calendar = { epochYear: 1000, eraLabel: 'AR' };
+      const result = await importService.validateFormat(world);
+      expect(result.warnings).not.toContainEqual(expect.objectContaining({ code: 'FUTURE_DATE' }));
+    });
+
     it('should validate arc temporal consistency', async () => {
       const exportWithInvalidArc = createValidExport({
         data: {

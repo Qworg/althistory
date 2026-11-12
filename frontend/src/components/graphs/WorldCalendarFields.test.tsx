@@ -142,6 +142,17 @@ describe('World calendars section: creating a graph', () => {
     expect(onCreate).toHaveBeenCalled()
   })
 
+  it('says, when the JSON opens, that the draft does not check out', async () => {
+    const onCreate = await openForm()
+    await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))
+    await user.clear(screen.getByLabelText('Calendar name'))
+    await user.click(screen.getByRole('button', { name: 'Edit as JSON' }))
+    expect(screen.getByLabelText(/The calendars as JSON/)).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.queryByText(/Taken as typed/)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Create Graph' }))
+    expect(onCreate).not.toHaveBeenCalled()
+  })
+
   it('keeps focus in the section when it is added and removed, and sends nothing once removed', async () => {
     const onCreate = await openForm()
     await user.click(screen.getByRole('button', { name: 'Add a world calendar' }))

@@ -6,6 +6,8 @@ import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
 import { entityPermission, mountEntityAccessGuard, mountEntityGraphAccess } from '@/api/entityAuth';
 import { createLogger } from '@/utils/logger';
+import { datePrecisionMetadata } from '@althistory/calendar';
+import { newDateMetadata } from '../worldDates';
 
 const logger = createLogger('EventRoutes');
 
@@ -50,7 +52,7 @@ eventRoutes.post('/', ...entityPermission('write:events'), async (req: RequestWi
     const calendarOf = async () => (await req.container.graphRepository.findById(graphId))?.calendar;
     const time = await readRequestTime(eventData.timestamp, 'timestamp', calendarOf);
     eventData.timestamp = time.date;
-    if (time.precision) eventData.metadata = { ...(eventData.metadata ?? {}), datePrecision: time.precision };
+    if (time.precision) eventData.metadata = { ...(eventData.metadata ?? {}), ...datePrecisionMetadata({ precision: time.precision, calendar: time.calendar }) };
 
     // Repositories bound to this request's graph; never the global store.
     const { eventRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
@@ -263,13 +265,13 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
     }
 
     // Read as on create; a world date at month or year precision records it.
-    let precision: 'month' | 'year' | undefined;
+    let read: { precision: 'day' | 'month' | 'year'; calendar?: string } | undefined;
     const newTimestamp = updates.timestamp !== undefined && updates.timestamp !== null;
     if (newTimestamp) {
       const graphId = requireGraphId(req);
       const time = await readRequestTime(updates.timestamp, 'timestamp', async () => (await req.container.graphRepository.findById(graphId))?.calendar);
       updates.timestamp = time.date;
-      precision = time.precision;
+      read = { precision: time.precision ?? 'day', calendar: time.calendar };
     }
 
     const { eventRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
@@ -282,12 +284,7 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
     // A new date replaces what was known of the old one: its precision is the
     // new date's (a world month or year), the one the request's metadata
     // states, or none (a day).
-    if (newTimestamp) {
-      const metadata: Record<string, unknown> = { ...(updates.metadata ?? existingEvent.metadata ?? {}) };
-      if (precision) metadata.datePrecision = precision;
-      else if (!(updates.metadata && 'datePrecision' in updates.metadata)) delete metadata.datePrecision;
-      updates.metadata = metadata;
-    }
+    if (newTimestamp && read) updates.metadata = newDateMetadata(updates.metadata, existingEvent.metadata, read);
 
     const updatedEvent = await repository.update(id, updates);
     

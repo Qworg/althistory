@@ -32,7 +32,7 @@ import {
   findEscapedParentArc,
 } from './timelineInteractionUtils'
 import type { UpdateArcRequest } from '@/types'
-import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
+import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
 import { useEditHistory } from '@/hooks/useEditHistory'
 import { useUndoableEventDelete } from '@/hooks/useUndoableEventDelete'
 import { confidenceTier } from '@/components/timeline/confidenceTier'
@@ -54,6 +54,9 @@ import {
   eventSource,
 } from '@/components/timeline/eventInspectorUtils'
 import { Portal } from '@/components/ui/Portal'
+
+/** What an event records of how much of its date is known: a month's or year's precision, and the calendar it was given in. */
+type DatePeriod = { datePrecision?: unknown; dateCalendar?: unknown }
 
 
 function describeError(error: unknown): string {
@@ -510,7 +513,7 @@ export function TimelineView() {
    * the event at an exact instant (none), and undoing it restores the month
    * or year the event was dated to.
    */
-  const moveEvent = useCallback(async (event: Event, newTimestamp: Date, precision?: unknown): Promise<boolean> => {
+  const moveEvent = useCallback(async (event: Event, newTimestamp: Date, restored?: DatePeriod): Promise<boolean> => {
     const reason = eventMoveViolation(event, newTimestamp)
     if (reason) {
       addError({
@@ -524,8 +527,13 @@ export function TimelineView() {
       // longer applies once it is dragged to an exact instant (left in place it
       // would show the move as "May 1871"). Metadata is sent only when that
       // changes, and then whole, as the API replaces it.
-      const { datePrecision, ...rest } = event.metadata ?? {}
-      const metadata = datePrecision === precision ? undefined : precision === undefined ? rest : { ...rest, datePrecision: precision }
+      // (Its calendar, the one a month or year was given in, goes with it.)
+      const { datePrecision, dateCalendar, ...rest } = event.metadata ?? {}
+      const next: DatePeriod = restored?.datePrecision
+        ? { datePrecision: restored.datePrecision, ...(restored.dateCalendar ? { dateCalendar: restored.dateCalendar } : {}) }
+        : {}
+      const changed = datePrecision !== next.datePrecision || dateCalendar !== next.dateCalendar
+      const metadata = changed ? { ...rest, ...next } : undefined
       await updateEventMutation.mutateAsync({
         id: event.id,
         data: { timestamp: newTimestamp.toISOString(), ...(metadata ? { metadata } : {}) },
@@ -584,13 +592,13 @@ export function TimelineView() {
    * restored; that step is reported and consumed so it does not block the rest
    * of the history.
    */
-  const reapplyEventTime = useCallback(async (eventId: string, description: string, iso: string, precision?: unknown) => {
+  const reapplyEventTime = useCallback(async (eventId: string, description: string, iso: string, restored?: DatePeriod) => {
     const current = fetchedEventsRef.current.find((e) => e.id === eventId)
     if (!current) {
       addError({ type: 'general', message: `"${description}" no longer exists, so that change cannot be reversed.` })
       return true
     }
-    return moveEvent(current, new Date(iso), precision)
+    return moveEvent(current, new Date(iso), restored)
   }, [moveEvent, addError])
 
   const reapplyArcBounds = useCallback(async (arcId: string, name: string, bounds: { start: string; end: string }) => {
@@ -604,12 +612,12 @@ export function TimelineView() {
 
   const handleEventDrag = useCallback(async (event: Event, newTimestamp: Date) => {
     const from = event.timestamp
-    const fromPrecision = event.metadata?.datePrecision
+    const fromPeriod: DatePeriod = { datePrecision: event.metadata?.datePrecision, dateCalendar: event.metadata?.dateCalendar }
     const to = newTimestamp.toISOString()
     if (!(await moveEvent(event, newTimestamp))) return
     recordEdit({
       description: `moved "${event.description}" to ${formatHistoricalTimestamp(to)}`,
-      undo: () => reapplyEventTime(event.id, event.description, from, fromPrecision),
+      undo: () => reapplyEventTime(event.id, event.description, from, fromPeriod),
       redo: () => reapplyEventTime(event.id, event.description, to),
     })
   }, [moveEvent, recordEdit, reapplyEventTime])
@@ -619,7 +627,7 @@ export function TimelineView() {
     const to = { start: newBounds.start.toISOString(), end: newBounds.end.toISOString() }
     if (!(await resizeArc(arc, newBounds))) return
     recordEdit({
-      description: `resized "${arc.name}" to ${formatHistoricalTimestamp(to.start)} – ${formatHistoricalTimestamp(to.end)}`,
+      description: `resized "${arc.name}" to ${formatHistoricalTimestamp(to.start)} – ${formatHistoricalEnd(to.end)}`,
       undo: () => reapplyArcBounds(arc.id, arc.name, from),
       redo: () => reapplyArcBounds(arc.id, arc.name, to),
     })
@@ -1234,7 +1242,7 @@ export function TimelineView() {
               </div>
               <div>
                 <dt className="text-xs font-medium text-ink-muted">End</dt>
-                <dd className="font-mono-code text-ink">{formatHistoricalTimestamp(selectedArc.end_time)}</dd>
+                <dd className="font-mono-code text-ink">{formatHistoricalEnd(selectedArc.end_time)}</dd>
               </div>
             </dl>
           </div>

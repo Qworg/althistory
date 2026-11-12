@@ -46,14 +46,24 @@ export function formatHistoricalTimestamp(value: DateInput, locale?: string, cal
   return calendarLib.formatHistoricalTimestamp(value, locale, resolveCalendar(calendar))
 }
 
-/** "Nov 20, 1843", "Mar 1871" or "1871", by how much of the date is known. */
+/**
+ * "Nov 20, 1843", "Mar 1871" or "1871", by how much of the date is known. In
+ * a world, a month or year is written in the calendar it was given in
+ * (`calendarId`, an event's `metadata.dateCalendar`).
+ */
 export function formatHistoricalDateAt(
   value: DateInput,
   precision: calendarLib.DatePrecision,
   locale?: string,
-  calendar?: CalendarArg
+  calendar?: CalendarArg,
+  calendarId?: string
 ): string {
-  return calendarLib.formatHistoricalDateAt(value, precision, locale, resolveCalendar(calendar))
+  return calendarLib.formatHistoricalDateAt(value, precision, locale, resolveCalendar(calendar), calendarId)
+}
+
+/** An arc's end: the day alone when it ends with that day ("Thaw 30, 312 AR", "Mar 31, 1871"). */
+export function formatHistoricalEnd(value: DateInput, locale?: string, calendar?: CalendarArg): string {
+  return calendarLib.formatHistoricalEnd(typeof value === 'number' ? new Date(value) : value, locale, resolveCalendar(calendar))
 }
 
 /** An event's date, at the precision its source gave. */

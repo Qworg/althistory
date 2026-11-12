@@ -87,7 +87,10 @@ export function formatWorldFields(
 export function formatWorldPosition(calendar: CompiledCalendar, position: number, precision: WorldPrecision = 'day'): string {
   if (!Number.isFinite(position)) return 'Invalid date'
   const date = dateAt(calendar, position)
-  const startOfDay = date.hour === 0 && date.minute === 0 && date.second === 0
+  // A time is written when it reads as other than the day's start (a few
+  // seconds past midnight, in a notation without seconds, says nothing).
+  const shown = formatWorldTime(calendar, date)
+  const startOfDay = shown === formatWorldTime(calendar, { hour: 0, minute: 0, second: 0 })
   return formatWorldFields(calendar, date, precision, precision === 'day' && !startOfDay)
 }
 

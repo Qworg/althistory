@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Event, Arc } from '@/models';
 import { ExportFormat, ExportResultDto } from '../types';
-import { type DatePrecision, type WorldCalendarSet, datePrecisionOf, describeCalendarSet, formatDateEntry } from '@althistory/calendar';
+import { type DatePrecision, type WorldCalendarSet, dateCalendarOf, datePrecisionOf, describeCalendarSet, formatDateEntry } from '@althistory/calendar';
 
 /** The formats an export can be rendered in. */
 export type { ExportFormat };
@@ -28,10 +28,11 @@ function markdownDate(
   date: Date,
   calendar: WorldCalendarSet | undefined,
   precision: DatePrecision = 'day',
-  edge: 'start' | 'end' = 'start'
+  edge: 'start' | 'end' = 'start',
+  calendarId?: string
 ): string {
   if (!calendar) return date.toISOString().split('T')[0]!;
-  return `${formatDateEntry(date, precision, calendar, edge)} (${date.toISOString()})`;
+  return `${formatDateEntry(date, precision, calendar, edge, calendarId)} (${date.toISOString()})`;
 }
 
 export class GraphExporter {
@@ -195,7 +196,7 @@ export class GraphExporter {
     md += `|:---|:---|:---|:---|:---|:---|:---|\n`;
 
     for (const e of sortedEvents) {
-      const dateStr = markdownDate(e.timestamp, calendar, datePrecisionOf(e.metadata));
+      const dateStr = markdownDate(e.timestamp, calendar, datePrecisionOf(e.metadata), 'start', dateCalendarOf(e.metadata));
       const causes = relationships
         .filter((r) => r.cause_event_id === e.id)
         .map((r) => `\`${r.effect_event_id}\` (${r.relationship_type})`)

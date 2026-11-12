@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Arc, Event, UpdateArcRequest, CreateArcRequest } from '@/types'
 import { formatDuration } from '../timeline/arcHierarchyUtils'
 import { formatHistoricalTimestamp } from '@/utils/historicalTime'
@@ -43,16 +43,23 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
   const toField = dates.fill
   const toIso = dates.toIso
 
-  // Another calendar shown rewrites the dates (and only the dates) in it.
+  // The dates as they are now, for the switch below (read, not set, in an effect).
+  const dateTexts = useRef({ start: formData.start_time || '', end: formData.end_time || '' })
+  useEffect(() => {
+    dateTexts.current = { start: formData.start_time || '', end: formData.end_time || '' }
+  }, [formData.start_time, formData.end_time])
+
+  // Another calendar shown rewrites the dates (and only the dates) in it. The
+  // new text is worked out here, once; the update only sets it (React may run
+  // an updater twice).
   const { takeSwitch, rewrite } = dates
   useEffect(() => {
     const switched = takeSwitch()
     if (!switched) return
-    setFormData((current) => ({
-      ...current,
-      start_time: rewrite(current.start_time || '', 'start', switched.from),
-      end_time: rewrite(current.end_time || '', 'end', switched.from),
-    }))
+    const start_time = rewrite(dateTexts.current.start, 'start', switched.from)
+    const end_time = rewrite(dateTexts.current.end, 'end', switched.from)
+    dateTexts.current = { start: start_time, end: end_time }
+    setFormData((current) => ({ ...current, start_time, end_time }))
   }, [takeSwitch, rewrite])
 
   // Update form data when arc changes or reset for create mode

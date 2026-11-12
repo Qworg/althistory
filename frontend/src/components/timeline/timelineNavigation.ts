@@ -242,14 +242,21 @@ function offsetInWorld(calendar: CompiledCalendar, position: number, step: TimeS
     return position + Math.round(n * unit)
   }
   const date = dateAt(calendar, position)
-  const parts = calendar.definition.parts.length
   let year = date.year
   let part = date.part
   if (step.unit === 'year') year += n
   else {
-    const index = date.part + n
-    year += Math.floor(index / parts)
-    part = ((index % parts) + parts) % parts
+    // Months, not festivals: a step from Highsun lands in Saltreap, past
+    // Midyear's Day, and keeps the day. From a festival, the next month.
+    const months = calendar.definition.parts.flatMap((candidate, index) => (candidate.intercalary ? [] : [index]))
+    const here = months.indexOf(part)
+    // A festival sits between two months: forward from the one before it, back from the one after.
+    const after = months.findIndex((index) => index > part)
+    const next = after < 0 ? months.length : after
+    const from = here >= 0 ? here : n > 0 ? next - 1 : next
+    const index = from + n
+    year += Math.floor(index / months.length)
+    part = months[((index % months.length) + months.length) % months.length]!
   }
   const day = Math.min(date.day, partLengths(calendar, year)[part]!)
   // The same time into the new day.

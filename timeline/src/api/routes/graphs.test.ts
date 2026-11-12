@@ -291,6 +291,33 @@ describe('Graph routes (request-level)', () => {
       expect(shown(batched.body.data.timestamp, 'month')).toBe('Thaw 312 AR');
       expect(batched.body.data.metadata.datePrecision).toBe('month');
 
+      // A batch update with a new date keeps the event's other metadata, and replaces its precision.
+      const kept = await post('/api/events', { description: 'Kept', actor: 'A', target: 'B', timestamp: 'Thaw 4, 312 AR', metadata: { arcId: 'arc-1', confidence: 0.9 } });
+      const step = (data: Record<string, unknown>) =>
+        request(app).post('/api/batch/transaction').set('X-API-Key', key).set('X-Graph-Id', graphId).send({ graphId, operations: [{ type: 'update_event', data: { id: kept.body.data.id, ...data } }] });
+      const monthStep = await step({ timestamp: 'Thaw 312 AR' });
+      expect(monthStep.status, JSON.stringify(monthStep.body)).toBeLessThan(300);
+      const afterMonth = await request(app).get(`/api/events/${kept.body.data.id}`).set('X-API-Key', key).set('X-Graph-Id', graphId).expect(200);
+      expect(afterMonth.body.data.metadata).toMatchObject({ arcId: 'arc-1', confidence: 0.9, datePrecision: 'month', dateCalendar: 'reckoning' });
+      expect((await step({ timestamp: 'Thaw 4, 312 AR' })).status).toBeLessThan(300);
+      const afterDay = await request(app).get(`/api/events/${kept.body.data.id}`).set('X-API-Key', key).set('X-Graph-Id', graphId).expect(200);
+      expect(afterDay.body.data.metadata).toMatchObject({ arcId: 'arc-1', confidence: 0.9 });
+      expect(afterDay.body.data.metadata.datePrecision).toBeUndefined();
+
+      // A lenient batch skips an item whose date names nothing, and keeps the rest.
+      const lenient = await request(app)
+        .post('/api/batch/events')
+        .set('X-API-Key', key)
+        .set('X-Graph-Id', graphId)
+        .send({ graphId, validation: 'lenient', events: [
+          { description: 'Good', actor: 'A', target: 'B', timestamp: 'Thaw 5, 312 AR' },
+          { description: 'Bad', actor: 'A', target: 'B', timestamp: 'Year 312' },
+        ] });
+      expect(lenient.status).toBeLessThan(300);
+      const lenientBody = lenient.body.data ?? lenient.body;
+      expect(lenientBody.created).toHaveLength(1);
+      expect(JSON.stringify(lenientBody.validationWarnings)).toMatch(/not a date/);
+
       // A remote CLI with a key for events but not the graph sends world text
       // as written, and the server reads it with the graph's calendars.
       const eventsOnly = (

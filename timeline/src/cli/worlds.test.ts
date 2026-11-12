@@ -641,6 +641,13 @@ describe('invented worlds', () => {
       const report = await engine.validateGraph(graph.id);
       const outside = report.issues.find((issue) => /falls outside arc/.test(issue.message));
       expect(outside?.message).toMatch(/\(.*, Seedtide 12, 152 AR, [^)]*\) falls outside arc "The Age of Salt" bounds \(Lowtide 1, 1 AR, /);
+      // The arc's end is named as the day it ends, as everywhere else.
+      expect(outside?.message).toMatch(/ - The Drowned Days 4, 100 AR, /);
+
+      // A list read between two of the world's dates, the second to its last moment.
+      const inRange = await engine.listEvents(graph.id, { from: '141 AR', to: '141 AR' });
+      expect(inRange.map((event) => event.description)).toEqual(['The harbours close']);
+      expect(await engine.listEvents(graph.id, { from: '152 AR' })).toHaveLength(1);
     });
 
     it('is chronicled from a start written in its own calendar', async () => {

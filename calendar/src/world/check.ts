@@ -19,7 +19,7 @@ import {
   calendarSetShapeIssues,
   trimCalendarSet,
 } from './definition'
-import { type CompiledCalendar, type WorldDateFields, calendarIn, partLengths, positionOf } from './engine'
+import { type CompiledCalendar, type WorldDateFields, calendarIn, dateAt, partLengths, positionOf } from './engine'
 import { type WorldPrecision, formatWorldFields, parseWorldDate } from './notation'
 
 interface Sample {
@@ -30,18 +30,39 @@ interface Sample {
   across: boolean
 }
 
-/** The years to write dates in: before the first era, and the start and a later year of each era. */
+const reachable = (calendar: CompiledCalendar, year: number) => positionOf(calendar, { year, part: 0, day: 1, hour: 0, minute: 0, second: 0 }) !== null
+
+/**
+ * The years to write dates in. Every month and festival: in the first era's
+ * year 1 and the year before it, and in the years about the timeline's zero
+ * (an era can begin farther away than a date can reach). A year and a day:
+ * in each era's first and twelfth years, and twelve before the first. Only
+ * years a date can reach.
+ */
 function sampleYears(calendar: CompiledCalendar): { full: number[]; brief: number[] } {
   const eras = calendar.definition.eras ?? [{ label: '', from: 1 }]
   const first = eras[0]!.from
-  // Every month and festival in the first era's year 1 and the year before
-  // it; a year and a day in each era's first and twelfth years, and twelve before.
-  const full = [first, first - 1]
+  const zero = dateAt(calendar, 0).year
+  const full = [...new Set([first, first - 1, zero, zero - 1])].filter((year) => reachable(calendar, year))
   const brief = eras.flatMap((era, index) => {
     const next = eras[index + 1]?.from ?? Infinity
     return [era.from, era.from + 11 < next ? era.from + 11 : era.from].concat(index === 0 ? [first - 12] : [])
   })
-  return { full, brief: [...new Set(brief)].filter((year) => !full.includes(year)) }
+  return { full, brief: [...new Set(brief)].filter((year) => !full.includes(year) && reachable(calendar, year)) }
+}
+
+/**
+ * Years in which a leap rule changes a part's length, one per rule, near the
+ * first sampled year: a festival of one day in most years but two in some
+ * is written differently in those.
+ */
+function leapYears(calendar: CompiledCalendar, near: number): number[] {
+  return (calendar.definition.leapRules ?? [])
+    .map((rule) => {
+      const offset = rule.offset ?? 0
+      return near + ((((offset - near) % rule.every) + rule.every) % rule.every)
+    })
+    .filter((year) => reachable(calendar, year))
 }
 
 function samplesOf(calendar: CompiledCalendar): Sample[] {
@@ -49,6 +70,19 @@ function samplesOf(calendar: CompiledCalendar): Sample[] {
   const { hoursPerDay, minutesPerHour } = calendar.time
   const at = (year: number, part: number, day: number, hour = 0, minute = 0): WorldDateFields => ({ year, part, day, hour, minute, second: 0 })
   const { full, brief } = sampleYears(calendar)
+  const base = full[0] ?? brief[0]
+  // In a year a rule changes, the parts whose length changes that year.
+  for (const year of base === undefined ? [] : leapYears(calendar, base)) {
+    if (full.includes(year)) continue
+    const usual = partLengths(calendar, base!)
+    partLengths(calendar, year).forEach((days, part) => {
+      // The parts whose length changes, and every festival: its text can meet the changed month's.
+      if (days === usual[part] && !calendar.definition.parts[part]!.intercalary) return
+      samples.push({ fields: at(year, part, 1), precision: 'month', withTime: false, across: false })
+      samples.push({ fields: at(year, part, 1), precision: 'day', withTime: false, across: false })
+      if (days > 1) samples.push({ fields: at(year, part, days), precision: 'day', withTime: false, across: false })
+    })
+  }
   for (const [index, year] of full.entries()) {
     const across = index === 0
     const lengths = partLengths(calendar, year)
@@ -87,7 +121,8 @@ export function readBackIssues(set: WorldCalendarSet): WorldCalendarIssue[] {
         const expected = positionOf(calendar, sample.fields)
         if (!read.ok || read.position !== expected || read.precision !== sample.precision) {
           own = true
-          const as = read.ok ? `"${formatWorldFields(calendar, read.fields, read.precision, read.timed)}"` : 'nothing'
+          const back = read.ok ? formatWorldFields(calendar, read.fields, read.precision, read.timed) : null
+          const as = back === null ? 'nothing' : back === text ? 'another date of the same name' : `"${back}"`
           issues.push({
             path: `${path}.parts`,
             message: `${path} writes "${text}", which reads back as ${as}: its month and festival names and how dates are written must tell every date apart`,

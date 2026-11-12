@@ -399,13 +399,18 @@ function hasApproved(approved: string[] | undefined, tempId: string, fallback: b
  * ("1871-03" is a month). Text it cannot read is kept as typed, for the
  * validation to refuse by name. Unchanged text keeps the extraction's own.
  */
-function typedTimestamp(typed: unknown, event: ExtractedEvent, calendar?: WorldCalendarSet): Pick<ExtractedEvent, 'timestamp' | 'datePrecision'> {
+function typedTimestamp(
+  typed: unknown,
+  event: ExtractedEvent,
+  calendar?: WorldCalendarSet
+): Pick<ExtractedEvent, 'timestamp' | 'datePrecision' | 'dateCalendar'> {
   if (typeof typed !== 'string' || typed === event.timestamp) {
-    return { timestamp: event.timestamp, datePrecision: event.datePrecision };
+    return { timestamp: event.timestamp, datePrecision: event.datePrecision, dateCalendar: event.dateCalendar };
   }
   const read = readWorldTimestamp(calendar, typed);
-  if (!read) return { timestamp: typed, datePrecision: undefined };
-  return { timestamp: read.iso, datePrecision: read.precision === 'day' ? undefined : read.precision };
+  if (!read) return { timestamp: typed, datePrecision: undefined, dateCalendar: undefined };
+  if (read.precision === 'day') return { timestamp: read.iso, datePrecision: undefined, dateCalendar: undefined };
+  return { timestamp: read.iso, datePrecision: read.precision, dateCalendar: read.calendar };
 }
 
 /**
@@ -551,7 +556,9 @@ export function toAlthistoryExport(
     timestamp: event.timestamp,
     metadata: {
       confidence: event.confidence,
-      ...(event.datePrecision && event.datePrecision !== 'day' ? { datePrecision: event.datePrecision } : {}),
+      ...(event.datePrecision && event.datePrecision !== 'day'
+        ? { datePrecision: event.datePrecision, ...(event.dateCalendar ? { dateCalendar: event.dateCalendar } : {}) }
+        : {}),
       extractionSource: event.source.type,
       aiGenerated: event.source.type === 'llm',
       sourceUrl: event.source.url,

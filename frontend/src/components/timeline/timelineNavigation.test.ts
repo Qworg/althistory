@@ -80,10 +80,15 @@ describe('keyboard steps in a world calendar', () => {
     const day = offsetByStep(vael(312, 2, 4, 6), { unit: 'day', count: 1 }, 1, VAEL)
     expect(day.getTime() - vael(312, 2, 4, 6).getTime()).toBe(30 * 3600 * 1000)
     expect(offsetByStep(vael(312, 2, 4, 6), { unit: 'month', count: 1 }, 1, VAEL)).toEqual(vael(312, 3, 4, 6))
-    // A month past Highsun 30 is Midyear's Day, its one day.
-    expect(offsetByStep(vael(312, 5, 30), { unit: 'month', count: 1 }, 1, VAEL)).toEqual(vael(312, 6, 1))
-    // Back across the year's start.
-    expect(offsetByStep(vael(312, 0, 4), { unit: 'month', count: 1 }, -1, VAEL)).toEqual(vael(311, 13, 4))
+    // A month past Highsun 15 is Saltreap 15: Midyear's Day is a festival, not a month.
+    expect(offsetByStep(vael(312, 5, 15), { unit: 'month', count: 1 }, 1, VAEL)).toEqual(vael(312, 7, 15))
+    expect(offsetByStep(vael(312, 7, 15), { unit: 'month', count: 1 }, -1, VAEL)).toEqual(vael(312, 5, 15))
+    // From a festival, the month after it (or before it, going back).
+    expect(offsetByStep(vael(312, 6, 1), { unit: 'month', count: 1 }, 1, VAEL)).toEqual(vael(312, 7, 1))
+    expect(offsetByStep(vael(312, 6, 1), { unit: 'month', count: 1 }, -1, VAEL)).toEqual(vael(312, 5, 1))
+    expect(offsetByStep(vael(312, 13, 2), { unit: 'month', count: 1 }, 1, VAEL)).toEqual(vael(313, 0, 2))
+    // Back across the year's start, past the Drowned Days, to Longnight.
+    expect(offsetByStep(vael(312, 0, 4), { unit: 'month', count: 1 }, -1, VAEL)).toEqual(vael(311, 12, 4))
     // The Drowned Days' fifth day (a leap year) a year on is its fourth.
     expect(offsetByStep(vael(312, 13, 5), { unit: 'year', count: 1 }, 1, VAEL)).toEqual(vael(313, 13, 4))
     // The step fits the world's units: a world year in view steps by its days.

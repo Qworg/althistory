@@ -110,7 +110,12 @@ whether a day, a month or a year; a time, even "00:00", names that moment.
 Query-string filters of the API take ISO 8601 instants.
 
 **Req 16. Precision.** A date given as a month or a year is stored at its
-period's start, with `datePrecision` recorded, and shown at that precision.
+period's start, with `datePrecision` recorded, and the calendar it was given
+in (`dateCalendar`), and shown at that precision in that calendar: a half-year
+of the Tide-count is not the month of the calendar shown that holds its first
+day. Every door reads text by one rule (`readWorldTimestamp`): the world's
+notation first, then ISO 8601, whose date, month or year alone names a UTC
+period; in a world an ISO month or year is refused, being no period of it.
 
 **Req 17. Axis.** A timeline in a world calendar puts its ticks on that
 calendar's round units: years in steps of 1, 2 or 5 × 10ⁿ, months, days and

@@ -228,15 +228,16 @@ describe('a bound for a graph', () => {
     )
   })
 
-  it('in a world, still reads a stored bound as the instant it names', () => {
+  it("in a world, reads a link's instant as itself, and refuses year-first text", () => {
     fc.assert(
-      fc.property(warb.calendarSet, typedBound, edge, (set, { text }, side) => {
-        const stored = parseHistoricalDate(text, side)
-        fc.pre(stored.ok && !worldBound(set, text, side).ok)
-        if (!stored.ok) return
-        const read = readDateBound(text, side, set)
-        expect(read.ok).toBe(true)
-        if (read.ok) expect(read.date.getTime()).toBe(stored.date.getTime())
+      fc.property(warb.calendarSet, typedBound, edge, fc.integer({ min: -1e13, max: 1e13 }), (set, { text }, side, position) => {
+        // A link carries the instant (an ISO date and time).
+        const iso = new Date(position).toISOString()
+        const read = readDateBound(iso, side, set)
+        expect(read.ok && read.date.getTime()).toBe(position)
+        // "312" or "1843-11" names no date of the world's.
+        fc.pre(!worldBound(set, text, side).ok)
+        expect(readDateBound(text, side, set).ok).toBe(false)
       })
     )
   })

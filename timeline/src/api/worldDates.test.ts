@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type WorldCalendarSet, calendarIn, positionOf } from '@althistory/calendar';
-import { readRequestTime } from './worldDates';
+import { newDateMetadata, readRequestTime } from './worldDates';
 import { ValidationError } from '../utils/errors';
 
 /** A Reckoning of twelve months of thirty days and five festival days, in a 30-hour day of 20 hours. */
@@ -36,7 +36,7 @@ describe('a time sent for a graph with world calendars', () => {
 
   it("reads the world's notation and fields, recording a month's or a year's precision", async () => {
     expect(await readRequestTime('Thaw 4, 312 AR', 'timestamp', calendarOf)).toEqual({ date: new Date(at(312, 2, 4)) });
-    expect(await readRequestTime('Thaw 312 AR', 'timestamp', calendarOf)).toEqual({ date: new Date(at(312, 2, 1)), precision: 'month' });
+    expect(await readRequestTime('Thaw 312 AR', 'timestamp', calendarOf)).toEqual({ date: new Date(at(312, 2, 1)), precision: 'month', calendar: 'reckoning' });
     expect(await readRequestTime({ year: 312, month: 'Thaw', day: 4, hour: 6 }, 'timestamp', calendarOf)).toEqual({ date: new Date(at(312, 2, 4, 6)) });
   });
 
@@ -54,5 +54,28 @@ describe('a time sent for a graph with world calendars', () => {
     await expect(readRequestTime('Thaw 31, 312 AR', 'timestamp', calendarOf)).rejects.toThrow(ValidationError);
     await expect(readRequestTime({ year: 312, month: 'Thaw', day: 31 }, 'timestamp', calendarOf)).rejects.toThrow(/timestamp: Thaw has 30 days/);
     await expect(readRequestTime({ year: 312 }, 'timestamp', async () => undefined)).rejects.toThrow(/needs a graph with a world calendar/);
+  });
+});
+
+describe('ISO 8601 text, the same at every door', () => {
+  const plain = async () => undefined;
+
+  it('names a UTC period when it is a date, a month or a year alone, its last moment as an end', async () => {
+    expect(await readRequestTime('1871-03', 'timestamp', plain)).toEqual({ date: new Date('1871-03-01T00:00:00Z'), precision: 'month' });
+    expect((await readRequestTime('1871-03', 'end_time', plain, 'end')).date.toISOString()).toBe('1871-03-31T23:59:59.999Z');
+    expect((await readRequestTime('1871-03-04', 'end_time', plain, 'end')).date.toISOString()).toBe('1871-03-04T23:59:59.999Z');
+    expect((await readRequestTime('1871-03-04T00:00:00Z', 'end_time', plain, 'end')).date.toISOString()).toBe('1871-03-04T00:00:00.000Z');
+  });
+
+  it('in a world, is read as an instant or a day, and a Gregorian month or year is refused, saying why', async () => {
+    expect((await readRequestTime('2358-11-19', 'timestamp', calendarOf)).date.toISOString()).toBe('2358-11-19T00:00:00.000Z');
+    await expect(readRequestTime('2358-11', 'timestamp', calendarOf)).rejects.toThrow(/Gregorian month, which is no month of this world/);
+  });
+
+  it('records the calendar a world month was given in', async () => {
+    const read = await readRequestTime('Thaw 312 AR', 'timestamp', calendarOf);
+    expect(read.calendar).toBe('reckoning');
+    expect(newDateMetadata(undefined, { keep: 1, datePrecision: 'year', dateCalendar: 'x' }, { precision: 'day' })).toEqual({ keep: 1 });
+    expect(newDateMetadata({ datePrecision: 'month' }, { keep: 1 }, { precision: 'day' })).toEqual({ datePrecision: 'month' });
   });
 });
