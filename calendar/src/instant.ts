@@ -80,7 +80,8 @@ export function parseIsoInstant(text: string): ParsedInstant | null {
  * a Date as it is; a number as milliseconds; text in ISO 8601 by
  * {@link parseIsoInstant}, exactly (UTC when it names no zone); and anything
  * else invalid. Text that is not ISO 8601 is read as JavaScript always read
- * it (`new Date(text)`, in the host's zone): the app writes only ISO, but data
+ * it (`new Date(text)`, in the host's zone), unless it opens with a day that
+ * does not exist ("2019-02-31", which V8 rolls into March): the app writes only ISO, but data
  * stored before, and API clients, may hold "January 1, 2023", and refusing it
  * here would make it unreadable rather than right. Where text first enters
  * from a person or a model, read it with {@link readTimestamp}, which refuses
@@ -93,14 +94,20 @@ export function toInstant(value: unknown): Date {
   const text = value.trim()
   const parsed = parseIsoInstant(text)
   if (parsed) return parsed.date
-  // Shaped like an ISO date ("2019-02-31", "1066-13"), it is that or nothing:
-  // V8 would roll a day that does not exist into the next month.
-  if (ISO_SHAPED.test(text)) return new Date(NaN)
+  // Text that opens with a calendar date that does not exist ("2019-02-31")
+  // is no date: V8 would roll it into the next month. Any other text is read
+  // as it always was ("2023-01-01 12:00:00 UTC", "2023-1-5", "…12:00 PM").
+  if (namesNoSuchDay(text)) return new Date(NaN)
   return new Date(text)
 }
 
-/** Text that starts as an ISO 8601 date does: a year of four or more digits (or signed) and a hyphen, or the year alone. */
-const ISO_SHAPED = /^[+-]?\d{4,}(?:-|$)/
+/** Whether text opens with a year, month and day ("2019-02-31…") that no calendar has. */
+function namesNoSuchDay(text: string): boolean {
+  const match = /^([+-]?\d{4,6})-(\d{2})-(\d{2})(?!\d)/.exec(text)
+  if (!match) return false
+  const [, year, month, day] = match
+  return Number(day) < 1 || Number(day) > daysInMonth(Number(year), Number(month))
+}
 
 /**
  * A timestamp written by a person or a model, as the one spelling everything

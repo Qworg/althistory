@@ -3,6 +3,7 @@ import { QueryClientContext } from '@tanstack/react-query'
 import { Arc, CausalRelationship, Event } from '@/types'
 import { useEvents } from '@/hooks/useAPI'
 import { formatHistoricalDateBound, parseHistoricalDate } from '@/components/filters/filterUtils'
+import { boundPrecision, type DatePrecision } from '@althistory/calendar'
 import { formatHistoricalDate } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 
@@ -132,7 +133,7 @@ function toDateField(isoString: string): string {
   return hours || minutes ? `${day} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}` : day
 }
 
-type DateFieldParse = { ok: true; iso: string } | { ok: false; error: string }
+type DateFieldParse = { ok: true; iso: string; precision: DatePrecision } | { ok: false; error: string }
 
 function fromDateField(text: string): DateFieldParse {
   const trimmed = text.trim()
@@ -147,7 +148,8 @@ function fromDateField(text: string): DateFieldParse {
     if (hours > 23 || minutes > 59) return { ok: false, error: 'The time must be 00:00 to 23:59, in UTC.' }
     date.setUTCHours(hours, minutes, 0, 0)
   }
-  return { ok: true, iso: date.toISOString() }
+  // "1871-03" states a month and "1871" a year; a day, or a time, states the day.
+  return { ok: true, iso: date.toISOString(), precision: timed ? 'day' : boundPrecision(parsed.text) }
 }
 
 /** The event's recorded confidence, as the field shows it ('' when none is recorded). */
@@ -355,6 +357,12 @@ export function EventDetailModal({
       setOrDrop('confidence', formData.confidence.trim() === '' ? undefined : Number(formData.confidence))
       setOrDrop('evidence', formData.evidence.trim())
       setOrDrop('eventType', formData.event_type.trim())
+      // A date the user typed states its own precision ("1871-03" a month); one
+      // left as the form showed it keeps the event's, so editing anything else
+      // never turns a month into its first day or the other way round.
+      if (parsedDate.ok && (!event || formData.timestamp.trim() !== toDateField(event.timestamp || ''))) {
+        setOrDrop('datePrecision', parsedDate.precision === 'day' ? undefined : parsedDate.precision)
+      }
       const eventData: Partial<Event> = {
         description: formData.description,
         actor: formData.actor,

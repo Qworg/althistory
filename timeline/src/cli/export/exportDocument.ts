@@ -102,8 +102,8 @@ export function parseExportDocument(document: unknown): ParsedExportDocument {
     if (!isRecord(raw)) continue;
     const id = readString(raw.id);
     if (!id) continue;
-    const start = new Date(readString(raw.start_time));
-    const end = new Date(readString(raw.end_time));
+    const start = toInstant(readString(raw.start_time));
+    const end = toInstant(readString(raw.end_time));
     // An arc whose bounds are unusable cannot be rendered; it is dropped and
     // the export says so through the count it reports.
     if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;

@@ -28,7 +28,7 @@ import {
 import { clusterEventsIntoArcs } from './arcClustering';
 import { ExtractedArc, ExtractedEvent } from '@/services/ingestion/types';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { GraphCalendar, formatWorldYear, normalizeCalendar, toInstant } from '@althistory/calendar';
+import { GraphCalendar, formatWorldYear, normalizeCalendar, parseIsoInstant, toInstant } from '@althistory/calendar';
 import { ValidationErrorCLI } from '../utils/exitCodes';
 
 export interface TimelineGeneratorConfig {
@@ -93,13 +93,15 @@ function widenedEnd(startMs: number, endMs: number): number {
 const LAST_STORED_INSTANT = Date.parse('9999-12-31T23:59:59.999Z');
 
 /**
- * An ISO-8601 instant in milliseconds, NaN when absent or unreadable: the
- * package's `toInstant`, so a date-time written without a zone is UTC, like
- * every historical date here (`Date.parse` would read it in the host's zone,
- * and in Tokyo "1000-01-01T00:00" is the last day of 999).
+ * An ISO-8601 instant in milliseconds, NaN when absent or not ISO 8601. What
+ * reaches the generator is text a person (--start-date, --window) or a model
+ * writes, so it is read strictly (`parseIsoInstant`): a date-time without a
+ * zone is UTC, like every historical date here (`Date.parse` would read it in
+ * the host's zone, and in Tokyo "1000-01-01T00:00" is the last day of 999),
+ * and prose is refused rather than guessed at.
  */
 function parseInstant(value: string | undefined): number {
-  return value ? toInstant(value).getTime() : NaN;
+  return value ? (parseIsoInstant(value.trim())?.date.getTime() ?? NaN) : NaN;
 }
 
 /** The stored year an invented world's year 1 falls on when nothing says otherwise. */

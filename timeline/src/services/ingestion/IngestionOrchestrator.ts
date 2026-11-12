@@ -20,7 +20,7 @@
  * cannot be imported twice.
  */
 
-import { readTimestamp, toInstant } from '@althistory/calendar';
+import { parseIsoInstant, readTimestamp } from '@althistory/calendar';
 import * as crypto from 'crypto';
 import { AppError } from '../../utils/errors';
 import {
@@ -404,6 +404,16 @@ function typedTimestamp(typed: unknown, event: ExtractedEvent): Pick<ExtractedEv
   return { timestamp: read.iso, datePrecision: read.precision === 'day' ? undefined : read.precision };
 }
 
+/**
+ * An extraction's time in milliseconds, NaN unless it is ISO 8601. Ingestion
+ * is where a model's or a reviewer's text first enters, so prose ("Feb 14
+ * 1870") is refused here, as the review shows it ("Not a date"), rather than
+ * read leniently later in the server's zone.
+ */
+function strictTime(text: string): number {
+  return parseIsoInstant(String(text).trim())?.date.getTime() ?? NaN;
+}
+
 function mergeEvent(event: ExtractedEvent, edit: ExtractedEdit | undefined): ExtractedEvent {
   if (!edit) return event;
   return {
@@ -459,7 +469,7 @@ export function validateExtraction(extraction: ExtractionResult): ValidationIssu
     if (!event.target.trim()) {
       issues.push(issue(event.tempId, 'event', 'error', 'Event target is required'));
     }
-    const time = toInstant(event.timestamp).getTime();
+    const time = strictTime(event.timestamp);
     if (Number.isNaN(time)) {
       issues.push(issue(event.tempId, 'event', 'error', `Invalid event timestamp: ${event.timestamp}`));
     } else if (time > Date.now()) {
@@ -479,8 +489,8 @@ export function validateExtraction(extraction: ExtractionResult): ValidationIssu
     if (!arc.name.trim()) {
       issues.push(issue(arc.tempId, 'arc', 'error', 'Arc name is required'));
     }
-    const start = toInstant(arc.start_time).getTime();
-    const end = toInstant(arc.end_time).getTime();
+    const start = strictTime(arc.start_time);
+    const end = strictTime(arc.end_time);
     if (Number.isNaN(start) || Number.isNaN(end)) {
       issues.push(issue(arc.tempId, 'arc', 'error', 'Arc start/end must be valid timestamps'));
     } else if (start > end) {

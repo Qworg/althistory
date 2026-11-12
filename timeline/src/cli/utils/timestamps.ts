@@ -32,3 +32,16 @@ export function readAgentTimestamp(text: string): AgentTimestamp {
 export function precisionMetadata(read: AgentTimestamp): Record<string, unknown> {
   return read.precision === 'day' ? {} : { datePrecision: read.precision };
 }
+
+/**
+ * An event's metadata once its date is replaced: the old precision goes (a
+ * month that is now a day would still read "Mar 1871"), and the new text's
+ * is recorded.
+ */
+export function withNewDatePrecision(
+  metadata: Record<string, unknown> | undefined,
+  read: AgentTimestamp
+): Record<string, unknown> {
+  const { datePrecision: _replaced, ...rest } = metadata ?? {};
+  return { ...rest, ...precisionMetadata(read) };
+}

@@ -4,7 +4,7 @@ import type {
   CausalRelationship,
   FilterState
 } from '@/types'
-import { formatHistoricalDateBound, parseHistoricalDate, type DateBoundEdge } from '@althistory/calendar'
+import { formatHistoricalDateBound, parseHistoricalDate, toInstant, type DateBoundEdge } from '@althistory/calendar'
 import type { FilterState as PanelFilterState } from './FilterPanel'
 
 export type { PanelFilterState }
@@ -133,7 +133,9 @@ function toInputDate(value: Date | string | null | undefined, edge: DateBoundEdg
 function fromInputDate(value: string, edge: DateBoundEdge): Date {
   if (!value) return new Date(NaN)
   const parsed = parseHistoricalDate(value, edge)
-  return parsed.ok ? parsed.date : new Date(value)
+  // Anything else (a full timestamp from a link) by the app's one reader: UTC
+  // when it has no zone, and no date rather than the day V8 rolls "1870-02-31" into.
+  return parsed.ok ? parsed.date : toInstant(value)
 }
 
 /** Store filter shape (`Date` bounds) -> the string-bounded shape `FilterPanel` renders. */

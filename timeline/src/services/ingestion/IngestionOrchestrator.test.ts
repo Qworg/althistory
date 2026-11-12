@@ -254,6 +254,15 @@ describe('IngestionOrchestrator.approve', () => {
     }
   });
 
+  it("refuses a reviewer's date in prose, as the review marks it, rather than read it in the server's zone", async () => {
+    const { orchestrator, importExecutor } = makeOrchestrator();
+    const preview = await orchestrator.ingest({ source: 'text', text: { text: 'x' } });
+    await expect(
+      orchestrator.approve(preview.jobId, { targetGraphId: 'graph-1', edits: { 'event-1': { timestamp: 'Feb 14 1870' } } })
+    ).rejects.toThrow();
+    expect(importExecutor.calls).toHaveLength(0);
+  });
+
   it('rejects approval when the selected subset still has validation errors', async () => {
     const invalid = makeExtraction({
       events: [makeEvent({ actor: '' })],

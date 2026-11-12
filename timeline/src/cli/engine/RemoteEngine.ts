@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { GraphCalendar, storedCalendar, toInstant } from '@althistory/calendar';
-import { precisionMetadata, readAgentTimestamp } from '../utils/timestamps';
+import { precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import { IEngine } from './IEngine';
 import {
   HealthInfo,
@@ -489,13 +489,15 @@ export class RemoteEngine implements IEngine {
     eventId: string,
     data: Partial<{ description: string; timestamp: string; actor?: string; target?: string }>
   ): Promise<EventDto> {
-    const timestamp = data.timestamp !== undefined ? readAgentTimestamp(data.timestamp).iso : undefined;
+    const read = data.timestamp !== undefined ? readAgentTimestamp(data.timestamp) : undefined;
     try {
+      // A new date replaces the old one's precision, as in the direct engine.
+      const metadata = read ? withNewDatePrecision((await this.getEvent(graphId, eventId)).metadata, read) : undefined;
       const res = await this.client.put(
         `/api/events/${eventId}`,
         {
           ...(data.description !== undefined ? { description: data.description } : {}),
-          ...(timestamp !== undefined ? { timestamp } : {}),
+          ...(read ? { timestamp: read.iso, metadata } : {}),
           ...(data.actor !== undefined ? { actor: data.actor } : {}),
           ...(data.target !== undefined ? { target: data.target } : {}),
         },
@@ -521,6 +523,9 @@ export class RemoteEngine implements IEngine {
     graphId: string,
     data: { name: string; startTime: string; endTime: string; description?: string; parentArcId?: string }
   ): Promise<ArcDto> {
+    // Read here, as the direct engine reads them, so both modes take the same text.
+    const startTime = readAgentTimestamp(data.startTime).iso;
+    const endTime = readAgentTimestamp(data.endTime).iso;
     try {
       // A child arc sits one level below the arc it belongs to, which has to
       // exist; the direct engine places it the same way.
@@ -530,8 +535,8 @@ export class RemoteEngine implements IEngine {
         {
           name: data.name,
           description: data.description || '',
-          start_time: data.startTime,
-          end_time: data.endTime,
+          start_time: startTime,
+          end_time: endTime,
           level,
           metadata: data.parentArcId ? { parentArcId: data.parentArcId } : undefined,
         },

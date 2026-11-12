@@ -160,6 +160,21 @@ both the target `:id` and the body's `sourceGraphId`.
 `POST /api/graphs/copy` without a `sourceGraphId`, answer `403` when the
 active graph is outside the key's list.
 
+## Dates
+
+Send historical dates and times as ISO 8601: `1843-11-20`, `1843-11-20T14:30:00Z`,
+`1066-10-14T09:30+05:00`. A time with no zone (`1843-11-20T14:30`) is UTC, never
+the server's local time, and a year or a month alone (`1066`, `1871-03`) is its
+first day. Every route reads dates with the same reader (`toInstant` in
+[`calendar/`](../calendar/README.md)), so a time means the same instant in an
+event, an arc, a filter and an export.
+
+A date that does not exist (`2019-02-31`, `1870-13-01`) is refused. Text that is
+not ISO 8601 at all (`January 1, 2023`) is still read as JavaScript reads it,
+in the server's zone, so that data and clients written before keep working;
+do not rely on it. Responses always write dates as `toISOString` does
+(`1843-11-20T14:30:00.000Z`).
+
 ## Responses
 
 Most routes answer in an envelope:

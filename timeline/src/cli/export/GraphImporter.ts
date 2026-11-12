@@ -93,8 +93,8 @@ export class GraphImporter {
           await scoped.arcRepository.update(origId, {
             name: String(arcData.name || ''),
             description: arcData.description ? String(arcData.description) : undefined,
-            start_time: new Date(String(arcData.start_time)),
-            end_time: new Date(String(arcData.end_time)),
+            start_time: toInstant(String(arcData.start_time)),
+            end_time: toInstant(String(arcData.end_time)),
             level: typeof arcData.level === 'number' ? arcData.level : 0,
             metadata: (arcData.metadata as Record<string, unknown>) || {},
           });
@@ -107,8 +107,8 @@ export class GraphImporter {
             id: newId,
             name: String(arcData.name || ''),
             description: arcData.description ? String(arcData.description) : undefined,
-            start_time: new Date(String(arcData.start_time)),
-            end_time: new Date(String(arcData.end_time)),
+            start_time: toInstant(String(arcData.start_time)),
+            end_time: toInstant(String(arcData.end_time)),
             level: typeof arcData.level === 'number' ? arcData.level : 0,
             metadata: (arcData.metadata as Record<string, unknown>) || {},
           });
@@ -120,8 +120,8 @@ export class GraphImporter {
           id: origId,
           name: String(arcData.name || ''),
           description: arcData.description ? String(arcData.description) : undefined,
-          start_time: new Date(String(arcData.start_time)),
-          end_time: new Date(String(arcData.end_time)),
+          start_time: toInstant(String(arcData.start_time)),
+          end_time: toInstant(String(arcData.end_time)),
           level: typeof arcData.level === 'number' ? arcData.level : 0,
           metadata: (arcData.metadata as Record<string, unknown>) || {},
         });

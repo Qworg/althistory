@@ -90,8 +90,9 @@ describe('an ISO 8601 timestamp, in every time zone', () => {
         const parsed = parseIsoInstant(text)
         if (!exists || Math.abs(ms) > arb.MAX_TIME) {
           expect(parsed, text).toBeNull()
-          // Shaped like ISO, so no legacy guess either: never the day V8 rolls it into.
-          expect(Number.isNaN(toInstant(text).getTime()), text).toBe(true)
+          // Never the day V8 rolls a day that does not exist into.
+          const dayExists = month >= 1 && month <= 12 && day >= 1 && day <= daysIn(year, month)
+          if (!dayExists && (precision === 'day' || precision === 'time')) expect(Number.isNaN(toInstant(text).getTime()), text).toBe(true)
         } else {
           expect(parsed, text).toEqual({ date: new Date(ms), dateOnly: precision !== 'time', precision })
           expect(toInstant(` ${text} `)).toEqual(new Date(ms))
@@ -136,6 +137,10 @@ describe('an ISO 8601 timestamp, in every time zone', () => {
         }
       })
     )
+    // Spellings other programs write, which JavaScript always read: still read so.
+    for (const text of ['2023-01-01 12:00:00 UTC', '2023-01-01 12:00:00 +0000 UTC', '2023-01-01 12:00:00 -0800', '2023-01-01 12:00 PM', '2023-1-5', '2023-01-01Z']) {
+      expect(toInstant(text).getTime(), text).toBe(new Date(text).getTime())
+    }
     // Anything but text, a number or a Date is no date, and never a thrown error.
     for (const value of [null, undefined, {}, [], ['2020-01-01'], true, { $date: '2020-01-01' }]) {
       expect(Number.isNaN(toInstant(value).getTime()), JSON.stringify(value)).toBe(true)

@@ -190,6 +190,28 @@ describe('EventDetailModal', () => {
       })
     })
 
+    it('records the precision a typed date states, and keeps the event\'s when the date is left alone', async () => {
+      const user = userEvent.setup()
+      const save = async (event: ReturnType<typeof createMockEvent>, date?: string) => {
+        const onSave = vi.fn().mockResolvedValue(undefined)
+        const { unmount } = render(<EventDetailModal {...defaultProps} event={event} onSave={onSave} isOpen={true} />)
+        if (date !== undefined) fireEvent.change(screen.getByLabelText(/^date/i), { target: { value: date } })
+        await user.click(screen.getByRole('button', { name: /save/i }))
+        await waitFor(() => expect(onSave).toHaveBeenCalled())
+        unmount()
+        return onSave.mock.calls[0]![0] as { timestamp: string; metadata?: Record<string, unknown> }
+      }
+      const monthEvent = createMockEvent({ timestamp: '1871-03-01T00:00:00.000Z', metadata: { datePrecision: 'month' } })
+      // Left as the form shows it: still the month.
+      expect((await save(monthEvent)).metadata?.datePrecision).toBe('month')
+      // A day typed in its place: the day, and no stale month.
+      const day = await save(monthEvent, '1871-03-15')
+      expect(day.timestamp).toBe('1871-03-15T00:00:00.000Z')
+      expect(day.metadata?.datePrecision).toBeUndefined()
+      // A month typed for a dated event: the month.
+      expect((await save(createMockEvent({ timestamp: '1871-03-15T00:00:00.000Z' }), '1872-05')).metadata?.datePrecision).toBe('month')
+    })
+
     it('does not call onSave when form is invalid', async () => {
       const user = userEvent.setup()
       const onSave = vi.fn().mockResolvedValue(undefined)

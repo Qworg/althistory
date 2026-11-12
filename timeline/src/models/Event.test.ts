@@ -280,7 +280,7 @@ describe('Event timestamps given as text', () => {
   });
 
   it('refuses an ISO-shaped date that does not exist, rather than the day it would roll into', () => {
-    for (const text of ['2019-02-31', '1870-02-14T24:00', '1870-13']) {
+    for (const text of ['2019-02-31', '1870-02-30T10:00', '1870-13']) {
       expect(Event.validate({ description: 'd', actor: 'a', target: 't', timestamp: text as unknown as Date }).isValid, text).toBe(false);
     }
   });

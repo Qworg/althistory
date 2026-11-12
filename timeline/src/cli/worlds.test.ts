@@ -203,6 +203,20 @@ describe('invented worlds', () => {
       ).rejects.toThrow(/Invalid timestamp/);
     });
 
+    it('records the precision an agent gives a date, and replaces it when the date changes', async () => {
+      const graph = await engine.createGraph('Precision');
+      created.push(graph.id);
+      const month = await engine.createEvent(graph.id, { description: 'Some day in March', timestamp: '1871-03' });
+      expect((await engine.getEvent(graph.id, month.id)).metadata?.datePrecision).toBe('month');
+      const day = await engine.updateEvent(graph.id, month.id, { timestamp: '1871-03-15' });
+      expect(new Date(day.timestamp).toISOString()).toBe('1871-03-15T00:00:00.000Z');
+      expect((await engine.getEvent(graph.id, month.id)).metadata?.datePrecision).toBeUndefined();
+      const year = await engine.updateEvent(graph.id, month.id, { timestamp: '1872' });
+      expect((await engine.getEvent(graph.id, year.id)).metadata?.datePrecision).toBe('year');
+      // An arc's times are read as an event's are, so prose is refused here too.
+      await expect(engine.createArc(graph.id, { name: 'Prose', startTime: 'Jan 1 1870', endTime: '1871' })).rejects.toThrow(/Invalid timestamp/);
+    });
+
     it('says which event it created when it cannot put it in the arc', async () => {
       const graph = await engine.createGraph('No Such Arc');
       created.push(graph.id);

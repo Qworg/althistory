@@ -45,7 +45,7 @@ import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
 import { calendarExtractionInstructions, type GraphCalendar, toInstant } from '@althistory/calendar';
-import { precisionMetadata, readAgentTimestamp } from '../utils/timestamps';
+import { precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import type { IGraph } from '@/models/Graph';
 import { validateCausalRelationshipFields } from '@/services/CausalService';
 
@@ -264,6 +264,7 @@ export class DirectEngine implements IEngine {
       timestamp: created.timestamp.toISOString(),
       actor: created.actor,
       target: created.target,
+      ...(created.metadata && Object.keys(created.metadata).length > 0 ? { metadata: created.metadata } : {}),
     };
   }
 
@@ -310,6 +311,7 @@ export class DirectEngine implements IEngine {
       timestamp: event.timestamp.toISOString(),
       actor: event.actor,
       target: event.target,
+      ...(event.metadata && Object.keys(event.metadata).length > 0 ? { metadata: event.metadata } : {}),
     };
   }
 
@@ -325,7 +327,10 @@ export class DirectEngine implements IEngine {
     if (data.actor !== undefined) updatePayload.actor = data.actor;
     if (data.target !== undefined) updatePayload.target = data.target;
     if (data.timestamp !== undefined) {
-      updatePayload.timestamp = new Date(readAgentTimestamp(data.timestamp).iso);
+      const read = readAgentTimestamp(data.timestamp);
+      updatePayload.timestamp = new Date(read.iso);
+      const existing = await scoped.eventRepository.findById(eventId);
+      if (existing) updatePayload.metadata = withNewDatePrecision(existing.metadata, read);
     }
 
     const updated = await scoped.eventRepository.update(eventId, updatePayload);
@@ -346,6 +351,7 @@ export class DirectEngine implements IEngine {
       timestamp: updated.timestamp.toISOString(),
       actor: updated.actor,
       target: updated.target,
+      ...(updated.metadata && Object.keys(updated.metadata).length > 0 ? { metadata: updated.metadata } : {}),
     };
   }
 
@@ -364,11 +370,9 @@ export class DirectEngine implements IEngine {
   ): Promise<ArcDto> {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
-    const start = toInstant(data.startTime);
-    const end = toInstant(data.endTime);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      throw new ValidationErrorCLI('Invalid start or end time for arc');
-    }
+    // Read as the event tools read a time, and as the remote engine reads it.
+    const start = new Date(readAgentTimestamp(data.startTime).iso);
+    const end = new Date(readAgentTimestamp(data.endTime).iso);
     if (start.getTime() > end.getTime()) {
       throw new ValidationErrorCLI(`Arc startTime (${data.startTime}) must precede endTime (${data.endTime})`);
     }

@@ -98,5 +98,14 @@ describe('an import, from the document to the live store', () => {
     const [arc] = await scoped.arcRepository.findAll();
     expect(arc?.start_time.toISOString()).toBe('1066-01-01T00:00:00.000Z');
     expect(arc?.end_time.toISOString()).toBe('1900-01-01T00:00:00.000Z');
+
+    // And the version tree (which exports read) holds them in toISOString's
+    // spelling, so a reader still on new Date() reads the same instants.
+    const head = await container.versionRepository.getLatestVersion(graphId);
+    const tree = await container.versionRepository.checkout(graphId, head!.version);
+    const storedText = new Map(Object.values(tree.events).map((event) => [event.description, event.timestamp]));
+    for (const [text, iso] of TIMES) expect(storedText.get(`At ${text}`), text).toBe(iso);
+    const storedArc = Object.values(tree.arcs)[0]!;
+    expect([storedArc.start_time, storedArc.end_time]).toEqual(['1066-01-01T00:00:00.000Z', '1900-01-01T00:00:00.000Z']);
   });
 });
