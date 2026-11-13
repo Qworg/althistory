@@ -248,6 +248,16 @@ function lowerFirst(text: string): string {
  * it raises rather than falling back to the graph's own span.
  */
 export function parseTimeWindow(value: string, calendar?: WorldCalendarSet): { start: number; end: number } {
+  const { start, end } = parseTimeWindowExact(value, calendar);
+  return { start: Number(start), end: Number(end) };
+}
+
+/**
+ * {@link parseTimeWindow} with exact axis times: past about 287,000 CE a double
+ * has no whole milliseconds, and a window's end (the last millisecond of a
+ * year, month or day) would round up into the next one.
+ */
+export function parseTimeWindowExact(value: string, calendar?: WorldCalendarSet): { start: AxisTime; end: AxisTime } {
   // Every place the window could split ("..", or "/" — which a world's dates
   // may contain, as "4/Thaw/312 AR" does): the one split whose halves both
   // read as dates is the window.
@@ -282,8 +292,8 @@ export function parseTimeWindow(value: string, calendar?: WorldCalendarSet): { s
     const bad = readWorldTimestamp(calendar, rawStart, 'start') ? rawEnd : rawStart;
     throw new Error(`Invalid time window "${value}": ${unreadDateReason(calendar, bad)}`);
   }
-  const start = Number(readable[0]!.start!.time);
-  const end = Number(readable[0]!.end!.time);
+  const start = readable[0]!.start!.time;
+  const end = readable[0]!.end!.time;
 
   if (start >= end) {
     throw new Error(`Invalid time window "${value}": the start must be before the end`);
@@ -1016,16 +1026,18 @@ export class TimelineGenerator {
     const count = Math.max(2, Math.min(options.eventCount || 3, 10));
     const sorted = [...existingEvents].sort((a, b) => compareInstants(a.timestamp, b.timestamp));
 
-    let windowStart = sorted[0].timestamp.getTime();
-    let windowEnd = sorted[sorted.length - 1].timestamp.getTime();
+    // Exact axis times: past about 287,000 CE a double has no whole milliseconds, and an
+    // arc that ends on a year's last millisecond would round up out of its parent.
+    let windowStart: AxisTime = toAxisTime(sorted[0].timestamp) ?? 0n;
+    let windowEnd: AxisTime = toAxisTime(sorted[sorted.length - 1].timestamp) ?? 0n;
     let parentArc: Arc | null = null;
 
     if (options.arcId) {
       const arc = await scoped.arcRepository.findById(options.arcId);
       if (arc) {
         parentArc = arc;
-        windowStart = arc.start_time.getTime();
-        windowEnd = arc.end_time.getTime();
+        windowStart = toAxisTime(arc.start_time) ?? windowStart;
+        windowEnd = toAxisTime(arc.end_time) ?? windowEnd;
       }
     }
 
@@ -1033,12 +1045,12 @@ export class TimelineGenerator {
     const calendar = storedCalendarSet((await container.graphRepository.findById(options.graphId).catch(() => null))?.calendar) ?? undefined;
 
     if (options.timeWindow) {
-      const parsed = parseTimeWindow(options.timeWindow, calendar);
+      const parsed = parseTimeWindowExact(options.timeWindow, calendar);
       if (parentArc) {
         // The expansion has to stay inside the arc it expands, or the graph
         // would hold an arc that is not contained by its parent.
-        const start = Math.max(parsed.start, windowStart);
-        const end = Math.min(parsed.end, windowEnd);
+        const start = parsed.start > windowStart ? parsed.start : windowStart;
+        const end = parsed.end < windowEnd ? parsed.end : windowEnd;
         if (start >= end) {
           throw new Error(
             `The time window ${options.timeWindow} does not overlap the arc ${parentArc.id} ` +
@@ -1053,17 +1065,18 @@ export class TimelineGenerator {
       }
     }
 
-    const interval = (windowEnd - windowStart) / (count + 1);
+    // Whole milliseconds, exactly, so that no event is placed outside the window.
+    const slots = BigInt(count + 1);
     const intermediateEvents: IntermediateEvent[] = [];
 
     for (let i = 1; i <= count; i++) {
-      const timeMs = windowStart + interval * i;
-      const at = instantOfMs(timeMs);
+      const time = windowStart + ((windowEnd - windowStart) * BigInt(i)) / slots;
+      const at = instantOfAxisTime(time) ?? new Date(NaN);
       const before = [...sorted].reverse().find((e) => compareInstants(e.timestamp, at) <= 0);
       const after = sorted.find((e) => compareInstants(e.timestamp, at) >= 0);
       intermediateEvents.push({
         description: this.describeExpansion(before, after, i, count),
-        timestamp: isoOf(timeMs),
+        timestamp: isoOfAxisTime(time),
         actor: before?.actor || existingEvents[0]?.actor || 'Regional Faction',
         target: before?.target || existingEvents[0]?.target || 'Opposing Coalition',
         importance: 0.6,
@@ -1072,7 +1085,7 @@ export class TimelineGenerator {
 
     const expansionArcName = parentArc
       ? `Expansion within ${parentArc.name}`
-      : `Expansion ${formatHistoricalDate(instantOf(windowStart), calendar)} to ${formatHistoricalDate(instantOf(windowEnd), calendar)}`;
+      : `Expansion ${formatHistoricalDate(instantOfAxisTime(windowStart) ?? new Date(NaN), calendar)} to ${formatHistoricalDate(instantOfAxisTime(windowEnd) ?? new Date(NaN), calendar)}`;
 
     if (options.dryRun) {
       return {
@@ -1098,8 +1111,8 @@ export class TimelineGenerator {
             graphId: options.graphId,
             name: expansionArcName,
             description: 'Arc covering the expanded window',
-            startTime: isoOf(windowStart),
-            endTime: isoOf(windowEnd),
+            startTime: isoOfAxisTime(windowStart),
+            endTime: isoOfAxisTime(windowEnd),
             parentArcId: parentArc?.id,
           },
         ],
@@ -1121,8 +1134,8 @@ export class TimelineGenerator {
       description: parentArc
         ? `Sub-arc of ${parentArc.name} holding ${count} interpolated events`
         : `Arc holding ${count} interpolated events`,
-      start_time: instantOf(windowStart),
-      end_time: instantOf(windowEnd),
+      start_time: (instantOfAxisTime(windowStart) ?? new Date(NaN)),
+      end_time: (instantOfAxisTime(windowEnd) ?? new Date(NaN)),
       level: parentArc ? parentArc.level + 1 : 0,
       metadata: parentArc ? { parentArcId: parentArc.id } : {},
     });

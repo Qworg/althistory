@@ -162,6 +162,33 @@ describe('deep time', () => {
       expect(report.errorCount).toBe(0);
     });
 
+    it('expands inside an arc that ends on the last millisecond of +300000, to the millisecond', async () => {
+      // Past about 287,000 CE a double has no whole milliseconds: this end rounds up to the next year if it goes through getTime().
+      const { graphId, ids } = await build();
+      const arc = await engine.createArc(graphId, { name: 'Age', startTime: '+300000-01-01T00:00:00Z', endTime: '+300000-12-31T23:59:59.999Z' });
+      await engine.assignEventToArc(graphId, ids[4]!, arc.id);
+
+      const preview = await engine.generateExpand({ graphId, arcId: arc.id, eventCount: 3, dryRun: true });
+      expect(preview.arcs[0]!.startTime).toBe('+300000-01-01T00:00:00.000Z');
+      expect(preview.arcs[0]!.endTime).toBe('+300000-12-31T23:59:59.999Z');
+
+      const expanded = await engine.generateExpand({ graphId, arcId: arc.id, eventCount: 3, dryRun: false });
+      const sub = expanded.arcs[0]!;
+      expect(sub.startTime).toBe('+300000-01-01T00:00:00.000Z');
+      expect(sub.endTime).toBe('+300000-12-31T23:59:59.999Z');
+      const moments = momentsOf(expanded.events);
+      expect(moments).toHaveLength(3);
+      expect(isSorted(moments)).toBe(true);
+      for (const moment of moments) {
+        expect(moment > toAxisTime(arc.startTime)! && moment < toAxisTime(arc.endTime)!).toBe(true);
+      }
+
+      // A time window inside the arc is clamped to it exactly, too.
+      const windowed = await engine.generateExpand({ graphId, arcId: arc.id, timeWindow: '+300000-06/+300000-12', eventCount: 2, dryRun: true });
+      expect(windowed.arcs[0]!.endTime).toBe('+300000-12-31T23:59:59.999Z');
+      expect((await engine.validateGraph(graphId)).errorCount).toBe(0);
+    });
+
     it('is exported as version 1.1, with a checksum that matches, and imports again to the same moments', async () => {
       const { graphId, ids } = await build();
       await engine.createCausalLink(graphId, { causeId: ids[0]!, effectId: ids[1]! });
