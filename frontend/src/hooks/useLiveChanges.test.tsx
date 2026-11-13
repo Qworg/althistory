@@ -149,15 +149,35 @@ describe('useLiveChanges', () => {
     render(<Probe />, { wrapper })
     await waitFor(() => expect(events).toHaveBeenCalledTimes(1))
     const socket = await live()
+    // Watching begins with one read of the graph, for what landed while the
+    // socket was being opened (see the next test).
+    await waitFor(() => expect(events).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(arcs).toHaveBeenCalledTimes(2))
 
     // Fresh for five minutes: nothing refetches on its own.
     await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(events).toHaveBeenCalledTimes(1)
+    expect(events).toHaveBeenCalledTimes(2)
 
     socket.say(change(1))
-    await waitFor(() => expect(events).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(events).toHaveBeenCalledTimes(3))
     // An event is not an arc: arcs are left alone.
-    expect(arcs).toHaveBeenCalledTimes(1)
+    expect(arcs).toHaveBeenCalledTimes(2)
+  })
+
+  it('reads the graph again once watching begins, so a commit made while the socket opened is not missed', async () => {
+    const events = vi.fn().mockResolvedValueOnce([{ id: 'e0' }]).mockResolvedValue([{ id: 'e0' }, { id: 'landed-meanwhile' }])
+    let seen: unknown
+    function Probe() {
+      useLiveChanges()
+      const query = useQuery({ queryKey: ['events', undefined], queryFn: events })
+      seen = query.data
+      return null
+    }
+    render(<Probe />, { wrapper })
+    await waitFor(() => expect(events).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(seen).toEqual([{ id: 'e0' }]))
+    await live()
+    await waitFor(() => expect(seen).toEqual([{ id: 'e0' }, { id: 'landed-meanwhile' }]))
   })
 
   it('highlights what arrived and says who changed what', async () => {
@@ -180,9 +200,10 @@ describe('useLiveChanges', () => {
     render(<Probe />, { wrapper })
     await waitFor(() => expect(events).toHaveBeenCalledTimes(1))
     const socket = await live()
+    await waitFor(() => expect(events).toHaveBeenCalledTimes(2))
     socket.say(change(1, { origin: CLIENT_ID }))
     await new Promise((resolve) => setTimeout(resolve, 300))
-    expect(events).toHaveBeenCalledTimes(1)
+    expect(events).toHaveBeenCalledTimes(2)
     expect(useLiveChangesStore.getState().notices).toEqual([])
     expect(useLiveChangesStore.getState().fresh.event).toEqual({})
   })
@@ -197,8 +218,9 @@ describe('useLiveChanges', () => {
     render(<Probe />, { wrapper })
     await waitFor(() => expect(events).toHaveBeenCalledTimes(1))
     const first = await live()
-    first.say(change(5))
     await waitFor(() => expect(events).toHaveBeenCalledTimes(2))
+    first.say(change(5))
+    await waitFor(() => expect(events).toHaveBeenCalledTimes(3))
     first.drop()
     expect(useLiveChangesStore.getState().status).toBe('reconnecting')
 
@@ -209,7 +231,7 @@ describe('useLiveChanges', () => {
     expect(second.sent[0]).toEqual({ type: 'subscribe', graphId: 'g1', epoch: 'E1', since: 5 })
     second.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 8, replayed: 1 })
     second.say(change(8))
-    await waitFor(() => expect(events).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(events).toHaveBeenCalledTimes(4))
 
     // The server could not replay: everything for the graph is read again.
     second.drop()
@@ -217,7 +239,7 @@ describe('useLiveChanges', () => {
     const third = latest()
     third.say({ type: 'auth_result', success: true })
     third.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 900, replayed: 0, resync: 'gap' })
-    await waitFor(() => expect(events).toHaveBeenCalledTimes(4))
+    await waitFor(() => expect(events).toHaveBeenCalledTimes(5))
   }, 10000)
 
   it('moves to the graph that is opened, without reconnecting', async () => {

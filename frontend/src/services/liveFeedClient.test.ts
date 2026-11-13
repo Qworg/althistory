@@ -245,8 +245,10 @@ describe('LiveFeedClient', () => {
       const first = await connected(h)
       first.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 5, replayed: 0 })
       first.say({ type: 'subscribed', graphId: '*', epoch: 'E1', seq: 5, replayed: 0 })
-      // The first time there is nothing to catch up on.
-      expect(h.resyncs).toEqual([])
+      // The graph was read before the socket opened, and nothing is replayed to
+      // a first subscription: it is read again. The graph list needs nothing yet.
+      expect(h.resyncs).toEqual([['g1', 'subscribe']])
+      h.resyncs.length = 0
 
       first.drop()
       expect(h.client.currentStatus).toBe('reconnecting')
@@ -275,6 +277,7 @@ describe('LiveFeedClient', () => {
       const h = harness()
       const first = await connected(h)
       first.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 5, replayed: 0 })
+      h.resyncs.length = 0
       first.drop()
       await vi.advanceTimersByTimeAsync(1000)
       const second = socketAt(1)
@@ -362,6 +365,36 @@ describe('LiveFeedClient', () => {
         { type: 'subscribe', graphId: 'g2' },
       ])
       expect(h.getToken).toHaveBeenCalledTimes(1)
+    })
+
+    it('reads a graph again when it is first watched, at the start and on switching to it', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      // The server replays nothing to a subscription that names no position, so
+      // what was committed between the view's reads and this registration would
+      // otherwise reach no one.
+      socket.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 0, replayed: 0 })
+      expect(h.resyncs).toEqual([['g1', 'subscribe']])
+
+      h.client.setGraph('g2')
+      socket.say({ type: 'subscribed', graphId: 'g2', epoch: 'E1', seq: 4, replayed: 0 })
+      expect(h.resyncs).toEqual([
+        ['g1', 'subscribe'],
+        ['g2', 'subscribe'],
+      ])
+    })
+
+    it('does not read a graph again for a subscription the server replayed', async () => {
+      const h = harness()
+      const first = await connected(h)
+      first.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 5, replayed: 0 })
+      h.resyncs.length = 0
+      first.drop()
+      await vi.advanceTimersByTimeAsync(1000)
+      const second = socketAt(1)
+      second.say({ type: 'auth_result', success: true })
+      second.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 6, replayed: 1 })
+      expect(h.resyncs).toEqual([])
     })
 
     it('tells the caller when the server stops sending a graph', async () => {

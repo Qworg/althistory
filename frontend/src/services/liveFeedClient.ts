@@ -15,6 +15,11 @@
  *     is single-use), resubscribes with that position, and the server replays
  *     what was missed, or says to refetch (`onResync`). The graph list cannot
  *     be replayed, so it is always refetched after a reconnect.
+ *   - A graph watched for the first time (at start, or on switching to it) is
+ *     refetched once the server confirms the subscription: the view read it
+ *     while the token and the handshake were under way, and the server replays
+ *     nothing to a subscriber that names no position, so a commit in that
+ *     window would otherwise be missed until the data went stale.
  *   - It reconnects with a growing delay, and stops (status `error`) for a
  *     refusal that retrying cannot fix: a key that cannot read, or may not
  *     access the graph.
@@ -43,7 +48,7 @@ export interface LiveFeedClientOptions {
   createSocket?(url: string): FeedSocket
   onChange(change: LiveChange): void
   /** What the client holds for `graphId` (or `*`, the graph list) may be stale: refetch it. */
-  onResync(graphId: string, reason: 'gap' | 'epoch' | 'reconnect'): void
+  onResync(graphId: string, reason: 'gap' | 'epoch' | 'reconnect' | 'subscribe'): void
   onStatus(status: LiveFeedStatus, detail?: string): void
   /** The key may no longer read `graphId`; the server stopped sending it. */
   onAccessRevoked?(graphId: string): void
@@ -90,6 +95,8 @@ export class LiveFeedClient {
   private hasBeenLive = false
   /** Whether the current socket resumes an earlier one. */
   private resumed = false
+  /** Channels whose pending subscribe named a position, so the server replays them. */
+  private readonly resuming = new Set<string>()
 
   constructor(options: LiveFeedClientOptions) {
     this.options = options
@@ -280,8 +287,14 @@ export class LiveFeedClient {
     this.epoch = epoch
     this.cursors.set(channel, Math.max(this.cursors.get(channel) ?? 0, seq))
     this.confirmed.add(channel)
+    const resumedChannel = this.resuming.delete(channel)
     if (resync) {
       this.options.onResync(channel, resync)
+    } else if (channel !== GRAPH_LIST_CHANNEL && !resumedChannel) {
+      // Nothing was replayed, so what was committed between the view's reads
+      // and this registration reaches no one: read it again. Everything after
+      // this point arrives on the feed.
+      this.options.onResync(channel, 'subscribe')
     } else if (channel === GRAPH_LIST_CHANNEL && this.resumed) {
       // The graph list is never replayed: after a reconnect it is read again.
       this.options.onResync(channel, 'reconnect')
@@ -301,6 +314,8 @@ export class LiveFeedClient {
     if (!socket || socket.readyState !== OPEN) return
     const since = this.cursors.get(channel)
     const resuming = since !== undefined && this.epoch !== undefined && channel !== GRAPH_LIST_CHANNEL
+    if (resuming) this.resuming.add(channel)
+    else this.resuming.delete(channel)
     socket.send(
       JSON.stringify({
         type: 'subscribe',
@@ -314,6 +329,7 @@ export class LiveFeedClient {
     const socket = this.socket
     this.confirmed.delete(channel)
     this.cursors.delete(channel)
+    this.resuming.delete(channel)
     if (!socket || socket.readyState !== OPEN) return
     socket.send(JSON.stringify({ type: 'unsubscribe', graphId: channel }))
   }
