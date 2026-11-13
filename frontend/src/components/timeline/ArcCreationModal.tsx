@@ -6,7 +6,7 @@ import { Portal } from '@/components/ui/Portal'
 import { DateField } from '@/components/ui/DateField'
 import { readDateFieldValue } from '@/utils/dateField'
 import { useDateFieldText } from '@/hooks/useDateFieldText'
-import { toInstant } from '@althistory/calendar'
+import { compareInstants, toInstant } from '@althistory/calendar'
 
 export interface ArcCreationModalProps {
   isOpen: boolean
@@ -150,7 +150,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
       const startTime = toInstant(toIso(formData.start_time, 'start'))
       const endTime = toInstant(toIso(formData.end_time, 'end'))
       
-      if (startTime >= endTime) {
+      if (compareInstants(startTime, endTime) >= 0) {
         newErrors.end_time = 'End time must be after start time'
       }
 
@@ -161,7 +161,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
           const parentStart = toInstant(parentArc.start_time)
           const parentEnd = toInstant(parentArc.end_time)
           
-          if (startTime < parentStart || endTime > parentEnd) {
+          if (compareInstants(startTime, parentStart) < 0 || compareInstants(endTime, parentEnd) > 0) {
             newErrors.time_range = 'Arc must be contained within parent arc time range'
           }
         }
@@ -177,7 +177,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
           const siblingStart = toInstant(sibling.start_time)
           const siblingEnd = toInstant(sibling.end_time)
           
-          return (startTime < siblingEnd && endTime > siblingStart)
+          return (compareInstants(startTime, siblingEnd) < 0 && compareInstants(endTime, siblingStart) > 0)
         })
         
         if (hasOverlap) {

@@ -7,7 +7,7 @@ import { DateField } from '@/components/ui/DateField'
 import { describedBy } from '@/utils/aria'
 import { readDateFieldValue } from '@/utils/dateField'
 import { useDateFieldText } from '@/hooks/useDateFieldText'
-import { toInstant } from '@althistory/calendar'
+import { compareInstants, toInstant } from '@althistory/calendar'
 
 export interface ArcDetailPanelProps {
   arc: Arc | null
@@ -137,17 +137,14 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
       const startTime = toInstant(toIso(formData.start_time, 'start'))
       const endTime = toInstant(toIso(formData.end_time, 'end'))
       
-      if (startTime >= endTime) {
+      if (compareInstants(startTime, endTime) >= 0) {
         newErrors.end_time = 'End time must be after start time'
       }
 
       // Check if any contained events would be outside the new time range
-      const startMs = startTime.getTime()
-      const endMs = endTime.getTime()
-      
       const eventsOutsideRange = containedEvents.filter(event => {
-        const eventTime = toInstant(event.timestamp).getTime()
-        return eventTime < startMs || eventTime > endMs
+        const eventTime = toInstant(event.timestamp)
+        return compareInstants(eventTime, startTime) < 0 || compareInstants(eventTime, endTime) > 0
       })
 
       if (eventsOutsideRange.length > 0) {
