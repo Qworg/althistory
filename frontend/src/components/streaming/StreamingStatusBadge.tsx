@@ -1,16 +1,22 @@
 /**
- * Visual badge indicating current WebSocket streaming status and activity stats.
+ * Visual badge for live sync: the connection over which the app hears what
+ * other writers (an agent working through MCP, the command line, a generation
+ * job) do to the open graph.
  *
- * "Off" is the normal resting state (edits save over HTTP without it), so it is
- * drawn neutral -- a hollow dot on the subtle surface -- and only an actual
- * error uses the alarm colour.
+ * Live sync is on by default. "Off" is what the person chose (edits still save
+ * over HTTP without it), so it is drawn neutral -- a hollow dot on the subtle
+ * surface -- and only an actual error uses the alarm colour. A dropped
+ * connection that is being reopened is a warning, not an error: it catches up.
  */
 
 import React from 'react'
 import type { StreamingConnectionStatus, StreamingStats } from '@/hooks/useStreamingWrite'
 
+/** The write stream's states, plus the one only a feed that reopens itself has. */
+export type LiveSyncBadgeStatus = StreamingConnectionStatus | 'reconnecting' | 'waiting'
+
 export interface StreamingStatusBadgeProps {
-  status: StreamingConnectionStatus
+  status: LiveSyncBadgeStatus
   stats?: StreamingStats
   error?: string | null
   onConnect?: () => void
@@ -19,7 +25,13 @@ export interface StreamingStatusBadgeProps {
 }
 
 const OFF_HINT =
-  "Every edit is saved as you make it. Live sync also sends each of your edits over an open connection and shows it confirmed as it lands. Edits made elsewhere, such as an agent's, still appear only when the app next refreshes its data."
+  "Every edit is saved as you make it. Turn on live sync to see changes made elsewhere, such as by an agent, as they happen; without it they appear only when the app next refreshes its data."
+
+const ON_HINT = "Changes made elsewhere, such as by an agent, appear here as they happen, and are marked as new for a few seconds."
+
+const RECONNECTING_HINT = 'The connection dropped. Reconnecting; whatever was missed is caught up when it is back.'
+
+const WAITING_HINT = 'Live sync is on. It starts when a graph is open: a connection is made for one graph.'
 
 const ERROR_MESSAGE =
   "Couldn't start live sync. Your edits still save as you go; retry when the server is reachable."
@@ -49,6 +61,18 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
           dot: 'bg-warning animate-pulse',
           label: 'Live sync: connecting…',
         }
+      case 'reconnecting':
+        return {
+          bg: 'bg-warning/10 text-warning border-warning/30',
+          dot: 'bg-warning animate-pulse',
+          label: 'Live sync: reconnecting…',
+        }
+      case 'waiting':
+        return {
+          bg: 'bg-subtle text-ink-secondary border-line',
+          dot: 'border border-ink-muted',
+          label: 'Live sync: waiting for a graph',
+        }
       case 'error':
         return {
           bg: 'bg-danger/10 text-danger border-danger/30',
@@ -72,7 +96,11 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
   const title =
     status === 'error'
       ? `${ERROR_MESSAGE}${error ? ` (Details: ${error})` : ''}`
-      : statsTitle || (status === 'disconnected' ? OFF_HINT : undefined)
+      : status === 'reconnecting'
+        ? RECONNECTING_HINT
+        : status === 'waiting'
+          ? WAITING_HINT
+          : statsTitle || (status === 'disconnected' ? OFF_HINT : status === 'connected' ? ON_HINT : undefined)
 
   return (
     <div

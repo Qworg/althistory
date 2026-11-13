@@ -30,11 +30,14 @@ flowchart TD
 
     Agents -->|stdio JSON-RPC| MCP
     Agents -->|subprocess execution| CLI
+    MCP --> Remote
     MCP --> Direct
     CLI --> Direct
     CLI --> Remote
     Direct --> Generator
     Direct --> Validator
+    Remote -->|"HTTP: entities, generation jobs"| App["Running app<br/>(one writer, live change feed)"]
+    App --> Generator
 ```
 
 ### Protocol Standards
@@ -43,8 +46,8 @@ flowchart TD
 - **Capabilities:** `tools` and `prompts`.
 - **Output Purity:** All operational diagnostics, log messages, and debug traces are strictly directed to `stderr`. `stdout` carries exclusively clean JSON-RPC protocol frames or machine-readable JSON envelopes.
 - **Execution Modes:**
-  - **Direct Mode (`--direct`):** In-process execution using local JSON storage (`timeline/data`), requiring no external daemon or network sockets.
-  - **Remote Mode (`--url <daemon-url>`):** Connects to a running Althistory server (local, LAN, or Tailscale node).
+  - **Remote Mode (the default when the app is running, or `--url <daemon-url>`):** Works through a running Althistory server (local, LAN, or Tailscale node). The app is the one writer of its graphs, and every command works through it, generation included.
+  - **Direct Mode (`--direct`):** In-process execution using local JSON storage (`timeline/data`), requiring no external daemon or network sockets. Only for when **no app is running**: the command refuses while an app answers on `127.0.0.1:3000`, because the app keeps its own copy of each graph in memory and writes the same files, and with no lock between them each would overwrite the other's changes without an error. (`ALTHISTORY_ALLOW_DIRECT=1` overrides the refusal, for an app that keeps its data somewhere else.)
 
 ---
 
@@ -58,10 +61,21 @@ path to `bin/althistory` in the clone instead; it runs through `npx`, so
 When the althistory app is running on `127.0.0.1:3000`, the server works
 through it, so what an agent writes appears in the app as it goes; otherwise
 it works on the local files (`timeline/data`, the same store the app reads).
-`althistory_generate_timeline` and `althistory_branch_timeline` run only
-in-process, so they need the app stopped; every other tool works either way.
-Do not add `--direct` while the app is running: two processes would then
-write the same files. Working through the app, the server uses
+The server looks again at each call (an answer is trusted for a few seconds),
+so an MCP client that starts the server before `./start-local.sh` is handed
+over to the app as soon as it answers: no restart is needed. While it works on
+the files it saves them after each call that writes (and every second during a
+long one), so an app that starts and opens a graph reads what the agent wrote;
+the handover waits for a call still running before it closes the files. The
+one window left is a write made between the app loading a graph and the
+server's next look for the app (a few seconds): the app does not see it until
+it next reads the graph from disk.
+Every tool works either way, `althistory_generate_timeline` and
+`althistory_branch_timeline` included: through the app they run as its
+generation jobs (see [Watching an agent work](#watching-an-agent-work)), with
+no need to stop the app. Do not add `--direct` while the app is running: it
+refuses, because two processes would write the same files. Working through the
+app, the server uses
 `ALTHISTORY_API_KEY` if its `env` sets one (give an agent a scoped key that
 way), and otherwise the app's own admin key, which `start-local.sh` writes to
 `timeline/.env.local`. For another server, also pass `--url`.
@@ -69,7 +83,9 @@ way), and otherwise the app's own admin key, which `start-local.sh` writes to
 To let the server draft with a model, give **the server** a key: add
 `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) to its `env`. The agent's own model
 does not count. Without one, generation returns a template marked
-`"source": "template"`.
+`"source": "template"`. Through the app, the key is the *app's*: the
+generation job runs in the app's process, so give the app `ANTHROPIC_API_KEY`
+or `OPENAI_API_KEY`, as for ingestion.
 
 ### A. Claude Desktop / Cursor / Roo Code / Cline
 `claude_desktop_config.json` (`~/.config/Claude/` on Linux,
@@ -105,6 +121,37 @@ on whitespace, so run the prompt on its own (or with the one-word arguments:
 `/althistory:worldbuild AR 1000`) and describe the world in your next message.
 
 ---
+
+### Watching an agent work
+
+With the app open on a graph, an agent's changes appear in it within about a
+second, without a reload: hand-written events, arcs and links, a branch, a
+rollback, a new calendar, and drafts. The app holds a read-only socket to the
+server's change feed, which announces every committed change whoever made it.
+
+- **Who and what.** A notice says it ("An agent (Claude) added 3 events to
+  “The Tide War”"; "The command line rolled back “The Tide War”"), naming the
+  key the agent works under, and the new marks pulse for a few seconds. Your own
+  edits in the window are not announced back to you.
+- **Drafting.** `althistory_generate_timeline` and `althistory_branch_timeline`
+  start a job in the app that writes as it goes: the graph and its calendar,
+  then the arcs, then the events, then the causal links, so a person watching
+  sees the graph fill in. The tool waits for the job and returns its result.
+  Cancelling the call (or Ctrl-C on the CLI) cancels the job: it stops before its
+  next write, and **what it had written stays in the graph**; the error says how
+  much. A draft is never rolled back, so a cancelled one can be finished, edited
+  or deleted like any other graph.
+- **Cost.** A job spends the app's model key, so each API key may have 2 jobs
+  running and start 30 in an hour, and the app runs at most 4 at once
+  (`GENERATION_MAX_RUNNING_PER_KEY`, `GENERATION_MAX_PER_KEY_PER_HOUR`,
+  `GENERATION_MAX_RUNNING_TOTAL`). A refused start says when to retry. A
+  key needs the `generate` permission (or every write permission the run uses).
+  `dryRun` drafts a preview and writes nothing, but still calls the model.
+- **The window was closed, or the connection dropped.** The app reconnects and is
+  caught up: the server replays what it missed, or tells the app to refetch the
+  graph. Nothing is lost.
+- **Turning it off.** The toolbar's "Live sync" badge turns it off, and the app
+  remembers; the changes then appear when the app next refreshes its data.
 
 ## 3. Three ways to work
 
@@ -280,6 +327,7 @@ Draft a new graph whole-cloth. Give **either** `premise` and `divergencePoint`
 - `startDate`, `endDate`: ISO 8601 (a date-time without a zone is read as UTC), or year first for an alternate history (`44 BCE`; an `endDate` means the last moment of the day, month or year it names), or for a world a date in its notation. An alternate history starts in the first year from 1000 to 2099 named in the premise or the divergence point (1914 if there is none, so give `startDate` for earlier history) and runs 15 years; a world starts at `startDate`, or its epoch, and runs 300 years, never past 9999.
 - `eventCount` (default 8), `style`: `"academic"` | `"narrative"` | `"concise"`, `dryRun`.
 - The result's `source` is `"model"`, or `"template"` when there was no model key or the model's answer was unusable: a generic skeleton to rewrite, not a history.
+- Through the running app this is a job: the call returns when the draft is written (a model call takes seconds to minutes), the app shows it fill in meanwhile, and cancelling the call stops it with what it wrote kept.
 
 #### `althistory_branch_timeline`
 Branch a graph at one of its events and draft a different course from there. Like generation, it drafts with a model only when the server has a key, and its result's `source` says which.

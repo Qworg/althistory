@@ -7,6 +7,8 @@ import { useViewShortcuts } from '@/hooks/useViewShortcuts'
 import { useGlobalStore } from '@/stores/globalStore'
 import { ActiveFiltersBar, FilterPanelContainer } from '@/components/filters/FilterPanelContainer'
 import { CopyCompletionNotifier } from '@/components/notifications/CopyCompletionNotifier'
+import { LiveChangeNotices } from '@/components/notifications/LiveChangeNotices'
+import { useLiveChanges } from '@/hooks/useLiveChanges'
 import { HelpDialog } from '@/components/help/HelpDialog'
 import { useHelpShortcut } from '@/components/help/useHelpShortcut'
 import { useActiveGraphReconciler } from '@/hooks/useGraphs'
@@ -41,6 +43,10 @@ export function MainLayout({ children }: MainLayoutProps) {
 
   // Dates are shown in the open graph's world calendar, when it has one
   useWorldCalendarSync()
+
+  // Changes other writers make to the open graph (an agent working through MCP,
+  // the command line, a generation job) appear as they are made
+  useLiveChanges()
 
   // Sync high contrast accessibility preference to the root document element
   useEffect(() => {
@@ -199,6 +205,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       {/* The copy completion notice lives here so it outlives the modal that
           started the copy. */}
       <CopyCompletionNotifier />
+      <LiveChangeNotices />
 
       {/* Help & reference (shortcuts + glossary): opened from the header, the
           user menu or `?`. */}

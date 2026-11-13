@@ -15,8 +15,12 @@ environment's `ADMIN_API_KEY`, then `timeline/.env.local` (which
 a graph says so in the `X-Graph-Id` header the daemon reads; otherwise it runs
 in process against the local store. `--url` names another daemon (its key from
 `--api-key` or `ALTHISTORY_API_KEY`), and `--direct` forces in-process mode,
-which must not be used while the app is running on the same data: two
-processes would write the same files.
+for when **no app is running**: the CLI refuses it while an app answers on
+`127.0.0.1:3000` (or `[::1]:3000`), because two processes would write the same
+files with no lock between them, each overwriting the other's changes without
+an error. Set `ALTHISTORY_ALLOW_DIRECT=1` to run it anyway, for an app that
+keeps its data somewhere else. Every command, generation included, works
+through the app, so `--direct` is never needed beside one.
 
 ## The commands
 
@@ -137,15 +141,36 @@ the world's dates. `ingest text` into a graph with calendars tells the model
 how they name a date and has it write dates that way; the pattern reader
 reads only Gregorian dates, so in a world it dates (and creates) nothing. See [the MCP guide](../../../docs/mcp-agent-guide.md#inventing-a-world).
 
-## What the daemon cannot do
+## Generation through the daemon
 
-The daemon serves no generation routes: there is no
-`POST /api/generate/timeline`, `/branch` or `/expand` in the backend, so
-`generate timeline`, `generate branch` and `generate expand` run only in
-process: stop the app first (or use `--direct` when no app shares the data).
-In remote mode the CLI fails with a message naming the route that is missing;
-it does not fall back to a different route. `generate simulate` works in both
-modes, because the daemon serves `POST /api/inference/simulate`.
+`generate timeline`, `generate branch` and `generate expand` work through the
+app: `POST /api/generate/timeline`, `/branch` and `/expand` start a job in the
+app, which runs the same generator, holds the model key (`ANTHROPIC_API_KEY` or
+`OPENAI_API_KEY`, which is why `--provider` and `--model` are the app's to
+honour) and writes to its own graphs, so the app stays the one writer. The CLI
+polls the job (`GET /api/generate/jobs/:id`), prints its progress on stderr and
+the result on stdout, and the result's `source` says whether a model or the
+template wrote the events (`"source": "template"` is a skeleton to rewrite).
+Because a run writes as it goes, a person with the app open sees the graph fill
+in.
+
+- **Ctrl-C** cancels the job: it stops before its next write, and what it had
+  written stays in the graph (the error says how much). A second Ctrl-C quits.
+  A run that outlives 30 minutes (`ALTHISTORY_GENERATION_TIMEOUT_MS` changes
+  it) is cancelled the same way.
+- **The key** needs the `generate` permission (or `write:graphs`,
+  `write:events`, `write:arcs` and `write:relationships`; an expansion needs
+  only the events and arcs), and for `branch` and `expand` access to the graph.
+- **Limits**: a key may have 2 jobs running and start 30 an hour, and the app
+  runs 4 at once; a refused start is a `429` with `Retry-After`.
+- **`--dry-run`** drafts a preview and writes nothing, but still calls the
+  model.
+
+`generate simulate` works through the daemon too, on
+`POST /api/inference/simulate`; it is a mechanical model and never calls a
+language model.
+
+## What the daemon cannot do
 
 The daemon's ingestion routes do not write anything. They run the extractor
 and return a *review job* that holds the extracted entities until a reviewer

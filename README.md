@@ -139,10 +139,12 @@ that is its year 1 (`epochYear`) and a label (`eraLabel`).
 whole-cloth from a premise or a world description. It uses a model only when
 *the althistory process* has `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; without
 one it returns a template skeleton, and the result says
-`"source": "template"`. Generation runs in-process, so it needs the app
-stopped: with the app running, the CLI works through it (using the app's own
-key from `timeline/.env.local`), and the app has no generation route. Don't
-add `--direct` while the app runs; two processes would write the same files.
+`"source": "template"`. With the app running, the CLI and the MCP server work
+through it (using the app's own key from `timeline/.env.local`), generation
+included: the app runs it as a cancellable job, writes the graph as it goes,
+and shows the changes in the open window as they are made. Don't add
+`--direct` while the app runs; the CLI refuses, because two processes would
+write the same files.
 
 ```bash
 ./bin/althistory schema                 # the JSON Schema of every command
@@ -151,12 +153,12 @@ add `--direct` while the app runs; two processes would write the same files.
 # An invented world, with its calendars from a file (see docs/specs/world-calendars.md)
 ./bin/althistory graph create "Vael" --calendar-file vael-calendars.json
 ./bin/althistory event add "The harbours close" -g <graphId> -a Priests --target Kings -t "Midyear's Day, 141 AR"
-./bin/althistory generate timeline --world "A drowned archipelago ruled by salt-kings" --era-label AR   # app stopped
+./bin/althistory generate timeline --world "A drowned archipelago ruled by salt-kings" --era-label AR
 ./bin/althistory prompt worldbuild world="A drowned archipelago" --plain   # the brief, for any agent
 
 # Real and alternate history
 ./bin/althistory ingest url "https://en.wikipedia.org/wiki/Battle_of_Hastings" -g <graphId>
-./bin/althistory generate timeline --premise "Byzantium wins at Manzikert" --divergence-point "1071-08-26"   # app stopped
+./bin/althistory generate timeline --premise "Byzantium wins at Manzikert" --divergence-point "1071-08-26"
 ./bin/althistory generate simulate -g <graphId> --steps 3 --months 12
 ./bin/althistory validate <graphId> --auto-repair
 ./bin/althistory --plain export <graphId> --format markdown

@@ -99,4 +99,24 @@ describe('TimelineArc', () => {
     renderArc({ x: -100, width: 400 })
     expect(document.querySelector('.arc-label')).toHaveAttribute('x', '4')
   })
+
+  describe('an arc another writer just added (the live change feed)', () => {
+    it('is outlined in the success colour and named as new, until the highlight ends', () => {
+      const { rerender, container } = render(
+        <svg>
+          <TimelineArc arc={arc} x={0} y={0} width={200} isFresh />
+        </svg>
+      )
+      expect(screen.getByRole('button', { name: /Building the Engine.*, new/ })).toBeInTheDocument()
+      const ring = container.querySelector('.arc-fresh-ring')
+      expect(ring?.getAttribute('stroke')).toBe('var(--status-success)')
+
+      rerender(
+        <svg>
+          <TimelineArc arc={arc} x={0} y={0} width={200} />
+        </svg>
+      )
+      expect(container.querySelector('.arc-fresh-ring')).toBeNull()
+    })
+  })
 })

@@ -22,8 +22,58 @@ import { IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
 import { CausalService } from '@/services/CausalService';
 import { createLogger } from '@/utils/logger';
+import type { ChangedEntity, ChangedEntityType, ChangeOperation } from '@/services/ChangeFeedService';
 
 const logger = createLogger('BatchRoutes');
+
+/**
+ * Tell the live change feed what a batch wrote. A batch writes the live store
+ * directly (it does not go through the versioning bridge, which is where every
+ * other write is announced), so it announces for itself, once per kind of
+ * change, after the batch is done. Never fails the batch.
+ */
+function announceBatch(
+  req: Request,
+  graphId: string,
+  steps: Array<{ operation: ChangeOperation; type: ChangedEntityType; id: string }>
+): void {
+  try {
+    const groups = new Map<string, ChangedEntity[]>();
+    for (const step of steps) {
+      const key = `${step.operation}:${step.type}`;
+      groups.set(key, [...(groups.get(key) ?? []), { type: step.type, id: step.id }]);
+    }
+    for (const [key, entities] of groups) {
+      const operation = key.split(':')[0] as ChangeOperation;
+      const noun = entities[0].type === 'relationship' ? 'link' : entities[0].type;
+      const verb = operation === 'create' ? 'Added' : operation === 'update' ? 'Edited' : 'Deleted';
+      req.container.changeFeedService.publish(graphId, {
+        kind: 'entities',
+        operation,
+        entities,
+        summary: `${verb} ${entities.length} ${noun}${entities.length === 1 ? '' : 's'} in a batch`,
+      });
+    }
+  } catch (error) {
+    logger.warn('Could not announce a batch to the live feed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/** The writes a transaction's steps made, in the form `announceBatch` takes. */
+function stepsOf(
+  results: Array<{ type: string; success: boolean; id?: string }>,
+  liveIds: ReadonlyMap<string, string> = new Map()
+): Array<{ operation: ChangeOperation; type: ChangedEntityType; id: string }> {
+  return results.flatMap((step) => {
+    if (!step.success || !step.id) return [];
+    const kind = /^(create|update|delete)_(event|arc|relationship)$/.exec(step.type);
+    if (!kind) return [];
+    const id = kind[1] === 'create' ? (liveIds.get(step.id) ?? step.id) : step.id;
+    return [{ operation: kind[1] as ChangeOperation, type: kind[2] as ChangedEntityType, id }];
+  });
+}
 
 export const batchRoutes = Router();
 
@@ -238,6 +288,7 @@ batchRoutes.post(
     // Set success based on failure count
     result.success = result.failed.length === 0;
 
+    announceBatch(req, requireGraphId(req), result.created.map((id) => ({ operation: 'create', type: 'event', id })));
     res.status(result.success ? 201 : 207).json(result);
   })
 );
@@ -335,6 +386,7 @@ batchRoutes.post(
 
     result.success = result.failed.length === 0;
 
+    announceBatch(req, requireGraphId(req), result.created.map((id) => ({ operation: 'create', type: 'arc', id })));
     res.status(result.success ? 201 : 207).json(result);
   })
 );
@@ -364,6 +416,8 @@ batchRoutes.post(
     const onError = request.onError || 'abort';
     const { relationships } = request;
 
+    // The ids the graph gave the links, for the announcement (result.created keeps the cause_effect keys).
+    const storedIds: string[] = [];
     const result: BatchResult = {
       success: true,
       created: [],
@@ -405,7 +459,7 @@ batchRoutes.post(
         }
 
         // Create the relationship using createCausalLink
-        await causalService.createCausalLink(
+        const stored = await causalService.createCausalLink(
           causeEvent,
           effectEvent,
           {
@@ -419,6 +473,9 @@ batchRoutes.post(
         // Generate relationship ID
         const relId = `${relData.cause_event_id}_${relData.effect_event_id}`;
         result.created.push(relId);
+        // What the graph calls the link, which the response's cause_effect key is not:
+        // a watcher matches its highlights on this id.
+        storedIds.push(stored.id);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
@@ -452,6 +509,7 @@ batchRoutes.post(
 
     result.success = result.failed.length === 0;
 
+    announceBatch(req, requireGraphId(req), storedIds.map((id) => ({ operation: 'create', type: 'relationship', id })));
     res.status(result.success ? 201 : 207).json(result);
   })
 );
@@ -548,6 +606,8 @@ batchRoutes.post(
     };
 
     const createdIds: Array<{ type: string; id: string }> = [];
+    // A created link is announced under the id the graph gave it, not the cause_effect key the response uses.
+    const liveIds = new Map<string, string>();
 
     const calendarOf = calendarLookup(req);
     for (let i = 0; i < operations.length; i++) {
@@ -618,7 +678,7 @@ batchRoutes.post(
             const effectEvent = await eventRepository.findById(relData.effect_event_id);
             if (!causeEvent) throw new Error(`Cause event not found: ${relData.cause_event_id}`);
             if (!effectEvent) throw new Error(`Effect event not found: ${relData.effect_event_id}`);
-            await causalService.createCausalLink(causeEvent, effectEvent, {
+            const stored = await causalService.createCausalLink(causeEvent, effectEvent, {
               weight: relData.weight || 0.5,
               evidence: relData.evidence || '',
               confidence: relData.confidence || 0.5,
@@ -627,6 +687,7 @@ batchRoutes.post(
             const relId = `${relData.cause_event_id}_${relData.effect_event_id}`;
             opResult = { success: true, id: relId };
             createdIds.push({ type: 'relationship', id: relId });
+            liveIds.set(relId, stored.id);
             break;
           }
 
@@ -658,6 +719,7 @@ batchRoutes.post(
 
         if (atomic) {
           // Rollback all created entities
+          const rolledBack = new Set<string>();
           for (const created of createdIds.reverse()) {
             try {
               switch (created.type) {
@@ -676,12 +738,26 @@ batchRoutes.post(
                   break;
                 }
               }
+              rolledBack.add(created.id);
             } catch (rollbackError) {
               logger.error('Rollback failed', rollbackError, { type: created.type, id: created.id });
             }
           }
 
           result.rollbackPerformed = true;
+
+          // The rollback undoes only what the transaction created. The updates
+          // and deletes that ran before the failing step stay in the store, and
+          // so does anything whose rollback failed: tell whoever has the graph
+          // open. What was created and removed again nets to nothing.
+          announceBatch(
+            req,
+            requireGraphId(req),
+            stepsOf(
+              result.results.filter((step) => !(step.id !== undefined && rolledBack.has(step.id))),
+              liveIds
+            )
+          );
 
           return res.status(400).json({
             ...createBatchError(
@@ -695,6 +771,7 @@ batchRoutes.post(
       }
     }
 
+    announceBatch(req, requireGraphId(req), stepsOf(result.results, liveIds));
     res.status(result.success ? 200 : 207).json(result);
   })
 );

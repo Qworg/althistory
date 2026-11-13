@@ -129,6 +129,8 @@ export interface GraphPalette {
   /** A point of divergence (also drawn as a diamond). */
   divergenceFill: string
   divergenceBorder: string
+  /** An event or link another writer just added or changed (the live change feed): its ring. */
+  freshRing: string
   /**
    * An event that cannot be the effect of the picked cause. Deliberately
    * dimmed: it is inactive, which WCAG 1.4.11 exempts from the 3:1 floor.
@@ -183,6 +185,7 @@ const LIGHT_PALETTE: GraphPalette = {
   foreignBorder: '#4c1d95',
   divergenceFill: '#c2410c',
   divergenceBorder: '#7c2d12',
+  freshRing: '#047857',
   inactiveFill: '#9ca3af',
   inactiveBorder: '#6b7280',
   edgeDirect: '#1d4ed8',
@@ -213,6 +216,7 @@ const DARK_PALETTE: GraphPalette = {
   foreignBorder: '#ddd6fe',
   divergenceFill: '#fb923c',
   divergenceBorder: '#ffedd5',
+  freshRing: '#34d399',
   inactiveFill: '#475569',
   inactiveBorder: '#64748b',
   edgeDirect: '#60a5fa',
@@ -243,6 +247,7 @@ const HIGH_CONTRAST_LIGHT_PALETTE: GraphPalette = {
   foreignBorder: '#000000',
   divergenceFill: '#9a3412',
   divergenceBorder: '#000000',
+  freshRing: '#065f46',
   inactiveFill: '#9ca3af',
   inactiveBorder: '#4b5563',
   edgeDirect: '#1e3a8a',
@@ -273,6 +278,7 @@ const HIGH_CONTRAST_DARK_PALETTE: GraphPalette = {
   foreignBorder: '#ffffff',
   divergenceFill: '#fdba74',
   divergenceBorder: '#ffffff',
+  freshRing: '#6ee7b7',
   inactiveFill: '#475569',
   inactiveBorder: '#94a3b8',
   edgeDirect: '#93c5fd',

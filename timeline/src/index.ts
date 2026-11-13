@@ -237,7 +237,7 @@ class Application {
     this.app.use(cors({
       origin: process.env.CORS_ORIGIN || '*',
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-API-Key'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-API-Key', 'X-Althistory-Client', 'X-Client-Id'],
       exposedHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset', 'Retry-After'],
       credentials: true
     }));
@@ -345,7 +345,14 @@ class Application {
             rateLimitService: container.rateLimitService,
             // A message's dates are read with the graph's world calendars, as the routes read them.
             graphCalendar: async (graphId) => (await container.graphRepository.findById(graphId))?.calendar,
+            // A graph that is gone cannot be watched.
+            graphExists: async (graphId) => {
+              const graph = await container.graphRepository.findById(graphId);
+              return Boolean(graph) && graph?.status !== 'deleted';
+            },
           },
+          // Every committed change to a graph, whoever made it, reaches the sockets watching it.
+          feed: container.changeFeedService,
         });
         streamHandler.attach(server);
         this.streamHandler = streamHandler;
@@ -354,7 +361,7 @@ class Application {
           console.log(`Server running on ${this.config.host}:${this.config.port}`);
           console.log(`Environment: ${this.config.nodeEnv}`);
           console.log(`API available at: http://localhost:${this.config.port}/api`);
-          console.log(`WebSocket stream available at: ws://localhost:${this.config.port}${STREAM_PATH}`);
+          console.log(`WebSocket stream and live change feed available at: ws://localhost:${this.config.port}${STREAM_PATH}`);
           resolve();
         });
 

@@ -145,4 +145,30 @@ describe('TimelineEvent', () => {
     expect(ring).not.toBeNull()
     expect(ring?.getAttribute('class')).toContain('group-focus-visible:opacity-100')
   })
+
+  describe('an event another writer just added (the live change feed)', () => {
+    it('is ringed in the success colour, named as new, and the ring is gone once the highlight ends', () => {
+      const { rerender } = render(
+        <svg>
+          <TimelineEvent event={event} x={10} y={20} isFresh />
+        </svg>
+      )
+      const mark = screen.getByRole('button', { name: /A treaty is signed.*, new/ })
+      const ring = mark.querySelector('.event-fresh-ring')
+      expect(ring).not.toBeNull()
+      expect(ring?.getAttribute('stroke')).toBe('var(--status-success)')
+      // It animates through a class the stylesheet gives reduced-motion support to.
+      expect(ring?.getAttribute('class')).toContain('live-fresh-ring')
+      expect(mark.getAttribute('data-fresh')).toBe('true')
+
+      rerender(
+        <svg>
+          <TimelineEvent event={event} x={10} y={20} />
+        </svg>
+      )
+      const after = screen.getByRole('button', { name: /A treaty is signed/ })
+      expect(after.querySelector('.event-fresh-ring')).toBeNull()
+      expect(after.getAttribute('aria-label')).not.toMatch(/, new/)
+    })
+  })
 })

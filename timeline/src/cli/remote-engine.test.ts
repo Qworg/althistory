@@ -607,19 +607,6 @@ describe('RemoteEngine against a stand-in daemon', () => {
     expect(result.paths[0]).toEqual(['event-1', 'event-2', 'event-3']);
   });
 
-  it('says which route is missing when the daemon cannot generate a timeline', async () => {
-    await expect(
-      engine.generateTimeline({
-        premise: 'What if Napoleon won Waterloo?',
-        divergencePoint: 'The charge succeeds',
-      })
-    ).rejects.toThrow(/POST \/api\/generate\/timeline/);
-
-    await expect(
-      engine.generateExpand({ graphId: 'g1' })
-    ).rejects.toThrow(/POST \/api\/generate\/expand/);
-  });
-
   it('validates the graph it was asked about instead of always passing', async () => {
     // A link whose cause comes after its effect is a temporal paradox; the
     // validator has to see it.

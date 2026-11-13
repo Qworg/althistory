@@ -2928,7 +2928,7 @@ export class ImportService {
     // The import wrote the version tree only; bring the live store (what the
     // entity routes and the UI read) up to the new head. Outside the try above:
     // the commit has landed, so a failure here is not a rolled-back import.
-    await this.onHeadReplaced?.(graphId);
+    await this.onHeadReplaced?.(graphId, 'import');
 
     return {
       graphVersion: versionRef.version,

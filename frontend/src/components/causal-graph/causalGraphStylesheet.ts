@@ -126,6 +126,17 @@ export function buildCausalGraphStylesheet(theme: GraphCanvasTheme): StylesheetS
       }
     },
 
+    // Another writer just added or changed it (the live change feed): a green
+    // ring, which neither the baseline blue nor the divergence amber is.
+    {
+      selector: 'node.live-new',
+      style: {
+        'border-color': c.freshRing,
+        'border-width': 5,
+        'border-style': 'double'
+      }
+    },
+
     // Selected node (the indigo selection accent, distinct from danger red);
     // its thicker border also marks it without relying on colour
     {
@@ -251,6 +262,16 @@ export function buildCausalGraphStylesheet(theme: GraphCanvasTheme): StylesheetS
         'line-color': c.divergenceFill,
         'target-arrow-color': c.divergenceFill,
         'z-index': 15
+      }
+    },
+
+    // A link another writer just added or changed: drawn in the fresh green.
+    {
+      selector: 'edge.live-new',
+      style: {
+        'line-color': c.freshRing,
+        'target-arrow-color': c.freshRing,
+        'z-index': 16
       }
     },
 

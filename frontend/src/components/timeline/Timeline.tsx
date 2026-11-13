@@ -20,6 +20,7 @@ import {
 import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
 import { layoutEventLabels, LABEL_FONT_SIZE, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
+import { useLiveChangesStore } from '@/stores/liveChangesStore'
 import {
   ARC_BAR_HEIGHT,
   DEFAULT_TIMELINE_MARGIN,
@@ -260,6 +261,8 @@ const Timeline = memo(function Timeline({
 }: TimelineProps) {
   // The graph's world calendar, if any: the axis labels its years as the event labels do.
   const worldCalendar = useWorldCalendar()
+  // Marks another writer just added or changed (the live change feed) pulse for a few seconds.
+  const fresh = useLiveChangesStore((state) => state.fresh)
   const containerRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null)
@@ -1561,6 +1564,7 @@ const Timeline = memo(function Timeline({
                   onContextMenu={handleArcContextMenu}
                   onToggleExpand={handleArcToggle}
                   onResizeStart={handleArcResizeStart}
+                  isFresh={fresh.arc[arc.id] !== undefined}
                   isTabStop={tabStopKey === arcMarkKey(arc.id)}
                   onHoverEnter={handleArcHoverEnter}
                   onHoverLeave={handleHoverLeave}
@@ -1609,6 +1613,7 @@ const Timeline = memo(function Timeline({
                   y={eventY}
                   isHighlighted={highlightedEventIds?.has(ev.id) ?? false}
                   isSelected={selectedEventId === ev.id}
+                  isFresh={fresh.event[ev.id] !== undefined}
                   isDimmed={
                     isTracing &&
                     ev.id !== selectedEventId &&

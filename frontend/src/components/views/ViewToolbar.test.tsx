@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { screen, fireEvent, act } from '@testing-library/react'
 import { axe } from 'vitest-axe'
 import { renderWithProviders } from '../../test/utils'
 import { ViewToolbar } from './ViewToolbar'
 import { useGlobalStore } from '@/stores/globalStore'
+import { resetLiveChangesStore, useLiveChangesStore } from '@/stores/liveChangesStore'
 import { SHORTCUTS, formatCombo } from '@/components/help/shortcuts'
 
 // Mock the global store
@@ -657,6 +658,63 @@ describe('ViewToolbar', () => {
     it('renders streaming status badge in the toolbar', () => {
       renderWithProviders(<ViewToolbar viewMode="timeline" />)
       expect(screen.getByRole('status', { name: /edits save as you go|live sync/i })).toBeInTheDocument()
+    })
+
+    describe('live sync', () => {
+      beforeEach(() => {
+        localStorage.clear()
+        resetLiveChangesStore()
+      })
+
+      afterEach(() => {
+        localStorage.clear()
+        resetLiveChangesStore()
+      })
+
+      it('is on by default, and says so once the feed is connected', () => {
+        localStorage.setItem('active_graph_id', 'g1')
+        renderWithProviders(<ViewToolbar viewMode="timeline" />)
+        // Wanted and not yet connected: connecting, not "off".
+        expect(screen.getByRole('status', { name: 'Live sync: connecting…' })).toBeInTheDocument()
+        act(() => useLiveChangesStore.getState().setStatus('live'))
+        expect(screen.getByRole('status', { name: 'Live sync on' })).toBeInTheDocument()
+      })
+
+      it('waits, in neutral colours, while no graph is open, rather than pulsing "connecting" for ever', () => {
+        renderWithProviders(<ViewToolbar viewMode="timeline" />)
+        expect(screen.getByRole('status', { name: 'Live sync: waiting for a graph' })).toBeInTheDocument()
+        expect(screen.queryByRole('status', { name: 'Live sync: connecting…' })).toBeNull()
+      })
+
+      it('says when the connection dropped and is being reopened', () => {
+        renderWithProviders(<ViewToolbar viewMode="timeline" />)
+        act(() => useLiveChangesStore.getState().setStatus('reconnecting'))
+        expect(screen.getByRole('status', { name: 'Live sync: reconnecting…' })).toBeInTheDocument()
+      })
+
+      it('turns off, and stays off the next time, from the badge', () => {
+        renderWithProviders(<ViewToolbar viewMode="timeline" />)
+        act(() => useLiveChangesStore.getState().setStatus('live'))
+        fireEvent.click(screen.getByRole('button', { name: 'Turn off' }))
+        expect(useLiveChangesStore.getState().enabled).toBe(false)
+        expect(localStorage.getItem('althistory.liveSync')).toBe('off')
+        expect(screen.getByRole('status', { name: 'Edits save as you go' })).toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Live sync' }))
+        expect(useLiveChangesStore.getState().enabled).toBe(true)
+        expect(localStorage.getItem('althistory.liveSync')).toBeNull()
+      })
+
+      it('shows why it could not start, with a way to try again', () => {
+        renderWithProviders(<ViewToolbar viewMode="timeline" />)
+        act(() => useLiveChangesStore.getState().setStatus('error', 'Missing required permissions: read:events'))
+        const badge = screen.getByRole('status', { name: "Couldn't start live sync" })
+        expect(badge).toHaveAttribute('title', expect.stringContaining('read:events'))
+        fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+        // Trying again restarts the connection: the hook watches this count.
+        expect(useLiveChangesStore.getState().retries).toBe(1)
+        expect(useLiveChangesStore.getState().enabled).toBe(true)
+      })
     })
   })
 

@@ -1377,20 +1377,26 @@ describe('ImportService', () => {
         conflictResolution: 'skip',
       });
 
-      // Give it a moment to start
-      await new Promise(resolve => setTimeout(resolve, 50));
+      // Let the job start (it is `pending` until it does), by state not by a sleep.
+      for (let waited = 0; waited < 5000; waited += 10) {
+        const started = await shutdownService.getImportJob(jobId);
+        if (started && started.status !== 'pending') break;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
 
       // Destroy the service
       await shutdownService.destroy();
 
-      // Wait a bit for the shutdown to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Create a new service to check the job status
+      // Create a new service to check the job status. The job file is written
+      // asynchronously, so wait for it by state rather than by a fixed sleep.
       const checkService = new ImportService({ dataDir: testDataDir });
       await checkService.initialize();
 
-      const job = await checkService.getImportJob(jobId);
+      let job = await checkService.getImportJob(jobId);
+      for (let waited = 0; !job && waited < 5000; waited += 25) {
+        await new Promise(resolve => setTimeout(resolve, 25));
+        job = await checkService.getImportJob(jobId);
+      }
       
       // Job should be marked as failed or cancelled
       expect(job).toBeTruthy();
@@ -1982,7 +1988,12 @@ describe('ImportService', () => {
       const checkService = new ImportService({ dataDir: testDataDir });
       await checkService.initialize();
       
-      const job = await checkService.getImportJob(jobId);
+      // The job file is written asynchronously: wait for it by state, not by luck.
+      let job = await checkService.getImportJob(jobId);
+      for (let waited = 0; !job && waited < 5000; waited += 25) {
+        await new Promise(resolve => setTimeout(resolve, 25));
+        job = await checkService.getImportJob(jobId);
+      }
       // Job should exist and be in a terminal state
       expect(job).toBeTruthy();
       

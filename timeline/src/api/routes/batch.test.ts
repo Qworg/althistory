@@ -75,10 +75,13 @@ let mockEventRepository: any;
 let mockArcRepository: any;
 /** Graph ids the routes asked the container to scope to, in call order. */
 let scopedGraphIds: string[];
+/** What the routes told the live feed. */
+let publish: ReturnType<typeof vi.fn>;
 
 describe('Batch Routes', () => {
   beforeEach(() => {
     scopedGraphIds = [];
+    publish = vi.fn();
     mockEventRepository = {
       create: vi.fn().mockImplementation((data: any) => {
         return Promise.resolve(new Event({ ...data, id: `evt-${Date.now()}` }));
@@ -121,6 +124,7 @@ describe('Batch Routes', () => {
         eventRepository: mockEventRepository,
         arcRepository: mockArcRepository,
         graphContextStore: { getStore: vi.fn().mockResolvedValue({}) },
+        changeFeedService: { publish },
         graphScopedRepositories: (graphId: string) => {
           scopedGraphIds.push(graphId);
           return Promise.resolve({
@@ -323,6 +327,39 @@ describe('Batch Routes', () => {
 
       expect(response.body.success).toBe(true);
       expect(causalServiceMock.createCausalLink).toHaveBeenCalled();
+    });
+
+    it('announces a created link under the id the graph gave it, not the cause_effect key', async () => {
+      causalServiceMock.createCausalLink.mockResolvedValue({ id: 'rel-real-1' });
+
+      const response = await request(app)
+        .post('/api/batch/relationships')
+        .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
+        .send({ graphId: 'test-graph', relationships: [{ cause_event_id: 'evt-1', effect_event_id: 'evt-2' }] })
+        .expect(201);
+
+      // The response keeps its documented key (and rollback reads it)...
+      expect(response.body.created).toEqual(['evt-1_evt-2']);
+      // ...but a watcher highlights by the link's own id.
+      expect(publish).toHaveBeenCalledTimes(1);
+      expect(publish.mock.calls[0]![1].entities).toEqual([{ type: 'relationship', id: 'rel-real-1' }]);
+    });
+
+    it('announces a transaction\'s created link under the id the graph gave it', async () => {
+      causalServiceMock.createCausalLink.mockResolvedValue({ id: 'rel-real-2' });
+
+      await request(app)
+        .post('/api/batch/transaction')
+        .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
+        .send({
+          graphId: 'test-graph',
+          operations: [{ type: 'create_relationship', data: { cause_event_id: 'evt-1', effect_event_id: 'evt-2' } }],
+        });
+
+      const entities = publish.mock.calls.flatMap((call) => call[1].entities);
+      expect(entities).toEqual([{ type: 'relationship', id: 'rel-real-2' }]);
     });
 
     it('should fail for non-existent events', async () => {

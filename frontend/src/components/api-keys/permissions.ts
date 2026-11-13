@@ -20,6 +20,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'export': 'Export',
   'import': 'Import',
   'ingest': 'Ingest',
+  'generate': 'Generate',
   'admin': 'Admin',
 }
 
@@ -33,5 +34,5 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
 export const PERMISSION_GROUPS = {
   readOnly: ['read:events', 'read:arcs', 'read:relationships', 'read:graphs', 'export'],
   readWrite: ['read:events', 'write:events', 'read:arcs', 'write:arcs', 'read:relationships', 'write:relationships', 'read:graphs', 'write:graphs', 'export', 'import'],
-  full: ['read:events', 'write:events', 'read:arcs', 'write:arcs', 'read:relationships', 'write:relationships', 'read:graphs', 'write:graphs', 'export', 'import', 'ingest'],
+  full: ['read:events', 'write:events', 'read:arcs', 'write:arcs', 'read:relationships', 'write:relationships', 'read:graphs', 'write:graphs', 'export', 'import', 'ingest', 'generate'],
 } as const satisfies Record<string, readonly Permission[]>

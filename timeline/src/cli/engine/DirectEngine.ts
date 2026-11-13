@@ -1,4 +1,5 @@
-import { IEngine } from './IEngine';
+import { IEngine, type GenerationRunHooks } from './IEngine';
+import type { GenerationHooks } from '../generator/GenerationHooks';
 import {
   HealthInfo,
   GraphSummaryDto,
@@ -75,6 +76,25 @@ function toGraphSummary(graph: IGraph): GraphSummaryDto {
   };
 }
 
+/** The generator's hooks for what a caller of the engine asked for. */
+function toGeneratorHooks(hooks: GenerationRunHooks | undefined): GenerationHooks {
+  if (!hooks) return {};
+  const { onProgress, signal } = hooks;
+  return {
+    signal,
+    onProgress: onProgress
+      ? (p) =>
+          onProgress({
+            progress: Math.round(p.fraction * 100),
+            phase: p.phase,
+            message: p.message,
+            ...(p.graphId !== undefined ? { graphId: p.graphId } : {}),
+            ...(p.source !== undefined ? { source: p.source } : {}),
+          })
+      : undefined,
+  };
+}
+
 export class DirectEngine implements IEngine {
   readonly mode = 'direct' as const;
   private containerPromise?: Promise<Container>;
@@ -105,6 +125,19 @@ export class DirectEngine implements IEngine {
 
   public async getContainer(): Promise<Container> {
     return this.getInitializedContainer();
+  }
+
+  /**
+   * Save every live store without evicting it. Repositories write in memory and
+   * save only on eviction or shutdown, so a second reader of the files (the app,
+   * starting while this process works) would otherwise read a graph without what
+   * this process has written since. Does nothing before the first call has
+   * opened a container.
+   */
+  async flush(): Promise<void> {
+    if (!this.containerPromise) return;
+    const container = await this.containerPromise;
+    await container.graphContextStore.saveAll();
   }
 
   async shutdown(): Promise<void> {
@@ -984,7 +1017,7 @@ export class DirectEngine implements IEngine {
     return this.persistExtractedEntities(targetGraphId, extractionResult, options);
   }
 
-  async generateTimeline(options: GenerateTimelineOptions): Promise<GenerationResultDto> {
+  async generateTimeline(options: GenerateTimelineOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto> {
     const container = await this.getInitializedContainer();
     const llmClient = createLLMClient({
       provider: options.provider,
@@ -992,27 +1025,27 @@ export class DirectEngine implements IEngine {
       temperature: options.temperature,
     });
     const generator = new TimelineGenerator({ llmClient });
-    return generator.generateTimeline(options, container);
+    return generator.generateTimeline(options, container, toGeneratorHooks(hooks));
   }
 
-  async generateBranch(options: GenerateBranchOptions): Promise<GenerationResultDto> {
+  async generateBranch(options: GenerateBranchOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto> {
     const container = await this.getInitializedContainer();
     const llmClient = createLLMClient({
       provider: options.provider,
       model: options.model,
     });
     const generator = new TimelineGenerator({ llmClient });
-    return generator.generateBranch(options, container);
+    return generator.generateBranch(options, container, toGeneratorHooks(hooks));
   }
 
-  async generateExpand(options: GenerateExpandOptions): Promise<GenerationResultDto> {
+  async generateExpand(options: GenerateExpandOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto> {
     const container = await this.getInitializedContainer();
     const llmClient = createLLMClient({
       provider: options.provider,
       model: options.model,
     });
     const generator = new TimelineGenerator({ llmClient });
-    return generator.generateExpand(options, container);
+    return generator.generateExpand(options, container, toGeneratorHooks(hooks));
   }
 
   async generateSimulate(options: GenerateSimulateOptions): Promise<GenerationResultDto> {

@@ -59,6 +59,8 @@ export interface IssueStreamTokenInput {
   apiKeyId: string;
   graphId: string;
   permissions: Permission[];
+  /** `write` when omitted. */
+  mode?: 'write' | 'feed';
   ttlMs?: number;
   now?: number;
 }
@@ -105,6 +107,7 @@ export class StreamTokenStore {
       apiKeyId: input.apiKeyId,
       graphId: input.graphId,
       permissions: [...input.permissions],
+      mode: input.mode ?? 'write',
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(now + ttlMs).toISOString(),
       consumed: false,

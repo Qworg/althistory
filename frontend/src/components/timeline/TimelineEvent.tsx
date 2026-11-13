@@ -37,6 +37,11 @@ export interface TimelineEventProps {
   isHighlighted?: boolean
   /** Whether this event is the active selection in the timeline inspector. */
   isSelected?: boolean
+  /**
+   * Whether the event just arrived from another writer (the live change feed):
+   * a ring pulses around it for a few seconds. Never set for the tab's own edits.
+   */
+  isFresh?: boolean
   /** Whether a selection's ripple is being traced and this event is not on it. */
   isDimmed?: boolean
   /**
@@ -101,6 +106,7 @@ export const TimelineEvent = memo(function TimelineEvent({
   y,
   isHighlighted = false,
   isSelected = false,
+  isFresh = false,
   isDimmed = false,
   isBranchOwn = false,
   isTabStop = true,
@@ -179,11 +185,12 @@ export const TimelineEvent = memo(function TimelineEvent({
       data-branch-own={isBranchOwn ? 'true' : undefined}
       data-confidence-tier={tier}
       data-dimmed={isDimmed ? 'true' : undefined}
+      data-fresh={isFresh ? 'true' : undefined}
       opacity={isDimmed ? 0.28 : undefined}
       transform={`translate(${x}, ${y})`}
       tabIndex={isTabStop ? 0 : -1}
       role="button"
-      aria-label={`Event: ${event.description} by ${event.actor} targeting ${event.target} at ${formatEventDate(event)}${confidence !== null ? `, confidence ${confidence.toFixed(2)}` : ''}${reach > 0 ? `, sets ${reach} ${reach === 1 ? 'event' : 'events'} in motion` : ''}${isBranchOwn ? ' (this branch only)' : ''}`}
+      aria-label={`Event: ${event.description} by ${event.actor} targeting ${event.target} at ${formatEventDate(event)}${isFresh ? ', new' : ''}${confidence !== null ? `, confidence ${confidence.toFixed(2)}` : ''}${reach > 0 ? `, sets ${reach} ${reach === 1 ? 'event' : 'events'} in motion` : ''}${isBranchOwn ? ' (this branch only)' : ''}`}
       // The whole group takes the click, so the stem and label (which sit
       // over and around the dot) never swallow it.
       onClick={handleClick}
@@ -220,6 +227,19 @@ export const TimelineEvent = memo(function TimelineEvent({
         strokeWidth={2}
         pointerEvents="none"
       />
+      {/* A change another writer just made: a ring that pulses, in the success
+          colour (blue and amber already mean baseline and divergence). It is
+          drawn under the mark, and ends on its own when the highlight does. */}
+      {isFresh && (
+        <circle
+          className="event-fresh-ring live-fresh-ring"
+          r={markRadius + 6}
+          fill="none"
+          stroke="var(--status-success)"
+          strokeWidth={2.5}
+          pointerEvents="none"
+        />
+      )}
       {/* Shared history is the cobalt baseline; amber is reserved for
           divergence: the branch's own events, and the highlighted (pressure
           evidence) ring. Confidence is the mark's shape (confidenceTier). */}
