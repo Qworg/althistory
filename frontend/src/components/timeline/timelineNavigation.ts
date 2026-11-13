@@ -14,6 +14,7 @@ import {
   axisTimeOfCivil,
   calendarIn,
   civilOfAxisTime,
+  compareInstants,
   dateAt,
   daysInMonth,
   instantOfAxisTime,
@@ -235,6 +236,47 @@ export function offsetByStep(date: Date, step: TimeStep, direction: number, cale
   // By exact axis arithmetic, so a date beyond a Date's range moves as one inside it does.
   const moved = calendar ? offsetInWorld(calendarIn(calendar), at, step, direction) : offsetInGregorian(at, step, direction)
   return instantOfAxisTime(moved) ?? date
+}
+
+/**
+ * An arc moved whole by one keyboard step: its start by the step, its end by
+ * as much, so a move never stretches or shrinks it (months, and a world's
+ * festivals, differ in length). The shift is a bigint difference of the axis
+ * times, never a `getTime()` subtraction, which beyond about 285,000 years is
+ * rounded and would lengthen the arc by up to a day. Null when either end
+ * cannot be read or the move leaves the timeline.
+ */
+export function movedArcBounds(
+  startText: unknown,
+  endText: unknown,
+  step: TimeStep,
+  direction: number,
+  calendar: WorldCalendarSet | null = getActiveCalendar()
+): { start: Date; end: Date } | null {
+  const start = toInstant(startText)
+  const from = toAxisTime(start)
+  const end = toAxisTime(endText)
+  if (from === null || end === null) return null
+  const movedStart = offsetByStep(start, step, direction, calendar)
+  const to = toAxisTime(movedStart)
+  if (to === null) return null
+  const movedEnd = instantOfAxisTime(end + (to - from))
+  return movedEnd === null ? null : { start: movedStart, end: movedEnd }
+}
+
+/** An arc's bounds after one edge is moved to `timestamp`; the moved edge never crosses the other (compared exactly, as deep moments are). */
+export function resizedArcBounds(
+  startText: unknown,
+  endText: unknown,
+  edge: 'start' | 'end',
+  timestamp: Date
+): { start: Date; end: Date } {
+  const start = toInstant(startText)
+  const end = toInstant(endText)
+  if (edge === 'start') {
+    return { start: compareInstants(timestamp, end) > 0 ? end : timestamp, end }
+  }
+  return { start, end: compareInstants(timestamp, start) < 0 ? start : timestamp }
 }
 
 /** The Gregorian step of an axis time, in UTC. */

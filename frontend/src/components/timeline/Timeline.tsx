@@ -44,8 +44,10 @@ import {
   keyboardTimeStep,
   markSpan,
   navigate,
+  movedArcBounds,
   offsetByStep,
   parseMarkKey,
+  resizedArcBounds,
   eventMarkKey,
   arcMarkKey,
   type MarkKey,
@@ -160,12 +162,7 @@ type DragPreview =
 
 /** Clamp an arc resize so the moved edge never crosses the other one. */
 function resizedBounds(arc: Arc, edge: ArcResizeEdge, timestamp: Date): { start: Date; end: Date } {
-  const start = toInstant(arc.start_time)
-  const end = toInstant(arc.end_time)
-  if (edge === 'start') {
-    return { start: timestamp.getTime() > end.getTime() ? end : timestamp, end }
-  }
-  return { start, end: timestamp.getTime() < start.getTime() ? start : timestamp }
+  return resizedArcBounds(arc.start_time, arc.end_time, edge, timestamp)
 }
 
 /** Pointer travel (px) required before a mousedown is treated as a drag rather than a click. */
@@ -1108,15 +1105,9 @@ const Timeline = memo(function Timeline({
     }
     const arc = arcsById.get(parsed.id)
     if (!arc) return
-    // The arc moves whole: its start by the step, its end by as much, so a
-    // move never stretches or shrinks it (months, and a world's festivals,
-    // differ in length).
-    const start = toInstant(arc.start_time)
-    const movedStart = offsetByStep(start, step, direction)
-    onArcResizeRef.current?.(arc, {
-      start: movedStart,
-      end: instantOfMs(toInstant(arc.end_time).getTime() + (movedStart.getTime() - start.getTime())),
-    })
+    // The arc moves whole (see movedArcBounds), by exact axis arithmetic.
+    const bounds = movedArcBounds(arc.start_time, arc.end_time, step, direction)
+    if (bounds) onArcResizeRef.current?.(arc, bounds)
   }, [eventsById, arcsById, keyboardStep])
 
   // Move one edge of an arc by a keyboard step; the edge never crosses the other.

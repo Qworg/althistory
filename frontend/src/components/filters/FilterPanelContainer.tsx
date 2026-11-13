@@ -13,7 +13,8 @@ import { useEvents, VIEW_EVENT_LIMIT } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { toInstant } from '@althistory/calendar'
+import { type AxisTime, compareAxisTime, isoOfAxisTime, toAxisTime } from '@althistory/calendar'
+import { dateFieldValue } from '@/utils/dateField'
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values))
@@ -68,15 +69,19 @@ export function FilterPanelContainer() {
     if (events.length === 0) {
       return { start: '', end: '' }
     }
-    const timestamps = events
-      .map(event => toInstant(event.timestamp).getTime())
-      .filter(time => !Number.isNaN(time))
-    if (timestamps.length === 0) {
+    // Exact bigint axis times: a deep moment's getTime() is a rounded double,
+    // and `new Date` of it past 8.64e15 is invalid.
+    const times = events
+      .map(event => toAxisTime(event.timestamp))
+      .filter((time): time is AxisTime => time !== null)
+    if (times.length === 0) {
       return { start: '', end: '' }
     }
+    const first = times.reduce((a, b) => (compareAxisTime(b, a) < 0 ? b : a))
+    const last = times.reduce((a, b) => (compareAxisTime(b, a) > 0 ? b : a))
     return {
-      start: new Date(Math.min(...timestamps)).toISOString().slice(0, 10),
-      end: new Date(Math.max(...timestamps)).toISOString().slice(0, 10)
+      start: dateFieldValue(isoOfAxisTime(first), 'date', { calendar: null }),
+      end: dateFieldValue(isoOfAxisTime(last), 'date', { calendar: null })
     }
   }, [events])
 
