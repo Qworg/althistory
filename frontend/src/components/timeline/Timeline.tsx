@@ -53,7 +53,7 @@ import {
   type MarkKey,
   type NavMove,
 } from './timelineNavigation'
-import { toInstant } from '@althistory/calendar'
+import { toAxisTime, toInstant } from '@althistory/calendar'
 
 /**
  * A branch's baseline, drawn as a ghosted lane under the active events.
@@ -513,9 +513,15 @@ const Timeline = memo(function Timeline({
   // Active events after the divergence without a counterpart are the branch's
   // own; baseline events after it without one are what the branch dropped.
   const divergenceMs = divergence ? divergence.getTime() : null
+  // Exact, for comparing: past 2^53 ms the millisecond count is a rounded double.
+  const divergenceTime = divergence ? toAxisTime(divergence) : null
   const ghostComparison = useMemo(() => {
     if (!ghostEvents) return null
-    const after = (ev: Event) => divergenceMs === null || toInstant(ev.timestamp).getTime() >= divergenceMs
+    const after = (ev: Event) => {
+      if (divergenceTime === null) return true
+      const at = toAxisTime(toInstant(ev.timestamp))
+      return at !== null && at >= divergenceTime
+    }
     const activeIds = new Set(events.map(ev => ev.id))
     const activeSignatures = new Set(events.map(eventSignature))
     const baselineIds = new Set(ghostEvents.map(ev => ev.id))
@@ -529,7 +535,7 @@ const Timeline = memo(function Timeline({
       if (after(ev) && !activeIds.has(ev.id) && !activeSignatures.has(eventSignature(ev))) dropped.add(ev.id)
     }
     return { branchOwn, dropped }
-  }, [ghostEvents, events, divergenceMs])
+  }, [ghostEvents, events, divergenceTime])
   const branchOwnIds = ghostComparison?.branchOwn
 
   const visibleGhostEvents = useMemo(
