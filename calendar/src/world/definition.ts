@@ -319,6 +319,11 @@ export function calendarDefinitionIssues(value: unknown, path: string, dayLength
 
   if (!isInt(value.epoch) || BigInt(Math.abs(value.epoch)) * BigInt(dayLength) * 1000n > MAX_AXIS_MS) {
     issues.push({ path: `${path}.epoch`, message: `${path}.epoch must be a whole axis day within the range the timeline holds (about ±285 million years)` })
+  } else if (BigInt(Math.abs(value.epoch)) + MAX_AXIS_MS / (BigInt(dayLength) * 1000n) + 1n > BigInt(Number.MAX_SAFE_INTEGER)) {
+    // The engine counts days from the epoch as a number; the farthest axis day
+    // from it must stay exact (within 2^53), or a position near the bound would
+    // name the wrong date. Only a day of a few seconds can reach this.
+    issues.push({ path: `${path}.epoch`, message: `${path}.epoch is too far from 1970 for days of ${dayLength} second${dayLength === 1 ? '' : 's'}: the days from it to the edge of the timeline would pass 2^53` })
   }
 
   const eras = value.eras

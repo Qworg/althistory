@@ -213,3 +213,23 @@ describe('a calendar an import brings', () => {
     expect(adoptableCalendarSet({ version: 2, dayLength: 86_400, calendars: [], primary: 'x' })).toBeNull()
   })
 })
+
+describe('an epoch whose distance to the axis edge would pass 2^53 days', () => {
+  const set = (dayLength: number, epoch: number) => ({
+    version: 2,
+    dayLength,
+    primary: 'a',
+    calendars: [{ id: 'a', name: 'A', epoch, parts: [{ name: 'Ash', days: 30 }], time: { hoursPerDay: 1, minutesPerHour: 1, secondsPerMinute: 1 } }],
+  })
+
+  it('is refused for a one-second day, where days from the epoch would round and name the wrong date', () => {
+    const issues = calendarSetIssues(set(1, -8e15))
+    expect(issues.some((issue) => issue.path === 'calendar.calendars[0].epoch' && /2\^53/.test(issue.message))).toBe(true)
+  })
+
+  it('is accepted wherever the days stay exact', () => {
+    expect(calendarSetIssues(set(1, 1_000_000_000_000))).toEqual([])
+    expect(calendarSetIssues(set(1, 0))).toEqual([])
+    expect(calendarSetIssues(set(86_400, 100_000_000_000))).toEqual([])
+  })
+})
