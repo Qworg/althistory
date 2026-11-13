@@ -21,9 +21,11 @@ export interface McpToolDefinition {
 }
 
 /** The timestamp note every authoring tool carries, so an agent working on an invented world dates correctly. */
-const STORED_DATE_NOTE =
+export const STORED_DATE_NOTE =
   'ISO 8601 (1871-03-18, or 1871-03 for a month, 1871 for a year; a year beyond 0000-9999 is written with a sign and ' +
-  'six digits or more, "+300000-01-01" or "-500000-01-01", and the timeline reaches about 285 million years either way). ' +
+  'six digits or more, "+300000-01-01" or "-499999-01-01", and the timeline reaches about 285 million years either way). ' +
+  'ISO years are astronomical: 0000 is 1 BCE, -000043 is 44 BCE, and -499999 is 500,000 BCE, so a source\'s "500,000 BCE" is ' +
+  'written "-499999-01-01" (or, year first, "500000 BCE"). ' +
   'Every result also gives the moment as exact milliseconds on the timeline (timestampMs, startTimeMs, endTimeMs), a ' +
   'decimal string. In a graph with world calendars, also a date as the ' +
   'world writes it: "Thaw 4, 312 AR", "Thaw 312 AR" (a month), "312 AR" (a year), a time after a comma ' +

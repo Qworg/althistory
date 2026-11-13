@@ -131,5 +131,18 @@ years allowed. Import reads both.
 
 **Req 16. Real history is unchanged.** A graph whose every date is inside a
 `Date`'s range reads, sorts, filters, exports and displays exactly as before.
-One behaviour was already changed on purpose by the API's refusal of prose
-dates, and stays.
+Some behaviours were changed on purpose, and stay:
+
+- The API's refusal of prose dates.
+- Every date or date-time field in a graph without a world has a small
+  "Type a year before 1 CE or after 9999" button under the native input, since
+  a native picker cannot hold such a year.
+- The actor timeline draws its decade ticks only while they fit the width (more
+  than about three times what the width holds, which is a span of about 240
+  years on a 600 px chart, it draws count-based ticks, as the main timeline
+  does), because a span of hundreds of thousands of years is thousands of
+  decades.
+- A timeline that starts before year -9999 (or comes within its own span of a
+  `Date`'s bounds) takes the calendar package's year ticks ("200000 BCE")
+  rather than d3's, which tick nothing there, or label years astronomically
+  ("-200000s" for 200,001 BCE). A history inside years 0000 to 9999 keeps d3's.

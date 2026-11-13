@@ -36,7 +36,8 @@ Three versions are in play and they mean different things:
   with dates beyond a `Date`'s range. The two have the same shape; `"1.1"` only
   allows an **expanded year** in a date, written as ISO 8601 writes it past
   `9999`: a sign and six digits or more (`"+300000-01-01T00:00:00.000Z"`,
-  `"-499999-06-15T00:00:00.000Z"`). See
+  `"-499999-06-15T00:00:00.000Z"`). Years are astronomical, as ISO 8601 has
+  them: `0000` is 1 BCE, so `-499999` is 500,000 BCE. See
   [docs/specs/deep-time.md](specs/deep-time.md), which also says how far the
   timeline reaches (±9 × 10¹⁸ ms, about ±285 million years).
 - `metadata.graphVersion` — the graph's own committed version number, or `0`

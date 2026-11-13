@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DirectEngine } from './engine/DirectEngine';
 import { McpServer } from './mcp/McpServer';
-import { MCP_TOOLS } from './mcp/toolDefinitions';
+import { MCP_TOOLS, STORED_DATE_NOTE } from './mcp/toolDefinitions';
+import { timestampRule } from '../services/llm/prompts';
 import { formatDateEntry } from '@althistory/calendar';
 import { runCLI } from './index';
 import { ExitCode } from './utils/exitCodes';
@@ -261,6 +262,25 @@ describe('CLI Phase 6: Model Context Protocol (MCP) Server & Tooling', () => {
       for (const text of described) {
         expect(text).toContain('-199999 for 200,000 BCE');
         expect(text).not.toContain('-200000 for');
+      }
+    });
+  });
+
+  describe('the date notes a model reads (ISO years are astronomical)', () => {
+    it('names the BCE year each signed example stands for, so that a model writes the year a source says', () => {
+      // 0000 is 1 BCE, so a source's "500,000 BCE" is year -499999, and 44 BCE is -000043.
+      expect(formatDateEntry('-499999-01-01T00:00:00.000Z', 'year', null, 'start')).toBe('500000 BCE');
+      expect(formatDateEntry('-000043-01-01T00:00:00.000Z', 'year', null, 'start')).toBe('44 BCE');
+      const texts = [STORED_DATE_NOTE, timestampRule(undefined)];
+      for (const text of texts) {
+        expect(text).toContain('astronomical');
+        expect(text).toContain('-499999 is 500,000 BCE');
+        expect(text).toContain('-000043 is 44 BCE');
+        // Every negative example reads as a year the text is not wrong about: none is -500000, which is 500,001 BCE.
+        for (const example of text.match(/-\d{6}(?=-\d\d-\d\d)/g) ?? []) {
+          expect(example).not.toBe('-500000');
+          expect(formatDateEntry(`${example}-01-01T00:00:00.000Z`, 'year', null, 'start')).toMatch(/^(500000|44) BCE$/);
+        }
       }
     });
   });

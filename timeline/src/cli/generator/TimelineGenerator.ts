@@ -48,7 +48,6 @@ import {
   toAxisTime,
   compareInstants,
   addInstantMs,
-  instantOfMs,
   type AxisTime,
   MAX_AXIS_MS,
   instantOfAxisTime,

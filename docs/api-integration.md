@@ -193,8 +193,9 @@ write dates as `toISOString` does (`1843-11-20T14:30:00.000Z`).
 what a JavaScript `Date` holds (about ±275,760 years): it reaches ±9 × 10¹⁸ ms,
 about ±285 million years. Beyond year 9999, or before year 0, ISO 8601 writes
 the year with a sign and six digits or more, and so do the responses
-(`+300000-01-01T00:00:00.000Z`, `-499999-06-15T00:00:00.000Z`); the routes read
-that spelling too, and year-first text (`300000 BCE`). Every event also
+(`+300000-01-01T00:00:00.000Z`, `-499999-06-15T00:00:00.000Z`). ISO years are
+astronomical: year `0000` is 1 BCE, so `-499999` is 500,000 BCE and `-000043`
+is 44 BCE; the routes read that spelling too, and year-first text (`300000 BCE`). Every event also
 carries `timestamp_ms`, and every arc `start_time_ms` and `end_time_ms`: the
 same moment as exact milliseconds on the timeline (1970 is `"0"`), a decimal
 **string**, because JSON has no bigint and a number rounds past 2^53 (about
