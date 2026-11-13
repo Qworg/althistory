@@ -254,6 +254,14 @@ interface ConnectionContext {
   mode: 'write' | 'feed';
   /** The graphs (and `*`) this socket watches. */
   subscriptions: Set<string>;
+  /**
+   * Subscribe and unsubscribe messages run one after another, in the order they
+   * arrived. A subscribe awaits the key and the graph before it registers, so
+   * without this a quick A -> B -> A switch (subscribe B, unsubscribe B) lets
+   * the unsubscribe run first and the subscribe then register a channel the
+   * client has already dropped.
+   */
+  feedQueue: Promise<void>;
 }
 
 interface Rejection {
@@ -536,6 +544,7 @@ export class StreamHandler {
       graphId: result.graphId,
       mode: result.mode,
       subscriptions: new Set(),
+      feedQueue: Promise.resolve(),
     };
 
     if (socketFailed || socket.destroyed) {
@@ -846,10 +855,10 @@ export class StreamHandler {
         this.send(ws, { type: 'pong' });
         return;
       case 'subscribe':
-        await this.handleSubscribe(ws, context, parsed, requestId);
+        await this.enqueueFeed(context, () => this.handleSubscribe(ws, context, parsed, requestId));
         return;
       case 'unsubscribe':
-        this.handleUnsubscribe(ws, context, parsed, requestId);
+        await this.enqueueFeed(context, () => this.handleUnsubscribe(ws, context, parsed, requestId));
         return;
       case 'event':
       case 'arc':
@@ -1072,14 +1081,31 @@ export class StreamHandler {
    * the subscription is registered in, so no change can fall between the
    * replay and the live feed.
    */
+  private enqueueFeed(context: ConnectionContext, task: () => void | Promise<void>): Promise<void> {
+    const run = context.feedQueue.then(task);
+    // The next message waits for this one whether it succeeded or not.
+    context.feedQueue = run.catch(() => undefined);
+    return run;
+  }
+
   private async handleSubscribe(
     ws: WebSocket,
     context: ConnectionContext,
     parsed: Record<string, unknown>,
     requestId: string | undefined
   ): Promise<void> {
-    const fail = (code: StreamErrorCode, message: string): void => {
-      this.send(ws, { type: 'error', code, message });
+    // A refusal names the channel, so the client can tell which subscribe it
+    // was and, for a rate limit, when to try again.
+    const fail = (code: StreamErrorCode, message: string, retryAfter?: number): void => {
+      const named = typeof parsed.graphId === 'string' ? parsed.graphId : undefined;
+      this.send(ws, {
+        type: 'error',
+        code,
+        message,
+        requestId,
+        ...(named !== undefined ? { graphId: named } : {}),
+        ...(retryAfter !== undefined ? { retryAfter } : {}),
+      });
     };
     if (!this.feed) {
       fail('INVALID_MESSAGE', 'This server does not offer the live change feed');
@@ -1139,7 +1165,7 @@ export class StreamHandler {
     if (limiter) {
       const charged = limiter.recordRequest(apiKey.id, apiKey.rateLimit);
       if (!charged.allowed) {
-        fail('RATE_LIMITED', `Rate limit exceeded: ${charged.limit}`);
+        fail('RATE_LIMITED', `Rate limit exceeded: ${charged.limit}`, charged.retryAfter);
         return;
       }
     }

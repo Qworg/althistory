@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ChangeActor, LiveChange } from '@/types'
-import { actorLabel, describeChanges, freshIdsOf, queryRootsFor } from './liveChanges'
+import { actorLabel, changesGraphCounts, describeChanges, freshIdsOf, queryRootsFor } from './liveChanges'
 
 let seq = 0
 function entities(
@@ -28,17 +28,20 @@ describe('queryRootsFor', () => {
     queryRootsFor(changes, active).map((root) => root[0]).sort()
 
   it('refreshes events, pressures and links for an event on the open graph, and the graph list', () => {
-    expect(roots([entities('g1', 'create', [['event', 'e1']])])).toEqual(['causal', 'events', 'graphs', 'inference'])
+    expect(roots([entities('g1', 'create', [['event', 'e1']])])).toEqual(['causal', 'events', 'inference'])
   })
 
   it('refreshes arcs and pressures for an arc, and links and pressures for a link', () => {
-    expect(roots([entities('g1', 'update', [['arc', 'a1']])])).toEqual(['arcs', 'graphs', 'inference'])
-    expect(roots([entities('g1', 'delete', [['relationship', 'r1']])])).toEqual(['causal', 'graphs', 'inference'])
+    expect(roots([entities('g1', 'update', [['arc', 'a1']])])).toEqual(['arcs', 'inference'])
+    expect(roots([entities('g1', 'delete', [['relationship', 'r1']])])).toEqual(['causal', 'inference'])
   })
 
-  it('only touches the graph list for a change to a graph that is not on screen', () => {
-    expect(roots([entities('other', 'create', [['event', 'e1']])])).toEqual(['graphs'])
-    expect(roots([entities('g1', 'create', [['event', 'e1']])], null)).toEqual(['graphs'])
+  it('refreshes no query for an entity change to a graph that is not on screen, nor does one ask for the graph list directly', () => {
+    expect(roots([entities('other', 'create', [['event', 'e1']])])).toEqual([])
+    expect(roots([entities('g1', 'create', [['event', 'e1']])], null)).toEqual([])
+    // The counts the graph list shows are the caller's to refresh, at its own pace.
+    expect(changesGraphCounts([entities('other', 'create', [['event', 'e1']])])).toBe(true)
+    expect(changesGraphCounts([{ kind: 'replaced', graphId: 'g1', seq: 1, at: 'x', actor: { kind: 'system' }, reason: 'rollback', summary: 'x' }])).toBe(false)
   })
 
   it('unions a batch', () => {
@@ -46,7 +49,6 @@ describe('queryRootsFor', () => {
       'arcs',
       'causal',
       'events',
-      'graphs',
       'inference',
     ])
   })

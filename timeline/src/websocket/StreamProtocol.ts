@@ -183,6 +183,12 @@ export interface ServerErrorMessage {
   type: 'error';
   code: StreamErrorCode;
   message: string;
+  /** Set when the error answers a request that carried one. */
+  requestId?: string;
+  /** The channel a refused `subscribe` named. */
+  graphId?: string;
+  /** Seconds until a rate-limited request may be repeated. */
+  retryAfter?: number;
 }
 
 /** Server -> client: the session is closing. */

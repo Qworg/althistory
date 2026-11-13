@@ -407,6 +407,82 @@ describe('LiveFeedClient', () => {
     })
   })
 
+  describe('a subscribe the server refuses', () => {
+    it('says the feed is not whole, asks again after the delay the server named, and is live once it is confirmed', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.say({ type: 'subscribed', graphId: '*', epoch: 'E1', seq: 0, replayed: 0 })
+      socket.sent.length = 0
+      socket.say({ type: 'error', code: 'RATE_LIMITED', message: 'Rate limit exceeded: 60/minute', graphId: 'g1', retryAfter: 20 })
+      expect(h.client.currentStatus).toBe('reconnecting')
+      await vi.advanceTimersByTimeAsync(19000)
+      expect(socket.sent).toEqual([])
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(socket.sent).toEqual([{ type: 'subscribe', graphId: 'g1' }])
+      socket.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 3, replayed: 0 })
+      expect(h.client.currentStatus).toBe('live')
+      // The graph was never watched, so it is read once it is.
+      expect(h.resyncs).toContainEqual(['g1', 'subscribe'])
+    })
+
+    it('backs off further when it is refused again, and retries a full subscription table too', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.sent.length = 0
+      socket.say({ type: 'error', code: 'SUBSCRIPTION_LIMIT', message: 'too many', graphId: 'g1' })
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(socket.sent).toHaveLength(1)
+      socket.say({ type: 'error', code: 'SUBSCRIPTION_LIMIT', message: 'too many', graphId: 'g1' })
+      await vi.advanceTimersByTimeAsync(1999)
+      expect(socket.sent).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(socket.sent).toHaveLength(2)
+      expect(h.client.currentStatus).toBe('reconnecting')
+    })
+
+    it('stops retrying a graph the tab moved away from, and ignores a refusal it cannot place', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.say({ type: 'error', code: 'RATE_LIMITED', message: 'x', graphId: 'g1', retryAfter: 5 })
+      h.client.setGraph('g2')
+      socket.sent.length = 0
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(socket.sent.filter((m) => m.type === 'subscribe')).toEqual([])
+      expect(h.client.currentStatus).toBe('live')
+      // An error that names no channel (or one not wanted) changes nothing.
+      socket.say({ type: 'error', code: 'RATE_LIMITED', message: 'x' })
+      socket.say({ type: 'error', code: 'RATE_LIMITED', message: 'x', graphId: 'g1' })
+      expect(h.client.currentStatus).toBe('live')
+    })
+
+    it('drops a pending retry when the socket goes, and the new socket subscribes afresh', async () => {
+      const h = harness()
+      const first = await connected(h)
+      first.say({ type: 'error', code: 'RATE_LIMITED', message: 'x', graphId: 'g1', retryAfter: 30 })
+      first.drop()
+      await vi.advanceTimersByTimeAsync(1000)
+      const second = socketAt(1)
+      second.say({ type: 'auth_result', success: true })
+      second.sent.length = 0
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(second.sent.filter((m) => m.type === 'subscribe')).toEqual([])
+      expect(h.client.currentStatus).toBe('live')
+    })
+  })
+
+  describe('resume positions', () => {
+    it('does not keep a position for a graph it only hears of on the graph list', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 0, replayed: 0 })
+      socket.say({ type: 'subscribed', graphId: '*', epoch: 'E1', seq: 0, replayed: 0 })
+      // Graph y is made by someone else; the record arrives on '*'.
+      socket.say({ ...change('y', 40), kind: 'graph', operation: 'create' })
+      h.client.setGraph('y')
+      expect(socket.sent.filter((m) => m.graphId === 'y')).toEqual([{ type: 'subscribe', graphId: 'y' }])
+    })
+  })
+
   describe('keeping the session alive', () => {
     it('pings on an interval, and stops pinging when the socket goes', async () => {
       const h = harness({ pingIntervalMs: 1000 })

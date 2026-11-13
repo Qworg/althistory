@@ -465,10 +465,37 @@ describe('the live change feed over the WebSocket', () => {
       const extra = [(await container.graphService.createGraph({ name: 'X1' })).id, (await container.graphService.createGraph({ name: 'X2' })).id];
       const client = await watcher(readerKey, graphA, [graphA, graphB, extra[0]]);
       client.send({ type: 'subscribe', graphId: extra[1] });
-      expect(await client.nextOf('error')).toMatchObject({ code: 'SUBSCRIPTION_LIMIT' });
+      // The refusal names the channel, so a client can retry that subscribe.
+      expect(await client.nextOf('error')).toMatchObject({ code: 'SUBSCRIPTION_LIMIT', graphId: extra[1] });
       // Watching one it already watches is not a new subscription.
       client.send({ type: 'subscribe', graphId: graphA });
       expect((await client.nextOf('subscribed')).graphId).toBe(graphA);
+    });
+
+    it('names the channel, and when to ask again, when a subscribe is over the key\'s rate limit', async () => {
+      const limited = await container.authService.createApiKey({
+        name: 'Tight budget',
+        permissions: ['read:events', 'read:graphs'],
+        rateLimit: { requestsPerMinute: 2, concurrentStreams: 8 },
+      });
+      const client = await watcher(limited.key, graphA, []);
+      // The upgrade and each subscribe are charged; whichever is the one too many is refused.
+      for (let i = 0; i < 4; i += 1) client.send({ type: 'subscribe', graphId: graphB, requestId: `s${i}` });
+      const refused = await client.nextOf('error');
+      expect(refused).toMatchObject({ code: 'RATE_LIMITED', graphId: graphB });
+      expect(refused.requestId).toMatch(/^s\d$/);
+      expect(refused.retryAfter).toBeGreaterThanOrEqual(1);
+    });
+
+    it('does not let an unsubscribe overtake the subscribe it follows', async () => {
+      const client = await watcher(readerKey, graphA, []);
+      // A -> B -> A: the client sends subscribe B, then unsubscribe B at once.
+      client.send({ type: 'subscribe', graphId: graphB });
+      client.send({ type: 'unsubscribe', graphId: graphB });
+      await client.nextOf('unsubscribed');
+      await agentAddsEvent(graphB, 'Nobody is watching B any more');
+      await settle();
+      expect(client.drain().filter((message) => message.type === 'change')).toEqual([]);
     });
 
     it('keeps a feed socket read-only', async () => {

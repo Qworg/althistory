@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
 import type { ChangeActor, LiveChange } from '@/types'
-import { LiveChangeApplier } from './liveChangeApplier'
+import { GRAPH_COUNTS_REFRESH_MS, LiveChangeApplier } from './liveChangeApplier'
 
 let seq = 0
 function added(graphId: string, type: 'event' | 'arc' | 'relationship', id: string, extra: Partial<LiveChange> = {}): LiveChange {
@@ -48,6 +48,41 @@ describe('LiveChangeApplier', () => {
     expect(invalidated).toEqual([])
     vi.advanceTimersByTime(150)
     expect(invalidated.sort()).toEqual(['causal', 'events', 'graphs', 'inference'])
+  })
+
+  it('refreshes the graph queries a bounded number of times for a long stream of entity changes', () => {
+    // One write every 100ms for a minute: 600 writes, about 400 flushes.
+    for (let i = 0; i < 600; i += 1) {
+      applier.push(added('g1', 'event', `e${i}`))
+      vi.advanceTimersByTime(100)
+    }
+    vi.advanceTimersByTime(20_000)
+    const graphs = invalidated.filter((root) => root === 'graphs').length
+    expect(invalidated.filter((root) => root === 'events').length).toBeGreaterThan(30)
+    // Once to start, then at most one every GRAPH_COUNTS_REFRESH_MS, then the trailing one.
+    expect(graphs).toBeLessThanOrEqual(1 + Math.ceil(60_000 / GRAPH_COUNTS_REFRESH_MS) + 1)
+    expect(graphs).toBeGreaterThanOrEqual(2)
+  })
+
+  it('still refreshes the counts once a quiet spell follows the last change', () => {
+    applier.push(added('g1', 'event', 'e1'))
+    vi.advanceTimersByTime(150)
+    invalidated.length = 0
+    vi.advanceTimersByTime(1000)
+    applier.push(added('g1', 'event', 'e2'))
+    vi.advanceTimersByTime(150)
+    expect(invalidated).not.toContain('graphs')
+    vi.advanceTimersByTime(GRAPH_COUNTS_REFRESH_MS)
+    expect(invalidated.filter((root) => root === 'graphs')).toHaveLength(1)
+  })
+
+  it('refreshes the graph queries at once for a change to the graph itself, whatever the throttle says', () => {
+    applier.push(added('g1', 'event', 'e1'))
+    vi.advanceTimersByTime(150)
+    invalidated.length = 0
+    applier.push({ kind: 'graph', graphId: 'g9', seq: ++seq, at: 'x', actor: { kind: 'cli' }, operation: 'create', name: 'Vael', summary: 'x' })
+    vi.advanceTimersByTime(150)
+    expect(invalidated).toEqual(['graphs'])
   })
 
   it('applies a burst once, rather than once per change', () => {

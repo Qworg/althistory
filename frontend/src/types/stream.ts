@@ -181,6 +181,11 @@ export interface ServerErrorMessage {
   type: 'error'
   code: StreamErrorCode
   message: string
+  requestId?: string
+  /** The channel a refused `subscribe` named. */
+  graphId?: string
+  /** Seconds until a rate-limited request may be repeated. */
+  retryAfter?: number
 }
 
 export interface ServerClosedMessage {

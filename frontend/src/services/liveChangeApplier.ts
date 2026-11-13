@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { LiveChange } from '@/types'
-import { describeChanges, freshIdsOf, queryRootsFor } from './liveChanges'
+import { changesGraphCounts, describeChanges, freshIdsOf, queryRootsFor } from './liveChanges'
 import { GRAPH_LIST_CHANNEL } from './liveFeedClient'
 
 /** What the applier writes to the screen's state; the live store satisfies it. */
@@ -8,6 +8,14 @@ export interface LiveChangeSink {
   markFresh(items: Array<{ type: 'event' | 'arc' | 'relationship' | 'pressure'; id: string }>): void
   addNotices(messages: string[]): void
 }
+
+/**
+ * The least time between refetches of the graph queries because entities
+ * changed. The graph routes are rate-limited per key, and in a local setup the
+ * browser and an agent share one key, so a busy writer must not spend the
+ * agent's budget on counts nobody is watching closely.
+ */
+export const GRAPH_COUNTS_REFRESH_MS = 10_000
 
 export interface LiveChangeApplierOptions {
   queryClient: QueryClient
@@ -36,6 +44,9 @@ export class LiveChangeApplier {
   private readonly options: LiveChangeApplierOptions
   private batch: LiveChange[] = []
   private timer: ReturnType<typeof setTimeout> | undefined
+  /** When the graph queries were last invalidated, and the pending trailing refresh. */
+  private graphsAt = Number.NEGATIVE_INFINITY
+  private graphsTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(options: LiveChangeApplierOptions) {
     this.options = options
@@ -73,8 +84,10 @@ export class LiveChangeApplier {
 
     const active = this.options.activeGraphId()
     for (const queryKey of queryRootsFor(batch, active)) {
-      void this.options.queryClient.invalidateQueries({ queryKey: [...queryKey] })
+      if (queryKey[0] === 'graphs') this.invalidateGraphs()
+      else void this.options.queryClient.invalidateQueries({ queryKey: [...queryKey] })
     }
+    if (changesGraphCounts(batch)) this.scheduleGraphCounts()
 
     const fresh = batch.filter((change) => change.graphId === active).flatMap(freshIdsOf)
     if (fresh.length > 0) this.options.sink.markFresh(fresh)
@@ -83,9 +96,27 @@ export class LiveChangeApplier {
     if (notices.length > 0) this.options.sink.addNotices(notices)
   }
 
+  /** Refetch the graph queries now, and count it against the throttle. */
+  private invalidateGraphs(): void {
+    if (this.graphsTimer !== undefined) clearTimeout(this.graphsTimer)
+    this.graphsTimer = undefined
+    this.graphsAt = Date.now()
+    void this.options.queryClient.invalidateQueries({ queryKey: ['graphs'] })
+  }
+
+  /** Entities changed: refresh the counts now if it has been a while, else once the wait is over. */
+  private scheduleGraphCounts(): void {
+    if (this.graphsTimer !== undefined) return
+    const wait = this.graphsAt + GRAPH_COUNTS_REFRESH_MS - Date.now()
+    if (wait <= 0) this.invalidateGraphs()
+    else this.graphsTimer = setTimeout(() => this.invalidateGraphs(), wait)
+  }
+
   dispose(): void {
     if (this.timer !== undefined) clearTimeout(this.timer)
     this.timer = undefined
+    if (this.graphsTimer !== undefined) clearTimeout(this.graphsTimer)
+    this.graphsTimer = undefined
     this.batch = []
   }
 

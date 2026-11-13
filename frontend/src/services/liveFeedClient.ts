@@ -20,6 +20,10 @@
  *     while the token and the handshake were under way, and the server replays
  *     nothing to a subscriber that names no position, so a commit in that
  *     window would otherwise be missed until the data went stale.
+ *   - A subscribe the server refuses for a reason that passes (the key's rate
+ *     limit, too many channels held) is tried again after a delay, and the
+ *     status is `reconnecting` until the server confirms it: the badge must
+ *     not say "live" for a graph nothing arrives from.
  *   - It reconnects with a growing delay, and stops (status `error`) for a
  *     refusal that retrying cannot fix: a key that cannot read, or may not
  *     access the graph.
@@ -64,6 +68,9 @@ export const GRAPH_LIST_CHANNEL = '*'
 
 const OPEN = 1
 
+/** Refusals of a subscribe that a later try can get past. */
+const RETRYABLE_SUBSCRIBE_CODES: ReadonlySet<StreamErrorCode> = new Set(['RATE_LIMITED', 'SUBSCRIPTION_LIMIT'])
+
 /** Codes that retrying cannot cure: the key is not allowed, or the graph is not there. */
 const FATAL_CODES: ReadonlySet<StreamErrorCode> = new Set([
   'KEY_INVALID',
@@ -97,6 +104,8 @@ export class LiveFeedClient {
   private resumed = false
   /** Channels whose pending subscribe named a position, so the server replays them. */
   private readonly resuming = new Set<string>()
+  /** Channels whose subscribe was refused for a passing reason, and the timer that tries again. */
+  private readonly refused = new Map<string, { attempts: number; timer: ReturnType<typeof setTimeout> | undefined }>()
 
   constructor(options: LiveFeedClientOptions) {
     this.options = options
@@ -120,6 +129,7 @@ export class LiveFeedClient {
     const socket = this.socket
     this.socket = undefined
     this.confirmed.clear()
+    this.clearRefused()
     this.connecting = false
     if (socket) {
       socket.onmessage = null
@@ -216,6 +226,7 @@ export class LiveFeedClient {
     this.socket = undefined
     this.connecting = false
     this.confirmed.clear()
+    this.clearRefused()
     this.clearPing()
     if (!this.running) return
     if (this.status === 'error') return
@@ -267,13 +278,22 @@ export class LiveFeedClient {
         if (message.reason === 'access_revoked') this.options.onAccessRevoked?.(message.graphId)
         return
       case 'change':
-        this.cursors.set(message.graphId, Math.max(this.cursors.get(message.graphId) ?? 0, message.seq))
+        // A position is kept only for a channel watched directly. The graph
+        // list also carries the whole-graph changes of graphs this tab does not
+        // watch; remembering those would make a later switch to one of them
+        // resume from a position it never read up to, and replay old changes
+        // as if they were new.
+        if (message.graphId === this.graphId) {
+          this.cursors.set(message.graphId, Math.max(this.cursors.get(message.graphId) ?? 0, message.seq))
+        }
         this.options.onChange(message)
         return
       case 'error':
         if (FATAL_CODES.has(message.code)) {
           this.setStatus('error', message.message)
           this.closeFor(socket)
+        } else if (message.graphId !== undefined && RETRYABLE_SUBSCRIBE_CODES.has(message.code)) {
+          this.onSubscribeRefused(message.graphId, message.retryAfter, message.message)
         }
         return
       default:
@@ -287,6 +307,7 @@ export class LiveFeedClient {
     this.epoch = epoch
     this.cursors.set(channel, Math.max(this.cursors.get(channel) ?? 0, seq))
     this.confirmed.add(channel)
+    this.clearRefusal(channel)
     const resumedChannel = this.resuming.delete(channel)
     if (resync) {
       this.options.onResync(channel, resync)
@@ -325,8 +346,49 @@ export class LiveFeedClient {
     )
   }
 
+  /**
+   * The server will not watch `channel` for now. If the channel is one this
+   * client still wants, ask again after the delay the server named, or a
+   * growing one, and say that the feed is not whole in the meantime.
+   */
+  private onSubscribeRefused(channel: string, retryAfterSeconds: number | undefined, detail: string): void {
+    const wanted = channel === this.graphId || channel === GRAPH_LIST_CHANNEL
+    if (!wanted || !this.running || this.confirmed.has(channel)) return
+    const held = this.refused.get(channel)
+    if (held?.timer !== undefined) clearTimeout(held.timer)
+    const attempts = (held?.attempts ?? 0) + 1
+    const base = this.options.baseDelayMs ?? 1000
+    const max = this.options.maxDelayMs ?? 30000
+    const backoff = Math.min(max, base * 2 ** (attempts - 1))
+    const delay = Math.max(backoff, retryAfterSeconds !== undefined ? retryAfterSeconds * 1000 : 0)
+    const timer = setTimeout(() => {
+      const entry = this.refused.get(channel)
+      if (entry) entry.timer = undefined
+      if (this.socket && this.socket.readyState === OPEN && (channel === this.graphId || channel === GRAPH_LIST_CHANNEL)) {
+        this.subscribe(channel)
+      }
+    }, delay)
+    this.refused.set(channel, { attempts, timer })
+    this.setStatus('reconnecting', detail)
+  }
+
+  /** `channel` is confirmed (or dropped): it no longer waits on a retry. */
+  private clearRefusal(channel: string): void {
+    const held = this.refused.get(channel)
+    if (!held) return
+    if (held.timer !== undefined) clearTimeout(held.timer)
+    this.refused.delete(channel)
+    if (this.refused.size === 0 && this.status === 'reconnecting' && this.socket) this.setStatus('live')
+  }
+
+  private clearRefused(): void {
+    for (const held of this.refused.values()) if (held.timer !== undefined) clearTimeout(held.timer)
+    this.refused.clear()
+  }
+
   private unsubscribe(channel: string): void {
     const socket = this.socket
+    this.clearRefusal(channel)
     this.confirmed.delete(channel)
     this.cursors.delete(channel)
     this.resuming.delete(channel)
@@ -354,6 +416,7 @@ export class LiveFeedClient {
     this.socket = undefined
     this.connecting = false
     this.confirmed.clear()
+    this.clearRefused()
     this.clearPing()
     socket.onmessage = null
     socket.onclose = null

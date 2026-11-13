@@ -31,6 +31,11 @@ const GRAPHS: QueryRoot = ['graphs']
 /**
  * The cached queries a batch of changes to one graph makes stale.
  *
+ * Writes to entities are not in the answer for the graph queries: a stream of
+ * them would refetch the (rate-limited) graph routes several times a second.
+ * The caller refreshes those at its own pace when `changesGraphCounts` says the
+ * counts they show have moved.
+ *
  * `activeGraphId` is the graph on screen: the data queries (events, arcs,
  * links, pressures) read the active graph, so a change to another graph only
  * touches the graph list.
@@ -45,7 +50,8 @@ export function queryRootsFor(changes: readonly LiveChange[], activeGraphId: str
     const onScreen = change.graphId === activeGraphId
     switch (change.kind) {
       case 'entities': {
-        add(GRAPHS)
+        // The graph list's counts move with every write, but they are not worth
+        // a refetch per write: see `changesGraphCounts`.
         if (!onScreen) break
         for (const entity of change.entities) {
           if (entity.type === 'event') add(EVENTS, INFERENCE, CAUSAL)
@@ -71,6 +77,11 @@ export function queryRootsFor(changes: readonly LiveChange[], activeGraphId: str
     }
   }
   return Array.from(roots.values())
+}
+
+/** Whether a batch moves the counts the graph queries show (events, arcs and links per graph). */
+export function changesGraphCounts(changes: readonly LiveChange[]): boolean {
+  return changes.some((change) => change.kind === 'entities')
 }
 
 /** The items to highlight for a change: what was added or changed, never what was deleted. */
