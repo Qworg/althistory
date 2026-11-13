@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, useCallback, useRef, useLayoutEffect, useEffect } from 'react'
 import type React from 'react'
-import { instantOfMs, instantScale, isDeepInstant } from '@/utils/timeScale'
+import { clampedInstantOfMs, instantScale, isDeepInstant } from '@/utils/timeScale'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
 import { axisTicks } from '@/utils/d3Calculations'
@@ -354,7 +354,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
     // Add padding to domain edges so boundary events aren't clipped
     const span = Math.max(86400000, max - min)
     const pad = span * 0.06
-    return [instantOfMs(min - pad), instantOfMs(max + pad)]
+    return [clampedInstantOfMs(min - pad), clampedInstantOfMs(max + pad)]
   }, [baselineEvents, counterfactualEvents])
 
   // 3. Compute scaled domain accounting for zoom and pan
@@ -365,7 +365,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
 
     const currentStartMs = start.getTime() + panOffset
     const currentEndMs = currentStartMs + zoomedDuration
-    return [instantOfMs(currentStartMs), instantOfMs(currentEndMs)]
+    return [clampedInstantOfMs(currentStartMs), clampedInstantOfMs(currentEndMs)]
   }, [baseDomain, zoomFactor, panOffset])
 
   // 4. D3 Scale calculation. UTC, so ticks fall on UTC day boundaries and

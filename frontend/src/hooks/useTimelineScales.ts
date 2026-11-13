@@ -2,7 +2,7 @@
 // See: docs/adr-001-d3-react-integration.md
 
 import { useMemo } from 'react'
-import { instantOfMs, instantScale } from '@/utils/timeScale'
+import { clampedInstantOfMs, instantScale } from '@/utils/timeScale'
 import { Event, Arc } from '@/types'
 import { TimelineMargin, UseTimelineScalesResult } from '@/types/timeline'
 import { toInstant } from '@althistory/calendar'
@@ -77,7 +77,7 @@ export function useTimelineScales(
     // Minimum padding is 10 seconds to avoid events touching the edge
     const padding = Math.max(range * 0.02, 1000 * 10) // At least 10 seconds padding
 
-    return [instantOfMs(minTime - padding), instantOfMs(maxTime + padding)]
+    return [clampedInstantOfMs(minTime - padding), clampedInstantOfMs(maxTime + padding)]
   }, [events, arcs])
 
   // Calculate zoomed width - when zoomLevel > 1, content is wider than container

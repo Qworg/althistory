@@ -1,7 +1,7 @@
 import { Event, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { toInstant } from '@althistory/calendar'
-import { instantOfMs } from '@/utils/timeScale'
+import { clampedInstantOfMs } from '@/utils/timeScale'
 
 /**
  * Time-axis windowing for the timeline.
@@ -71,7 +71,7 @@ export function computeTimeWindow(
     return { start: range.start, end: range.end }
   }
   const overscan = Math.max(0, endMs - startMs) * Math.max(0, overscanFraction)
-  return { start: instantOfMs(startMs - overscan), end: instantOfMs(endMs + overscan) }
+  return { start: clampedInstantOfMs(startMs - overscan), end: clampedInstantOfMs(endMs + overscan) }
 }
 
 /**

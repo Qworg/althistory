@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { MAX_AXIS_MS, MIN_AXIS_MS, axisOf, instantOfMs, isoOfAxisTime } from '@althistory/calendar'
 import type { Event, TimeRange } from '@/types'
 import type { PressureWithContext } from '@/types/pressure'
 import {
@@ -48,6 +49,21 @@ describe('computeTimeWindow', () => {
   it('does not invert a zero-span range', () => {
     const window = computeTimeWindow(range('2024-01-02T00:00:00Z', '2024-01-02T00:00:00Z'), 0.5)
     expect(window.start.getTime()).toBe(window.end.getTime())
+  })
+
+  it('stops at the axis bound instead of making an invalid window, so a 200-million-year history keeps its events', () => {
+    // What the timeline's scales give a history from 0 to +200M years: padded past the bound's reach on the far side only by the overscan.
+    const yearMs = 365.2425 * 86_400_000
+    const visible: TimeRange = { start: instantOfMs(-4_000_000 * yearMs), end: instantOfMs(204_000_000 * yearMs) }
+    const window = computeTimeWindow(visible)
+    expect(Number.isNaN(window.start.getTime())).toBe(false)
+    expect(Number.isNaN(window.end.getTime())).toBe(false)
+    const deep = event('deep', isoOfAxisTime(BigInt(Math.round(100_000_000 * yearMs))))
+    expect(isEventInWindow(deep, window)).toBe(true)
+    // Wider than the axis itself: both edges are the bound.
+    const wide = computeTimeWindow({ start: instantOfMs(-8e18), end: instantOfMs(8e18) })
+    expect(axisOf(wide.start)).toBe(MIN_AXIS_MS)
+    expect(axisOf(wide.end)).toBe(MAX_AXIS_MS)
   })
 
   it('leaves a range with unparseable bounds unchanged', () => {

@@ -3,7 +3,7 @@ import { act, render } from '@testing-library/react'
 import { ActorTimeline, type ActorEventData } from './ActorTimeline'
 import { Timeline } from './Timeline'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
-import { isoOfAxisTime } from '@althistory/calendar'
+import { MAX_AXIS_MS, isoOfAxisTime } from '@althistory/calendar'
 import type { Arc, Event } from '@/types'
 
 /**
@@ -176,4 +176,54 @@ describe('zooming out of a history a Date can hold', () => {
     expect(container.innerHTML).not.toContain('Invalid')
     expect(container.querySelectorAll('.actor-event').length).toBe(2)
   }, 30_000)
+})
+
+describe('a history past what a Date holds, at the zoom a person starts at', () => {
+  const YEAR = 365.2425 * 86_400_000
+  const iso = (years: number) => isoOfAxisTime(BigInt(Math.round(years * YEAR)))
+  const actorEvents = (stamps: string[]): ActorEventData[] =>
+    stamps.map((stamp, i) => ({ ...event(`e${i}`, stamp), actor: 'Actor', role: 'actor' as const, isHighlighted: false }))
+
+  it('mounts every event of a history from 0 to +200 million years at k=1', () => {
+    const events = [event('a', iso(0)), event('b', iso(100_000_000)), event('c', iso(200_000_000))]
+    const { container } = render(<Timeline events={events} arcs={[]} width={900} height={400} />)
+    expect(container.querySelectorAll('[data-event-id]')).toHaveLength(3)
+    expect(container.innerHTML).not.toContain('NaN')
+    expect(container.innerHTML).not.toContain('Invalid')
+  })
+
+  it('renders a history that ends near the axis bound, whose padding would pass it', () => {
+    const events = [event('a', iso(280_000_000)), event('b', isoOfAxisTime(MAX_AXIS_MS - 1000n))]
+    const { container } = render(<Timeline events={events} arcs={[]} width={900} height={400} />)
+    expect(container.querySelectorAll('[data-event-id]')).toHaveLength(2)
+    expect(container.innerHTML).not.toContain('NaN')
+    expect(container.innerHTML).not.toContain('Invalid')
+  })
+
+  it('keeps an ActorTimeline of plus and minus 30 million years finite when zoomed out to a tenth', () => {
+    const stamps = [iso(-30_000_000), iso(0), iso(30_000_000)]
+    const { container } = render(<ActorTimeline events={actorEvents(stamps)} arcs={[]} actor="Actor" layoutMode="chronological" width={900} height={400} />)
+    const svg = container.querySelector('svg[role="group"]') as SVGSVGElement
+    wheelZoom(svg, 400)
+    expect(zoomOf(svg)).toBeCloseTo(0.1, 5)
+    expect(container.innerHTML).not.toContain('NaN')
+    expect(container.innerHTML).not.toContain('Invalid')
+    expect(container.querySelectorAll('.actor-event')).toHaveLength(3)
+  }, 30_000)
+
+  it('renders an ActorTimeline of a history ending near the axis bound', () => {
+    const stamps = [iso(0), isoOfAxisTime(MAX_AXIS_MS - 1000n)]
+    const { container } = render(<ActorTimeline events={actorEvents(stamps)} arcs={[]} actor="Actor" layoutMode="chronological" width={900} height={400} />)
+    expect(container.querySelectorAll('.actor-event')).toHaveLength(2)
+    expect(container.innerHTML).not.toContain('NaN')
+    expect(container.innerHTML).not.toContain('Invalid')
+  })
+
+  it('draws a bounded number of ticks for 300,000 Gregorian years, not one per decade', () => {
+    const stamps = ['-200000-01-01T00:00:00.000Z', '+100000-01-01T00:00:00.000Z']
+    const { container } = render(<ActorTimeline events={actorEvents(stamps)} arcs={[]} actor="Actor" layoutMode="chronological" width={900} height={400} />)
+    const ticks = container.querySelectorAll('.x-axis .tick')
+    expect(ticks.length).toBeGreaterThan(1)
+    expect(ticks.length).toBeLessThanOrEqual(Math.ceil(900 / 96) + 1)
+  })
 })

@@ -1,6 +1,6 @@
 import * as d3 from 'd3'
 import { describe, expect, it } from 'vitest'
-import { AxisDate, axisOf, isoOfAxisTime, toAxisTime, toInstant } from '@althistory/calendar'
+import { AxisDate, MAX_AXIS_MS, MIN_AXIS_MS, axisOf, clampedInstantOfMs, instantOfMs, isoOfAxisTime, toAxisTime, toInstant } from '@althistory/calendar'
 import { axisTicks } from '@/utils/d3Calculations'
 import { instantScale, isDeepInstant, rescaleInstantX } from '@/utils/timeScale'
 
@@ -144,5 +144,25 @@ describe('zooming out of a domain a Date holds, past what a Date holds', () => {
     const ticks = zoomed.ticks(8)
     expect(ticks.length).toBeGreaterThan(2)
     expect(ticks.every((tick) => !Number.isNaN(+tick) && Number.isFinite(zoomed(tick)))).toBe(true)
+  })
+})
+
+describe('zooming out of a view past the axis bound', () => {
+  it('stops at the bound: a history of 60 million years zoomed to a tenth, and a pixel a million screens away, stay finite', () => {
+    const base = instantScale(true).domain([instantOfMs(-30_000_000 * YEAR), instantOfMs(30_000_000 * YEAR)]).range([0, 900])
+    const zoomed = rescaleInstantX(d3.zoomIdentity.scale(0.1), base)
+    const [a, b] = zoomed.domain()
+    expect(Number.isNaN(+a) || Number.isNaN(+b)).toBe(false)
+    expect(Number.isFinite(zoomed(instantOfMs(10_000_000 * YEAR)))).toBe(true)
+    expect(axisOf(base.invert(1e12))).toBe(MAX_AXIS_MS)
+    expect(axisOf(base.invert(-1e12))).toBe(MIN_AXIS_MS)
+  })
+
+  it('pads a history that ends near the bound without leaving it', () => {
+    const near = Number(MAX_AXIS_MS) - 1e12
+    const domain: [Date, Date] = [clampedInstantOfMs(near - 1e16), clampedInstantOfMs(near + 1e16)]
+    expect(domain.every((edge) => !Number.isNaN(+edge))).toBe(true)
+    const scale = instantScale().domain(domain).range([0, 900])
+    expect(Number.isFinite(scale(instantOfMs(near)))).toBe(true)
   })
 })

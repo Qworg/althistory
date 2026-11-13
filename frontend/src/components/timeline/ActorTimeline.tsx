@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
-import { instantOfMs, instantScale, isDeepInstant, rescaleInstantX } from '@/utils/timeScale'
+import { clampedInstantOfMs, instantScale, isDeepInstant, rescaleInstantX } from '@/utils/timeScale'
 import { Event, Arc, TimeRange } from '@/types'
 import { axisTicks, formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
@@ -119,8 +119,8 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     // put the first and last events on the chart's edges.
     const padding = Math.max(86400000, (last - first) * 0.03)
     return {
-      start: instantOfMs(first - padding),
-      end: instantOfMs(last + padding)
+      start: clampedInstantOfMs(first - padding),
+      end: clampedInstantOfMs(last + padding)
     }
   }, [events])
 
@@ -221,16 +221,22 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     // positions are the same linear scale either way).
     // Beyond what a Date holds, d3's ticks cannot reach: the calendar package's.
     const deepDomain = timeScale.domain().some(isDeepInstant)
-    if (worldCalendar || deepDomain) {
-      const [start = 0, end = 0] = timeScale.range()
-      return axisTicks(timeScale.domain(), Math.max(2, Math.floor(Math.abs(end - start) / 96)), worldCalendar).map(({ date, label }) => ({
-        key: date.getTime(),
-        x: timeScale(date),
-        label,
-      }))
-    }
+    const [start = 0, end = 0] = timeScale.range()
+    const maxTicks = Math.max(2, Math.floor(Math.abs(end - start) / 96))
+    const countTicks = () => axisTicks(timeScale.domain(), maxTicks, worldCalendar).map(({ date, label }) => ({
+      key: date.getTime(),
+      x: timeScale(date),
+      label,
+    }))
+    if (worldCalendar || deepDomain) return countTicks()
     const interval = getTimeAxisInterval(timeSpanMs, true)
-    return d3.scaleUtc().domain(timeScale.domain()).ticks(interval).map(date => ({
+    const dates = d3.scaleUtc().domain(timeScale.domain()).ticks(interval)
+    // The interval is a calendar unit chosen by span, not by width: a span of
+    // hundreds of thousands of years is thousands of decades. Past what the
+    // width holds, the count-based ticks (as the main timeline draws them).
+    // The slack keeps a narrow chart's crowded, turned labels as they were.
+    if (dates.length > Math.max(maxTicks * 3, 24)) return countTicks()
+    return dates.map(date => ({
       key: date.getTime(),
       x: timeScale(date),
       label: formatTimeAxisTick(date, timeSpanMs, true)

@@ -230,6 +230,18 @@ export function instantOfMs(ms: number): Date {
   return Number.isFinite(ms) ? (instantOfAxisTime(BigInt(Math.trunc(ms))) ?? new Date(NaN)) : new Date(NaN)
 }
 
+/**
+ * Like {@link instantOfMs}, but a number past the axis's bound names the bound
+ * itself (and an infinity the nearer bound) instead of an invalid Date. For
+ * the edges of a visible window or a padded domain, which must stay a real
+ * moment however far a zoom or a margin reaches; NaN is still invalid.
+ */
+export function clampedInstantOfMs(ms: number): Date {
+  if (Number.isNaN(ms)) return new Date(NaN)
+  const bound = ms >= Number(MAX_AXIS_MS) ? MAX_AXIS_MS : ms <= Number(MIN_AXIS_MS) ? MIN_AXIS_MS : BigInt(Math.trunc(ms))
+  return instantOfAxisTime(bound) ?? new Date(NaN)
+}
+
 /** The plain Date of an axis time, or null beyond a Date's range. */
 export function dateOfAxisTime(time: AxisTime): Date | null {
   return inDateRange(time) ? new Date(Number(time)) : null

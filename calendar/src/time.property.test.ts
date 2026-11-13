@@ -8,12 +8,14 @@ import {
   axisOf,
   axisTimeOf,
   axisTimeOfIso,
+  clampedInstantOfMs,
   civilOfAxisTime,
   compareAxisTime,
   dateOfAxisTime,
   formatHistoricalDate,
   formatHistoricalTimestamp,
   instantOfAxisTime,
+  instantOfMs,
   isoOfAxisTime,
   parseIsoInstant,
   readTimestamp,
@@ -206,5 +208,26 @@ describe('showing an instant beyond a Date, without a world (Req 12)', () => {
     expect(formatHistoricalDate(toInstant('+300000-03-15'), 'en-US', null)).toBe('Mar 15, 300000')
     expect(formatHistoricalDate(toInstant('-300000-03-15'), 'en-US', null)).toBe('Mar 15, 300001 BC')
     expect(formatHistoricalTimestamp(toInstant('+300000-03-15T14:30:00Z'), 'en-US', null)).toBe('Mar 15, 300000, 14:30 UTC')
+  })
+})
+
+describe('a window edge past the axis bound (Req 12)', () => {
+  it('names the bound, never an invalid Date, and agrees with instantOfMs inside it', () => {
+    expect(axisOf(clampedInstantOfMs(1e30))).toBe(MAX_AXIS_MS)
+    expect(axisOf(clampedInstantOfMs(-1e30))).toBe(MIN_AXIS_MS)
+    expect(axisOf(clampedInstantOfMs(Infinity))).toBe(MAX_AXIS_MS)
+    expect(axisOf(clampedInstantOfMs(-Infinity))).toBe(MIN_AXIS_MS)
+    expect(Number.isNaN(clampedInstantOfMs(NaN).getTime())).toBe(true)
+    fc.assert(
+      fc.property(fc.double({ min: -2e19, max: 2e19, noNaN: true }), (ms) => {
+        const date = clampedInstantOfMs(ms)
+        expect(Number.isNaN(date.getTime())).toBe(false)
+        const axis = axisOf(date)!
+        expect(axis >= MIN_AXIS_MS && axis <= MAX_AXIS_MS).toBe(true)
+        const exact = instantOfMs(ms)
+        if (!Number.isNaN(exact.getTime())) expect(axisOf(exact)).toBe(axis)
+      }),
+      arb.runs(1000)
+    )
   })
 })

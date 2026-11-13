@@ -15,9 +15,9 @@
  */
 
 import * as d3 from 'd3'
-import { type AxisTime, AxisDate, axisOf, gregorianTicks, instantOfAxisTime, instantOfMs } from '@althistory/calendar'
+import { type AxisTime, AxisDate, MAX_AXIS_MS, MIN_AXIS_MS, axisOf, clampedInstantOfMs, gregorianTicks, instantOfAxisTime, instantOfMs } from '@althistory/calendar'
 
-export { instantOfMs }
+export { clampedInstantOfMs, instantOfMs }
 
 /** What a position on the axis needs of a scale: a Date to a pixel, and back (a d3 time scale is one, and so is an {@link InstantScale}). */
 export interface PositionScale {
@@ -110,7 +110,9 @@ export function instantScale(utc = false): InstantScale {
     const fraction = r1 === r0 ? 0 : (pixel - r0) / (r1 - r0)
     // The ratio is a double; applied to the exact span it is right to a part in 10^15 of the domain.
     const offset = BigInt(Math.round(fraction * Number(a1 - a0)))
-    return instantOfAxisTime(a0 + offset) ?? new Date(NaN)
+    // A view zoomed out past the axis's bound stops at the bound: an Invalid Date would turn every position NaN.
+    const at = a0 + offset
+    return instantOfAxisTime(at < MIN_AXIS_MS ? MIN_AXIS_MS : at > MAX_AXIS_MS ? MAX_AXIS_MS : at) ?? new Date(NaN)
   }
 
   scale.ticks = (count?: number | d3.TimeInterval): Date[] => {
