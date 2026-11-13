@@ -692,6 +692,8 @@ interface SerializedEvent {
   actor: string;
   target: string;
   timestamp: string;
+  /** The moment on the axis, a decimal string (deep-time Req 14). */
+  timestamp_ms: string;
   metadata: Record<string, unknown>;
 }
 
@@ -702,6 +704,7 @@ function serializeEvent(event: Event): SerializedEvent {
     actor: event.actor,
     target: event.target,
     timestamp: event.timestamp.toISOString(),
+    timestamp_ms: event.timestampMs,
     metadata: event.metadata ?? {}
   };
 }

@@ -112,8 +112,14 @@ through a double: an old node reads back as the same milliseconds. No schema
 migration is needed.
 
 **Req 14. The wire.** Every date in an API, CLI or MCP response is its ISO
-text, plus, additively, a decimal string of the `AxisTime`: `timestamp_ms`,
-`start_time_ms`, `end_time_ms`. A request gives a date as text only (the ISO
+text, plus, additively, a decimal string of the `AxisTime`. The entity
+responses of the API (events and arcs, and the events the inference routes
+return) carry `timestamp_ms`, `start_time_ms`, `end_time_ms`; the CLI and MCP
+carry the same strings under camelCase names, `timestampMs`, `startTimeMs`,
+`endTimeMs`. A date inside a response built by hand (a validation result's
+`timestamp`, an arc's time range in a check) is its ISO text alone, which is
+exact: the milliseconds are a convenience for a client that wants a number
+without parsing the text. A request gives a date as text only (the ISO
 spelling, or the text a person writes); the milliseconds are for reading a
 response, and a request field named `*_ms` is ignored. A string, because
 JSON has no `bigint`, and a test checks that no response ever holds one.
