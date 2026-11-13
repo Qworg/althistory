@@ -481,6 +481,22 @@ describe('LiveFeedClient', () => {
       expect(h.client.currentStatus).toBe('live')
     })
 
+    it('still reconnects when the socket closes after the open graph was revoked, so the graph list is not left unwatched', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 1, replayed: 0 })
+      socket.say({ type: 'subscribed', graphId: '*', epoch: 'E1', seq: 1, replayed: 0 })
+      socket.say({ type: 'unsubscribed', graphId: 'g1', reason: 'access_revoked' })
+      expect(h.client.currentStatus).toBe('error')
+      socket.drop()
+      expect(h.client.currentStatus).toBe('reconnecting')
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(h.getToken).toHaveBeenCalledTimes(2)
+      const second = socketAt(1)
+      second.say({ type: 'auth_result', success: true })
+      expect(second.sent).toContainEqual({ type: 'subscribe', graphId: '*' })
+    })
+
     it('keeps saying live when only the graph list is revoked', async () => {
       const h = harness()
       const socket = await connected(h)

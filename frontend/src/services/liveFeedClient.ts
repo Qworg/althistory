@@ -240,13 +240,17 @@ export class LiveFeedClient {
     if (this.socket !== socket) return
     this.socket = undefined
     this.connecting = false
+    // An error that only the open graph's channel carries (its access was
+    // revoked) does not end the socket's business: the graph list still needs
+    // watching, and the key's access may come back.
+    const onlyRevoked = this.activeRevoked
     this.activeRevoked = false
     this.confirmed.clear()
     this.replaying.clear()
     this.clearRefused()
     this.clearPing()
     if (!this.running) return
-    if (this.status === 'error') return
+    if (this.status === 'error' && !onlyRevoked) return
     this.scheduleReconnect()
   }
 
