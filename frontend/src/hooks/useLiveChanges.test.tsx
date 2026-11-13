@@ -230,8 +230,12 @@ describe('useLiveChanges', () => {
     second.say({ type: 'auth_result', success: true })
     expect(second.sent[0]).toEqual({ type: 'subscribe', graphId: 'g1', epoch: 'E1', since: 5 })
     second.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 8, replayed: 1 })
+    // The data refetch is held to its interval; let the clock (only) pass it, so the change refetches at once.
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() })
+    vi.setSystemTime(Date.now() + 60_000)
     second.say(change(8))
     await waitFor(() => expect(events).toHaveBeenCalledTimes(4))
+    vi.useRealTimers()
 
     // The server could not replay: everything for the graph is read again.
     second.drop()

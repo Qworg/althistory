@@ -183,8 +183,7 @@ export class ExecutionContext {
    */
   async getFollowingEngine(): Promise<IEngine> {
     const first = await this.getEngine();
-    const context = this;
-    const current = (): IEngine => context.engine ?? first;
+    const current = (): IEngine => this.engine ?? first;
     const resolve = async (): Promise<IEngine> => {
       let engine = current();
       if (engine.mode !== 'direct' || this.options.url) return engine;
@@ -220,9 +219,9 @@ export class ExecutionContext {
       return this.following;
     };
     return new Proxy(first, {
-      get(_target, property) {
+      get: (_target, property) => {
         if (property === 'mode') return current().mode;
-        if (property === 'shutdown') return () => context.shutdown();
+        if (property === 'shutdown') return () => this.shutdown();
         const value = Reflect.get(current(), property) as unknown;
         if (typeof value !== 'function') return value;
         return async (...args: unknown[]) => {

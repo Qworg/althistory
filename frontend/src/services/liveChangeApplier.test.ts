@@ -138,8 +138,8 @@ describe('LiveChangeApplier', () => {
       applier.push(added('g1', 'relationship', `r${t}`))
       vi.advanceTimersByTime(500)
     }
-    for (let i = 0; i < times.length; i += 1) {
-      const inMinute = times.filter((at) => at >= times[i] && at < times[i] + 60_000).length
+    for (const start of times) {
+      const inMinute = times.filter((at) => at >= start && at < start + 60_000).length
       expect(inMinute).toBeLessThanOrEqual(DATA_REFRESHES_PER_MINUTE)
     }
     // And a change is never lost: the roots still refresh once the minute makes room.

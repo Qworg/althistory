@@ -153,7 +153,7 @@ export class LiveChangeApplier {
       held.timer = undefined
       const now = Date.now()
       this.spent = this.spent.filter((at) => now - at < 60_000)
-      const budgetWait = this.spent.length >= DATA_REFRESHES_PER_MINUTE ? this.spent[0] + 60_000 - now : 0
+      const budgetWait = this.spent.length >= DATA_REFRESHES_PER_MINUTE ? (this.spent[0] ?? now) + 60_000 - now : 0
       const wait = Math.max(held.at + interval - now, budgetWait)
       if (wait > 0) {
         held.timer = setTimeout(attempt, wait)
