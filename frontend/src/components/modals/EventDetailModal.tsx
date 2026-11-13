@@ -2,7 +2,7 @@ import { useState, useEffect, useContext, useMemo, useRef } from 'react'
 import { QueryClientContext } from '@tanstack/react-query'
 import { Arc, CausalRelationship, Event, type GraphCalendar } from '@/types'
 import { useEvents } from '@/hooks/useAPI'
-import { type DateEntryRead, type DatePrecision, dateCalendarOf, datePrecisionOf, formatDateEntry, readDateEntry, toInstant, worldBoundExamples } from '@althistory/calendar'
+import { type DateEntryRead, type DatePrecision, dateCalendarOf, datePrecisionOf, formatDateEntry, readDateEntry, compareInstants, toAxisTime, toInstant, worldBoundExamples } from '@althistory/calendar'
 import { getActiveCalendar, useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatHistoricalDateAt, formatEventDate } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
@@ -56,12 +56,16 @@ function CausePicker({
 }) {
   const { data: events } = useEvents({ limit: 1000 })
   const parsed = timestampText.trim() ? fromDateField(timestampText) : null
-  const limit = parsed?.ok ? toInstant(parsed.iso).getTime() : null
+  const limit = parsed?.ok ? toAxisTime(parsed.iso) : null
   const candidates = useMemo(
     () =>
       [...(events ?? [])]
-        .filter((e) => limit === null || toInstant(e.timestamp).getTime() <= limit)
-        .sort((a, b) => toInstant(b.timestamp).getTime() - toInstant(a.timestamp).getTime()),
+        .filter((e) => {
+          if (limit === null) return true
+          const at = toAxisTime(e.timestamp)
+          return at !== null && at <= limit
+        })
+        .sort((a, b) => compareInstants(toInstant(b.timestamp), toInstant(a.timestamp))),
     [events, limit]
   )
   // A cause the new date has overtaken is no longer offered, so drop it.

@@ -7,7 +7,7 @@ import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
 import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
-import { toInstant } from '@althistory/calendar'
+import { compareInstants, toInstant } from '@althistory/calendar'
 
 /** Two rows of 12px labels (the 12px floor); the pitch is the font plus leading. */
 const ACTOR_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: [-16, -30], fontSize: 12 }
@@ -256,7 +256,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
   const arcLabels = useMemo(() => {
     const rows: number[] = []
     const placed = new Map<string, { y: number; barY: number; text: string; startX: number; endX: number }>()
-    const ordered = [...arcs].sort((a, b) => a.start_time.localeCompare(b.start_time) || b.end_time.localeCompare(a.end_time))
+    const ordered = [...arcs].sort((a, b) => compareInstants(toInstant(a.start_time), toInstant(b.start_time)) || compareInstants(toInstant(b.end_time), toInstant(a.end_time)))
     for (const arc of ordered) {
       const startX = Math.min(innerWidth, Math.max(0, timeScale(toInstant(arc.start_time))))
       const endX = Math.min(innerWidth, Math.max(0, timeScale(toInstant(arc.end_time))))

@@ -1,7 +1,7 @@
 import { Event, CausalRelationship, GraphCalendar } from '@/types'
 import { formatHistoricalDate } from '@/utils/historicalTime'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { sameCalendarSet, toInstant } from '@althistory/calendar'
+import { compareInstants, sameCalendarSet, toInstant } from '@althistory/calendar'
 
 /**
  * The world calendars of the two graphs compared. Each is the graph's own
@@ -119,7 +119,7 @@ function getEventChanges(base: Event, cf: Event): FieldChange[] {
     })
   }
 
-  if (toInstant(base.timestamp).getTime() !== toInstant(cf.timestamp).getTime()) {
+  if (compareInstants(toInstant(base.timestamp), toInstant(cf.timestamp)) !== 0) {
     changes.push({
       field: 'timestamp',
       baselineValue: base.timestamp,
@@ -148,7 +148,7 @@ export function findPointOfDivergence(
 
   // Sort divergent items chronologically to pinpoint the earliest deviation
   const sorted = [...divergentItems].sort((a, b) => {
-    return toInstant(a.timestamp).getTime() - toInstant(b.timestamp).getTime()
+    return compareInstants(toInstant(a.timestamp), toInstant(b.timestamp))
   })
 
   const earliest = sorted[0]
@@ -271,7 +271,7 @@ export function analyzeEventDivergence(
   })
 
   // Sort items chronologically
-  items.sort((a, b) => toInstant(a.timestamp).getTime() - toInstant(b.timestamp).getTime())
+  items.sort((a, b) => compareInstants(toInstant(a.timestamp), toInstant(b.timestamp)))
 
   // Find Point of Divergence
   const pointOfDivergence = findPointOfDivergence(items, calendars)
@@ -283,18 +283,16 @@ export function analyzeEventDivergence(
   let postDivergenceCounterfactualCount = 0
 
   if (pointOfDivergence) {
-    const podTime = toInstant(pointOfDivergence.timestamp).getTime()
+    const podTime = toInstant(pointOfDivergence.timestamp)
     baselineEvents.forEach(e => {
-      const t = toInstant(e.timestamp).getTime()
-      if (t < podTime) {
+      if (compareInstants(toInstant(e.timestamp), podTime) < 0) {
         preDivergenceCount++
       } else {
         postDivergenceBaselineCount++
       }
     })
     counterfactualEvents.forEach(e => {
-      const t = toInstant(e.timestamp).getTime()
-      if (t >= podTime) {
+      if (compareInstants(toInstant(e.timestamp), podTime) >= 0) {
         postDivergenceCounterfactualCount++
       }
     })

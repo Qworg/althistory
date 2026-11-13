@@ -4,7 +4,7 @@ import type {
   CausalRelationship,
   FilterState
 } from '@/types'
-import { type WorldCalendarSet, formatDateBound, readDateBound, toInstant, type DateBoundEdge } from '@althistory/calendar'
+import { type AxisTime, type WorldCalendarSet, formatDateBound, readDateBound, toAxisTime, toInstant, type DateBoundEdge } from '@althistory/calendar'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
 import type { FilterState as PanelFilterState } from './FilterPanel'
 
@@ -23,16 +23,16 @@ export type { PanelFilterState }
 /** Inclusive timestamp for a bound of a date range. Missing/invalid bounds are
  * treated as open, so a partially-filled date range still narrows results. */
 function boundTimestamp(
-  value: Date | string | null | undefined,
-  edge: 'start' | 'end'
-): number {
-  const open = edge === 'start' ? -Infinity : Infinity
-  if (value === null || value === undefined || value === '') return open
-  const time = value instanceof Date
-    ? value.getTime()
-    : toInstant(value).getTime()
-  return Number.isNaN(time) ? open : time
+  value: Date | string | null | undefined
+): AxisTime | null {
+  // null is an open bound. Axis times are exact bigints: a deep date's getTime() is a rounded double.
+  if (value === null || value === undefined || value === '') return null
+  return toAxisTime(value)
 }
+
+/** Whether `time` is at or after the bound (an open one is always passed). */
+const atOrAfter = (time: AxisTime, bound: AxisTime | null) => bound === null || time >= bound
+const atOrBefore = (time: AxisTime, bound: AxisTime | null) => bound === null || time <= bound
 
 function matchesQuery(query: string, ...values: string[]): boolean {
   const needle = query.trim().toLowerCase()
@@ -45,11 +45,11 @@ function withinRange(
   filters: FilterState
 ): boolean {
   if (!filters.dateRange) return true
-  const time = toInstant(timestamp).getTime()
-  if (Number.isNaN(time)) return false
+  const time = toAxisTime(timestamp)
+  if (time === null) return false
   return (
-    time >= boundTimestamp(filters.dateRange.start, 'start') &&
-    time <= boundTimestamp(filters.dateRange.end, 'end')
+    atOrAfter(time, boundTimestamp(filters.dateRange.start)) &&
+    atOrBefore(time, boundTimestamp(filters.dateRange.end))
   )
 }
 
@@ -71,13 +71,13 @@ export function filterArcs(arcs: Arc[], filters: FilterState): Arc[] {
     if (!matchesQuery(filters.searchQuery, arc.name, arc.description)) return false
     if (filters.arcLevels.length > 0 && !filters.arcLevels.includes(arc.level)) return false
     if (filters.dateRange) {
-      const start = boundTimestamp(filters.dateRange.start, 'start')
-      const end = boundTimestamp(filters.dateRange.end, 'end')
-      const arcStart = toInstant(arc.start_time).getTime()
-      const arcEnd = toInstant(arc.end_time).getTime()
-      if (Number.isNaN(arcStart) || Number.isNaN(arcEnd)) return false
+      const start = boundTimestamp(filters.dateRange.start)
+      const end = boundTimestamp(filters.dateRange.end)
+      const arcStart = toAxisTime(arc.start_time)
+      const arcEnd = toAxisTime(arc.end_time)
+      if (arcStart === null || arcEnd === null) return false
       // Keep arcs that overlap the selected window.
-      if (arcStart > end || arcEnd < start) return false
+      if (!atOrBefore(arcStart, end) || !atOrAfter(arcEnd, start)) return false
     }
     return true
   })
@@ -217,13 +217,11 @@ function sameDateRange(
   b: FilterState['dateRange']
 ): boolean {
   if (a === null || b === null) return a === b
-  const startA = boundTimestamp(a.start, 'start')
-  const startB = boundTimestamp(b.start, 'start')
-  const endA = boundTimestamp(a.end, 'end')
-  const endB = boundTimestamp(b.end, 'end')
-  const startEqual = startA === startB || (Number.isNaN(startA) && Number.isNaN(startB))
-  const endEqual = endA === endB || (Number.isNaN(endA) && Number.isNaN(endB))
-  return startEqual && endEqual
+  const startA = boundTimestamp(a.start)
+  const startB = boundTimestamp(b.start)
+  const endA = boundTimestamp(a.end)
+  const endB = boundTimestamp(b.end)
+  return startA === startB && endA === endB
 }
 
 /** Value equality for the store filter shape, used to avoid writing an

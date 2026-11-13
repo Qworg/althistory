@@ -12,7 +12,7 @@ import { useGlobalStore } from '@/stores/globalStore'
 import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
 import { Event, Arc } from '@/types'
 import { historicalYear, formatEventDate } from '@/utils/historicalTime'
-import { toInstant } from '@althistory/calendar'
+import { compareInstants, toInstant } from '@althistory/calendar'
 import { instantOfMs } from '@/utils/timeScale'
 
 export interface ActorPerspectiveViewProps {
@@ -156,7 +156,7 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
         role: event.actor === selectedActor ? 'actor' as const : 'target' as const,
         isHighlighted: false
       }))
-      .sort((a, b) => toInstant(a.timestamp).getTime() - toInstant(b.timestamp).getTime())
+      .sort((a, b) => compareInstants(toInstant(a.timestamp), toInstant(b.timestamp)))
   }, [allEvents, selectedActor])
 
   // Filter arcs that contain actor events

@@ -3,7 +3,7 @@ import { CausalSuggestion, CausalRelationshipData } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
 import { isTemporalInversion } from '@/utils/causalOrder'
-import { toInstant } from '@althistory/calendar'
+import { compareInstants, toInstant } from '@althistory/calendar'
 
 export interface SuggestionFeedback {
   rating: 'helpful' | 'not_helpful' | 'needs_improvement'
@@ -109,7 +109,7 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
           const aEvent = events.find(e => e.id === a.cause_event_id)
           const bEvent = events.find(e => e.id === b.cause_event_id)
           if (aEvent && bEvent) {
-            comparison = toInstant(aEvent.timestamp).getTime() - toInstant(bEvent.timestamp).getTime()
+            comparison = compareInstants(toInstant(aEvent.timestamp), toInstant(bEvent.timestamp))
           }
           break
         }

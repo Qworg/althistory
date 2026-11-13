@@ -1,5 +1,5 @@
 import type { Arc, CausalRelationship, Event } from '@/types'
-import { toInstant } from '@althistory/calendar'
+import { compareInstants, toAxisTime, toInstant } from '@althistory/calendar'
 
 /**
  * What the Selected Event inspector says about *why* an event is there
@@ -43,15 +43,16 @@ export function containingArcs(event: Event, arcs: readonly Arc[]): ContainingAr
     if (chain.length > 0) return { arcs: chain, basis: 'assigned' }
   }
 
-  const time = toInstant(event.timestamp).getTime()
-  if (Number.isNaN(time)) return { arcs: [], basis: 'date' }
+  // Exact axis times: a deep date's getTime() is a rounded double.
+  const time = toAxisTime(event.timestamp)
+  if (time === null) return { arcs: [], basis: 'date' }
   const holding = arcs
     .filter((arc) => {
-      const start = toInstant(arc.start_time).getTime()
-      const end = toInstant(arc.end_time).getTime()
-      return start <= time && time <= end
+      const start = toAxisTime(arc.start_time)
+      const end = toAxisTime(arc.end_time)
+      return start !== null && end !== null && start <= time && time <= end
     })
-    .sort((a, b) => a.level - b.level || toInstant(a.start_time).getTime() - toInstant(b.start_time).getTime())
+    .sort((a, b) => a.level - b.level || compareInstants(toInstant(a.start_time), toInstant(b.start_time)))
   return { arcs: holding, basis: 'date' }
 }
 
@@ -126,6 +127,6 @@ export function causesAndEffects(
     }
   }
   const byTime = (a: CausalNeighbour, b: CausalNeighbour) =>
-    toInstant(a.event.timestamp).getTime() - toInstant(b.event.timestamp).getTime()
+    compareInstants(toInstant(a.event.timestamp), toInstant(b.event.timestamp))
   return { causes: causes.sort(byTime), effects: effects.sort(byTime) }
 }
