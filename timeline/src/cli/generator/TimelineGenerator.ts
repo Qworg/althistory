@@ -47,6 +47,7 @@ import {
 } from '@althistory/calendar';
 import { formatHistoricalDate } from '@/utils/historicalDate';
 import { ValidationErrorCLI } from '../utils/exitCodes';
+import { GenerationRun, type GenerationHooks } from './GenerationHooks';
 
 export interface TimelineGeneratorConfig {
   readonly llmClient?: LLMClient | null;
@@ -261,17 +262,21 @@ export class TimelineGenerator {
    */
   async generateTimeline(
     options: GenerateTimelineOptions,
-    container: Container
+    container: Container,
+    hooks: GenerationHooks = {}
   ): Promise<GenerationResultDto> {
+    const run = new GenerationRun(hooks);
+    run.report('planning', 'Checking the request');
     // Pass 1: Determine Macro Bounds & Epoch Span
-    return this.generateFromPlan(options, this.resolvePlan(options), container);
+    return this.generateFromPlan(options, this.resolvePlan(options), container, run);
   }
 
   /** Passes 2 to 5, and the write, for a checked request. */
   private async generateFromPlan(
     options: GenerateTimelineOptions,
     plan: GenerationPlan,
-    container: Container
+    container: Container,
+    run: GenerationRun
   ): Promise<GenerationResultDto> {
     const eventCount = Math.max(3, Math.min(options.eventCount || 8, 30));
     const { startMs } = plan;
@@ -281,6 +286,7 @@ export class TimelineGenerator {
       (plan.kind === 'world' ? `World: ${clip(plan.subject, 40)}` : `What If: ${plan.subject.slice(0, 40)}`);
 
     // Pass 2: Generate Chronological Micro-Events
+    run.report('drafting', 'Drafting the events');
     const { events: intermediateEvents, source } = await this.generateEventsPass(
       options,
       plan,
@@ -288,6 +294,8 @@ export class TimelineGenerator {
       startMs,
       stepMs
     );
+    run.target(undefined, source);
+    run.checkpoint();
 
     // Pass 3: Narrative Arc Structuring
     const extractedEvents: ExtractedEvent[] = intermediateEvents.map((e, idx) => ({
@@ -390,6 +398,8 @@ export class TimelineGenerator {
     }
 
     // Persist to Container
+    run.plan({ events: intermediateEvents.length, arcs: structuredArcs.length, relationships: causalLinks.length });
+    run.checkpoint();
     const graph = await container.graphService.createGraph({
       name: targetGraphName,
       description:
@@ -397,6 +407,8 @@ export class TimelineGenerator {
       calendar: plan.calendar,
     });
     const graphId = graph.id;
+    run.target(graphId, source);
+    run.report('graph', `Created the graph "${targetGraphName}"`);
     const scoped = await container.graphScopedRepositories(graphId);
 
     const persistedArcs: ArcDto[] = [];
@@ -405,6 +417,7 @@ export class TimelineGenerator {
     const arcIdByTempId = new Map<string, string>();
     const orderedArcs = [...structuredArcs].sort((a, b) => a.level - b.level);
     for (const a of orderedArcs) {
+      run.checkpoint();
       const startTime = toInstant(a.start_time);
       let endTime = toInstant(a.end_time);
       endTime = new Date(widenedEnd(startTime.getTime(), endTime.getTime()));
@@ -431,6 +444,8 @@ export class TimelineGenerator {
         endTime: created.end_time.toISOString(),
         level: created.level,
       });
+      run.written.arcs += 1;
+      run.report('arcs', `Writing arcs (${run.written.arcs} of ${orderedArcs.length})`);
     }
 
     // Each event goes in the innermost arc that holds it, which is what the app
@@ -447,6 +462,7 @@ export class TimelineGenerator {
     const domainEvents: Event[] = [];
     const persistedEvents: EventDto[] = [];
     for (const e of intermediateEvents) {
+      run.checkpoint();
       const created = await scoped.eventRepository.create({
         description: e.description,
         timestamp: toInstant(e.timestamp),
@@ -470,10 +486,13 @@ export class TimelineGenerator {
         importance: e.importance,
         metadata: created.metadata,
       });
+      run.written.events += 1;
+      run.report('events', `Writing events (${run.written.events} of ${intermediateEvents.length})`);
     }
 
     const persistedRels: CausalRelationshipDto[] = [];
     for (const l of causalLinks) {
+      run.checkpoint();
       const cause = domainEvents[l.causeIndex];
       const effect = domainEvents[l.effectIndex];
       if (cause && effect) {
@@ -499,9 +518,12 @@ export class TimelineGenerator {
           reasoning: created.evidence,
           confidence: created.confidence,
         });
+        run.written.relationships += 1;
+        run.report('links', `Linking causes (${run.written.relationships} of ${causalLinks.length})`);
       }
     }
 
+    run.report('done', 'Done');
     return {
       graphId,
       graphName: targetGraphName,
@@ -641,8 +663,11 @@ export class TimelineGenerator {
    */
   async generateBranch(
     options: GenerateBranchOptions,
-    container: Container
+    container: Container,
+    hooks: GenerationHooks = {}
   ): Promise<GenerationResultDto> {
+    const run = new GenerationRun(hooks);
+    run.report('planning', 'Finding the point of divergence');
     const eventCount = Math.max(3, Math.min(options.eventCount || 6, 20));
     const sourceScoped = await container.graphScopedRepositories(options.sourceGraphId);
     const pivotEvent = await sourceScoped.eventRepository.findById(options.divergeAtEventId);
@@ -677,6 +702,8 @@ export class TimelineGenerator {
     };
 
     // Generate divergent events
+    run.checkpoint();
+    run.report('drafting', 'Drafting the divergent events');
     const { events: intermediateEvents, source } = await this.generateEventsPass(
       divergentTimelineOptions,
       branchPlan,
@@ -684,6 +711,8 @@ export class TimelineGenerator {
       branchPlan.startMs,
       stepMs
     );
+    run.target(undefined, source);
+    run.checkpoint();
     const times = intermediateEvents.map((e) => parseInstant(e.timestamp));
     const arcStart = Math.min(...times);
     const arcEnd = Math.max(Math.max(...times), arcStart + MS_PER_DAY);
@@ -769,19 +798,28 @@ export class TimelineGenerator {
     }
 
     // Branch source graph
+    run.plan({
+      events: intermediateEvents.length,
+      arcs: 1,
+      relationships: intermediateEvents.length > 0 ? intermediateEvents.length : 0,
+    });
     const branched = await container.graphService.branchGraph(options.sourceGraphId, {
       name: options.branchName,
     });
     const branchedGraphId = branched.id;
+    run.target(branchedGraphId, source);
+    run.report('graph', `Branched the graph as "${options.branchName}"`);
     const targetScoped = await container.graphScopedRepositories(branchedGraphId);
 
     // Copy ancestor events up to pivot into target graph store if not already present
     const sourceEvents = await sourceScoped.eventRepository.findAll();
     const pivotTime = pivotEvent.timestamp.getTime();
     const ancestorEvents = sourceEvents.filter((e) => e.timestamp.getTime() <= pivotTime);
+    run.checkpoint();
 
     let branchPivotEvent = await targetScoped.eventRepository.findById(pivotEvent.id);
     for (const ancestor of ancestorEvents) {
+      run.checkpoint();
       const existing = await targetScoped.eventRepository.findById(ancestor.id);
       if (!existing) {
         const copied = await targetScoped.eventRepository.create({
@@ -806,6 +844,7 @@ export class TimelineGenerator {
     // 0 (an export of a level-1 arc without a parent fails the import's
     // hierarchy check). It is recorded like the events, or an export of the
     // branch would leave it out.
+    run.checkpoint();
     const arc = await targetScoped.arcRepository.create({
       name: branchArcName,
       description: branchArcDescription,
@@ -829,10 +868,13 @@ export class TimelineGenerator {
         level: arc.level,
       },
     ];
+    run.written.arcs += 1;
+    run.report('arcs', 'Wrote the branch arc');
 
     const domainEvents: Event[] = [];
     const persistedEvents: EventDto[] = [];
     for (const e of intermediateEvents) {
+      run.checkpoint();
       const created = await targetScoped.eventRepository.create({
         description: e.description,
         timestamp: toInstant(e.timestamp),
@@ -856,11 +898,14 @@ export class TimelineGenerator {
         importance: e.importance,
         metadata: created.metadata,
       });
+      run.written.events += 1;
+      run.report('events', `Writing events (${run.written.events} of ${intermediateEvents.length})`);
     }
 
     // Create branch causal link from pivot event to the first divergent event
     const persistedRels: CausalRelationshipDto[] = [];
     if (domainEvents.length > 0) {
+      run.checkpoint();
       const branchRel: CausalRelationship = {
         weight: 0.95,
         confidence: 0.95,
@@ -889,10 +934,13 @@ export class TimelineGenerator {
         reasoning: branchLink.evidence,
         confidence: branchLink.confidence,
       });
+      run.written.relationships += 1;
+      run.report('links', 'Linked the branch to its point of divergence');
     }
 
     // Chain newly created divergent events
     for (let i = 0; i < domainEvents.length - 1; i++) {
+      run.checkpoint();
       const cause = domainEvents[i];
       const effect = domainEvents[i + 1];
       const linkRel: CausalRelationship = {
@@ -917,8 +965,11 @@ export class TimelineGenerator {
         reasoning: link.evidence,
         confidence: link.confidence,
       });
+      run.written.relationships += 1;
+      run.report('links', `Linking causes (${run.written.relationships} of ${domainEvents.length})`);
     }
 
+    run.report('done', 'Done');
     return {
       graphId: branchedGraphId,
       graphName: options.branchName,
@@ -953,8 +1004,11 @@ export class TimelineGenerator {
    */
   async generateExpand(
     options: GenerateExpandOptions,
-    container: Container
+    container: Container,
+    hooks: GenerationHooks = {}
   ): Promise<GenerationResultDto> {
+    const run = new GenerationRun(hooks);
+    run.report('planning', 'Reading the graph');
     const scoped = await container.graphScopedRepositories(options.graphId);
     const existingEvents = await scoped.eventRepository.findAll();
     if (existingEvents.length === 0) {
@@ -1029,6 +1083,7 @@ export class TimelineGenerator {
         graphName: 'Expanded Preview',
         premise: 'Expansion',
         divergencePoint: 'Interpolation',
+        source: 'template',
         eventCount: count,
         arcCount: 1,
         relationshipCount: 0,
@@ -1065,6 +1120,9 @@ export class TimelineGenerator {
 
     // The expansion is recorded as an arc, so that the new events are
     // contained by a narrative arc rather than floating on their own.
+    run.plan({ events: intermediateEvents.length, arcs: 1, relationships: 0 });
+    run.target(options.graphId, 'template');
+    run.checkpoint();
     const createdArc = await scoped.arcRepository.create({
       name: expansionArcName,
       description: parentArc
@@ -1083,9 +1141,12 @@ export class TimelineGenerator {
     } catch {
       // Best effort
     }
+    run.written.arcs += 1;
+    run.report('arcs', 'Wrote the expansion arc');
 
     const createdEvents: EventDto[] = [];
     for (const e of intermediateEvents) {
+      run.checkpoint();
       const created = await scoped.eventRepository.create({
         description: e.description,
         timestamp: toInstant(e.timestamp),
@@ -1107,6 +1168,8 @@ export class TimelineGenerator {
         target: created.target,
         importance: e.importance,
       });
+      run.written.events += 1;
+      run.report('events', `Writing events (${run.written.events} of ${intermediateEvents.length})`);
     }
 
     const createdArcs: ArcDto[] = [
@@ -1121,11 +1184,13 @@ export class TimelineGenerator {
       },
     ];
 
+    run.report('done', 'Done');
     return {
       graphId: options.graphId,
       graphName: 'Expanded Timeline',
       premise: 'Detailed expansion of narrative window',
       divergencePoint: 'Intermediate interpolation',
+      source: 'template',
       eventCount: createdEvents.length,
       arcCount: createdArcs.length,
       relationshipCount: 0,
