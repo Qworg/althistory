@@ -35,8 +35,7 @@ import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
 import { createLogger, ILogger } from '@/utils/logger';
 import { StoredCausalRelationship } from './CausalService';
-import { formatHistoricalDate } from '@/utils/historicalDate';
-import type { WorldCalendarSet } from '@althistory/calendar';
+import { type WorldCalendarSet, dateCalendarOf, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
 
 /** A write to a live entity that should be reflected in one named graph's version. */
 export type EntityWriteOperation = 'create' | 'update';
@@ -201,7 +200,9 @@ export function describeEntityWrite(
       const renamed = entityName(type, before) !== name;
       const otherChange = before.actor !== after.actor || before.target !== after.target;
       if (moved && !renamed && !otherChange) {
-        return `Moved ${name} to ${formatHistoricalDate(after.timestamp as string, context.calendar)}`;
+        // At the precision it is known to, in the calendar it was given in.
+        const metadata = (after.metadata ?? undefined) as Record<string, unknown> | undefined;
+        return `Moved ${name} to ${formatHistoricalDateAt(after.timestamp as string, datePrecisionOf(metadata), 'en-US', context.calendar ?? null, dateCalendarOf(metadata))}`;
       }
       if (renamed && !moved && !otherChange) {
         return `Renamed event ${entityName(type, before)} to ${name}`;

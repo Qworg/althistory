@@ -300,7 +300,13 @@ export class IngestionOrchestrator {
   async approve(
     jobId: string,
     request: ApproveIngestionRequest,
-    ownerKeyId?: string
+    ownerKeyId?: string,
+    /**
+     * The calendars of the graph the review goes into, when the caller knows
+     * them: the reviewer's dates are read and checked with these, not the
+     * ones (if any) the job was extracted with. Left out, the job's.
+     */
+    target?: { calendar?: WorldCalendarSet }
   ): Promise<ImportResult> {
     const job = this.requireJob(jobId, ownerKeyId);
     if (job.status !== 'review') {
@@ -308,9 +314,10 @@ export class IngestionOrchestrator {
         `Ingestion job ${job.id} is not awaiting review (status: ${job.status})`
       );
     }
-    const selected = selectForImport(job.extraction, request, job.calendar);
+    const calendar = target ? target.calendar : job.calendar;
+    const selected = selectForImport(job.extraction, request, calendar);
 
-    const issues = validateExtraction(selected, job.calendar);
+    const issues = validateExtraction(selected, calendar);
     const errors = issues.filter((issue) => issue.severity === 'error');
     if (errors.length > 0) {
       throw new IngestionValidationError(errors);

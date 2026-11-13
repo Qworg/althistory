@@ -23,6 +23,7 @@ import type {
   CompletenessEvent,
   CompletenessResponse,
 } from '@/services/InferenceService';
+import { requestCalendar } from '../worldDates';
 
 export const suggestRoutes = Router();
 
@@ -319,7 +320,7 @@ suggestRoutes.post(
 
       // Use inference service to analyze pressures
       const inferenceService = req.container.inferenceService;
-      const pressures = inferenceService.analyzeEventClusters(events);
+      const pressures = inferenceService.analyzeEventClusters(events, await requestCalendar(req));
 
       res.json({
         pressures: pressures.map((p) => ({

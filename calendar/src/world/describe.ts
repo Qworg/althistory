@@ -5,6 +5,7 @@
  * Req 18).
  */
 
+import { boundPrecision, parseHistoricalDate } from '../bounds'
 import { parseIsoInstant } from '../instant'
 import { type CalendarDefinition, MAX_TIME, type WorldCalendarSet } from './definition'
 import { calendarIn, dateAt } from './engine'
@@ -43,6 +44,8 @@ function isoPeriodEnd(start: Date, precision: WorldPrecision): number {
  *   alone ("1871-03") names that UTC period, with its precision. In a world a
  *   Gregorian month or year is no period of the world's, so only an ISO date
  *   or date and time is read there.
+ * - Without a world, then the year-first notation the app writes (the
+ *   filter's and the forms'): "1843", "1843-11-20", "44 BCE".
  * - With `edge: 'end'`, a day, month or year written without a time is its
  *   period's last moment (Req 15); a time, even "00:00", is that moment.
  *
@@ -62,7 +65,13 @@ export function readWorldTimestamp(
     }
   }
   const iso = parseIsoInstant(String(text).trim())
-  if (!iso) return null
+  if (!iso) {
+    // Without a world, the historical notation the app writes too: a year
+    // first, as precise as known, BCE before 1 CE ("1843-11", "44 BCE").
+    if (set) return null
+    const historical = parseHistoricalDate(String(text), edge)
+    return historical.ok ? { iso: historical.date.toISOString(), precision: boundPrecision(historical.text) } : null
+  }
   const precision: WorldPrecision = iso.precision === 'year' || iso.precision === 'month' ? iso.precision : 'day'
   if (set && precision !== 'day') return null
   const at = edge === 'end' && iso.dateOnly ? isoPeriodEnd(iso.date, precision) : iso.date.getTime()
@@ -86,7 +95,7 @@ export function unreadDateReason(set: WorldCalendarSet | null | undefined, text:
     const world = parseWorldText(set, trimmed)
     if (!world.ok) return sentence(world.error)
   }
-  return `"${trimmed}" is not a date: give an ISO 8601 date (1843-11-20, 1843-11-20T14:30, 1871-03).`
+  return `"${trimmed}" is not a date: give an ISO 8601 date (1843-11-20, 1843-11-20T14:30, 1871-03), or a year first (1843, 44 BCE).`
 }
 
 const sentence = (text: string) => {

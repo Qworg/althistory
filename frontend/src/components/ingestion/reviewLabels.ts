@@ -104,6 +104,9 @@ export function compactReviewDate(
 ): string {
   const value = raw.trim()
   if (calendar) return parseIsoInstant(value) ? formatDateEntry(value, precision, calendar, 'start', calendarId) : raw
+  // A month or year the text gave is shown as one ("1871-03"): shown as its
+  // first day, an untouched field would read back as that day.
+  if (precision !== 'day' && parseIsoInstant(value)) return formatDateEntry(value, precision, null)
   const midnight = ISO_MIDNIGHT.exec(value)
   if (midnight) return `${midnight[1]}-${midnight[2]}-${midnight[3]}`
   const minute = ISO_WHOLE_MINUTE.exec(value)

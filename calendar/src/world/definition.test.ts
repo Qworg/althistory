@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type CalendarDefinition, calendarSetIssues, gregorianDefinition, normalizeCalendarSet, storedCalendarSet } from './index'
+import { type CalendarDefinition, adoptableCalendarSet, calendarSetIssues, gregorianDefinition, normalizeCalendarSet, storedCalendarSet } from './index'
 
 const vael: CalendarDefinition = {
   id: 'reckoning',
@@ -182,5 +182,34 @@ describe('calendars that share a year word', () => {
     // Two calendars without labels both write "Year 5".
     const plain = (id: string) => ({ id, name: id.toUpperCase(), parts: [{ name: id === 'a' ? 'Thaw' : 'Seed', days: 30 }], epoch: 0 })
     expect(calendarSetIssues({ version: 2, dayLength: 86_400, primary: 'a', calendars: [plain('a'), plain('b')] }).length).toBeGreaterThan(0)
+  })
+})
+
+describe('a calendar whose text another could claim at a count far out of reach', () => {
+  it('is refused, though no reachable date collides', () => {
+    const a = { id: 'a', name: 'Alpha', parts: [{ name: 'Rain', days: 365 }], epoch: 0, eras: [{ label: 'AR', from: 1 }], notation: { year: '{year} Thaw' } }
+    const b = { id: 'b', name: 'Beta', parts: [{ name: 'Mo', days: 10 }], epoch: 0, eras: [{ label: 'AR Thaw', from: -10_000_020 }] }
+    expect(calendarSetIssues({ version: 2, dayLength: 86_400, primary: 'a', calendars: [a, b] }).length).toBeGreaterThan(0)
+  })
+})
+
+describe('a calendar an import brings', () => {
+  it('is taken as it is when it meets the rules every new calendar meets', () => {
+    const set = storedCalendarSet({ epochYear: 1000, eraLabel: 'AR' })!
+    expect(adoptableCalendarSet(set)).toEqual(set)
+  })
+
+  it('of the earlier form, keeps its years without month names a set cannot hold', () => {
+    const months = Array.from({ length: 12 }, (_, i) => `Month ${i + 1}`)
+    const adopted = adoptableCalendarSet({ epochYear: 1000, eraLabel: 'AR', monthNames: months })
+    expect(adopted).not.toBeNull()
+    expect(calendarSetIssues(adopted!)).toEqual([])
+    expect(adopted!.calendars[0]!.parts.map((part) => part.name)).not.toContain('Month 1')
+    expect(adopted!.calendars[0]!.eras).toEqual([{ label: 'AR', from: 1 }])
+  })
+
+  it('is refused when nothing of it can be kept', () => {
+    expect(adoptableCalendarSet(null)).toBeNull()
+    expect(adoptableCalendarSet({ version: 2, dayLength: 86_400, calendars: [], primary: 'x' })).toBeNull()
   })
 })

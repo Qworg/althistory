@@ -1,5 +1,7 @@
 import type { Event, ExtractionResult } from '@/types'
 import { historicalYear } from '@/utils/historicalTime'
+import { getActiveCalendar } from '@/stores/worldCalendarStore'
+import { type WorldCalendarSet, readWorldTimestamp, toInstant } from '@althistory/calendar'
 
 /**
  * The confidence a row needs to start selected. The review's "Select rows
@@ -17,7 +19,7 @@ const YEAR_MS = 365.25 * 24 * 60 * 60 * 1000
 
 /** The span of the graph's events, or null for an empty graph (nothing to compare with). */
 export function historySpan(events: readonly Pick<Event, 'timestamp'>[] | undefined): HistorySpan | null {
-  const times = (events ?? []).map((event) => new Date(event.timestamp).getTime()).filter(Number.isFinite)
+  const times = (events ?? []).map((event) => toInstant(event.timestamp).getTime()).filter(Number.isFinite)
   if (times.length < 2) return null
   return { start: Math.min(...times), end: Math.max(...times) }
 }
@@ -29,10 +31,13 @@ export function historySpan(events: readonly Pick<Event, 'timestamp'>[] | undefi
  * fund-raising campaign; in an 1834–1868 history that row is almost always a
  * mistake to import, so it is flagged and starts unticked.
  */
-export function isOutsideSpan(timestamp: string, span: HistorySpan | null): boolean {
+export function isOutsideSpan(timestamp: string, span: HistorySpan | null, calendar: WorldCalendarSet | null = getActiveCalendar()): boolean {
   if (!span) return false
-  const time = new Date(timestamp).getTime()
-  if (!Number.isFinite(time)) return false
+  // Read as the importer reads it (a reviewer's text too: in a world, its
+  // notation), never as `new Date` would guess.
+  const read = readWorldTimestamp(calendar, timestamp)
+  if (!read) return false
+  const time = Date.parse(read.iso)
   const margin = Math.max(10 * YEAR_MS, (span.end - span.start) * 0.2)
   return time < span.start - margin || time > span.end + margin
 }

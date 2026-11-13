@@ -3,7 +3,7 @@ import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
 import { axisTicks, formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
 import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
 
@@ -710,7 +710,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
               <div><strong>Target:</strong> {tooltipFor.event.target}</div>
               <div>
                 <strong>Time:</strong>{' '}
-                <span className="font-mono-code">{formatHistoricalTimestamp(tooltipFor.event.timestamp)}</span>
+                <span className="font-mono-code">{formatEventDate(tooltipFor.event)}</span>
               </div>
             </div>
           </div>

@@ -249,11 +249,11 @@ Give a graph a world calendar, change it, or remove it.
 
 #### `althistory_create_arc`
 An age, era, reign or campaign that holds events.
-- `graphId`, `name`, `startTime`, `endTime` *(required)*: ISO 8601, or in a world graph a date in the world's notation (an `endTime` without a time, a day, month or year, means its last moment).
+- `graphId`, `name`, `startTime`, `endTime` *(required)*: ISO 8601 (or, without a world, year first: `312`, `44 BCE`), or in a world graph a date in the world's notation (an `endTime` without a time, a day, month or year, means its last moment).
 - `description`, `parentArcId` (the arc it sits inside; it is placed one level below it).
 
 #### `althistory_create_event`
-- `graphId`, `description`, `timestamp` *(required)*: ISO 8601, or in a world graph a date in the world's notation ("Greywater 4, 312 AR"; a month or a year alone records its precision).
+- `graphId`, `description`, `timestamp` *(required)*: ISO 8601 (or, without a world, year first: `312`, `44 BCE`), or in a world graph a date in the world's notation ("Greywater 4, 312 AR"; a month or a year alone records its precision).
 - `actor`, `target`, `arcId` (puts the event in that arc; if that fails, the error names the event that was created).
 
 #### `althistory_assign_to_arc`

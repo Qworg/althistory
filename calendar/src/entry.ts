@@ -16,7 +16,7 @@
 
 import { type DateBoundEdge, boundPrecision, formatBoundAt, parseHistoricalDate } from './bounds'
 import type { DatePrecision } from './describe'
-import { parseIsoInstant, toInstant } from './instant'
+import { toInstant } from './instant'
 import { formatHistoricalDate, formatHistoricalTimestamp } from './locale'
 import type { WorldCalendarSet } from './world/definition'
 import { calendarIn, dateAt } from './world/engine'
@@ -55,11 +55,9 @@ export function readDateEntry(text: string, calendar: WorldCalendarSet | null, e
     if (read) return { ok: true, ...read }
     return { ok: false, error: unreadDateReason(calendar, trimmed) }
   }
-  // ISO 8601 as every door reads it (a pasted timestamp; "1871-03" alike either way).
-  if (parseIsoInstant(trimmed)) {
-    const iso = readWorldTimestamp(null, trimmed, edge)
-    if (iso) return { ok: true, iso: iso.iso, precision: iso.precision }
-  }
+  // As every door reads it: ISO 8601, then a year first ("1871-03", "44 BCE").
+  const read = readWorldTimestamp(null, trimmed, edge)
+  if (read) return { ok: true, iso: read.iso, precision: read.precision }
   const timed = TIME_SUFFIX.exec(trimmed)
   const datePart = timed ? timed[1]! : trimmed
   const parsed = parseHistoricalDate(datePart, timed ? 'start' : edge)

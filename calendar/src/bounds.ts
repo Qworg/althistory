@@ -189,7 +189,14 @@ export function boundPrecision(text: string): DatePrecision {
  * shows once it is left.
  */
 export function readDateBound(input: string, edge: DateBoundEdge, calendar: WorldCalendarSet | null): HistoricalDateParse {
-  if (!calendar) return parseHistoricalDate(input, edge)
+  if (!calendar) {
+    const historical = parseHistoricalDate(input, edge)
+    if (historical.ok) return historical
+    // A date and time (a link's, or pasted): the instant it names.
+    const instant = parseIsoInstant(input.trim())
+    if (instant && !instant.dateOnly) return { ok: true, date: instant.date, text: formatHistoricalDateBound(instant.date, edge) }
+    return historical
+  }
   const world = worldBound(calendar, input, edge)
   if (world.ok) {
     // Spelled at the precision it was typed, as a stored bound is ("Qaa 4,
@@ -202,10 +209,17 @@ export function readDateBound(input: string, edge: DateBoundEdge, calendar: Worl
         : formatWorldBound(calendar, world.position, edge)
     return { ok: true, date: new Date(world.position), text }
   }
-  // A link carries a bound as the instant it names (a date and time): read
-  // as that instant. A bare "312" or "1843-11" is no date of the world's.
+  // ISO 8601, as every door reads it: a date and time (a link's) is that
+  // instant, a date its UTC day (as an end, the day's last moment). A
+  // Gregorian month or year is no period of the world's, nor is a bare "312".
   const instant = parseIsoInstant(input.trim())
-  if (instant && !instant.dateOnly) return { ok: true, date: instant.date, text: formatWorldBound(calendar, instant.date.getTime(), edge) }
+  if (instant && (instant.precision === 'month' || instant.precision === 'year')) {
+    return { ok: false, error: `"${input.trim()}" is a Gregorian ${instant.precision}, which is no ${instant.precision} of this world: give it in the world's calendar, or give a day.` }
+  }
+  if (instant) {
+    const at = instant.dateOnly && edge === 'end' ? instant.date.getTime() + 86_400_000 - 1 : instant.date.getTime()
+    if (Math.abs(at) <= 8.64e15) return { ok: true, date: new Date(at), text: formatWorldBound(calendar, at, edge) }
+  }
   return world
 }
 

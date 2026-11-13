@@ -22,12 +22,29 @@ import {
   parseIsoInstant,
   readWorldInput,
   readWorldTimestamp,
+  storedCalendarSet,
   toInstant,
   unreadDateReason,
   withDatePrecision,
   worldPeriod,
 } from '@althistory/calendar';
+import type { Request } from 'express';
 import { ValidationError } from '../utils/errors';
+
+/**
+ * The world calendars of the graph a request is scoped to, to describe its
+ * dates with: none when it names no graph, has none, or cannot be read (a
+ * description then falls back to Gregorian rather than failing the request).
+ */
+export async function requestCalendar(req: Request): Promise<WorldCalendarSet | undefined> {
+  const graphId: unknown = req.graphId;
+  if (typeof graphId !== 'string' || graphId.length === 0) return undefined;
+  try {
+    return storedCalendarSet((await req.container.graphRepository.findById(graphId))?.calendar) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface RequestTime {
   date: Date;

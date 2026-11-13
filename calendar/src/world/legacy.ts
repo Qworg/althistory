@@ -16,7 +16,7 @@ import {
   calendarSetShapeIssues,
   trimCalendarSet,
 } from './definition'
-import { normalizeCalendarSet } from './check'
+import { calendarSetIssues, normalizeCalendarSet } from './check'
 
 const GREGORIAN_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
@@ -155,4 +155,21 @@ export function sameCalendarSet(a: unknown, b: unknown): boolean {
     }
   }
   return canonicalText(asSet(a)) === canonicalText(asSet(b))
+}
+
+/**
+ * A calendar from outside (an import) as a new graph takes it: what of it a
+ * set can hold, provided its dates read back (the rules every new calendar
+ * meets). One of the earlier form whose month names cannot be held (a digit)
+ * keeps its year count without them. Null when nothing can be kept.
+ */
+export function adoptableCalendarSet(value: unknown): WorldCalendarSet | null {
+  const set = storedCalendarSet(value)
+  if (set && calendarSetIssues(set).length === 0) return set
+  if (!isCalendarSet(value) && typeof value === 'object' && value !== null && 'monthNames' in value) {
+    const { monthNames: _dropped, ...years } = value as Record<string, unknown>
+    const plain = storedCalendarSet(years)
+    if (plain && calendarSetIssues(plain).length === 0) return plain
+  }
+  return null
 }

@@ -6,7 +6,7 @@ import {
   type SimulationRequestOptions,
   type SimulationResult,
 } from '@/types'
-import { formatHistoricalDate } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 import { PRIMARY_BUTTON, SECONDARY_BUTTON, QUIET_BUTTON, FIELD, countNoun } from './branchUi'
 
 export interface SimulationLauncherPanelProps {
@@ -265,7 +265,7 @@ export const SimulationLauncherPanel = React.memo(function SimulationLauncherPan
                 <li key={event.id} className="py-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                     <span className="font-semibold text-ink-secondary font-mono-code">
-                      {formatHistoricalDate(event.timestamp)}
+                      {formatEventDate(event)}
                     </span>
                     <span className="text-ink-secondary">
                       {event.actor} → {event.target}

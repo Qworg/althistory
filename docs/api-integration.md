@@ -173,7 +173,9 @@ period, is stored at its first moment with a month's or year's
 last moment. The query-string filters read ISO 8601 as instants.
 
 A date that does not exist (`2019-02-31`, `1870-13-01`) is refused. In a graph
-without world calendars, text that is not ISO 8601 at all (`January 1, 2023`)
+without world calendars, year-first text is read as the app's forms and the
+CLI read it (`312`, `44 BCE`, `1843-11-20 14:30`), at the precision it states;
+other text (`January 1, 2023`)
 is still read as JavaScript reads it, in the server's zone, so that data and
 clients written before keep working; do not rely on it. Responses always
 write dates as `toISOString` does (`1843-11-20T14:30:00.000Z`).
@@ -191,8 +193,12 @@ moment. An ISO date or date and time is read as anywhere else, but an ISO
 month or year is refused there (a Gregorian month is no period of the world's),
 and so is text that is neither ISO 8601 nor the world's notation (`400`),
 never read as a Gregorian date. A new date on `PUT /api/events/:id` or a batch
-`update_event` replaces the old one's precision and calendar (unless the
-request's `metadata` states a precision), and keeps the rest of the metadata. Responses give each date's place on the
+`update_event` replaces the old one's precision and calendar, and keeps the
+rest of the metadata; a new event (`POST /api/events`, a batch `create_event`)
+records its date's precision the same way. Only an ISO day keeps a
+`metadata.datePrecision` the request states (the app sends ISO with the
+precision its form read); a month, a year or a date in the world's notation
+states its own. Responses give each date's place on the
 timeline as ISO 8601; the query-string filters (`startTime`, `endTime`) and
 the temporal and inference routes take those ISO instants.
 

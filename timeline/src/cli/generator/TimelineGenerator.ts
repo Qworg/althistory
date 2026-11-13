@@ -1309,7 +1309,8 @@ export class TimelineGenerator {
       // year, which the rest of the system does not read. The default span
       // stops there, and an end date past it is refused.
       if (!Number.isNaN(endParsed) && endParsed > LAST_STORED_INSTANT) {
-        throw new ValidationErrorCLI('The end date must be no later than the year 9999');
+        // Named as the world names it: its own years mean nothing of 9999.
+        throw new ValidationErrorCLI(`The end date must be no later than ${formatInWorld(calendar, LAST_STORED_INSTANT, 'day')}, where the timeline's four-digit years end`);
       }
       const endMs = Number.isNaN(endParsed)
         ? Math.min(startMs + WORLD_DEFAULT_SPAN_YEARS * MS_PER_YEAR, LAST_STORED_INSTANT)

@@ -1,5 +1,5 @@
 import type { Event, GraphCalendar } from '@/types'
-import { formatHistoricalTimestamp, historicalYear } from '@/utils/historicalTime'
+import { historicalYear, formatEventDate } from '@/utils/historicalTime'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
 
 /**
@@ -78,10 +78,10 @@ export function eventNodeCanvasLabel(
  * acted on whom, and when (in UTC, as all historical dates are).
  */
 export function describeEvent(
-  event: Pick<Event, 'description' | 'actor' | 'target' | 'timestamp'>,
+  event: Pick<Event, 'description' | 'actor' | 'target' | 'timestamp'> & Partial<Pick<Event, 'metadata'>>,
   calendar?: GraphCalendar | null
 ): string {
-  const parts = [normalise(event.description), formatActorTarget(event), formatHistoricalTimestamp(event.timestamp, undefined, calendar)]
+  const parts = [normalise(event.description), formatActorTarget(event), formatEventDate(event, undefined, calendar)]
   return parts.filter(Boolean).join('. ')
 }
 

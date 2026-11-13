@@ -249,6 +249,22 @@ describe('Ingestion routes', () => {
       expect(instructions.indexOf('invented world')).toBeLessThan(instructions.indexOf('Skip the footnotes.'));
     });
 
+    it("reads the reviewer's dates with the calendar of the graph the review goes into", async () => {
+      const approveInto = async (graphCalendar: (graphId: string) => Promise<GraphCalendar | undefined>) => {
+        const scoped = buildApp({ graphCalendar });
+        // Extracted without a graph, so the job itself knows no world.
+        await request(scoped).post('/api/ingest/text').set('X-API-Key', INGEST_KEY).send({ text: 'x' });
+        return request(scoped)
+          .post('/api/ingest/jobs/job-1/approve')
+          .set('X-API-Key', INGEST_KEY)
+          .set('X-Graph-Id', 'graph-1')
+          .send({ edits: { 'event-1': { timestamp: 'Thaw 4, 1010 AR' } } });
+      };
+      expect((await approveInto(async (graphId) => calendars[graphId])).status).toBe(200);
+      // The same date, approved into a graph without a world, is no date.
+      expect((await approveInto(async () => undefined)).status).toBe(400);
+    });
+
     it('leaves the context alone without an X-Graph-Id, as before', async () => {
       const { app: unscoped, textExtract, graphCalendar } = setup();
       const response = await request(unscoped)

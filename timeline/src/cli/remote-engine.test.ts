@@ -112,6 +112,11 @@ function createDaemon(): { app: Express; requests: RecordedRequest[]; state: Dae
     });
   });
 
+  app.get('/api/graphs/:id', (_req, res, next) => {
+    if (!state.refuseGraph) return next();
+    res.status(403).json({ error: { message: 'This key cannot read graphs' } });
+  });
+
   app.get('/api/graphs/:id/data', (req, res) => {
     const graphId = req.params.id;
     const events = state.events.filter(
@@ -358,6 +363,8 @@ interface DaemonState {
    * model answered, `text` when the patterns did.
    */
   ingestSourceType?: 'llm' | 'text';
+  /** Whether `GET /api/graphs/:id` refuses the key (403), as a key allowed events but not graphs. */
+  refuseGraph?: boolean;
   /** Whether `GET /export` answers 202 with a job instead of the document. */
   asyncExport?: boolean;
   /** The status the export job reports while it is being polled. */
@@ -430,6 +437,18 @@ describe('RemoteEngine against a stand-in daemon', () => {
     await expect(engine.createEvent('g1', { description: 'Prose', timestamp: 'Feb 14 1870' })).rejects.toThrow(/Invalid timestamp/);
     await expect(engine.updateEvent('g1', 'event-1', { timestamp: 'Feb 14 1870' })).rejects.toThrow(/Invalid timestamp/);
     expect(daemon.requests.filter((request) => request.path.startsWith('/api/events')).length).toBe(2);
+  });
+
+  it('reads ISO 8601 itself when the key cannot read the graph, and sends only other text as written', async () => {
+    daemon.state.refuseGraph = true;
+    await engine.createEvent('g1', { description: 'A month', timestamp: '1871-03' });
+    await engine.createEvent('g1', { description: 'In the world', timestamp: 'Thaw 4, 312 AR' });
+    const posted = daemon.requests.filter((request) => request.path === '/api/events' && request.method === 'POST');
+    const bodies = posted.map((request) => request.body as { timestamp: string; metadata?: Record<string, unknown> });
+    expect(bodies[0]!.timestamp).toBe('1871-03-01T00:00:00.000Z');
+    expect(bodies[0]!.metadata?.datePrecision).toBe('month');
+    // The route reads the world's notation with the graph's own calendars.
+    expect(bodies[1]!.timestamp).toBe('Thaw 4, 312 AR');
   });
 
   it("keeps an event's metadata when its date changes, replacing only the date's precision", async () => {

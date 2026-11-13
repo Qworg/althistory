@@ -11,6 +11,7 @@ import {
   formatWorldBound,
   formatWorldFields,
   parseHistoricalDate,
+  parseIsoInstant,
   readDateBound,
   readDateField,
   worldBound,
@@ -259,8 +260,10 @@ describe('a bound for a graph', () => {
         const iso = new Date(position).toISOString()
         const read = readDateBound(iso, side, set)
         expect(read.ok && read.date.getTime()).toBe(position)
-        // "312" or "1843-11" names no date of the world's.
+        // "312", "44 BCE" or an ISO month name no date of the world's (an ISO date or date and time is a day, as at every door).
         fc.pre(!worldBound(set, text, side).ok)
+        const asIso = parseIsoInstant(text)
+        fc.pre(!asIso || asIso.precision === 'month' || asIso.precision === 'year')
         expect(readDateBound(text, side, set).ok).toBe(false)
       })
     )

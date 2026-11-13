@@ -7,7 +7,7 @@
  * Timeline.tsx wires these to the DOM; nothing here touches it.
  */
 
-import { type CompiledCalendar, type WorldCalendarSet, calendarIn, dateAt, partLengths, positionOf } from '@althistory/calendar'
+import { type CompiledCalendar, type WorldCalendarSet, calendarIn, dateAt, daysInMonth, partLengths, positionOf } from '@althistory/calendar'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
 
 
@@ -229,13 +229,12 @@ export function offsetByStep(date: Date, step: TimeStep, direction: number, cale
     case 'year': {
       // The same day of the month, or the month's last when it is shorter
       // (Jan 31 + 1 month is Feb 28, not Mar 3).
-      const day = next.getUTCDate()
-      next.setUTCDate(1)
-      if (step.unit === 'month') next.setUTCMonth(next.getUTCMonth() + n)
-      else next.setUTCFullYear(next.getUTCFullYear() + n)
-      const last = new Date(Date.UTC(2000, 0, 1))
-      last.setUTCFullYear(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)
-      next.setUTCDate(Math.min(day, last.getUTCDate()))
+      // By arithmetic, then set at once: a day on the way (the 1st of a month)
+      // can lie outside what a Date holds at the ends of its range.
+      const months = next.getUTCFullYear() * 12 + next.getUTCMonth() + (step.unit === 'month' ? n : n * 12)
+      const year = Math.floor(months / 12)
+      const month = months - year * 12
+      next.setUTCFullYear(year, month, Math.min(next.getUTCDate(), daysInMonth(year, month + 1)))
       break
     }
   }

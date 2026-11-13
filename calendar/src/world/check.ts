@@ -23,7 +23,7 @@ import {
   trimCalendarSet,
 } from './definition'
 import { type CompiledCalendar, type WorldDateFields, calendarIn, dateAt, partLengths, positionOf } from './engine'
-import { type WorldPrecision, formatWorldFields, parseWorldDate } from './notation'
+import { type WorldPrecision, formatWorldFields, matchesNotation, parseWorldDate } from './notation'
 
 interface Sample {
   fields: WorldDateFields
@@ -209,7 +209,9 @@ export function readBackIssues(set: WorldCalendarSet): WorldCalendarIssue[] {
         }
       }
       if (!shared && sample.across) {
-        const other = calendars.findIndex((candidate, at) => at !== index && parseWorldDate(candidate, text).ok)
+        // By shape, not by reading: a count the other calendar cannot reach
+        // today is still text it would claim.
+        const other = calendars.findIndex((candidate, at) => at !== index && matchesNotation(candidate, text))
         if (other >= 0) {
           shared = true
           issues.push({

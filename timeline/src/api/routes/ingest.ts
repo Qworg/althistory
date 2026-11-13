@@ -455,7 +455,14 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
       approve.targetGraphId = resolvedGraphId;
 
       try {
-        const result = await orchestrator.approve(req.params.id, approve, ownerKeyId(req));
+        // The reviewer's dates are read with the target graph's calendars; a
+        // graph that cannot be read leaves them to the job's (the import then
+        // reports the graph itself).
+        const target = await graphCalendar(resolvedGraphId).then(
+          (calendar) => ({ calendar: storedCalendarSet(calendar) ?? undefined }),
+          () => undefined
+        );
+        const result = await orchestrator.approve(req.params.id, approve, ownerKeyId(req), target);
         res.status(200).json(result);
       } catch (error) {
         if (error instanceof IngestionJobNotFoundError) {

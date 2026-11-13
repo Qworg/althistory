@@ -16,7 +16,7 @@
  */
 
 import { GraphRepository } from '../repositories/GraphRepository';
-import { calendarSetIssues, readTimestamp, storedCalendarSet, toInstant } from '@althistory/calendar';
+import { adoptableCalendarSet, readTimestamp, storedCalendarSet, toInstant } from '@althistory/calendar';
 import { JobRepository } from '../repositories/JobRepository';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 import {
@@ -2885,6 +2885,5 @@ function storedTimeText(value: unknown): unknown {
 
 /** An imported calendar as a new graph stores it: what still checks out, if its dates read back. */
 function readableCalendar(value: unknown) {
-  const set = storedCalendarSet(value);
-  return set && calendarSetIssues(set).length === 0 ? set : undefined;
+  return adoptableCalendarSet(value) ?? undefined;
 }

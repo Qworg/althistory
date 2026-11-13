@@ -15,7 +15,7 @@
  */
 
 import { useState, useMemo, useId } from 'react'
-import { formatHistoricalDateAt, formatHistoricalTimestamp, type DatePrecision } from '@/utils/historicalTime'
+import { formatHistoricalDateAt, formatHistoricalTimestamp, type DatePrecision, formatEventDate } from '@/utils/historicalTime'
 import type {
   Event,
   ExtractedArc,
@@ -549,7 +549,7 @@ export function EntityReviewTable({
                             <span className="font-medium">Possibly already in the graph:</span>{' '}
                             “{graphMatches.get(entity.tempId)!.duplicate!.description}”,{' '}
                             <span className="font-mono-code">
-                              {formatHistoricalTimestamp(graphMatches.get(entity.tempId)!.duplicate!.timestamp)}
+                              {formatEventDate(graphMatches.get(entity.tempId)!.duplicate!)}
                             </span>
                             . Untick the row to skip it.
                           </p>

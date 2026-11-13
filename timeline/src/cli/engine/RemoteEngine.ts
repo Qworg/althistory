@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { storedCalendarSet, toInstant } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
-import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
+import { isIsoText, needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import { IEngine } from './IEngine';
 import {
   HealthInfo,
@@ -285,7 +285,8 @@ export class RemoteEngine implements IEngine {
     });
     // Only a key refused the graph defers; one that is gone, or a daemon that
     // cannot answer, leaves the text to be refused here as in direct mode.
-    if (!graph && refused && String(text).trim() !== '') return { iso: String(text), precision: 'day', deferred: true };
+    // (ISO text is read here, as on a plain graph: a world graph refuses an ISO month or year itself.)
+    if (!graph && refused && String(text).trim() !== '' && !isIsoText(text)) return { iso: String(text), precision: 'day', deferred: true };
     return { ...readAgentTimestamp(text, graph?.calendar, edge), deferred: false };
   }
 

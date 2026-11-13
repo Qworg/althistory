@@ -901,7 +901,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
               {hovered.event.actor} → {hovered.event.target}
             </div>
             <div className="font-mono-code text-ink-muted mt-1">
-              {formatHistoricalTimestamp(hovered.event.timestamp, undefined, laneCalendar(hovered.lane))}
+              {formatEventDate(hovered.event, undefined, laneCalendar(hovered.lane))}
             </div>
             <div className="mt-1.5 pt-1.5 border-t border-line flex items-center gap-1.5 font-medium">
               <LegendMark status={hovered.status} />

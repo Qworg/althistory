@@ -177,7 +177,7 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
                       {getArcHierarchyPath(arc)}
                     </p>
                     <p className="text-xs text-red-500">
-                      {formatTimeRange(arc)} (Event: {formatHistoricalDate(event.timestamp)})
+                      {formatTimeRange(arc)} (Event: {formatEventDate(event)})
                     </p>
                   </div>
                 </div>

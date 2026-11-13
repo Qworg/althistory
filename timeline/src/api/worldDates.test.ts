@@ -81,6 +81,13 @@ describe('ISO 8601 text, the same at every door', () => {
     expect(newDateMetadata({ keep: 1, datePrecision: 'month', dateCalendar: 'tide' }, undefined, { precision: 'day', calendar: 'reckoning' })).toEqual({ keep: 1 });
   });
 
+  it('reads year-first text in a graph without a world, as the forms and the CLI do', async () => {
+    expect(await readRequestTime('44 BCE', 'timestamp', plain)).toMatchObject({ precision: 'year' });
+    const end = await readRequestTime('312', 'end_time', plain, 'end');
+    expect(end).toMatchObject({ precision: 'year' });
+    expect(end.date.toISOString()).toBe('0312-12-31T23:59:59.999Z');
+  });
+
   it('refuses an ISO date whose end is past the range a date can hold, saying so', async () => {
     await expect(readRequestTime('+275760-09-13', 'end_time', plain, 'end')).rejects.toThrow(/beyond the range a date can hold/);
   });

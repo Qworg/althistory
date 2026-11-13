@@ -81,7 +81,9 @@ is read as a set holding one Gregorian-shaped calendar, which writes each date
 with the same year, month and day as before, in the calendar's notation
 ("Mar 4, 312 AR") rather than the viewer's locale. An era label or month
 names a set cannot hold (a label with a digit) are dropped when it is read,
-the rest kept; given as new input, such a calendar is refused.
+the rest kept. An import does the same: a graph exported with such a calendar
+keeps its years without the names. Given as a new calendar (the API, the
+editor, the tools), it is refused.
 
 ## Dates in and out
 
@@ -100,8 +102,9 @@ as a day or a year), and each calendar writes its years with words of its own
 have none), so no calendar's text is a date in another's. A set is also
 checked when it is given: a sample of each calendar's dates (every month and festival,
 each precision, a time, years before and in each era) is written and read
-back, and a set whose text reads as another date, or as a date in another of
-its calendars, is refused with the text that collides. Text that names a
+back, and a set whose text reads as another date, or that another of its
+calendars' notations also matches (the same shape, whichever date it would
+name there), is refused with the text that collides. Text that names a
 day, month or year that does not exist is refused, with the reason.
 Structured input (`{ calendar, era, year, month, day, hour, minute, second }`)
 is accepted wherever text is.
@@ -111,7 +114,10 @@ start is the first position in it, and its end the last millisecond before the
 next one. Filters and time ranges written in a calendar's notation use these
 periods, and so does an end (of an arc, a range) written without a time,
 whether a day, a month or a year; a time, even "00:00", names that moment.
-Query-string filters of the API take ISO 8601 instants.
+The app's filter bounds also take an ISO 8601 date or date and time (a date
+alone as an end is its last moment); in a world an ISO month or year is
+refused, as Req 16 says. Query-string filters of the API take ISO 8601
+instants.
 
 **Req 16. Precision.** A date given as a month or a year is stored at its
 period's start, with `datePrecision` recorded, and the calendar it was given
@@ -120,6 +126,9 @@ of the Tide-count is not the month of the calendar shown that holds its first
 day. Every door reads text by one rule (`readWorldTimestamp`): the world's
 notation first, then ISO 8601, whose date, month or year alone names a UTC
 period; in a world an ISO month or year is refused, being no period of it.
+In a graph without a world, year-first text is read too ("312", "44 BCE",
+"1871-03-04 14:30"), at the precision it states, by every door alike: the
+app's forms, the API, the CLI, the tools and the review step.
 
 **Req 17. Axis.** A timeline in a world calendar puts its ticks on that
 calendar's round units: years in steps of 1, 2 or 5 × 10ⁿ, months, days and

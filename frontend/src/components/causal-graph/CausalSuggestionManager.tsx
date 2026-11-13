@@ -12,7 +12,7 @@ import {
   createInitialFeedback,
   FEEDBACK_RATING_OPTIONS
 } from '@/utils/suggestionManagerUtils'
-import { formatHistoricalDate } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 
 export interface CausalSuggestionManagerProps {
   className?: string
@@ -346,7 +346,7 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
                         {causeEvent.description}
                       </div>
                       <div className="text-xs text-blue-500 mt-1">
-                        {formatHistoricalDate(causeEvent.timestamp)}
+                        {formatEventDate(causeEvent)}
                       </div>
                     </div>
 
@@ -366,7 +366,7 @@ export const CausalSuggestionManager: React.FC<CausalSuggestionManagerProps> = (
                         {effectEvent.description}
                       </div>
                       <div className="text-xs text-green-500 mt-1">
-                        {formatHistoricalDate(effectEvent.timestamp)}
+                        {formatEventDate(effectEvent)}
                       </div>
                     </div>
                   </div>

@@ -53,3 +53,12 @@ describe('review dates in a world calendar', () => {
     expect(isReadableReviewDate('Thaw 312 AR', null)).toBe(false)
   })
 })
+
+describe('review dates without a world', () => {
+  it('show a month or year the text gave as one, which reads back at that precision', () => {
+    expect(compactReviewDate('1871-03-01T00:00:00.000Z', null, 'month')).toBe('1871-03')
+    expect(readReviewDate('1871-03', null)).toMatchObject({ precision: 'month' })
+    expect(compactReviewDate('1871-01-01T00:00:00.000Z', null, 'year')).toBe('1871')
+    expect(compactReviewDate('1871-03-04T00:00:00.000Z', null)).toBe('1871-03-04')
+  })
+})

@@ -4,7 +4,7 @@ import { Arc, CausalRelationship, Event, type GraphCalendar } from '@/types'
 import { useEvents } from '@/hooks/useAPI'
 import { type DateEntryRead, type DatePrecision, dateCalendarOf, datePrecisionOf, formatDateEntry, readDateEntry, toInstant, worldBoundExamples } from '@althistory/calendar'
 import { getActiveCalendar, useWorldCalendar } from '@/stores/worldCalendarStore'
-import { formatHistoricalDate, formatHistoricalDateAt } from '@/utils/historicalTime'
+import { formatHistoricalDateAt, formatEventDate } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 
 /** The fields checked on save, in the order they appear (and are focused). */
@@ -85,7 +85,7 @@ function CausePicker({
           <option value="">Nothing yet</option>
           {candidates.map((e) => (
             <option key={e.id} value={e.id}>
-              {formatHistoricalDate(e.timestamp)} · {e.description}
+              {formatEventDate(e)} · {e.description}
             </option>
           ))}
         </select>

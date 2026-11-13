@@ -25,7 +25,7 @@ import { CausalGraphPerformanceManager } from './CausalGraphPerformanceManager'
 import useCausalPathExploration from '@/hooks/useCausalPathExploration'
 import useCausalSuggestions from '@/hooks/useCausalSuggestions'
 import { CausalRelationshipModal } from '@/components/modals/CausalRelationshipModal'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 import {
   eventNodeLabel,
   eventNodeCanvasLabel,
@@ -1520,7 +1520,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
               <p className="mt-1 text-ink-secondary">{formatActorTarget(hoveredNode)}</p>
             )}
             <p className="mt-1 text-xs text-ink-secondary font-mono-code">
-              {formatHistoricalTimestamp(hoveredNode.timestamp, undefined, calendar)}
+              {formatEventDate(hoveredNode, undefined, calendar)}
             </p>
             {isCreatingLink && (
               <div className={`text-xs mt-2 pt-2 border-t border-line font-medium ${

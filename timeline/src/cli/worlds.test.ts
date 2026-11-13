@@ -410,7 +410,7 @@ describe('invented worlds', () => {
       for (const event of result.events) expect(event.timestamp).toMatch(/^\d{4}-/);
       await expect(
         engine.generateTimeline({ world: 'Late', calendar: { epochYear: 9900 }, endDate: '+010100-01-01T00:00:00Z', dryRun: true })
-      ).rejects.toThrow(/no later than the year 9999/);
+      ).rejects.toThrow(/no later than .*, where the timeline's four-digit years end/);
     });
 
     it('reads a start date without a zone as UTC', async () => {

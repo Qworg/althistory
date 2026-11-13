@@ -837,7 +837,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                               return (
                                 <tr key={`diff-row-${item.id}`} className="hover:bg-subtle">
                                   <td className="px-3 py-2 text-ink-secondary whitespace-nowrap font-mono-code">
-                                    {formatEventDate(item, undefined, calendarFor(item.status))}
+                                    {formatEventDate(event ?? item, undefined, calendarFor(item.status))}
                                   </td>
                                   <td className="px-3 py-2 whitespace-nowrap">
                                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${badge.className}`}>

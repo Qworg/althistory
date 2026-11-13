@@ -447,6 +447,24 @@ describe('review edits in a world', () => {
     expect(formatInWorld(VAEL, Date.parse(arc.start_time))).toBe('Seedtide 1, 312 AR');
     expect(formatInWorld(VAEL, Date.parse(arc.end_time))).toBe('Seedtide 30, 312 AR, 23:59');
   });
+
+  it('reads the reviewer\'s dates with the calendars of the graph the review goes into, not the job\'s', async () => {
+    const edits = { 'event-1': { timestamp: 'Thaw 4, 312 AR' } };
+    // Extracted for no world, approved into Vael: the world's notation is read.
+    const into = makeOrchestrator();
+    const plainJob = await into.orchestrator.ingest({ source: 'text', text: { text: 'x' } });
+    await into.orchestrator.approve(plainJob.jobId, { targetGraphId: 'vael', edits }, undefined, { calendar: VAEL });
+    const event = into.importExecutor.calls[0]!.data.data.events.find((entry) => entry.id === 'event-1');
+    expect(formatInWorld(VAEL, Date.parse(event!.timestamp))).toBe('Thaw 4, 312 AR');
+
+    // Extracted for Vael, approved into a plain graph: the same text is refused.
+    const out = makeOrchestrator();
+    const worldJob = await out.orchestrator.ingest({ source: 'text', text: { text: 'x' } }, { calendar: VAEL });
+    await expect(
+      out.orchestrator.approve(worldJob.jobId, { targetGraphId: 'plain', edits }, undefined, { calendar: undefined })
+    ).rejects.toThrow();
+    expect(out.importExecutor.calls).toHaveLength(0);
+  });
 });
 
 describe('validating an extraction for a world', () => {

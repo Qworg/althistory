@@ -103,5 +103,7 @@ describe('keyboard month steps on the Gregorian calendar', () => {
     expect(step('2024-03-31T00:00:00.000Z', -1)).toBe('2024-02-29T00:00:00.000Z')
     expect(step('2024-02-29T00:00:00.000Z', 1, 'year')).toBe('2025-02-28T00:00:00.000Z')
     expect(step('0001-01-15T00:00:00.000Z', -1)).toBe('0000-12-15T00:00:00.000Z')
+    // At the very start of what a Date holds, the 1st of the month is out of range.
+    expect(step('-271821-04-25T00:00:00.000Z', 1)).toBe('-271821-05-25T00:00:00.000Z')
   })
 })

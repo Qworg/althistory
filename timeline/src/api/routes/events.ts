@@ -6,7 +6,6 @@ import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
 import { entityPermission, mountEntityAccessGuard, mountEntityGraphAccess } from '@/api/entityAuth';
 import { createLogger } from '@/utils/logger';
-import { datePrecisionMetadata } from '@althistory/calendar';
 import { newDateMetadata } from '../worldDates';
 
 const logger = createLogger('EventRoutes');
@@ -52,7 +51,10 @@ eventRoutes.post('/', ...entityPermission('write:events'), async (req: RequestWi
     const calendarOf = async () => (await req.container.graphRepository.findById(graphId))?.calendar;
     const time = await readRequestTime(eventData.timestamp, 'timestamp', calendarOf);
     eventData.timestamp = time.date;
-    if (time.precision) eventData.metadata = { ...(eventData.metadata ?? {}), ...datePrecisionMetadata({ precision: time.precision, calendar: time.calendar }) };
+    // As an update reads it: the date's precision (and calendar), or one the
+    // request states with an ISO date; a day in the world's notation states its own.
+    const dated = newDateMetadata(eventData.metadata, undefined, { precision: time.precision ?? 'day', calendar: time.calendar });
+    if (eventData.metadata !== undefined || Object.keys(dated).length > 0) eventData.metadata = dated;
 
     // Repositories bound to this request's graph; never the global store.
     const { eventRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));

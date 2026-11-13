@@ -21,8 +21,8 @@ export function formatHistoricalDate(value: Date | string | number, calendar?: W
  * "from May 31, 1847 to Jun 3, 1847", or "on May 31, 1847" when both ends fall
  * on the same day.
  */
-export function formatHistoricalSpan(start: Date | string | number, end: Date | string | number): string {
-  const from = formatHistoricalDate(start);
-  const to = formatHistoricalDate(end);
+export function formatHistoricalSpan(start: Date | string | number, end: Date | string | number, calendar?: WorldCalendarSet): string {
+  const from = formatHistoricalDate(start, calendar);
+  const to = formatHistoricalDate(end, calendar);
   return from === to ? `on ${from}` : `from ${from} to ${to}`;
 }

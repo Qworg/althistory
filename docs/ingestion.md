@@ -165,7 +165,9 @@ produced before it becomes history.
 
 Approval is bound to the graph the request is scoped to. A `targetGraphId` in
 the body must match the resolved graph context, so a key cannot approve an
-extraction into a graph it cannot access.
+extraction into a graph it cannot access. The reviewer's dates are read
+with that graph's calendars, not those the job was extracted with: a date in
+a world's notation goes only into a graph of that world.
 
 `validationIssues` are worth reading: they name the events that were dropped
 and why (no date, no actor, below the confidence threshold).

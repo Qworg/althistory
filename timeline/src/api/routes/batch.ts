@@ -2,7 +2,7 @@
  * Batch operations API routes
  */
 
-import { type WorldCalendarSet, datePrecisionMetadata, toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, toInstant } from '@althistory/calendar';
 import { newDateMetadata, readRequestTime } from '../worldDates';
 import { ValidationError } from '@/utils/errors';
 import { Router, Request, Response, RequestHandler } from 'express';
@@ -767,7 +767,10 @@ async function readDates(
       const dated = { precision: time.precision ?? ('day' as const), calendar: time.calendar };
       const given = typeof out.metadata === 'object' && out.metadata !== null ? (out.metadata as Record<string, unknown>) : undefined;
       if (existing) out.metadata = newDateMetadata(given, existing.metadata, dated);
-      else if (time.precision) out.metadata = { ...(given ?? {}), ...datePrecisionMetadata(dated) };
+      else {
+        const created = newDateMetadata(given, undefined, dated);
+        if (given !== undefined || Object.keys(created).length > 0) out.metadata = created;
+      }
     }
   }
   if (kind === 'arc') {

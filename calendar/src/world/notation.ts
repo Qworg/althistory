@@ -235,6 +235,16 @@ function partNamed(calendar: CompiledCalendar, text: string, festivalsOnly: bool
   return exact >= 0 ? exact : parts.findIndex((part) => (!festivalsOnly || part.intercalary) && matches(part.name))
 }
 
+/**
+ * Whether text has the shape of a date in a calendar's notation, whatever
+ * its numbers (a count no date can reach, a day the month lacks): what the
+ * set check uses to find text two calendars could both claim.
+ */
+export function matchesNotation(calendar: CompiledCalendar, input: string): boolean {
+  const text = input.trim().replace(/\s+/g, ' ')
+  return formsOf(calendar).some((form) => form.pattern.test(text))
+}
+
 /** A date written in one calendar's notation, at whatever precision it names (Req 14). */
 export function parseWorldDate(calendar: CompiledCalendar, input: string): WorldParse {
   const definition = calendar.definition

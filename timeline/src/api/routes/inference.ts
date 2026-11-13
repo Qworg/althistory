@@ -14,6 +14,7 @@ import {
   SimulationStep,
 } from '@/services/SimulationService';
 import type { StoredCausalRelationship } from '@/services/CausalService';
+import { requestCalendar } from '../worldDates';
 
 export const inferenceRoutes = Router();
 
@@ -90,7 +91,7 @@ inferenceRoutes.post('/analyze-clusters', ...entityPermission('read:events'), as
 
     // Analyze clusters
     const inferenceService = req.container.inferenceService;
-    const pressures = inferenceService.analyzeEventClusters(events);
+    const pressures = inferenceService.analyzeEventClusters(events, await requestCalendar(req));
 
     res.json({
       success: true,
@@ -157,7 +158,7 @@ inferenceRoutes.post('/detect-patterns', ...entityPermission('read:events'), asy
 
     // Use existing inference service to analyze clusters and suggest causal links
     const inferenceService = req.container.inferenceService;
-    const pressures = inferenceService.analyzeEventClusters(events);
+    const pressures = inferenceService.analyzeEventClusters(events, await requestCalendar(req));
     const causalSuggestions = inferenceService.suggestCausalLinks(events);
     
     // Confidence lives on the suggested relationship, not on the suggestion wrapper.
@@ -238,7 +239,7 @@ inferenceRoutes.get('/pressures', ...entityPermission('read:events'), async (req
     const inferenceService = req.container.inferenceService;
     
     const events = await eventRepository.findAll(1000); // Get sample of events
-    let pressures = inferenceService.analyzeEventClusters(events);
+    let pressures = inferenceService.analyzeEventClusters(events, await requestCalendar(req));
     
     // Filter by type if specified
     if (typeFilter) {
