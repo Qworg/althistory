@@ -1,3 +1,4 @@
+import { toInstant } from '@althistory/calendar'
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router'
 import { Timeline } from '@/components/timeline/Timeline'
@@ -604,7 +605,7 @@ export function TimelineView() {
       addError({ type: 'general', message: `"${description}" no longer exists, so that change cannot be reversed.` })
       return true
     }
-    return moveEvent(current, new Date(iso), restored)
+    return moveEvent(current, toInstant(iso), restored)
   }, [moveEvent, addError])
 
   const reapplyArcBounds = useCallback(async (arcId: string, name: string, bounds: { start: string; end: string }) => {
@@ -613,7 +614,7 @@ export function TimelineView() {
       addError({ type: 'general', message: `"${name}" no longer exists, so that change cannot be reversed.` })
       return true
     }
-    return resizeArc(current, { start: new Date(bounds.start), end: new Date(bounds.end) })
+    return resizeArc(current, { start: toInstant(bounds.start), end: toInstant(bounds.end) })
   }, [resizeArc, addError])
 
   // What an undo entry does, as the view on screen does it: an entry recorded

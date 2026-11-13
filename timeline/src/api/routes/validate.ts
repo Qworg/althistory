@@ -1,3 +1,4 @@
+import { compareInstants, msApart } from '@althistory/calendar';
 /**
  * Validation API routes for checking data integrity
  */
@@ -658,7 +659,7 @@ function suggestArcs(events: IEvent[]): SuggestedArc[] {
 
   // Sort events by timestamp
   const sortedEvents = [...events].sort(
-    (a, b) => queryInstant(a.timestamp).getTime() - queryInstant(b.timestamp).getTime()
+    (a, b) => compareInstants(queryInstant(a.timestamp), queryInstant(b.timestamp))
   );
 
   // Simple clustering by time proximity (events within 30 days)
@@ -666,9 +667,7 @@ function suggestArcs(events: IEvent[]): SuggestedArc[] {
   let currentCluster: IEvent[] = [sortedEvents[0]];
 
   for (let i = 1; i < sortedEvents.length; i++) {
-    const prevTime = queryInstant(sortedEvents[i - 1].timestamp).getTime();
-    const currTime = queryInstant(sortedEvents[i].timestamp).getTime();
-    const daysDiff = (currTime - prevTime) / (1000 * 60 * 60 * 24);
+    const daysDiff = msApart(queryInstant(sortedEvents[i - 1].timestamp), queryInstant(sortedEvents[i].timestamp)) / (1000 * 60 * 60 * 24);
 
     if (daysDiff <= 30) {
       currentCluster.push(sortedEvents[i]);
@@ -718,7 +717,7 @@ function suggestRelationships(
 
   // Sort events by timestamp
   const sortedEvents = [...events].sort(
-    (a, b) => queryInstant(a.timestamp).getTime() - queryInstant(b.timestamp).getTime()
+    (a, b) => compareInstants(queryInstant(a.timestamp), queryInstant(b.timestamp))
   );
 
   // Suggest relationships between consecutive events by same actor

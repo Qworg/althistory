@@ -1,3 +1,4 @@
+import { compareInstants } from '@althistory/calendar';
 import { Event, Arc, TimeRange } from '@/models';
 import { TemporalConstraintError, PerformanceError } from '@/utils/errors';
 import { EventRepository } from '@/repositories/EventRepository';
@@ -29,11 +30,7 @@ export class TemporalService {
    * Validate that an event falls within an arc's temporal boundaries
    */
   validateEventInArc(event: Event, arc: Arc): boolean {
-    const eventTime = event.timestamp.getTime();
-    const arcStart = arc.start_time.getTime();
-    const arcEnd = arc.end_time.getTime();
-
-    if (eventTime < arcStart || eventTime > arcEnd) {
+    if (compareInstants(event.timestamp, arc.start_time) < 0 || compareInstants(event.timestamp, arc.end_time) > 0) {
       throw new TemporalConstraintError(
         `Event ${event.id} at ${event.timestamp} falls outside arc ${arc.id} bounds`,
         event.id,
@@ -50,12 +47,7 @@ export class TemporalService {
    * Validate that a child arc is completely contained within a parent arc
    */
   validateArcNesting(parentArc: Arc, childArc: Arc): boolean {
-    const parentStart = parentArc.start_time.getTime();
-    const parentEnd = parentArc.end_time.getTime();
-    const childStart = childArc.start_time.getTime();
-    const childEnd = childArc.end_time.getTime();
-
-    if (childStart < parentStart || childEnd > parentEnd) {
+    if (compareInstants(childArc.start_time, parentArc.start_time) < 0 || compareInstants(childArc.end_time, parentArc.end_time) > 0) {
       throw new TemporalConstraintError(
         `Child arc ${childArc.id} extends beyond parent arc ${parentArc.id} boundaries`,
         undefined,

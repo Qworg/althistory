@@ -16,7 +16,8 @@
 
 import { type DateBoundEdge, formatBoundAt, readHistoricalText } from './bounds'
 import type { DatePrecision } from './describe'
-import { toInstant } from './instant'
+import { toAxisTime, toInstant } from './instant'
+import { type AxisTime, instantOfAxisTime, isoOfAxisTime } from './time'
 import { formatHistoricalDate, formatHistoricalTimestamp } from './locale'
 import type { WorldCalendarSet } from './world/definition'
 import { calendarIn, dateAt } from './world/engine'
@@ -24,7 +25,7 @@ import { readWorldTimestamp, unreadDateReason } from './world/describe'
 import { formatWorldFields, parseWorldDate, worldPeriod } from './world/notation'
 
 export type DateEntryRead =
-  | { ok: true; iso: string; precision: DatePrecision; /** The world calendar it was written in. */ calendar?: string }
+  | { ok: true; iso: string; /** The same instant on the axis (time.ts). */ time: AxisTime; precision: DatePrecision; /** The world calendar it was written in. */ calendar?: string }
   | { ok: false; error: string }
 
 /**
@@ -43,10 +44,10 @@ export function readDateEntry(text: string, calendar: WorldCalendarSet | null, e
       let position = shown.position
       if (edge === 'end' && !shown.timed) {
         const period = worldPeriod(calendarIn(calendar, shown.calendar), shown.fields, shown.precision)
-        if (!period) return { ok: false, error: 'That date is beyond the range a date can hold.' }
+        if (!period) return { ok: false, error: 'That date is beyond the range the timeline holds (about 285 million years).' }
         position = period.end
       }
-      return { ok: true, iso: new Date(position).toISOString(), precision: shown.precision, calendar: shown.calendar }
+      return { ok: true, iso: isoOfAxisTime(position), time: position, precision: shown.precision, calendar: shown.calendar }
     }
     // The world's other calendars, and ISO 8601, as every other door reads them.
     const read = readWorldTimestamp(calendar, trimmed, edge)
@@ -56,9 +57,9 @@ export function readDateEntry(text: string, calendar: WorldCalendarSet | null, e
   // As every door reads it: ISO 8601, then a year first ("1871-03", "44 BCE",
   // "1843-11-20 14:30"), its message when neither.
   const read = readWorldTimestamp(null, trimmed, edge)
-  if (read) return { ok: true, iso: read.iso, precision: read.precision }
+  if (read) return { ok: true, iso: read.iso, time: read.time, precision: read.precision }
   const historical = readHistoricalText(trimmed, edge)
-  return historical.ok ? { ok: true, iso: historical.iso, precision: historical.precision } : { ok: false, error: historical.error }
+  return historical.ok ? { ok: true, iso: historical.iso, time: historical.time, precision: historical.precision } : { ok: false, error: historical.error }
 }
 
 /**
@@ -78,10 +79,10 @@ export function formatDateEntry(
   calendarId?: string
 ): string {
   if (value === null || value === undefined || value === '') return ''
-  const position = toInstant(value).getTime()
-  if (!Number.isFinite(position)) return ''
+  const position = toAxisTime(value)
+  if (position === null) return ''
   // An end on the last moment of its day names the day, as a start on its first does.
-  const endsDay = edge === 'end' && isDayStart(position + 1, calendar)
+  const endsDay = edge === 'end' && isDayStart(position + 1n, calendar)
   if (calendar) {
     const own = precision !== 'day' && calendarId && calendar.calendars.some((definition) => definition.id === calendarId) ? calendarId : undefined
     const shown = calendarIn(calendar, own)
@@ -95,7 +96,8 @@ export function formatDateEntry(
     const startOfDay = parseWorldDate(shown, day)
     return back.ok && startOfDay.ok && back.position === startOfDay.position ? day : timed
   }
-  const date = new Date(position)
+  const date = instantOfAxisTime(position)
+  if (!date) return ''
   const day = formatBoundAt(date, precision)
   if (endsDay || precision !== 'day') return day
   const hours = date.getUTCHours()
@@ -103,10 +105,10 @@ export function formatDateEntry(
   return hours || minutes || edge === 'end' ? `${day} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}` : day
 }
 
-function isDayStart(position: number, calendar: WorldCalendarSet | null): boolean {
-  if (!calendar) return position % 86_400_000 === 0
+function isDayStart(position: AxisTime, calendar: WorldCalendarSet | null): boolean {
+  if (!calendar) return position % 86_400_000n === 0n
   const shown = calendarIn(calendar)
-  return position % shown.dayMs === 0
+  return position % BigInt(shown.dayMs) === 0n
 }
 
 /**
@@ -117,7 +119,8 @@ function isDayStart(position: number, calendar: WorldCalendarSet | null): boolea
 export function formatHistoricalEnd(value: string | Date | null | undefined, locale: string | undefined, calendar: WorldCalendarSet | null): string {
   if (value === null || value === undefined || value === '') return 'Invalid date'
   const date = toInstant(value)
-  if (Number.isNaN(date.getTime())) return 'Invalid date'
+  const time = toAxisTime(date)
+  if (time === null) return 'Invalid date'
   if (calendar) return formatDateEntry(date, 'day', calendar, 'end')
-  return isDayStart(date.getTime() + 1, null) ? formatHistoricalDate(date, locale, null) : formatHistoricalTimestamp(date, locale, null)
+  return isDayStart(time + 1n, null) ? formatHistoricalDate(date, locale, null) : formatHistoricalTimestamp(date, locale, null)
 }

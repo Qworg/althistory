@@ -8,6 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
+import { toInstant } from '@althistory/calendar'
 import { isTemporalInversion, isCausalOrderValid } from './causalOrder'
 
 describe('isTemporalInversion', () => {
@@ -39,5 +40,25 @@ describe('isCausalOrderValid', () => {
   it('should refuse a cause that follows its effect', () => {
     const moment = new Date('2023-01-01T00:00:00Z')
     expect(isCausalOrderValid(new Date(moment.getTime() + 1000), moment)).toBe(false)
+  })
+})
+
+describe('beyond a Date\'s range and for unreadable times', () => {
+  it('orders deep moments a millisecond apart exactly', () => {
+    expect(isTemporalInversion(toInstant('+300000-01-01T00:00:00.001Z'), toInstant('+300000-01-01T00:00:00.000Z'))).toBe(true)
+    expect(isTemporalInversion(toInstant('+300000-01-01T00:00:00.000Z'), toInstant('+300000-01-01T00:00:00.001Z'))).toBe(false)
+  })
+
+  it('orders millisecond numbers beyond a Date\'s range exactly, not as unreadable', () => {
+    const late = toInstant('+300000-01-01T00:00:00.000Z')
+    const early = toInstant('+299000-01-01T00:00:00.000Z')
+    expect(isTemporalInversion(late.getTime(), early.getTime())).toBe(true)
+    expect(isTemporalInversion(early.getTime(), late.getTime())).toBe(false)
+    expect(isTemporalInversion(toInstant('-300000-01-01T00:00:00.000Z').getTime(), toInstant('-301000-01-01T00:00:00.000Z').getTime())).toBe(true)
+  })
+
+  it('does not call a pair with an unreadable time an inversion', () => {
+    expect(isTemporalInversion(new Date(NaN), new Date(Date.UTC(1066, 9, 14)))).toBe(false)
+    expect(isTemporalInversion(NaN, Date.UTC(1066, 9, 14))).toBe(false)
   })
 })

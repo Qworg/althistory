@@ -205,7 +205,8 @@ describe('Suggest Routes', () => {
       // rather than applying its own defaults.
       expect(mockInferenceService.suggestRelationships).toHaveBeenCalledWith(
         expect.any(Array),
-        { minConfidence: 0.42, maxSuggestions: 3, includeIndirect: false }
+        { minConfidence: 0.42, maxSuggestions: 3, includeIndirect: false },
+        undefined
       );
     });
 
@@ -310,7 +311,8 @@ describe('Suggest Routes', () => {
       expect(mockInferenceService.clusterEventsIntoArcs).toHaveBeenCalledWith(
         expect.any(Array),
         10,
-        4
+        4,
+        undefined
       );
       // The HTTP body is the service result, unchanged.
       expect(response.body.suggestions).toHaveLength(1);
@@ -410,7 +412,8 @@ describe('Suggest Routes', () => {
 
       expect(mockInferenceService.analyzeCompleteness).toHaveBeenCalledWith(
         expect.any(Array),
-        [{ cause_event_id: 'e0', effect_event_id: 'e1' }]
+        [{ cause_event_id: 'e0', effect_event_id: 'e1' }],
+        undefined
       );
       expect(response.body.overallCompleteness).toBeDefined();
     });
@@ -429,7 +432,8 @@ describe('Suggest Routes', () => {
 
       expect(mockInferenceService.analyzeCompleteness).toHaveBeenCalledWith(
         expect.any(Array),
-        expect.any(Array)
+        expect.any(Array),
+        undefined
       );
       // The HTTP body is the service result, unchanged.
       expect(response.body.gaps).toBeDefined();

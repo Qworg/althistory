@@ -27,7 +27,12 @@ export default defineConfig({
         include: ['src/**/*.test.ts'],
         setupFiles: ['src/test/setup.ts'],
         // Per project: projects do not inherit the root's test options.
-        testTimeout: 30_000 * scale,
+        // The five projects run side by side, each file's properties generate
+        // world calendars (the slowest thing here), and a property that takes
+        // 20 s alone takes twice that when every core is busy: 60 s is for
+        // that contention, not for a hang, which the worker's own timeout
+        // still catches.
+        testTimeout: 60_000 * scale,
         env: { TZ: zone },
       },
     })),

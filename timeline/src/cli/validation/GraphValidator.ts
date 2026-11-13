@@ -2,7 +2,7 @@ import { Event, Arc } from '@/models';
 import { CausalRelationship, CausalRelationshipType } from '@/models/relationships';
 import { ValidationIssueDto, ValidationReportDto } from '../types';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { type WorldCalendarSet, dateCalendarOf, datePrecisionOf, formatDateEntry, formatHistoricalDateAt, formatInWorld } from '@althistory/calendar';
+import { type WorldCalendarSet, compareInstants, dateCalendarOf, datePrecisionOf, formatDateEntry, formatHistoricalDateAt, formatInWorld, toAxisTime } from '@althistory/calendar';
 
 export interface ScopedGraphServices {
   eventRepository: {
@@ -136,7 +136,7 @@ export class GraphValidator {
   ): Promise<ValidationReportDto> {
     const calendar = options?.calendar;
     this.when = calendar
-      ? (date) => `${formatInWorld(calendar, date.getTime())}, ${date.toISOString()}`
+      ? (date) => `${formatInWorld(calendar, toAxisTime(date) ?? 0n)}, ${date.toISOString()}`
       : (date) => date.toISOString();
     this.whenEvent = calendar
       ? (event) =>
@@ -198,7 +198,7 @@ export class GraphValidator {
         continue;
       }
 
-      if (arc.start_time.getTime() > arc.end_time.getTime()) {
+      if (compareInstants(arc.start_time, arc.end_time) > 0) {
         issues.push({
           type: 'temporal',
           severity: 'error',
@@ -229,7 +229,7 @@ export class GraphValidator {
             },
             crossGraphLookup
           );
-        } else if (arc.start_time.getTime() < parent.start_time.getTime() || arc.end_time.getTime() > parent.end_time.getTime()) {
+        } else if (compareInstants(arc.start_time, parent.start_time) < 0 || compareInstants(arc.end_time, parent.end_time) > 0) {
           issues.push({
             type: 'containment',
             severity: 'error',
@@ -264,8 +264,7 @@ export class GraphValidator {
             crossGraphLookup
           );
         } else {
-          const eventTime = event.timestamp.getTime();
-          if (eventTime < arc.start_time.getTime() || eventTime > arc.end_time.getTime()) {
+          if (compareInstants(event.timestamp, arc.start_time) < 0 || compareInstants(event.timestamp, arc.end_time) > 0) {
             issues.push({
               type: 'containment',
               severity: 'error',
@@ -411,7 +410,7 @@ export class GraphValidator {
     // Step 1: Repair arc temporal inversions (start > end)
     const initialArcs = await scoped.arcRepository.findAll();
     for (const arc of initialArcs) {
-      if (arc.start_time && arc.end_time && arc.start_time.getTime() > arc.end_time.getTime()) {
+      if (arc.start_time && arc.end_time && compareInstants(arc.start_time, arc.end_time) > 0) {
         const swappedStart = arc.end_time;
         const swappedEnd = arc.start_time;
         await scoped.arcRepository.update(arc.id, {
@@ -460,17 +459,16 @@ export class GraphValidator {
           }
         } else {
           // Containment: expand arc bounds if event falls outside
-          const eventTime = event.timestamp.getTime();
           let needsUpdate = false;
           let newStart = arc.start_time;
           let newEnd = arc.end_time;
 
-          if (eventTime < arc.start_time.getTime()) {
-            newStart = new Date(eventTime);
+          if (compareInstants(event.timestamp, arc.start_time) < 0) {
+            newStart = event.timestamp;
             needsUpdate = true;
           }
-          if (eventTime > arc.end_time.getTime()) {
-            newEnd = new Date(eventTime);
+          if (compareInstants(event.timestamp, arc.end_time) > 0) {
+            newEnd = event.timestamp;
             needsUpdate = true;
           }
 

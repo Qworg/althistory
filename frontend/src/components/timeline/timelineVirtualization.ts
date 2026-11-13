@@ -1,5 +1,7 @@
 import { Event, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
+import { toInstant } from '@althistory/calendar'
+import { clampedInstantOfMs } from '@/utils/timeScale'
 
 /**
  * Time-axis windowing for the timeline.
@@ -69,7 +71,7 @@ export function computeTimeWindow(
     return { start: range.start, end: range.end }
   }
   const overscan = Math.max(0, endMs - startMs) * Math.max(0, overscanFraction)
-  return { start: new Date(startMs - overscan), end: new Date(endMs + overscan) }
+  return { start: clampedInstantOfMs(startMs - overscan), end: clampedInstantOfMs(endMs + overscan) }
 }
 
 /**
@@ -80,7 +82,7 @@ export function computeTimeWindow(
  * rendered matches the behaviour before windowing existed.
  */
 export function isEventInWindow(event: Event, window: TimeWindow): boolean {
-  const timestamp = new Date(event.timestamp).getTime()
+  const timestamp = toInstant(event.timestamp).getTime()
   if (!Number.isFinite(timestamp)) return true
   return timestamp >= window.start.getTime() && timestamp <= window.end.getTime()
 }
@@ -93,8 +95,8 @@ export function isEventInWindow(event: Event, window: TimeWindow): boolean {
  * kept for the same reason as events.
  */
 export function isArcInWindow(arc: { start_time: string; end_time: string }, window: TimeWindow): boolean {
-  const start = new Date(arc.start_time).getTime()
-  const end = new Date(arc.end_time).getTime()
+  const start = toInstant(arc.start_time).getTime()
+  const end = toInstant(arc.end_time).getTime()
   if (!Number.isFinite(start) || !Number.isFinite(end)) return true
   return start <= window.end.getTime() && end >= window.start.getTime()
 }

@@ -321,3 +321,22 @@ describe('Arc Detail Panel Utilities', () => {
     })
   })
 })
+
+describe('arc form checks past 285,000 years, where a double cannot tell milliseconds apart', () => {
+  const event = (timestamp: string): Event => ({
+    id: 'e', description: 'd', actor: 'a', target: 't', timestamp, created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-01T00:00:00Z'
+  })
+  const base: ArcFormData = { name: 'n', description: 'd' }
+
+  it('flags an end one millisecond before the start', () => {
+    const errors = validateArcForm({ ...base, start_time: '+300000-01-01T00:00:00.001Z', end_time: '+300000-01-01T00:00:00.000Z' })
+    expect(errors.end_time).toBe('End time must be after start time')
+  })
+
+  it('flags an event one millisecond outside the arc, and none that sit on its edges', () => {
+    const times = { start_time: '+300000-01-01T00:00:00.000Z', end_time: '+300000-01-02T00:00:00.000Z' }
+    expect(validateArcForm({ ...base, ...times }, [event('+299999-12-31T23:59:59.999Z')]).time_range).toMatch(/1 contained events/)
+    expect(validateArcForm({ ...base, ...times }, [event('+300000-01-02T00:00:00.001Z')]).time_range).toMatch(/1 contained events/)
+    expect(validateArcForm({ ...base, ...times }, [event(times.start_time), event(times.end_time)]).time_range).toBeUndefined()
+  })
+})

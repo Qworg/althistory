@@ -97,6 +97,25 @@ describe('pressureVisualization utils', () => {
       expect(result[0]?.evidenceEvents.map(event => event.id)).toEqual(['event-1'])
     })
 
+    it('attaches a pressure beyond a Date\'s range to the arc it overlaps', () => {
+      // The backend writes time_range with toISOString: an expanded year
+      // here, which `new Date(text)` reads as NaN.
+      const pressure: InferredPressure = {
+        id: 'pressure-deep',
+        description: 'Deep pressure',
+        confidence_score: 0.8,
+        pressure_type: 'economic',
+        evidence: [],
+        time_range: { start: '+300000-01-01T00:00:00.000Z', end: '+300000-06-01T00:00:00.000Z' }
+      }
+      const deepArc: Arc = { ...mockArcs[0]!, id: 'arc-deep', start_time: '+299990-01-01T00:00:00.000Z', end_time: '+300010-01-01T00:00:00.000Z' }
+      const earlierArc: Arc = { ...mockArcs[0]!, id: 'arc-earlier', start_time: '+299000-01-01T00:00:00.000Z', end_time: '+299500-01-01T00:00:00.000Z' }
+
+      const result = processPressuresWithContext([pressure], [deepArc, earlierArc], mockEvents)
+
+      expect(result[0]?.affectedArcs.map(arc => arc.id)).toEqual(['arc-deep'])
+    })
+
     it('gives a pressure no arcs and no evidence when the backend reported none', () => {
       const withoutStructure: InferredPressure[] = [
         {

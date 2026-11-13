@@ -3,6 +3,7 @@ import { CausalSuggestion, CausalRelationshipData } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
 import { isTemporalInversion } from '@/utils/causalOrder'
+import { compareInstants, toInstant } from '@althistory/calendar'
 
 export interface SuggestionFeedback {
   rating: 'helpful' | 'not_helpful' | 'needs_improvement'
@@ -108,7 +109,7 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
           const aEvent = events.find(e => e.id === a.cause_event_id)
           const bEvent = events.find(e => e.id === b.cause_event_id)
           if (aEvent && bEvent) {
-            comparison = new Date(aEvent.timestamp).getTime() - new Date(bEvent.timestamp).getTime()
+            comparison = compareInstants(toInstant(aEvent.timestamp), toInstant(bEvent.timestamp))
           }
           break
         }
@@ -190,8 +191,8 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
         throw new Error('Referenced events not found')
       }
 
-      const causeTime = new Date(causeEvent.timestamp)
-      const effectTime = new Date(effectEvent.timestamp)
+      const causeTime = toInstant(causeEvent.timestamp)
+      const effectTime = toInstant(effectEvent.timestamp)
 
       // The rule the whole project uses: a cause may not follow its effect,
       // but it may happen at the same moment.

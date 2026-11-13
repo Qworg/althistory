@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type WorldCalendarSet, calendarIn, positionOf } from '@althistory/calendar';
+import { MAX_AXIS_MS, type WorldCalendarSet, calendarIn, isoOfAxisTime, positionOf } from '@althistory/calendar';
 import { bodyInstant, newDateMetadata, queryInstant, readRequestTime, withReadDates } from './worldDates';
 import { ValidationError } from '../utils/errors';
 
@@ -23,7 +23,7 @@ const VAEL: WorldCalendarSet = {
   ],
 };
 const at = (year: number, part: number, day: number, hour = 0) =>
-  positionOf(calendarIn(VAEL), { year, part, day, hour, minute: 0, second: 0 })!;
+  Number(positionOf(calendarIn(VAEL), { year, part, day, hour, minute: 0, second: 0 })!);
 const calendarOf = async () => VAEL;
 
 describe('a time sent for a graph with world calendars', () => {
@@ -98,7 +98,11 @@ describe('ISO 8601 text, the same at every door', () => {
   });
 
   it('refuses an ISO date whose end is past the range a date can hold, saying so', async () => {
-    await expect(readRequestTime('+275760-09-13', 'end_time', plain, 'end')).rejects.toThrow(/beyond the range a date can hold/);
+    // A Date's last day is no limit now; the axis's own last day is.
+    const last = isoOfAxisTime(MAX_AXIS_MS).split('T')[0]!;
+    await expect(readRequestTime(last, 'end_time', plain, 'end')).rejects.toThrow(/beyond the range the timeline holds/);
+    expect((await readRequestTime('+275760-09-13', 'end_time', plain, 'end')).date.toISOString()).toBe('+275760-09-13T23:59:59.999Z');
+    expect((await readRequestTime('+300000-06-01', 'timestamp', plain)).date.toISOString()).toBe('+300000-06-01T00:00:00.000Z');
   });
 });
 

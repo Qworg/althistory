@@ -89,6 +89,24 @@ interpolate into, as two dates separated by a slash (`1871-03/1871-09`,
 last moment it names; the expansion is recorded as
 an arc, a child of the arc it expands when there is one.
 
+## Deep time
+
+A history is not limited to what a JavaScript `Date` holds (years -271821 to
+275760). Every date the CLI reads and writes may lie anywhere on the axis, about
+285 million years either side of 1970 ([docs/specs/deep-time.md](../../../docs/specs/deep-time.md)).
+Dates beyond year 9999 are ISO 8601 with a signed, six-digit year
+(`+300000-01-01T00:00:00.000Z`, `-499999-03-15`), and a year may be written
+signed or expanded wherever a year is read. Years before 1 CE are astronomical,
+as ISO 8601 has them: year 0 is 1 BCE, so `-43` is 44 BCE and `-499999` is
+500,000 BCE. `--epoch-year` takes any year on the axis, negative or six-digit.
+
+Because a `Date` cannot hold such a moment, every event or arc a command prints
+also carries it as whole milliseconds from 1970, as a decimal string (JSON has
+no `bigint`): `timestampMs` on an event, `startTimeMs` and `endTimeMs` on an
+arc, next to the ISO text. Read those, not `new Date(...)`, for ordering and
+arithmetic in a script; a command's input is always the date text, and a field
+named `*Ms` in input is ignored.
+
 ## Invented worlds
 
 A graph can keep an invented world's own calendars, of any shape: a day of

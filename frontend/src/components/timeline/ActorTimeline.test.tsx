@@ -191,6 +191,42 @@ describe('ActorTimeline', () => {
     })
   })
 
+  describe('over a million years (docs/specs/deep-time.md)', () => {
+    const deep = [
+      actorEvent('e1', 'actor', 'Britain', '-500000-06-15T00:00:00.000Z'),
+      actorEvent('e2', 'target', 'France', '-000043-03-15T00:00:00.000Z'),
+      actorEvent('e3', 'actor', 'Spain', '+300000-01-01T00:00:00.000Z'),
+    ]
+    const tickTexts = (container: HTMLElement) => Array.from(container.querySelectorAll<SVGTextElement>('.x-axis .tick text')).map((t) => t.textContent)
+
+    it('draws every event, and an axis labelled in years with their era', () => {
+      const { container } = render(<ActorTimeline actor="U.S." layoutMode="chronological" events={deep} arcs={[]} width={1000} />)
+      expect(container.querySelectorAll('.actor-event')).toHaveLength(3)
+      const labels = tickTexts(container)
+      expect(labels.length).toBeGreaterThan(2)
+      expect(new Set(labels).size).toBe(labels.length)
+      expect(labels.some((label) => /BCE/.test(label ?? ''))).toBe(true)
+      expect(labels.some((label) => /^\d+ CE$/.test(label ?? ''))).toBe(true)
+      expect(container.innerHTML).not.toContain('NaN')
+    })
+
+    it('puts each event where its moment falls, in the order of time', () => {
+      const { container } = render(<ActorTimeline actor="U.S." layoutMode="chronological" events={deep} arcs={[]} width={1000} />)
+      const byId = new Map(
+        Array.from(container.querySelectorAll<SVGGElement>('.actor-event')).map((mark) => [
+          mark.getAttribute('data-event-id'),
+          Number(/translate\(([^,]+),/.exec(mark.getAttribute('transform') ?? '')?.[1]),
+        ])
+      )
+      const [a, b, c] = ['e1', 'e2', 'e3'].map((id) => byId.get(id)!)
+      expect([a, b, c].every(Number.isFinite)).toBe(true)
+      expect(a!).toBeLessThan(b!)
+      expect(b!).toBeLessThan(c!)
+      // 500,000 BCE to 300,000 CE: 44 BCE is five eighths of the way across, 300,000 CE the last.
+      expect((b! - a!) / (c! - a!)).toBeCloseTo(499_957 / 800_000, 2)
+    })
+  })
+
   describe('arc labels', () => {
     const spread = [
       actorEvent('e1', 'actor', 'Britain', '1843-01-01T00:00:00.000Z'),

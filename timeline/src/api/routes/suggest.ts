@@ -121,7 +121,8 @@ suggestRoutes.post(
       // response body.
       const suggestions = req.container.inferenceService.suggestRelationships(
         events,
-        options
+        options,
+        calendar
       );
 
       res.json({ suggestions });
@@ -191,7 +192,8 @@ suggestRoutes.post(
       const suggestions: ArcSuggestion[] = req.container.inferenceService.clusterEventsIntoArcs(
         events,
         temporalWindowDays,
-        minClusterSize
+        minClusterSize,
+        calendar
       );
 
       res.json({ suggestions });
@@ -270,7 +272,8 @@ suggestRoutes.post(
 
       const response: CompletenessResponse = req.container.inferenceService.analyzeCompleteness(
         eventsForAnalysis,
-        relationships
+        relationships,
+        calendar
       );
 
       res.json(response);

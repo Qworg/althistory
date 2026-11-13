@@ -2,11 +2,11 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { formatWorldDate } from '../describe'
 import * as arb from '../test/arbitraries'
+import { MAX_TIME } from '../test/arbitraries'
 import * as warb from '../test/worldArbitraries'
 import {
   type CompiledCalendar,
   type WorldDateFields,
-  MAX_TIME,
   calendarIn,
   compileCalendar,
   dateAt,
@@ -61,7 +61,7 @@ describe('the Gregorian definition, against JavaScript\'s own UTC calendar', () 
           date.getUTCMinutes(),
           date.getUTCSeconds(),
         ])
-        expect(positionOf(gregorian, d)).toBe(Math.floor(date.getTime() / 1000) * 1000)
+        expect(positionOf(gregorian, d)).toBe(BigInt(Math.floor(date.getTime() / 1000) * 1000))
       }),
       arb.runs(5000)
     )
@@ -89,9 +89,9 @@ describe('any world calendar', () => {
         const d = dateAt(calendar, p)
         const start = positionOf(calendar, d)
         expect(start).not.toBeNull()
-        expect(start!).toBeLessThanOrEqual(p)
+        expect(start!).toBeLessThanOrEqual(BigInt(p))
         expect(dateAt(calendar, start!)).toEqual(d)
-        if (start! - 1 >= -MAX_TIME) expect(compare(tuple(dateAt(calendar, start! - 1)), tuple(d))).toBeLessThan(0)
+        if (start! - 1n >= -BigInt(MAX_TIME)) expect(compare(tuple(dateAt(calendar, start! - 1n)), tuple(d))).toBeLessThan(0)
       }),
       arb.runs(3000)
     )
@@ -120,9 +120,12 @@ describe('any world calendar', () => {
   })
 
   it('never names a later position by an earlier date (Req 13)', () => {
+    // Ordered by construction, not by `fc.pre`: half of all pairs are the wrong
+    // way round, and every rejected pair still costs a generated calendar.
+    const ordered = fc.tuple(position, position).map(([x, y]): [number, number] => (x <= y ? [x, y] : [y, x]))
     fc.assert(
-      fc.property(compiled, position, position, (calendar, a, b) => {
-        fc.pre(a < b && inRange(calendar, a) && inRange(calendar, b))
+      fc.property(compiled, ordered, (calendar, [a, b]) => {
+        fc.pre(inRange(calendar, a) && inRange(calendar, b))
         expect(compare(tuple(dateAt(calendar, a)), tuple(dateAt(calendar, b)))).toBeLessThanOrEqual(0)
       }),
       arb.runs(3000)
@@ -236,13 +239,13 @@ describe('any world calendar', () => {
       fc.property(compiled, position, fc.constantFrom('day', 'month', 'year') as fc.Arbitrary<'day' | 'month' | 'year'>, (calendar, p, precision) => {
         fc.pre(inRange(calendar, p))
         const period = worldPeriod(calendar, dateAt(calendar, p), precision)
-        fc.pre(period !== null && period.end + 1 <= MAX_TIME)
-        expect(period!.start).toBeLessThanOrEqual(p)
-        expect(p).toBeLessThanOrEqual(period!.end)
+        fc.pre(period !== null && period.end + 1n <= BigInt(MAX_TIME))
+        expect(period!.start).toBeLessThanOrEqual(BigInt(p))
+        expect(BigInt(p)).toBeLessThanOrEqual(period!.end)
         // The next period starts the millisecond after this one ends.
-        const next = worldPeriod(calendar, dateAt(calendar, period!.end + 1), precision)
+        const next = worldPeriod(calendar, dateAt(calendar, period!.end + 1n), precision)
         fc.pre(next !== null)
-        expect(next!.start).toBe(period!.end + 1)
+        expect(next!.start).toBe(period!.end + 1n)
       }),
       arb.runs(3000)
     )

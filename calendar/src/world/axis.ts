@@ -4,12 +4,14 @@
  * world's notation (Req 15).
  */
 
-import { type WorldCalendarSet, MAX_TIME } from './definition'
-import { type CompiledCalendar, calendarIn, dateAt, positionOf } from './engine'
+import { type AxisTime, MAX_AXIS_MS, MIN_AXIS_MS, inAxisRange } from '../time'
+import type { WorldCalendarSet } from './definition'
+import { type CompiledCalendar, calendarIn, dateAt, joinPosition, positionOf, splitPosition } from './engine'
 import { formatWorldFields, formatWorldTime, parseWorldDate, parseWorldText, type WorldPrecision, worldPeriod } from './notation'
 
 export interface WorldTick {
-  position: number
+  /** Where on the axis (time.ts). */
+  position: AxisTime
   label: string
 }
 
@@ -102,9 +104,9 @@ function roundYears(calendar: CompiledCalendar, from: number, to: number, step: 
 }
 
 /** The ticks of one unit and step within [lo, hi], or null when there would be more than `limit`. */
-function ticksOf(calendar: CompiledCalendar, unit: Unit, step: number, lo: number, hi: number, limit: number): number[] | null {
-  const out: number[] = []
-  const push = (position: number | null) => {
+function ticksOf(calendar: CompiledCalendar, unit: Unit, step: number, lo: AxisTime, hi: AxisTime, limit: number): AxisTime[] | null {
+  const out: AxisTime[] = []
+  const push = (position: AxisTime | null) => {
     if (position !== null && position >= lo && position <= hi) out.push(position)
     return out.length <= limit
   }
@@ -115,7 +117,7 @@ function ticksOf(calendar: CompiledCalendar, unit: Unit, step: number, lo: numbe
     // starts alone would crowd the axis: then only the round counts.
     const startOf = (year: number) => positionOf(calendar, { year, part: 0, day: 1, hour: 0, minute: 0, second: 0 })
     const inDomain = (years: number[] | null) =>
-      years && years.map(startOf).filter((position): position is number => position !== null && position >= lo && position <= hi)
+      years && years.map(startOf).filter((position): position is AxisTime => position !== null && position >= lo && position <= hi)
     const withStarts = inDomain(roundYears(calendar, first.year, last.year, step, limit + 2))
     const chosen = withStarts && withStarts.length <= limit ? withStarts : inDomain(roundYears(calendar, first.year, last.year, step, limit + 2, false))
     if (!chosen || chosen.length > limit) return null
@@ -127,12 +129,12 @@ function ticksOf(calendar: CompiledCalendar, unit: Unit, step: number, lo: numbe
       }
     }
   } else {
-    const firstDay = Math.floor(lo / calendar.dayMs)
-    const lastDay = Math.floor(hi / calendar.dayMs)
+    const firstDay = splitPosition(calendar, lo).axisDay
+    const lastDay = splitPosition(calendar, hi).axisDay
     for (let axisDay = firstDay; axisDay <= lastDay; axisDay++) {
-      const date = dateAt(calendar, axisDay * calendar.dayMs)
+      const date = dateAt(calendar, joinPosition(calendar, axisDay))
       if (unit === 'day') {
-        if ((date.day - 1) % step === 0 && !push(axisDay * calendar.dayMs)) return null
+        if ((date.day - 1) % step === 0 && !push(joinPosition(calendar, axisDay))) return null
         continue
       }
       const { hoursPerDay, minutesPerHour } = calendar.time
@@ -155,13 +157,17 @@ function ticksOf(calendar: CompiledCalendar, unit: Unit, step: number, lo: numbe
  * the most (the coarser on a tie), as a d3 axis fills the room it is given;
  * each labelled in the calendar's notation, distinct.
  */
-export function worldTicks(calendar: CompiledCalendar, domain: readonly [number, number], maxTicks: number): WorldTick[] {
-  const lo = Math.max(-MAX_TIME, Math.min(domain[0], domain[1]))
-  const hi = Math.min(MAX_TIME, Math.max(domain[0], domain[1]))
+export function worldTicks(calendar: CompiledCalendar, domain: readonly [AxisTime | number, AxisTime | number], maxTicks: number): WorldTick[] {
+  const ends = domain.map((end) => (typeof end === 'bigint' ? end : Number.isFinite(end) ? BigInt(Math.trunc(end)) : null))
+  if (ends[0] === null || ends[1] === null || ends[0] === undefined || ends[1] === undefined) return []
+  const [a, b] = [ends[0], ends[1]]
+  const clamp = (value: AxisTime) => (value < MIN_AXIS_MS ? MIN_AXIS_MS : value > MAX_AXIS_MS ? MAX_AXIS_MS : value)
+  const lo = clamp(a < b ? a : b)
+  const hi = clamp(a < b ? b : a)
   if (!(hi > lo) || maxTicks < 1) return []
-  const span = hi - lo
+  const span = Number(hi - lo)
   const units: Unit[] = ['year', 'month', 'day', 'hour', 'minute']
-  let best: { unit: Unit; ticks: number[] } | null = null
+  let best: { unit: Unit; ticks: AxisTime[] } | null = null
   // Coarse to fine: once a unit's coarsest step has too many ticks, every finer one does.
   search: for (const unit of units) {
     const length = unitMs(calendar, unit)
@@ -200,7 +206,7 @@ export function worldTicks(calendar: CompiledCalendar, domain: readonly [number,
 }
 
 /** Labels for ticks of a unit: as short as the unit allows, made fuller where two would read the same. */
-function labelled(calendar: CompiledCalendar, unit: Unit, ticks: number[]): WorldTick[] {
+function labelled(calendar: CompiledCalendar, unit: Unit, ticks: AxisTime[]): WorldTick[] {
   const dates = ticks.map((position) => dateAt(calendar, position))
   const precision: WorldPrecision = unit === 'year' ? 'year' : unit === 'month' ? 'month' : 'day'
   let labels = dates.map((date) => formatWorldFields(calendar, date, precision))
@@ -228,7 +234,7 @@ export function worldBound(
   set: WorldCalendarSet,
   text: string,
   edge: 'start' | 'end'
-): { ok: true; position: number; precision: WorldPrecision; calendar: string } | { ok: false; error: string } {
+): { ok: true; position: AxisTime; precision: WorldPrecision; calendar: string } | { ok: false; error: string } {
   const shown = parseWorldDate(calendarIn(set), text)
   const read = shown.ok ? shown : parseWorldText(set, text)
   if (!read.ok) return read
@@ -236,7 +242,7 @@ export function worldBound(
     return { ok: false, error: 'a bound names a day, a month or a year, not a time of day' }
   }
   const period = worldPeriod(calendarIn(set, read.calendar), read.fields, read.precision)
-  if (!period) return { ok: false, error: 'that date is beyond the range a date can hold' }
+  if (!period) return { ok: false, error: 'that date is beyond the range the timeline holds' }
   return { ok: true, position: edge === 'start' ? period.start : period.end, precision: read.precision, calendar: read.calendar }
 }
 
@@ -247,16 +253,18 @@ export function worldBound(
  * last moment of a year or month likewise. '' for a position that is not a
  * finite number.
  */
-export function formatWorldBound(set: WorldCalendarSet, position: number, edge: 'start' | 'end'): string {
-  if (!Number.isFinite(position) || Math.abs(position) > MAX_TIME) return ''
+export function formatWorldBound(set: WorldCalendarSet, position: AxisTime | number, edge: 'start' | 'end'): string {
+  if (typeof position === 'number' && !Number.isFinite(position)) return ''
+  const at = typeof position === 'bigint' ? position : BigInt(Math.trunc(position))
+  if (!inAxisRange(at)) return ''
   const calendar = calendarIn(set)
   // A start is a period's first moment; an end is the moment before the next one's.
-  const boundary = edge === 'start' ? position : position + 1
-  const date = dateAt(calendar, position)
-  const next = dateAt(calendar, Math.min(MAX_TIME, boundary))
+  const boundary = edge === 'start' ? at : at + 1n
+  const date = dateAt(calendar, at)
+  const next = dateAt(calendar, boundary > MAX_AXIS_MS ? MAX_AXIS_MS : boundary)
   const startsAt = (fields: { year: number; part: number }) =>
     positionOf(calendar, { year: fields.year, part: fields.part, day: 1, hour: 0, minute: 0, second: 0 }) === boundary
-  if (boundary <= MAX_TIME) {
+  if (boundary <= MAX_AXIS_MS) {
     if (startsAt({ year: next.year, part: 0 })) return formatWorldFields(calendar, date, 'year')
     if (startsAt(next)) return formatWorldFields(calendar, date, 'month')
   }
@@ -270,7 +278,7 @@ export function formatWorldBound(set: WorldCalendarSet, position: number, edge: 
  */
 export function worldBoundExamples(set: WorldCalendarSet): { year: string; month: string; day: string } {
   const calendar = calendarIn(set)
-  const first = dateAt(calendar, calendar.definition.epoch * calendar.dayMs)
+  const first = dateAt(calendar, joinPosition(calendar, calendar.definition.epoch))
   return {
     year: formatWorldFields(calendar, first, 'year'),
     month: formatWorldFields(calendar, first, 'month'),

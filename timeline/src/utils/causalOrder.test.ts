@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { toInstant } from '@althistory/calendar'
 import {
   isTemporalInversion,
   isCausalOrderValid,
@@ -35,11 +36,37 @@ describe('isTemporalInversion', () => {
     expect(isTemporalInversion(moment, moment)).toBe(false)
   })
 
+  it('should order millisecond numbers beyond a Date\'s range exactly, not as unreadable', () => {
+    const late = toInstant('+300000-01-01T00:00:00.000Z')
+    const early = toInstant('+299000-01-01T00:00:00.000Z')
+    expect(isTemporalInversion(late.getTime(), early.getTime())).toBe(true)
+    expect(isTemporalInversion(early.getTime(), late.getTime())).toBe(false)
+    expect(isSimultaneous(late.getTime(), late.getTime())).toBe(true)
+  })
+
   it('should accept millisecond timestamps as well as dates', () => {
     const moment = Date.parse('2023-01-01T00:00:00Z')
     expect(isTemporalInversion(moment + 1000, moment)).toBe(true)
     expect(isTemporalInversion(moment, moment + 1000)).toBe(false)
     expect(isTemporalInversion(moment, moment)).toBe(false)
+  })
+})
+
+describe('a time that cannot be read', () => {
+  const unreadable = [new Date(NaN), NaN]
+  const hastings = Date.UTC(1066, 9, 14)
+
+  it.each(unreadable)('is never an inversion, as either side (%s)', bad => {
+    expect(isTemporalInversion(bad, new Date(hastings))).toBe(false)
+    expect(isTemporalInversion(new Date(hastings), bad)).toBe(false)
+    expect(isTemporalInversion(bad, hastings)).toBe(false)
+    expect(isCausalOrderValid(bad, hastings)).toBe(true)
+  })
+
+  it.each(unreadable)('is never simultaneous with the epoch or with itself (%s)', bad => {
+    expect(isSimultaneous(bad, new Date(0))).toBe(false)
+    expect(isSimultaneous(new Date(0), bad)).toBe(false)
+    expect(isSimultaneous(bad, bad)).toBe(false)
   })
 })
 

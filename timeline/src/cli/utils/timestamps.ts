@@ -61,7 +61,9 @@ export function readAgentTimestamp(text: string, calendar?: WorldCalendarSet, ed
       `Invalid timestamp: ${text}. Give an ISO 8601 date, such as 1843-11-20, 1843-11-20T14:30 (UTC) or 1871-03, or a year such as 312 or 44 BCE`
     );
   }
-  return read;
+  // Not the axis time: this is sent and stored as text, and a bigint is not JSON.
+  const { time: _time, ...text_ } = read;
+  return text_;
 }
 
 /** The first day of the world's year 1, written in its primary calendar's notation. */

@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback, useId, memo } from 'react'
 import * as d3 from 'd3'
+import { instantOfMs, instantScale, rescaleInstantX } from '@/utils/timeScale'
 import { Event, Arc, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { type ArcWithUIState, calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
@@ -43,13 +44,16 @@ import {
   keyboardTimeStep,
   markSpan,
   navigate,
+  movedArcBounds,
   offsetByStep,
   parseMarkKey,
+  resizedArcBounds,
   eventMarkKey,
   arcMarkKey,
   type MarkKey,
   type NavMove,
 } from './timelineNavigation'
+import { toAxisTime, toInstant } from '@althistory/calendar'
 
 /**
  * A branch's baseline, drawn as a ghosted lane under the active events.
@@ -158,12 +162,7 @@ type DragPreview =
 
 /** Clamp an arc resize so the moved edge never crosses the other one. */
 function resizedBounds(arc: Arc, edge: ArcResizeEdge, timestamp: Date): { start: Date; end: Date } {
-  const start = new Date(arc.start_time)
-  const end = new Date(arc.end_time)
-  if (edge === 'start') {
-    return { start: timestamp.getTime() > end.getTime() ? end : timestamp, end }
-  }
-  return { start, end: timestamp.getTime() < start.getTime() ? start : timestamp }
+  return resizedArcBounds(arc.start_time, arc.end_time, edge, timestamp)
 }
 
 /** Pointer travel (px) required before a mousedown is treated as a drag rather than a click. */
@@ -187,7 +186,7 @@ function clampInnerX(innerX: number, innerWidth: number): number {
  * branch when the copy gave it a new id.
  */
 function eventSignature(ev: Event): string {
-  return `${new Date(ev.timestamp).getTime()}|${ev.description}`
+  return `${toInstant(ev.timestamp).getTime()}|${ev.description}`
 }
 
 /** How long after a keyboard-opened menu a native contextmenu event counts as its echo. */
@@ -398,7 +397,7 @@ const Timeline = memo(function Timeline({
 
   // Create xScale based on visible range (or original if not set)
   const xScale = useMemo(() => {
-    return d3.scaleTime()
+    return instantScale()
       .domain([currentRange.start, currentRange.end])
       .range([0, innerWidth])
   }, [currentRange, innerWidth])
@@ -492,7 +491,7 @@ const Timeline = memo(function Timeline({
       layoutEventLabels(
         visibleEvents.map(ev => ({
           id: ev.id,
-          x: xScale(new Date(ev.timestamp)),
+          x: xScale(toInstant(ev.timestamp)),
           description: ev.description,
           // The selection's ripple is named first, so the trace reads as words.
           priority:
@@ -514,9 +513,15 @@ const Timeline = memo(function Timeline({
   // Active events after the divergence without a counterpart are the branch's
   // own; baseline events after it without one are what the branch dropped.
   const divergenceMs = divergence ? divergence.getTime() : null
+  // Exact, for comparing: past 2^53 ms the millisecond count is a rounded double.
+  const divergenceTime = divergence ? toAxisTime(divergence) : null
   const ghostComparison = useMemo(() => {
     if (!ghostEvents) return null
-    const after = (ev: Event) => divergenceMs === null || new Date(ev.timestamp).getTime() >= divergenceMs
+    const after = (ev: Event) => {
+      if (divergenceTime === null) return true
+      const at = toAxisTime(toInstant(ev.timestamp))
+      return at !== null && at >= divergenceTime
+    }
     const activeIds = new Set(events.map(ev => ev.id))
     const activeSignatures = new Set(events.map(eventSignature))
     const baselineIds = new Set(ghostEvents.map(ev => ev.id))
@@ -530,7 +535,7 @@ const Timeline = memo(function Timeline({
       if (after(ev) && !activeIds.has(ev.id) && !activeSignatures.has(eventSignature(ev))) dropped.add(ev.id)
     }
     return { branchOwn, dropped }
-  }, [ghostEvents, events, divergenceMs])
+  }, [ghostEvents, events, divergenceTime])
   const branchOwnIds = ghostComparison?.branchOwn
 
   const visibleGhostEvents = useMemo(
@@ -558,15 +563,15 @@ const Timeline = memo(function Timeline({
     if (selectedEventId && mounted.has(eventMarkKey(selectedEventId))) return eventMarkKey(selectedEventId)
     let earliest: { key: MarkKey; t: number } | null = null
     for (const ev of visibleEvents) {
-      const x = xScale(new Date(ev.timestamp))
+      const x = xScale(toInstant(ev.timestamp))
       if (x < 0 || x > innerWidth) continue
-      const t = new Date(ev.timestamp).getTime()
+      const t = toInstant(ev.timestamp).getTime()
       if (!earliest || t < earliest.t) earliest = { key: eventMarkKey(ev.id), t }
     }
     if (earliest) return earliest.key
     const firstArc = visibleArcs.find(arc => {
-      const x1 = xScale(new Date(arc.start_time))
-      const x2 = xScale(new Date(arc.end_time))
+      const x1 = xScale(toInstant(arc.start_time))
+      const x2 = xScale(toInstant(arc.end_time))
       return x2 >= 0 && x1 <= innerWidth
     })
     if (firstArc) return arcMarkKey(firstArc.id)
@@ -699,7 +704,7 @@ const Timeline = memo(function Timeline({
       const startInnerX = clientXToInnerX(startClientX)
       const currentInnerX = clientXToInnerX(clientX)
       if (!scale || startInnerX === null || currentInnerX === null) return null
-      const originInnerX = scale(new Date(event.timestamp))
+      const originInnerX = scale(toInstant(event.timestamp))
       const nextInnerX = originInnerX + (currentInnerX - startInnerX)
       return scale.invert(clampInnerX(nextInnerX, innerWidthRef.current))
     },
@@ -773,7 +778,7 @@ const Timeline = memo(function Timeline({
         if (!timestamp) return
         // Move away and back lands on the original timestamp; that write would
         // change nothing, so it is skipped rather than sent to the API.
-        if (timestamp.getTime() === new Date(drag.event.timestamp).getTime()) return
+        if (timestamp.getTime() === toInstant(drag.event.timestamp).getTime()) return
         onEventDragRef.current?.(drag.event, timestamp)
         return
       }
@@ -843,7 +848,7 @@ const Timeline = memo(function Timeline({
     if (!selectedEventId || !svgRef.current || !zoomRef.current) return
     const selected = events.find((ev) => ev.id === selectedEventId)
     if (!selected) return
-    const t = new Date(selected.timestamp).getTime()
+    const t = toInstant(selected.timestamp).getTime()
     const start = currentRange.start.getTime()
     const end = currentRange.end.getTime()
     if (!Number.isFinite(t) || (t >= start && t <= end)) return
@@ -851,13 +856,13 @@ const Timeline = memo(function Timeline({
     const fullEnd = originalExtent.end.getTime()
     const span = end - start
     const from = Math.min(Math.max(t - span / 2, fullStart), Math.max(fullStart, fullEnd - span))
-    const base = d3.scaleTime().domain([originalExtent.start, originalExtent.end]).range([0, innerWidth])
+    const base = instantScale().domain([originalExtent.start, originalExtent.end]).range([0, innerWidth])
     const k = (fullEnd - fullStart) / span
     const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
     d3.select(svgRef.current)
       .transition()
       .duration(reduce ? 0 : 300)
-      .call(zoomRef.current.transform, d3.zoomIdentity.translate(-base(new Date(from)) * k, 0).scale(k))
+      .call(zoomRef.current.transform, d3.zoomIdentity.translate(-base(instantOfMs(from)) * k, 0).scale(k))
     // Only on a new selection: panning away afterwards is the user's choice.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEventId])
@@ -880,7 +885,7 @@ const Timeline = memo(function Timeline({
     const svg = d3.select(svgRef.current)
 
     // Create base scale from original extent (prevents zoom compounding)
-    const baseTimeScale = d3.scaleTime()
+    const baseTimeScale = instantScale()
       .domain([originalExtent.start, originalExtent.end])
       .range([0, innerWidth])
 
@@ -892,7 +897,7 @@ const Timeline = memo(function Timeline({
         const { transform } = event
 
         // Calculate new domain from the ORIGINAL scale
-        const newTimeScale = transform.rescaleX(baseTimeScale)
+        const newTimeScale = rescaleInstantX(transform, baseTimeScale)
         const newDomain = newTimeScale.domain()
 
         setVisibleTimeRange({
@@ -937,8 +942,8 @@ const Timeline = memo(function Timeline({
       if (k > 1.2) {
         let tx = 0
         if (divergenceMs !== null) {
-          const base = d3.scaleTime().domain([originalExtent.start, originalExtent.end]).range([0, innerWidth])
-          const wanted = -base(new Date(divergenceMs)) * k + innerWidth / 3
+          const base = instantScale().domain([originalExtent.start, originalExtent.end]).range([0, innerWidth])
+          const wanted = -base(instantOfMs(divergenceMs)) * k + innerWidth / 3
           tx = Math.min(0, Math.max(innerWidth - innerWidth * k, wanted))
         }
         svg.call(zoom.transform, d3.zoomIdentity.translate(tx, 0).scale(k))
@@ -1044,8 +1049,8 @@ const Timeline = memo(function Timeline({
     if (span && svg && zoom) {
       const scale = xScaleRef.current
       const iw = innerWidthRef.current
-      const x1 = scale(new Date(span.start))
-      const x2 = scale(new Date(span.end))
+      const x1 = scale(instantOfMs(span.start))
+      const x2 = scale(instantOfMs(span.end))
       if (x2 < 0 || x1 > iw) {
         // translateBy works in untransformed units, so a screen shift of dx is
         // dx / k, where k is how far the view is zoomed in from the extent.
@@ -1101,27 +1106,21 @@ const Timeline = memo(function Timeline({
     if (parsed.kind === 'event') {
       const ev = eventsById.get(parsed.id)
       if (!ev) return
-      onEventDragRef.current?.(ev, offsetByStep(new Date(ev.timestamp), step, direction))
+      onEventDragRef.current?.(ev, offsetByStep(toInstant(ev.timestamp), step, direction))
       return
     }
     const arc = arcsById.get(parsed.id)
     if (!arc) return
-    // The arc moves whole: its start by the step, its end by as much, so a
-    // move never stretches or shrinks it (months, and a world's festivals,
-    // differ in length).
-    const start = new Date(arc.start_time)
-    const movedStart = offsetByStep(start, step, direction)
-    onArcResizeRef.current?.(arc, {
-      start: movedStart,
-      end: new Date(new Date(arc.end_time).getTime() + (movedStart.getTime() - start.getTime())),
-    })
+    // The arc moves whole (see movedArcBounds), by exact axis arithmetic.
+    const bounds = movedArcBounds(arc.start_time, arc.end_time, step, direction)
+    if (bounds) onArcResizeRef.current?.(arc, bounds)
   }, [eventsById, arcsById, keyboardStep])
 
   // Move one edge of an arc by a keyboard step; the edge never crosses the other.
   const resizeArcEdge = useCallback((arcId: string, edge: ArcResizeEdge, direction: -1 | 1) => {
     const arc = arcsById.get(arcId)
     if (!arc) return
-    const moved = offsetByStep(new Date(edge === 'start' ? arc.start_time : arc.end_time), keyboardStep(), direction)
+    const moved = offsetByStep(toInstant(edge === 'start' ? arc.start_time : arc.end_time), keyboardStep(), direction)
     onArcResizeRef.current?.(arc, resizedBounds(arc, edge, moved))
   }, [arcsById, keyboardStep])
 
@@ -1206,7 +1205,7 @@ const Timeline = memo(function Timeline({
         if (MARK_ZOOM_KEYS.has(event.key)) {
           const span = markSpan(navModel, key)
           const scale = xScaleRef.current
-          const x = span ? scale(new Date((span.start + span.end) / 2)) : undefined
+          const x = span ? scale(instantOfMs((span.start + span.end) / 2)) : undefined
           handleViewportKey(event, x !== undefined ? clampInnerX(x, innerWidthRef.current) : undefined)
         }
     }
@@ -1266,7 +1265,7 @@ const Timeline = memo(function Timeline({
   const canvasLabel = useMemo(() => {
     const base = `Timeline with ${events.length} events and ${arcs.length} arcs`
     if (ghostLabel === undefined || !ghostEvents) return base
-    const diverges = divergenceMs !== null ? `, diverging ${formatHistoricalTimestamp(new Date(divergenceMs))}` : ''
+    const diverges = divergenceMs !== null ? `, diverging ${formatHistoricalTimestamp(instantOfMs(divergenceMs))}` : ''
     return `${base}. Branch of ${ghostLabel}${diverges}; the baseline's ${ghostEvents.length} events are drawn faintly beneath for comparison`
   }, [events.length, arcs.length, ghostLabel, ghostEvents, divergenceMs])
 
@@ -1478,7 +1477,7 @@ const Timeline = memo(function Timeline({
                         className="timeline-ghost-event"
                         data-ghost-event-id={ev.id}
                         data-dropped={dropped ? 'true' : undefined}
-                        cx={xScale(new Date(ev.timestamp))}
+                        cx={xScale(toInstant(ev.timestamp))}
                         cy={layout.ghostY ?? 0}
                         r={4}
                         // Hollow: a baseline event the branch no longer has.
@@ -1504,8 +1503,8 @@ const Timeline = memo(function Timeline({
                   const cause = eventsById.get(link.causeId)
                   const effect = eventsById.get(link.effectId)
                   if (!cause || !effect) return null
-                  const x1 = xScale(new Date(cause.timestamp))
-                  const x2 = xScale(new Date(effect.timestamp))
+                  const x1 = xScale(toInstant(cause.timestamp))
+                  const x2 = xScale(toInstant(effect.timestamp))
                   if (Math.max(x1, x2) < -40 || Math.min(x1, x2) > innerWidth + 40) return null
                   const role = ripple.links.get(link.id)
                   const onRipple = role !== undefined
@@ -1546,8 +1545,8 @@ const Timeline = memo(function Timeline({
 
             {/* Arcs - using memoized TimelineArc component */}
             {visibleArcs.map(arc => {
-              const x1 = xScale(new Date(arc.start_time))
-              const x2 = xScale(new Date(arc.end_time))
+              const x1 = xScale(toInstant(arc.start_time))
+              const x2 = xScale(toInstant(arc.end_time))
               const y = yScale(arc.renderLevel)
               const w = Math.max(0, x2 - x1)
               return (
@@ -1579,7 +1578,7 @@ const Timeline = memo(function Timeline({
                 const base = markBaseRadius(ev.id)
                 const radius =
                   base + ((highlightedEventIds?.has(ev.id) ?? false) ? 3 : selectedEventId === ev.id ? 2 : 0)
-                const x = xScale(new Date(ev.timestamp))
+                const x = xScale(toInstant(ev.timestamp))
                 const dimmed =
                   isTracing && ev.id !== selectedEventId && !ripple.causes.has(ev.id) && !ripple.effects.has(ev.id)
                 return (
@@ -1600,7 +1599,7 @@ const Timeline = memo(function Timeline({
 
             {/* Events - using memoized TimelineEvent component */}
             {visibleEvents.map(ev => {
-              const x = xScale(new Date(ev.timestamp))
+              const x = xScale(toInstant(ev.timestamp))
               return (
                 <TimelineEvent
                   key={ev.id}
@@ -1805,7 +1804,7 @@ const Timeline = memo(function Timeline({
                 {formatHistoricalTimestamp(hovered.arc.start_time)} – {formatHistoricalEnd(hovered.arc.end_time)}
               </div>
               <div className="tabular-nums">
-                {formatDuration(new Date(hovered.arc.start_time), new Date(hovered.arc.end_time))}
+                {formatDuration(toInstant(hovered.arc.start_time), toInstant(hovered.arc.end_time))}
                 {' · '}
                 {hovered.arc.eventCount} {hovered.arc.eventCount === 1 ? 'event' : 'events'}
               </div>

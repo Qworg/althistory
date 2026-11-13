@@ -187,6 +187,14 @@ describe('FilterPanel', () => {
       expect(screen.getByText(/start is after the end/)).toBeInTheDocument()
     })
 
+    it('says so when the range is reversed by a millisecond past what a double holds', () => {
+      renderWithRouter(
+        <FilterPanel {...mockProps} filters={{ ...mockFilters, dateRange: { start: '+300000-06-02', end: '+300000-06-01' } }} />
+      )
+
+      expect(screen.getByText(/start is after the end/)).toBeInTheDocument()
+    })
+
     it('has no axe violations with an unreadable date', async () => {
       const { container } = renderWithRouter(<Stateful />)
       const start = screen.getByLabelText('Start date')

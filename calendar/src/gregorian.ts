@@ -32,3 +32,29 @@ export function daysFromCivil(year: number, month: number, day: number): number 
   const dayOfEra = yearOfEra * 365 + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100) + dayOfYear
   return era * 146097 + dayOfEra - 719468
 }
+
+/**
+ * The inverse of {@link daysFromCivil}: the astronomical year, the month
+ * (1 = January) and the day of the month of a day counted from 1970-01-01.
+ * Howard Hinnant's civil_from_days, with no Date and so no limit on its
+ * range; exact for every day a safe integer holds.
+ */
+export function civilFromDays(days: number): { year: number; month: number; day: number } {
+  const z = days + 719468
+  const era = Math.floor(z / 146097)
+  const dayOfEra = z - era * 146097
+  const yearOfEra = Math.floor((dayOfEra - Math.floor(dayOfEra / 1460) + Math.floor(dayOfEra / 36524) - Math.floor(dayOfEra / 146096)) / 365)
+  const dayOfYear = dayOfEra - (365 * yearOfEra + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100))
+  const shifted = Math.floor((5 * dayOfYear + 2) / 153)
+  const day = dayOfYear - Math.floor((153 * shifted + 2) / 5) + 1
+  const month = shifted < 10 ? shifted + 3 : shifted - 9
+  const year = yearOfEra + era * 400 + (month <= 2 ? 1 : 0)
+  return { year, month, day }
+}
+
+/** Days from 1970-01-01 to a date whose month may be outside 1..12 (a month 13 is the next year's January). */
+export function daysFromCivilLoose(year: number, month: number, day: number): number {
+  const zeroBased = month - 1
+  const carry = Math.floor(zeroBased / 12)
+  return daysFromCivil(year + carry, zeroBased - carry * 12 + 1, 1) + (day - 1)
+}

@@ -1,5 +1,5 @@
 import { Event, Arc } from '@/types'
-import { readDateField, toInstant } from '@althistory/calendar'
+import { compareInstants, readDateField, toInstant } from '@althistory/calendar'
 
 // Form data interface for arc editing
 export interface ArcFormData {
@@ -49,19 +49,16 @@ export function validateArcForm(
   }
 
   if (formData.start_time && formData.end_time) {
-    const startTime = new Date(formData.start_time)
-    const endTime = new Date(formData.end_time)
+    const startTime = toInstant(formData.start_time)
+    const endTime = toInstant(formData.end_time)
 
-    if (startTime >= endTime) {
+    if (compareInstants(startTime, endTime) >= 0) {
       errors.end_time = 'End time must be after start time'
     }
 
-    const startMs = startTime.getTime()
-    const endMs = endTime.getTime()
-
     const eventsOutsideRange = containedEvents.filter(event => {
-      const eventTime = new Date(event.timestamp).getTime()
-      return eventTime < startMs || eventTime > endMs
+      const eventTime = toInstant(event.timestamp)
+      return compareInstants(eventTime, startTime) < 0 || compareInstants(eventTime, endTime) > 0
     })
 
     if (eventsOutsideRange.length > 0) {

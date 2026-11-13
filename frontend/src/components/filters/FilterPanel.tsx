@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router'
 import { HistoricalDateInput } from './HistoricalDateInput'
 import { boundFromUrl, boundToUrl, readDateBound } from './filterUtils'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { worldBoundExamples } from '@althistory/calendar'
+import { compareInstants, worldBoundExamples } from '@althistory/calendar'
 
 export interface FilterState {
   dateRange: {
@@ -178,7 +178,7 @@ export function FilterPanel({
   const endBound = filters.dateRange?.end ? readDateBound(filters.dateRange.end, 'end', worldCalendar) : null
   const examples = worldCalendar ? worldBoundExamples(worldCalendar) : null
   const dateRangeInverted =
-    startBound?.ok === true && endBound?.ok === true && startBound.date.getTime() > endBound.date.getTime()
+    startBound?.ok === true && endBound?.ok === true && compareInstants(startBound.date, endBound.date) > 0
 
   const clearFilters = () => {
     onFiltersChange(DEFAULT_FILTERS)

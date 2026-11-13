@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { toInstant } from '@althistory/calendar'
 import {
   filterEvents,
   filterArcs,
@@ -300,5 +301,43 @@ describe('a date bound from a link that is not a typed bound', () => {
     const store = fromPanelFilters(panel('1870-02-14T09:30', '1870-02-31T00:00'))
     expect((store.dateRange!.start as Date).toISOString()).toBe('1870-02-14T09:30:00.000Z')
     expect(Number.isNaN((store.dateRange!.end as Date).getTime())).toBe(true)
+  })
+})
+
+describe('a date range beyond a Date\'s range', () => {
+  const at = (id: string, timestamp: string): Event => ({
+    id,
+    description: id,
+    actor: 'A',
+    target: 'B',
+    timestamp,
+    created_at: '2024-01-01T00:00:00.000Z',
+    updated_at: '2024-01-01T00:00:00.000Z'
+  })
+  const range = (start: string, end: string): FilterState => ({ ...baseFilters, dateRange: { start: toInstant(start), end: toInstant(end) } })
+
+  it('keeps an event on the bound and drops one a millisecond past it, where a double cannot tell them apart', () => {
+    const on = at('on', '+300000-01-01T00:00:00.000Z')
+    const past = at('past', '+300000-01-01T00:00:00.001Z')
+    const filters = range('-000100-01-01T00:00:00.000Z', '+300000-01-01T00:00:00.000Z')
+    expect(filterEvents([on, past], filters).map(e => e.id)).toEqual(['on'])
+  })
+
+  it('keeps an arc that overlaps the window and drops one that ends a millisecond before it', () => {
+    const arc = (id: string, end: string): Arc => ({
+      id,
+      name: id,
+      description: '',
+      start_time: '+299000-01-01T00:00:00.000Z',
+      end_time: end,
+      level: 0,
+      parent_arc_id: null,
+      created_at: '2024-01-01T00:00:00.000Z',
+      updated_at: '2024-01-01T00:00:00.000Z'
+    })
+    const filters = range('+300000-01-01T00:00:00.000Z', '+301000-01-01T00:00:00.000Z')
+    const touching = arc('touching', '+300000-01-01T00:00:00.000Z')
+    const short = arc('short', '+299999-12-31T23:59:59.999Z')
+    expect(filterArcs([touching, short], filters).map(a => a.id)).toEqual(['touching'])
   })
 })

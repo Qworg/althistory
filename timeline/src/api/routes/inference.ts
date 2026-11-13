@@ -158,7 +158,7 @@ inferenceRoutes.post('/detect-patterns', ...entityPermission('read:events'), asy
     // Use existing inference service to analyze clusters and suggest causal links
     const inferenceService = req.container.inferenceService;
     const pressures = inferenceService.analyzeEventClusters(events, await requestCalendar(req));
-    const causalSuggestions = inferenceService.suggestCausalLinks(events);
+    const causalSuggestions = inferenceService.suggestCausalLinks(events, await requestCalendar(req));
     
     // Confidence lives on the suggested relationship, not on the suggestion wrapper.
     const patterns = {
@@ -692,6 +692,8 @@ interface SerializedEvent {
   actor: string;
   target: string;
   timestamp: string;
+  /** The moment on the axis, a decimal string (deep-time Req 14). */
+  timestamp_ms: string;
   metadata: Record<string, unknown>;
 }
 
@@ -702,6 +704,7 @@ function serializeEvent(event: Event): SerializedEvent {
     actor: event.actor,
     target: event.target,
     timestamp: event.timestamp.toISOString(),
+    timestamp_ms: event.timestampMs,
     metadata: event.metadata ?? {}
   };
 }

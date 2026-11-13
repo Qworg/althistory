@@ -27,7 +27,7 @@
  * commit message for this service was inaccurate.
  */
 
-import { toInstant } from '@althistory/calendar';
+import { toAxisTime } from '@althistory/calendar';
 import { GraphRepository } from '@/repositories/GraphRepository';
 import { EntityChanges } from '@/repositories/VersionRepository';
 import { EntityType } from '@/models/Graph';
@@ -130,9 +130,10 @@ function entityName(type: EntityType, data: Record<string, unknown> | undefined)
 }
 
 function sameInstant(a: unknown, b: unknown): boolean {
-  const ta = toInstant(a as string).getTime();
-  const tb = toInstant(b as string).getTime();
-  return Number.isFinite(ta) && Number.isFinite(tb) ? ta === tb : a === b;
+  // Exactly, on the axis: two moments a second apart past ±285,000 years are two moments.
+  const ta = toAxisTime(a);
+  const tb = toAxisTime(b);
+  return ta !== null && tb !== null ? ta === tb : a === b;
 }
 
 const NOUN: Record<EntityType, string> = {

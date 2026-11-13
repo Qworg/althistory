@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { datePrecisionMetadata, storedCalendarSet, toInstant } from '@althistory/calendar';
+import { MAX_AXIS_MS, MIN_AXIS_MS, datePrecisionMetadata, isoOfAxisTime, storedCalendarSet, toInstant } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
 import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import { IEngine } from './IEngine';
@@ -508,8 +508,8 @@ export class RemoteEngine implements IEngine {
         // meaning ("from this date onwards" / "up to this date").
         // Each read as every date an agent gives is (in a world, its notation
         // too); the daemon's filter takes the instants.
-        params.startTime = filters?.from ? await this.filterBound(graphId, filters.from, 'start') : '-271821-04-20T00:00:00.000Z';
-        params.endTime = filters?.to ? await this.filterBound(graphId, filters.to, 'end') : '+275760-09-13T00:00:00.000Z';
+        params.startTime = filters?.from ? await this.filterBound(graphId, filters.from, 'start') : isoOfAxisTime(MIN_AXIS_MS);
+        params.endTime = filters?.to ? await this.filterBound(graphId, filters.to, 'end') : isoOfAxisTime(MAX_AXIS_MS);
       }
       const events = await this.fetchAll('/api/events', graphId, params);
       return events.map((e) => this.toEventDto(e, graphId));
@@ -1214,8 +1214,8 @@ export class RemoteEngine implements IEngine {
       id: readString(arc.id),
       name: readString(arc.name, 'Untitled arc'),
       description: readString(arc.description),
-      start_time: new Date(readString(arc.start_time)),
-      end_time: new Date(readString(arc.end_time)),
+      start_time: toInstant(readString(arc.start_time)),
+      end_time: toInstant(readString(arc.end_time)),
       level: readNumber(arc.level, 0),
       metadata,
     });

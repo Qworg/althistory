@@ -21,7 +21,10 @@
 
 import {
   type WorldCalendarSet,
+  type AxisTime,
   calendarIn,
+  instantOfAxisTime,
+  isoOfAxisTime,
   parseIsoInstant,
   readWorldInput,
   readWorldTimestamp,
@@ -57,8 +60,9 @@ export interface RequestTime {
   calendar?: string;
 }
 
-function asTime(read: { iso: string; precision: 'day' | 'month' | 'year'; calendar?: string }): RequestTime {
-  const date = new Date(read.iso);
+function asTime(read: { time: AxisTime; precision: 'day' | 'month' | 'year'; calendar?: string }): RequestTime {
+  // A plain Date within a Date's range, an AxisDate (still exact) beyond it.
+  const date = instantOfAxisTime(read.time) ?? new Date(NaN);
   const calendar = read.calendar ? { calendar: read.calendar } : {};
   return read.precision === 'day' ? { date, ...calendar } : { date, precision: read.precision, ...calendar };
 }
@@ -82,7 +86,7 @@ export async function readRequestTime(
       const read = readWorldTimestamp(null, value, edge);
       if (read) return asTime(read);
       // An ISO date whose end is past the last moment a date can hold.
-      throw new ValidationError(`${field}: "${value.trim()}" reaches beyond the range a date can hold`, field, value);
+      throw new ValidationError(`${field}: "${value.trim()}" reaches beyond the range the timeline holds (about 285 million years)`, field, value);
     }
     // A graph that cannot be read has no calendar to read a date with.
     const calendar = await calendarOf().catch(() => undefined);
@@ -108,7 +112,7 @@ function readFields(
   calendar: WorldCalendarSet,
   value: unknown,
   edge: 'start' | 'end'
-): { ok: true; value: { iso: string; precision: 'day' | 'month' | 'year'; calendar: string } } | { ok: false; error: string } {
+): { ok: true; value: { iso: string; time: AxisTime; precision: 'day' | 'month' | 'year'; calendar: string } } | { ok: false; error: string } {
   const read = readWorldInput(calendar, value);
   if (!read.ok) return read;
   let at = read.position;
@@ -116,7 +120,7 @@ function readFields(
     const period = worldPeriod(calendarIn(calendar, read.calendar), read.fields, read.precision);
     if (period) at = period.end;
   }
-  return { ok: true, value: { iso: new Date(at).toISOString(), precision: read.precision, calendar: read.calendar } };
+  return { ok: true, value: { iso: isoOfAxisTime(at), time: at, precision: read.precision, calendar: read.calendar } };
 }
 
 /**
@@ -162,11 +166,11 @@ export function bodyInstant(value: unknown, calendar: WorldCalendarSet | undefin
   // Fields, in a world, as the event routes take them.
   if (calendar && typeof value === 'object' && value !== null && !Array.isArray(value)) {
     const read = readFields(calendar, value, edge);
-    return read.ok ? new Date(read.value.iso) : new Date(NaN);
+    return read.ok ? (instantOfAxisTime(read.value.time) ?? new Date(NaN)) : new Date(NaN);
   }
   if (typeof value !== 'string') return new Date(NaN);
   const read = readWorldTimestamp(calendar, value, edge);
-  return read ? new Date(read.iso) : new Date(NaN);
+  return read ? (instantOfAxisTime(read.time) ?? new Date(NaN)) : new Date(NaN);
 }
 
 /**

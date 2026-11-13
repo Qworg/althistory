@@ -108,6 +108,10 @@ beforeEach(() => {
 })
 
 describe('windowing through the real zoom path', () => {
+  // These render thousand-mark timelines; two seconds alone is five under the
+  // load of the whole suite, which is the default limit.
+  vi.setConfig({ testTimeout: 30_000 })
+
   it('mounts a proportional slice, not a bounded count, at the 20x zoom cap', () => {
     const small = render(<Timeline events={uniformEvents(1000, 4)} arcs={[]} width={800} height={400} />)
     zoomToCap(requireSvg(), MARGIN_LEFT + INNER_WIDTH / 2)

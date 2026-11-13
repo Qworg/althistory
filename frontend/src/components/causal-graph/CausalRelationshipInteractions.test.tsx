@@ -672,6 +672,18 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
       })
     })
 
+    it('orders a pair beyond a Date\'s range by the exact rule, the earlier event as the cause', async () => {
+      // +300000 is past what a Date holds: the pair must not pass as "never an inversion".
+      const deepLate: Event = { ...mockEvents[0]!, id: 'deep-late', description: 'Deep late', timestamp: '+300000-01-01T00:00:00.000Z' }
+      const deepEarly: Event = { ...mockEvents[0]!, id: 'deep-early', description: 'Deep early', timestamp: '+299000-01-01T00:00:00.000Z' }
+      mockGlobalStore.events = [...mockEvents, deepLate, deepEarly]
+      mockGlobalStore.selectedEvents = ['deep-late', 'deep-early']
+      render(<CausalGraphComponent />)
+
+      const drawLink = screen.getByRole('button', { name: 'Draw Link' })
+      expect(drawLink).toHaveAttribute('title', expect.stringContaining('“Deep early” → “Deep late”'))
+    })
+
     it('says why when the selected pair is already linked, and opens nothing', async () => {
       mockGlobalStore.selectedEvents = ['event2', 'event1']
       render(<CausalGraphComponent />)
