@@ -228,4 +228,4 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
   )
 }
 
-export default EventArcAssignment
+export default EventArcAssignment

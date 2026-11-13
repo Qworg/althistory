@@ -424,4 +424,4 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
   }
 }
 
-export default useCausalSuggestions
+export default useCausalSuggestions
