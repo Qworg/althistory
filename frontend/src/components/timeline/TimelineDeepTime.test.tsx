@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { render } from '@testing-library/react'
+import { act, render } from '@testing-library/react'
+import { ActorTimeline, type ActorEventData } from './ActorTimeline'
 import { Timeline } from './Timeline'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import { isoOfAxisTime } from '@althistory/calendar'
@@ -49,6 +50,9 @@ beforeEach(() => {
       return point
     },
   })
+  // d3-zoom's default extent (ActorTimeline sets none) reads the SVG's size, which jsdom leaves undefined.
+  Object.defineProperty(SVGSVGElement.prototype, 'width', { configurable: true, get: () => ({ baseVal: { value: 900 } }) })
+  Object.defineProperty(SVGSVGElement.prototype, 'height', { configurable: true, get: () => ({ baseVal: { value: 400 } }) })
 })
 
 describe('a timeline of a million years', () => {
@@ -130,4 +134,46 @@ describe('a world chronicle of a million years', () => {
     expect(new Set(labels).size).toBe(labels.length)
     expect(labels.every((label) => /AF/.test(label))).toBe(true)
   })
+})
+
+/** A real ctrl-wheel gesture, which d3-zoom turns into a zoom of `2^(-deltaY / 50)`. */
+function wheelZoom(svg: SVGSVGElement, deltaY: number): void {
+  act(() => {
+    svg.dispatchEvent(new WheelEvent('wheel', { deltaY, clientX: 450, clientY: 200, ctrlKey: true, bubbles: true, cancelable: true }))
+  })
+}
+
+const zoomOf = (svg: SVGSVGElement) => (svg as SVGSVGElement & { __zoom: { k: number } }).__zoom.k
+
+describe('zooming out of a history a Date can hold', () => {
+  // 200,000 BCE to 100,000 CE: 300,000 years, and every moment of it a Date can hold.
+  const edges = ['-200000-01-01T00:00:00.000Z', '+100000-01-01T00:00:00.000Z']
+
+  it('keeps every mark and tick finite when a Timeline zooms out to half', () => {
+    const events = [event('a', edges[0]!), event('b', '1066-10-14T09:00:00.000Z'), event('c', edges[1]!)]
+    const { container } = render(<Timeline events={events} arcs={[]} width={900} height={400} />)
+    const svg = container.querySelector('svg') as SVGSVGElement
+    wheelZoom(svg, 50)
+    expect(zoomOf(svg)).toBeCloseTo(0.5, 5)
+    expect(container.innerHTML).not.toContain('NaN')
+    expect(container.innerHTML).not.toContain('Invalid')
+    expect(container.querySelectorAll('[data-event-id]')).toHaveLength(3)
+    expect(axisLabels().length).toBeGreaterThan(2)
+  })
+
+  it('keeps an ActorTimeline finite at its widest zoom, a tenth', () => {
+    const actorEvents: ActorEventData[] = [event('a', '-100000-01-01T00:00:00.000Z'), event('b', '+100000-01-01T00:00:00.000Z')].map((e) => ({
+      ...e,
+      actor: 'Actor',
+      role: 'actor' as const,
+      isHighlighted: false,
+    }))
+    const { container } = render(<ActorTimeline events={actorEvents} arcs={[]} actor="Actor" layoutMode="chronological" width={900} height={400} />)
+    const svg = container.querySelector('svg[role="group"]') as SVGSVGElement
+    wheelZoom(svg, 400)
+    expect(zoomOf(svg)).toBeCloseTo(0.1, 5)
+    expect(container.innerHTML).not.toContain('NaN')
+    expect(container.innerHTML).not.toContain('Invalid')
+    expect(container.querySelectorAll('.actor-event').length).toBe(2)
+  }, 30_000)
 })

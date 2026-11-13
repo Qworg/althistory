@@ -113,3 +113,36 @@ describe('the timeline scale over a million years', () => {
     expect(YEAR).toBeGreaterThan(0)
   })
 })
+
+describe('zooming out of a domain a Date holds, past what a Date holds', () => {
+  const start = toInstant('-200000-01-01T00:00:00Z')
+  const end = toInstant('+100000-01-01T00:00:00Z')
+
+  it('inverts a pixel beyond the Date range to an AxisDate, not an Invalid Date', () => {
+    expect(isDeepInstant(start)).toBe(false)
+    expect(isDeepInstant(end)).toBe(false)
+    for (const utc of [true, false]) {
+      const base = instantScale(utc).domain([start, end]).range([0, 900])
+      // Inside the range it is still d3's Date.
+      expect(base.invert(450)).not.toBeInstanceOf(AxisDate)
+      const far = base.invert(-900)
+      expect(Number.isNaN(+far)).toBe(false)
+      expect(far).toBeInstanceOf(AxisDate)
+      expect(base(far)).toBeCloseTo(-900, 3)
+    }
+  })
+
+  it('zooms out to a view of NaN-free positions and ticks', () => {
+    const base = instantScale().domain([start, end]).range([0, 900])
+    const zoomed = rescaleInstantX(d3.zoomIdentity.translate(250, 0).scale(0.5), base)
+    const [a, b] = zoomed.domain()
+    expect(Number.isNaN(+a) || Number.isNaN(+b)).toBe(false)
+    expect(isDeepInstant(a) || isDeepInstant(b)).toBe(true)
+    expect(Number.isFinite(zoomed(toInstant('1000-01-01T00:00:00Z')))).toBe(true)
+    // The centre of the view is where the centre of the domain was.
+    expect(zoomed(toInstant('-050000-01-01T00:00:00Z'))).toBeCloseTo(base(toInstant('-050000-01-01T00:00:00Z')) / 2 + 250, 3)
+    const ticks = zoomed.ticks(8)
+    expect(ticks.length).toBeGreaterThan(2)
+    expect(ticks.every((tick) => !Number.isNaN(+tick) && Number.isFinite(zoomed(tick)))).toBe(true)
+  })
+})

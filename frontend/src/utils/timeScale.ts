@@ -99,7 +99,12 @@ export function instantScale(utc = false): InstantScale {
   }) as InstantScale['range']
 
   scale.invert = (pixel: number): Date => {
-    if (!deep()) return d3Scale().invert(pixel)
+    if (!deep()) {
+      const inside = d3Scale().invert(pixel)
+      // d3 makes an Invalid Date for a pixel past a Date's range (a view zoomed out beyond the domain);
+      // the exact arithmetic below turns that into an AxisDate.
+      if (!Number.isNaN(inside.getTime())) return inside
+    }
     const a0 = axisOf(d0) ?? 0n
     const a1 = axisOf(d1) ?? 0n
     const fraction = r1 === r0 ? 0 : (pixel - r0) / (r1 - r0)
