@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DirectEngine } from './engine/DirectEngine';
 import { McpServer } from './mcp/McpServer';
 import { MCP_TOOLS } from './mcp/toolDefinitions';
+import { formatDateEntry } from '@althistory/calendar';
 import { runCLI } from './index';
 import { ExitCode } from './utils/exitCodes';
 
@@ -245,6 +246,22 @@ describe('CLI Phase 6: Model Context Protocol (MCP) Server & Tooling', () => {
       const response = JSON.parse(responseStr!);
       expect(response.result.isError).toBe(true);
       expect(response.result.content[0].text).toContain('Unknown tool: nonexistent_tool');
+    });
+  });
+
+  describe('epochYear in the tool schemas', () => {
+    it('gives an example of a BCE epoch that names the year it says (stored years are astronomical)', () => {
+      const described = MCP_TOOLS.flatMap((tool) => {
+        const props = (tool.inputSchema as { properties?: Record<string, { description?: string }> }).properties ?? {};
+        return props.epochYear ? [props.epochYear.description ?? ''] : [];
+      });
+      expect(described.length).toBeGreaterThan(0);
+      // Year -199999 is 200,000 BCE (0 is 1 BCE), so that is what the text must say.
+      expect(formatDateEntry('-199999-01-01T00:00:00.000Z', 'year', null, 'start')).toBe('200000 BCE');
+      for (const text of described) {
+        expect(text).toContain('-199999 for 200,000 BCE');
+        expect(text).not.toContain('-200000 for');
+      }
     });
   });
 

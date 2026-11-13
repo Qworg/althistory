@@ -55,7 +55,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         epochYear: {
           type: 'number',
-          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000, or -200000 for 200,000 BCE). Any year the timeline holds, about 285 million either way. The world's year N is then stored as year N + epochYear - 1.",
+          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000, or -199999 for 200,000 BCE: years are astronomical, so 0 is 1 BCE). Any year the timeline holds, about 285 million either way. The world's year N is then stored as year N + epochYear - 1.",
         },
         eraLabel: {
           type: 'string',
@@ -94,7 +94,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         epochYear: {
           type: 'number',
-          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000, or -200000 for 200,000 BCE). Any year the timeline holds, about 285 million either way. The world's year N is then stored as year N + epochYear - 1.",
+          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000, or -199999 for 200,000 BCE: years are astronomical, so 0 is 1 BCE). Any year the timeline holds, about 285 million either way. The world's year N is then stored as year N + epochYear - 1.",
         },
         eraLabel: {
           type: 'string',
@@ -315,7 +315,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         epochYear: {
           type: 'number',
-          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000, or -200000 for 200,000 BCE). Any year the timeline holds, about 285 million either way. The world's year N is then stored as year N + epochYear - 1.",
+          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000, or -199999 for 200,000 BCE: years are astronomical, so 0 is 1 BCE). Any year the timeline holds, about 285 million either way. The world's year N is then stored as year N + epochYear - 1.",
         },
         eraLabel: {
           type: 'string',

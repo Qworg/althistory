@@ -39,7 +39,10 @@ const compare = (a: number[], b: number[]) => {
 const anywhere = fc.tuple(warb.calendarSet, arb.axisTime)
 
 describe('a world over the whole axis (Req 8)', () => {
-  it('names every position, and the first position of its second reads back the same, at any distance from 1970', () => {
+  // Four properties of a thousand runs, not one of four thousand: a single
+  // synchronous property longer than the worker's RPC timeout (a slow runner,
+  // or FC_SCALE) reports "Timeout calling onTaskUpdate" whatever the result.
+  it.each([1, 2, 3, 4])('names every position, and the first position of its second reads back the same, at any distance from 1970 (part %i of 4)', () => {
     fc.assert(
       fc.property(anywhere, ([set, t]) => {
         const calendar = calendarIn(set)
@@ -52,7 +55,7 @@ describe('a world over the whole axis (Req 8)', () => {
         expect(dateAt(calendar, start!)).toEqual(d)
         if (start! - 1n >= MIN_AXIS_MS) expect(compare(tuple(dateAt(calendar, start! - 1n)), tuple(d))).toBeLessThan(0)
       }),
-      arb.runs(4000)
+      arb.runs(1000)
     )
   })
 
