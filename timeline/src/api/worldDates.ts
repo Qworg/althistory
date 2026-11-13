@@ -15,7 +15,8 @@
  *   Text that is neither is refused, never read as a Gregorian date.
  * - In a graph without, year-first text too ("312", "44 BCE", "1843-11-20
  *   9:30"), as every door reads it; text that starts with a digit and is not
- *   that is refused. Prose is read as the API always read it.
+ *   that is refused, as is prose ("January 1, 2023"): no text is read in
+ *   the server's zone.
  */
 
 import {
@@ -87,12 +88,10 @@ export async function readRequestTime(
     const calendar = await calendarOf().catch(() => undefined);
     const read = readWorldTimestamp(calendar, value, edge);
     if (read) return asTime(read);
-    if (calendar) throw new ValidationError(`${field}: ${unreadDateReason(calendar, value)}`, field, value);
-    // No world: text that starts as a year does is read only by the one rule
-    // (never in the server's zone, as "312-03-04 14:30" or "0" would be).
-    if (/^[+-]?\d/.test(value.trim())) throw new ValidationError(`${field}: ${unreadDateReason(null, value)}`, field, value);
-    // Other text (prose), read as the API always read it.
-    return { date: toInstant(value) };
+    // Text the one rule cannot read is refused, saying why, in any graph:
+    // never guessed at in the server's zone ("312-03-04 14:30", "0", "January
+    // 1, 2023").
+    throw new ValidationError(`${field}: ${unreadDateReason(calendar, value)}`, field, value);
   }
   if (typeof value === 'object' && value !== null) {
     const calendar = await calendarOf().catch(() => undefined);
@@ -142,11 +141,11 @@ export function newDateMetadata(
  * A time a query or a range filter gives (`?startTime=`, `timeRange.start`):
  * ISO 8601, as the docs say, read in UTC. Text that starts with a digit and is
  * not ISO 8601 ("312", "0") names no instant here (an Invalid Date, which the
- * routes refuse), rather than one in the server's zone. Other text is read
- * as these routes always read it.
+ * routes refuse), rather than one in the server's zone; nor does prose
+ * ("January 1, 2023").
  */
 export function queryInstant(value: unknown): Date {
-  if (typeof value === 'string' && /^[+-]?\d/.test(value.trim()) && !parseIsoInstant(value.trim())) return new Date(NaN);
+  if (typeof value === 'string' && !parseIsoInstant(value.trim())) return new Date(NaN);
   return toInstant(value as string);
 }
 
@@ -154,8 +153,7 @@ export function queryInstant(value: unknown): Date {
  * A date a request body gives for checking rather than storing (the
  * validation and suggestion routes, a copy's time range), read by the rule
  * every door applies with the graph's calendars: the instant it names, or an
- * Invalid Date when it names none. Without a world, prose is read as the API
- * always read it.
+ * Invalid Date when it names none (prose among it).
  */
 export function bodyInstant(value: unknown, calendar: WorldCalendarSet | undefined, edge: 'start' | 'end' = 'start'): Date {
   if (value instanceof Date) return value;
@@ -168,9 +166,7 @@ export function bodyInstant(value: unknown, calendar: WorldCalendarSet | undefin
   }
   if (typeof value !== 'string') return new Date(NaN);
   const read = readWorldTimestamp(calendar, value, edge);
-  if (read) return new Date(read.iso);
-  if (calendar || /^[+-]?\d/.test(value.trim())) return new Date(NaN);
-  return toInstant(value);
+  return read ? new Date(read.iso) : new Date(NaN);
 }
 
 /**

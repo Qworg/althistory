@@ -126,3 +126,12 @@ describe('a date a body gives for checking', () => {
     expect(withReadDates([{ id: 'e', timestamp: '0' }], undefined, [['timestamp', 'start']])[0]!.timestamp).toBe('0');
   });
 });
+
+describe('prose', () => {
+  it('is refused at every API reader, never read in the server\'s zone', async () => {
+    await expect(readRequestTime('January 1, 2023', 'timestamp', async () => undefined)).rejects.toThrow(/is not a date/);
+    expect(Number.isNaN(bodyInstant('January 1, 2023', undefined).getTime())).toBe(true);
+    expect(Number.isNaN(queryInstant('January 1, 2023').getTime())).toBe(true);
+    expect(Number.isNaN(queryInstant('Tue, 01 Jan 2020 00:00:00 GMT').getTime())).toBe(true);
+  });
+});

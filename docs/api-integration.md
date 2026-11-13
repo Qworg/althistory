@@ -183,10 +183,10 @@ new graph would, with the document's own.
 A date that does not exist (`2019-02-31`, `1870-13-01`) is refused. In a graph
 without world calendars, year-first text is read as the app's forms and the
 CLI read it (`312`, `44 BCE`, `1843-11-20 9:30`, in UTC), at the precision it
-states, and text that starts with a digit but is no such date (`0`) is refused;
-other text (`January 1, 2023`)
-is still read as JavaScript reads it, in the server's zone, so that data and
-clients written before keep working; do not rely on it. Responses always
+states. Other text is refused with the reason, whether it starts with a digit
+(`0`) or is prose (`January 1, 2023`): no date a request gives is read in the
+server's zone. (An import still reads prose a graph stored before, so an old
+export imports.) Responses always
 write dates as `toISOString` does (`1843-11-20T14:30:00.000Z`).
 
 **In a graph with world calendars** ([the spec](specs/world-calendars.md)),

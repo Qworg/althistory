@@ -134,8 +134,9 @@ In a graph without a world, year-first text is read too ("312", "44 BCE",
 "1871-03-04 14:30", "44-03-15 BCE 9:30"), in UTC at the precision it
 states, by every door that takes text alike: the app's event form, the API,
 the CLI, the tools, the generator, the review step and the importers (which read a document's
-dates with the calendars of the graph it goes into). Text that starts with a
-digit and is not such a date is refused, never read in the server's zone.
+dates with the calendars of the graph it goes into). Other text is refused,
+prose included, never read in the server's zone; only an import still reads
+prose a graph stored before.
 
 **Req 17. Axis.** A timeline in a world calendar puts its ticks on that
 calendar's round units: years in steps of 1, 2 or 5 × 10ⁿ, months, days and
