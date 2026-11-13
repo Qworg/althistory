@@ -73,6 +73,8 @@ export class LiveFeedClient {
   private status: LiveFeedStatus = 'off'
   private graphId: string | null = null
   private running = false
+  /** Counts starts, so a connection attempt that began before a stop and restart knows it is stale. */
+  private run = 0
   /** A connection attempt (token request or handshake) is under way. */
   private connecting = false
   private attempt = 0
@@ -100,6 +102,7 @@ export class LiveFeedClient {
   start(): void {
     if (this.running) return
     this.running = true
+    this.run += 1
     this.attempt = 0
     this.connectIfPossible()
   }
@@ -162,13 +165,16 @@ export class LiveFeedClient {
 
   private async connect(graphId: string): Promise<void> {
     this.connecting = true
+    const run = this.run
+    // Stopped, or stopped and started again, while a token was being fetched.
+    const stale = (): boolean => !this.running || run !== this.run
     this.setStatus(this.hasBeenLive || this.attempt > 0 ? 'reconnecting' : 'connecting')
     let token: StreamTokenResponse
     try {
       token = await this.options.getToken(graphId)
     } catch (error) {
+      if (stale()) return
       this.connecting = false
-      if (!this.running) return
       const status = (error as { status?: number }).status
       if (status === 401 || status === 403 || status === 404 || status === 400) {
         // The key is missing, refused, or cannot read this graph: retrying only repeats it.
@@ -178,10 +184,7 @@ export class LiveFeedClient {
       this.scheduleReconnect(error instanceof Error ? error.message : undefined)
       return
     }
-    if (!this.running) {
-      this.connecting = false
-      return
-    }
+    if (stale()) return
 
     let socket: FeedSocket
     try {

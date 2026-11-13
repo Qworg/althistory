@@ -130,14 +130,14 @@ export type ReplayResult =
 export interface ChangeFeedOptions {
   /** How many messages one graph keeps for catch-up. Defaults to 500. */
   bufferSize?: number;
-  /** How many graphs keep a ring; the least recently changed is dropped. Defaults to 500. */
+  /** How many graphs keep a ring; the least recently changed is dropped. Defaults to 100. */
   maxGraphs?: number;
   logger?: ILogger;
   now?: () => Date;
 }
 
 export const DEFAULT_FEED_BUFFER_SIZE = 500;
-export const DEFAULT_FEED_MAX_GRAPHS = 500;
+export const DEFAULT_FEED_MAX_GRAPHS = 100;
 
 interface Ring {
   records: ChangeRecord[];

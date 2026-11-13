@@ -151,6 +151,29 @@ describe('LiveFeedClient', () => {
       expect(h.getToken).toHaveBeenCalledTimes(1)
     })
 
+    it('opens one socket when it is stopped and started again while a token is still being fetched', async () => {
+      let release!: (value: StreamTokenResponse) => void
+      const getToken = vi.fn(
+        () =>
+          new Promise<StreamTokenResponse>((resolve) => {
+            release = resolve
+          })
+      )
+      const h = harness({ getToken })
+      h.client.setGraph('g1')
+      h.client.start()
+      await vi.advanceTimersByTimeAsync(0)
+      const firstRelease = release
+      h.client.stop()
+      h.client.start()
+      await vi.advanceTimersByTimeAsync(0)
+      // The first request answers late; the second answers too.
+      firstRelease(token('late'))
+      release(token('current'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(FakeSocket.all.map((socket) => socket.url)).toEqual(['ws://test/api/ws/stream?token=current'])
+    })
+
     it('stops and says so when the key may not read: retrying would only repeat it', async () => {
       const getToken = vi.fn(async () => {
         throw Object.assign(new Error('Missing required permissions: read:events'), { status: 403 })

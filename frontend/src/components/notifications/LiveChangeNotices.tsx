@@ -6,8 +6,9 @@ import { useLiveChangesStore } from '@/stores/liveChangesStore'
  * (`describeChanges`) and only for changes other writers made; your own edits
  * are not announced to you.
  *
- * Bottom left: the notification center holds the bottom right, and a notice up
- * top covers the graph selector. On a phone it sits above the bottom bar.
+ * Bottom centre: the notification center holds the bottom right, the sidebar's
+ * footer the bottom left, and a notice up top covers the graph selector. On a
+ * phone it sits above the bottom bar.
  */
 export function LiveChangeNotices() {
   const notices = useLiveChangesStore((state) => state.notices)
@@ -19,7 +20,7 @@ export function LiveChangeNotices() {
     <div
       aria-live="polite"
       aria-label="Live changes"
-      className="pointer-events-none fixed bottom-4 left-4 z-40 flex w-full max-w-md flex-col gap-2 max-lg:inset-x-4 max-lg:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] max-lg:w-auto"
+      className="pointer-events-none fixed bottom-4 left-1/2 z-40 flex w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-2 max-lg:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))]"
     >
       {notices.map((notice) => (
         <div

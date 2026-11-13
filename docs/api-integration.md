@@ -125,8 +125,9 @@ for any other, whatever its permissions.
 Four groups are predefined: `readOnly`, `readWrite`, `full` and `admin`. You
 may also pass an explicit list. `generate` is in `full` and `admin`, not in
 `readWrite`: a key made from `readWrite` can still generate through its writes,
-but it is the `generate` permission that says a key may spend the app's model
-key and nothing else.
+but it is the `generate` permission that says a key may start jobs that spend the
+app's model key. Those jobs write graphs, events, arcs and links, so give it as you
+would a write permission.
 
 ## Scoping to a graph
 
