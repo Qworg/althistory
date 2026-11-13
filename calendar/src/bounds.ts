@@ -175,6 +175,32 @@ export function formatBoundAt(value: Date, precision: DatePrecision): string {
 }
 
 /** How much of a date a canonical bound names: `1843` a year, `1843-11` a month, `1843-11-20` a day. */
+/** A time after a year-first date: "1843-11-20 14:30", "44-03-15 BCE 9:30". */
+const TIME_SUFFIX = /^(.+?)(?:[ T](\d{1,2}):(\d{2}))$/
+
+/**
+ * Year-first text without a world (Req 16): a year, a month or a day, BCE
+ * before 1 CE ("1843-11", "44 BCE"), and after a whole date a time in UTC
+ * ("1843-11-20 9:30"). As an end, a date without a time is its last moment.
+ */
+export function readHistoricalText(
+  text: string,
+  edge: DateBoundEdge
+): { ok: true; iso: string; precision: DatePrecision } | { ok: false; error: string } {
+  const trimmed = String(text).trim()
+  const timed = TIME_SUFFIX.exec(trimmed)
+  const parsed = parseHistoricalDate(timed ? timed[1]! : trimmed, timed ? 'start' : edge)
+  if (!parsed.ok) return { ok: false, error: parsed.error }
+  if (!timed) return { ok: true, iso: parsed.date.toISOString(), precision: boundPrecision(parsed.text) }
+  if (boundPrecision(parsed.text) !== 'day') return { ok: false, error: 'A time needs a whole date: 1843-11-20 14:30.' }
+  const hours = Number(timed[2])
+  const minutes = Number(timed[3])
+  if (hours > 23 || minutes > 59) return { ok: false, error: 'The time must be 00:00 to 23:59, in UTC.' }
+  const date = new Date(parsed.date.getTime())
+  date.setUTCHours(hours, minutes, 0, 0)
+  return { ok: true, iso: date.toISOString(), precision: 'day' }
+}
+
 export function boundPrecision(text: string): DatePrecision {
   const parts = text.replace(/ BCE$/, '').split('-').length
   return parts === 1 ? 'year' : parts === 2 ? 'month' : 'day'

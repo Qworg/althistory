@@ -34,12 +34,11 @@ import {
   calendarSetFromInput,
   calendarSetInstructions,
   dateAt,
+  datePrecisionMetadata,
   formatInWorld,
   formatWorldYearOf,
   unreadDateReason,
   isCalendarSet,
-  legacyCalendarSet,
-  normalizeCalendar,
   parseIsoInstant,
   positionOf,
   readWorldTimestamp,
@@ -57,6 +56,20 @@ interface IntermediateEvent {
   actor: string;
   target: string;
   importance: number;
+  /** A month or a year the model gave, rather than a day (Req 16). */
+  datePrecision?: 'day' | 'month' | 'year';
+  /** The world calendar that month or year was given in. */
+  dateCalendar?: string;
+}
+
+/** The metadata an event's date records: a month's or a year's precision, and its calendar. */
+function dateMetadataOf(event: IntermediateEvent): Record<string, unknown> {
+  return datePrecisionMetadata({ precision: event.datePrecision ?? 'day', calendar: event.dateCalendar });
+}
+
+/** The length of a day on the plan's timeline: the world's, or 24 hours. */
+function dayMsOf(calendar: WorldCalendarSet | undefined): number {
+  return calendar ? calendarIn(calendar).dayMs : MS_PER_DAY;
 }
 
 interface IntermediateCausalLink {
@@ -307,7 +320,7 @@ export class TimelineGenerator {
           actor: e.actor,
           target: e.target,
           importance: e.importance,
-          metadata: { importance: e.importance, ...(arcId ? { arcId } : {}) },
+          metadata: { ...dateMetadataOf(e), importance: e.importance, ...(arcId ? { arcId } : {}) },
         };
       });
       const arcDtos: ArcDto[] = structuredArcs.map((a, idx) => ({
@@ -412,7 +425,7 @@ export class TimelineGenerator {
         timestamp: toInstant(e.timestamp),
         actor: e.actor,
         target: e.target,
-        metadata: { importance: e.importance, ...(arcIdOf(e.timestamp) ? { arcId: arcIdOf(e.timestamp) } : {}) },
+        metadata: { ...dateMetadataOf(e), importance: e.importance, ...(arcIdOf(e.timestamp) ? { arcId: arcIdOf(e.timestamp) } : {}) },
       });
       try {
         await container.graphWriteVersioningService.recordEvent(graphId, created, 'create');
@@ -632,7 +645,7 @@ export class TimelineGenerator {
       subject: options.counterfactualPrompt,
       divergencePoint: pivotEvent.description,
       calendar: sourceGraph.calendar,
-      startMs: pivotTimeMs + MS_PER_DAY,
+      startMs: pivotTimeMs + dayMsOf(sourceGraph.calendar),
       endMs: pivotTimeMs + stepMs * eventCount,
     };
 
@@ -641,7 +654,7 @@ export class TimelineGenerator {
       divergentTimelineOptions,
       branchPlan,
       eventCount,
-      pivotTimeMs + MS_PER_DAY,
+      branchPlan.startMs,
       stepMs
     );
     const times = intermediateEvents.map((e) => parseInstant(e.timestamp));
@@ -665,7 +678,7 @@ export class TimelineGenerator {
         actor: e.actor,
         target: e.target,
         importance: e.importance,
-        metadata: { importance: e.importance, arcId },
+        metadata: { ...dateMetadataOf(e), importance: e.importance, arcId },
       }));
       const chain: IntermediateCausalLink[] = intermediateEvents.slice(1).map((_, idx) => ({
         causeIndex: idx,
@@ -798,7 +811,7 @@ export class TimelineGenerator {
         timestamp: toInstant(e.timestamp),
         actor: e.actor,
         target: e.target,
-        metadata: { importance: e.importance, arcId: arc.id },
+        metadata: { ...dateMetadataOf(e), importance: e.importance, arcId: arc.id },
       });
       try {
         await container.graphWriteVersioningService.recordEvent(branchedGraphId, created, 'create');
@@ -1048,7 +1061,7 @@ export class TimelineGenerator {
         timestamp: toInstant(e.timestamp),
         actor: e.actor,
         target: e.target,
-        metadata: { importance: e.importance, arcId: createdArc.id },
+        metadata: { ...dateMetadataOf(e), importance: e.importance, arcId: createdArc.id },
       });
       try {
         await container.graphWriteVersioningService.recordEvent(options.graphId, created, 'create');
@@ -1186,7 +1199,7 @@ export class TimelineGenerator {
         timestamp: toInstant(e.timestamp),
         actor: e.actor,
         target: e.target,
-        metadata: { importance: e.importance },
+        metadata: { ...dateMetadataOf(e), importance: e.importance },
       });
       domainSimEvents.push(created);
       createdEvents.push({
@@ -1261,12 +1274,18 @@ export class TimelineGenerator {
     let startParsed = parseInstant(options.startDate);
     let endParsed = parseInstant(options.endDate);
     // An invented world's dates may be written in its own notation; they are
-    // read once its calendar is settled, below.
-    if (!world && options.startDate && Number.isNaN(startParsed)) {
-      throw new ValidationErrorCLI(`Invalid start date "${options.startDate}": expected an ISO-8601 date`);
-    }
-    if (!world && options.endDate && Number.isNaN(endParsed)) {
-      throw new ValidationErrorCLI(`Invalid end date "${options.endDate}": expected an ISO-8601 date`);
+    // read once its calendar is settled, below. Without one, by the rule every
+    // door applies: ISO 8601 or a year first ("312", "44 BCE"), an end
+    // meaning the last moment of the day, month or year it names.
+    if (!world) {
+      const plainDate = (text: string | undefined, edge: 'start' | 'end'): number => {
+        if (!text) return NaN;
+        const read = readWorldTimestamp(null, text, edge);
+        if (!read) throw new ValidationErrorCLI(`Invalid ${edge} date: ${unreadDateReason(null, text)}`);
+        return Date.parse(read.iso);
+      };
+      startParsed = plainDate(options.startDate, 'start');
+      endParsed = plainDate(options.endDate, 'end');
     }
 
     if (world) {
@@ -1283,9 +1302,8 @@ export class TimelineGenerator {
         if (isCalendarSet(options.calendar)) calendar = calendarSetFromInput(options.calendar);
         else {
           const simple = (options.calendar ?? {}) as { epochYear?: number };
-          calendar = legacyCalendarSet(
-            normalizeCalendar({ ...simple, epochYear: simple.epochYear ?? startYear ?? WORLD_DEFAULT_EPOCH_YEAR })
-          );
+          // Checked as a new graph's calendar is, before any model is asked.
+          calendar = calendarSetFromInput({ ...simple, epochYear: simple.epochYear ?? startYear ?? WORLD_DEFAULT_EPOCH_YEAR });
         }
       } catch (err) {
         throw new ValidationErrorCLI((err as Error).message);
@@ -1395,6 +1413,8 @@ Generate ${eventCount} chronological historical events demonstrating this counte
             actor: e.actor || (isWorld ? 'Unnamed Realm' : 'Divergent Government'),
             target: e.target || (isWorld ? 'Unnamed People' : 'Opposing Power'),
             importance: Math.max(0.4, 1.0 - idx * 0.05),
+            ...(e.datePrecision ? { datePrecision: e.datePrecision } : {}),
+            ...(e.dateCalendar ? { dateCalendar: e.dateCalendar } : {}),
           }));
           return { events, source: 'model' };
         }
@@ -1495,6 +1515,7 @@ Generate ${eventCount} chronological events of this world's history, from its fo
     stepMs: number
   ): IntermediateEvent[] {
     const world = clip(plan.subject, 50);
+    const dayMs = dayMsOf(plan.calendar);
     const events: IntermediateEvent[] = [];
     for (let i = 0; i < eventCount; i++) {
       const milestone = WORLD_MILESTONES[i % WORLD_MILESTONES.length];
@@ -1505,8 +1526,8 @@ Generate ${eventCount} chronological events of this world's history, from its fo
               ? `The chronicle turns: ${plan.subject}`
               : `The founding of the world: ${plan.subject}`
             : WORLD_STYLE_RENDERERS[style](milestone, world),
-        // At midnight: a template date is a day, and an hour would show as one.
-        timestamp: new Date(Math.floor((startMs + stepMs * i) / MS_PER_DAY) * MS_PER_DAY).toISOString(),
+        // At the start of a day (the world's): a template date is a day, and an hour would show as one.
+        timestamp: new Date(Math.floor((startMs + stepMs * i) / dayMs) * dayMs).toISOString(),
         actor: i % 2 === 0 ? 'Founding People' : 'Rival Realm',
         target: i % 2 === 0 ? 'Rival Realm' : 'Founding People',
         importance: i === 0 ? 1.0 : Math.max(0.5, 0.9 - i * 0.05),

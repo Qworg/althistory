@@ -105,3 +105,23 @@ describe('a world with two calendars', () => {
     expect(readWorldInput(world, { year: 1, month: 'Thaw', hour: 3 })).toEqual({ ok: false, error: 'a time needs a day' })
   })
 })
+
+describe('a year counted past the next era', () => {
+  const ages: WorldCalendarSet = {
+    version: 2,
+    dayLength: 86_400,
+    primary: 'ages',
+    calendars: [{ id: 'ages', name: 'the Count of Ages', parts: [{ name: 'Thaw', days: 30 }], epoch: 0, eras: [{ label: 'FA', from: 1 }, { label: 'SA', from: 900 }] }],
+  }
+
+  it('is refused as fields as it is as text, saying which era holds it', () => {
+    const text = parseWorldText(ages, 'Thaw 1, 1200 FA')
+    const fields = readWorldInput(ages, { era: 'FA', year: 1200, month: 'Thaw', day: 1 })
+    expect(text.ok).toBe(false)
+    expect(fields).toEqual(text)
+    expect(fields).toMatchObject({ error: 'the Count of Ages counts FA only to 899; later years are SA' })
+    // The last year of the First Age, and the same year given in the Second.
+    expect(readWorldInput(ages, { era: 'FA', year: 899 })).toMatchObject({ ok: true })
+    expect(readWorldInput(ages, { era: 'SA', year: 301, month: 'Thaw', day: 1 })).toMatchObject({ ok: true })
+  })
+})

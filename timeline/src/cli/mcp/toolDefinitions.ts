@@ -336,11 +336,11 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         startDate: {
           type: 'string',
-          description: "Where the timeline starts: ISO 8601, or for an invented world a date in its calendar (\"Thaw 1, 300 AR\")",
+          description: "Where the timeline starts: ISO 8601 (or year first for an alternate history: \"44 BCE\"), or for an invented world a date in its calendar (\"Thaw 1, 300 AR\")",
         },
         endDate: {
           type: 'string',
-          description: "Where the timeline ends: ISO 8601, or for an invented world a date in its calendar, its last moment (an invented world defaults to 300 years after the start)",
+          description: "Where the timeline ends, the last moment of the day, month or year it names: ISO 8601 (or year first for an alternate history), or for an invented world a date in its calendar (an invented world defaults to 300 years after the start)",
         },
         eventCount: {
           type: 'number',

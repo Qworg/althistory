@@ -13,7 +13,9 @@
  *   4, 312 AR", "Thaw 312 AR") or given as fields ({ calendar, era, year,
  *   month, day, hour, minute, second }), its precision and calendar recorded.
  *   Text that is neither is refused, never read as a Gregorian date.
- * - In a graph without, other text is read as the API always read it.
+ * - In a graph without, year-first text too ("312", "44 BCE", "1843-11-20
+ *   9:30"), as every door reads it; text that starts with a digit and is not
+ *   that is refused. Prose is read as the API always read it.
  */
 
 import {
@@ -86,7 +88,10 @@ export async function readRequestTime(
     const read = readWorldTimestamp(calendar, value, edge);
     if (read) return asTime(read);
     if (calendar) throw new ValidationError(`${field}: ${unreadDateReason(calendar, value)}`, field, value);
-    // No world: text that is not ISO 8601, read as the API always read it.
+    // No world: text that starts as a year does is read only by the one rule
+    // (never in the server's zone, as "312-03-04 14:30" or "0" would be).
+    if (/^[+-]?\d/.test(value.trim())) throw new ValidationError(`${field}: ${unreadDateReason(null, value)}`, field, value);
+    // Other text (prose), read as the API always read it.
     return { date: toInstant(value) };
   }
   if (typeof value === 'object' && value !== null) {

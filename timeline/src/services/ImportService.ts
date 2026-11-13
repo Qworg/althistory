@@ -16,7 +16,15 @@
  */
 
 import { GraphRepository } from '../repositories/GraphRepository';
-import { adoptableCalendarSet, readTimestamp, storedCalendarSet, toInstant } from '@althistory/calendar';
+import {
+  type WorldCalendarSet,
+  adoptableCalendarSet,
+  datePrecisionMetadata,
+  storedCalendarSet,
+  toInstant,
+  unreadDateReason,
+} from '@althistory/calendar';
+import { readImportedTime } from '@/utils/importedTime';
 import { JobRepository } from '../repositories/JobRepository';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 import {
@@ -502,7 +510,11 @@ export class ImportService {
   /**
    * Validate import data format and structure
    */
-  async validateFormat(data: unknown): Promise<ImportValidationResult> {
+  /**
+   * @param calendar The calendars the document's dates are read with: those
+   * of the graph it goes into. Left out, the document's own (a new graph's).
+   */
+  async validateFormat(data: unknown, calendar?: WorldCalendarSet | null): Promise<ImportValidationResult> {
     const errors: ImportError[] = [];
     const warnings: ImportWarning[] = [];
 
@@ -566,11 +578,12 @@ export class ImportService {
 
     // Validate events. An invented world's timeline has no "now": its dates
     // are positions, which can lie anywhere, so none is "in the future".
-    const world = Boolean(storedCalendarSet((metadata as { calendar?: unknown } | undefined)?.calendar));
+    const world =
+      calendar !== undefined ? calendar ?? undefined : readableCalendar((metadata as { calendar?: unknown } | undefined)?.calendar);
     this.validateEvents(exportData.events, errors, warnings, world);
 
     // Validate arcs
-    this.validateArcs(exportData.arcs, errors, warnings);
+    this.validateArcs(exportData.arcs, errors, warnings, world);
 
     // Validate relationships
     this.validateRelationships(exportData.causalRelationships, exportData.events, errors, warnings);
@@ -791,7 +804,7 @@ export class ImportService {
     events: unknown,
     errors: ImportError[],
     warnings: ImportWarning[],
-    world = false
+    world?: WorldCalendarSet
   ): void {
     if (!Array.isArray(events)) {
       errors.push({
@@ -865,14 +878,14 @@ export class ImportService {
           message: 'Event timestamp is required',
           code: 'MISSING_FIELD',
         });
-      } else if (isNaN(toInstant(e.timestamp).getTime())) {
+      } else if (!readImportedTime(e.timestamp, world, 'start')) {
         errors.push({
           path: `${path}.timestamp`,
-          message: 'Event timestamp must be a valid ISO date string',
+          message: `Event timestamp: ${unreadDateReason(world, e.timestamp)}`,
           code: 'INVALID_VALUE',
         });
       } else {
-        const date = toInstant(e.timestamp);
+        const date = new Date(readImportedTime(e.timestamp, world, 'start')!.iso);
         if (!world && date > new Date()) {
           warnings.push({
             path: `${path}.timestamp`,
@@ -899,7 +912,8 @@ export class ImportService {
   private validateArcs(
     arcs: unknown,
     errors: ImportError[],
-    warnings: ImportWarning[]
+    warnings: ImportWarning[],
+    world?: WorldCalendarSet
   ): void {
     if (!Array.isArray(arcs)) {
       errors.push({
@@ -997,10 +1011,10 @@ export class ImportService {
           message: 'Arc start_time is required',
           code: 'MISSING_FIELD',
         });
-      } else if (isNaN(toInstant(a.start_time).getTime())) {
+      } else if (!readImportedTime(a.start_time, world, 'start')) {
         errors.push({
           path: `${path}.start_time`,
-          message: 'Arc start_time must be a valid ISO date string',
+          message: `Arc start_time: ${unreadDateReason(world, a.start_time)}`,
           code: 'INVALID_VALUE',
         });
       }
@@ -1011,18 +1025,18 @@ export class ImportService {
           message: 'Arc end_time is required',
           code: 'MISSING_FIELD',
         });
-      } else if (isNaN(toInstant(a.end_time).getTime())) {
+      } else if (!readImportedTime(a.end_time, world, 'end')) {
         errors.push({
           path: `${path}.end_time`,
-          message: 'Arc end_time must be a valid ISO date string',
+          message: `Arc end_time: ${unreadDateReason(world, a.end_time)}`,
           code: 'INVALID_VALUE',
         });
       }
 
       // Validate temporal consistency
       if (a.start_time && a.end_time) {
-        const start = toInstant(a.start_time);
-        const end = toInstant(a.end_time);
+        const start = new Date(readImportedTime(a.start_time, world, 'start')?.iso ?? NaN);
+        const end = new Date(readImportedTime(a.end_time, world, 'end')?.iso ?? NaN);
         if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start > end) {
           errors.push({
             path: `${path}`,
@@ -2196,6 +2210,16 @@ export class ImportService {
    * FIX #7: Real progress tracking
    * FIX B#6: Check cancellation flag during execution
    */
+  /** The calendars a document's dates are read with: the target graph's, or the document's for a new graph. */
+  private async targetCalendar(importData: AlthistoryExport, options: ImportOptions): Promise<WorldCalendarSet | undefined> {
+    if (options.mode === 'create-new' || !options.graphId) return readableCalendar(importData.metadata?.calendar);
+    try {
+      return storedCalendarSet((await this.graphRepository.findById(options.graphId))?.calendar) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private async executeImportInternal(
     importData: AlthistoryExport,
     options: ImportOptions,
@@ -2226,7 +2250,9 @@ export class ImportService {
 
     // Validate first (10% progress)
     await this.updateJobProgress(jobId, 5, 'Validating format...');
-    const validation = await this.validateFormat(importData);
+    // Dates are read with the calendars of the graph they go into.
+    const calendar = await this.targetCalendar(importData, options);
+    const validation = await this.validateFormat(importData, calendar ?? null);
     if (!validation.valid) {
       return {
         ...emptyResult(),
@@ -2234,6 +2260,8 @@ export class ImportService {
         warnings: validation.warnings,
       };
     }
+    // Checked (its checksum too); from here on each date is the instant it names.
+    importData = readImportedDates(importData, calendar);
 
     // FIX B#6: Check cancellation between steps
     if (this.shouldCancel(jobId)) {
@@ -2752,7 +2780,7 @@ export class ImportService {
           description: data.description,
           actor: data.actor,
           target: data.target,
-          timestamp: storedTimeText(data.timestamp),
+          timestamp: data.timestamp,
           // Provenance reference, exported alongside the entity (see
           // ExportService.convertToExportFormat). Only a string survives;
           // `validateEvents` warns about anything else.
@@ -2772,8 +2800,8 @@ export class ImportService {
           id,
           name: data.name,
           description: data.description,
-          start_time: storedTimeText(data.start_time),
-          end_time: storedTimeText(data.end_time),
+          start_time: data.start_time,
+          end_time: data.end_time,
           level: data.level,
           parent_arc_id: data.parent_arc_id,
           ...(typeof data.sourceRef === 'string' && data.sourceRef !== ''
@@ -2879,8 +2907,36 @@ export class ImportService {
  * the live store, exports and every later reader read as the same instant.
  * Other text (only an old, hand-made document holds it) is kept as it was.
  */
-function storedTimeText(value: unknown): unknown {
-  return typeof value === 'string' ? (readTimestamp(value)?.iso ?? value) : value;
+/**
+ * The document with each event's and arc's dates as the instants they name,
+ * and a month's or a year's precision (and calendar) recorded on an event
+ * whose metadata does not already state one (an export's does).
+ */
+function readImportedDates(data: AlthistoryExport, calendar: WorldCalendarSet | undefined): AlthistoryExport {
+  const time = (value: unknown, edge: 'start' | 'end') =>
+    typeof value === 'string' ? readImportedTime(value, calendar, edge) : null;
+  const events = Array.isArray(data.data?.events)
+    ? data.data.events.map((event) => {
+        const read = time(event.timestamp, 'start');
+        if (!read) return event;
+        const metadata = event.metadata ?? {};
+        const stated = 'datePrecision' in metadata;
+        const precision = stated ? {} : datePrecisionMetadata(read);
+        return {
+          ...event,
+          timestamp: read.iso,
+          ...(Object.keys(precision).length > 0 ? { metadata: { ...metadata, ...precision } } : {}),
+        };
+      })
+    : data.data?.events;
+  const arcs = Array.isArray(data.data?.arcs)
+    ? data.data.arcs.map((arc) => ({
+        ...arc,
+        start_time: time(arc.start_time, 'start')?.iso ?? arc.start_time,
+        end_time: time(arc.end_time, 'end')?.iso ?? arc.end_time,
+      }))
+    : data.data?.arcs;
+  return { ...data, data: { ...data.data, events, arcs } };
 }
 
 /** An imported calendar as a new graph stores it: what still checks out, if its dates read back. */

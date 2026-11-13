@@ -258,8 +258,9 @@ function CalendarEditor({
                   type="checkbox"
                   checked={part.festival}
                   onChange={(event) => changePart(partIndex, { festival: event.target.checked })}
+                  aria-label={`${part.name || `Part ${partIndex + 1}`}: festival`}
                 />
-                Festival
+                <span aria-hidden="true">Festival</span>
               </label>
               <span className="flex shrink-0">
                 <button

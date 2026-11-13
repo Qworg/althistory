@@ -354,6 +354,11 @@ export function readWorldInput(set: WorldCalendarSet, input: unknown): WorldPars
       const index = eras.findIndex((era) => sameNameKey(era.label) === key)
       if (index < 0) return { ok: false, error: `"${input.era}" is not an era of ${definition.name}` }
       year = lineYear(definition, index, input.year)
+      // As in text: a count past the next era's start is that era's, and is written so.
+      const next = eras[index + 1]
+      if (next && year >= next.from) {
+        return { ok: false, error: `${definition.name} counts ${eras[index]!.label} only to ${next.from - eras[index]!.from}; later years are ${next.label}` }
+      }
     }
     if (input.year < 1) return { ok: false, error: 'years are counted from 1' }
   }

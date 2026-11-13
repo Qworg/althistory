@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { formatInWorld, legacyCalendarSet } from '@althistory/calendar';
+import { formatInWorld, legacyCalendarSet, readWorldTimestamp } from '@althistory/calendar';
 import { PassThrough } from 'stream';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -304,6 +304,14 @@ describe('invented worlds', () => {
       await expect(engine.generateTimeline({ world: 'Isles', startDate: 'Feb 14 1870', dryRun: true })).rejects.toThrow(/Invalid start date/);
       const zoneless = await engine.generateTimeline({ world: 'Isles', startDate: '1870-02-14T00:00', eventCount: 3, dryRun: true });
       expect(zoneless.calendar).toEqual(legacyCalendarSet({ epochYear: 1870 }));
+    });
+
+    it('reads an alternate history\'s dates as every door does: a year first, and an end as its last moment', async () => {
+      const ancient = await engine.generateTimeline({ premise: 'Caesar lives', divergencePoint: 'The Ides pass', startDate: '44 BCE', endDate: '30 BCE', eventCount: 3, dryRun: true });
+      const times = ancient.events.map((event) => Date.parse(event.timestamp));
+      expect(Math.min(...times)).toBeGreaterThanOrEqual(Date.parse('-000043-01-01T00:00:00.000Z'));
+      expect(Math.max(...times)).toBeLessThanOrEqual(Date.parse('-000029-12-31T23:59:59.999Z'));
+      await expect(engine.generateTimeline({ premise: 'x', divergencePoint: 'y', startDate: 'Feb 14 1870', dryRun: true })).rejects.toThrow(/Invalid start date/);
     });
 
     it('takes the epoch from the start date when none is given, and writes the calendar on the graph', async () => {
@@ -657,6 +665,68 @@ describe('invented worlds', () => {
     it('is chronicled from a start written in its own calendar', async () => {
       const result = await engine.generateTimeline({ world: 'Vael', calendar: VAEL as never, startDate: 'Lowtide 1, 300 AR', eventCount: 3, dryRun: true });
       expect(formatInWorld(result.calendar!, Date.parse(result.events[0]!.timestamp), 'year')).toBe('300 AR');
+    });
+
+    it("imports a document into the world reading its dates as every door does, all before writing any", async () => {
+      const graph = await engine.createGraph('Vael import', undefined, VAEL as never);
+      created.push(graph.id);
+      const doc = (timestamps: string[]) =>
+        JSON.stringify({ data: { events: timestamps.map((timestamp, index) => ({ id: `imp-${index}`, description: `E${index}`, actor: 'A', target: 'B', timestamp })) } });
+      await expect(engine.importGraph(doc(['Thaw 312 AR', '1871-03']), { graphId: graph.id })).rejects.toThrow(/events\[1\]\.timestamp: .*Gregorian month/);
+      expect(await engine.listEvents(graph.id)).toEqual([]);
+
+      await engine.importGraph(doc(['Thaw 312 AR']), { graphId: graph.id });
+      const [event] = await engine.listEvents(graph.id);
+      expect(formatInWorld(graph.calendar!, Date.parse(event!.timestamp), event!.metadata?.datePrecision as never)).toBe('Thaw 312 AR');
+    });
+
+    it("dates a chronicle without a model on the world's days, not at an hour of them", async () => {
+      const result = await engine.generateTimeline({ world: 'Vael', calendar: VAEL as never, startDate: 'Lowtide 1, 300 AR', eventCount: 7, dryRun: true });
+      for (const event of result.events) {
+        expect(formatInWorld(result.calendar!, Date.parse(event.timestamp))).not.toMatch(/, \d\d:\d\d$/);
+      }
+    });
+
+    it("keeps a month or a year the model gave, and the calendar it gave it in", async () => {
+      const read = (text: string) => readWorldTimestamp(VAEL as never, text)!;
+      const events: ExtractedEvent[] = ['Thaw 300 AR', 'Flooding 401 TC', '302 AR'].map((text, index) => {
+        const date = read(text);
+        return {
+          tempId: `e${index}`,
+          description: `Event ${index}`,
+          actor: 'A',
+          target: 'B',
+          timestamp: date.iso,
+          datePrecision: date.precision,
+          ...(date.calendar ? { dateCalendar: date.calendar } : {}),
+          confidence: 0.9,
+          source: { type: 'llm', extractedAt: new Date().toISOString() },
+          selected: true,
+          edited: false,
+        };
+      });
+      const llm: LLMClient = {
+        provider: 'mock-llm',
+        extractEvents: vi.fn().mockResolvedValue(events),
+        suggestRelationships: vi.fn().mockResolvedValue([]),
+        enrichDescription: vi.fn().mockResolvedValue(''),
+      };
+      const result = await new TimelineGenerator({ llmClient: llm }).generateTimeline(
+        { world: 'Vael', calendar: VAEL as never, startDate: 'Lowtide 1, 300 AR', eventCount: 3 },
+        await engine.getContainer()
+      );
+      created.push(result.graphId);
+      const stored = await engine.listEvents(result.graphId);
+      const shown = stored
+        .map((event) => formatInWorld(result.calendar!, Date.parse(event.timestamp), event.metadata?.datePrecision as never, event.metadata?.dateCalendar as never))
+        .sort();
+      expect(shown).toEqual(['302 AR', 'Flooding 401 TC', 'Thaw 300 AR'].sort());
+    });
+
+    it('checks a simple calendar as a new graph\'s is, before asking any model', async () => {
+      await expect(
+        engine.generateTimeline({ world: 'Vael', calendar: { epochYear: 1000, eraLabel: 'AR', monthNames: Array.from({ length: 12 }, (_, i) => `Moon ${i + 1}`) } as never, eventCount: 3, dryRun: true })
+      ).rejects.toThrow(/digit/);
     });
   });
 

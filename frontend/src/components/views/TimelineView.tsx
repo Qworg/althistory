@@ -34,6 +34,7 @@ import {
 import type { UpdateArcRequest } from '@/types'
 import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
 import { useEditHistory } from '@/hooks/useEditHistory'
+import { useKeptState } from '@/hooks/useKeptState'
 import { useUndoableEventDelete } from '@/hooks/useUndoableEventDelete'
 import { confidenceTier } from '@/components/timeline/confidenceTier'
 import { editShortcutLabels } from '@/utils/platform'
@@ -119,8 +120,10 @@ export function TimelineView() {
     [fetchedArcs, activeFilters]
   )
   const filtersActive = hasActiveFilters(activeFilters)
-  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
-  const [selectedArc, setSelectedArc] = useState<Arc | null>(null)
+  // Kept when the view is remounted to show another of the world's calendars.
+  const selectionGraphId = useActiveGraphId()
+  const [selectedEvent, setSelectedEvent] = useKeptState<Event | null>('timeline.selectedEvent', selectionGraphId, null)
+  const [selectedArc, setSelectedArc] = useKeptState<Arc | null>('timeline.selectedArc', selectionGraphId, null)
 
   // A selection the filter has just hidden leaves the inspector: it would
   // otherwise describe a mark that is no longer on the canvas. (Only once it
@@ -140,7 +143,7 @@ export function TimelineView() {
     ) {
       setSelectedArc(null)
     }
-  }, [events, arcs, fetchedEvents, fetchedArcs, selectedEvent, selectedArc])
+  }, [events, arcs, fetchedEvents, fetchedArcs, selectedEvent, selectedArc, setSelectedEvent, setSelectedArc])
 
   // Context menu and modal state
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
@@ -330,12 +333,12 @@ export function TimelineView() {
   const handleEventSelect = useCallback((event: Event) => {
     setSelectedEvent(event)
     setSelectedArc(null)
-  }, [])
+  }, [setSelectedEvent, setSelectedArc])
 
   const handleArcSelect = useCallback((arc: Arc) => {
     setSelectedArc(arc)
     setSelectedEvent(null)
-  }, [])
+  }, [setSelectedEvent, setSelectedArc])
 
   // A link can name the event to open on (`?event=<id>`; the landing page's
   // hero links into the demo this way). Select it once the events have
@@ -370,7 +373,7 @@ export function TimelineView() {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [hasInspectorSelection])
+  }, [hasInspectorSelection, setSelectedEvent, setSelectedArc])
 
   // The inspector reads the selected event as it is now, not the snapshot
   // taken when it was clicked, so an edit shows without reselecting.
@@ -582,7 +585,7 @@ export function TimelineView() {
   // Undo/redo for drags and resizes. A different graph has different
   // entities, so switching graphs discards the history.
   const activeGraphId = useActiveGraphId()
-  const editHistory = useEditHistory({ resetKey: activeGraphId })
+  const editHistory = useEditHistory({ resetKey: activeGraphId, keepAs: 'timeline' })
   const recordEdit = editHistory.record
   // Deleting an event ends with "Deleted … · Undo" in the status line below.
   const deleteEventUndoably = useUndoableEventDelete(recordEdit)
@@ -730,7 +733,7 @@ export function TimelineView() {
         message: `Failed to delete ${deleteConfirm.type}: ${describeError(error)}`,
       })
     }
-  }, [deleteConfirm, deleteEventUndoably, relationships, deleteArcMutation, selectedEvent, selectedArc, addError])
+  }, [deleteConfirm, deleteEventUndoably, relationships, deleteArcMutation, selectedEvent, selectedArc, addError, setSelectedEvent, setSelectedArc])
 
   // Cancel delete
   const handleDeleteCancel = useCallback(() => {
@@ -773,7 +776,7 @@ export function TimelineView() {
         throw error
       }
     }
-  }, [editModal, deleteEventUndoably, relationships, selectedEvent, addError])
+  }, [editModal, deleteEventUndoably, relationships, selectedEvent, addError, setSelectedEvent])
 
   // Save arc changes
   const handleArcSave = useCallback(async (updates: UpdateArcRequest) => {
@@ -811,7 +814,7 @@ export function TimelineView() {
         throw error
       }
     }
-  }, [editModal, deleteArcMutation, selectedArc, addError])
+  }, [editModal, deleteArcMutation, selectedArc, addError, setSelectedArc])
 
   // Close edit modal
   const handleEditModalClose = useCallback(() => {

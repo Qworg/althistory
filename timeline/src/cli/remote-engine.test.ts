@@ -439,16 +439,22 @@ describe('RemoteEngine against a stand-in daemon', () => {
     expect(daemon.requests.filter((request) => request.path.startsWith('/api/events')).length).toBe(2);
   });
 
-  it('reads ISO 8601 itself when the key cannot read the graph, and sends only other text as written', async () => {
+  it('sends text that needs the graph\'s calendars as written when the key cannot read the graph', async () => {
     daemon.state.refuseGraph = true;
+    await engine.createEvent('g1', { description: 'A day', timestamp: '1871-03-04' });
     await engine.createEvent('g1', { description: 'A month', timestamp: '1871-03' });
     await engine.createEvent('g1', { description: 'In the world', timestamp: 'Thaw 4, 312 AR' });
     const posted = daemon.requests.filter((request) => request.path === '/api/events' && request.method === 'POST');
     const bodies = posted.map((request) => request.body as { timestamp: string; metadata?: Record<string, unknown> });
-    expect(bodies[0]!.timestamp).toBe('1871-03-01T00:00:00.000Z');
-    expect(bodies[0]!.metadata?.datePrecision).toBe('month');
-    // The route reads the world's notation with the graph's own calendars.
-    expect(bodies[1]!.timestamp).toBe('Thaw 4, 312 AR');
+    // An ISO day is the same instant in any graph.
+    expect(bodies[0]!.timestamp).toBe('1871-03-04T00:00:00.000Z');
+    // A month is a period only a plain graph has, and the world's notation
+    // reads only with its calendars: the route reads both, and records the precision.
+    expect(bodies.slice(1).map((body) => body.timestamp)).toEqual(['1871-03', 'Thaw 4, 312 AR']);
+    expect(bodies[1]!.metadata?.datePrecision).toBeUndefined();
+
+    // The event list's filter takes instants only, so such a bound is refused here.
+    await expect(engine.listEvents('g1', { from: 'Thaw 312 AR' })).rejects.toThrow(/cannot read the graph/);
   });
 
   it("keeps an event's metadata when its date changes, replacing only the date's precision", async () => {

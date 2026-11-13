@@ -44,3 +44,14 @@ describe('a date field in a world calendar', () => {
     expect(dateFieldValue(vael(312, 2, 4), 'date')).toMatch(/^(Ebbing|Flooding) \d+, \d+ TC$/)
   })
 })
+
+describe('a date field without a world', () => {
+  it('reads a date alone as an end as its last moment, which shows as the same date', () => {
+    const end = dateFieldIso('1871-03-31', { calendar: null, edge: 'end' })
+    expect(end).toBe('1871-03-31T23:59:59.999Z')
+    expect(dateFieldValue(end, 'date', { calendar: null, edge: 'end' })).toBe('1871-03-31')
+    expect(dateFieldIso('1871-03-31', { calendar: null, edge: 'start' })).toBe('1871-03-31T00:00:00.000Z')
+    // A time names that moment, as an end too.
+    expect(dateFieldIso('1871-03-31T10:00', { calendar: null, edge: 'end' })).toBe('1871-03-31T10:00:00.000Z')
+  })
+})

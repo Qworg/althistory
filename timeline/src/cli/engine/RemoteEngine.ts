@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { storedCalendarSet, toInstant } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
-import { isIsoText, needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
+import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import { IEngine } from './IEngine';
 import {
   HealthInfo,
@@ -268,8 +268,9 @@ export class RemoteEngine implements IEngine {
 
   /**
    * A date to send, read here as the direct engine reads it. When the graph
-   * cannot be read (a key allowed its events but not the graph), text that is
-   * not ISO 8601 goes to the server as written: the event and arc routes read
+   * cannot be read (a key allowed its events but not the graph), text that
+   * needs its calendars (anything but an ISO date or date and time) goes to
+   * the server as written: the event and arc routes read
    * it with the graph's own calendars, and record its precision themselves.
    */
   private async readDate(
@@ -285,9 +286,24 @@ export class RemoteEngine implements IEngine {
     });
     // Only a key refused the graph defers; one that is gone, or a daemon that
     // cannot answer, leaves the text to be refused here as in direct mode.
-    // (ISO text is read here, as on a plain graph: a world graph refuses an ISO month or year itself.)
-    if (!graph && refused && String(text).trim() !== '' && !isIsoText(text)) return { iso: String(text), precision: 'day', deferred: true };
+    // An ISO month or year goes too: a world graph refuses it, a plain one records its period.
+    if (!graph && refused && String(text).trim() !== '') return { iso: String(text), precision: 'day', deferred: true };
     return { ...readAgentTimestamp(text, graph?.calendar, edge), deferred: false };
+  }
+
+  /**
+   * A filter bound as the daemon's query string takes it: an instant. Text
+   * that needs the graph's calendars cannot be read when the key cannot read
+   * the graph, and the query string takes no other text, so it is refused here.
+   */
+  private async filterBound(graphId: string, text: string, edge: 'start' | 'end'): Promise<string> {
+    const read = await this.readDate(graphId, text, edge);
+    if (read.deferred) {
+      throw new ValidationErrorCLI(
+        `Invalid timestamp: "${text}" needs the graph's calendars to read, and this key cannot read the graph. Give the bound as an ISO 8601 date and time.`
+      );
+    }
+    return read.iso;
   }
 
   async getGraph(id: string): Promise<GraphSummaryDto> {
@@ -492,8 +508,8 @@ export class RemoteEngine implements IEngine {
         // meaning ("from this date onwards" / "up to this date").
         // Each read as every date an agent gives is (in a world, its notation
         // too); the daemon's filter takes the instants.
-        params.startTime = filters?.from ? (await this.readDate(graphId, filters.from)).iso : '-271821-04-20T00:00:00.000Z';
-        params.endTime = filters?.to ? (await this.readDate(graphId, filters.to, 'end')).iso : '+275760-09-13T00:00:00.000Z';
+        params.startTime = filters?.from ? await this.filterBound(graphId, filters.from, 'start') : '-271821-04-20T00:00:00.000Z';
+        params.endTime = filters?.to ? await this.filterBound(graphId, filters.to, 'end') : '+275760-09-13T00:00:00.000Z';
       }
       const events = await this.fetchAll('/api/events', graphId, params);
       return events.map((e) => this.toEventDto(e, graphId));

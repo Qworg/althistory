@@ -44,7 +44,7 @@ import {
 import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { calendarSetInstructions, type WorldCalendarSet, toInstant, dateCalendarOf, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
+import { calendarSetInstructions, type WorldCalendarSet, toInstant, dateCalendarOf, datePrecisionMetadata, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
 import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import type { IGraph } from '@/models/Graph';
@@ -738,6 +738,8 @@ export class DirectEngine implements IEngine {
         timestamp: toInstant(e.timestamp),
         actor: e.actor || 'Unknown',
         target: e.target || 'None',
+        // A month or a year the text gave, and the calendar it was given in (Req 16), as the server's ingestion keeps them.
+        metadata: datePrecisionMetadata({ precision: e.datePrecision ?? 'day', calendar: e.dateCalendar }),
       });
       tempIdToRealEvent.set(e.tempId, created);
       try {

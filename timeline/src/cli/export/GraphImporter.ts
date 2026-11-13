@@ -1,5 +1,6 @@
 import * as fs from 'fs';
-import { type WorldCalendarSet, adoptableCalendarSet, toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, adoptableCalendarSet, datePrecisionMetadata, storedCalendarSet, unreadDateReason } from '@althistory/calendar';
+import { type ImportedTime, readImportedTime } from '@/utils/importedTime';
 import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
 import { ImportResultDto } from '../types';
@@ -44,6 +45,32 @@ export class GraphImporter {
     const events = (dataObj.events as Array<Record<string, unknown>> | undefined) || [];
     const arcs = (dataObj.arcs as Array<Record<string, unknown>> | undefined) || [];
     const rels = (dataObj.causalRelationships as Array<Record<string, unknown>> | undefined) || [];
+
+    // The dates are read with the calendars of the graph they go into (an
+    // existing one's, or the one a new graph takes from the document), all of
+    // them before anything is written.
+    const findGraph = (id: unknown) =>
+      typeof id === 'string' && id ? container.graphRepository.findById(id).catch(() => null) : Promise.resolve(null);
+    const existingTarget = options?.graphId ? await findGraph(options.graphId) : await findGraph(metadataObj?.graphId);
+    const calendar = existingTarget ? (storedCalendarSet(existingTarget.calendar) ?? undefined) : importedCalendar(metadataObj);
+    const problems: string[] = [];
+    const readTime = (value: unknown, edge: 'start' | 'end', where: string): ImportedTime => {
+      const read = typeof value === 'string' ? readImportedTime(value, calendar, edge) : null;
+      if (!read) problems.push(`${where}: ${unreadDateReason(calendar, String(value ?? ''))}`);
+      return read ?? { iso: '', precision: 'day' };
+    };
+    // (An entity without an id is skipped below, so its dates are not read.)
+    const arcTimes = new Map(
+      arcs.flatMap((arc, index) =>
+        arc.id ? [[arc, { start: readTime(arc.start_time, 'start', `arcs[${index}].start_time`), end: readTime(arc.end_time, 'end', `arcs[${index}].end_time`) }] as const] : []
+      )
+    );
+    const eventTimes = new Map(
+      events.flatMap((event, index) => (event.id ? [[event, readTime(event.timestamp, 'start', `events[${index}].timestamp`)] as const] : []))
+    );
+    if (problems.length > 0) {
+      throw new ValidationErrorCLI(`Import refused: ${problems.slice(0, 5).join('; ')}${problems.length > 5 ? `; and ${problems.length - 5} more` : ''}`);
+    }
 
     // Resolve target graph
     let targetGraphId = options?.graphId;
@@ -93,8 +120,8 @@ export class GraphImporter {
           await scoped.arcRepository.update(origId, {
             name: String(arcData.name || ''),
             description: arcData.description ? String(arcData.description) : undefined,
-            start_time: toInstant(String(arcData.start_time)),
-            end_time: toInstant(String(arcData.end_time)),
+            start_time: new Date(arcTimes.get(arcData)!.start.iso),
+            end_time: new Date(arcTimes.get(arcData)!.end.iso),
             level: typeof arcData.level === 'number' ? arcData.level : 0,
             metadata: (arcData.metadata as Record<string, unknown>) || {},
           });
@@ -107,8 +134,8 @@ export class GraphImporter {
             id: newId,
             name: String(arcData.name || ''),
             description: arcData.description ? String(arcData.description) : undefined,
-            start_time: toInstant(String(arcData.start_time)),
-            end_time: toInstant(String(arcData.end_time)),
+            start_time: new Date(arcTimes.get(arcData)!.start.iso),
+            end_time: new Date(arcTimes.get(arcData)!.end.iso),
             level: typeof arcData.level === 'number' ? arcData.level : 0,
             metadata: (arcData.metadata as Record<string, unknown>) || {},
           });
@@ -120,8 +147,8 @@ export class GraphImporter {
           id: origId,
           name: String(arcData.name || ''),
           description: arcData.description ? String(arcData.description) : undefined,
-          start_time: toInstant(String(arcData.start_time)),
-          end_time: toInstant(String(arcData.end_time)),
+          start_time: new Date(arcTimes.get(arcData)!.start.iso),
+          end_time: new Date(arcTimes.get(arcData)!.end.iso),
           level: typeof arcData.level === 'number' ? arcData.level : 0,
           metadata: (arcData.metadata as Record<string, unknown>) || {},
         });
@@ -135,7 +162,10 @@ export class GraphImporter {
       if (!origId) continue;
 
       const existing = await scoped.eventRepository.findById(origId);
+      const time = eventTimes.get(evtData)!;
       const meta = { ...((evtData.metadata as Record<string, unknown>) || {}) };
+      // A month or a year the document gave, unless its metadata states the precision (an export's does).
+      if (!('datePrecision' in meta)) Object.assign(meta, datePrecisionMetadata(time));
       if (meta.arcId && idMap.has(String(meta.arcId))) {
         meta.arcId = idMap.get(String(meta.arcId));
       }
@@ -148,7 +178,7 @@ export class GraphImporter {
         } else if (strategy === 'overwrite') {
           await scoped.eventRepository.update(origId, {
             description: String(evtData.description || ''),
-            timestamp: toInstant(String(evtData.timestamp)),
+            timestamp: new Date(time.iso),
             actor: String(evtData.actor || 'Unknown'),
             target: String(evtData.target || 'None'),
             metadata: meta,
@@ -161,7 +191,7 @@ export class GraphImporter {
           await scoped.eventRepository.create({
             id: newId,
             description: String(evtData.description || ''),
-            timestamp: toInstant(String(evtData.timestamp)),
+            timestamp: new Date(time.iso),
             actor: String(evtData.actor || 'Unknown'),
             target: String(evtData.target || 'None'),
             metadata: meta,
@@ -173,7 +203,7 @@ export class GraphImporter {
         await scoped.eventRepository.create({
           id: origId,
           description: String(evtData.description || ''),
-          timestamp: toInstant(String(evtData.timestamp)),
+          timestamp: new Date(time.iso),
           actor: String(evtData.actor || 'Unknown'),
           target: String(evtData.target || 'None'),
           metadata: meta,

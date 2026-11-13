@@ -6,7 +6,9 @@ import { calendarKey, useWorldCalendar } from '@/stores/worldCalendarStore'
  * under it -- including labels baked into memoised D3 and Cytoscape
  * calculations -- is formatted again in the new calendar. See the note in
  * stores/worldCalendarStore.ts for why a remount rather than a subscription in
- * each of the ~30 components that format dates.
+ * each of the ~30 components that format dates. What a viewer is in the middle
+ * of survives the remount: a view keeps its undo history (`useEditHistory`'s
+ * `keepAs`) and its selection (`useKeptState`).
  */
 export function WorldCalendarBoundary({ children }: { children: ReactNode }) {
   const calendar = useWorldCalendar()

@@ -12,6 +12,7 @@ import {
   parseWorldText,
   readDateEntry,
   readWorldTimestamp,
+  unreadDateReason,
   withDatePrecision,
 } from './index'
 import * as arb from './test/arbitraries'
@@ -143,6 +144,32 @@ describe('one rule for ISO text, at every door', () => {
       }),
       arb.runs(500)
     )
+  })
+
+  it('reads a year-first date with a time in UTC, the same in a form as at every other door', () => {
+    const timed = fc.record({
+      year: fc.integer({ min: 1, max: 9999 }),
+      bce: fc.boolean(),
+      month: fc.integer({ min: 1, max: 12 }),
+      day: fc.integer({ min: 1, max: 28 }),
+      hour: fc.integer({ min: 0, max: 23 }),
+      minute: fc.integer({ min: 0, max: 59 }),
+    })
+    fc.assert(
+      fc.property(timed, edge, ({ year, bce, month, day, hour, minute }, side) => {
+        const pad = (n: number) => String(n).padStart(2, '0')
+        const text = `${year}-${pad(month)}-${pad(day)}${bce ? ' BCE' : ''} ${hour}:${pad(minute)}`
+        const expected = new Date(Date.UTC(2000, month - 1, day, hour, minute))
+        expected.setUTCFullYear(bce ? 1 - year : year)
+        const door = readWorldTimestamp(null, text, side)
+        expect(door, text).toEqual({ iso: expected.toISOString(), precision: 'day' })
+        const form = readDateEntry(text, null, side)
+        expect(form.ok && { iso: form.iso, precision: form.precision }, text).toEqual(door)
+      }),
+      arb.runs(300)
+    )
+    expect(readWorldTimestamp(null, '1843-11-20 24:00')).toBeNull()
+    expect(unreadDateReason(null, '1843-11-20 24:00')).toMatch(/00:00 to 23:59/)
   })
 
   it('in a world, reads an ISO date or date and time as it does elsewhere, and refuses an ISO month or year, saying why', () => {

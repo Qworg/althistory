@@ -10,7 +10,7 @@ import {
   type ComparisonCalendars,
   type EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
-import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { useViewOfCalendars, useWorldCalendar } from '@/stores/worldCalendarStore'
 import { sameCalendarSet, storedCalendarSet } from '@althistory/calendar'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { branchLabel } from '@/components/graphs/graphTree'
@@ -318,16 +318,18 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
   const counterfactualData = useGraphData(isOpen, counterfactualGraphId, copiedData, reloadToken, 'Could not load the branch')
 
   // Each graph's own world calendar, not the open graph's: comparing two other
-  // graphs must not label their dates in a third one's years. A graph missing
-  // from the list falls back to the open graph's (subscribed, so it updates).
+  // graphs must not label their dates in a third one's years. A graph of the
+  // open graph's world is shown in the calendar the viewer picked, and one
+  // missing from the list falls back to the open graph's (subscribed, so it updates).
   const activeCalendar = useWorldCalendar()
+  const viewOf = useViewOfCalendars()
   const calendars = useMemo<ComparisonCalendars>(() => {
     const of = (id: string) => {
       const graph = graphList.find(g => g.id === id)
-      return graph ? storedCalendarSet(graph.calendar) : activeCalendar
+      return graph ? viewOf(storedCalendarSet(graph.calendar)) : activeCalendar
     }
     return { baseline: of(baselineGraphId), counterfactual: of(counterfactualGraphId) }
-  }, [graphList, baselineGraphId, counterfactualGraphId, activeCalendar])
+  }, [graphList, baselineGraphId, counterfactualGraphId, activeCalendar, viewOf])
   const calendarsDiffer = !sameCalendarSet(calendars.baseline, calendars.counterfactual)
   /** The calendar for a date from one side, or one both share (see comparisonCalendar). */
   const calendarFor = useCallback(

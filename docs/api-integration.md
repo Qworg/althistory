@@ -174,7 +174,8 @@ last moment. The query-string filters read ISO 8601 as instants.
 
 A date that does not exist (`2019-02-31`, `1870-13-01`) is refused. In a graph
 without world calendars, year-first text is read as the app's forms and the
-CLI read it (`312`, `44 BCE`, `1843-11-20 14:30`), at the precision it states;
+CLI read it (`312`, `44 BCE`, `1843-11-20 9:30`, in UTC), at the precision it
+states, and text that starts with a digit but is no such date (`0`) is refused;
 other text (`January 1, 2023`)
 is still read as JavaScript reads it, in the server's zone, so that data and
 clients written before keep working; do not rely on it. Responses always

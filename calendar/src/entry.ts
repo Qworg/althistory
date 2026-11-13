@@ -14,7 +14,7 @@
  * returned to be recorded (Req 16).
  */
 
-import { type DateBoundEdge, boundPrecision, formatBoundAt, parseHistoricalDate } from './bounds'
+import { type DateBoundEdge, formatBoundAt, readHistoricalText } from './bounds'
 import type { DatePrecision } from './describe'
 import { toInstant } from './instant'
 import { formatHistoricalDate, formatHistoricalTimestamp } from './locale'
@@ -26,8 +26,6 @@ import { formatWorldFields, parseWorldDate, worldPeriod } from './world/notation
 export type DateEntryRead =
   | { ok: true; iso: string; precision: DatePrecision; /** The world calendar it was written in. */ calendar?: string }
   | { ok: false; error: string }
-
-const TIME_SUFFIX = /^(.+?)(?:[ T](\d{1,2}):(\d{2}))$/
 
 /**
  * Read a typed date. `edge` says which end of a period an untimed date
@@ -55,23 +53,12 @@ export function readDateEntry(text: string, calendar: WorldCalendarSet | null, e
     if (read) return { ok: true, ...read }
     return { ok: false, error: unreadDateReason(calendar, trimmed) }
   }
-  // As every door reads it: ISO 8601, then a year first ("1871-03", "44 BCE").
+  // As every door reads it: ISO 8601, then a year first ("1871-03", "44 BCE",
+  // "1843-11-20 14:30"), its message when neither.
   const read = readWorldTimestamp(null, trimmed, edge)
   if (read) return { ok: true, iso: read.iso, precision: read.precision }
-  const timed = TIME_SUFFIX.exec(trimmed)
-  const datePart = timed ? timed[1]! : trimmed
-  const parsed = parseHistoricalDate(datePart, timed ? 'start' : edge)
-  if (!parsed.ok) return { ok: false, error: parsed.error }
-  if (timed && boundPrecision(parsed.text) !== 'day') return { ok: false, error: 'A time needs a whole date: 1843-11-20 14:30.' }
-  const date = new Date(parsed.date.getTime())
-  if (timed) {
-    const hours = Number(timed[2])
-    const minutes = Number(timed[3])
-    if (hours > 23 || minutes > 59) return { ok: false, error: 'The time must be 00:00 to 23:59, in UTC.' }
-    date.setUTCHours(hours, minutes, 0, 0)
-  }
-  // "1871-03" states a month and "1871" a year; a day, or a time, states the day.
-  return { ok: true, iso: date.toISOString(), precision: timed ? 'day' : boundPrecision(parsed.text) }
+  const historical = readHistoricalText(trimmed, edge)
+  return historical.ok ? { ok: true, iso: historical.iso, precision: historical.precision } : { ok: false, error: historical.error }
 }
 
 /**

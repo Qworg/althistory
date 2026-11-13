@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { legacyCalendarSet, type WorldCalendarSet } from '@althistory/calendar'
-import { calendarKey, getActiveCalendar, useWorldCalendarStore } from './worldCalendarStore'
+import { act, renderHook } from '@testing-library/react'
+import { VAEL } from '@/test/fixtures/worldCalendars'
+import { calendarKey, getActiveCalendar, useViewOfCalendars, useWorldCalendarStore } from './worldCalendarStore'
 
 const MONTHS = ['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun', 'Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Longnight']
 
@@ -58,5 +60,20 @@ describe('the calendar the viewer picked', () => {
     // Another graph, with calendars of the same ids, does not inherit it.
     store.setCalendar({ ...TWO, calendars: TWO.calendars.map((c) => ({ ...c, name: `${c.name} elsewhere` })) }, 'other')
     expect(getActiveCalendar()?.primary).toBe('calendar')
+  })
+})
+
+describe("another graph's calendars as the viewer sees them", () => {
+  it("are in the calendar picked when they are the open graph's, and as kept otherwise", () => {
+    useWorldCalendarStore.getState().setCalendar(VAEL, 'vael')
+    const { result } = renderHook(() => useViewOfCalendars())
+    const branch = JSON.parse(JSON.stringify(VAEL)) as WorldCalendarSet
+    expect(result.current(branch)?.primary).toBe(VAEL.primary)
+
+    act(() => useWorldCalendarStore.getState().showCalendar('tide'))
+    expect(result.current(branch)?.primary).toBe('tide')
+    const other = legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' })
+    expect(result.current(other)).toBe(other)
+    expect(result.current(null)).toBeNull()
   })
 })

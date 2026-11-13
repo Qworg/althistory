@@ -119,7 +119,9 @@ replaces the whole calendar, so give everything you want to keep.
 `generate timeline --world <text>` chronicles an invented world from its
 founding instead of turning real history at a point of divergence: give
 `--world`, or `--premise` and `--divergence-point`, never both. The graph gets
-a calendar, its epoch defaulting to `--start-date`'s year or 1000, and the
+a calendar, its epoch defaulting to `--start-date`'s year or 1000 (give the
+start as an ISO day, `1871-03-04`, or in the world's notation: an ISO year or
+month alone is no period of the world), and the
 chronicle runs for 300 years unless `--end-date` says otherwise. With a model
 key the model is told the world is not Earth and how its calendars write a date;
 without one it is a template of ages to rewrite. `generate branch` of a world

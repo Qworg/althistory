@@ -107,17 +107,21 @@ calendars' notations also matches (the same shape, whichever date it would
 name there), is refused with the text that collides. Text that names a
 day, month or year that does not exist is refused, with the reason.
 Structured input (`{ calendar, era, year, month, day, hour, minute, second }`)
-is accepted wherever text is.
+is accepted by the API's event, arc and batch routes, under the same rules as
+text (a year past the next era's start is that era's, and is refused); the
+CLI and the MCP tools take text.
 
 **Req 15. Periods.** A date at month or year precision names a period. Its
 start is the first position in it, and its end the last millisecond before the
 next one. Filters and time ranges written in a calendar's notation use these
 periods, and so does an end (of an arc, a range) written without a time,
 whether a day, a month or a year; a time, even "00:00", names that moment.
-The app's filter bounds also take an ISO 8601 date or date and time (a date
-alone as an end is its last moment); in a world an ISO month or year is
-refused, as Req 16 says. Query-string filters of the API take ISO 8601
-instants.
+The app's filter bounds name periods: a day, a month or a year in the
+world's notation (a time there is refused, since a bound written back must
+read as itself), or an ISO 8601 date or date and time (a date alone as an end
+is its last moment); in a world an ISO month or year is refused, as Req 16
+says. The CLI's `--from`/`--to` also take a world date with a time, as that
+moment. Query-string filters of the API take ISO 8601 instants.
 
 **Req 16. Precision.** A date given as a month or a year is stored at its
 period's start, with `datePrecision` recorded, and the calendar it was given
@@ -127,8 +131,11 @@ day. Every door reads text by one rule (`readWorldTimestamp`): the world's
 notation first, then ISO 8601, whose date, month or year alone names a UTC
 period; in a world an ISO month or year is refused, being no period of it.
 In a graph without a world, year-first text is read too ("312", "44 BCE",
-"1871-03-04 14:30"), at the precision it states, by every door alike: the
-app's forms, the API, the CLI, the tools and the review step.
+"1871-03-04 14:30", "44-03-15 BCE 9:30"), in UTC at the precision it
+states, by every door alike: the app's forms, the API, the CLI, the tools,
+the generator, the review step and the importers (which read a document's
+dates with the calendars of the graph it goes into). Text that starts with a
+digit and is not such a date is refused, never read in the server's zone.
 
 **Req 17. Axis.** A timeline in a world calendar puts its ticks on that
 calendar's round units: years in steps of 1, 2 or 5 × 10ⁿ, months, days and

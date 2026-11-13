@@ -17,6 +17,8 @@ export type DateFieldKind = 'date' | 'datetime'
 
 type CalendarArg = GraphCalendar | null | undefined
 
+const DAY_MS = 86_400_000
+
 const resolve = (calendar: CalendarArg) => (calendar === undefined ? getActiveCalendar() : calendar)
 
 /** An instant as a field shows it: a native picker's value, or text in the world's notation. '' for none. */
@@ -46,7 +48,10 @@ export function readDateFieldValue(
   const world = resolve(options.calendar)
   if (world) return readDateEntry(value, world, options.edge ?? 'start')
   const field = readDateField(value)
-  return field ? { ok: true, iso: field.date.toISOString(), precision: 'day' } : { ok: false, error: 'Give a whole date.' }
+  if (!field) return { ok: false, error: 'Give a whole date.' }
+  // A date alone as an end is its last moment (Req 15), as in a world and in a filter.
+  const end = options.edge === 'end' && field.dateOnly ? new Date(field.date.getTime() + DAY_MS - 1) : field.date
+  return { ok: true, iso: end.toISOString(), precision: 'day' }
 }
 
 /** A field's value as an ISO instant, or '' when it names none. */

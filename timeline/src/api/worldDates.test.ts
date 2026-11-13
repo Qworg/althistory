@@ -88,6 +88,15 @@ describe('ISO 8601 text, the same at every door', () => {
     expect(end.date.toISOString()).toBe('0312-12-31T23:59:59.999Z');
   });
 
+  it('reads year-first text with a time as UTC, as the forms do, and refuses what it cannot read rather than guess', async () => {
+    expect((await readRequestTime('312-03-04 14:30', 'timestamp', plain)).date.toISOString()).toBe('0312-03-04T14:30:00.000Z');
+    expect((await readRequestTime('1843-11-20 9:30', 'timestamp', plain)).date.toISOString()).toBe('1843-11-20T09:30:00.000Z');
+    expect((await readRequestTime('44-03-15 BCE 14:30', 'timestamp', plain)).date.toISOString()).toBe('-000043-03-15T14:30:00.000Z');
+    for (const text of ['0', '1843-11-20 25:00', '2019-02-31']) {
+      await expect(readRequestTime(text, 'timestamp', plain), text).rejects.toBeInstanceOf(ValidationError);
+    }
+  });
+
   it('refuses an ISO date whose end is past the range a date can hold, saying so', async () => {
     await expect(readRequestTime('+275760-09-13', 'end_time', plain, 'end')).rejects.toThrow(/beyond the range a date can hold/);
   });

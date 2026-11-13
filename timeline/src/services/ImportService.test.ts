@@ -9,6 +9,7 @@ import { GraphRepository } from '../repositories/GraphRepository';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import { readWorldTimestamp } from '@althistory/calendar';
 
 describe('ImportService', () => {
   let importService: ImportService;
@@ -1986,6 +1987,69 @@ describe('ImportService', () => {
       expect(job).toBeTruthy();
       
       await checkService.destroy();
+    });
+  });
+  describe('dates, read as every door reads them', () => {
+    const VAEL = {
+      version: 2,
+      dayLength: 30 * 3600,
+      primary: 'reckoning',
+      calendars: [
+        { id: 'reckoning', name: 'the Reckoning of the Rising', parts: ['Lowtide', 'Greywater', 'Thaw', 'Seedtide'].map((name) => ({ name, days: 30 })), epoch: 0, eras: [{ label: 'AR', from: 1 }] },
+      ],
+    };
+    const withDates = (timestamps: string[], calendar?: unknown) => {
+      const doc = createValidExport({
+        data: {
+          events: timestamps.map((timestamp, index) => ({ id: `event-${index}`, description: `E${index}`, actor: 'A', target: 'B', timestamp })),
+          arcs: [],
+          causalRelationships: [],
+          inferredPressures: [],
+        },
+      });
+      if (calendar) (doc.metadata as unknown as Record<string, unknown>).calendar = calendar;
+      return doc;
+    };
+    const stored = async (graphId: string) => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const data = await repository.checkout(graphId);
+      return Object.values(data.events).map((event) => ({
+        at: new Date(event.timestamp as string | Date).toISOString(),
+        precision: (event.metadata as Record<string, unknown> | undefined)?.datePrecision,
+      }));
+    };
+
+    it('without a world, reads a month or a year first in UTC and records its precision', async () => {
+      const result = await importService.executeImport(withDates(['1871-03', '312', '44 BCE']), { mode: 'create-new', conflictResolution: 'skip' });
+      expect(result.errors).toEqual([]);
+      expect(await stored(result.graphId)).toEqual([
+        { at: '1871-03-01T00:00:00.000Z', precision: 'month' },
+        { at: '0312-01-01T00:00:00.000Z', precision: 'year' },
+        { at: '-000043-01-01T00:00:00.000Z', precision: 'year' },
+      ]);
+    });
+
+    it("in a world, reads the world's notation and refuses a Gregorian month, as the API does", async () => {
+      const refused = await importService.executeImport(withDates(['1871-03'], VAEL), { mode: 'create-new', conflictResolution: 'skip' });
+      expect(refused.success).toBe(false);
+      expect(refused.errors.map((error) => error.message).join(' ')).toMatch(/Gregorian month/);
+
+      const read = await importService.executeImport(withDates(['Thaw 312 AR', '2023-01-01T00:00:00Z'], VAEL), { mode: 'create-new', conflictResolution: 'skip' });
+      expect(read.errors).toEqual([]);
+      const [thaw, day] = await stored(read.graphId);
+      expect(thaw).toEqual({ at: readWorldTimestamp(VAEL as never, 'Thaw 312 AR')!.iso, precision: 'month' });
+      expect(day).toEqual({ at: '2023-01-01T00:00:00.000Z', precision: undefined });
+    });
+
+    it('reads a document going into an existing graph with that graph\'s calendars', async () => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const vael = await repository.create({ name: 'Vael', calendar: VAEL as never });
+      // The document itself names no world.
+      const result = await importService.executeImport(withDates(['Thaw 312 AR']), { mode: 'merge', graphId: vael.id, conflictResolution: 'skip' });
+      expect(result.errors).toEqual([]);
+      expect((await stored(vael.id))[0]!.precision).toBe('month');
     });
   });
 });

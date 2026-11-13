@@ -5,7 +5,7 @@
  * Req 18).
  */
 
-import { boundPrecision, parseHistoricalDate } from '../bounds'
+import { readHistoricalText } from '../bounds'
 import { parseIsoInstant } from '../instant'
 import { type CalendarDefinition, MAX_TIME, type WorldCalendarSet } from './definition'
 import { calendarIn, dateAt } from './engine'
@@ -67,10 +67,11 @@ export function readWorldTimestamp(
   const iso = parseIsoInstant(String(text).trim())
   if (!iso) {
     // Without a world, the historical notation the app writes too: a year
-    // first, as precise as known, BCE before 1 CE ("1843-11", "44 BCE").
+    // first, as precise as known, BCE before 1 CE ("1843-11", "44 BCE"), a
+    // time after a whole date ("1843-11-20 9:30").
     if (set) return null
-    const historical = parseHistoricalDate(String(text), edge)
-    return historical.ok ? { iso: historical.date.toISOString(), precision: boundPrecision(historical.text) } : null
+    const historical = readHistoricalText(String(text), edge)
+    return historical.ok ? { iso: historical.iso, precision: historical.precision } : null
   }
   const precision: WorldPrecision = iso.precision === 'year' || iso.precision === 'month' ? iso.precision : 'day'
   if (set && precision !== 'day') return null
@@ -94,6 +95,10 @@ export function unreadDateReason(set: WorldCalendarSet | null | undefined, text:
     }
     const world = parseWorldText(set, trimmed)
     if (!world.ok) return sentence(world.error)
+  } else if (/^[+-]?\d/.test(trimmed)) {
+    // Year-first text: say what is wrong with it ("2019-02-31", a time past 23:59).
+    const historical = readHistoricalText(trimmed, 'start')
+    if (!historical.ok) return `"${trimmed}": ${sentence(historical.error)}`
   }
   return `"${trimmed}" is not a date: give an ISO 8601 date (1843-11-20, 1843-11-20T14:30, 1871-03), or a year first (1843, 44 BCE).`
 }

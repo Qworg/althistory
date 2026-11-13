@@ -1,5 +1,6 @@
+import { useCallback } from 'react'
 import { create } from 'zustand'
-import { type WorldCalendarSet, storedCalendarSet } from '@althistory/calendar'
+import { type WorldCalendarSet, sameCalendarSet, storedCalendarSet } from '@althistory/calendar'
 
 /**
  * The world calendars of the graph on screen, and the one its dates are shown in.
@@ -71,6 +72,20 @@ export const useWorldCalendarStore = create<WorldCalendarState>()((set, get) => 
 /** The active view, for code outside React's render (formatters, D3 helpers). */
 export function getActiveCalendar(): WorldCalendarSet | null {
   return useWorldCalendarStore.getState().calendar
+}
+
+/**
+ * Another graph's calendars as the viewer sees them: when they are the open
+ * graph's (a branch of the same world), in the calendar picked; otherwise as
+ * that graph keeps them. Re-renders the caller when the choice changes.
+ */
+export function useViewOfCalendars(): (calendars: WorldCalendarSet | null) => WorldCalendarSet | null {
+  const open = useWorldCalendarStore((state) => state.set)
+  const view = useWorldCalendarStore((state) => state.calendar)
+  return useCallback(
+    (calendars: WorldCalendarSet | null) => (calendars && open && sameCalendarSet(calendars, open) ? view : calendars),
+    [open, view]
+  )
 }
 
 /** The active view, re-rendering the caller when it changes. */

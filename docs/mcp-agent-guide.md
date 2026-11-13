@@ -273,8 +273,8 @@ Record that one event caused another.
 Draft a new graph whole-cloth. Give **either** `premise` and `divergencePoint`
 (an alternate history) **or** `world` (an invented world), not both.
 - `premise`, `divergencePoint`: the what-if, and where real history turns.
-- `world`: the world in a few sentences. The graph gets a calendar: `epochYear` defaults to the start date's year, or 1000, so `eraLabel`, `calendarName` and `monthNames` can be given without it. A calendar on an alternate history is refused.
-- `startDate`, `endDate`: ISO 8601 (a date-time without a zone is read as UTC). An alternate history starts in the first year from 1000 to 2099 named in the premise or the divergence point (1914 if there is none, so give `startDate` for earlier history) and runs 15 years; a world starts at `startDate`, or its epoch, and runs 300 years, never past 9999.
+- `world`: the world in a few sentences. The graph gets a calendar: `epochYear` defaults to the start date's year (give it as an ISO day or in the world's notation), or 1000, so `eraLabel`, `calendarName` and `monthNames` can be given without it. A calendar on an alternate history is refused.
+- `startDate`, `endDate`: ISO 8601 (a date-time without a zone is read as UTC), or year first for an alternate history (`44 BCE`; an `endDate` means the last moment of the day, month or year it names), or for a world a date in its notation. An alternate history starts in the first year from 1000 to 2099 named in the premise or the divergence point (1914 if there is none, so give `startDate` for earlier history) and runs 15 years; a world starts at `startDate`, or its epoch, and runs 300 years, never past 9999.
 - `eventCount` (default 8), `style`: `"academic"` | `"narrative"` | `"concise"`, `dryRun`.
 - The result's `source` is `"model"`, or `"template"` when there was no model key or the model's answer was unusable: a generic skeleton to rewrite, not a history.
 
