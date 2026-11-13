@@ -13,23 +13,33 @@
  * compares a cause with an effect on its own.
  */
 
+import { toAxisTime } from '@althistory/calendar';
+
 /**
- * The time of a value the project compares: a `Date` or a millisecond
- * timestamp.
+ * The time of a value the project compares: a `Date` (an `AxisDate` beyond a
+ * Date's range included) or a millisecond timestamp.
  */
 export type CausalTime = Date | number;
 
-function toMillis(value: CausalTime): number {
-  return value instanceof Date ? value.getTime() : value;
+/**
+ * The moment on the axis, exactly, as the backend compares it: a double cannot
+ * tell apart two moments a second apart past about 285,000 years. Null for a
+ * time that names no moment.
+ */
+function toMillis(value: CausalTime): bigint | null {
+  return toAxisTime(value);
 }
 
 /**
  * Whether the cause happens strictly after the effect.
  *
- * A cause at the very same moment as its effect is not an inversion.
+ * A cause at the very same moment as its effect is not an inversion, and
+ * neither is a pair with a time that cannot be read.
  */
 export function isTemporalInversion(causeTime: CausalTime, effectTime: CausalTime): boolean {
-  return toMillis(causeTime) > toMillis(effectTime);
+  const cause = toMillis(causeTime);
+  const effect = toMillis(effectTime);
+  return cause !== null && effect !== null && cause > effect;
 }
 
 /**

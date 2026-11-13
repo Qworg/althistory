@@ -19,20 +19,28 @@ import { toAxisTime } from '@althistory/calendar';
  */
 export type CausalTime = Date | number | bigint;
 
-/** The moment on the axis, exactly: a double cannot tell apart two moments a second apart past about 285,000 years. */
-function toMillis(value: CausalTime): bigint {
+/**
+ * The moment on the axis, exactly: a double cannot tell apart two moments a
+ * second apart past about 285,000 years. Null for a time that names no moment
+ * (an invalid Date, NaN): such a pair is never an inversion and never
+ * simultaneous, as it was when the times were compared as doubles.
+ */
+function toMillis(value: CausalTime): bigint | null {
   if (typeof value === 'bigint') return value;
-  const time = value instanceof Date ? toAxisTime(value) : toAxisTime(value);
-  return time ?? BigInt(0);
+  return toAxisTime(value);
 }
 
 /**
  * Whether the cause happens strictly after the effect.
  *
- * A cause at the very same moment as its effect is not an inversion.
+ * A cause at the very same moment as its effect is not an inversion, and
+ * neither is a pair with a time that cannot be read (that is the timestamp's
+ * own error, not a causal one).
  */
 export function isTemporalInversion(causeTime: CausalTime, effectTime: CausalTime): boolean {
-  return toMillis(causeTime) > toMillis(effectTime);
+  const cause = toMillis(causeTime);
+  const effect = toMillis(effectTime);
+  return cause !== null && effect !== null && cause > effect;
 }
 
 /**
@@ -45,8 +53,10 @@ export function isCausalOrderValid(causeTime: CausalTime, effectTime: CausalTime
 }
 
 /**
- * Whether the two moments are the same one.
+ * Whether the two moments are the same one (false when either is unreadable).
  */
 export function isSimultaneous(causeTime: CausalTime, effectTime: CausalTime): boolean {
-  return toMillis(causeTime) === toMillis(effectTime);
+  const cause = toMillis(causeTime);
+  const effect = toMillis(effectTime);
+  return cause !== null && effect !== null && cause === effect;
 }

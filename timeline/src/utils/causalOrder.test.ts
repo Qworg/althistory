@@ -43,6 +43,24 @@ describe('isTemporalInversion', () => {
   })
 })
 
+describe('a time that cannot be read', () => {
+  const unreadable = [new Date(NaN), NaN]
+  const hastings = Date.UTC(1066, 9, 14)
+
+  it.each(unreadable)('is never an inversion, as either side (%s)', bad => {
+    expect(isTemporalInversion(bad, new Date(hastings))).toBe(false)
+    expect(isTemporalInversion(new Date(hastings), bad)).toBe(false)
+    expect(isTemporalInversion(bad, hastings)).toBe(false)
+    expect(isCausalOrderValid(bad, hastings)).toBe(true)
+  })
+
+  it.each(unreadable)('is never simultaneous with the epoch or with itself (%s)', bad => {
+    expect(isSimultaneous(bad, new Date(0))).toBe(false)
+    expect(isSimultaneous(new Date(0), bad)).toBe(false)
+    expect(isSimultaneous(bad, bad)).toBe(false)
+  })
+})
+
 describe('isCausalOrderValid', () => {
   it('should be the opposite of an inversion', () => {
     const cause = new Date('2023-01-01T00:00:00Z')
