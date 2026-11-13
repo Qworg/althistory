@@ -120,9 +120,12 @@ describe('any world calendar', () => {
   })
 
   it('never names a later position by an earlier date (Req 13)', () => {
+    // Ordered by construction, not by `fc.pre`: half of all pairs are the wrong
+    // way round, and every rejected pair still costs a generated calendar.
+    const ordered = fc.tuple(position, position).map(([x, y]): [number, number] => (x <= y ? [x, y] : [y, x]))
     fc.assert(
-      fc.property(compiled, position, position, (calendar, a, b) => {
-        fc.pre(a < b && inRange(calendar, a) && inRange(calendar, b))
+      fc.property(compiled, ordered, (calendar, [a, b]) => {
+        fc.pre(inRange(calendar, a) && inRange(calendar, b))
         expect(compare(tuple(dateAt(calendar, a)), tuple(dateAt(calendar, b)))).toBeLessThanOrEqual(0)
       }),
       arb.runs(3000)

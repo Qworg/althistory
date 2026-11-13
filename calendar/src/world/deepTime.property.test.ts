@@ -71,7 +71,7 @@ describe('a world over the whole axis (Req 8)', () => {
     )
   })
 
-  it('reads the text it writes: a date out to the end of the axis names the day that holds the position', () => {
+  it.each([1, 2])('reads the text it writes: a date out to the end of the axis names the day that holds the position (part %i of 2)', () => {
     fc.assert(
       fc.property(anywhere, ([set, t]) => {
         const calendar = calendarIn(set)
@@ -85,7 +85,7 @@ describe('a world over the whole axis (Req 8)', () => {
         expect(read.position).toBeLessThanOrEqual(t)
         expect(tuple(dateAt(calendar, read.position)).slice(0, 3)).toEqual([d.year, d.part, d.day])
       }),
-      arb.runs(3000)
+      arb.runs(1500)
     )
   })
 
