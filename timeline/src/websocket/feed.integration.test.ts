@@ -296,8 +296,8 @@ describe('the live change feed over the WebSocket', () => {
       expect(typeof change.at).toBe('string');
     });
 
-    it('says which browser tab made a change, so that tab can recognise its own', async () => {
-      const client = await watcher(readerKey, graphA);
+    it('says which browser tab made a change to the key that made it, so that tab can recognise its own', async () => {
+      const client = await watcher(agentKey, graphA);
       await request(app)
         .post('/api/events')
         .set('X-API-Key', agentKey)
@@ -308,6 +308,21 @@ describe('the live change feed over the WebSocket', () => {
         .expect(201);
       const change = await client.nextOf('change');
       expect(change).toMatchObject({ origin: 'tab-42', actor: { kind: 'person' } });
+    });
+
+    it('does not tell another key which tab made a change, so no writer can pose as that tab', async () => {
+      const client = await watcher(readerKey, graphA);
+      await request(app)
+        .post('/api/events')
+        .set('X-API-Key', agentKey)
+        .set('X-Graph-Id', graphA)
+        .set('X-Althistory-Client', 'web')
+        .set('X-Client-Id', 'tab-42')
+        .send({ description: 'From a tab', actor: 'A', target: 'B', timestamp: '1301-01-01T00:00:00Z' })
+        .expect(201);
+      const change = await client.nextOf('change');
+      expect(change).toMatchObject({ actor: { kind: 'person' } });
+      expect(change).not.toHaveProperty('origin');
     });
 
     it('delivers edits and deletions, and the links that go with a deleted event', async () => {

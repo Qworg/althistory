@@ -142,7 +142,21 @@ const ENTITY_READ_PERMISSION: Record<ChangedEntity['type'], Permission> = {
  * line (which may name them) becomes a count, and a record with nothing left to
  * show is not sent.
  */
-export function visibleTo(apiKey: Pick<ApiKey, 'hasPermission'>, record: ChangeRecord): ChangeRecord | null {
+export function visibleTo(apiKey: Pick<ApiKey, 'hasPermission' | 'id'>, record: ChangeRecord): ChangeRecord | null {
+  const shown = readableBy(apiKey, record);
+  if (!shown || shown.origin === undefined) return shown;
+  // A tab's id is told only to the key that made the change. Any other key
+  // that learned it could send it on its own writes and have the tab treat
+  // them as its own, hiding them from the person's notices and highlights.
+  // In local mode every client shares the admin key, so there the tag stays
+  // advisory: it labels, it never authorises.
+  if (record.actor.keyId !== undefined && record.actor.keyId === apiKey.id) return shown;
+  const { origin: _origin, ...rest } = shown;
+  void _origin;
+  return rest as ChangeRecord;
+}
+
+function readableBy(apiKey: Pick<ApiKey, 'hasPermission'>, record: ChangeRecord): ChangeRecord | null {
   if (record.kind !== 'entities') return record;
   const entities = record.entities.filter((entity) => apiKey.hasPermission(ENTITY_READ_PERMISSION[entity.type]));
   if (entities.length === record.entities.length) return record;

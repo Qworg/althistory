@@ -12,6 +12,7 @@ import type { ChangeRecord } from '@/services/ChangeFeedService';
 import { visibleTo } from './StreamHandler';
 
 const keyWith = (...permissions: Permission[]) => ({
+  id: 'key-reader',
   hasPermission: (permission: Permission) => permissions.includes(permission),
 });
 
@@ -54,6 +55,17 @@ describe('visibleTo', () => {
     expect(JSON.stringify(seen)).not.toContain('→');
     // The original is not changed: other sockets are sent it as it was.
     expect(mixed.entities).toHaveLength(2);
+  });
+
+  it('tells a tab\'s id only to the key that made the change', () => {
+    const own = { ...record([{ type: 'event', id: 'e1' }], 'x'), actor: { kind: 'person' as const, keyId: 'key-reader' }, origin: 'tab-1' };
+    const foreign = { ...own, actor: { kind: 'person' as const, keyId: 'key-agent' } };
+    const unnamed = { ...own, actor: { kind: 'system' as const } };
+    expect(visibleTo(keyWith('read:events'), own)).toBe(own);
+    expect(visibleTo(keyWith('read:events'), foreign)).not.toHaveProperty('origin');
+    expect(visibleTo(keyWith('read:events'), unnamed)).not.toHaveProperty('origin');
+    // The shared record keeps its tag for the sockets that may have it.
+    expect(foreign.origin).toBe('tab-1');
   });
 
   it('passes the changes that carry no entities', () => {

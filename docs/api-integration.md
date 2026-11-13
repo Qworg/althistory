@@ -481,7 +481,10 @@ or `system`; `name` is the API key's name. A client says what it is with the
 `X-Althistory-Client` request header (`web`, `mcp` or `cli`; anything else is
 `api`), and a browser tab sends its own id in `X-Client-Id`, which comes back as
 `origin`, so a tab can tell its own edits from other writers'. Both are claims
-used only to label changes for people who may already read the graph.
+used only to label changes for people who may already read the graph. `origin`
+is sent only to sockets of the key that made the change, so another key cannot
+learn a tab's id and pose as it; in local mode every client shares the admin
+key, so there it is advisory.
 
 **A message is sent after the change is in the app's store**, so a client that
 refetches on it sees the change.
