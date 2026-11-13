@@ -12,7 +12,7 @@ import { AlthistoryExport, type AlthistoryExportVersion } from '@/types'
  * a date beyond a Date's range (docs/export-format.md, deep-time Req 15).
  * Mirrors READABLE_EXPORT_VERSIONS in timeline/src/utils/exportVersion.ts.
  */
-export const READABLE_EXPORT_VERSIONS: readonly AlthistoryExportVersion[] = ['1.0', '1.1']
+const READABLE_EXPORT_VERSIONS: readonly AlthistoryExportVersion[] = ['1.0', '1.1']
 
 export interface ImportUploadStepProps {
   onUpload: (data: AlthistoryExport) => void
