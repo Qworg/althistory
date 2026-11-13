@@ -218,7 +218,9 @@ pattern reader cannot read invented years, so give it ISO dates or use a model.
 
 The server exposes 14 tools. `althistory schema --mcp` prints their JSON
 schemas. A required argument that is missing is refused by name. Every
-timestamp is an ISO 8601 stored date (see the calendar above).
+`timestamp` a tool returns is an ISO 8601 stored date (see the calendar
+above); a date a tool takes is ISO 8601, year-first text without a world, or
+in a world its notation, as each tool below says.
 
 ### Reading
 

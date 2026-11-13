@@ -170,7 +170,9 @@ the CLI, the MCP tools, ingestion and the app do (`readWorldTimestamp` in
 date, a month or a year alone (`1843-11-20`, `1871-03`, `1066`) names that UTC
 period, is stored at its first moment with a month's or year's
 `metadata.datePrecision` recorded, and as an arc's `end_time` is the period's
-last moment. The query-string filters read ISO 8601 as instants.
+last moment. The query-string filters (and the time ranges of the temporal,
+inference and export routes) read ISO 8601 as instants; text that starts
+with a digit and is not ISO 8601 (`312`) is refused there.
 
 A date that does not exist (`2019-02-31`, `1870-13-01`) is refused. In a graph
 without world calendars, year-first text is read as the app's forms and the

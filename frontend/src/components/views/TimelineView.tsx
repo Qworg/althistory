@@ -34,7 +34,7 @@ import {
 import type { UpdateArcRequest } from '@/types'
 import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
 import { useEditHistory } from '@/hooks/useEditHistory'
-import { useKeptState } from '@/hooks/useKeptState'
+import { useKeptRef, useKeptState } from '@/hooks/useKeptState'
 import { useUndoableEventDelete } from '@/hooks/useUndoableEventDelete'
 import { confidenceTier } from '@/components/timeline/confidenceTier'
 import { editShortcutLabels } from '@/utils/platform'
@@ -616,6 +616,12 @@ export function TimelineView() {
     return resizeArc(current, { start: new Date(bounds.start), end: new Date(bounds.end) })
   }, [resizeArc, addError])
 
+  // What an undo entry does, as the view on screen does it: an entry recorded
+  // before the view was remounted for another calendar (it keeps the history)
+  // reaches this, refreshed on every render, not the replaced view's frozen data.
+  const reapply = useKeptRef('timeline.reapply', activeGraphId, { eventTime: reapplyEventTime, arcBounds: reapplyArcBounds })
+  reapply.current = { eventTime: reapplyEventTime, arcBounds: reapplyArcBounds }
+
   const handleEventDrag = useCallback(async (event: Event, newTimestamp: Date) => {
     const from = event.timestamp
     const fromPeriod: DatePeriod = { datePrecision: event.metadata?.datePrecision, dateCalendar: event.metadata?.dateCalendar }
@@ -623,10 +629,10 @@ export function TimelineView() {
     if (!(await moveEvent(event, newTimestamp))) return
     recordEdit({
       description: `moved "${event.description}" to ${formatHistoricalTimestamp(to)}`,
-      undo: () => reapplyEventTime(event.id, event.description, from, fromPeriod),
-      redo: () => reapplyEventTime(event.id, event.description, to),
+      undo: () => reapply.current.eventTime(event.id, event.description, from, fromPeriod),
+      redo: () => reapply.current.eventTime(event.id, event.description, to),
     })
-  }, [moveEvent, recordEdit, reapplyEventTime])
+  }, [moveEvent, recordEdit, reapply])
 
   const handleArcResize = useCallback(async (arc: Arc, newBounds: { start: Date; end: Date }) => {
     const from = { start: arc.start_time, end: arc.end_time }
@@ -634,10 +640,10 @@ export function TimelineView() {
     if (!(await resizeArc(arc, newBounds))) return
     recordEdit({
       description: `resized "${arc.name}" to ${formatHistoricalTimestamp(to.start)} – ${formatHistoricalEnd(to.end)}`,
-      undo: () => reapplyArcBounds(arc.id, arc.name, from),
-      redo: () => reapplyArcBounds(arc.id, arc.name, to),
+      undo: () => reapply.current.arcBounds(arc.id, arc.name, from),
+      redo: () => reapply.current.arcBounds(arc.id, arc.name, to),
     })
-  }, [resizeArc, recordEdit, reapplyArcBounds])
+  }, [resizeArc, recordEdit, reapply])
 
   // Context menu handlers
   const handleEventContextMenu = useCallback((event: Event, position: { x: number; y: number }) => {

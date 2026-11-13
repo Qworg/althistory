@@ -126,3 +126,15 @@ export function newDateMetadata(
   if (requested && 'datePrecision' in requested && read.precision === 'day' && !read.calendar) return { ...requested };
   return withDatePrecision(requested ?? existing, read);
 }
+
+/**
+ * A time a query or a range filter gives (`?startTime=`, `timeRange.start`):
+ * ISO 8601, as the docs say, read in UTC. Text that starts with a digit and is
+ * not ISO 8601 ("312", "0") names no instant here (an Invalid Date, which the
+ * routes refuse), rather than one in the server's zone. Other text is read
+ * as these routes always read it.
+ */
+export function queryInstant(value: unknown): Date {
+  if (typeof value === 'string' && /^[+-]?\d/.test(value.trim()) && !parseIsoInstant(value.trim())) return new Date(NaN);
+  return toInstant(value as string);
+}

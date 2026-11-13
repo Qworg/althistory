@@ -132,8 +132,8 @@ notation first, then ISO 8601, whose date, month or year alone names a UTC
 period; in a world an ISO month or year is refused, being no period of it.
 In a graph without a world, year-first text is read too ("312", "44 BCE",
 "1871-03-04 14:30", "44-03-15 BCE 9:30"), in UTC at the precision it
-states, by every door alike: the app's forms, the API, the CLI, the tools,
-the generator, the review step and the importers (which read a document's
+states, by every door that takes text alike: the app's event form, the API,
+the CLI, the tools, the generator, the review step and the importers (which read a document's
 dates with the calendars of the graph it goes into). Text that starts with a
 digit and is not such a date is refused, never read in the server's zone.
 

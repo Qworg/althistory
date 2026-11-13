@@ -198,6 +198,8 @@ export function readHistoricalText(
   if (hours > 23 || minutes > 59) return { ok: false, error: 'The time must be 00:00 to 23:59, in UTC.' }
   const date = new Date(parsed.date.getTime())
   date.setUTCHours(hours, minutes, 0, 0)
+  // The last day a date can hold ends before some of its times.
+  if (Number.isNaN(date.getTime())) return { ok: false, error: 'That date is beyond the range a date can hold.' }
   return { ok: true, iso: date.toISOString(), precision: 'day' }
 }
 

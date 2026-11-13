@@ -1,5 +1,4 @@
-import { readRequestTime } from '../worldDates';
-import { toInstant } from '@althistory/calendar';
+import { readRequestTime, queryInstant } from '../worldDates';
 import { Router, Response, NextFunction } from 'express';
 import { CreateArcRequest, UpdateArcRequest } from '@/models/Arc';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
@@ -133,8 +132,8 @@ arcRoutes.get('/', ...entityPermission('read:arcs'), async (req: RequestWithCont
     } else if (startTime && endTime) {
       // Time range query
       const timeRange = {
-        start: toInstant(startTime as string),
-        end: toInstant(endTime as string)
+        start: queryInstant(startTime as string),
+        end: queryInstant(endTime as string)
       };
 
       // Validate time range

@@ -585,8 +585,10 @@ export class ImportService {
     // Validate arcs
     this.validateArcs(exportData.arcs, errors, warnings, world);
 
-    // Validate relationships
-    this.validateRelationships(exportData.causalRelationships, exportData.events, errors, warnings);
+    // Validate relationships, by the instants the events' dates name (read
+    // with the same calendars), so "Thaw 5" before "Thaw 4" is a paradox too.
+    const readEvents = readImportedDates({ data: exportData } as AlthistoryExport, world).data.events;
+    this.validateRelationships(exportData.causalRelationships, readEvents, errors, warnings);
 
     // Validate pressures - now treats missing references as errors
     this.validatePressures(exportData.inferredPressures, exportData.events, exportData.arcs, errors, warnings);
@@ -1914,6 +1916,8 @@ export class ImportService {
     importData: AlthistoryExport,
     options: ImportOptions
   ): Promise<ImportPreview> {
+    // As the import will read them: with the calendars of the graph it goes into.
+    importData = (await this.readDates(importData, options)).data;
     const conflicts = options.graphId
       ? await this.detectConflicts(importData, options.graphId, options.mode)
       : [];
@@ -2210,8 +2214,21 @@ export class ImportService {
    * FIX #7: Real progress tracking
    * FIX B#6: Check cancellation flag during execution
    */
+  /**
+   * The document with its dates read as an import into `options.graphId`
+   * (or a new graph) reads them, and the calendars it read them with. What
+   * cannot be read is left as written, for validation to refuse.
+   */
+  async readDates(
+    importData: AlthistoryExport,
+    options: Pick<ImportOptions, 'graphId' | 'mode'>
+  ): Promise<{ data: AlthistoryExport; calendar: WorldCalendarSet | undefined }> {
+    const calendar = await this.targetCalendar(importData, options);
+    return { data: readImportedDates(importData, calendar), calendar };
+  }
+
   /** The calendars a document's dates are read with: the target graph's, or the document's for a new graph. */
-  private async targetCalendar(importData: AlthistoryExport, options: ImportOptions): Promise<WorldCalendarSet | undefined> {
+  private async targetCalendar(importData: AlthistoryExport, options: Pick<ImportOptions, 'graphId' | 'mode'>): Promise<WorldCalendarSet | undefined> {
     if (options.mode === 'create-new' || !options.graphId) return readableCalendar(importData.metadata?.calendar);
     try {
       return storedCalendarSet((await this.graphRepository.findById(options.graphId))?.calendar) ?? undefined;
@@ -2917,6 +2934,7 @@ function readImportedDates(data: AlthistoryExport, calendar: WorldCalendarSet | 
     typeof value === 'string' ? readImportedTime(value, calendar, edge) : null;
   const events = Array.isArray(data.data?.events)
     ? data.data.events.map((event) => {
+        if (!event || typeof event !== 'object') return event;
         const read = time(event.timestamp, 'start');
         if (!read) return event;
         const metadata = event.metadata ?? {};
@@ -2930,7 +2948,7 @@ function readImportedDates(data: AlthistoryExport, calendar: WorldCalendarSet | 
       })
     : data.data?.events;
   const arcs = Array.isArray(data.data?.arcs)
-    ? data.data.arcs.map((arc) => ({
+    ? data.data.arcs.map((arc) => !arc || typeof arc !== 'object' ? arc : ({
         ...arc,
         start_time: time(arc.start_time, 'start')?.iso ?? arc.start_time,
         end_time: time(arc.end_time, 'end')?.iso ?? arc.end_time,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type WorldCalendarSet, calendarIn, positionOf } from '@althistory/calendar';
-import { newDateMetadata, readRequestTime } from './worldDates';
+import { newDateMetadata, queryInstant, readRequestTime } from './worldDates';
 import { ValidationError } from '../utils/errors';
 
 /** A Reckoning of twelve months of thirty days and five festival days, in a 30-hour day of 20 hours. */
@@ -99,5 +99,13 @@ describe('ISO 8601 text, the same at every door', () => {
 
   it('refuses an ISO date whose end is past the range a date can hold, saying so', async () => {
     await expect(readRequestTime('+275760-09-13', 'end_time', plain, 'end')).rejects.toThrow(/beyond the range a date can hold/);
+  });
+});
+
+describe('a time a query gives', () => {
+  it('is ISO 8601 in UTC, and text that starts with a digit and is not ISO names no instant', () => {
+    expect(queryInstant('1871-03-04T10:00').toISOString()).toBe('1871-03-04T10:00:00.000Z');
+    expect(queryInstant('0312-01-01').toISOString()).toBe('0312-01-01T00:00:00.000Z');
+    for (const text of ['312', '0', '12/25/1870']) expect(Number.isNaN(queryInstant(text).getTime()), text).toBe(true);
   });
 });

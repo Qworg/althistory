@@ -1059,8 +1059,9 @@ export function createImportRouter(config: ImportRouterConfig): Router {
         },
       };
 
-      // Validate format
-      const validation = await importService.validateFormat(importData);
+      // Validate format, its dates read with the calendars of the graph they go into
+      const read = await importService.readDates(importData, { graphId, mode: 'merge' });
+      const validation = await importService.validateFormat(importData, read.calendar ?? null);
 
       if (!validation.valid) {
         res.json({
@@ -1073,7 +1074,7 @@ export function createImportRouter(config: ImportRouterConfig): Router {
       }
 
       // Detect conflicts with existing data
-      const conflicts = await importService.detectConflicts(importData, graphId, 'merge');
+      const conflicts = await importService.detectConflicts(read.data, graphId, 'merge');
 
       // Filter to only error-level conflicts
       const errorConflicts = conflicts.filter((c) => c.severity === 'error');

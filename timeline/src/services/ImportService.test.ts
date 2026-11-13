@@ -2042,6 +2042,25 @@ describe('ImportService', () => {
       expect(day).toEqual({ at: '2023-01-01T00:00:00.000Z', precision: undefined });
     });
 
+    it('refuses a causal paradox written in the world\'s notation, as it does one in ISO 8601', async () => {
+      const doc = withDates(['Thaw 5, 312 AR', 'Thaw 4, 312 AR'], VAEL);
+      doc.data.causalRelationships = [
+        { id: 'rel-1', cause_event_id: 'event-0', effect_event_id: 'event-1', weight: 0.8, evidence: 'x', confidence: 0.9, relationship_type: 'direct' },
+      ];
+      const result = await importService.validateFormat(doc);
+      expect(result.errors.map((error) => error.code)).toContain('CAUSAL_PARADOX');
+    });
+
+    it('refuses a year-first non-date and a value that is not text, rather than read or throw', async () => {
+      const zero = await importService.executeImport(withDates(['0']), { mode: 'create-new', conflictResolution: 'skip' });
+      expect(zero.success).toBe(false);
+      const doc = withDates(['Thaw 4, 312 AR'], VAEL);
+      doc.data.arcs = [{ id: 'arc-1', name: 'A', description: 'd', start_time: 5 as never, end_time: 6 as never, level: 0, parent_arc_id: null }];
+      const checked = await importService.validateFormat(doc);
+      expect(checked.valid).toBe(false);
+      expect(checked.errors.map((error) => error.message)).toContain('Arc start_time is required');
+    });
+
     it('reads a document going into an existing graph with that graph\'s calendars', async () => {
       const repository = new GraphRepository({ dataDir: testDataDir });
       await repository.initialize();
@@ -2050,6 +2069,13 @@ describe('ImportService', () => {
       const result = await importService.executeImport(withDates(['Thaw 312 AR']), { mode: 'merge', graphId: vael.id, conflictResolution: 'skip' });
       expect(result.errors).toEqual([]);
       expect((await stored(vael.id))[0]!.precision).toBe('month');
+
+      // The preview and the incremental check read it the same way.
+      const read = await importService.readDates(withDates(['Thaw 312 AR', '1871-03']), { graphId: vael.id, mode: 'merge' });
+      expect(read.data.data.events[0]!.timestamp).toBe(readWorldTimestamp(VAEL as never, 'Thaw 312 AR')!.iso);
+      expect(read.data.data.events[1]!.timestamp).toBe('1871-03');
+      const checked = await importService.validateFormat(withDates(['Thaw 312 AR', '1871-03']), read.calendar ?? null);
+      expect(checked.errors.map((error) => error.path)).toEqual(['$.data.events[1].timestamp']);
     });
   });
 });

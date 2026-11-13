@@ -169,6 +169,10 @@ describe('one rule for ISO text, at every door', () => {
       arb.runs(300)
     )
     expect(readWorldTimestamp(null, '1843-11-20 24:00')).toBeNull()
+    // The last day a date can hold, at a time past its last moment: refused, not thrown.
+    expect(readWorldTimestamp(null, '275760-09-13 01:00')).toBeNull()
+    expect(readDateEntry('275760-09-13 01:00', null)).toEqual({ ok: false, error: 'That date is beyond the range a date can hold.' })
+    expect(unreadDateReason(null, '275760-09-13 01:00')).toMatch(/beyond the range/)
     expect(unreadDateReason(null, '1843-11-20 24:00')).toMatch(/00:00 to 23:59/)
   })
 

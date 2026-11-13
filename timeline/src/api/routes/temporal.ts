@@ -1,10 +1,10 @@
-import { toInstant } from '@althistory/calendar';
 import { Router, Request, Response, NextFunction } from 'express';
 import { ValidationError, NotFoundError } from '@/utils/errors';
 import { TimeRange, IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
 import { requireGraphId, resolveGraphContext } from '@/api/middleware';
 import { entityPermission, mountEntityAccessGuard, mountEntityGraphAccess } from '@/api/entityAuth';
+import { queryInstant } from '../worldDates';
 
 export const temporalRoutes = Router();
 
@@ -63,8 +63,8 @@ temporalRoutes.get('/timeline', ...entityPermission('read:events', 'read:arcs'),
     }
 
     const timeRange: TimeRange = {
-      start: toInstant(startTime as string),
-      end: toInstant(endTime as string)
+      start: queryInstant(startTime as string),
+      end: queryInstant(endTime as string)
     };
 
     if (isNaN(timeRange.start.getTime()) || isNaN(timeRange.end.getTime())) {
@@ -264,8 +264,8 @@ temporalRoutes.get('/overlaps', ...entityPermission('read:events', 'read:arcs'),
     }
 
     const timeRange: TimeRange = {
-      start: toInstant(startTime as string),
-      end: toInstant(endTime as string)
+      start: queryInstant(startTime as string),
+      end: queryInstant(endTime as string)
     };
 
     if (isNaN(timeRange.start.getTime()) || isNaN(timeRange.end.getTime())) {
@@ -338,8 +338,8 @@ temporalRoutes.get('/gaps', ...entityPermission('read:events', 'read:arcs'), asy
     }
 
     const timeRange: TimeRange = {
-      start: toInstant(startTime as string),
-      end: toInstant(endTime as string)
+      start: queryInstant(startTime as string),
+      end: queryInstant(endTime as string)
     };
 
     if (isNaN(timeRange.start.getTime()) || isNaN(timeRange.end.getTime())) {
@@ -410,8 +410,8 @@ temporalRoutes.get('/density', ...entityPermission('read:events', 'read:arcs'), 
     }
 
     const timeRange: TimeRange = {
-      start: toInstant(startTime as string),
-      end: toInstant(endTime as string)
+      start: queryInstant(startTime as string),
+      end: queryInstant(endTime as string)
     };
 
     if (isNaN(timeRange.start.getTime()) || isNaN(timeRange.end.getTime())) {

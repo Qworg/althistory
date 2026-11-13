@@ -1,5 +1,4 @@
-import { readRequestTime } from '../worldDates';
-import { toInstant } from '@althistory/calendar';
+import { readRequestTime, queryInstant } from '../worldDates';
 import { Router, Response, NextFunction } from 'express';
 import { CreateEventRequest, UpdateEventRequest, TimeRange } from '@/models/Event';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
@@ -128,8 +127,8 @@ eventRoutes.get('/', ...entityPermission('read:events'), async (req: RequestWith
     if (startTime && endTime) {
       // Time range query
       const timeRange: TimeRange = {
-        start: toInstant(startTime as string),
-        end: toInstant(endTime as string)
+        start: queryInstant(startTime as string),
+        end: queryInstant(endTime as string)
       };
 
       // Validate time range
@@ -197,8 +196,8 @@ eventRoutes.get('/stats/count', ...entityPermission('read:events'), async (req: 
     
     if (startTime && endTime) {
       const timeRange: TimeRange = {
-        start: toInstant(startTime as string),
-        end: toInstant(endTime as string)
+        start: queryInstant(startTime as string),
+        end: queryInstant(endTime as string)
       };
 
       if (isNaN(timeRange.start.getTime()) || isNaN(timeRange.end.getTime())) {
