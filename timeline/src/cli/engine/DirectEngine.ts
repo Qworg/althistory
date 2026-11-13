@@ -44,7 +44,7 @@ import {
 import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { calendarSetInstructions, type WorldCalendarSet, toInstant, dateCalendarOf, datePrecisionMetadata, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
+import { addInstantMs, calendarSetInstructions, compareInstants, type WorldCalendarSet, toInstant, dateCalendarOf, datePrecisionMetadata, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
 import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import type { IGraph } from '@/models/Graph';
@@ -246,7 +246,7 @@ export class DirectEngine implements IEngine {
 
     const created = await scoped.eventRepository.create({
       description: data.description,
-      timestamp: new Date(read.iso),
+      timestamp: toInstant(read.iso),
       actor: data.actor || 'Unknown',
       target: data.target || 'None',
       metadata: { importance: data.importance ?? 1, ...precisionMetadata(read), ...(data.metadata || {}) },
@@ -280,12 +280,12 @@ export class DirectEngine implements IEngine {
     // Read as every date an agent gives is (in a world, its notation too): a
     // "to" of a day, month or year is its last moment.
     if (filters?.from) {
-      const fromTime = Date.parse(readAgentTimestamp(filters.from, await this.worldCalendarFor(graphId, filters.from)).iso);
-      events = events.filter((e) => e.timestamp.getTime() >= fromTime);
+      const fromTime = toInstant(readAgentTimestamp(filters.from, await this.worldCalendarFor(graphId, filters.from)).iso);
+      events = events.filter((e) => compareInstants(e.timestamp, fromTime) >= 0);
     }
     if (filters?.to) {
-      const toTime = Date.parse(readAgentTimestamp(filters.to, await this.worldCalendarFor(graphId, filters.to), 'end').iso);
-      events = events.filter((e) => e.timestamp.getTime() <= toTime);
+      const toTime = toInstant(readAgentTimestamp(filters.to, await this.worldCalendarFor(graphId, filters.to), 'end').iso);
+      events = events.filter((e) => compareInstants(e.timestamp, toTime) <= 0);
     }
 
     return events.map((e) => ({
@@ -331,7 +331,7 @@ export class DirectEngine implements IEngine {
     if (data.target !== undefined) updatePayload.target = data.target;
     if (data.timestamp !== undefined) {
       const read = readAgentTimestamp(data.timestamp, await this.worldCalendarFor(graphId, data.timestamp));
-      updatePayload.timestamp = new Date(read.iso);
+      updatePayload.timestamp = toInstant(read.iso);
       const existing = await scoped.eventRepository.findById(eventId);
       if (existing) updatePayload.metadata = withNewDatePrecision(existing.metadata, read);
     }
@@ -374,9 +374,9 @@ export class DirectEngine implements IEngine {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
     // Read as the event tools read a time, and as the remote engine reads it.
-    const start = new Date(readAgentTimestamp(data.startTime, await this.worldCalendarFor(graphId, data.startTime)).iso);
-    const end = new Date(readAgentTimestamp(data.endTime, await this.worldCalendarFor(graphId, data.endTime), 'end').iso);
-    if (start.getTime() > end.getTime()) {
+    const start = toInstant(readAgentTimestamp(data.startTime, await this.worldCalendarFor(graphId, data.startTime)).iso);
+    const end = toInstant(readAgentTimestamp(data.endTime, await this.worldCalendarFor(graphId, data.endTime), 'end').iso);
+    if (compareInstants(start, end) > 0) {
       throw new ValidationErrorCLI(`Arc startTime (${data.startTime}) must precede endTime (${data.endTime})`);
     }
 
@@ -765,8 +765,8 @@ export class DirectEngine implements IEngine {
     for (const a of arcs) {
       const startTime = toInstant(a.start_time);
       let endTime = toInstant(a.end_time);
-      if (startTime.getTime() >= endTime.getTime()) {
-        endTime = new Date(startTime.getTime() + 24 * 60 * 60 * 1000);
+      if (compareInstants(startTime, endTime) >= 0) {
+        endTime = addInstantMs(startTime, 24 * 60 * 60 * 1000);
       }
       const created = await scoped.arcRepository.create({
         name: a.name,

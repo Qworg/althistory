@@ -6,7 +6,7 @@ import { isSimulationDomain } from '@/services/SimulationService';
 import { calendarFrom, partialCalendarFrom } from '../utils/calendarOptions';
 import { ValidationErrorCLI } from '../utils/exitCodes';
 import { storedCalendarSet } from '@althistory/calendar';
-import { withWorldDates } from './worldDates';
+import { withAxisTimes, withWorldDates } from './worldDates';
 
 const CAUSAL_LINK_TYPES = ['direct', 'indirect', 'contributory'] as const;
 
@@ -371,6 +371,7 @@ export class McpServer {
           storedCalendarSet(outputRecord.calendar) ??
           (graphId ? storedCalendarSet((await this.engine.getGraph(graphId).catch(() => undefined))?.calendar) : null);
         if (calendar) toolOutput = withWorldDates(toolOutput, calendar);
+        toolOutput = withAxisTimes(toolOutput);
       }
 
       return {

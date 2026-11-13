@@ -413,12 +413,29 @@ describe('invented worlds', () => {
       for (const graph of made) expect(listed.has(graph.id)).toBe(true);
     });
 
-    it('keeps a world generated near the year 9999 within four-digit years', async () => {
+    it('lets a world generated near the year 9999 run on, in expanded years', async () => {
       const result = await engine.generateTimeline({ world: 'Late', calendar: { epochYear: 9900 }, eventCount: 4, dryRun: true });
-      for (const event of result.events) expect(event.timestamp).toMatch(/^\d{4}-/);
-      await expect(
-        engine.generateTimeline({ world: 'Late', calendar: { epochYear: 9900 }, endDate: '+010100-01-01T00:00:00Z', dryRun: true })
-      ).rejects.toThrow(/no later than .*, where the timeline's four-digit years end/);
+      expect(result.events.length).toBe(4);
+      const years = result.events.map((event) => event.timestamp);
+      expect([...years].sort()).toBeTruthy();
+      // The default span (300 years) crosses 9999: no event is lost to a four-digit limit.
+      expect(years.some((text) => /^\+\d{6}-/.test(text))).toBe(true);
+      const long = await engine.generateTimeline({ world: 'Late', calendar: { epochYear: 9900 }, endDate: '+010100-01-01T00:00:00Z', eventCount: 4, dryRun: true });
+      expect(long.events.length).toBe(4);
+    });
+
+    it('generates a chronicle of a million years', async () => {
+      const result = await engine.generateTimeline({
+        world: 'Deep',
+        calendar: { epochYear: 1000 },
+        startDate: '-400000-01-01T00:00:00Z',
+        endDate: '+600000-01-01T00:00:00Z',
+        eventCount: 6,
+        dryRun: true,
+      });
+      expect(result.events.length).toBe(6);
+      expect(result.events.some((event) => event.timestamp.startsWith('-'))).toBe(true);
+      expect(result.events.some((event) => event.timestamp.startsWith('+'))).toBe(true);
     });
 
     it('reads a start date without a zone as UTC', async () => {
@@ -444,7 +461,12 @@ describe('invented worlds', () => {
       const text = renderPrompt('worldbuild', { world: 'Isles', epochYear: '50' }).text;
       for (const stamp of text.match(/\d{4}-01-01T00:00:00Z/g) ?? []) expect(Number.isNaN(Date.parse(stamp))).toBe(false);
       expect(text).toContain('Year 312 is 0361-01-01T00:00:00Z');
-      expect(renderPrompt('worldbuild', { world: 'Late', epochYear: '9990' }).text).toContain('Year 2 is 9991-01-01T00:00:00Z');
+      // No year limit, and no warning about years below 100: they are read as the years they are.
+      expect(text).not.toContain('19xx');
+      expect(renderPrompt('worldbuild', { world: 'Early', epochYear: '5' }).text).not.toContain('19xx');
+      expect(renderPrompt('worldbuild', { world: 'Late', epochYear: '9990' }).text).toContain('Year 312 is +010301-01-01T00:00:00Z');
+      expect(renderPrompt('worldbuild', { world: 'Deep', epochYear: '-200000' }).text).toContain('Year 1 is -200000-01-01T00:00:00Z');
+      expect(() => renderPrompt('worldbuild', { world: 'Far', epochYear: '999999999' })).toThrow(/between -\d+ and \d+/);
       expect(() => renderPrompt('worldbuild', { world: 'Isles', eraLabel: 'x'.repeat(17) })).toThrow(/at most 16/);
       // The epoch is read as the tools read it, so the prompt cannot promise a calendar they refuse.
       for (const epochYear of ['1e3', '0x3E8', '1000.0']) {
@@ -874,9 +896,9 @@ describe('invented worlds', () => {
       created.push(made.body.data.id);
       expect(made.body.data.calendar).toEqual(legacyCalendarSet({ epochYear: 1000 }));
       // Read, then refused for its range, with the range in the message.
-      const zero = await cli(['graph', 'create', 'Zero', '--epoch-year', '-5']);
+      const zero = await cli(['graph', 'create', 'Zero', '--epoch-year', '999999999']);
       expect(zero.code).toBe(ExitCode.VALIDATION_FAILED);
-      expect(JSON.stringify(zero.body)).toContain('between 1 and 9999');
+      expect(JSON.stringify(zero.body)).toMatch(/between -\d+ and \d+/);
     });
   });
 

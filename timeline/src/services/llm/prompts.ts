@@ -94,7 +94,7 @@ function contextLines(context?: ExtractionContext): string {
 function timestampRule(calendar: WorldCalendarSet | undefined): string {
   return calendar
     ? "a timestamp written as the world writes a date (the calendar is described in the context), never converted to an ISO date"
-    : 'an ISO-8601 timestamp';
+    : 'an ISO-8601 timestamp (a year before 0000 or after 9999 is written with a sign and six digits, as +300000-01-01 or -500000-03-15, and a history may run for hundreds of thousands of years)';
 }
 
 /** The extraction schema, its timestamp described as `timestampRule` says. */

@@ -1,5 +1,6 @@
 import { Session, Integer } from 'neo4j-driver';
 import { Event, CreateEventRequest, UpdateEventRequest, TimeRange } from '../models/Event';
+import { readInstantValue, runTemporal } from '../utils/temporal';
 import { DatabaseManager, LocalDatabaseManager, LocalSession } from '../utils/database';
 import {
   graphPatternMap,
@@ -142,10 +143,7 @@ function readMetadata(value: unknown, field: string): Record<string, unknown> {
  * both encodings.
  */
 function readDate(value: unknown, field: string): Date {
-  if (value === null || value === undefined) {
-    throw new TypeError(`Record property "${field}" is missing`);
-  }
-  return new Date(String(value));
+  return readInstantValue(value, field);
 }
 
 /**
@@ -216,7 +214,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
 
       if (result.records.length === 0) {
         throw new Error('Failed to create event');
@@ -244,7 +242,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
 
       if (result.records.length === 0) {
         return null;
@@ -279,7 +277,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
       throw new Error(`Failed to find events: ${error}`);
@@ -313,7 +311,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
       throw new Error(`Failed to find events by time range: ${error}`);
@@ -343,7 +341,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
       throw new Error(`Failed to find events by actor: ${error}`);
@@ -373,7 +371,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
       throw new Error(`Failed to find events by target: ${error}`);
@@ -410,7 +408,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
       throw new Error(`Failed to find events by actor and time range: ${error}`);
@@ -456,7 +454,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
 
       if (result.records.length === 0) {
         return null;
@@ -485,7 +483,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return readCount(result, 'deletedCount') > 0;
     } catch (error) {
       throw new Error(`Failed to delete event: ${error}`);
@@ -508,7 +506,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count events: ${error}`);
@@ -531,7 +529,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count events by actor: ${error}`);
@@ -558,7 +556,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count events by time range: ${error}`);
@@ -581,7 +579,7 @@ export class EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return Boolean(readFirstField(result, 'exists'));
     } catch (error) {
       throw new Error(`Failed to check if event exists: ${error}`);
@@ -696,7 +694,7 @@ export class AdvancedEventRepository extends EventRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
       throw new Error(`Failed to search events: ${error}`);

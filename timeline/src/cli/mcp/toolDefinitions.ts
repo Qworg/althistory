@@ -22,7 +22,10 @@ export interface McpToolDefinition {
 
 /** The timestamp note every authoring tool carries, so an agent working on an invented world dates correctly. */
 const STORED_DATE_NOTE =
-  'ISO 8601 (1871-03-18, or 1871-03 for a month, 1871 for a year). In a graph with world calendars, also a date as the ' +
+  'ISO 8601 (1871-03-18, or 1871-03 for a month, 1871 for a year; a year beyond 0000-9999 is written with a sign and ' +
+  'six digits or more, "+300000-01-01" or "-500000-01-01", and the timeline reaches about 285 million years either way). ' +
+  'Every result also gives the moment as exact milliseconds on the timeline (timestampMs, startTimeMs, endTimeMs), a ' +
+  'decimal string. In a graph with world calendars, also a date as the ' +
   'world writes it: "Thaw 4, 312 AR", "Thaw 312 AR" (a month), "312 AR" (a year), a time after a comma ' +
   '(althistory_export_context shows how its calendars write dates). A month or a year records that the day is not known.';
 
@@ -52,7 +55,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         epochYear: {
           type: 'number',
-          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000). The world's year N is then stored as year N + epochYear - 1.",
+          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000, or -200000 for 200,000 BCE). Any year the timeline holds, about 285 million either way. The world's year N is then stored as year N + epochYear - 1.",
         },
         eraLabel: {
           type: 'string',
@@ -91,7 +94,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         epochYear: {
           type: 'number',
-          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000). The world's year N is then stored as year N + epochYear - 1.",
+          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000, or -200000 for 200,000 BCE). Any year the timeline holds, about 285 million either way. The world's year N is then stored as year N + epochYear - 1.",
         },
         eraLabel: {
           type: 'string',
@@ -312,7 +315,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         },
         epochYear: {
           type: 'number',
-          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000). The world's year N is then stored as year N + epochYear - 1.",
+          description: "For an invented world: the stored year that is the world's year 1 (e.g. 1000, or -200000 for 200,000 BCE). Any year the timeline holds, about 285 million either way. The world's year N is then stored as year N + epochYear - 1.",
         },
         eraLabel: {
           type: 'string',

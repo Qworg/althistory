@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { toAxisTime } from '@althistory/calendar';
 import { Event, IEvent, CreateEventRequest, TimeRange } from './Event';
 
 /**
@@ -240,8 +241,17 @@ describe('Event Model', () => {
         actor: 'Napoleon Bonaparte',
         target: 'Coalition Forces',
         timestamp: new Date('1805-12-02'),
+        timestamp_ms: String(Date.parse('1805-12-02')),
         metadata: { location: 'Austerlitz' }
       });
+    });
+
+    it('holds a moment beyond a Date exactly, as text and as milliseconds', () => {
+      const event = new Event({ ...validEventData, timestamp: '+300000-03-15T12:00:00.000Z' as unknown as Date });
+      expect(event.timestamp.toISOString()).toBe('+300000-03-15T12:00:00.000Z');
+      expect(JSON.parse(JSON.stringify(event.toJSON())).timestamp).toBe('+300000-03-15T12:00:00.000Z');
+      expect(event.toJSON().timestamp_ms).toBe(String(toAxisTime('+300000-03-15T12:00:00.000Z')));
+      expect(event.timestampMs).toBe(String(toAxisTime('+300000-03-15T12:00:00.000Z')));
     });
 
     it('should convert event without metadata to JSON', () => {

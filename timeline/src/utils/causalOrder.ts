@@ -11,14 +11,19 @@
  * two functions, so they cannot drift apart again.
  */
 
+import { toAxisTime } from '@althistory/calendar';
+
 /**
  * The time of a value the project compares: a `Date` or a millisecond
  * timestamp.
  */
-export type CausalTime = Date | number;
+export type CausalTime = Date | number | bigint;
 
-function toMillis(value: CausalTime): number {
-  return value instanceof Date ? value.getTime() : value;
+/** The moment on the axis, exactly: a double cannot tell apart two moments a second apart past about 285,000 years. */
+function toMillis(value: CausalTime): bigint {
+  if (typeof value === 'bigint') return value;
+  const time = value instanceof Date ? toAxisTime(value) : toAxisTime(value);
+  return time ?? BigInt(0);
 }
 
 /**

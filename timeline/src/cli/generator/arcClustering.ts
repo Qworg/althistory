@@ -1,5 +1,5 @@
 import { ExtractedEvent, ExtractedArc, ExtractionSource } from '@/services/ingestion/types';
-import { type WorldCalendarSet, calendarIn, dateAt, formatWorldYearOf, toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, addInstantMs, calendarIn, compareInstants, dateAt, formatWorldYearOf, msApart, toAxisTime, toInstant } from '@althistory/calendar';
 
 /** How the arcs are named. */
 export interface ArcNamingOptions {
@@ -53,10 +53,13 @@ export function clusterEventsIntoArcs(
   const { calendar } = naming;
   // The UTC year without a calendar; in a world, the year its primary calendar names.
   const primary = calendar ? calendarIn(calendar) : null;
+  // A world's day is its own length, and an arc it pads, and a gap it measures, count in it.
+  const dayMs = calendar ? calendar.dayLength * 1000 : 24 * 60 * 60 * 1000;
   const yearOf = (timestamp: string): string => {
-    const position = toInstant(timestamp).getTime();
-    if (Number.isNaN(position)) return '';
-    return primary ? formatWorldYearOf(primary.definition, dateAt(primary, position).year) : String(new Date(position).getUTCFullYear());
+    const instant = toInstant(timestamp);
+    const position = toAxisTime(instant);
+    if (position === null) return '';
+    return primary ? formatWorldYearOf(primary.definition, dateAt(primary, position).year) : String(instant.getUTCFullYear());
   };
 
   if (events.length === 0) {
@@ -64,7 +67,7 @@ export function clusterEventsIntoArcs(
   }
 
   // Sort events chronologically
-  const sorted = [...events].sort((a, b) => toInstant(a.timestamp).getTime() - toInstant(b.timestamp).getTime());
+  const sorted = [...events].sort((a, b) => compareInstants(toInstant(a.timestamp), toInstant(b.timestamp)));
 
   if (sorted.length === 1) {
     const e = sorted[0];
@@ -75,7 +78,7 @@ export function clusterEventsIntoArcs(
         name: `${calendar ? 'Age' : 'Period'} of ${e.actor || 'Events'} (${year})`,
         description: `Enclosing narrative arc for single event`,
         start_time: e.timestamp,
-        end_time: new Date(toInstant(e.timestamp).getTime() + 24 * 60 * 60 * 1000).toISOString(),
+        end_time: addInstantMs(toInstant(e.timestamp), dayMs).toISOString(),
         level: 0,
         confidence: 0.8,
         source,
@@ -88,15 +91,13 @@ export function clusterEventsIntoArcs(
   // Calculate gaps between adjacent events
   const gaps: number[] = [];
   for (let i = 1; i < sorted.length; i++) {
-    const prev = toInstant(sorted[i - 1].timestamp).getTime();
-    const curr = toInstant(sorted[i].timestamp).getTime();
-    gaps.push(Math.max(0, curr - prev));
+    gaps.push(Math.max(0, msApart(toInstant(sorted[i - 1].timestamp), toInstant(sorted[i].timestamp))));
   }
 
   // Median gap when sufficient sample size exists; otherwise 5-year default
   const sortedGaps = [...gaps].sort((a, b) => a - b);
   const fiveYearsMs = 5 * 365.25 * 24 * 60 * 60 * 1000;
-  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+  const thirtyDaysMs = 30 * dayMs;
 
   const medianGap = sortedGaps[Math.floor(sortedGaps.length / 2)] || thirtyDaysMs;
   const gapThreshold = gaps.length >= 3
@@ -107,9 +108,7 @@ export function clusterEventsIntoArcs(
   let currentCluster: ExtractedEvent[] = [sorted[0]];
 
   for (let i = 1; i < sorted.length; i++) {
-    const prev = toInstant(sorted[i - 1].timestamp).getTime();
-    const curr = toInstant(sorted[i].timestamp).getTime();
-    const diff = curr - prev;
+    const diff = msApart(toInstant(sorted[i - 1].timestamp), toInstant(sorted[i].timestamp));
 
     if (diff > gapThreshold || currentCluster.length >= 8) {
       clusters.push(currentCluster);
@@ -126,8 +125,8 @@ export function clusterEventsIntoArcs(
   return clusters.map((cluster, idx) => {
     const start = cluster[0].timestamp;
     let end = cluster[cluster.length - 1].timestamp;
-    if (toInstant(start).getTime() >= toInstant(end).getTime()) {
-      end = new Date(toInstant(start).getTime() + 24 * 60 * 60 * 1000).toISOString();
+    if (compareInstants(toInstant(start), toInstant(end)) >= 0) {
+      end = addInstantMs(toInstant(start), dayMs).toISOString();
     }
 
     // Find dominant actor

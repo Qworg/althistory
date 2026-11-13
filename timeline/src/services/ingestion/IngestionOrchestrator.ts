@@ -21,6 +21,7 @@
  */
 
 import { type WorldCalendarSet, parseIsoInstant, readWorldTimestamp } from '@althistory/calendar';
+import { exportVersionOf } from '../../utils/exportVersion';
 import * as crypto from 'crypto';
 import { AppError } from '../../utils/errors';
 import {
@@ -627,7 +628,7 @@ export function toAlthistoryExport(
   const checksum = crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex');
 
   return {
-    version: '1.0',
+    version: exportVersionOf({ events, arcs }),
     metadata: {
       graphId: options.graphId ?? '',
       graphName: options.graphName,

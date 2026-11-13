@@ -10,11 +10,11 @@
  */
 
 import { ValidationErrorCLI } from '../utils/exitCodes';
-import { calendarProblems, parseEpochYear } from '@althistory/calendar';
+import { MAX_EPOCH_YEAR, MIN_EPOCH_YEAR, calendarProblems, parseEpochYear } from '@althistory/calendar';
 
-/** A stored year as ISO 8601 writes it: four digits. */
+/** A stored year as ISO 8601 writes it: four digits, or an expanded signed year beyond 0000-9999 ("+300000"). */
 function isoYear(year: number): string {
-  return String(year).padStart(4, '0');
+  return (year >= 0 && year <= 9999 ? String(year).padStart(4, '0') : `${year < 0 ? '-' : '+'}${String(Math.abs(year)).padStart(6, '0')}`);
 }
 
 export interface McpPromptArgument {
@@ -33,8 +33,6 @@ export interface McpPromptDefinition {
 interface PromptSpec extends McpPromptDefinition {
   render(args: Record<string, string>): string;
 }
-
-const MIN_STORED_YEAR = 1000;
 
 /** The epoch an invented world uses when the author does not choose one. */
 const DEFAULT_EPOCH_YEAR = 1000;
@@ -60,8 +58,8 @@ function worldbuild(args: Record<string, string>): string {
   const epochText = args.epochYear?.trim();
   // Read as the tools and the app's form read it: "1e3" and "0x3E8" are not years.
   const epoch = epochText ? parseEpochYear(epochText) : DEFAULT_EPOCH_YEAR;
-  if (epoch === null || epoch < 1 || epoch > 9999) {
-    throw new ValidationErrorCLI(`Invalid epochYear "${epochText}": expected a whole year between 1 and 9999`);
+  if (epoch === null || epoch < MIN_EPOCH_YEAR || epoch > MAX_EPOCH_YEAR) {
+    throw new ValidationErrorCLI(`Invalid epochYear "${epochText}": expected a whole year between ${MIN_EPOCH_YEAR} and ${MAX_EPOCH_YEAR}`);
   }
   // The calendar the prompt tells the agent to create has to be one the tools accept.
   const problems = calendarProblems({ epochYear: epoch, ...(label ? { eraLabel: label } : {}) });
@@ -69,20 +67,16 @@ function worldbuild(args: Record<string, string>): string {
     throw new ValidationErrorCLI(problems.join('; '));
   }
   const offset = epoch - 1;
-  // A later year to show the arithmetic with, kept within the four-digit years.
-  const example = 312 + offset <= 9999 ? 312 : 2;
+  // A later year to show the arithmetic with.
+  const example = 312;
   const year = (n: number): string => (label ? `${n} ${label}` : `Year ${n}`);
   const calendarArgs = `epochYear ${epoch}${label ? `, eraLabel "${label}"` : ''}`;
-  const lowWarning =
-    epoch < MIN_STORED_YEAR
-      ? ` Stored years below ${MIN_STORED_YEAR} work, but some date libraries treat years below 100 as 19xx; an epoch of ${MIN_STORED_YEAR} or later avoids that.`
-      : '';
 
   return `You are helping an author build the history of an invented world, using the althistory tools. ${worldSection}
 
 Althistory keeps the history as a graph: events (who did what to whom, and when), arcs (the ages and periods that hold them) and causal links (which events brought about which). It checks the graph for contradictions and lets the author branch it at any event. You write the history; the tools keep it straight. Work in this order.
 
-1. Settle the world's calendar, then create the graph with it. An invented world keeps time its own way: ask the author how, or propose a calendar that fits the world. Decide how long its day is in Earth seconds (dayLength; Earth's is 86400), its months and any festival days that belong to no month (parts), its leap years (leapRules), the era its years count from and what years before it are called (eras, beforeEra), its week if it has one, how its day is divided (time) and how its dates are written (notation). A world can keep several calendars, a priesthood's count beside the merchants'; primary names the one shown first. Call althistory_create_graph with a name for the world and calendar: { version: 2, dayLength, calendars: [...], primary } (the tool's description gives the shape; it refuses a calendar it cannot read dates back in, and says why). If the world keeps Earth's calendar and only counts its own years, it is enough to give ${calendarArgs}. The world's year N is then stored as year N + ${offset}: ${year(1)} is ${isoYear(epoch)}-01-01T00:00:00Z, and ${year(example)} is ${isoYear(example + offset)}-01-01T00:00:00Z.${lowWarning} With that calendar, monthNames renames the twelve months, the first for January.
+1. Settle the world's calendar, then create the graph with it. An invented world keeps time its own way: ask the author how, or propose a calendar that fits the world. Decide how long its day is in Earth seconds (dayLength; Earth's is 86400), its months and any festival days that belong to no month (parts), its leap years (leapRules), the era its years count from and what years before it are called (eras, beforeEra), its week if it has one, how its day is divided (time) and how its dates are written (notation). A world can keep several calendars, a priesthood's count beside the merchants'; primary names the one shown first. Call althistory_create_graph with a name for the world and calendar: { version: 2, dayLength, calendars: [...], primary } (the tool's description gives the shape; it refuses a calendar it cannot read dates back in, and says why). If the world keeps Earth's calendar and only counts its own years, it is enough to give ${calendarArgs}. The world's year N is then stored as year N + ${offset}: ${year(1)} is ${isoYear(epoch)}-01-01T00:00:00Z, and ${year(example)} is ${isoYear(example + offset)}-01-01T00:00:00Z (a year before 0000 or after 9999 is written with a sign and six digits or more, like +300000-01-01T00:00:00Z). With that calendar, monthNames renames the twelve months, the first for January.
 
 Every tool that takes a date takes it as the world's calendar writes it: a day ("Thaw 4, ${year(example)}"), with a time after a comma if it matters, or a month ("Thaw ${year(example)}") or a year ("${year(example)}") when the history does not know the day. The tools record how much was known, and an arc that ends on a day, in a month or in a year, written without a time, ends at its last moment. An ISO-8601 timestamp is read too, as a moment on the graph's timeline. The tools return each event's date as the world writes it (worldDate) beside its timestamp, and an arc's as worldStart and worldEnd; these show a time only as finely as the world's notation does, so to keep an exact moment, pass the timestamp.
 

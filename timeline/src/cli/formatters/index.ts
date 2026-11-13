@@ -1,5 +1,5 @@
 import type { WorldCalendarSet } from '@althistory/calendar';
-import { withWorldDates } from '../mcp/worldDates';
+import { withAxisTimes, withWorldDates } from '../mcp/worldDates';
 import { OutputFormat } from '../types';
 import { formatSuccessJson } from './jsonFormatter';
 import { formatNdjson } from './ndjsonFormatter';
@@ -17,6 +17,8 @@ export function formatOutput<T>(
 ): string {
   // In a world, each date is shown as the world writes it beside its timestamp (Req 18), as the MCP tools show it.
   if (meta?.calendar) data = withWorldDates(data, meta.calendar) as T;
+  // Each moment also as exact milliseconds on the axis (a decimal string).
+  data = withAxisTimes(data) as T;
   const { calendar: _calendar, ...jsonMeta } = meta ?? {};
   meta = meta ? jsonMeta : undefined;
   switch (format) {
