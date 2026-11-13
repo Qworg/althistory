@@ -26,6 +26,7 @@ import useCausalPathExploration from '@/hooks/useCausalPathExploration'
 import useCausalSuggestions from '@/hooks/useCausalSuggestions'
 import { CausalRelationshipModal } from '@/components/modals/CausalRelationshipModal'
 import { formatEventDate } from '@/utils/historicalTime'
+import { useLiveChangesStore } from '@/stores/liveChangesStore'
 import {
   eventNodeLabel,
   eventNodeCanvasLabel,
@@ -245,6 +246,21 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     maxSuggestions: 5,
     minConfidence: 0.3
   })
+
+  // The live change feed's highlight comes and goes while the graph is drawn:
+  // ring what just arrived and un-ring what has rested, without redrawing it.
+  useEffect(() => {
+    return useLiveChangesStore.subscribe((state, previous) => {
+      const cy = cyRef.current
+      if (!cy || state.fresh === previous.fresh) return
+      cy.nodes().forEach((node) => {
+        node.toggleClass('live-new', state.fresh.event[node.id()] !== undefined)
+      })
+      cy.edges().forEach((edge) => {
+        edge.toggleClass('live-new', state.fresh.relationship[edge.id()] !== undefined)
+      })
+    })
+  }, [])
 
   // Keep refs in sync with state (fixes closure stale state bug)
   useEffect(() => {
@@ -738,6 +754,9 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     const currentSessionData = useGlobalStore.getState().sessionData
     const causalGraphState = currentSessionData.viewportState.causalGraph
 
+    // What another writer just added (the live change feed), to ring as it is drawn.
+    const liveFresh = useLiveChangesStore.getState().fresh
+
     // Clear existing elements
     cyRef.current.elements().remove()
 
@@ -749,6 +768,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         classes.push('divergence-point')
       }
       if (branchAddedIds?.includes(node.id)) classes.push('branch-added')
+      if (liveFresh.event[node.id] !== undefined) classes.push('live-new')
       return {
         data: node,
         classes: classes.length > 0 ? classes.join(' ') : undefined,
@@ -758,7 +778,11 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
 
     // Add edges
     const cyEdges = edges.map(edge => {
-      const classes = [edge.isCrossGraph ? 'cross-graph' : '', branchAddedIds?.includes(edge.id) ? 'branch-added' : '']
+      const classes = [
+        edge.isCrossGraph ? 'cross-graph' : '',
+        branchAddedIds?.includes(edge.id) ? 'branch-added' : '',
+        liveFresh.relationship[edge.id] !== undefined ? 'live-new' : '',
+      ]
         .filter(Boolean)
         .join(' ')
       return { data: edge, classes: classes || undefined }

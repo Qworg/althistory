@@ -18,9 +18,10 @@ import { IngestionWizard } from '@/components/ingestion'
 import { useCreateArc } from '@/hooks/useAPI'
 import { useCreateEventWithCause } from '@/hooks/useCreateEventWithCause'
 import { useActiveGraphId, useActiveGraph, useSwitchGraph, useDeleteGraph } from '@/hooks/useGraphs'
-import { StreamingStatusBadge } from '@/components/streaming/StreamingStatusBadge'
+import { StreamingStatusBadge, type LiveSyncBadgeStatus } from '@/components/streaming/StreamingStatusBadge'
 import { SimulationLauncherPanel } from '@/components/branch/SimulationLauncherPanel'
-import { useStreamingWrite } from '@/hooks/useStreamingWrite'
+import { useLiveChangesStore } from '@/stores/liveChangesStore'
+import { DEMO_MODE } from '@/demo/flag'
 import { MoreSheet } from '@/components/layout/MoreSheet'
 import { CalendarSwitcher } from '@/components/layout/CalendarSwitcher'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
@@ -170,14 +171,24 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
     deleteGraphMutation.mutate(copyId)
   }, [deleteGraphMutation])
 
-  // High-throughput WebSocket streaming write state
-  const {
-    status: streamStatus,
-    stats: streamStats,
-    error: streamError,
-    connect: connectStream,
-    disconnect: disconnectStream,
-  } = useStreamingWrite({ graphId: activeGraphId ?? undefined })
+  // Live sync: the app hears what other writers do to the open graph. It is
+  // on unless the person turned it off, and the layout holds the connection.
+  const liveEnabled = useLiveChangesStore((state) => state.enabled)
+  const liveStatus = useLiveChangesStore((state) => state.status)
+  const liveDetail = useLiveChangesStore((state) => state.detail)
+  const setLiveEnabled = useLiveChangesStore((state) => state.setEnabled)
+  const retryLive = useLiveChangesStore((state) => state.retry)
+  const streamStatus: LiveSyncBadgeStatus = !liveEnabled
+    ? 'disconnected'
+    : liveStatus === 'live'
+      ? 'connected'
+      : liveStatus === 'off'
+        ? // Wanted, and not yet started (no graph open, or the first moment).
+          'connecting'
+        : liveStatus
+  // Turning it on, or (when it is on and gave up) trying again.
+  const connectStream = useCallback(() => (liveEnabled ? retryLive() : setLiveEnabled(true)), [liveEnabled, retryLive, setLiveEnabled])
+  const disconnectStream = useCallback(() => setLiveEnabled(false), [setLiveEnabled])
 
   // Timeline-specific actions
   const getTimelineActions = useCallback((): ToolbarAction[] => {
@@ -571,11 +582,11 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
 
   const streamingBadge = (
     <StreamingStatusBadge
-      status={streamStatus}
-      stats={streamStats}
-      error={streamError}
-      onConnect={connectStream}
-      onDisconnect={disconnectStream}
+      status={DEMO_MODE ? 'disconnected' : streamStatus}
+      error={liveDetail}
+      // The in-browser demo has no server to hear from.
+      onConnect={DEMO_MODE ? undefined : connectStream}
+      onDisconnect={DEMO_MODE ? undefined : disconnectStream}
     />
   )
 

@@ -23,6 +23,27 @@ describe('StreamingStatusBadge', () => {
     expect(onConnect).toHaveBeenCalledWith()
   })
 
+  it('says it is on, and what that gives, without edit counts it no longer keeps', () => {
+    render(<StreamingStatusBadge status="connected" onDisconnect={() => {}} />)
+    const badge = screen.getByRole('status', { name: 'Live sync on' })
+    expect(badge).toHaveAttribute('title', expect.stringMatching(/Changes made elsewhere, such as by an agent, appear here as they happen/))
+    expect(screen.queryByText(/confirmed/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Turn off' })).toBeInTheDocument()
+  })
+
+  it('says it is reconnecting, as a warning rather than an error, and that it will catch up', () => {
+    render(<StreamingStatusBadge status="reconnecting" />)
+    const badge = screen.getByRole('status', { name: 'Live sync: reconnecting…' })
+    expect(badge.className).toMatch(/warning/)
+    expect(badge.className).not.toMatch(/danger/)
+    expect(badge).toHaveAttribute('title', expect.stringMatching(/caught up/))
+  })
+
+  it('says what turning it on gives, when it is off', () => {
+    render(<StreamingStatusBadge status="disconnected" onConnect={() => {}} />)
+    expect(screen.getByRole('status')).toHaveAttribute('title', expect.stringMatching(/Turn on live sync to see changes made elsewhere/))
+  })
+
   it('renders connecting state correctly', () => {
     render(<StreamingStatusBadge status="connecting" />)
     expect(screen.getByText('Live sync: connecting…')).toBeInTheDocument()
