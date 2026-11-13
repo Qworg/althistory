@@ -50,6 +50,12 @@ export interface OperationSpec {
   status?: number
   /** Whether the operation is scoped to a graph by the `X-Graph-Id` header. */
   graphScoped?: boolean
+  /**
+   * Request headers of the operation's own, for one that reads a header in a
+   * way `graphScoped` does not describe (an optional `X-Graph-Id` with no
+   * active-graph fallback).
+   */
+  headers?: Array<{ name: string; required?: boolean; description: string }>
   /** Query parameters the operation takes. */
   query?: Array<{ name: string; type?: string; required?: boolean; description?: string }>
   /** Response codes this operation can answer with, beyond the usual ones. */
@@ -141,7 +147,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     auth: 'required',
   },
   'PUT /api/graphs/:id': {
-    summary: 'Rename a graph, change its description or archive it.',
+    summary: 'Rename a graph, change its description or calendar, or archive it.',
     request: 'GraphUpdate',
     response: 'Graph',
     auth: 'required',
@@ -698,6 +704,10 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   // --- import --------------------------------------------------------------
   'POST /api/import/validate': {
     summary: 'Check that an export document can be imported. Needs the `import` permission.',
+    query: [
+      { name: 'targetGraphId', type: 'string', description: "The graph it would go into: its dates are read with that graph's calendars (with mode merge or replace)." },
+      { name: 'mode', type: 'string', description: 'merge, replace or create-new (the default: the document is read with its own calendars).' },
+    ],
     request: 'ExportDocument',
     requestRequired: true,
     response: 'ValidationReport',
@@ -764,6 +774,15 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   },
   'POST /api/ingest/text': {
     summary: 'Extract entities from a piece of text.',
+    headers: [
+      {
+        name: 'X-Graph-Id',
+        description:
+          "The graph the text is for: its world calendars tell the model how the world writes a date, and the dates it gives are read in them. " +
+          'Optional, and unlike the graph-scoped routes there is no active-graph fallback: without it no graph ' +
+          'is read. A graph that does not exist is a 404; one the key may not access, a 403.',
+      },
+    ],
     request: 'IngestTextRequest',
     requestRequired: true,
     response: 'IngestPreview',

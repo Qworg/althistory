@@ -1,3 +1,5 @@
+import { toInstant } from '@althistory/calendar';
+
 /**
  * Event represents a specific historical occurrence with precise temporal information
  */
@@ -45,7 +47,7 @@ export class Event implements IEvent {
     this.description = data.description.trim();
     this.actor = data.actor.trim();
     this.target = data.target.trim();
-    this.timestamp = new Date(data.timestamp);
+    this.timestamp = toInstant(data.timestamp);
     this.metadata = data.metadata;
   }
 
@@ -72,7 +74,7 @@ export class Event implements IEvent {
     if (!data.timestamp) {
       errors.push('Timestamp is required');
     } else {
-      const timestamp = new Date(data.timestamp);
+      const timestamp = toInstant(data.timestamp);
       if (isNaN(timestamp.getTime())) {
         errors.push('Timestamp must be a valid date');
       }

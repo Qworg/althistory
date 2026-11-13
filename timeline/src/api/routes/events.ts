@@ -1,9 +1,11 @@
+import { readRequestTime, queryInstant } from '../worldDates';
 import { Router, Response, NextFunction } from 'express';
 import { CreateEventRequest, UpdateEventRequest, TimeRange } from '@/models/Event';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
 import { entityPermission, mountEntityAccessGuard, mountEntityGraphAccess } from '@/api/entityAuth';
 import { createLogger } from '@/utils/logger';
+import { newDateMetadata } from '../worldDates';
 
 const logger = createLogger('EventRoutes');
 
@@ -42,10 +44,16 @@ eventRoutes.post('/', ...entityPermission('write:events'), async (req: RequestWi
       );
     }
 
-    // Convert timestamp string to Date if needed
-    if (typeof eventData.timestamp === 'string') {
-      eventData.timestamp = new Date(eventData.timestamp);
-    }
+    // ISO 8601, or in a graph with world calendars a date in the world's
+    // notation or as fields; a month or a year alone records its precision.
+    const graphId = requireGraphId(req);
+    const calendarOf = async () => (await req.container.graphRepository.findById(graphId))?.calendar;
+    const time = await readRequestTime(eventData.timestamp, 'timestamp', calendarOf);
+    eventData.timestamp = time.date;
+    // As an update reads it: the date's precision (and calendar), or one the
+    // request states with an ISO date; a day in the world's notation states its own.
+    const dated = newDateMetadata(eventData.metadata, undefined, { precision: time.precision ?? 'day', calendar: time.calendar });
+    if (eventData.metadata !== undefined || Object.keys(dated).length > 0) eventData.metadata = dated;
 
     // Repositories bound to this request's graph; never the global store.
     const { eventRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
@@ -119,8 +127,8 @@ eventRoutes.get('/', ...entityPermission('read:events'), async (req: RequestWith
     if (startTime && endTime) {
       // Time range query
       const timeRange: TimeRange = {
-        start: new Date(startTime as string),
-        end: new Date(endTime as string)
+        start: queryInstant(startTime as string),
+        end: queryInstant(endTime as string)
       };
 
       // Validate time range
@@ -188,8 +196,8 @@ eventRoutes.get('/stats/count', ...entityPermission('read:events'), async (req: 
     
     if (startTime && endTime) {
       const timeRange: TimeRange = {
-        start: new Date(startTime as string),
-        end: new Date(endTime as string)
+        start: queryInstant(startTime as string),
+        end: queryInstant(endTime as string)
       };
 
       if (isNaN(timeRange.start.getTime()) || isNaN(timeRange.end.getTime())) {
@@ -257,9 +265,14 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
       throw new ValidationError('Event ID is required', 'id', id);
     }
 
-    // Convert timestamp string to Date if provided
-    if (updates.timestamp && typeof updates.timestamp === 'string') {
-      updates.timestamp = new Date(updates.timestamp);
+    // Read as on create; a world date at month or year precision records it.
+    let read: { precision: 'day' | 'month' | 'year'; calendar?: string } | undefined;
+    const newTimestamp = updates.timestamp !== undefined && updates.timestamp !== null;
+    if (newTimestamp) {
+      const graphId = requireGraphId(req);
+      const time = await readRequestTime(updates.timestamp, 'timestamp', async () => (await req.container.graphRepository.findById(graphId))?.calendar);
+      updates.timestamp = time.date;
+      read = { precision: time.precision ?? 'day', calendar: time.calendar };
     }
 
     const { eventRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
@@ -269,6 +282,10 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
     if (!existingEvent) {
       throw new NotFoundError(`Event with ID ${id} not found`, 'Event', id);
     }
+    // A new date replaces what was known of the old one: its precision is the
+    // new date's (a world month or year), the one the request's metadata
+    // states, or none (a day).
+    if (newTimestamp && read) updates.metadata = newDateMetadata(updates.metadata, existingEvent.metadata, read);
 
     const updatedEvent = await repository.update(id, updates);
     

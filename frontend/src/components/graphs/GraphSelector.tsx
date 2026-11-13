@@ -14,7 +14,8 @@ import {
 } from '@/hooks/useGraphs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { GraphStatus } from '@/types'
-import { formatHistoricalRange } from '@/utils/historicalTime'
+import { formatHistoricalRange, historicalYear } from '@/utils/historicalTime'
+import { storedCalendarSet } from '@althistory/calendar'
 import { buildGraphTree, branchLabel } from './graphTree'
 
 /** The fork glyph, in the divergence accent: this graph is a branch. */
@@ -27,12 +28,6 @@ function ForkGlyph({ className = 'h-4 w-4' }: { className?: string }) {
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 7v10M18 11c0 4-6 3-11.2 6.4" />
     </svg>
   )
-}
-
-/** The UTC year of a timestamp, so a range never shifts by the viewer's zone. */
-function utcYear(value: string): string {
-  const year = new Date(value).getUTCFullYear()
-  return Number.isNaN(year) ? '?' : String(year)
 }
 
 /**
@@ -306,14 +301,16 @@ export const GraphSelector = memo(function GraphSelector({
                       <div className="font-mono-code flex flex-wrap items-center gap-x-3 mt-1 text-xs text-ink-muted">
                         <span>{graph.metadata.eventCount} events</span>
                         <span>{graph.metadata.arcCount} arcs</span>
-                        {graph.metadata.timeRange && (
+                        {graph.metadata.temporalRange && (
                           <span
                             title={formatHistoricalRange(
-                              graph.metadata.timeRange.start,
-                              graph.metadata.timeRange.end
+                              graph.metadata.temporalRange.start,
+                              graph.metadata.temporalRange.end,
+                              undefined,
+                              storedCalendarSet(graph.calendar)
                             )}
                           >
-                            {utcYear(graph.metadata.timeRange.start)}–{utcYear(graph.metadata.timeRange.end)}
+                            {/* Each graph in its own calendar, not the open graph's. */}{historicalYear(graph.metadata.temporalRange.start, storedCalendarSet(graph.calendar))}–{historicalYear(graph.metadata.temporalRange.end, storedCalendarSet(graph.calendar))}
                           </span>
                         )}
                       </div>

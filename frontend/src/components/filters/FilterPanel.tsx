@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { HistoricalDateInput } from './HistoricalDateInput'
-import { parseHistoricalDate } from './filterUtils'
+import { boundFromUrl, boundToUrl, readDateBound } from './filterUtils'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { worldBoundExamples } from '@althistory/calendar'
 
 export interface FilterState {
   dateRange: {
@@ -64,6 +66,7 @@ export function FilterPanel({
   const [showAll, setShowAll] = useState({ actors: false, targets: false })
   const [searchParams, setSearchParams] = useSearchParams()
   const dateHintId = useId()
+  const worldCalendar = useWorldCalendar()
 
   // The URL -> filters sync below needs the *current* filters and callback, but
   // must stay keyed on `searchParams` alone: listing them would make every filter
@@ -72,11 +75,13 @@ export function FilterPanel({
   // when it runs.
   const filtersRef = useRef(filters)
   const onFiltersChangeRef = useRef(onFiltersChange)
+  const calendarRef = useRef(worldCalendar)
 
   useEffect(() => {
     filtersRef.current = filters
     onFiltersChangeRef.current = onFiltersChange
-  }, [filters, onFiltersChange])
+    calendarRef.current = worldCalendar
+  }, [filters, onFiltersChange, worldCalendar])
 
   // Sync filters with URL parameters
   useEffect(() => {
@@ -100,9 +105,10 @@ export function FilterPanel({
     
     // Either bound alone is a filter (an open-ended range).
     if (searchParams.get('startDate') || searchParams.get('endDate')) {
+      // In a world a link holds instants; the panel writes them in the calendar shown.
       urlFilters.dateRange = {
-        start: searchParams.get('startDate') ?? '',
-        end: searchParams.get('endDate') ?? ''
+        start: boundFromUrl(searchParams.get('startDate') ?? '', 'start', calendarRef.current),
+        end: boundFromUrl(searchParams.get('endDate') ?? '', 'end', calendarRef.current)
       }
     }
     
@@ -135,15 +141,15 @@ export function FilterPanel({
       newParams.set('eventTypes', filters.eventTypes.join(','))
     }
     
-    if (filters.dateRange?.start) newParams.set('startDate', filters.dateRange.start)
-    if (filters.dateRange?.end) newParams.set('endDate', filters.dateRange.end)
+    if (filters.dateRange?.start) newParams.set('startDate', boundToUrl(filters.dateRange.start, 'start', worldCalendar))
+    if (filters.dateRange?.end) newParams.set('endDate', boundToUrl(filters.dateRange.end, 'end', worldCalendar))
     
     if (filters.confidenceThreshold > 0) {
       newParams.set('confidence', filters.confidenceThreshold.toString())
     }
     
     setSearchParams(newParams, { replace: true })
-  }, [filters, setSearchParams])
+  }, [filters, setSearchParams, worldCalendar])
 
   const handleFilterChange = (key: keyof FilterState, value: unknown) => {
     onFiltersChange({
@@ -168,8 +174,9 @@ export function FilterPanel({
     handleFilterChange('dateRange', start === '' && end === '' ? null : { start, end })
   }
 
-  const startBound = filters.dateRange?.start ? parseHistoricalDate(filters.dateRange.start, 'start') : null
-  const endBound = filters.dateRange?.end ? parseHistoricalDate(filters.dateRange.end, 'end') : null
+  const startBound = filters.dateRange?.start ? readDateBound(filters.dateRange.start, 'start', worldCalendar) : null
+  const endBound = filters.dateRange?.end ? readDateBound(filters.dateRange.end, 'end', worldCalendar) : null
+  const examples = worldCalendar ? worldBoundExamples(worldCalendar) : null
   const dateRangeInverted =
     startBound?.ok === true && endBound?.ok === true && startBound.date.getTime() > endBound.date.getTime()
 
@@ -279,7 +286,14 @@ export function FilterPanel({
               />
             </div>
             <p id={dateHintId} className="mt-1.5 text-xs text-ink-muted">
-              A year, year-month or full date, year first: 1843, 1843-11, 1843-11-20. Add BCE for earlier years (44 BCE). Each bound covers the whole period it names.
+              {examples ? (
+                <>
+                  A year, month or day in this world’s calendar: {examples.year}, {examples.month}, {examples.day}.
+                </>
+              ) : (
+                <>A year, year-month or full date, year first: 1843, 1843-11, 1843-11-20. Add BCE for earlier years (44 BCE).</>
+              )}{' '}
+              Each bound covers the whole period it names.
             </p>
             {dateRangeInverted && (
               <p className="mt-1 text-xs text-amber-800 dark:text-amber-300" role="status">

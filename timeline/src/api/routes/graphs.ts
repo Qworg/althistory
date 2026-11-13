@@ -5,6 +5,8 @@
  * Uses dependency injection via the container pattern.
  */
 
+import { storedCalendarSet } from '@althistory/calendar';
+import { bodyInstant } from '../worldDates';
 import { Router, Response, NextFunction, RequestHandler } from 'express';
 import {
   RequestWithContainer,
@@ -237,24 +239,35 @@ graphRoutes.post(
         sourceGraphId = activeGraph.id;
       }
 
-      const targetGraph = await graphService.createGraph({
-        name: targetName,
-        description: request.description,
-      });
+      // A copy is the same world, so it keeps the source's calendar.
+      const sourceGraph = await graphService.getGraph(sourceGraphId);
 
-      let result: GraphCopyResult;
+      // A time range is read before anything is made (a refused one leaves no
+      // empty graph behind), by the rule every door applies, in the source's
+      // calendars; an end without a time is the last moment it names.
+      let range: { start: Date; end: Date } | undefined;
       if (copyType === 'time_range') {
         const start = request.timeRange?.start;
         const end = request.timeRange?.end;
         if (!start || !end) {
           throw new ValidationError('timeRange.start and timeRange.end are required for a time_range copy', 'timeRange');
         }
-        const startDate = new Date(start);
-        const endDate = new Date(end);
-        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        const calendar = storedCalendarSet(sourceGraph.calendar) ?? undefined;
+        range = { start: bodyInstant(start, calendar, 'start'), end: bodyInstant(end, calendar, 'end') };
+        if (isNaN(range.start.getTime()) || isNaN(range.end.getTime())) {
           throw new ValidationError('timeRange.start and timeRange.end must be valid dates', 'timeRange');
         }
-        result = await copyService.copyByTimeRange(sourceGraphId, { start: startDate, end: endDate }, targetGraph.id);
+      }
+
+      const targetGraph = await graphService.createGraph({
+        name: targetName,
+        description: request.description,
+        calendar: sourceGraph.calendar,
+      });
+
+      let result: GraphCopyResult;
+      if (copyType === 'time_range' && range) {
+        result = await copyService.copyByTimeRange(sourceGraphId, range, targetGraph.id);
       } else if (copyType === 'filtered') {
         if (!request.filter) {
           throw new ValidationError('filter is required for a filtered copy', 'filter');

@@ -9,6 +9,7 @@ import { GraphRepository } from '../repositories/GraphRepository';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import { readWorldTimestamp } from '@althistory/calendar';
 
 describe('ImportService', () => {
   let importService: ImportService;
@@ -284,6 +285,20 @@ describe('ImportService', () => {
           code: 'FUTURE_DATE',
         })
       );
+    });
+
+    it("does not call an invented world's dates future: its timeline has no now", async () => {
+      const world = createValidExport({
+        data: {
+          events: [{ id: 'event-1', description: 'Thaw 4, 312 AR', actor: 'A', target: 'B', timestamp: '2358-11-19T06:00:00.000Z' }],
+          arcs: [],
+          causalRelationships: [],
+          inferredPressures: [],
+        },
+      });
+      (world.metadata as unknown as Record<string, unknown>).calendar = { epochYear: 1000, eraLabel: 'AR' };
+      const result = await importService.validateFormat(world);
+      expect(result.warnings).not.toContainEqual(expect.objectContaining({ code: 'FUTURE_DATE' }));
     });
 
     it('should validate arc temporal consistency', async () => {
@@ -1972,6 +1987,126 @@ describe('ImportService', () => {
       expect(job).toBeTruthy();
       
       await checkService.destroy();
+    });
+  });
+  describe('dates, read as every door reads them', () => {
+    const VAEL = {
+      version: 2,
+      dayLength: 30 * 3600,
+      primary: 'reckoning',
+      calendars: [
+        { id: 'reckoning', name: 'the Reckoning of the Rising', parts: ['Lowtide', 'Greywater', 'Thaw', 'Seedtide'].map((name) => ({ name, days: 30 })), epoch: 0, eras: [{ label: 'AR', from: 1 }] },
+      ],
+    };
+    const withDates = (timestamps: string[], calendar?: unknown) => {
+      const doc = createValidExport({
+        data: {
+          events: timestamps.map((timestamp, index) => ({ id: `event-${index}`, description: `E${index}`, actor: 'A', target: 'B', timestamp })),
+          arcs: [],
+          causalRelationships: [],
+          inferredPressures: [],
+        },
+      });
+      if (calendar) (doc.metadata as unknown as Record<string, unknown>).calendar = calendar;
+      return doc;
+    };
+    const stored = async (graphId: string) => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const data = await repository.checkout(graphId);
+      return Object.values(data.events).map((event) => ({
+        at: new Date(event.timestamp as string | Date).toISOString(),
+        precision: (event.metadata as Record<string, unknown> | undefined)?.datePrecision,
+      }));
+    };
+
+    it('without a world, reads a month or a year first in UTC and records its precision', async () => {
+      const result = await importService.executeImport(withDates(['1871-03', '312', '44 BCE']), { mode: 'create-new', conflictResolution: 'skip' });
+      expect(result.errors).toEqual([]);
+      expect(await stored(result.graphId)).toEqual([
+        { at: '1871-03-01T00:00:00.000Z', precision: 'month' },
+        { at: '0312-01-01T00:00:00.000Z', precision: 'year' },
+        { at: '-000043-01-01T00:00:00.000Z', precision: 'year' },
+      ]);
+    });
+
+    it("in a world, reads the world's notation and refuses a Gregorian month, as the API does", async () => {
+      const refused = await importService.executeImport(withDates(['1871-03'], VAEL), { mode: 'create-new', conflictResolution: 'skip' });
+      expect(refused.success).toBe(false);
+      expect(refused.errors.map((error) => error.message).join(' ')).toMatch(/Gregorian month/);
+
+      const read = await importService.executeImport(withDates(['Thaw 312 AR', '2023-01-01T00:00:00Z'], VAEL), { mode: 'create-new', conflictResolution: 'skip' });
+      expect(read.errors).toEqual([]);
+      const [thaw, day] = await stored(read.graphId);
+      expect(thaw).toEqual({ at: readWorldTimestamp(VAEL as never, 'Thaw 312 AR')!.iso, precision: 'month' });
+      expect(day).toEqual({ at: '2023-01-01T00:00:00.000Z', precision: undefined });
+    });
+
+    it('refuses a causal paradox written in the world\'s notation, as it does one in ISO 8601', async () => {
+      const doc = withDates(['Thaw 5, 312 AR', 'Thaw 4, 312 AR'], VAEL);
+      doc.data.causalRelationships = [
+        { id: 'rel-1', cause_event_id: 'event-0', effect_event_id: 'event-1', weight: 0.8, evidence: 'x', confidence: 0.9, relationship_type: 'direct' },
+      ];
+      const result = await importService.validateFormat(doc);
+      expect(result.errors.map((error) => error.code)).toContain('CAUSAL_PARADOX');
+    });
+
+    it('refuses a year-first non-date and a value that is not text, rather than read or throw', async () => {
+      const zero = await importService.executeImport(withDates(['0']), { mode: 'create-new', conflictResolution: 'skip' });
+      expect(zero.success).toBe(false);
+      const doc = withDates(['Thaw 4, 312 AR'], VAEL);
+      doc.data.arcs = [{ id: 'arc-1', name: 'A', description: 'd', start_time: 5 as never, end_time: 6 as never, level: 0, parent_arc_id: null }];
+      const checked = await importService.validateFormat(doc);
+      expect(checked.valid).toBe(false);
+      expect(checked.errors.map((error) => error.message)).toContain('Arc start_time is required');
+    });
+
+    it('refuses metadata that is not an object, rather than throw', async () => {
+      const doc = withDates(['1871']);
+      (doc.data.events[0] as unknown as Record<string, unknown>).metadata = 'note';
+      const checked = await importService.validateFormat(doc);
+      expect(checked.errors.map((error) => error.path)).toContain('$.data.events[0].metadata');
+      const preview = await importService.preview(doc, { mode: 'create-new', conflictResolution: 'skip' });
+      expect(preview).toBeTruthy();
+    });
+
+    it('records the precision the text states over a stale one in the metadata, as the API does', async () => {
+      const doc = withDates(['1871', '1871-03-04T00:00:00.000Z']);
+      doc.data.events[0]!.metadata = { datePrecision: 'day' };
+      doc.data.events[1]!.metadata = { datePrecision: 'month' };
+      const result = await importService.executeImport(doc, { mode: 'create-new', conflictResolution: 'skip' });
+      expect(result.errors).toEqual([]);
+      // A year the text gives is a year; an export's stored instant keeps the precision it states.
+      expect((await stored(result.graphId)).map((event) => event.precision)).toEqual(['year', 'month']);
+    });
+
+    it('warns when a world document goes into a graph that does not keep its calendars', async () => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const plain = await repository.create({ name: 'Plain' });
+      const result = await importService.executeImport(withDates(['2023-01-01T00:00:00Z'], VAEL), { mode: 'merge', graphId: plain.id, conflictResolution: 'skip' });
+      expect(result.success).toBe(true);
+      expect(result.warnings.map((warning) => warning.code)).toContain('CALENDAR_MISMATCH');
+      // A new graph takes the document's calendars: nothing to warn of.
+      const fresh = await importService.executeImport(withDates(['Thaw 312 AR'], VAEL), { mode: 'create-new', conflictResolution: 'skip' });
+      expect(fresh.warnings.map((warning) => warning.code)).not.toContain('CALENDAR_MISMATCH');
+    });
+
+    it('reads a document going into an existing graph with that graph\'s calendars', async () => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const vael = await repository.create({ name: 'Vael', calendar: VAEL as never });
+      // The document itself names no world.
+      const result = await importService.executeImport(withDates(['Thaw 312 AR']), { mode: 'merge', graphId: vael.id, conflictResolution: 'skip' });
+      expect(result.errors).toEqual([]);
+      expect((await stored(vael.id))[0]!.precision).toBe('month');
+
+      // The preview and the incremental check read it the same way.
+      const read = await importService.readDates(withDates(['Thaw 312 AR', '1871-03']), { graphId: vael.id, mode: 'merge' });
+      expect(read.data.data.events[0]!.timestamp).toBe(readWorldTimestamp(VAEL as never, 'Thaw 312 AR')!.iso);
+      expect(read.data.data.events[1]!.timestamp).toBe('1871-03');
+      const checked = await importService.validateFormat(withDates(['Thaw 312 AR', '1871-03']), read.calendar ?? null);
+      expect(checked.errors.map((error) => error.path)).toEqual(['$.data.events[1].timestamp']);
     });
   });
 });

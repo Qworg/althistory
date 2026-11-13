@@ -29,6 +29,7 @@ is generated from the running app; see [Screenshots and video](#screenshots-and-
 | Path | What it is |
 | --- | --- |
 | `timeline/` | Express + TypeScript API and CLI (`bin/althistory`). Versioned graph storage (Git-like trees), export/import, inference, ingestion, WebSocket streaming, MCP server. |
+| `calendar/` | `@althistory/calendar`: historical dates and invented-world calendars, shared by the API, the CLI and the UI, and property-tested in five time zones. |
 | `frontend/` | React + Vite UI. Timeline, causal graph, actor and pressure views, graph/version/import/export panels. |
 | `e2e/` | Playwright end-to-end and visual-regression tests against a production build with the API stubbed. |
 | `media/` | The generator for the README screenshots and the walkthrough video (Playwright + [Revideo](https://github.com/midrender/revideo)). |
@@ -39,10 +40,13 @@ is generated from the running app; see [Screenshots and video](#screenshots-and-
 
 - **Node.js** >= 20 (Node 22/24 recommended) and `npm`
 
-Install workspace dependencies from the repository root:
+Install workspace dependencies from the repository root, then the date and
+calendar package's test tools (it is not a workspace; the apps compile it
+from source and need nothing installed for it):
 
 ```bash
 npm install
+npm install --prefix calendar
 ```
 
 ## Quick start (no Neo4j or Redis)
@@ -83,50 +87,95 @@ mode is **one replica with a persistent volume** and refuses to start without
 
 ## Agent CLI & MCP Server
 
-`./bin/althistory` provides a scriptable CLI and a stdio Model Context Protocol
-(MCP) server (`./bin/althistory mcp`). It automatically connects to a running
-local server on `http://localhost:3000` (so changes appear live in the Web UI)
-or falls back to direct in-process storage (`--direct`) when no server is
-running.
+`./bin/althistory` is a scriptable CLI, and `./bin/althistory mcp` a stdio
+Model Context Protocol (MCP) server, so an agent such as Claude can write a
+history with you: bend a real one at a point of divergence, or invent a world
+with no real history under it. The agent does the writing through the tools;
+althistory keeps the events, ages and causes in a graph, refuses a cause dated
+after its effect, validates the whole, and branches it at any event. Both
+connect to a running app on `http://127.0.0.1:3000` (so changes appear live in
+the web UI) or, when none is running, work on the local files.
+
+Register the server with your client (more in
+[`docs/mcp-agent-guide.md`](docs/mcp-agent-guide.md) and [`.mcp/`](.mcp/)):
 
 ```bash
-# Inspect JSON Schema for all CLI commands or MCP tools
-./bin/althistory schema
-./bin/althistory schema --mcp
-
-# Manage graphs, events, arcs, ingestion, simulation, and validation
-./bin/althistory graph list
-./bin/althistory graph create "Roman Steam Engine" -d "Aeolipile industrialized in 100 CE"
-./bin/althistory ingest url "https://en.wikipedia.org/wiki/Battle_of_Hastings" -g <graphId>
-./bin/althistory generate timeline --premise "Byzantium wins at Manzikert" --divergence-point "1071-08-26" --direct
-./bin/althistory generate simulate -g <graphId> --steps 3 --months 12
-./bin/althistory validate <graphId> --auto-repair
-./bin/althistory export <graphId> --format markdown
+npm link   # puts althistory on your PATH
+claude mcp add --scope user althistory -- althistory mcp   # Claude Code
 ```
-
-To register the MCP server in Claude Desktop, Cursor, or Antigravity (see
-[`.mcp/`](.mcp/)):
 
 ```json
-{
-  "mcpServers": {
-    "althistory": {
-      "command": "/absolute/path/to/althistory/bin/althistory",
-      "args": ["mcp"]
-    }
-  }
-}
+{ "mcpServers": { "althistory": { "command": "althistory", "args": ["mcp"] } } }
 ```
+
+The server offers three prompts, one for each way of working (in Claude Code,
+`/althistory:worldbuild` and so on; run one, then describe your world or
+premise in your next message):
+
+| Prompt | For |
+| --- | --- |
+| `worldbuild` | An invented world: its calendar, ages, events and causes. |
+| `alternate_history` | Real history turned at one moment, grounded in what really happened before it. |
+| `grow_history` | Extending a graph you already have, and branching where it forks. |
+
+An invented world keeps its own **calendars**, of any shape: a day of any
+length divided its own way, months and festival days of any length, leap
+years, eras, a week, and how its dates are written. Vael's Reckoning has
+twelve months of thirty days, Midyear's Day, and four Drowned Days at the
+year's end (five every sixth year), in a day of thirty Earth hours; its coast
+keeps the Tide-count beside it. The app, the API, the CLI and the MCP tools
+all take the world's dates ("Thaw 4, 312 AR", "Thaw 312 AR" for a month); the
+app, the MCP tools and the exports write them, and the app can show them in
+any of the world's calendars. A set whose text could read back as another
+date (in its own calendar or another of the world's) is refused, with an
+example.
+Every date is still one moment on the graph's timeline, so sorting, causal
+order and validation are unchanged. The calendars are defined in
+[docs/specs/world-calendars.md](docs/specs/world-calendars.md); a world that
+keeps Earth's calendar and only counts its own years can give just the year
+that is its year 1 (`epochYear`) and a label (`eraLabel`).
+
+`generate timeline` (and the `generate_timeline` tool) drafts a graph
+whole-cloth from a premise or a world description. It uses a model only when
+*the althistory process* has `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; without
+one it returns a template skeleton, and the result says
+`"source": "template"`. Generation runs in-process, so it needs the app
+stopped: with the app running, the CLI works through it (using the app's own
+key from `timeline/.env.local`), and the app has no generation route. Don't
+add `--direct` while the app runs; two processes would write the same files.
+
+```bash
+./bin/althistory schema                 # the JSON Schema of every command
+./bin/althistory schema --mcp           # the MCP tools
+
+# An invented world, with its calendars from a file (see docs/specs/world-calendars.md)
+./bin/althistory graph create "Vael" --calendar-file vael-calendars.json
+./bin/althistory event add "The harbours close" -g <graphId> -a Priests --target Kings -t "Midyear's Day, 141 AR"
+./bin/althistory generate timeline --world "A drowned archipelago ruled by salt-kings" --era-label AR   # app stopped
+./bin/althistory prompt worldbuild world="A drowned archipelago" --plain   # the brief, for any agent
+
+# Real and alternate history
+./bin/althistory ingest url "https://en.wikipedia.org/wiki/Battle_of_Hastings" -g <graphId>
+./bin/althistory generate timeline --premise "Byzantium wins at Manzikert" --divergence-point "1071-08-26"   # app stopped
+./bin/althistory generate simulate -g <graphId> --steps 3 --months 12
+./bin/althistory validate <graphId> --auto-repair
+./bin/althistory --plain export <graphId> --format markdown
+```
+
+The [project page](https://qworg.github.io/althistory/agents.html) walks
+through building a world with Claude, and the
+[demo](https://qworg.github.io/althistory/demo/?start=world) opens the result.
 
 ## Tests
 
 ```bash
-./run-tests.sh            # backend + frontend unit/integration suites
+./run-tests.sh            # calendar + backend + frontend unit/integration suites
 ```
 
 ```bash
-cd timeline && npm test   # 100 files (2,051 tests)
-cd frontend && npm test   # 116 files (1,746 tests)
+cd calendar && npm test   # property tests, once in each of five time zones
+cd timeline && npm test
+cd frontend && npm test
 ```
 
 End-to-end, against a real browser and a production build (API stubbed):
@@ -138,9 +187,9 @@ npx playwright install chromium
 npx playwright test
 ```
 
-CI (`.github/workflows/ci.yml`) gates both packages on typecheck, ESLint, the
-test suites with coverage, the frontend production build, and the non-visual
-Playwright specs.
+CI (`.github/workflows/ci.yml`) gates all three packages on typecheck, ESLint
+and their test suites (the two apps with coverage), the backend and frontend
+production builds, and the non-visual Playwright specs.
 
 ## Screenshots and video
 

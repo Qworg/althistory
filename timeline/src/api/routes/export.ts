@@ -27,6 +27,7 @@ import {
 import { AlthistoryExport, ExportOptions } from '../../services/ExportService';
 import type { AsyncJob, ExportJobParams } from '../../models/AsyncJob';
 import { ValidationError, NotFoundError } from '../../utils/errors';
+import { queryInstant } from '../worldDates';
 
 export const exportRoutes = Router();
 
@@ -496,8 +497,8 @@ function reconcileGraphId(request: CreateExportJobRequest, resolvedGraphId: stri
 
 function validateFilters(filters: ExportFilters): void {
   if (filters.timeRange) {
-    const start = new Date(filters.timeRange.start);
-    const end = new Date(filters.timeRange.end);
+    const start = queryInstant(filters.timeRange.start);
+    const end = queryInstant(filters.timeRange.end);
     
     if (isNaN(start.getTime())) {
       throw new ValidationError('Invalid start date in timeRange', 'filters.timeRange.start', filters.timeRange.start);

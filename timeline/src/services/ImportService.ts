@@ -16,6 +16,15 @@
  */
 
 import { GraphRepository } from '../repositories/GraphRepository';
+import {
+  type WorldCalendarSet,
+  adoptableCalendarSet,
+  sameCalendarSet,
+  storedCalendarSet,
+  toInstant,
+  unreadDateReason,
+} from '@althistory/calendar';
+import { importedMetadata, readImportedTime } from '@/utils/importedTime';
 import { JobRepository } from '../repositories/JobRepository';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 import {
@@ -91,7 +100,8 @@ export type ImportWarningCode =
   | 'LOW_CONFIDENCE'
   | 'DEPRECATED_FIELD'
   | 'EMPTY_COLLECTION'
-  | 'INVALID_VALUE';
+  | 'INVALID_VALUE'
+  | 'CALENDAR_MISMATCH';
 
 export interface ImportSummary {
   eventCount: number;
@@ -501,7 +511,11 @@ export class ImportService {
   /**
    * Validate import data format and structure
    */
-  async validateFormat(data: unknown): Promise<ImportValidationResult> {
+  /**
+   * @param calendar The calendars the document's dates are read with: those
+   * of the graph it goes into. Left out, the document's own (a new graph's).
+   */
+  async validateFormat(data: unknown, calendar?: WorldCalendarSet | null): Promise<ImportValidationResult> {
     const errors: ImportError[] = [];
     const warnings: ImportWarning[] = [];
 
@@ -563,14 +577,31 @@ export class ImportService {
       }
     }
 
-    // Validate events
-    this.validateEvents(exportData.events, errors, warnings);
+    // Validate events. An invented world's timeline has no "now": its dates
+    // are positions, which can lie anywhere, so none is "in the future".
+    const own = readableCalendar((metadata as { calendar?: unknown } | undefined)?.calendar);
+    const world = calendar !== undefined ? calendar ?? undefined : own;
+    // Going into a graph that does not keep the document's calendars, its
+    // dates keep their places on the timeline but are shown, and read, in the
+    // graph's: worth saying before the import, not after.
+    if (calendar !== undefined && own && !sameCalendarSet(own, calendar)) {
+      warnings.push({
+        path: '$.metadata.calendar',
+        message: calendar
+          ? "The document's dates are in its own world calendars, which the target graph does not keep: they will be shown in the graph's calendars instead."
+          : "The document's dates are in its own world calendars, and the target graph has none: they will be shown as Gregorian dates. Import into a new graph to keep the calendars.",
+        code: 'CALENDAR_MISMATCH',
+      });
+    }
+    this.validateEvents(exportData.events, errors, warnings, world);
 
     // Validate arcs
-    this.validateArcs(exportData.arcs, errors, warnings);
+    this.validateArcs(exportData.arcs, errors, warnings, world);
 
-    // Validate relationships
-    this.validateRelationships(exportData.causalRelationships, exportData.events, errors, warnings);
+    // Validate relationships, by the instants the events' dates name (read
+    // with the same calendars), so "Thaw 5" before "Thaw 4" is a paradox too.
+    const readEvents = readImportedDates({ data: exportData } as AlthistoryExport, world).data.events;
+    this.validateRelationships(exportData.causalRelationships, readEvents, errors, warnings);
 
     // Validate pressures - now treats missing references as errors
     this.validatePressures(exportData.inferredPressures, exportData.events, exportData.arcs, errors, warnings);
@@ -787,7 +818,8 @@ export class ImportService {
   private validateEvents(
     events: unknown,
     errors: ImportError[],
-    warnings: ImportWarning[]
+    warnings: ImportWarning[],
+    world?: WorldCalendarSet
   ): void {
     if (!Array.isArray(events)) {
       errors.push({
@@ -861,21 +893,27 @@ export class ImportService {
           message: 'Event timestamp is required',
           code: 'MISSING_FIELD',
         });
-      } else if (isNaN(Date.parse(e.timestamp))) {
+      } else if (!readImportedTime(e.timestamp, world, 'start')) {
         errors.push({
           path: `${path}.timestamp`,
-          message: 'Event timestamp must be a valid ISO date string',
+          message: `Event timestamp: ${unreadDateReason(world, e.timestamp)}`,
           code: 'INVALID_VALUE',
         });
       } else {
-        const date = new Date(e.timestamp);
-        if (date > new Date()) {
+        const date = new Date(readImportedTime(e.timestamp, world, 'start')!.iso);
+        if (!world && date > new Date()) {
           warnings.push({
             path: `${path}.timestamp`,
             message: `Event timestamp is in the future: ${e.timestamp}`,
             code: 'FUTURE_DATE',
           });
         }
+      }
+
+      // `metadata` is an object (absent or null for none): anything else
+      // would be dropped by the import, or spread as characters.
+      if (e.metadata !== undefined && e.metadata !== null && (typeof e.metadata !== 'object' || Array.isArray(e.metadata))) {
+        errors.push({ path: `${path}.metadata`, message: 'Event metadata must be an object', code: 'INVALID_TYPE' });
       }
 
       // `sourceRef` is a string in the format; a number or object would be
@@ -895,7 +933,8 @@ export class ImportService {
   private validateArcs(
     arcs: unknown,
     errors: ImportError[],
-    warnings: ImportWarning[]
+    warnings: ImportWarning[],
+    world?: WorldCalendarSet
   ): void {
     if (!Array.isArray(arcs)) {
       errors.push({
@@ -993,10 +1032,10 @@ export class ImportService {
           message: 'Arc start_time is required',
           code: 'MISSING_FIELD',
         });
-      } else if (isNaN(Date.parse(a.start_time))) {
+      } else if (!readImportedTime(a.start_time, world, 'start')) {
         errors.push({
           path: `${path}.start_time`,
-          message: 'Arc start_time must be a valid ISO date string',
+          message: `Arc start_time: ${unreadDateReason(world, a.start_time)}`,
           code: 'INVALID_VALUE',
         });
       }
@@ -1007,18 +1046,18 @@ export class ImportService {
           message: 'Arc end_time is required',
           code: 'MISSING_FIELD',
         });
-      } else if (isNaN(Date.parse(a.end_time))) {
+      } else if (!readImportedTime(a.end_time, world, 'end')) {
         errors.push({
           path: `${path}.end_time`,
-          message: 'Arc end_time must be a valid ISO date string',
+          message: `Arc end_time: ${unreadDateReason(world, a.end_time)}`,
           code: 'INVALID_VALUE',
         });
       }
 
       // Validate temporal consistency
       if (a.start_time && a.end_time) {
-        const start = new Date(a.start_time);
-        const end = new Date(a.end_time);
+        const start = new Date(readImportedTime(a.start_time, world, 'start')?.iso ?? NaN);
+        const end = new Date(readImportedTime(a.end_time, world, 'end')?.iso ?? NaN);
         if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start > end) {
           errors.push({
             path: `${path}`,
@@ -1107,7 +1146,7 @@ export class ImportService {
           if (event.id) {
             eventIds.add(event.id);
             if (event.timestamp) {
-              eventTimestamps.set(event.id, new Date(event.timestamp));
+              eventTimestamps.set(event.id, toInstant(event.timestamp));
             }
           }
         }
@@ -1369,7 +1408,7 @@ export class ImportService {
     // assignments are visible to control-flow analysis at the read below.
     for (const e of events) {
       if (e.timestamp) {
-        const date = new Date(e.timestamp);
+        const date = toInstant(e.timestamp);
         if (!isNaN(date.getTime())) {
           if (!minDate || date < minDate) minDate = date;
           if (!maxDate || date > maxDate) maxDate = date;
@@ -1380,13 +1419,13 @@ export class ImportService {
 
     for (const a of arcs) {
       if (a.start_time) {
-        const date = new Date(a.start_time);
+        const date = toInstant(a.start_time);
         if (!isNaN(date.getTime())) {
           if (!minDate || date < minDate) minDate = date;
         }
       }
       if (a.end_time) {
-        const date = new Date(a.end_time);
+        const date = toInstant(a.end_time);
         if (!isNaN(date.getTime())) {
           if (!maxDate || date > maxDate) maxDate = date;
         }
@@ -1447,8 +1486,8 @@ export class ImportService {
     const arcDates = new Map<string, { start: Date; end: Date }>();
     (exportData.arcs || []).forEach((arc) => {
       arcMap.set(arc.id, arc);
-      const start = new Date(arc.start_time);
-      const end = new Date(arc.end_time);
+      const start = toInstant(arc.start_time);
+      const end = toInstant(arc.end_time);
       // FIX B#20: Only store valid dates
       if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
         arcDates.set(arc.id, { start, end });
@@ -1466,7 +1505,7 @@ export class ImportService {
 
     // FIX #1: Validate events within arc boundaries
     (exportData.events || []).forEach((event, index) => {
-      const eventTime = new Date(event.timestamp);
+      const eventTime = toInstant(event.timestamp);
       // FIX B#20: Skip NaN dates
       if (isNaN(eventTime.getTime())) {
         errors.push({
@@ -1499,10 +1538,10 @@ export class ImportService {
       if (arc.parent_arc_id) {
         const parent = arcMap.get(arc.parent_arc_id);
         if (parent) {
-          const childStart = new Date(arc.start_time);
-          const childEnd = new Date(arc.end_time);
-          const parentStart = new Date(parent.start_time);
-          const parentEnd = new Date(parent.end_time);
+          const childStart = toInstant(arc.start_time);
+          const childEnd = toInstant(arc.end_time);
+          const parentStart = toInstant(parent.start_time);
+          const parentEnd = toInstant(parent.end_time);
 
           // FIX B#20: Check for NaN before comparing
           if (isNaN(childStart.getTime()) || isNaN(childEnd.getTime())) {
@@ -1741,12 +1780,12 @@ export class ImportService {
         // exactly the same paradoxes as before.
         const { timestamp } = e;
         if (typeof timestamp === 'string' || typeof timestamp === 'number') {
-          allEvents.set(e.id, new Date(timestamp));
+          allEvents.set(e.id, toInstant(timestamp));
         }
       });
       (exportData.events || []).forEach((e) => {
         if (!allEvents.has(e.id)) {
-          allEvents.set(e.id, new Date(e.timestamp));
+          allEvents.set(e.id, toInstant(e.timestamp));
         }
       });
 
@@ -1785,8 +1824,8 @@ export class ImportService {
           (typeof startRaw === 'string' || typeof startRaw === 'number') &&
           (typeof endRaw === 'string' || typeof endRaw === 'number')
         ) {
-          const startTime = new Date(startRaw);
-          const endTime = new Date(endRaw);
+          const startTime = toInstant(startRaw);
+          const endTime = toInstant(endRaw);
           if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
             existingArcsMap.set(arc.id, {
               raw: arc,
@@ -1800,7 +1839,7 @@ export class ImportService {
 
       // Incoming events assigned to an existing arc must fall within its boundaries
       (exportData.events || []).forEach((event) => {
-        const eventTime = new Date(event.timestamp);
+        const eventTime = toInstant(event.timestamp);
         if (isNaN(eventTime.getTime())) return;
 
         const metadata = event.metadata as Record<string, unknown> | undefined;
@@ -1838,8 +1877,8 @@ export class ImportService {
 
       // Incoming arcs that overlap existing arcs must respect hierarchy containment
       (exportData.arcs || []).forEach((arc) => {
-        const incomingStart = new Date(arc.start_time);
-        const incomingEnd = new Date(arc.end_time);
+        const incomingStart = toInstant(arc.start_time);
+        const incomingEnd = toInstant(arc.end_time);
         if (isNaN(incomingStart.getTime()) || isNaN(incomingEnd.getTime())) return;
 
         for (const [existingId, existingArc] of existingArcsMap.entries()) {
@@ -1896,6 +1935,10 @@ export class ImportService {
     importData: AlthistoryExport,
     options: ImportOptions
   ): Promise<ImportPreview> {
+    // As the import will read them: with the calendars of the graph it goes into.
+    const read = await this.readDates(importData, options);
+    const targetCalendar = options.mode === 'create-new' || !options.graphId ? undefined : (read.calendar ?? null);
+    importData = read.data;
     const conflicts = options.graphId
       ? await this.detectConflicts(importData, options.graphId, options.mode)
       : [];
@@ -1982,8 +2025,8 @@ export class ImportService {
       });
     }
 
-    // Gather warnings
-    const validation = await this.validateFormat(importData);
+    // Gather warnings (a document's calendars the target does not keep among them)
+    const validation = await this.validateFormat(importData, targetCalendar);
 
     return {
       toCreate,
@@ -2192,6 +2235,29 @@ export class ImportService {
    * FIX #7: Real progress tracking
    * FIX B#6: Check cancellation flag during execution
    */
+  /**
+   * The document with its dates read as an import into `options.graphId`
+   * (or a new graph) reads them, and the calendars it read them with. What
+   * cannot be read is left as written, for validation to refuse.
+   */
+  async readDates(
+    importData: AlthistoryExport,
+    options: Pick<ImportOptions, 'graphId' | 'mode'>
+  ): Promise<{ data: AlthistoryExport; calendar: WorldCalendarSet | undefined }> {
+    const calendar = await this.targetCalendar(importData, options);
+    return { data: readImportedDates(importData, calendar), calendar };
+  }
+
+  /** The calendars a document's dates are read with: the target graph's, or the document's for a new graph. */
+  private async targetCalendar(importData: AlthistoryExport, options: Pick<ImportOptions, 'graphId' | 'mode'>): Promise<WorldCalendarSet | undefined> {
+    if (options.mode === 'create-new' || !options.graphId) return readableCalendar(importData.metadata?.calendar);
+    try {
+      return storedCalendarSet((await this.graphRepository.findById(options.graphId))?.calendar) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private async executeImportInternal(
     importData: AlthistoryExport,
     options: ImportOptions,
@@ -2222,7 +2288,9 @@ export class ImportService {
 
     // Validate first (10% progress)
     await this.updateJobProgress(jobId, 5, 'Validating format...');
-    const validation = await this.validateFormat(importData);
+    // Dates are read with the calendars of the graph they go into.
+    const calendar = await this.targetCalendar(importData, options);
+    const validation = await this.validateFormat(importData, calendar ?? null);
     if (!validation.valid) {
       return {
         ...emptyResult(),
@@ -2230,6 +2298,8 @@ export class ImportService {
         warnings: validation.warnings,
       };
     }
+    // Checked (its checksum too); from here on each date is the instant it names.
+    importData = readImportedDates(importData, calendar);
 
     // FIX B#6: Check cancellation between steps
     if (this.shouldCancel(jobId)) {
@@ -2339,6 +2409,11 @@ export class ImportService {
         const newGraph = await this.graphRepository.create({
           name: importData.metadata.graphName,
           description: importData.metadata.description,
+          // What does not check out in a calendar is dropped rather than
+          // failing the import (see `storedCalendarSet`); a set whose dates
+          // would not read back (the rules every new calendar meets) is left
+          // out whole: the graph would take text it then misreads.
+          calendar: readableCalendar(importData.metadata.calendar),
         });
         targetGraphId = newGraph.id;
         createdNewGraphId = newGraph.id;
@@ -2862,4 +2937,46 @@ export class ImportService {
       deleted,
     };
   }
+}
+
+/**
+ * A time as the import stores it: ISO 8601 in any spelling the validation
+ * took ("1870-02-14 09:30", "+05", a decimal comma) as toISOString's, which
+ * the live store, exports and every later reader read as the same instant.
+ * Other text (only an old, hand-made document holds it) is kept as it was.
+ */
+/**
+ * The document with each event's and arc's dates as the instants they name,
+ * and a month's or a year's precision (and calendar) recorded on an event
+ * whose metadata does not already state one (an export's does).
+ */
+function readImportedDates(data: AlthistoryExport, calendar: WorldCalendarSet | undefined): AlthistoryExport {
+  const time = (value: unknown, edge: 'start' | 'end') =>
+    typeof value === 'string' ? readImportedTime(value, calendar, edge) : null;
+  const events = Array.isArray(data.data?.events)
+    ? data.data.events.map((event) => {
+        if (!event || typeof event !== 'object') return event;
+        const read = time(event.timestamp, 'start');
+        if (!read) return event;
+        const metadata = importedMetadata(event.metadata, read);
+        return {
+          ...event,
+          timestamp: read.iso,
+          ...(event.metadata !== undefined || Object.keys(metadata).length > 0 ? { metadata } : {}),
+        };
+      })
+    : data.data?.events;
+  const arcs = Array.isArray(data.data?.arcs)
+    ? data.data.arcs.map((arc) => !arc || typeof arc !== 'object' ? arc : ({
+        ...arc,
+        start_time: time(arc.start_time, 'start')?.iso ?? arc.start_time,
+        end_time: time(arc.end_time, 'end')?.iso ?? arc.end_time,
+      }))
+    : data.data?.arcs;
+  return { ...data, data: { ...data.data, events, arcs } };
+}
+
+/** An imported calendar as a new graph stores it: what still checks out, if its dates read back. */
+function readableCalendar(value: unknown) {
+  return adoptableCalendarSet(value) ?? undefined;
 }

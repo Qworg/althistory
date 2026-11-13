@@ -283,3 +283,22 @@ describe('historical date bounds', () => {
     expect(filterEvents(ancient, store).map((e) => e.id)).toEqual(['caesar'])
   })
 })
+
+describe('a date bound from a link that is not a typed bound', () => {
+  const panel = (start: string, end: string) => ({
+    dateRange: { start, end },
+    actors: [],
+    targets: [],
+    eventTypes: [],
+    arcLevels: [],
+    causalWeightRange: [0, 1] as [number, number],
+    confidenceThreshold: 0,
+    searchQuery: '',
+  })
+
+  it('reads a full timestamp as UTC, and a day that does not exist as an open bound, not the day V8 rolls it into', () => {
+    const store = fromPanelFilters(panel('1870-02-14T09:30', '1870-02-31T00:00'))
+    expect((store.dateRange!.start as Date).toISOString()).toBe('1870-02-14T09:30:00.000Z')
+    expect(Number.isNaN((store.dateRange!.end as Date).getTime())).toBe(true)
+  })
+})

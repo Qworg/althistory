@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'vitest-axe'
-import type { ReactElement } from 'react'
+import { StrictMode, type ReactElement } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { EventDetailModal } from './EventDetailModal'
 import {
@@ -10,6 +10,9 @@ import {
   createMockArc,
   createMockCausalRelationship
 } from '@/test/fixtures/modalFixtures'
+import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
+import { VAEL, vael } from '@/test/fixtures/worldCalendars'
+import { formatEventDate } from '@/utils/historicalTime'
 
 vi.mock('@/hooks/useAPI', () => ({
   useEvents: vi.fn(() => ({
@@ -188,6 +191,34 @@ describe('EventDetailModal', () => {
       await waitFor(() => {
         expect(onSave).toHaveBeenCalled()
       })
+    })
+
+    it('records the precision a typed date states, and keeps the event\'s when the date is left alone', async () => {
+      const user = userEvent.setup()
+      const save = async (event: ReturnType<typeof createMockEvent>, date?: string) => {
+        const onSave = vi.fn().mockResolvedValue(undefined)
+        const { unmount } = render(<EventDetailModal {...defaultProps} event={event} onSave={onSave} isOpen={true} />)
+        if (date !== undefined) fireEvent.change(screen.getByLabelText(/^date/i), { target: { value: date } })
+        await user.click(screen.getByRole('button', { name: /save/i }))
+        await waitFor(() => expect(onSave).toHaveBeenCalled())
+        unmount()
+        return onSave.mock.calls[0]![0] as { timestamp: string; metadata?: Record<string, unknown> }
+      }
+      const monthEvent = createMockEvent({ timestamp: '1871-03-01T00:00:00.000Z', metadata: { datePrecision: 'month' } })
+      // Left as the form shows it: still the month.
+      expect((await save(monthEvent)).metadata?.datePrecision).toBe('month')
+      // A day typed in its place: the day, and no stale month.
+      const day = await save(monthEvent, '1871-03-15')
+      expect(day.timestamp).toBe('1871-03-15T00:00:00.000Z')
+      expect(day.metadata?.datePrecision).toBeUndefined()
+      // A day-precision event on the 1st, left alone: shown as the day, and still a day.
+      const firstOfMonth = createMockEvent({ timestamp: '1871-03-01T00:00:00.000Z' })
+      render(<EventDetailModal {...defaultProps} event={firstOfMonth} isOpen={true} />)
+      expect(screen.getByLabelText(/^date/i)).toHaveValue('1871-03-01')
+      cleanup()
+      expect((await save(firstOfMonth)).metadata?.datePrecision).toBeUndefined()
+      // A month typed for a dated event: the month.
+      expect((await save(createMockEvent({ timestamp: '1871-03-15T00:00:00.000Z' }), '1872-05')).metadata?.datePrecision).toBe('month')
     })
 
     it('does not call onSave when form is invalid', async () => {
@@ -635,4 +666,87 @@ describe('EventDetailModal: what the form records', () => {
     await waitFor(() => expect(onSave).toHaveBeenCalled())
     expect(onSave.mock.calls[0]![1]).toEqual({ cause: { eventId: 'e1', type: 'contributory' } })
   })
+
+  describe('in a world calendar', () => {
+    const props = { event: null, isOpen: true, onClose: vi.fn(), onSave: vi.fn().mockResolvedValue(undefined) }
+    afterEach(() => useWorldCalendarStore.getState().setCalendar(null))
+
+    it("takes the date in the world's notation, and saves the instant and precision it names", async () => {
+      const user = userEvent.setup()
+      const onSave = vi.fn().mockResolvedValue(undefined)
+      useWorldCalendarStore.getState().setCalendar(VAEL)
+      withClient(<EventDetailModal {...props} onSave={onSave} />)
+      await user.type(screen.getByLabelText(/description/i), 'The harbour freezes')
+      await user.type(screen.getByLabelText(/actor/i), 'Winter')
+      await user.type(screen.getByLabelText(/target/i), 'Harbour')
+      const date = screen.getByLabelText(/^date/i)
+      await user.type(date, 'Thaw 312 AR')
+      expect(screen.getByText('Reads as Thaw 312 AR.')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: /save/i }))
+      await waitFor(() => {
+        expect(onSave).toHaveBeenCalledWith(
+          expect.objectContaining({
+            timestamp: vael(312, 2, 1).toISOString(),
+            metadata: expect.objectContaining({ datePrecision: 'month' }),
+          })
+        )
+      })
+    })
+
+    it('saves a date left as shown unchanged, though another calendar is shown, and rewrites only the date on a switch', async () => {
+      const user = userEvent.setup()
+      const onSave = vi.fn().mockResolvedValue(undefined)
+      useWorldCalendarStore.getState().setCalendar(VAEL)
+      useWorldCalendarStore.getState().showCalendar('tide')
+      const stored = vael(312, 2, 1).toISOString()
+      const event = createMockEvent({ timestamp: stored, metadata: { datePrecision: 'month' } })
+      // In StrictMode, as the app runs in development: React runs updaters twice.
+      withClient(<StrictMode><EventDetailModal {...props} event={event} onSave={onSave} /></StrictMode>)
+      const date = screen.getByLabelText(/^date/i)
+      expect((date as HTMLInputElement).value).toMatch(/ TC$/)
+      const description = screen.getByLabelText(/description/i)
+      await user.clear(description)
+      await user.type(description, 'Edited')
+      // Back to the Reckoning: the description stays, the date is written in it.
+      act(() => useWorldCalendarStore.getState().showCalendar('reckoning'))
+      expect(screen.getByLabelText(/description/i)).toHaveValue('Edited')
+      expect(screen.getByLabelText(/^date/i)).toHaveValue('Thaw 312 AR')
+      await user.click(screen.getByRole('button', { name: /save/i }))
+      await waitFor(() =>
+        expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ description: 'Edited', timestamp: stored, metadata: expect.objectContaining({ datePrecision: 'month' }) }))
+      )
+    })
+
+    it('records a month given in another of the world\'s calendars, and shows it in that one', async () => {
+      const user = userEvent.setup()
+      const onSave = vi.fn().mockResolvedValue(undefined)
+      useWorldCalendarStore.getState().setCalendar(VAEL)
+      withClient(<EventDetailModal {...props} onSave={onSave} />)
+      await user.type(screen.getByLabelText(/description/i), 'The spring flood')
+      await user.type(screen.getByLabelText(/actor/i), 'Sea')
+      await user.type(screen.getByLabelText(/target/i), 'Coast')
+      await user.type(screen.getByLabelText(/^date/i), 'Flooding 312 TC')
+      expect(screen.getByText('Reads as Flooding 312 TC.')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: /save/i }))
+      await waitFor(() =>
+        expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ datePrecision: 'month', dateCalendar: 'tide' }) }))
+      )
+      const saved = onSave.mock.calls[0]![0]
+      expect(formatEventDate(saved, 'en-US')).toBe('Flooding 312 TC')
+    })
+
+    it('shows an event at the precision it is known to, and refuses a day the world lacks', async () => {
+      const user = userEvent.setup()
+      useWorldCalendarStore.getState().setCalendar(VAEL)
+      const event = createMockEvent({ timestamp: vael(312, 6, 1).toISOString() })
+      withClient(<EventDetailModal {...props} event={event} />)
+      const date = screen.getByLabelText(/^date/i)
+      expect(date).toHaveValue("Midyear's Day, 312 AR")
+      await user.clear(date)
+      await user.type(date, 'Thaw 31, 312 AR')
+      await user.click(screen.getByRole('button', { name: /save/i }))
+      expect(await screen.findByText('Thaw has 30 days that year, so no day 31.')).toBeInTheDocument()
+    })
+  })
 })
+

@@ -1,8 +1,20 @@
 import * as fs from 'fs';
+import { type WorldCalendarSet, adoptableCalendarSet, sameCalendarSet, storedCalendarSet, unreadDateReason } from '@althistory/calendar';
+import { type ImportedTime, importedMetadata, readImportedTime } from '@/utils/importedTime';
 import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
 import { ImportResultDto } from '../types';
 import { ValidationErrorCLI } from '../utils/exitCodes';
+
+/**
+ * The calendar an export carries. A field that does not check out is dropped
+ * rather than failing the import, and without a usable epoch there is no
+ * calendar (see `storedCalendarSet`): it only changes how dates are shown.
+ */
+function importedCalendar(metadata: Record<string, unknown> | undefined): WorldCalendarSet | undefined {
+  // What a new calendar may hold (its dates must read back); see adoptableCalendarSet.
+  return adoptableCalendarSet(metadata?.calendar) ?? undefined;
+}
 
 export class GraphImporter {
   async import(
@@ -34,6 +46,41 @@ export class GraphImporter {
     const arcs = (dataObj.arcs as Array<Record<string, unknown>> | undefined) || [];
     const rels = (dataObj.causalRelationships as Array<Record<string, unknown>> | undefined) || [];
 
+    // The dates are read with the calendars of the graph they go into (an
+    // existing one's, or the one a new graph takes from the document), all of
+    // them before anything is written.
+    const findGraph = (id: unknown) =>
+      typeof id === 'string' && id ? container.graphRepository.findById(id).catch(() => null) : Promise.resolve(null);
+    const existingTarget = options?.graphId ? await findGraph(options.graphId) : await findGraph(metadataObj?.graphId);
+    const calendar = existingTarget ? (storedCalendarSet(existingTarget.calendar) ?? undefined) : importedCalendar(metadataObj);
+    const warnings: string[] = [];
+    const own = importedCalendar(metadataObj);
+    if (existingTarget && own && !sameCalendarSet(own, calendar ?? null)) {
+      warnings.push(
+        calendar
+          ? "The document's dates are in its own world calendars, which this graph does not keep: they are shown in the graph's calendars instead."
+          : "The document's dates are in its own world calendars, and this graph has none: they are shown as Gregorian dates. Import into a new graph to keep the calendars."
+      );
+    }
+    const problems: string[] = [];
+    const readTime = (value: unknown, edge: 'start' | 'end', where: string): ImportedTime => {
+      const read = typeof value === 'string' ? readImportedTime(value, calendar, edge) : null;
+      if (!read) problems.push(`${where}: ${unreadDateReason(calendar, String(value ?? ''))}`);
+      return read ?? { iso: '', precision: 'day' };
+    };
+    // (An entity without an id is skipped below, so its dates are not read.)
+    const arcTimes = new Map(
+      arcs.flatMap((arc, index) =>
+        arc.id ? [[arc, { start: readTime(arc.start_time, 'start', `arcs[${index}].start_time`), end: readTime(arc.end_time, 'end', `arcs[${index}].end_time`) }] as const] : []
+      )
+    );
+    const eventTimes = new Map(
+      events.flatMap((event, index) => (event.id ? [[event, readTime(event.timestamp, 'start', `events[${index}].timestamp`)] as const] : []))
+    );
+    if (problems.length > 0) {
+      throw new ValidationErrorCLI(`Import refused: ${problems.slice(0, 5).join('; ')}${problems.length > 5 ? `; and ${problems.length - 5} more` : ''}`);
+    }
+
     // Resolve target graph
     let targetGraphId = options?.graphId;
     if (!targetGraphId) {
@@ -46,6 +93,7 @@ export class GraphImporter {
           const created = await container.graphRepository.create({
             name: (metadataObj.graphName as string) || 'Imported Timeline',
             description: (metadataObj.description as string) || 'Imported from file',
+            calendar: importedCalendar(metadataObj),
           });
           targetGraphId = created.id;
         }
@@ -53,6 +101,7 @@ export class GraphImporter {
         const created = await container.graphRepository.create({
           name: (metadataObj?.graphName as string) || 'Imported Timeline',
           description: (metadataObj?.description as string) || 'Imported from file',
+          calendar: importedCalendar(metadataObj),
         });
         targetGraphId = created.id;
       }
@@ -80,8 +129,8 @@ export class GraphImporter {
           await scoped.arcRepository.update(origId, {
             name: String(arcData.name || ''),
             description: arcData.description ? String(arcData.description) : undefined,
-            start_time: new Date(String(arcData.start_time)),
-            end_time: new Date(String(arcData.end_time)),
+            start_time: new Date(arcTimes.get(arcData)!.start.iso),
+            end_time: new Date(arcTimes.get(arcData)!.end.iso),
             level: typeof arcData.level === 'number' ? arcData.level : 0,
             metadata: (arcData.metadata as Record<string, unknown>) || {},
           });
@@ -94,8 +143,8 @@ export class GraphImporter {
             id: newId,
             name: String(arcData.name || ''),
             description: arcData.description ? String(arcData.description) : undefined,
-            start_time: new Date(String(arcData.start_time)),
-            end_time: new Date(String(arcData.end_time)),
+            start_time: new Date(arcTimes.get(arcData)!.start.iso),
+            end_time: new Date(arcTimes.get(arcData)!.end.iso),
             level: typeof arcData.level === 'number' ? arcData.level : 0,
             metadata: (arcData.metadata as Record<string, unknown>) || {},
           });
@@ -107,8 +156,8 @@ export class GraphImporter {
           id: origId,
           name: String(arcData.name || ''),
           description: arcData.description ? String(arcData.description) : undefined,
-          start_time: new Date(String(arcData.start_time)),
-          end_time: new Date(String(arcData.end_time)),
+          start_time: new Date(arcTimes.get(arcData)!.start.iso),
+          end_time: new Date(arcTimes.get(arcData)!.end.iso),
           level: typeof arcData.level === 'number' ? arcData.level : 0,
           metadata: (arcData.metadata as Record<string, unknown>) || {},
         });
@@ -122,7 +171,9 @@ export class GraphImporter {
       if (!origId) continue;
 
       const existing = await scoped.eventRepository.findById(origId);
-      const meta = { ...((evtData.metadata as Record<string, unknown>) || {}) };
+      const time = eventTimes.get(evtData)!;
+      // A month's or a year's precision as the API records it (an export's stated one is kept).
+      const meta = { ...importedMetadata(evtData.metadata, time) };
       if (meta.arcId && idMap.has(String(meta.arcId))) {
         meta.arcId = idMap.get(String(meta.arcId));
       }
@@ -135,7 +186,7 @@ export class GraphImporter {
         } else if (strategy === 'overwrite') {
           await scoped.eventRepository.update(origId, {
             description: String(evtData.description || ''),
-            timestamp: new Date(String(evtData.timestamp)),
+            timestamp: new Date(time.iso),
             actor: String(evtData.actor || 'Unknown'),
             target: String(evtData.target || 'None'),
             metadata: meta,
@@ -148,7 +199,7 @@ export class GraphImporter {
           await scoped.eventRepository.create({
             id: newId,
             description: String(evtData.description || ''),
-            timestamp: new Date(String(evtData.timestamp)),
+            timestamp: new Date(time.iso),
             actor: String(evtData.actor || 'Unknown'),
             target: String(evtData.target || 'None'),
             metadata: meta,
@@ -160,7 +211,7 @@ export class GraphImporter {
         await scoped.eventRepository.create({
           id: origId,
           description: String(evtData.description || ''),
-          timestamp: new Date(String(evtData.timestamp)),
+          timestamp: new Date(time.iso),
           actor: String(evtData.actor || 'Unknown'),
           target: String(evtData.target || 'None'),
           metadata: meta,
@@ -239,6 +290,7 @@ export class GraphImporter {
       skipped,
       conflicts,
       strategy,
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 }

@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'path';
 import react from '@vitejs/plugin-react';
+import { aliases } from './vitest.aliases';
 
 export default defineConfig({
   plugins: [react()],
@@ -75,7 +75,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src'),
+      ...aliases,
     },
   },
 });

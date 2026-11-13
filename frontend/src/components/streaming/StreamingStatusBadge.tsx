@@ -19,7 +19,7 @@ export interface StreamingStatusBadgeProps {
 }
 
 const OFF_HINT =
-  'Every edit is saved as you make it. Live sync also sends each edit over an open connection and shows it confirmed as it lands: useful while an agent or the CLI edits the same graph.'
+  "Every edit is saved as you make it. Live sync also sends each of your edits over an open connection and shows it confirmed as it lands. Edits made elsewhere, such as an agent's, still appear only when the app next refreshes its data."
 
 const ERROR_MESSAGE =
   "Couldn't start live sync. Your edits still save as you go; retry when the server is reachable."

@@ -68,6 +68,8 @@ interface Recording {
   scenario: string
   mainGraphId: string
   branchGraphId: string
+  /** The invented world, whose graph carries a calendar. */
+  worldGraphId?: string
   entities: Record<string, GraphState>
   responses: Record<string, Recorded>
 }
@@ -89,7 +91,7 @@ interface Reply {
 const recording = JSON.parse(recordingText) as Recording
 const STATE_VERSION = 2
 
-/** The graph the app last showed (`demo/install.ts` sets it for `?start=branch`). */
+/** The graph the app last showed (`demo/install.ts` sets it for `?start=…`). */
 function startingGraph(): string {
   try {
     const remembered = localStorage.getItem('active_graph_id')
@@ -115,7 +117,12 @@ function load(): DemoState {
     const raw = sessionStorage.getItem(DEMO_STATE_KEY)
     if (raw) {
       const saved = JSON.parse(raw) as DemoState
-      if (saved.version === STATE_VERSION && saved.graphs[saved.active]) return saved
+      if (saved.version === STATE_VERSION) {
+        // A tab saved before a re-recording added a graph (the world, Vael)
+        // gets it as recorded, alongside its own edits.
+        for (const [id, graph] of Object.entries(recording.entities)) saved.graphs[id] ??= structuredClone(graph)
+        if (saved.graphs[saved.active]) return saved
+      }
     }
   } catch {
     // Storage unavailable or corrupt: start from the recording.

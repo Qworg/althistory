@@ -50,6 +50,7 @@ Three versions are in play and they mean different things:
 | `graphVersion` | number | The committed version exported, or `0` for the head. |
 | `checksum` | string | Lowercase hex SHA-256 of the `data` section. See below. |
 | `filters` | object? | Present **only** when `scope=filtered`; records the filters that were applied, so a reader can tell a partial export from a full one. |
+| `calendar` | object? | The graph's world calendars, when it has them: a calendar set, `{ version: 2, dayLength, calendars, primary }`, in the shape [docs/specs/world-calendars.md](specs/world-calendars.md) defines. They name the dates; the dates in `data` are positions on the timeline, as every graph stores them. Import restores the set on a new graph: a calendar in it that no longer checks out is left out rather than failing the import, and a file written before calendar sets (`epochYear`, `eraLabel`, `name`, `monthNames`) is read as the set it stands for. Imported into a graph that already exists, the dates keep their places but are shown in that graph's calendars; when those are not the document's, the import says so with a `CALENDAR_MISMATCH` warning (the CLI, in `warnings`). |
 
 ## `data`
 
@@ -84,7 +85,7 @@ present only when the graph has any.
 | `description` | string | yes | What happened. |
 | `actor` | string | yes | Who acted. |
 | `target` | string | yes | Who or what was acted on. |
-| `timestamp` | string (ISO 8601) | yes | When. Comparisons are by instant. |
+| `timestamp` | string (ISO 8601) | yes | When. Comparisons are by instant. An import reads it as the API reads a date ([the spec](specs/world-calendars.md), Req 16): ISO 8601, or year-first text without a world (`"1871-03"`, `"44 BCE"`), or in a graph with world calendars the world's notation, with the target graph's calendars; a month or a year records its `datePrecision` unless `metadata` states one. |
 | `metadata` | object? | no | Free-form. `arcId` records the arc the event belongs to — that is where the association lives, not in a column of its own. `datePrecision` (`"month"` or `"year"`) says the source stated only that much of the date: "March 1871" is stored as `1871-03-01` with `datePrecision: "month"`, and the UI shows it as "Mar 1871". Absent means a full date. |
 | `sourceRef` | string? | no | Where the event came from, when it was ingested. |
 

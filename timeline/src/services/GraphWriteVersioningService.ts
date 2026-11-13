@@ -27,6 +27,7 @@
  * commit message for this service was inaccurate.
  */
 
+import { toInstant } from '@althistory/calendar';
 import { GraphRepository } from '@/repositories/GraphRepository';
 import { EntityChanges } from '@/repositories/VersionRepository';
 import { EntityType } from '@/models/Graph';
@@ -34,7 +35,7 @@ import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
 import { createLogger, ILogger } from '@/utils/logger';
 import { StoredCausalRelationship } from './CausalService';
-import { formatHistoricalDate } from '@/utils/historicalDate';
+import { type WorldCalendarSet, dateCalendarOf, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
 
 /** A write to a live entity that should be reflected in one named graph's version. */
 export type EntityWriteOperation = 'create' | 'update';
@@ -129,8 +130,8 @@ function entityName(type: EntityType, data: Record<string, unknown> | undefined)
 }
 
 function sameInstant(a: unknown, b: unknown): boolean {
-  const ta = new Date(a as string).getTime();
-  const tb = new Date(b as string).getTime();
+  const ta = toInstant(a as string).getTime();
+  const tb = toInstant(b as string).getTime();
   return Number.isFinite(ta) && Number.isFinite(tb) ? ta === tb : a === b;
 }
 
@@ -165,6 +166,8 @@ export interface EntityWriteContext {
   effect?: Record<string, unknown>;
   /** For an event delete: how many links went with it. */
   cascadedLinks?: number;
+  /** The graph's world calendars, so a moved date is named as the world names it. */
+  calendar?: WorldCalendarSet;
 }
 
 /**
@@ -197,7 +200,9 @@ export function describeEntityWrite(
       const renamed = entityName(type, before) !== name;
       const otherChange = before.actor !== after.actor || before.target !== after.target;
       if (moved && !renamed && !otherChange) {
-        return `Moved ${name} to ${formatHistoricalDate(after.timestamp as string)}`;
+        // At the precision it is known to, in the calendar it was given in.
+        const metadata = (after.metadata ?? undefined) as Record<string, unknown> | undefined;
+        return `Moved ${name} to ${formatHistoricalDateAt(after.timestamp as string, datePrecisionOf(metadata), 'en-US', context.calendar ?? null, dateCalendarOf(metadata))}`;
       }
       if (renamed && !moved && !otherChange) {
         return `Renamed event ${entityName(type, before)} to ${name}`;
@@ -332,6 +337,7 @@ export class GraphWriteVersioningService {
     const context: EntityWriteContext = { data: entity.data };
     if (operation === 'update') {
       context.previous = (await this.headEntities(graphId, write.type, [write.id]))[write.id];
+      if (write.type === 'event') context.calendar = (await this.graphRepository.findById(graphId).catch(() => null))?.calendar;
     }
     if (write.type === 'relationship') {
       Object.assign(context, await this.linkEnds(graphId, entity.data));

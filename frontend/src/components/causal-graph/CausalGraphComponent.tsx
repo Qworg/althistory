@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback, useId } from 'react'
 import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
 import cytoscape, { Core, NodeSingular, EdgeSingular, EventObject } from 'cytoscape'
 import '@/utils/cytoscapeSetup' // Register layout extensions (dagre, cose-bilkent)
-import { Event, CausalRelationship, CausalRelationshipData, CausalPath, CausalSuggestion } from '@/types'
+import { Event, CausalRelationship, CausalRelationshipData, CausalPath, CausalSuggestion, GraphCalendar } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
 import {
@@ -25,7 +25,7 @@ import { CausalGraphPerformanceManager } from './CausalGraphPerformanceManager'
 import useCausalPathExploration from '@/hooks/useCausalPathExploration'
 import useCausalSuggestions from '@/hooks/useCausalSuggestions'
 import { CausalRelationshipModal } from '@/components/modals/CausalRelationshipModal'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 import {
   eventNodeLabel,
   eventNodeCanvasLabel,
@@ -93,6 +93,11 @@ export interface CausalGraphComponentProps {
    * affordance (no right-click edit, no relationship form).
    */
   readOnly?: boolean
+  /**
+   * The world calendar the graph's dates read in, when it is not the open
+   * graph (the Compare dialog shows a branch); left out, the open graph's.
+   */
+  calendar?: GraphCalendar | null
 }
 
 /** Past this many events or links the graph needs its level-of-detail controls. */
@@ -160,7 +165,8 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   onLayoutChange,
   divergenceEventIds,
   branchAddedIds,
-  readOnly = false
+  readOnly = false,
+  calendar
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
@@ -620,7 +626,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     const nodes: CausalNodeData[] = events.map(event => ({
       id: event.id,
       event,
-      label: eventNodeCanvasLabel(event),
+      label: eventNodeCanvasLabel(event, calendar),
       reach: reach.get(event.id) ?? 0,
       weight: maxReach > 0 ? Math.pow((reach.get(event.id) ?? 0) / maxReach, 0.75) : 0.5,
       isSelected: selectedEvents.includes(event.id),
@@ -715,7 +721,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     })
 
     return { nodes, edges }
-  }, [events, causalRelationships, selectedEvents, divergenceEventIds]) // linkCreationSource removed
+  }, [events, causalRelationships, selectedEvents, divergenceEventIds, calendar]) // linkCreationSource removed
 
   // Update graph data
   const updateGraphData = useCallback(() => {
@@ -1358,7 +1364,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         {/* The canvas draws nodes, not DOM: announce the event the keyboard
             moves to, in full, the way the hover tooltip shows it. */}
         <p className="sr-only" aria-live="polite" aria-atomic="true">
-          {keyboardEvent ? describeEvent(keyboardEvent) : ''}
+          {keyboardEvent ? describeEvent(keyboardEvent, calendar) : ''}
         </p>
 
         {/* Path Highlighter */}
@@ -1514,7 +1520,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
               <p className="mt-1 text-ink-secondary">{formatActorTarget(hoveredNode)}</p>
             )}
             <p className="mt-1 text-xs text-ink-secondary font-mono-code">
-              {formatHistoricalTimestamp(hoveredNode.timestamp)}
+              {formatEventDate(hoveredNode, undefined, calendar)}
             </p>
             {isCreatingLink && (
               <div className={`text-xs mt-2 pt-2 border-t border-line font-medium ${

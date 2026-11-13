@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, MockInstance } from 'vitest';
+import { legacyCalendarSet } from '@althistory/calendar';
 import {
   Graph,
   IGraph,
@@ -867,6 +868,46 @@ describe('Graph Model', () => {
 
       expect(branch2.parentGraphId).toBe(branch1.id);
       expect(branch2.branchPoint).toBe(1); // branch1Updated is at version 1
+    });
+  });
+
+  describe('calendar', () => {
+    it('keeps a good calendar, and drops a stored one that does not check out rather than becoming unreadable', () => {
+      expect(new Graph({ name: 'World', calendar: { epochYear: 1000, eraLabel: 'AR' } }).calendar).toEqual(legacyCalendarSet({
+        epochYear: 1000,
+        eraLabel: 'AR',
+      }));
+      const stored = { name: 'Hand-edited', calendar: { epochYear: 0 } } as unknown as ConstructorParameters<typeof Graph>[0];
+      expect(new Graph(stored).calendar).toBeUndefined();
+    });
+
+    it("keeps a stored calendar's years when only a field written under older rules fails", () => {
+      const months = ['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun', 'Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Long, night'];
+      const stored = { name: 'Vael', calendar: { epochYear: 1000, eraLabel: 'AR', monthNames: months } };
+      expect(new Graph(stored).calendar).toEqual(legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' }));
+    });
+
+    it('keeps the calendar on update unless cleared with null, and on a branch', () => {
+      const graph = new Graph({ name: 'World', calendar: { epochYear: 1000 } });
+      expect(graph.update({ name: 'Renamed' }).calendar).toEqual(legacyCalendarSet({ epochYear: 1000 }));
+      expect(graph.update({ calendar: null }).calendar).toBeUndefined();
+      expect(graph.branch('Branch').calendar).toEqual(legacyCalendarSet({ epochYear: 1000 }));
+      expect(graph.update({ calendar: null }).toJSON()).not.toHaveProperty('calendar');
+    });
+
+    it('writes back a field a newer rule refuses unchanged on an unrelated edit, and shows only what checks out', () => {
+      const months = ['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun', 'Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Long, night'];
+      const stored = { epochYear: 1000, eraLabel: 'AR', monthNames: months };
+      const graph = new Graph({ name: 'Vael', calendar: stored });
+      const renamed = graph.update({ name: 'Vael, renamed' });
+      expect(renamed.calendar).toEqual(legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' }));
+      expect(renamed.toJSON().calendar).toEqual(legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' }));
+      expect(renamed.toStoredJSON().calendar).toEqual(stored);
+      // A branch, like a copy, is a new graph: it starts from what checks out.
+      expect(graph.branch('Branch').toStoredJSON().calendar).toEqual(legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' }));
+      // Setting a calendar replaces it whole, and clearing it clears it.
+      expect(graph.update({ calendar: legacyCalendarSet({ epochYear: 1200 }) }).toStoredJSON().calendar).toEqual(legacyCalendarSet({ epochYear: 1200 }));
+      expect(graph.update({ calendar: null }).toStoredJSON()).not.toHaveProperty('calendar');
     });
   });
 });

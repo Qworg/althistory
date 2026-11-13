@@ -78,6 +78,21 @@ describe('Validate Routes', () => {
         eventRepository: mockEventRepository,
         arcRepository: mockArcRepository,
         graphScopedRepositories: mockGraphScopedRepositories,
+        // One graph keeps a world calendar: its dates are read with it.
+        graphRepository: {
+          findById: async (id: string) =>
+            id === 'vael'
+              ? {
+                  id,
+                  calendar: {
+                    version: 2,
+                    dayLength: 86_400,
+                    primary: 'reckoning',
+                    calendars: [{ id: 'reckoning', name: 'the Reckoning', parts: [{ name: 'Thaw', days: 30 }], epoch: 0, eras: [{ label: 'AR', from: 1 }] }],
+                  },
+                }
+              : { id },
+        },
       } as any;
       next();
     });
@@ -289,6 +304,42 @@ describe('Validate Routes', () => {
 
       expect(mockGraphScopedRepositories).toHaveBeenCalledWith('scoped-graph');
       expect(response.body.valid).toBe(true);
+    });
+
+    it("reads an addition's date as the event routes do, with the graph's calendars", async () => {
+      const check = (graph: string, timestamp: string) =>
+        request(app)
+          .post('/api/validate/incremental')
+          .set('X-API-Key', 'valid-read-key')
+          .set('X-Graph-Id', graph)
+          .send({ additions: { events: [{ description: 'x', actor: 'a', target: 'b', timestamp }] } })
+          .expect(200);
+      expect((await check('vael', 'Thaw 4, 312 AR')).body.conflicts).toEqual([]);
+      for (const refused of ['1871', '1871-03', 'March 4, 1871']) {
+        const response = await check('vael', refused);
+        expect(response.body.conflicts.map((c: { type: string }) => c.type), refused).toContain('invalid_data');
+      }
+      // Without a world, year-first text is a date and "0" is none.
+      expect((await check('plain', '312-03-04 14:30')).body.conflicts).toEqual([]);
+      expect((await check('plain', '0')).body.conflicts.map((c: { type: string }) => c.type)).toContain('invalid_data');
+    });
+
+    it("checks an addition's arc times and takes dates given as fields, as the storing routes do", async () => {
+      const send = (additions: unknown) =>
+        request(app)
+          .post('/api/validate/incremental')
+          .set('X-API-Key', 'valid-read-key')
+          .set('X-Graph-Id', 'vael')
+          .send({ additions })
+          .expect(200);
+      const arc = (start_time: unknown, end_time: unknown) => ({ arcs: [{ name: 'A', level: 0, start_time, end_time }] });
+      expect((await send(arc('Thaw 1, 312 AR', 'Thaw 312 AR'))).body.conflicts).toEqual([]);
+      for (const [start, end] of [['1871-03', '1871-09'], ['garbage', {}], ['Thaw 312 AR', 'Thaw 4, 311 AR']] as const) {
+        const response = await send(arc(start, end));
+        expect(response.body.conflicts.map((c: { type: string }) => c.type), `${start} – ${JSON.stringify(end)}`).toContain('invalid_data');
+      }
+      const fields = await send({ events: [{ description: 'x', actor: 'a', target: 'b', timestamp: { year: 312, month: 'Thaw', day: 4 } }] });
+      expect(fields.body.conflicts).toEqual([]);
     });
 
     it('should validate empty additions', async () => {

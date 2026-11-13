@@ -2,14 +2,42 @@ import { Command } from 'commander';
 import { ExecutionContext } from './engine/ExecutionContext';
 import { formatOutput, formatErrorJson } from './formatters';
 import { GlobalCLIOptions, OutputFormat, ExportFormat } from './types';
-import { CLIError, ExitCode } from './utils/exitCodes';
+import { CLIError, ExitCode, ValidationErrorCLI } from './utils/exitCodes';
 import { isSimulationDomain } from '@/services/SimulationService';
 import { logger } from './utils/logger';
 import { McpServer } from './mcp/McpServer';
 import { MCP_TOOLS } from './mcp/toolDefinitions';
+import { MCP_PROMPTS, renderPrompt } from './mcp/prompts';
 import { buildCommandJsonSchema } from './schema/commandSchema';
 import { readInputText } from './utils/inputText';
+import { calendarFrom, partialCalendarFrom } from './utils/calendarOptions';
+import * as fsSync from 'fs';
+
+/** The flags with --calendar-file read: its text is the whole calendar set. */
+function withCalendarFile<T extends { calendarFile?: unknown }>(cmdOpts: T): T & { calendar?: string } {
+  if (typeof cmdOpts.calendarFile !== 'string') return cmdOpts;
+  try {
+    return { ...cmdOpts, calendar: fsSync.readFileSync(cmdOpts.calendarFile, 'utf8') };
+  } catch {
+    throw new ValidationErrorCLI(`Cannot read the calendar file "${cmdOpts.calendarFile}"`);
+  }
+}
 import { formatSuccessJson } from './formatters/jsonFormatter';
+import { type WorldCalendarSet, storedCalendarSet } from '@althistory/calendar';
+
+/** The world calendars a result carries itself (a generated world's), if any. */
+function worldOf(result: unknown): WorldCalendarSet | undefined {
+  return storedCalendarSet((result as { calendar?: unknown } | null)?.calendar) ?? undefined;
+}
+
+/** A graph's world calendars, to show its dates in; none for a graph without (or one that cannot be read). */
+async function graphCalendar(engine: { getGraph(id: string): Promise<{ calendar?: unknown }> }, graphId: string): Promise<WorldCalendarSet | undefined> {
+  try {
+    return storedCalendarSet((await engine.getGraph(graphId)).calendar) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export function createProgram(): Command {
   const program = new Command();
@@ -86,13 +114,19 @@ export function createProgram(): Command {
     .command('create <name>')
     .description('Create a new historical graph')
     .option('-d, --description <desc>', 'Graph description')
-    .action(async (name: string, cmdOpts: { description?: string }) => {
+    .option('--epoch-year <year>', "For an invented world: the stored year that is the world's year 1 (e.g. 1000)")
+    .option('--era-label <label>', 'Written after a world year, as in "312 AR" (needs --epoch-year)')
+    .option('--calendar-name <name>', "What the world's calendar is called (needs --epoch-year)")
+    .option('--month-names <names>', "The world's twelve month names, January's first, separated by commas or one per line, or as a JSON list (needs --epoch-year)")
+    .option('--calendar-file <path>', "An invented world's calendars of any shape, as a JSON file ({ version: 2, dayLength, calendars, primary }; see docs/specs/world-calendars.md), instead of the simple flags")
+    .action(async (name: string, cmdOpts: { description?: string; epochYear?: string; eraLabel?: string; calendarName?: string; monthNames?: string; calendarFile?: string }) => {
       const opts = program.opts<GlobalCLIOptions>();
       const ctx = new ExecutionContext(opts);
       const start = Date.now();
       try {
+        const calendar = calendarFrom(withCalendarFile(cmdOpts));
         const engine = await ctx.getEngine();
-        const graph = await engine.createGraph(name, cmdOpts.description);
+        const graph = await engine.createGraph(name, cmdOpts.description, calendar);
         const output = formatOutput(graph, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: graph.id,
@@ -205,6 +239,41 @@ export function createProgram(): Command {
     });
 
   graphCmd
+    .command('calendar <id>')
+    .description(
+      "Give a graph an invented world's calendar, which relabels its years (and, with --month-names, its months) when they are shown (the stored dates do not change), or remove it. It replaces the whole calendar, so give every flag to keep"
+    )
+    .option('--epoch-year <year>', "The stored year that is the world's year 1 (e.g. 1000)")
+    .option('--era-label <label>', 'Written after a world year, as in "312 AR"; without one a year reads "Year 312"')
+    .option('--calendar-name <name>', "What the world's calendar is called")
+    .option('--month-names <names>', "The world's twelve month names, January's first, separated by commas or one per line, or as a JSON list")
+    .option('--calendar-file <path>', "An invented world's calendars of any shape, as a JSON file ({ version: 2, dayLength, calendars, primary }; see docs/specs/world-calendars.md), instead of the simple flags")
+    .option('--clear', 'Remove the calendar, so years show as stored')
+    .action(async (id: string, cmdOpts: { epochYear?: string; eraLabel?: string; calendarName?: string; monthNames?: string; calendarFile?: string; clear?: boolean }) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      const ctx = new ExecutionContext(opts);
+      const start = Date.now();
+      try {
+        const calendar = calendarFrom(withCalendarFile(cmdOpts));
+        if (cmdOpts.clear && calendar) {
+          throw new ValidationErrorCLI('Give either --clear or a calendar, not both');
+        }
+        if (!cmdOpts.clear && !calendar) {
+          throw new ValidationErrorCLI('Give --epoch-year (with --era-label, --calendar-name and --month-names if wanted), --calendar-file, or --clear');
+        }
+        const engine = await ctx.getEngine();
+        const graph = await engine.setGraphCalendar(id, cmdOpts.clear ? null : (calendar ?? null));
+        const output = formatOutput(graph, getFormat(opts), engine.mode, {
+          durationMs: Date.now() - start,
+          graphId: graph.id,
+        });
+        process.stdout.write(output + '\n');
+      } finally {
+        await ctx.shutdown();
+      }
+    });
+
+  graphCmd
     .command('delete <id>')
     .description('Permanently delete a graph and its timeline contents')
     .action(async (id: string) => {
@@ -231,7 +300,7 @@ export function createProgram(): Command {
     .command('add [description]')
     .description('Add a new historical event to a graph')
     .requiredOption('-g, --graph-id <id>', 'Target graph ID')
-    .requiredOption('-t, --timestamp <iso>', 'Event occurrence timestamp (ISO-8601)')
+    .requiredOption('-t, --timestamp <date>', 'When it happened: ISO-8601, or in a graph with world calendars a date as the world writes it ("Thaw 4, 312 AR")')
     .requiredOption('-a, --actor <actor>', 'Primary actor or entity')
     .requiredOption('--target <target>', 'Target actor or entity')
     .option('-d, --desc <description>', 'Event description')
@@ -256,6 +325,8 @@ export function createProgram(): Command {
         const output = formatOutput(event, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -268,8 +339,8 @@ export function createProgram(): Command {
     .description('List events in a graph with optional filtering')
     .requiredOption('-g, --graph-id <id>', 'Target graph ID')
     .option('-a, --actor <actor>', 'Filter events by actor name')
-    .option('--from <iso>', 'Filter events on or after timestamp')
-    .option('--to <iso>', 'Filter events on or before timestamp')
+    .option('--from <date>', 'Filter events on or after a date (ISO 8601, a year first, or the world\'s notation)')
+    .option('--to <date>', 'Filter events on or before a date (its last moment, without a time)')
     .action(async (cmdOpts?: Record<string, unknown>) => {
       const opts = program.opts<GlobalCLIOptions>();
       const ctx = new ExecutionContext(opts);
@@ -284,6 +355,8 @@ export function createProgram(): Command {
         const output = formatOutput(events, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -305,6 +378,8 @@ export function createProgram(): Command {
         const output = formatOutput(event, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -317,7 +392,7 @@ export function createProgram(): Command {
     .description('Update an existing event')
     .requiredOption('-g, --graph-id <id>', 'Target graph ID')
     .option('-d, --description <desc>', 'New description')
-    .option('-t, --timestamp <iso>', 'New timestamp (ISO-8601)')
+    .option('-t, --timestamp <date>', 'When it happened: ISO-8601, or in a graph with world calendars a date as the world writes it ("Thaw 4, 312 AR")')
     .option('-a, --actor <actor>', 'New actor')
     .option('--target <target>', 'New target')
     .action(async (id: string, cmdOpts?: Record<string, unknown>) => {
@@ -335,6 +410,8 @@ export function createProgram(): Command {
         const output = formatOutput(updated, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -370,8 +447,8 @@ export function createProgram(): Command {
     .command('create <name>')
     .description('Create a new narrative arc in a graph')
     .requiredOption('-g, --graph-id <id>', 'Target graph ID')
-    .requiredOption('-s, --start <iso>', 'Arc start timestamp (ISO-8601)')
-    .requiredOption('-e, --end <iso>', 'Arc end timestamp (ISO-8601)')
+    .requiredOption('-s, --start <date>', 'When the arc begins: ISO-8601, or in a graph with world calendars a date as the world writes it ("Thaw 4, 312 AR")')
+    .requiredOption('-e, --end <date>', 'When the arc ends: ISO-8601, or in a graph with world calendars a date as the world writes it ("Thaw 4, 312 AR"); a day, month or year without a time ends at its last moment')
     .option('-d, --description <desc>', 'Arc narrative description')
     .option('-p, --parent <parentArcId>', 'Parent arc ID for hierarchical nesting')
     .action(async (name: string, cmdOpts?: Record<string, unknown>) => {
@@ -390,6 +467,8 @@ export function createProgram(): Command {
         const output = formatOutput(arc, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -411,6 +490,8 @@ export function createProgram(): Command {
         const output = formatOutput(arcs, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -432,6 +513,8 @@ export function createProgram(): Command {
         const output = formatOutput(arc, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -480,7 +563,7 @@ export function createProgram(): Command {
           { success: true, event, arcId: String(cmdOpts?.arc) },
           getFormat(opts),
           engine.mode,
-          { durationMs: Date.now() - start, graphId: String(cmdOpts?.graphId) }
+          { durationMs: Date.now() - start, graphId: String(cmdOpts?.graphId), calendar: await graphCalendar(engine, String(cmdOpts?.graphId)) }
         );
         process.stdout.write(output + '\n');
       } finally {
@@ -583,6 +666,7 @@ export function createProgram(): Command {
         const output = formatOutput(res, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -648,6 +732,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -697,6 +783,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -736,6 +824,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -748,11 +838,19 @@ export function createProgram(): Command {
 
   generate
     .command('timeline')
-    .description('Generate an alternate history timeline whole-cloth from a premise and divergence point')
-    .requiredOption('-p, --premise <text>', 'Counterfactual premise or what-if hypothesis')
-    .requiredOption('-d, --divergence-point <text>', 'Point of divergence anchor event')
-    .option('--start-date <iso>', 'Earliest timeline date boundary (ISO-8601)')
-    .option('--end-date <iso>', 'Latest timeline date boundary (ISO-8601)')
+    .description(
+      'Generate a timeline whole-cloth: an alternate history from --premise and --divergence-point, or an invented world from --world'
+    )
+    .option('-p, --premise <text>', 'Counterfactual premise or what-if hypothesis (with --divergence-point)')
+    .option('-d, --divergence-point <text>', 'Point of divergence anchor event (with --premise)')
+    .option('-w, --world <text>', 'An invented world to chronicle from its founding, instead of --premise and --divergence-point')
+    .option('--epoch-year <year>', "With --world: the stored year that is the world's year 1 (default: the start date's year, or 1000)")
+    .option('--era-label <label>', 'With --world: written after a world year, as in "312 AR"')
+    .option('--calendar-name <name>', "With --world: what the world's calendar is called")
+    .option('--month-names <names>', "With --world: the world's twelve month names, January's first, separated by commas or one per line, or as a JSON list")
+    .option('--calendar-file <path>', "With --world: the world's calendars of any shape, as a JSON file (see docs/specs/world-calendars.md), instead of the simple flags")
+    .option('--start-date <date>', "Earliest timeline date boundary (ISO-8601, or with --world a date in the world's calendar)")
+    .option('--end-date <date>', "Latest timeline date boundary (ISO-8601, or with --world a date in the world's calendar)")
     .option('-n, --event-count <count>', 'Number of pivotal events to synthesize (default: 8)', '8')
     .option('--depth <levels>', 'Arc hierarchy depth (default: 1)', '1')
     .option('--style <style>', 'Narrative style: academic, narrative, or concise', 'academic')
@@ -777,8 +875,10 @@ export function createProgram(): Command {
           : undefined;
 
         const result = await engine.generateTimeline({
-          premise: String(cmdOpts?.premise || ''),
-          divergencePoint: String(cmdOpts?.divergencePoint || ''),
+          premise: cmdOpts?.premise as string | undefined,
+          divergencePoint: cmdOpts?.divergencePoint as string | undefined,
+          world: cmdOpts?.world as string | undefined,
+          calendar: partialCalendarFrom(withCalendarFile(cmdOpts ?? {})),
           startDate: cmdOpts?.startDate as string | undefined,
           endDate: cmdOpts?.endDate as string | undefined,
           eventCount: cmdOpts?.eventCount ? parseInt(String(cmdOpts.eventCount), 10) : 8,
@@ -794,6 +894,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -837,6 +939,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -849,7 +953,7 @@ export function createProgram(): Command {
     .description('Interpolate granular sub-events within an arc or time window')
     .requiredOption('-g, --graph-id <id>', 'Target graph ID')
     .option('-a, --arc <id>', 'Arc ID to expand')
-    .option('-w, --time-window <window>', 'Time window ISO range (start/end)')
+    .option('-w, --time-window <window>', 'Time window: two dates, start/end (ISO 8601, a year first, or the world\'s notation)')
     .option('-n, --event-count <count>', 'Number of sub-events to generate', '3')
     .option('--provider <provider>', 'LLM provider')
     .option('--model <model>', 'LLM model name')
@@ -878,6 +982,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -945,6 +1051,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -1060,6 +1168,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -1089,7 +1199,47 @@ export function createProgram(): Command {
         });
       });
 
+      await server.whenIdle();
       await ctx.shutdown();
+    });
+
+  // --- Prompt Command ---
+  program
+    .command('prompt [name] [args...]')
+    .description(
+      'Print an agent prompt for working with Althistory (worldbuild, alternate_history, grow_history), with its arguments as key=value; without a name, list them. The MCP server offers the same prompts.'
+    )
+    .action(async (name: string | undefined, rawArgs: string[] = []) => {
+      const opts = program.opts<GlobalCLIOptions>();
+      if (!name) {
+        if (opts.plain) {
+          const lines = MCP_PROMPTS.map(
+            (prompt) =>
+              `${prompt.name}: ${prompt.description}\n  ${prompt.arguments
+                .map((argument) => `${argument.name}${argument.required ? '' : ' (optional)'}`)
+                .join(', ')}`
+          );
+          process.stdout.write(lines.join('\n') + '\n');
+        } else {
+          process.stdout.write(formatSuccessJson({ prompts: MCP_PROMPTS }, 'direct') + '\n');
+        }
+        return;
+      }
+
+      const args: Record<string, string> = {};
+      for (const pair of rawArgs) {
+        const separator = pair.indexOf('=');
+        if (separator <= 0) {
+          throw new ValidationErrorCLI(`Expected key=value, got "${pair}" (for example world="A drowned archipelago")`);
+        }
+        args[pair.slice(0, separator)] = pair.slice(separator + 1);
+      }
+      const prompt = renderPrompt(name, args);
+      if (opts.plain) {
+        process.stdout.write(prompt.text + '\n');
+      } else {
+        process.stdout.write(formatSuccessJson({ name, description: prompt.description, text: prompt.text }, 'direct') + '\n');
+      }
     });
 
   // --- Schema Command ---

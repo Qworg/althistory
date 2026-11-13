@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'path';
+import { aliases } from './vitest.aliases';
 
 /**
  * Cloud integration test configuration.
@@ -45,8 +45,6 @@ export default defineConfig({
     setupFiles: ['./src/test/cloud-guard.setup.ts'],
   },
   resolve: {
-    alias: {
-      '@': resolve(__dirname, './src'),
-    },
+    alias: aliases,
   },
 });

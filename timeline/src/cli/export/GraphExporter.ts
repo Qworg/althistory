@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Event, Arc } from '@/models';
 import { ExportFormat, ExportResultDto } from '../types';
+import { type DatePrecision, type WorldCalendarSet, dateCalendarOf, datePrecisionOf, describeCalendarSet, formatDateEntry } from '@althistory/calendar';
 
 /** The formats an export can be rendered in. */
 export type { ExportFormat };
@@ -17,6 +18,23 @@ export interface ExportRelationship {
   relationship_type: string;
 }
 
+/**
+ * "1311-03-04", or in a world "Thaw 4, 312 AR (2358-11-19T06:00:00.000Z)":
+ * the world's date at the precision the source gave (an arc's end as the day
+ * it ends), then its place on the timeline, whole: a world's day need not
+ * start at a UTC midnight, so the ISO date alone could name another day.
+ */
+function markdownDate(
+  date: Date,
+  calendar: WorldCalendarSet | undefined,
+  precision: DatePrecision = 'day',
+  edge: 'start' | 'end' = 'start',
+  calendarId?: string
+): string {
+  if (!calendar) return date.toISOString().split('T')[0]!;
+  return `${formatDateEntry(date, precision, calendar, edge, calendarId)} (${date.toISOString()})`;
+}
+
 export class GraphExporter {
   async export(
     graphId: string,
@@ -26,16 +44,17 @@ export class GraphExporter {
     arcs: Arc[],
     relationships: ExportRelationship[],
     format: ExportFormat = 'json',
-    outputPath?: string
+    outputPath?: string,
+    calendar?: WorldCalendarSet
   ): Promise<ExportResultDto> {
     let content = '';
 
     switch (format) {
       case 'json':
-        content = this.generateJson(graphId, graphName, description, events, arcs, relationships);
+        content = this.generateJson(graphId, graphName, description, events, arcs, relationships, calendar);
         break;
       case 'markdown':
-        content = this.generateMarkdown(graphId, graphName, description, events, arcs, relationships);
+        content = this.generateMarkdown(graphId, graphName, description, events, arcs, relationships, calendar);
         break;
       case 'dot':
         content = this.generateDot(graphId, graphName, events, arcs, relationships);
@@ -44,7 +63,7 @@ export class GraphExporter {
         content = this.generateGraphML(graphId, graphName, events, arcs, relationships);
         break;
       default:
-        content = this.generateJson(graphId, graphName, description, events, arcs, relationships);
+        content = this.generateJson(graphId, graphName, description, events, arcs, relationships, calendar);
         break;
     }
 
@@ -72,7 +91,8 @@ export class GraphExporter {
     description: string | undefined,
     events: Event[],
     arcs: Arc[],
-    relationships: ExportRelationship[]
+    relationships: ExportRelationship[],
+    calendar?: WorldCalendarSet
   ): string {
     const dataSection = {
       events: events.map((e) => ({
@@ -90,6 +110,7 @@ export class GraphExporter {
         start_time: a.start_time.toISOString(),
         end_time: a.end_time.toISOString(),
         level: a.level,
+        parent_arc_id: typeof a.metadata?.parentArcId === 'string' ? a.metadata.parentArcId : null,
         metadata: a.metadata,
       })),
       causalRelationships: relationships.map((r) => ({
@@ -124,6 +145,7 @@ export class GraphExporter {
           arcs: arcs.length,
           relationships: relationships.length,
         },
+        ...(calendar ? { calendar } : {}),
       },
       data: dataSection,
     };
@@ -137,7 +159,8 @@ export class GraphExporter {
     description: string | undefined,
     events: Event[],
     arcs: Arc[],
-    relationships: ExportRelationship[]
+    relationships: ExportRelationship[],
+    calendar?: WorldCalendarSet
   ): string {
     const sortedEvents = [...events].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     const sortedArcs = [...arcs].sort((a, b) => a.start_time.getTime() - b.start_time.getTime());
@@ -145,6 +168,11 @@ export class GraphExporter {
 
     let md = `# Timeline Context: ${graphName || graphId}\n\n`;
     md += `> **Graph ID:** \`${graphId}\` | **Exported:** ${new Date().toISOString()} | **Events:** ${events.length} | **Arcs:** ${arcs.length} | **Causal Links:** ${relationships.length}\n\n`;
+
+    if (calendar) {
+      md += `> **Calendar:** ${describeCalendarSet(calendar).split('\n').join('; ')}. Each date below is the world's date, then its place on the timeline in brackets; `;
+      md += `tools take a date in the world's notation (as written here) or a timeline timestamp.\n\n`;
+    }
 
     if (description) {
       md += `### Description\n${description}\n\n`;
@@ -155,24 +183,27 @@ export class GraphExporter {
       md += `| Arc ID | Name | Time Window | Level | Description |\n`;
       md += `|:---|:---|:---|:---|:---|\n`;
       for (const a of sortedArcs) {
-        const start = a.start_time.toISOString().split('T')[0];
-        const end = a.end_time.toISOString().split('T')[0];
+        const start = markdownDate(a.start_time, calendar);
+        const end = markdownDate(a.end_time, calendar, 'day', 'end');
         md += `| \`${a.id}\` | **${a.name}** | ${start} to ${end} | ${a.level} | ${a.description || '-'} |\n`;
       }
       md += `\n`;
     }
 
     md += `## Chronological Events\n`;
-    md += `| Date | Event ID | Actor | Target | Description | Causes |\n`;
-    md += `|:---|:---|:---|:---|:---|:---|\n`;
+    const arcNames = new Map<string, string>(arcs.map((a) => [a.id, a.name]));
+    md += `| Date | Event ID | Actor | Target | Description | Arc | Leads to |\n`;
+    md += `|:---|:---|:---|:---|:---|:---|:---|\n`;
 
     for (const e of sortedEvents) {
-      const dateStr = e.timestamp.toISOString().split('T')[0];
+      const dateStr = markdownDate(e.timestamp, calendar, datePrecisionOf(e.metadata), 'start', dateCalendarOf(e.metadata));
       const causes = relationships
         .filter((r) => r.cause_event_id === e.id)
         .map((r) => `\`${r.effect_event_id}\` (${r.relationship_type})`)
         .join(', ');
-      md += `| ${dateStr} | \`${e.id}\` | ${e.actor} | ${e.target} | ${e.description} | ${causes || '-'} |\n`;
+      const arcId = typeof e.metadata?.arcId === 'string' ? e.metadata.arcId : undefined;
+      const arcCell = arcId ? arcNames.get(arcId) ?? `\`${arcId}\`` : '-';
+      md += `| ${dateStr} | \`${e.id}\` | ${e.actor} | ${e.target} | ${e.description} | ${arcCell} | ${causes || '-'} |\n`;
     }
     md += `\n`;
 

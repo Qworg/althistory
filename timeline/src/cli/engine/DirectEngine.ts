@@ -44,6 +44,10 @@ import {
 import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
+import { calendarSetInstructions, type WorldCalendarSet, toInstant, dateCalendarOf, datePrecisionMetadata, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
+import type { CalendarInput } from '../../models/Graph';
+import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
+import type { IGraph } from '@/models/Graph';
 import { validateCausalRelationshipFields } from '@/services/CausalService';
 
 export interface DirectEngineOptions {
@@ -54,6 +58,21 @@ export interface DirectEngineOptions {
    * fixtures, so the ingestion tests never touch the network.
    */
   httpClient?: HttpClient;
+}
+
+/** A graph record as the CLI's summary shape. */
+function toGraphSummary(graph: IGraph): GraphSummaryDto {
+  return {
+    id: graph.id,
+    name: graph.name,
+    description: graph.description,
+    currentVersion: 'v1',
+    parentGraphId: graph.parentGraphId,
+    branchPointVersion: undefined,
+    createdAt: graph.createdAt,
+    updatedAt: graph.updatedAt,
+    ...(graph.calendar ? { calendar: graph.calendar } : {}),
+  };
 }
 
 export class DirectEngine implements IEngine {
@@ -118,34 +137,23 @@ export class DirectEngine implements IEngine {
   async listGraphs(): Promise<GraphSummaryDto[]> {
     const container = await this.getInitializedContainer();
     const result = await container.graphService.listGraphs({ limit: 1000, offset: 0 });
-    return result.graphs.map((g) => ({
-      id: g.id,
-      name: g.name,
-      description: g.description,
-      currentVersion: 'v1',
-      parentGraphId: g.parentGraphId,
-      branchPointVersion: undefined,
-      createdAt: g.createdAt,
-      updatedAt: g.updatedAt,
-    }));
+    return result.graphs.map((g) => toGraphSummary(g));
   }
 
-  async createGraph(name: string, description?: string): Promise<GraphSummaryDto> {
+  async createGraph(name: string, description?: string, calendar?: CalendarInput): Promise<GraphSummaryDto> {
     const container = await this.getInitializedContainer();
     const created = await container.graphService.createGraph({
       name,
       description,
+      calendar,
     });
-    return {
-      id: created.id,
-      name: created.name,
-      description: created.description,
-      currentVersion: 'v1',
-      parentGraphId: created.parentGraphId,
-      branchPointVersion: undefined,
-      createdAt: created.createdAt,
-      updatedAt: created.updatedAt,
-    };
+    return toGraphSummary(created);
+  }
+
+  async setGraphCalendar(id: string, calendar: CalendarInput | null): Promise<GraphSummaryDto> {
+    const container = await this.getInitializedContainer();
+    const updated = await container.graphService.updateGraph(id, { calendar });
+    return toGraphSummary(updated);
   }
 
   async getGraph(id: string): Promise<GraphSummaryDto> {
@@ -154,16 +162,7 @@ export class DirectEngine implements IEngine {
     if (!graph) {
       throw new NotFoundErrorCLI(`Graph not found: ${id}`);
     }
-    return {
-      id: graph.id,
-      name: graph.name,
-      description: graph.description,
-      currentVersion: 'v1',
-      parentGraphId: graph.parentGraphId,
-      branchPointVersion: undefined,
-      createdAt: graph.createdAt,
-      updatedAt: graph.updatedAt,
-    };
+    return toGraphSummary(graph);
   }
 
   async branchGraph(id: string, name: string): Promise<GraphSummaryDto> {
@@ -171,16 +170,7 @@ export class DirectEngine implements IEngine {
     const branched = await container.graphService.branchGraph(id, {
       name,
     });
-    return {
-      id: branched.id,
-      name: branched.name,
-      description: branched.description,
-      currentVersion: 'v1',
-      parentGraphId: branched.parentGraphId,
-      branchPointVersion: undefined,
-      createdAt: branched.createdAt,
-      updatedAt: branched.updatedAt,
-    };
+    return toGraphSummary(branched);
   }
 
   async mergeGraph(sourceId: string, targetId: string, strategy: string = 'keep-source'): Promise<{ success: boolean; version?: string }> {
@@ -252,17 +242,14 @@ export class DirectEngine implements IEngine {
   ): Promise<EventDto> {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
-    const parsedDate = new Date(data.timestamp);
-    if (isNaN(parsedDate.getTime())) {
-      throw new ValidationErrorCLI(`Invalid timestamp: ${data.timestamp}`);
-    }
+    const read = readAgentTimestamp(data.timestamp, await this.worldCalendarFor(graphId, data.timestamp));
 
     const created = await scoped.eventRepository.create({
       description: data.description,
-      timestamp: parsedDate,
+      timestamp: new Date(read.iso),
       actor: data.actor || 'Unknown',
       target: data.target || 'None',
-      metadata: { importance: data.importance ?? 1, ...(data.metadata || {}) },
+      metadata: { importance: data.importance ?? 1, ...precisionMetadata(read), ...(data.metadata || {}) },
     });
 
     try {
@@ -278,6 +265,7 @@ export class DirectEngine implements IEngine {
       timestamp: created.timestamp.toISOString(),
       actor: created.actor,
       target: created.target,
+      ...(created.metadata && Object.keys(created.metadata).length > 0 ? { metadata: created.metadata } : {}),
     };
   }
 
@@ -289,12 +277,14 @@ export class DirectEngine implements IEngine {
     if (filters?.actor) {
       events = events.filter((e) => e.actor.toLowerCase().includes(filters.actor!.toLowerCase()));
     }
+    // Read as every date an agent gives is (in a world, its notation too): a
+    // "to" of a day, month or year is its last moment.
     if (filters?.from) {
-      const fromTime = new Date(filters.from).getTime();
+      const fromTime = Date.parse(readAgentTimestamp(filters.from, await this.worldCalendarFor(graphId, filters.from)).iso);
       events = events.filter((e) => e.timestamp.getTime() >= fromTime);
     }
     if (filters?.to) {
-      const toTime = new Date(filters.to).getTime();
+      const toTime = Date.parse(readAgentTimestamp(filters.to, await this.worldCalendarFor(graphId, filters.to), 'end').iso);
       events = events.filter((e) => e.timestamp.getTime() <= toTime);
     }
 
@@ -305,6 +295,8 @@ export class DirectEngine implements IEngine {
       timestamp: e.timestamp.toISOString(),
       actor: e.actor,
       target: e.target,
+      // The arc an event is in (`arcId`) and its date precision live here.
+      ...(e.metadata && Object.keys(e.metadata).length > 0 ? { metadata: e.metadata } : {}),
     }));
   }
 
@@ -322,6 +314,7 @@ export class DirectEngine implements IEngine {
       timestamp: event.timestamp.toISOString(),
       actor: event.actor,
       target: event.target,
+      ...(event.metadata && Object.keys(event.metadata).length > 0 ? { metadata: event.metadata } : {}),
     };
   }
 
@@ -337,9 +330,10 @@ export class DirectEngine implements IEngine {
     if (data.actor !== undefined) updatePayload.actor = data.actor;
     if (data.target !== undefined) updatePayload.target = data.target;
     if (data.timestamp !== undefined) {
-      const d = new Date(data.timestamp);
-      if (isNaN(d.getTime())) throw new ValidationErrorCLI(`Invalid timestamp: ${data.timestamp}`);
-      updatePayload.timestamp = d;
+      const read = readAgentTimestamp(data.timestamp, await this.worldCalendarFor(graphId, data.timestamp));
+      updatePayload.timestamp = new Date(read.iso);
+      const existing = await scoped.eventRepository.findById(eventId);
+      if (existing) updatePayload.metadata = withNewDatePrecision(existing.metadata, read);
     }
 
     const updated = await scoped.eventRepository.update(eventId, updatePayload);
@@ -360,6 +354,7 @@ export class DirectEngine implements IEngine {
       timestamp: updated.timestamp.toISOString(),
       actor: updated.actor,
       target: updated.target,
+      ...(updated.metadata && Object.keys(updated.metadata).length > 0 ? { metadata: updated.metadata } : {}),
     };
   }
 
@@ -378,13 +373,19 @@ export class DirectEngine implements IEngine {
   ): Promise<ArcDto> {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
-    const start = new Date(data.startTime);
-    const end = new Date(data.endTime);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      throw new ValidationErrorCLI('Invalid start or end time for arc');
-    }
+    // Read as the event tools read a time, and as the remote engine reads it.
+    const start = new Date(readAgentTimestamp(data.startTime, await this.worldCalendarFor(graphId, data.startTime)).iso);
+    const end = new Date(readAgentTimestamp(data.endTime, await this.worldCalendarFor(graphId, data.endTime), 'end').iso);
     if (start.getTime() > end.getTime()) {
       throw new ValidationErrorCLI(`Arc startTime (${data.startTime}) must precede endTime (${data.endTime})`);
+    }
+
+    // A child arc sits one level below the arc it belongs to, which has to exist.
+    let level = 0;
+    if (data.parentArcId) {
+      const parent = await scoped.arcRepository.findById(data.parentArcId);
+      if (!parent) throw new NotFoundErrorCLI(`Parent arc not found: ${data.parentArcId}`);
+      level = parent.level + 1;
     }
 
     const created = await scoped.arcRepository.create({
@@ -392,7 +393,7 @@ export class DirectEngine implements IEngine {
       description: data.description || '',
       start_time: start,
       end_time: end,
-      level: 0,
+      level,
       metadata: data.parentArcId ? { parentArcId: data.parentArcId } : {},
     });
 
@@ -496,6 +497,8 @@ export class DirectEngine implements IEngine {
       timestamp: updated.timestamp.toISOString(),
       actor: updated.actor,
       target: updated.target,
+      // Its date's precision and calendar, so it is shown as it was given (and the arc it is now in).
+      metadata: updated.metadata,
     };
   }
 
@@ -513,8 +516,14 @@ export class DirectEngine implements IEngine {
     if (!effect) throw new NotFoundErrorCLI(`Effect event not found: ${data.effectId}`);
 
     if (isTemporalInversion(cause.timestamp, effect.timestamp)) {
+      // In a world, each date as the world names it, its instant beside it.
+      const calendar = await this.calendarOf(graphId);
+      const when = (event: { timestamp: Date; metadata?: Record<string, unknown> }) =>
+        calendar
+          ? `${formatHistoricalDateAt(event.timestamp, datePrecisionOf(event.metadata), 'en-US', calendar, dateCalendarOf(event.metadata))}, ${event.timestamp.toISOString()}`
+          : event.timestamp.toISOString();
       throw new ValidationErrorCLI(
-        `Temporal ordering violation: cause timestamp (${cause.timestamp.toISOString()}) must not be after effect timestamp (${effect.timestamp.toISOString()})`
+        `Temporal ordering violation: cause timestamp (${when(cause)}) must not be after effect timestamp (${when(effect)})`
       );
     }
 
@@ -629,7 +638,9 @@ export class DirectEngine implements IEngine {
 
     // Group into arcs if requested and not already present
     if (options.groupArcs && arcs.length === 0 && events.length > 0) {
-      arcs = clusterEventsIntoArcs(events, events[0].source);
+      arcs = clusterEventsIntoArcs(events, events[0].source, {
+        calendar: await this.calendarOf(targetGraphId),
+      });
     }
 
     // Infer causes if requested and not already present
@@ -639,7 +650,7 @@ export class DirectEngine implements IEngine {
           new Event({
             id: e.tempId,
             description: e.description,
-            timestamp: new Date(e.timestamp),
+            timestamp: toInstant(e.timestamp),
             actor: e.actor || 'Unknown',
             target: e.target || 'None',
           })
@@ -665,7 +676,7 @@ export class DirectEngine implements IEngine {
       // and a link the server would refuse, so the dry run skips those too.
       const timestampsByTempId = new Map<string, Date>();
       for (const event of events) {
-        timestampsByTempId.set(event.tempId, new Date(event.timestamp));
+        timestampsByTempId.set(event.tempId, toInstant(event.timestamp));
       }
 
       const creatableRelationships = relationships.filter((r) => {
@@ -695,6 +706,7 @@ export class DirectEngine implements IEngine {
             timestamp: e.timestamp,
             actor: e.actor,
             target: e.target,
+            metadata: datePrecisionMetadata({ precision: e.datePrecision ?? 'day', calendar: e.dateCalendar }),
           })),
           arcs: arcs.map((a) => ({
             id: a.tempId,
@@ -726,9 +738,11 @@ export class DirectEngine implements IEngine {
     for (const e of events) {
       const created = await scoped.eventRepository.create({
         description: e.description,
-        timestamp: new Date(e.timestamp),
+        timestamp: toInstant(e.timestamp),
         actor: e.actor || 'Unknown',
         target: e.target || 'None',
+        // A month or a year the text gave, and the calendar it was given in (Req 16), as the server's ingestion keeps them.
+        metadata: datePrecisionMetadata({ precision: e.datePrecision ?? 'day', calendar: e.dateCalendar }),
       });
       tempIdToRealEvent.set(e.tempId, created);
       try {
@@ -743,13 +757,14 @@ export class DirectEngine implements IEngine {
         timestamp: created.timestamp.toISOString(),
         actor: created.actor,
         target: created.target,
+        metadata: created.metadata,
       });
     }
 
     const createdArcDtos: ArcDto[] = [];
     for (const a of arcs) {
-      const startTime = new Date(a.start_time);
-      let endTime = new Date(a.end_time);
+      const startTime = toInstant(a.start_time);
+      let endTime = toInstant(a.end_time);
       if (startTime.getTime() >= endTime.getTime()) {
         endTime = new Date(startTime.getTime() + 24 * 60 * 60 * 1000);
       }
@@ -833,6 +848,18 @@ export class DirectEngine implements IEngine {
     };
   }
 
+  /** The graph's world calendars, when text is not ISO 8601 and may be a world date; read only then. */
+  private async worldCalendarFor(graphId: string, text: string): Promise<WorldCalendarSet | undefined> {
+    return needsCalendar(text) ? this.calendarOf(graphId) : undefined;
+  }
+
+  /** The calendar of a stored graph; none for a dry run's placeholder or a missing graph. */
+  private async calendarOf(graphId: string): Promise<WorldCalendarSet | undefined> {
+    const container = await this.getInitializedContainer();
+    const graph = await container.graphRepository.findById(graphId);
+    return graph?.calendar;
+  }
+
   /**
    * The graph an ingestion writes into.
    *
@@ -866,13 +893,18 @@ export class DirectEngine implements IEngine {
   private async extractText(
     text: string,
     extractor: TextExtractor,
-    mode: 'pattern' | 'llm' | 'hybrid'
+    mode: 'pattern' | 'llm' | 'hybrid',
+    calendar?: WorldCalendarSet
   ): Promise<ExtractionResult> {
+    // Prose about an invented world dates things in the world's years; the
+    // model is told how they are stored. Pattern extraction cannot read them:
+    // told the calendar, it leaves every sentence undated, for the review.
+    const context = calendar ? { instructions: calendarSetInstructions(calendar), calendar } : undefined;
     if (mode === 'pattern') {
-      return extractor.extract({ text, useLLM: false });
+      return extractor.extract({ text, useLLM: false }, context);
     }
 
-    const llmResult = await extractor.extractWithLLM({ text });
+    const llmResult = await extractor.extractWithLLM({ text }, context);
 
     if (mode === 'llm') {
       if (!llmResult) {
@@ -884,7 +916,7 @@ export class DirectEngine implements IEngine {
       return llmResult;
     }
 
-    const patternResult = await extractor.extract({ text, useLLM: false });
+    const patternResult = await extractor.extract({ text, useLLM: false }, context);
     return mergeExtractionResults(patternResult, llmResult);
   }
 
@@ -897,7 +929,12 @@ export class DirectEngine implements IEngine {
     );
     const llmClient = options.mode !== 'pattern' ? createLLMClient({ provider: options.provider, model: options.model, temperature: options.temperature }) : null;
     const extractor = new TextExtractor({ llmClient });
-    const extractionResult = await this.extractText(text, extractor, options.mode || 'hybrid');
+    const extractionResult = await this.extractText(
+      text,
+      extractor,
+      options.mode || 'hybrid',
+      await this.calendarOf(targetGraphId)
+    );
     return this.persistExtractedEntities(targetGraphId, extractionResult, options);
   }
 
@@ -1011,6 +1048,7 @@ export class DirectEngine implements IEngine {
       strict,
       autoRepair,
       crossGraphLookup: this.createCrossGraphLookup(graphId),
+      calendar: await this.calendarOf(graphId),
     });
   }
 
@@ -1092,7 +1130,8 @@ export class DirectEngine implements IEngine {
       arcs,
       rels,
       format,
-      outputPath
+      outputPath,
+      graph?.calendar
     );
   }
 

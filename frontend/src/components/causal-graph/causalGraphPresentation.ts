@@ -1,5 +1,6 @@
-import type { Event } from '@/types'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import type { Event, GraphCalendar } from '@/types'
+import { historicalYear, formatEventDate } from '@/utils/historicalTime'
+import { getActiveCalendar } from '@/stores/worldCalendarStore'
 
 /**
  * How an event reads on the causal graph.
@@ -43,10 +44,16 @@ export function eventNodeLabel(event: Pick<Event, 'description' | 'actor' | 'tar
   return truncateLabel(description || formatActorTarget(event))
 }
 
-/** The year an event falls in, in UTC, with BCE for years before 1 CE. */
-export function eventYear(timestamp: string | Date): string {
+/**
+ * The year an event falls in, in UTC, with BCE for years before 1 CE; in the
+ * world's own years when the graph has a calendar ("312 AR").
+ */
+export function eventYear(timestamp: string | Date, calendar?: GraphCalendar | null): string {
   const date = new Date(timestamp)
   if (Number.isNaN(date.getTime())) return ''
+  // In a world, the year as its calendar names it.
+  const world = calendar === undefined ? getActiveCalendar() : calendar
+  if (world) return historicalYear(date, world)
   const year = date.getUTCFullYear()
   // Astronomical year 0 is 1 BCE, -1 is 2 BCE, and so on.
   return year <= 0 ? `${1 - year} BCE` : String(year)
@@ -57,8 +64,11 @@ export function eventYear(timestamp: string | Date): string {
  * laid out by cause, not by date, so without the year a node gave no hint of
  * when it happened and every reading of the graph needed a hover.
  */
-export function eventNodeCanvasLabel(event: Pick<Event, 'description' | 'actor' | 'target' | 'timestamp'>): string {
-  const year = eventYear(event.timestamp)
+export function eventNodeCanvasLabel(
+  event: Pick<Event, 'description' | 'actor' | 'target' | 'timestamp'>,
+  calendar?: GraphCalendar | null
+): string {
+  const year = eventYear(event.timestamp, calendar)
   const label = eventNodeLabel(event)
   return year ? `${year}\n${label}` : label
 }
@@ -67,8 +77,11 @@ export function eventNodeCanvasLabel(event: Pick<Event, 'description' | 'actor' 
  * One sentence that says everything the node stands for: what happened, who
  * acted on whom, and when (in UTC, as all historical dates are).
  */
-export function describeEvent(event: Pick<Event, 'description' | 'actor' | 'target' | 'timestamp'>): string {
-  const parts = [normalise(event.description), formatActorTarget(event), formatHistoricalTimestamp(event.timestamp)]
+export function describeEvent(
+  event: Pick<Event, 'description' | 'actor' | 'target' | 'timestamp'> & Partial<Pick<Event, 'metadata'>>,
+  calendar?: GraphCalendar | null
+): string {
+  const parts = [normalise(event.description), formatActorTarget(event), formatEventDate(event, undefined, calendar)]
   return parts.filter(Boolean).join('. ')
 }
 

@@ -2,6 +2,13 @@
  * Graph model for multi-graph management with Git-like versioning
  */
 
+import { type GraphCalendar, type WorldCalendarSet, storedCalendarSet } from '@althistory/calendar';
+
+export type { GraphCalendar, WorldCalendarSet } from '@althistory/calendar';
+
+/** A calendar as a request may give it: a set, or the earlier form (a relabelled Gregorian calendar). */
+export type CalendarInput = WorldCalendarSet | GraphCalendar;
+
 /**
  * Represents a historical graph containing events, arcs, and relationships
  */
@@ -35,6 +42,11 @@ export interface IGraph {
   status: GraphStatus;
   /** Computed metadata */
   metadata: GraphMetadata;
+  /**
+   * The world's own calendar, for an invented history: how stored years are
+   * shown (see `@althistory/calendar`). Absent means plain Gregorian years.
+   */
+  calendar?: WorldCalendarSet;
 }
 
 export type GraphStatus = 'active' | 'archived' | 'deleted';
@@ -65,6 +77,14 @@ export class Graph implements IGraph {
   public readonly branchPoint?: number | null;
   public readonly status: GraphStatus;
   public readonly metadata: GraphMetadata;
+  public readonly calendar?: WorldCalendarSet;
+  /**
+   * The calendar exactly as it was stored. `calendar` is what of it still
+   * checks out; this is what is written back when nothing sets a new one, so
+   * a field a newer rule refuses is not lost to an unrelated edit (a rename),
+   * and comes back if the rule is relaxed.
+   */
+  private readonly calendarAsStored: unknown;
 
   constructor(data: CreateGraphData & { id?: string }) {
     this.id = data.id || this.generateId();
@@ -88,6 +108,13 @@ export class Graph implements IGraph {
       relationshipCount: 0,
       pressureCount: 0,
     };
+    // Everything that writes a calendar checks it first (GraphService, the
+    // importers, the generator). One that still does not check out was written
+    // by hand or under other limits: the fields that no longer check out are
+    // dropped (see `storedCalendar`), rather than making the graph unreadable,
+    // since a calendar only changes how dates are shown.
+    this.calendarAsStored = data.calendar;
+    this.calendar = storedCalendarSet(data.calendar) ?? undefined;
   }
 
   /**
@@ -133,6 +160,8 @@ export class Graph implements IGraph {
       branchPoint: this.branchPoint,
       status: updates.status ?? this.status,
       metadata: updates.metadata ?? this.metadata,
+      // `null` clears the calendar; `undefined` keeps it, as it was stored.
+      calendar: updates.calendar === null ? undefined : (updates.calendar ?? (this.calendarAsStored as WorldCalendarSet | undefined)),
     });
   }
 
@@ -151,6 +180,9 @@ export class Graph implements IGraph {
       branchPoint: branchPoint === undefined ? this.version : branchPoint,
       status: 'active',
       metadata: { ...this.metadata },
+      // A branch is the same world, so it counts years the same way. It is a
+      // new graph, so it starts from what checks out, as a copy does.
+      calendar: this.calendar,
     });
   }
 
@@ -169,7 +201,17 @@ export class Graph implements IGraph {
       branchPoint: this.branchPoint,
       status: this.status,
       metadata: this.metadata,
+      ...(this.calendar ? { calendar: this.calendar } : {}),
     };
+  }
+
+  /**
+   * The graph as it is written to storage: {@link toJSON}, with the calendar
+   * as it was stored rather than what of it still checks out.
+   */
+  toStoredJSON(): IGraph {
+    const { calendar: _shown, ...rest } = this.toJSON();
+    return this.calendarAsStored === undefined ? rest : { ...rest, calendar: this.calendarAsStored as WorldCalendarSet };
   }
 
   private generateId(): string {
@@ -187,6 +229,8 @@ export interface CreateGraphData {
   branchPoint?: number | null;
   status?: GraphStatus;
   metadata?: GraphMetadata;
+  /** As stored: a set, or a calendar written in the earlier form (read as a set). */
+  calendar?: CalendarInput;
 }
 
 export interface UpdateGraphData {
@@ -194,6 +238,8 @@ export interface UpdateGraphData {
   description?: string;
   status?: GraphStatus;
   metadata?: GraphMetadata;
+  /** A new calendar, or `null` to remove it. */
+  calendar?: CalendarInput | null;
 }
 
 export interface GraphValidationResult {
@@ -207,12 +253,15 @@ export interface GraphValidationResult {
 export interface CreateGraphRequest {
   name: string;
   description?: string;
+  calendar?: CalendarInput;
 }
 
 export interface UpdateGraphRequest {
   name?: string;
   description?: string;
   status?: 'active' | 'archived';
+  /** A new calendar, or `null` to remove it. */
+  calendar?: CalendarInput | null;
 }
 
 export interface BranchGraphRequest {

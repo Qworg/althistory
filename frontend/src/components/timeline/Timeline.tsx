@@ -3,7 +3,8 @@ import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { type ArcWithUIState, calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
-import { formatDuration, formatTimeAxisTicks } from '@/utils/d3Calculations'
+import { axisTicks, formatDuration } from '@/utils/d3Calculations'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import EventArcAssignment from './EventArcAssignment'
 import PressureIndicators from './PressureIndicators'
 import { TimelineEvent } from './TimelineEvent'
@@ -16,7 +17,7 @@ import {
   filterEventsInWindow,
   filterPressuresInWindow
 } from './timelineVirtualization'
-import { formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
+import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
 import { layoutEventLabels, LABEL_FONT_SIZE, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
 import {
@@ -257,6 +258,8 @@ const Timeline = memo(function Timeline({
   links,
   className = '',
 }: TimelineProps) {
+  // The graph's world calendar, if any: the axis labels its years as the event labels do.
+  const worldCalendar = useWorldCalendar()
   const containerRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null)
@@ -1103,9 +1106,14 @@ const Timeline = memo(function Timeline({
     }
     const arc = arcsById.get(parsed.id)
     if (!arc) return
+    // The arc moves whole: its start by the step, its end by as much, so a
+    // move never stretches or shrinks it (months, and a world's festivals,
+    // differ in length).
+    const start = new Date(arc.start_time)
+    const movedStart = offsetByStep(start, step, direction)
     onArcResizeRef.current?.(arc, {
-      start: offsetByStep(new Date(arc.start_time), step, direction),
-      end: offsetByStep(new Date(arc.end_time), step, direction),
+      start: movedStart,
+      end: new Date(new Date(arc.end_time).getTime() + (movedStart.getTime() - start.getTime())),
     })
   }, [eventsById, arcsById, keyboardStep])
 
@@ -1704,15 +1712,15 @@ const Timeline = memo(function Timeline({
           <g transform={`translate(0,${axisY})`}>
             <line x1={0} y1={0} x2={innerWidth} y2={0} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
             {(() => {
-              const range = currentRange
-              const timeSpanMs = range.end.getTime() - range.start.getTime()
               // 12px monospace labels need about 96px each.
               const maxTicks = Math.min(10, Math.floor(innerWidth / 96))
-              // Use count-based ticks for reliability, format based on time span
-              const ticks = xScale.ticks(maxTicks > 0 ? maxTicks : 5)
-              // Labelled as a set, so two ticks never share a label.
-              const labels = formatTimeAxisTicks(ticks, timeSpanMs)
-              return ticks.map((tick, i) => (
+              // Ticks and labels in UTC, as the event labels read every date
+              // (local-time ticks put 1 January 1843 (UTC) on the wrong side
+              // of the "1843" tick west of Greenwich); in a world calendar, on
+              // its own years, months, days and hours. Labelled as a set, so
+              // two ticks never share a label.
+              const ticks = axisTicks(xScale.domain(), maxTicks > 0 ? maxTicks : 5, worldCalendar)
+              return ticks.map(({ date: tick, label }, i) => (
                 <g key={i} transform={`translate(${xScale(tick)},0)`}>
                   <line y1={0} y2={6} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
                   <text
@@ -1722,7 +1730,7 @@ const Timeline = memo(function Timeline({
                     className="font-mono-code"
                     style={{ fill: 'var(--text-muted)' }}
                   >
-                    {labels[i]}
+                    {label}
                   </text>
                 </g>
               ))
@@ -1743,7 +1751,7 @@ const Timeline = memo(function Timeline({
         const anchorY = dragPreview.kind === 'event' ? eventY - 44 : dragPreview.y - 30
         const label = dragPreview.kind === 'event'
           ? formatHistoricalTimestamp(dragPreview.timestamp)
-          : `${formatHistoricalTimestamp(dragPreview.bounds.start)} – ${formatHistoricalTimestamp(dragPreview.bounds.end)}`
+          : `${formatHistoricalTimestamp(dragPreview.bounds.start)} – ${formatHistoricalEnd(dragPreview.bounds.end)}`
         return (
           <div
             data-testid="timeline-drag-readout"
@@ -1794,7 +1802,7 @@ const Timeline = memo(function Timeline({
             <>
               <div className="text-sm font-semibold">{hovered.arc.name}</div>
               <div className="mt-0.5 font-mono-code text-ink-muted">
-                {formatHistoricalTimestamp(hovered.arc.start_time)} – {formatHistoricalTimestamp(hovered.arc.end_time)}
+                {formatHistoricalTimestamp(hovered.arc.start_time)} – {formatHistoricalEnd(hovered.arc.end_time)}
               </div>
               <div className="tabular-nums">
                 {formatDuration(new Date(hovered.arc.start_time), new Date(hovered.arc.end_time))}

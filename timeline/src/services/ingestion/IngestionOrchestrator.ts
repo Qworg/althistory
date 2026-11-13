@@ -20,6 +20,7 @@
  * cannot be imported twice.
  */
 
+import { type WorldCalendarSet, parseIsoInstant, readWorldTimestamp } from '@althistory/calendar';
 import * as crypto from 'crypto';
 import { AppError } from '../../utils/errors';
 import {
@@ -75,6 +76,8 @@ export interface IngestionJob {
    * was driven directly without an owner; the ingest routes always set it.
    */
   ownerKeyId?: string;
+  /** The graph's world calendars the text was read with, so a reviewer's dates are read with them too. */
+  calendar?: WorldCalendarSet;
 }
 
 type ExtractionResultSource = 'wikipedia' | 'wikidata' | 'text' | 'llm';
@@ -229,7 +232,7 @@ export class IngestionOrchestrator {
       throw error;
     }
 
-    const validationIssues = validateExtraction(extraction);
+    const validationIssues = validateExtraction(extraction, context?.calendar);
     const updatedAt = this.now().toISOString();
 
     const job: IngestionJob = {
@@ -242,6 +245,7 @@ export class IngestionOrchestrator {
       extraction,
       validationIssues,
       ownerKeyId,
+      ...(context?.calendar ? { calendar: context.calendar } : {}),
     };
     this.jobStore.set(job);
 
@@ -296,7 +300,13 @@ export class IngestionOrchestrator {
   async approve(
     jobId: string,
     request: ApproveIngestionRequest,
-    ownerKeyId?: string
+    ownerKeyId?: string,
+    /**
+     * The calendars of the graph the review goes into, when the caller knows
+     * them: the reviewer's dates are read and checked with these, not the
+     * ones (if any) the job was extracted with. Left out, the job's.
+     */
+    target?: { calendar?: WorldCalendarSet }
   ): Promise<ImportResult> {
     const job = this.requireJob(jobId, ownerKeyId);
     if (job.status !== 'review') {
@@ -304,9 +314,10 @@ export class IngestionOrchestrator {
         `Ingestion job ${job.id} is not awaiting review (status: ${job.status})`
       );
     }
-    const selected = selectForImport(job.extraction, request);
+    const calendar = target ? target.calendar : job.calendar;
+    const selected = selectForImport(job.extraction, request, calendar);
 
-    const issues = validateExtraction(selected);
+    const issues = validateExtraction(selected, calendar);
     const errors = issues.filter((issue) => issue.severity === 'error');
     if (errors.length > 0) {
       throw new IngestionValidationError(errors);
@@ -351,18 +362,19 @@ export class IngestionOrchestrator {
 /** Apply edits and the approved selection to produce the subset to import. */
 export function selectForImport(
   extraction: ExtractionResult,
-  request: ApproveIngestionRequest
+  request: ApproveIngestionRequest,
+  calendar?: WorldCalendarSet
 ): ExtractionResult {
   const edits = request.edits ?? {};
   const events = extraction.events
-    .map((event) => mergeEvent(event, edits[event.tempId]))
+    .map((event) => mergeEvent(event, edits[event.tempId], calendar))
     .filter((event) =>
       hasApproved(request.approvedEventIds, event.tempId, event.selected)
     );
   const eventIds = new Set(events.map((event) => event.tempId));
 
   const arcs = extraction.arcs
-    .map((arc) => mergeArc(arc, edits[arc.tempId]))
+    .map((arc) => mergeArc(arc, edits[arc.tempId], calendar))
     .filter((arc) => hasApproved(request.approvedArcIds, arc.tempId, arc.selected));
 
   const relationships = extraction.relationships
@@ -388,31 +400,63 @@ function hasApproved(approved: string[] | undefined, tempId: string, fallback: b
   return fallback;
 }
 
-function mergeEvent(event: ExtractedEvent, edit: ExtractedEdit | undefined): ExtractedEvent {
+/**
+ * The timestamp a reviewer typed, as stored: read once by the package's ISO
+ * reader into toISOString's spelling, with the precision the text states
+ * ("1871-03" is a month). Text it cannot read is kept as typed, for the
+ * validation to refuse by name. Unchanged text keeps the extraction's own.
+ */
+function typedTimestamp(
+  typed: unknown,
+  event: ExtractedEvent,
+  calendar?: WorldCalendarSet
+): Pick<ExtractedEvent, 'timestamp' | 'datePrecision' | 'dateCalendar'> {
+  if (typeof typed !== 'string' || typed === event.timestamp) {
+    return { timestamp: event.timestamp, datePrecision: event.datePrecision, dateCalendar: event.dateCalendar };
+  }
+  const read = readWorldTimestamp(calendar, typed);
+  if (!read) return { timestamp: typed, datePrecision: undefined, dateCalendar: undefined };
+  if (read.precision === 'day') return { timestamp: read.iso, datePrecision: undefined, dateCalendar: undefined };
+  return { timestamp: read.iso, datePrecision: read.precision, dateCalendar: read.calendar };
+}
+
+/**
+ * An extraction's time in milliseconds, NaN unless it is a date the one rule
+ * reads (`readWorldTimestamp`): ISO 8601, and in a world an ISO date or date
+ * and time (a Gregorian month or year is no period of the world's; the
+ * reviewer's text in the world's notation was read into ISO already).
+ * Ingestion is where a model's or a reviewer's text first enters, so prose
+ * ("Feb 14 1870") is refused here, as the review shows it ("Not a date"),
+ * rather than read leniently later in the server's zone.
+ */
+function strictTime(text: string, calendar?: WorldCalendarSet): number {
+  if (!parseIsoInstant(String(text).trim())) return NaN;
+  const read = readWorldTimestamp(calendar, String(text));
+  return read ? Date.parse(read.iso) : NaN;
+}
+
+function mergeEvent(event: ExtractedEvent, edit: ExtractedEdit | undefined, calendar?: WorldCalendarSet): ExtractedEvent {
   if (!edit) return event;
   return {
     ...event,
     description: typeof edit.description === 'string' ? edit.description : event.description,
     actor: typeof edit.actor === 'string' ? edit.actor : event.actor,
     target: typeof edit.target === 'string' ? edit.target : event.target,
-    timestamp: typeof edit.timestamp === 'string' ? edit.timestamp : event.timestamp,
-    // A reviewer who types a date has stated it in full.
-    datePrecision:
-      typeof edit.timestamp === 'string' && edit.timestamp !== event.timestamp ? undefined : event.datePrecision,
+    ...typedTimestamp(edit.timestamp, event, calendar),
     confidence: typeof edit.confidence === 'number' ? edit.confidence : event.confidence,
     selected: typeof edit.selected === 'boolean' ? edit.selected : event.selected,
     edited: true,
   };
 }
 
-function mergeArc(arc: ExtractedArc, edit: ExtractedEdit | undefined): ExtractedArc {
+function mergeArc(arc: ExtractedArc, edit: ExtractedEdit | undefined, calendar?: WorldCalendarSet): ExtractedArc {
   if (!edit) return arc;
   return {
     ...arc,
     name: typeof edit.name === 'string' ? edit.name : arc.name,
     description: typeof edit.description === 'string' ? edit.description : arc.description,
-    start_time: typeof edit.start_time === 'string' ? edit.start_time : arc.start_time,
-    end_time: typeof edit.end_time === 'string' ? edit.end_time : arc.end_time,
+    start_time: typeof edit.start_time === 'string' ? (readWorldTimestamp(calendar, edit.start_time)?.iso ?? edit.start_time) : arc.start_time,
+    end_time: typeof edit.end_time === 'string' ? (readWorldTimestamp(calendar, edit.end_time, 'end')?.iso ?? edit.end_time) : arc.end_time,
     level: typeof edit.level === 'number' ? edit.level : arc.level,
     confidence: typeof edit.confidence === 'number' ? edit.confidence : arc.confidence,
     selected: typeof edit.selected === 'boolean' ? edit.selected : arc.selected,
@@ -425,7 +469,7 @@ function mergeArc(arc: ExtractedArc, edit: ExtractedEdit | undefined): Extracted
  * the reviewer. Mirrors the required-field rules `ImportService` enforces so a
  * reviewer sees the problem before approving rather than after.
  */
-export function validateExtraction(extraction: ExtractionResult): ValidationIssue[] {
+export function validateExtraction(extraction: ExtractionResult, calendar?: WorldCalendarSet): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const eventIds = new Set<string>();
   const seen = new Set<string>();
@@ -446,9 +490,11 @@ export function validateExtraction(extraction: ExtractionResult): ValidationIssu
     if (!event.target.trim()) {
       issues.push(issue(event.tempId, 'event', 'error', 'Event target is required'));
     }
-    if (Number.isNaN(Date.parse(event.timestamp))) {
+    const time = strictTime(event.timestamp, calendar);
+    if (Number.isNaN(time)) {
       issues.push(issue(event.tempId, 'event', 'error', `Invalid event timestamp: ${event.timestamp}`));
-    } else if (Date.parse(event.timestamp) > Date.now()) {
+    } else if (!calendar && time > Date.now()) {
+      // (An invented world's timeline has no "now".)
       issues.push(issue(event.tempId, 'event', 'warning', 'Event timestamp is in the future'));
     }
     if (event.confidence < 0 || event.confidence > 1) {
@@ -465,8 +511,8 @@ export function validateExtraction(extraction: ExtractionResult): ValidationIssu
     if (!arc.name.trim()) {
       issues.push(issue(arc.tempId, 'arc', 'error', 'Arc name is required'));
     }
-    const start = Date.parse(arc.start_time);
-    const end = Date.parse(arc.end_time);
+    const start = strictTime(arc.start_time, calendar);
+    const end = strictTime(arc.end_time, calendar);
     if (Number.isNaN(start) || Number.isNaN(end)) {
       issues.push(issue(arc.tempId, 'arc', 'error', 'Arc start/end must be valid timestamps'));
     } else if (start > end) {
@@ -523,7 +569,9 @@ export function toAlthistoryExport(
     timestamp: event.timestamp,
     metadata: {
       confidence: event.confidence,
-      ...(event.datePrecision && event.datePrecision !== 'day' ? { datePrecision: event.datePrecision } : {}),
+      ...(event.datePrecision && event.datePrecision !== 'day'
+        ? { datePrecision: event.datePrecision, ...(event.dateCalendar ? { dateCalendar: event.dateCalendar } : {}) }
+        : {}),
       extractionSource: event.source.type,
       aiGenerated: event.source.type === 'llm',
       sourceUrl: event.source.url,

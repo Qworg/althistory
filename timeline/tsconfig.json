@@ -4,7 +4,6 @@
     "module": "commonjs",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "outDir": "./dist",
-    "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -22,7 +21,12 @@
       "@/models/*": ["models/*"],
       "@/services/*": ["services/*"],
       "@/api/*": ["api/*"],
-      "@/utils/*": ["utils/*"]
+      "@/utils/*": ["utils/*"],
+      // The shared date and calendar package, read from source for the
+      // type-check, the tests, ts-node and ts-node-dev. The build compiles it
+      // separately (tsconfig.build.json), which is why rootDir is set there
+      // and not here: its source is outside src/.
+      "@althistory/calendar": ["../../calendar/src/index.ts"]
     }
   },
   "include": [

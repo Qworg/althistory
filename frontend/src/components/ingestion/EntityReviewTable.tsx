@@ -15,7 +15,7 @@
  */
 
 import { useState, useMemo, useId } from 'react'
-import { formatHistoricalDateAt, formatHistoricalTimestamp, type DatePrecision } from '@/utils/historicalTime'
+import { formatHistoricalDateAt, formatHistoricalTimestamp, type DatePrecision, formatEventDate } from '@/utils/historicalTime'
 import type {
   Event,
   ExtractedArc,
@@ -29,12 +29,14 @@ import {
   describeExtractedEvent,
   eventLabel,
   findExtractedEvent,
-  isReadableReviewDate,
+  readReviewDate,
   reviewRowId,
   type ReviewEventLookup,
 } from './reviewLabels'
 import { findDuplicateEvent, matchKnownName, type NameMatch } from './reviewMatching'
 import { PRESELECT_THRESHOLD, formatSpan, isOutsideSpan, type HistorySpan } from './reviewDefaults'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { worldBoundExamples } from '@althistory/calendar'
 
 export type ReviewEntity = ExtractedEvent | ExtractedArc | ExtractedRelationship
 export type ReviewEntityType = 'event' | 'arc' | 'relationship'
@@ -111,7 +113,9 @@ const eventColumns: ReviewColumn[] = [
     kind: 'date',
     width: 'w-36',
     value: (entity) => ('timestamp' in entity ? entity.timestamp : ''),
-    edit: (raw) => ({ timestamp: raw }),
+    // A date typed over the extracted one says how much it knows itself: the
+    // extraction's month (and its calendar) no longer describe it.
+    edit: (raw) => ({ timestamp: raw, datePrecision: undefined, dateCalendar: undefined }),
   },
   CONFIDENCE_COLUMN,
 ]
@@ -460,6 +464,7 @@ export function EntityReviewTable({
                             describedBy={issuesId}
                             invalid={hasError}
                             precision={'datePrecision' in entity ? entity.datePrecision : undefined}
+                            dateCalendar={'dateCalendar' in entity ? entity.dateCalendar : undefined}
                             className={`${fieldClass} font-mono-code`}
                             onChange={(value) => onEdit(entity.tempId, edit(value))}
                           />
@@ -544,7 +549,7 @@ export function EntityReviewTable({
                             <span className="font-medium">Possibly already in the graph:</span>{' '}
                             “{graphMatches.get(entity.tempId)!.duplicate!.description}”,{' '}
                             <span className="font-mono-code">
-                              {formatHistoricalTimestamp(graphMatches.get(entity.tempId)!.duplicate!.timestamp)}
+                              {formatEventDate(graphMatches.get(entity.tempId)!.duplicate!)}
                             </span>
                             . Untick the row to skip it.
                           </p>
@@ -639,6 +644,8 @@ interface ReviewDateFieldProps {
   invalid: boolean
   /** How much of the extracted date the source stated (month: "March 1871"). */
   precision?: DatePrecision
+  /** The world calendar the extracted month or year was given in. */
+  dateCalendar?: string
   className: string
   onChange: (value: string) => void
 }
@@ -649,18 +656,23 @@ interface ReviewDateFieldProps {
  * in words as the rest of the app writes it ("Feb 14, 1870"), or a note when
  * the importer could not read what was typed.
  */
-function ReviewDateField({ label, raw, describedBy, invalid, precision, className, onChange }: ReviewDateFieldProps) {
+function ReviewDateField({ label, raw, describedBy, invalid, precision, dateCalendar, className, onChange }: ReviewDateFieldProps) {
   const readingId = useId()
+  // In a world, dates are shown and typed in its notation (the server reads
+  // the reviewer's text with the graph's calendars).
+  const calendar = useWorldCalendar()
+  const compact = (value: string) => compactReviewDate(value, calendar, precision, dateCalendar)
   // The reviewer's own text, so compaction never rewrites what they type. It
   // follows `raw` only when the value changes from outside this field.
-  const [draft, setDraft] = useState(() => compactReviewDate(raw))
+  const [draft, setDraft] = useState(() => compact(raw))
   const [seenRaw, setSeenRaw] = useState(raw)
   const [sent, setSent] = useState<string | null>(null)
   if (raw !== seenRaw) {
     setSeenRaw(raw)
-    if (raw !== sent) setDraft(compactReviewDate(raw))
+    if (raw !== sent) setDraft(compact(raw))
   }
-  const readable = isReadableReviewDate(draft)
+  const reading = readReviewDate(draft, calendar)
+  const readable = reading !== null
   const describedByIds = [readingId, describedBy].filter(Boolean).join(' ')
   return (
     <>
@@ -682,11 +694,15 @@ function ReviewDateField({ label, raw, describedBy, invalid, precision, classNam
         id={readingId}
         className={`mt-1 block text-xs ${readable ? 'text-ink-muted' : 'text-red-700 dark:text-red-300'}`}
       >
-        {!readable
-          ? 'Not a date: use YYYY-MM-DD'
-          : precision && precision !== 'day' && draft === compactReviewDate(raw)
-            ? `${formatHistoricalDateAt(raw, precision)}: the text gives no ${precision === 'month' ? 'day' : 'month or day'}`
-            : formatHistoricalTimestamp(draft.trim())}
+        {!reading
+          ? calendar
+            ? `Not a date: write one as ${worldBoundExamples(calendar).day}`
+            : 'Not a date: use YYYY-MM-DD'
+          : precision && precision !== 'day' && draft === compact(raw)
+            ? `${formatHistoricalDateAt(raw, precision, undefined, undefined, dateCalendar)}: the text gives no ${precision === 'month' ? 'day' : 'month or day'}`
+            : reading.precision !== 'day'
+              ? formatHistoricalDateAt(reading.iso, reading.precision, undefined, undefined, reading.calendar)
+              : formatHistoricalTimestamp(reading.iso)}
       </span>
     </>
   )

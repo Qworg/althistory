@@ -292,8 +292,9 @@ describe('Arc Detail Panel Utilities', () => {
 
   describe('datetimeLocalToISO', () => {
     it('converts datetime-local value to ISO string', () => {
-      const result = datetimeLocalToISO('2023-01-15T12:30')
-      expect(result).toMatch(/2023-01-15T\d{2}:30:00\.000Z/)
+      // The field's time is UTC, as every historical date is: never shifted by the browser's zone.
+      expect(datetimeLocalToISO('2023-01-15T12:30')).toBe('2023-01-15T12:30:00.000Z')
+      expect(datetimeLocalToISO('2019-02-31T00:00')).toBe('')
     })
 
     it('returns empty string for empty input', () => {
@@ -313,6 +314,10 @@ describe('Arc Detail Panel Utilities', () => {
 
     it('returns empty string for empty string input', () => {
       expect(isoToDatetimeLocal('')).toBe('')
+    })
+
+    it('returns empty string for text that is no date, rather than throwing', () => {
+      expect(isoToDatetimeLocal('not a date')).toBe('')
     })
   })
 })

@@ -1,4 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
+import { datePrecisionMetadata, storedCalendarSet, toInstant } from '@althistory/calendar';
+import type { CalendarInput } from '../../models/Graph';
+import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import { IEngine } from './IEngine';
 import {
   HealthInfo,
@@ -101,7 +104,11 @@ export class RemoteEngine implements IEngine {
   private client: AxiosInstance;
   private baseUrl: string;
 
+  /** Whether requests carry a key, so a 401 can say what to do. */
+  private readonly sentApiKey: boolean;
+
   constructor(baseUrl: string = 'http://localhost:3000', apiKey?: string) {
+    this.sentApiKey = Boolean(apiKey);
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -141,7 +148,12 @@ export class RemoteEngine implements IEngine {
         error.message;
 
       if (status === 401 || status === 403) {
-        throw new AuthErrorCLI(`Authentication failed: ${message}`);
+        const hint =
+          status === 401 && !this.sentApiKey
+            ? ' No API key was sent: give one with --api-key or ALTHISTORY_API_KEY, or for the local app run ' +
+              './start-local.sh once, which writes ADMIN_API_KEY to timeline/.env.local.'
+            : '';
+        throw new AuthErrorCLI(`Authentication failed: ${message}${hint}`);
       }
       if (status === 404) {
         throw new NotFoundErrorCLI(`Resource not found: ${message}`);
@@ -195,7 +207,9 @@ export class RemoteEngine implements IEngine {
 
   async getHealth(): Promise<HealthInfo> {
     try {
-      const res = await this.client.get('/health');
+      // /health answers 503 while the app's services are unbuilt, which in
+      // local mode is most of the time; that is a report, not a failure.
+      const res = await this.client.get('/health', { validateStatus: (code) => code === 200 || code === 503 });
       const body = isRecord(res.data) ? res.data : {};
       return {
         status: body.status === 'healthy' ? 'healthy' : 'degraded',
@@ -221,6 +235,7 @@ export class RemoteEngine implements IEngine {
         typeof graph.branchPoint === 'number' ? `v${graph.branchPoint}` : undefined,
       createdAt: readString(graph.createdAt, new Date().toISOString()),
       updatedAt: readString(graph.updatedAt, new Date().toISOString()),
+      ...(storedCalendarSet(graph.calendar) ? { calendar: storedCalendarSet(graph.calendar)! } : {}),
     };
   }
 
@@ -233,13 +248,62 @@ export class RemoteEngine implements IEngine {
     }
   }
 
-  async createGraph(name: string, description?: string): Promise<GraphSummaryDto> {
+  async createGraph(name: string, description?: string, calendar?: CalendarInput): Promise<GraphSummaryDto> {
     try {
-      const res = await this.client.post('/api/graphs', { name, description });
+      const res = await this.client.post('/api/graphs', { name, description, calendar });
       return this.toGraphSummary(unwrap(res.data));
     } catch (err) {
       return this.handleError(err, 'creating graph');
     }
+  }
+
+  async setGraphCalendar(id: string, calendar: CalendarInput | null): Promise<GraphSummaryDto> {
+    try {
+      const res = await this.client.put(`/api/graphs/${encodeURIComponent(id)}`, { calendar });
+      return this.toGraphSummary(unwrap(res.data));
+    } catch (err) {
+      return this.handleError(err, `setting the calendar of graph ${id}`);
+    }
+  }
+
+  /**
+   * A date to send, read here as the direct engine reads it. When the graph
+   * cannot be read (a key allowed its events but not the graph), text that
+   * needs its calendars (anything but an ISO date or date and time) goes to
+   * the server as written: the event and arc routes read
+   * it with the graph's own calendars, and record its precision themselves.
+   */
+  private async readDate(
+    graphId: string,
+    text: string,
+    edge: 'start' | 'end' = 'start'
+  ): Promise<{ iso: string; precision: 'day' | 'month' | 'year'; deferred: boolean }> {
+    if (!needsCalendar(text)) return { ...readAgentTimestamp(text, undefined, edge), deferred: false };
+    let refused = false;
+    const graph = await this.getGraph(graphId).catch((err: unknown) => {
+      refused = err instanceof AuthErrorCLI;
+      return undefined;
+    });
+    // Only a key refused the graph defers; one that is gone, or a daemon that
+    // cannot answer, leaves the text to be refused here as in direct mode.
+    // An ISO month or year goes too: a world graph refuses it, a plain one records its period.
+    if (!graph && refused && String(text).trim() !== '') return { iso: String(text), precision: 'day', deferred: true };
+    return { ...readAgentTimestamp(text, graph?.calendar, edge), deferred: false };
+  }
+
+  /**
+   * A filter bound as the daemon's query string takes it: an instant. Text
+   * that needs the graph's calendars cannot be read when the key cannot read
+   * the graph, and the query string takes no other text, so it is refused here.
+   */
+  private async filterBound(graphId: string, text: string, edge: 'start' | 'end'): Promise<string> {
+    const read = await this.readDate(graphId, text, edge);
+    if (read.deferred) {
+      throw new ValidationErrorCLI(
+        `Invalid timestamp: "${text}" needs the graph's calendars to read, and this key cannot read the graph. Give the bound as an ISO 8601 date and time.`
+      );
+    }
+    return read.iso;
   }
 
   async getGraph(id: string): Promise<GraphSummaryDto> {
@@ -392,15 +456,18 @@ export class RemoteEngine implements IEngine {
       metadata?: Record<string, unknown>;
     }
   ): Promise<EventDto> {
+    // Read here, as the direct engine reads it, so both modes take the same text.
+    const read = await this.readDate(graphId, data.timestamp);
     try {
       const res = await this.client.post(
         '/api/events',
         {
           description: data.description,
-          timestamp: data.timestamp,
+          timestamp: read.iso,
           actor: data.actor || 'Unknown',
           target: data.target || 'Unknown',
           metadata: {
+            ...precisionMetadata(read),
             ...(data.metadata || {}),
             ...(data.importance !== undefined ? { importance: data.importance } : {}),
           },
@@ -423,6 +490,8 @@ export class RemoteEngine implements IEngine {
       timestamp: readString(event.timestamp),
       actor: readOptionalString(event.actor),
       target: readOptionalString(event.target),
+      // The arc an event is in and its date precision live here, as in the direct engine.
+      ...(isRecord(event.metadata) && Object.keys(event.metadata).length > 0 ? { metadata: event.metadata } : {}),
     };
   }
 
@@ -437,8 +506,10 @@ export class RemoteEngine implements IEngine {
         // The daemon only filters by a range when both ends are given, so a
         // one-sided filter is completed with the widest bound that keeps the
         // meaning ("from this date onwards" / "up to this date").
-        params.startTime = filters?.from ?? '0000-01-01T00:00:00.000Z';
-        params.endTime = filters?.to ?? '9999-12-31T23:59:59.999Z';
+        // Each read as every date an agent gives is (in a world, its notation
+        // too); the daemon's filter takes the instants.
+        params.startTime = filters?.from ? await this.filterBound(graphId, filters.from, 'start') : '-271821-04-20T00:00:00.000Z';
+        params.endTime = filters?.to ? await this.filterBound(graphId, filters.to, 'end') : '+275760-09-13T00:00:00.000Z';
       }
       const events = await this.fetchAll('/api/events', graphId, params);
       return events.map((e) => this.toEventDto(e, graphId));
@@ -463,12 +534,24 @@ export class RemoteEngine implements IEngine {
     eventId: string,
     data: Partial<{ description: string; timestamp: string; actor?: string; target?: string }>
   ): Promise<EventDto> {
+    const read = data.timestamp !== undefined ? await this.readDate(graphId, data.timestamp) : undefined;
     try {
+      // A new date replaces the old one's precision, as in the direct engine.
+      // The PUT replaces metadata whole, so it is sent only as read back and
+      // changed: never an empty object standing in for metadata not read.
+      const existing = read ? (await this.getEvent(graphId, eventId)).metadata : undefined;
+      const metadata = !read
+        ? undefined
+        : existing
+          ? withNewDatePrecision(existing, read)
+          : read.precision === 'day'
+            ? undefined
+            : precisionMetadata(read);
       const res = await this.client.put(
         `/api/events/${eventId}`,
         {
           ...(data.description !== undefined ? { description: data.description } : {}),
-          ...(data.timestamp !== undefined ? { timestamp: data.timestamp } : {}),
+          ...(read ? { timestamp: read.iso, ...(metadata ? { metadata } : {}) } : {}),
           ...(data.actor !== undefined ? { actor: data.actor } : {}),
           ...(data.target !== undefined ? { target: data.target } : {}),
         },
@@ -494,15 +577,21 @@ export class RemoteEngine implements IEngine {
     graphId: string,
     data: { name: string; startTime: string; endTime: string; description?: string; parentArcId?: string }
   ): Promise<ArcDto> {
+    // Read here, as the direct engine reads them, so both modes take the same text.
+    const startTime = (await this.readDate(graphId, data.startTime)).iso;
+    const endTime = (await this.readDate(graphId, data.endTime, 'end')).iso;
     try {
+      // A child arc sits one level below the arc it belongs to, which has to
+      // exist; the direct engine places it the same way.
+      const level = data.parentArcId ? ((await this.getArc(graphId, data.parentArcId)).level ?? 0) + 1 : 0;
       const res = await this.client.post(
         '/api/arcs',
         {
           name: data.name,
           description: data.description || '',
-          start_time: data.startTime,
-          end_time: data.endTime,
-          level: data.parentArcId ? 1 : 0,
+          start_time: startTime,
+          end_time: endTime,
+          level,
           metadata: data.parentArcId ? { parentArcId: data.parentArcId } : undefined,
         },
         { headers: this.graphHeaders(graphId) }
@@ -609,7 +698,7 @@ export class RemoteEngine implements IEngine {
             type: readRelationshipType(data.type),
             strength: data.weight ?? 1,
             confidence: 1,
-            evidence: data.reasoning || '',
+            evidence: data.reasoning || 'Observed historical causality',
           },
         },
         { headers: this.graphHeaders(graphId) }
@@ -773,6 +862,11 @@ export class RemoteEngine implements IEngine {
             timestamp: readString(event.timestamp),
             actor: readOptionalString(event.actor),
             target: readOptionalString(event.target),
+            // Its date's precision and calendar, so it is shown as the server read it (as in direct mode).
+            metadata: datePrecisionMetadata({
+              precision: event.datePrecision === 'month' || event.datePrecision === 'year' ? event.datePrecision : 'day',
+              calendar: typeof event.dateCalendar === 'string' ? event.dateCalendar : undefined,
+            }),
           };
         }),
         arcs: arcs.map((entry) => {
@@ -864,7 +958,8 @@ export class RemoteEngine implements IEngine {
     if (!isWikipediaUrl(url)) {
       throw new ValidationErrorCLI(
         `The daemon reads Wikipedia articles only, so "${url}" cannot be ingested in remote mode. ` +
-          'Run it with --direct to read a page on any site.'
+          'Stop the althistory app and run it again to read a page on any site (or use --direct when no app ' +
+          'shares the data).'
       );
     }
     try {
@@ -921,7 +1016,9 @@ export class RemoteEngine implements IEngine {
   private unsupportedGeneration(command: string, route: string): never {
     throw new CLIError(
       `The daemon at ${this.baseUrl} does not serve ${route}, so "${command}" cannot run in remote mode. ` +
-        'Run it with --direct to generate against the local store.',
+        'Generation runs only in-process: stop the althistory app (this CLI or MCP server found it running and ' +
+        'is working through it) and try again, or run the command with --direct when no app shares the data. ' +
+        'An agent can instead write the history itself with the create and link tools, which work either way.',
       ExitCode.GENERAL_ERROR,
       'UNSUPPORTED_REMOTE_OPERATION'
     );
@@ -1100,7 +1197,7 @@ export class RemoteEngine implements IEngine {
       description: readString(event.description, 'Untitled event'),
       actor: readString(event.actor, 'Unknown'),
       target: readString(event.target, 'Unknown'),
-      timestamp: new Date(readString(event.timestamp)),
+      timestamp: toInstant(readString(event.timestamp)),
       metadata: readRecord(event.metadata),
     });
   }
@@ -1215,6 +1312,7 @@ export class RemoteEngine implements IEngine {
         strict,
         autoRepair,
         crossGraphLookup: this.createCrossGraphLookup(graphId),
+        calendar: (await this.getGraph(graphId).catch(() => undefined))?.calendar,
       });
     } catch (err) {
       return this.handleError(err, 'validating graph');
@@ -1252,7 +1350,7 @@ export class RemoteEngine implements IEngine {
         const exporter = new GraphExporter();
         content =
           format === 'markdown'
-            ? exporter.generateMarkdown(parsed.graphId, parsed.graphName, parsed.description, parsed.events, parsed.arcs, parsed.relationships)
+            ? exporter.generateMarkdown(parsed.graphId, parsed.graphName, parsed.description, parsed.events, parsed.arcs, parsed.relationships, parsed.calendar)
             : format === 'dot'
               ? exporter.generateDot(parsed.graphId, parsed.graphName, parsed.events, parsed.arcs, parsed.relationships)
               : exporter.generateGraphML(parsed.graphId, parsed.graphName, parsed.events, parsed.arcs, parsed.relationships);
@@ -1394,6 +1492,10 @@ export class RemoteEngine implements IEngine {
         },
         conflicts: Array.isArray(body.errors) ? body.errors.length : 0,
         strategy: options?.strategy || 'skip',
+        // What the server warned of (a document's calendars the graph does not keep), as in direct mode.
+        ...(Array.isArray(body.warnings) && body.warnings.length > 0
+          ? { warnings: body.warnings.map((warning) => (isRecord(warning) ? readString(warning.message) : String(warning))) }
+          : {}),
       };
     } catch (err) {
       return this.handleError(err, 'importing graph');

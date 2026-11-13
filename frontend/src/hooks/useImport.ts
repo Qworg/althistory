@@ -21,6 +21,9 @@ import {
 // Types for mutation options
 export interface ValidateImportOptions {
   data: AlthistoryExport
+  /** The graph it goes into, whose calendars read its dates (merge or replace). */
+  targetGraphId?: string
+  mode?: ImportMode
 }
 
 export interface PreviewImportOptions {
@@ -44,8 +47,8 @@ export function useValidateImport(
   options?: UseMutationOptions<ImportValidationResult, APIError, ValidateImportOptions>
 ) {
   return useMutation({
-    mutationFn: async ({ data }: ValidateImportOptions) => {
-      return apiClient.import.validate(data)
+    mutationFn: async ({ data, targetGraphId, mode }: ValidateImportOptions) => {
+      return targetGraphId ? apiClient.import.validate(data, targetGraphId, mode) : apiClient.import.validate(data)
     },
     ...options,
   })
@@ -167,11 +170,14 @@ export function importReducer(state: ImportWizardState, action: ImportAction): I
     case 'SET_TARGET_GRAPH':
       return { ...state, targetGraphId: action.payload }
     case 'SET_STEP':
-      return { ...state, step: action.payload }
+      // A step starts clean: an error belongs to the step it happened on.
+      return { ...state, step: action.payload, error: null }
     case 'SET_ERROR':
       return { ...state, error: action.payload }
     case 'RESET':
-      return initialImportState
+      // Starting over keeps the graph the wizard imports into: the next file
+      // is checked against it, and can be merged into it, as the first was.
+      return { ...initialImportState, targetGraphId: state.targetGraphId }
     default:
       return state
   }

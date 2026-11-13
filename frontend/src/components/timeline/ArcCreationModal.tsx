@@ -1,41 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { TimeRange, CreateArcRequest, Event, Arc } from '@/types'
 import { useCreateArc } from '@/hooks/useAPI'
-import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatHistoricalDate, formatHistoricalTimestamp, formatHistoricalEnd, formatEventDate } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
-
-// Helper to convert an ISO instant to a datetime-local value (YYYY-MM-DDTHH:mm), in UTC
-const isoToDatetimeLocal = (isoString: string): string => {
-  if (!isoString) return ''
-  try {
-    const date = new Date(isoString)
-    if (isNaN(date.getTime())) return ''
-        const year = String(date.getUTCFullYear()).padStart(4, '0')
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0')
-    const day = String(date.getUTCDate()).padStart(2, '0')
-    const hours = String(date.getUTCHours()).padStart(2, '0')
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0')
-    return `${year}-${month}-${day}T${hours}:${minutes}`
-  } catch {
-    return ''
-  }
-}
-
-// Helper to convert a datetime-local value, read as UTC, to an ISO instant
-const datetimeLocalToIso = (datetimeLocal: string): string => {
-  if (!datetimeLocal) return ''
-  try {
-    // The field is a UTC wall-clock time: historical dates are stored as UTC
-    // instants, and reading it in the browser's zone shifted them (before
-    // standard time, by local mean time's odd seconds as well).
-    const hasZone = /(Z|[+-]\d\d:\d\d)$/.test(datetimeLocal)
-    const date = new Date(hasZone ? datetimeLocal : `${datetimeLocal}Z`)
-    if (isNaN(date.getTime())) return ''
-    return date.toISOString()
-  } catch {
-    return ''
-  }
-}
+import { DateField } from '@/components/ui/DateField'
+import { readDateFieldValue } from '@/utils/dateField'
+import { useDateFieldText } from '@/hooks/useDateFieldText'
 
 export interface ArcCreationModalProps {
   isOpen: boolean
@@ -56,6 +26,11 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
   onSuccess,
   className = ''
 }) => {
+  // The dates' fields: a UTC picker, or the world's notation (see useDateFieldText).
+  const dates = useDateFieldText('datetime')
+  const worldCalendar = dates.calendar
+  const toField = dates.fill
+  const toIso = dates.toIso
   const [formData, setFormData] = useState<CreateArcRequest>({
     name: '',
     description: '',
@@ -66,6 +41,25 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [selectedParentId, setSelectedParentId] = useState<string | null>(null)
+
+  // The dates as they are now, for the switch below (read, not set, in an effect).
+  const dateTexts = useRef({ start: formData.start_time || '', end: formData.end_time || '' })
+  useEffect(() => {
+    dateTexts.current = { start: formData.start_time || '', end: formData.end_time || '' }
+  }, [formData.start_time, formData.end_time])
+
+  // Another calendar shown rewrites the dates (and only the dates) in it. The
+  // new text is worked out here, once; the update only sets it (React may run
+  // an updater twice).
+  const { takeSwitch, rewrite } = dates
+  useEffect(() => {
+    const switched = takeSwitch()
+    if (!switched) return
+    const start_time = rewrite(dateTexts.current.start, 'start', switched.from)
+    const end_time = rewrite(dateTexts.current.end, 'end', switched.from)
+    dateTexts.current = { start: start_time, end: end_time }
+    setFormData((current) => ({ ...current, start_time, end_time }))
+  }, [takeSwitch, rewrite])
 
   const createArcMutation = useCreateArc({
     onSuccess: (outcome) => {
@@ -95,14 +89,14 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
       setFormData({
         name: '',
         description: '',
-        start_time: isoToDatetimeLocal(timeRange.start.toISOString()),
-        end_time: isoToDatetimeLocal(timeRange.end.toISOString()),
+        start_time: toField(timeRange.start.toISOString(), 'start'),
+        end_time: toField(timeRange.end.toISOString(), 'end'),
         level: calculateLevel(selectedParentId),
         parent_arc_id: selectedParentId
       })
       setErrors({})
     }
-  }, [timeRange, isOpen, selectedParentId, calculateLevel])
+  }, [timeRange, isOpen, selectedParentId, calculateLevel, toField])
 
   const resetForm = () => {
     setFormData({
@@ -144,9 +138,16 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
       newErrors.end_time = 'End time is required'
     }
 
+    // A date the field cannot read says why (in a world, typed in its notation).
+    for (const edge of ['start', 'end'] as const) {
+      const value = formData[`${edge}_time`]
+      const read = value ? readDateFieldValue(value, { calendar: worldCalendar, edge }) : null
+      if (read && !read.ok) newErrors[`${edge}_time`] = read.error
+    }
+
     if (formData.start_time && formData.end_time) {
-      const startTime = new Date(datetimeLocalToIso(formData.start_time))
-      const endTime = new Date(datetimeLocalToIso(formData.end_time))
+      const startTime = new Date(toIso(formData.start_time, 'start'))
+      const endTime = new Date(toIso(formData.end_time, 'end'))
       
       if (startTime >= endTime) {
         newErrors.end_time = 'End time must be after start time'
@@ -197,8 +198,8 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
       // Convert datetime-local format to ISO strings for API
       const submitData = {
         ...formData,
-        start_time: datetimeLocalToIso(formData.start_time),
-        end_time: datetimeLocalToIso(formData.end_time)
+        start_time: toIso(formData.start_time, 'start'),
+        end_time: toIso(formData.end_time, 'end')
       }
       await createArcMutation.mutateAsync(submitData)
     } catch {
@@ -224,7 +225,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
     return `${hours} hour${hours !== 1 ? 's' : ''}`
   }
 
-  const duration = formatDuration(new Date(datetimeLocalToIso(formData.start_time)), new Date(datetimeLocalToIso(formData.end_time)))
+  const duration = formatDuration(new Date(toIso(formData.start_time, 'start')), new Date(toIso(formData.end_time, 'end')))
 
   return (
     <Portal>
@@ -257,8 +258,8 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
             <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
               <h3 className="text-base font-semibold text-blue-900 mb-2">Selected Time Range</h3>
               <div className="text-sm text-blue-700 space-y-1">
-                <div>Start: <span className="font-mono-code">{formatHistoricalTimestamp(datetimeLocalToIso(formData.start_time))}</span></div>
-                <div>End: <span className="font-mono-code">{formatHistoricalTimestamp(datetimeLocalToIso(formData.end_time))}</span></div>
+                <div>Start: <span className="font-mono-code">{formatHistoricalTimestamp(toIso(formData.start_time, 'start'))}</span></div>
+                <div>End: <span className="font-mono-code">{formatHistoricalEnd(toIso(formData.end_time, 'end'))}</span></div>
                 <div>Duration: {duration}</div>
                 {containedEvents.length > 0 && (
                   <div>Contains {containedEvents.length} event{containedEvents.length !== 1 ? 's' : ''}</div>
@@ -314,11 +315,12 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                   <label htmlFor="arc-start-time" className="block text-sm font-medium text-ink-secondary mb-1">
                     Start Time
                   </label>
-                  <input
+                  <DateField
                     id="arc-start-time"
-                    type="datetime-local"
+                    kind="datetime"
+                    edge="start"
                     value={formData.start_time}
-                    onChange={(e) => handleInputChange('start_time', e.target.value)}
+                    onChange={(value) => handleInputChange('start_time', value)}
                     className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
                       errors.start_time ? 'border-red-300' : 'border-line'
                     }`}
@@ -331,11 +333,12 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                   <label htmlFor="arc-end-time" className="block text-sm font-medium text-ink-secondary mb-1">
                     End Time
                   </label>
-                  <input
+                  <DateField
                     id="arc-end-time"
-                    type="datetime-local"
+                    kind="datetime"
+                    edge="end"
                     value={formData.end_time}
-                    onChange={(e) => handleInputChange('end_time', e.target.value)}
+                    onChange={(value) => handleInputChange('end_time', value)}
                     className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
                       errors.end_time ? 'border-red-300' : 'border-line'
                     }`}
@@ -398,7 +401,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                     <div key={event.id} className="bg-subtle rounded-md p-2">
                       <p className="text-sm font-medium text-ink">{event.description}</p>
                       <p className="text-xs text-ink-muted">
-                        {event.actor} → {event.target} • <span className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</span>
+                        {event.actor} → {event.target} • <span className="font-mono-code">{formatEventDate(event)}</span>
                       </p>
                     </div>
                   ))}

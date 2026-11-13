@@ -145,6 +145,12 @@ that is omitted. A key restricted to some graphs gets `403` for a
 `targetGraphId` (or, on `validate-incremental`, a `graphId`) outside them, and
 an import job is visible to, and cancellable by, only the key that started it.
 
+**Text extraction reads a graph only when named.** `POST /api/ingest/text`
+reads `X-Graph-Id` to find the graph the text is for (its world calendars tell
+the model how the world writes a date), but has no active-graph fallback:
+with no header, no graph is read. A graph that does not exist is a `404`, and
+one the key may not access a `403`.
+
 **Merge reads two graphs.** `POST /api/graphs/:id/merge` checks the key against
 both the target `:id` and the body's `sourceGraphId`.
 
@@ -153,6 +159,57 @@ both the target `:id` and the body's `sourceGraphId`.
 `GET /api/graphs/:id/branches`. `GET /api/graphs/active`, and
 `POST /api/graphs/copy` without a `sourceGraphId`, answer `403` when the
 active graph is outside the key's list.
+
+## Dates
+
+Send historical dates and times as ISO 8601: `1843-11-20`, `1843-11-20T14:30:00Z`,
+`1066-10-14T09:30+05:00`. A time with no zone (`1843-11-20T14:30`) is UTC, never
+the server's local time. The event, arc and batch routes read a date the way
+the CLI, the MCP tools, ingestion and the app do (`readWorldTimestamp` in
+[`calendar/`](../calendar/README.md)): a date and time is that instant; a
+date, a month or a year alone (`1843-11-20`, `1871-03`, `1066`) names that UTC
+period, is stored at its first moment with a month's or year's
+`metadata.datePrecision` recorded, and as an arc's `end_time` is the period's
+last moment. The query-string filters (and the time ranges of the temporal,
+inference and export routes) read ISO 8601 as instants; text that starts
+with a digit and is not ISO 8601 (`312`) is refused there. Dates a body sends
+to be checked rather than stored (`/api/validate/*`, `/api/suggest/*`, a
+`time_range` copy's `timeRange`) are read as the event routes read them, with
+the graph's calendars. An import reads a document's dates with the calendars
+of the graph it goes into: `POST /api/import/validate` does too when given
+`?targetGraphId=…&mode=merge` (or `replace`), and otherwise reads them as a
+new graph would, with the document's own.
+
+A date that does not exist (`2019-02-31`, `1870-13-01`) is refused. In a graph
+without world calendars, year-first text is read as the app's forms and the
+CLI read it (`312`, `44 BCE`, `1843-11-20 9:30`, in UTC), at the precision it
+states. Other text is refused with the reason, whether it starts with a digit
+(`0`) or is prose (`January 1, 2023`): no date a request gives is read in the
+server's zone. (An import still reads prose a graph stored before, so an old
+export imports.) Responses always
+write dates as `toISOString` does (`1843-11-20T14:30:00.000Z`).
+
+**In a graph with world calendars** ([the spec](specs/world-calendars.md)),
+the event and arc routes, and `POST /api/batch/*`, also take a date as the
+world writes it (`"Thaw 4, 312 AR"`, `"Thaw 312 AR"` for a month, `"312 AR"`
+for a year, a time after a comma), in any of its calendars, or as fields:
+`{ "calendar": "reckoning", "era": "AR", "year": 312, "month": "Thaw",
+"day": 4 }`. A month or a year is stored at its first moment with
+`metadata.datePrecision` and `metadata.dateCalendar` (the calendar it was
+given in, so "Flooding 312 TC" stays the Tide-count's half-year) recorded; as
+an arc's `end_time`, a day, month or year written without a time is its last
+moment. An ISO date or date and time is read as anywhere else, but an ISO
+month or year is refused there (a Gregorian month is no period of the world's),
+and so is text that is neither ISO 8601 nor the world's notation (`400`),
+never read as a Gregorian date. A new date on `PUT /api/events/:id` or a batch
+`update_event` replaces the old one's precision and calendar, and keeps the
+rest of the metadata; a new event (`POST /api/events`, a batch `create_event`)
+records its date's precision the same way. Only an ISO day keeps a
+`metadata.datePrecision` the request states (the app sends ISO with the
+precision its form read); a month, a year or a date in the world's notation
+states its own. Responses give each date's place on the
+timeline as ISO 8601; the query-string filters (`startTime`, `endTime`) and
+the temporal and inference routes take those ISO instants.
 
 ## Responses
 

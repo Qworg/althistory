@@ -6,7 +6,9 @@ import { useGraphCopy } from './useGraphCopy'
 import { apiClient } from '@/services/api'
 import { useGlobalStore } from '@/stores/globalStore'
 import { useCopyStore } from '@/stores/copyStore'
+import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import { TimeRange, EntityFilter, CopyResult } from '@/types'
+import { legacyCalendarSet } from '@althistory/calendar'
 
 // Mock the API client
 vi.mock('@/services/api', () => ({
@@ -204,6 +206,29 @@ describe('useGraphCopy', () => {
       type: 'full',
       status: 'pending'
     })
+  })
+
+  it("records the copied graph's world calendar on the operation", async () => {
+    useWorldCalendarStore.getState().setCalendar({ epochYear: 1000, eraLabel: 'AR' })
+    vi.mocked(apiClient.graph.copyFull).mockResolvedValue({
+      id: 'copy-vael',
+      name: 'Vael copy',
+      status: 'completed',
+      progress: 100,
+      created_at: '2023-01-01T00:00:00Z',
+    })
+    const { result } = renderHook(() => useGraphCopy(), { wrapper: createWrapper() })
+    act(() => {
+      result.current.setCopyName('Vael copy')
+    })
+    await act(async () => {
+      await result.current.createFullCopy()
+    })
+    // Switching graphs afterwards does not change the copy's calendar.
+    useWorldCalendarStore.getState().setCalendar(null)
+    const operation = [...result.current.copyState.activeOperations, ...result.current.copyState.completedOperations][0]
+    // Read as the calendar set it stands for.
+    expect(operation?.sourceCalendar).toEqual(legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' }))
   })
 
   it('should create time range copy successfully', async () => {

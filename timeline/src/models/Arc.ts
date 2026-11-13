@@ -1,3 +1,5 @@
+import { toInstant } from '@althistory/calendar';
+
 /**
  * Arc represents a historical phase or period that can contain events and other arcs
  */
@@ -48,8 +50,8 @@ export class Arc implements IArc {
 
     this.name = data.name.trim();
     this.description = data.description?.trim();
-    this.start_time = new Date(data.start_time);
-    this.end_time = new Date(data.end_time);
+    this.start_time = toInstant(data.start_time);
+    this.end_time = toInstant(data.end_time);
     this.level = data.level;
     this.metadata = data.metadata;
   }
@@ -69,7 +71,7 @@ export class Arc implements IArc {
     if (!data.start_time) {
       errors.push('Start time is required');
     } else {
-      const startTime = new Date(data.start_time);
+      const startTime = toInstant(data.start_time);
       if (isNaN(startTime.getTime())) {
         errors.push('Start time must be a valid date');
       }
@@ -79,7 +81,7 @@ export class Arc implements IArc {
     if (!data.end_time) {
       errors.push('End time is required');
     } else {
-      const endTime = new Date(data.end_time);
+      const endTime = toInstant(data.end_time);
       if (isNaN(endTime.getTime())) {
         errors.push('End time must be a valid date');
       }
@@ -87,8 +89,8 @@ export class Arc implements IArc {
 
     // Temporal boundary validation (start_time < end_time)
     if (data.start_time && data.end_time) {
-      const startTime = new Date(data.start_time);
-      const endTime = new Date(data.end_time);
+      const startTime = toInstant(data.start_time);
+      const endTime = toInstant(data.end_time);
       
       if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
         if (startTime >= endTime) {

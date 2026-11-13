@@ -19,7 +19,9 @@ export function formatPlain(data: unknown): string {
         .map((item, idx) => {
           const id = item.id || `#${idx + 1}`;
           const name = item.name || item.description || item.status || '';
-          const extra = item.timestamp ? ` [${item.timestamp}]` : '';
+          // A world's date as it writes it, when the output carries one.
+          const when = item.worldDate ?? item.timestamp ?? (item.worldStart ? `${item.worldStart} – ${item.worldEnd}` : undefined);
+          const extra = when ? ` [${when}]` : '';
           return `${id}: ${name}${extra}`;
         })
         .join('\n');

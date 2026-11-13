@@ -2,6 +2,7 @@
  * Graph Repository for managing multiple graphs with versioning
  */
 
+import { storedCalendarSet } from '@althistory/calendar';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -56,11 +57,12 @@ export class GraphRepository {
     const graphsDir = path.join(this.dataDir, 'graphs');
     await fs.promises.mkdir(graphsDir, { recursive: true });
 
-    // Create index file if it doesn't exist
+    // Create index file if it doesn't exist. Under the index lock, which reads
+    // the index again first: another repository may have just created a graph.
     try {
       await fs.promises.access(this.graphsIndexPath);
     } catch {
-      await this.saveIndex({ graphs: [], activeGraphId: null });
+      await this.mutateIndex(() => undefined);
     }
   }
 
@@ -76,16 +78,13 @@ export class GraphRepository {
     // Save graph metadata
     await this.saveGraphMetadata(graph);
 
-    // Add to index
-    const index = await this.loadIndex();
-    index.graphs.push(graph.id);
-    
-    // If this is the first graph, make it active
-    if (!index.activeGraphId) {
-      index.activeGraphId = graph.id;
-    }
-    
-    await this.saveIndex(index);
+    // Add to index; if this is the first graph, make it active
+    await this.mutateIndex((index) => {
+      index.graphs.push(graph.id);
+      if (!index.activeGraphId) {
+        index.activeGraphId = graph.id;
+      }
+    });
 
     return graph;
   }
@@ -136,7 +135,12 @@ export class GraphRepository {
           continue;
         }
         
-        graphs.push(metadata);
+        // What the list shows is what a graph read by id shows: the calendar
+        // as far as it checks out, never the stored text a newer rule refuses
+        // (an open text-direction control would reorder the graph's card).
+        const { calendar: asStored, ...rest } = metadata;
+        const calendar = storedCalendarSet(asStored);
+        graphs.push(calendar ? { ...rest, calendar } : rest);
       } catch {
         // Skip graphs that can't be loaded
         continue;
@@ -182,13 +186,12 @@ export class GraphRepository {
     await this.saveGraphMetadata(deleted);
 
     // Remove from active if it was active
-    const index = await this.loadIndex();
-    if (index.activeGraphId === id) {
+    await this.mutateIndex((index) => {
+      if (index.activeGraphId !== id) return false;
       // Find another active graph
       const activeGraphs = index.graphs.filter(gid => gid !== id);
       index.activeGraphId = activeGraphs.length > 0 ? activeGraphs[0] : null;
-      await this.saveIndex(index);
-    }
+    });
 
     return true;
   }
@@ -214,12 +217,12 @@ export class GraphRepository {
     }
 
     // Remove from index
-    const index = await this.loadIndex();
-    index.graphs = index.graphs.filter(gid => gid !== id);
-    if (index.activeGraphId === id) {
-      index.activeGraphId = index.graphs.length > 0 ? index.graphs[0] : null;
-    }
-    await this.saveIndex(index);
+    await this.mutateIndex((index) => {
+      index.graphs = index.graphs.filter(gid => gid !== id);
+      if (index.activeGraphId === id) {
+        index.activeGraphId = index.graphs.length > 0 ? index.graphs[0] : null;
+      }
+    });
 
     return true;
   }
@@ -244,9 +247,9 @@ export class GraphRepository {
       return false;
     }
 
-    const index = await this.loadIndex();
-    index.activeGraphId = id;
-    await this.saveIndex(index);
+    await this.mutateIndex((index) => {
+      index.activeGraphId = id;
+    });
 
     return true;
   }
@@ -444,16 +447,16 @@ export class GraphRepository {
     await this.saveGraphMetadata(branchGraph);
 
     // Add to index
-    const index = await this.loadIndex();
-    index.graphs.push(branchGraph.id);
-    await this.saveIndex(index);
+    await this.mutateIndex((index) => {
+      index.graphs.push(branchGraph.id);
+    });
 
     // Update metadata
     const metadata = await this.calculateMetadata(branchGraph.id);
     await this.update(branchGraph.id, { metadata });
 
     return new Graph({
-      ...branchGraph.toJSON(),
+      ...branchGraph.toStoredJSON(),
       metadata,
     });
   }
@@ -535,22 +538,88 @@ export class GraphRepository {
     await fs.promises.mkdir(graphDir, { recursive: true });
     
     const metadataPath = this.getGraphMetadataPath(graph.id);
-    await fs.promises.writeFile(metadataPath, JSON.stringify(graph.toJSON(), null, 2), 'utf-8');
+    // As stored: a calendar field a newer rule refuses is kept on disk, not dropped by an unrelated edit.
+    await fs.promises.writeFile(metadataPath, JSON.stringify(graph.toStoredJSON(), null, 2), 'utf-8');
   }
 
-  private async loadIndex(): Promise<GraphIndex> {
+  /**
+   * The index, or an empty one when there is none yet (or it cannot be
+   * parsed). With `strict`, any other failure to read or parse it is thrown: a change
+   * made on top of an index that could not be read for a moment would write
+   * back an index holding only that change, and every other graph would drop
+   * out of the list.
+   */
+  private async loadIndex(strict = false): Promise<GraphIndex> {
+    let content: string;
     try {
-      const content = await fs.promises.readFile(this.graphsIndexPath, 'utf-8');
+      content = await fs.promises.readFile(this.graphsIndexPath, 'utf-8');
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      return { graphs: [], activeGraphId: null };
+    }
+    try {
       return JSON.parse(content) as GraphIndex;
-    } catch {
+    } catch (error) {
+      // Only `saveIndex` writes the index, atomically, so an unreadable one was
+      // damaged by hand or by the disk; a change on top of it would replace
+      // the list with that one change.
+      if (strict) throw new Error(`The graph index ${this.graphsIndexPath} cannot be read: ${(error as Error).message}`);
       return { graphs: [], activeGraphId: null };
     }
   }
 
+  /**
+   * Written to a temporary file and renamed into place, so a reader never sees
+   * half an index (which `loadIndex` would read as an empty one).
+   */
   private async saveIndex(index: GraphIndex): Promise<void> {
-    await fs.promises.writeFile(this.graphsIndexPath, JSON.stringify(index, null, 2), 'utf-8');
+    const temporary = `${this.graphsIndexPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+    try {
+      await fs.promises.writeFile(temporary, JSON.stringify(index, null, 2), 'utf-8');
+      // On Windows a rename onto a file that a scanner or indexer has open
+      // fails for a moment (EPERM, EBUSY, EACCES); it is retried briefly.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await fs.promises.rename(temporary, this.graphsIndexPath);
+          return;
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (attempt >= 4 || !['EPERM', 'EBUSY', 'EACCES'].includes(code ?? '')) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        }
+      }
+    } catch (error) {
+      await fs.promises.unlink(temporary).catch(() => undefined);
+      throw error;
+    }
+  }
+
+
+  /**
+   * Read, change and write the index as one step. Two graphs created at once
+   * (an agent's parallel tool calls) each read the index and wrote it back with
+   * only their own graph added, so one of them vanished from the list. The
+   * changes now run one after another. This is a lock within the process,
+   * which is what the single-replica deployment the store requires allows.
+   * `change` returns `false` when it changed nothing, so nothing is written.
+   */
+  private mutateIndex(change: (index: GraphIndex) => boolean | void): Promise<void> {
+    // Keyed by file, not by repository: GraphService, ImportService and the
+    // container each make their own repository over the same index.
+    const key = path.resolve(this.graphsIndexPath);
+    const run = (indexQueues.get(key) ?? Promise.resolve()).then(async () => {
+      const index = await this.loadIndex(true);
+      if (change(index) === false) return;
+      await this.saveIndex(index);
+    });
+    // A failed change must not block the ones queued after it.
+    indexQueues.set(key, run.catch(() => undefined));
+    return run;
   }
 }
+
+/** The queue of changes to each index file, shared by every repository in the process. */
+const indexQueues = new Map<string, Promise<unknown>>();
 
 interface GraphIndex {
   graphs: string[];

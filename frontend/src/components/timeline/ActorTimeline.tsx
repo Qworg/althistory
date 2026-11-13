@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
-import { formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { axisTicks, formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
 import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
 
@@ -210,15 +211,27 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
 
   // Axis ticks. The interval and labels follow the visible span, as the d3
   // axis did: scale.ticks(interval) is exactly what axisBottom computed.
+  const worldCalendar = useWorldCalendar()
   const xTicks = useMemo(() => {
     const timeSpanMs = state.visibleTimeRange.end.getTime() - state.visibleTimeRange.start.getTime()
-    const interval = getTimeAxisInterval(timeSpanMs)
-    return timeScale.ticks(interval).map(date => ({
+    // In a world calendar, its own years, months, days and hours; otherwise
+    // UTC ticks and labels, as the event labels read every date (the
+    // positions are the same linear scale either way).
+    if (worldCalendar) {
+      const [start = 0, end = 0] = timeScale.range()
+      return axisTicks(timeScale.domain(), Math.max(2, Math.floor(Math.abs(end - start) / 96)), worldCalendar).map(({ date, label }) => ({
+        key: date.getTime(),
+        x: timeScale(date),
+        label,
+      }))
+    }
+    const interval = getTimeAxisInterval(timeSpanMs, true)
+    return d3.scaleUtc().domain(timeScale.domain()).ticks(interval).map(date => ({
       key: date.getTime(),
       x: timeScale(date),
-      label: formatTimeAxisTick(date, timeSpanMs)
+      label: formatTimeAxisTick(date, timeSpanMs, true)
     }))
-  }, [timeScale, state.visibleTimeRange])
+  }, [timeScale, state.visibleTimeRange, worldCalendar])
 
   // Tick labels stand upright when they fit side by side, and turn 45° only
   // when the widest would run into its neighbour.
@@ -608,7 +621,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                           aria-pressed={isSelected}
                           aria-label={
                             `${event.description}, ${event.actor} → ${event.target}, ` +
-                            `${formatHistoricalTimestamp(event.timestamp)} (${actor} as ${event.role})`
+                            `${formatEventDate(event)} (${actor} as ${event.role})`
                           }
                           style={{ cursor: 'pointer', outline: 'none' }}
                           onClick={(e) => {
@@ -697,7 +710,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
               <div><strong>Target:</strong> {tooltipFor.event.target}</div>
               <div>
                 <strong>Time:</strong>{' '}
-                <span className="font-mono-code">{formatHistoricalTimestamp(tooltipFor.event.timestamp)}</span>
+                <span className="font-mono-code">{formatEventDate(tooltipFor.event)}</span>
               </div>
             </div>
           </div>

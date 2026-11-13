@@ -162,3 +162,85 @@ test('a feature that needs the server says so', async ({ page }) => {
   await dialog.getByRole('button', { name: /Extract/ }).click()
   await expect(dialog.getByText(/needs the althistory server/)).toBeVisible()
 })
+
+/* -------------------------------------------------------- invented world --- */
+
+const WORLD_COUNTS = '9 events · 3 arcs · 9 links'
+
+/** The labels on the timeline's time axis. */
+const axisLabels = (page: Page) =>
+  page.locator('svg text.font-mono-code').evaluateAll((texts) => texts.map((t) => t.textContent ?? ''))
+
+test('a link opens on the invented world, in its own years', async ({ page }) => {
+  await page.goto('./?start=world')
+  await expect(page.getByText(WORLD_COUNTS)).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Vael/ }).first()).toBeVisible()
+  expect(new URL(page.url()).searchParams.has('start')).toBe(false)
+
+  // The Reckoning's own dates: twelve months and two festivals, on its own 30-hour days.
+  const marks = page.locator('g[data-timeline-mark="event"]')
+  await expect(marks).toHaveCount(9)
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="the first salt-king"]')).toHaveAttribute('aria-label', /at Thaw 4, 1 AR\b/)
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Siege of Hollow Isle"]')).toHaveAttribute('aria-label', /at Gale 1, 163 AR\b/)
+  // The axis counts in the same years, and never shows a Gregorian one.
+  await expect.poll(async () => (await axisLabels(page)).filter((l) => /^\d+ AR$/.test(l)).length).toBeGreaterThan(2)
+  expect((await axisLabels(page)).filter((l) => /^1\d{3}$/.test(l))).toEqual([])
+
+  // An event's details are in world years too.
+  await page.locator('g[data-timeline-mark="event"][aria-label*="the first salt-king"] .event-marker').click({ force: true })
+  const inspector = page.getByRole('region', { name: 'Selection inspector' })
+  await expect(inspector).toContainText('Thaw 4, 1 AR')
+
+  // The causal graph opens on the world too (its labels are drawn on a canvas).
+  await page.goto('./#/causal-graph')
+  await expect(page.getByText('9 events · 9 links')).toBeVisible()
+})
+
+test("the world's dates read in either of its calendars", async ({ page }) => {
+  await page.goto('./?start=world')
+  await expect(page.getByText(WORLD_COUNTS)).toBeVisible()
+  const siege = page.locator('g[data-timeline-mark="event"][aria-label*="Siege of Hollow Isle"]')
+  await expect(siege).toHaveAttribute('aria-label', /at Gale 1, 163 AR\b/)
+
+  // The coast's Tide-count: every date, and the axis, in its half-years and years.
+  const calendar = page.getByLabel('Calendar', { exact: true })
+  await calendar.selectOption({ label: 'the Tide-count' })
+  await expect(siege).toHaveAttribute('aria-label', /at (Ebbing|Flooding) \d+, \d+ TC\b/)
+  await expect.poll(async () => (await axisLabels(page)).filter((l) => /^\d+ TC$/.test(l)).length).toBeGreaterThan(2)
+  expect((await axisLabels(page)).filter((l) => / AR$/.test(l))).toEqual([])
+
+  await calendar.selectOption({ label: 'the Reckoning of the Rising' })
+  await expect(siege).toHaveAttribute('aria-label', /at Gale 1, 163 AR\b/)
+})
+
+test('the graph picker shows the world in its own years', async ({ page }) => {
+  await page.goto('./?start=main')
+  await expect(page.getByText(COUNTS)).toBeVisible()
+  await page.getByRole('button', { name: /The Engine Age/ }).first().click()
+  const vael = page.getByRole('button', { name: /^Vael/ })
+  await expect(vael).toContainText('1 AR–173 AR')
+  await vael.click()
+  await expect(page.getByText(WORLD_COUNTS)).toBeVisible()
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Siege of Hollow Isle"]')).toHaveAttribute('aria-label', /163 AR/)
+})
+
+test('a branch of the world keeps its calendar', async ({ page }) => {
+  await page.goto('./?start=world')
+  await expect(page.getByText(WORLD_COUNTS)).toBeVisible()
+
+  await page.getByRole('button', { name: 'Graph', exact: true }).first().click()
+  await page.getByRole('menuitem', { name: /^Branch or copy/ }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Branch name').fill('The Last King Lives')
+  await dialog.getByRole('button', { name: 'Create branch' }).click()
+  await dialog.getByRole('button', { name: 'Switch to branch' }).click()
+  await expect(page.getByText(/Branch of\s*Vael/)).toBeVisible()
+  await expect(page.getByText(WORLD_COUNTS)).toBeVisible()
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Siege of Hollow Isle"]')).toHaveAttribute('aria-label', /at Gale 1, 163 AR\b/)
+  await expect.poll(async () => (await axisLabels(page)).filter((l) => /^\d+ AR$/.test(l)).length).toBeGreaterThan(2)
+
+  // And after a reload, from the demo's saved state.
+  await page.reload()
+  await expect(page.getByText(/Branch of\s*Vael/)).toBeVisible()
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="the first salt-king"]')).toHaveAttribute('aria-label', /at Thaw 4, 1 AR\b/)
+})

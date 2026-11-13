@@ -72,6 +72,98 @@ const AUTH_ERROR_RESPONSES: Record<string, string> = {
   403: 'The key may not perform this operation on this graph.',
 }
 
+
+/** The simple form of a world calendar: the Gregorian one with the world's year count and month names (see `@althistory/calendar`). */
+const GRAPH_CALENDAR_SCHEMA = {
+  type: 'object',
+  description:
+    "An invented world's calendar. Timestamps stay Gregorian; the calendar relabels the year (and, with " +
+    '`monthNames`, the month) when a date is shown: the stored year `epochYear` is year 1 of the world.',
+  properties: {
+    epochYear: { type: 'integer', minimum: 1, maximum: 9999, description: 'The stored year that is year 1.' },
+    eraLabel: { type: 'string', maxLength: 16, description: 'Written after the year ("312 AR"). Without one, "Year 312".' },
+    name: { type: 'string', maxLength: 80, description: 'What the calendar is called.' },
+    monthNames: {
+      type: 'array',
+      items: { type: 'string', minLength: 1, maxLength: 24 },
+      minItems: 12,
+      maxItems: 12,
+      description: "The world's names for the twelve months, January's first; distinct. The months keep their stored lengths.",
+    },
+  },
+  required: ['epochYear'],
+  additionalProperties: false,
+};
+
+/** A world's calendars of any shape (docs/specs/world-calendars.md). */
+const WORLD_CALENDAR_SET_SCHEMA = {
+  type: 'object',
+  description:
+    "An invented world's calendars, of any shape, naming positions on the graph's one timeline. Responses always " +
+    'carry the calendar as a set; a calendar sent in the simple form is stored as one Gregorian-shaped calendar.',
+  properties: {
+    version: { type: 'integer', enum: [2] },
+    dayLength: { type: 'integer', minimum: 1, maximum: 1000000, description: "Seconds of the timeline in the world's day (86400 for Earth's)." },
+    primary: { type: 'string', description: 'The id of the calendar shown unless another is picked.' },
+    calendars: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 8,
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{0,31}$' },
+          name: { type: 'string', maxLength: 80 },
+          parts: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 100,
+            description: 'The year in order: months, and runs of festival days (intercalary) that belong to no month.',
+            items: {
+              type: 'object',
+              properties: { name: { type: 'string', maxLength: 24 }, days: { type: 'integer', minimum: 1, maximum: 1000 }, intercalary: { type: 'boolean' } },
+              additionalProperties: false, required: ['name', 'days'],
+            },
+          },
+          leapRules: {
+            type: 'array',
+            maxItems: 20,
+            description: 'Days added to (or taken from) a part in year Y when (Y - offset) is a multiple of every.',
+            items: {
+              type: 'object',
+              properties: { every: { type: 'integer', minimum: 1 }, offset: { type: 'integer' }, part: { type: 'integer', minimum: 0 }, days: { type: 'integer' } },
+              additionalProperties: false, required: ['every', 'part', 'days'],
+            },
+          },
+          epoch: { type: 'integer', description: 'The timeline day on which year 1 begins.' },
+          eras: {
+            type: 'array',
+            items: { type: 'object', properties: { label: { type: 'string', maxLength: 16 }, from: { type: 'integer' } }, additionalProperties: false, required: ['label', 'from'] },
+          },
+          beforeEra: { type: 'string', maxLength: 16 },
+          week: {
+            type: 'object',
+            properties: { days: { type: 'array', items: { type: 'string' } }, epochWeekday: { type: 'integer' }, skipsIntercalary: { type: 'boolean' } },
+            additionalProperties: false, required: ['days'],
+          },
+          time: {
+            type: 'object',
+            properties: { hoursPerDay: { type: 'integer' }, minutesPerHour: { type: 'integer' }, secondsPerMinute: { type: 'integer' } },
+            additionalProperties: false,
+          },
+          notation: {
+            type: 'object',
+            properties: { date: { type: 'string' }, month: { type: 'string' }, year: { type: 'string' }, festival: { type: 'string' }, time: { type: 'string' } },
+            additionalProperties: false,
+          },
+        },
+        additionalProperties: false, required: ['id', 'name', 'parts', 'epoch'],
+      },
+    },
+  },
+  additionalProperties: false, required: ['version', 'dayLength', 'calendars', 'primary'],
+};
+
 const SCHEMAS: Record<string, Record<string, unknown>> = {
   /**
    * The shape of a request or response this document does not describe in
@@ -81,6 +173,12 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     type: 'object',
     description: 'An object whose properties depend on the operation.',
     additionalProperties: true,
+  },
+  SimpleCalendar: GRAPH_CALENDAR_SCHEMA,
+  WorldCalendarSet: WORLD_CALENDAR_SET_SCHEMA,
+  CalendarInput: {
+    description: 'A calendar set of any shape, or the simple form (stored as a set).',
+    oneOf: [{ $ref: '#/components/schemas/WorldCalendarSet' }, { $ref: '#/components/schemas/SimpleCalendar' }],
   },
   Graph: {
     type: 'object',
@@ -93,6 +191,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       parentGraphId: { type: 'string' },
       createdAt: { type: 'string', format: 'date-time' },
       updatedAt: { type: 'string', format: 'date-time' },
+      calendar: { $ref: '#/components/schemas/WorldCalendarSet' },
     },
     required: ['id', 'name', 'status', 'version'],
   },
@@ -101,6 +200,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       name: { type: 'string' },
       description: { type: 'string' },
+      calendar: { $ref: '#/components/schemas/CalendarInput' },
     },
     required: ['name'],
   },
@@ -110,6 +210,14 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       name: { type: 'string' },
       description: { type: 'string' },
       status: { type: 'string', enum: ['active', 'archived'] },
+      // Inline rather than a $ref: in OpenAPI 3.0 `nullable` only counts next
+      // to a `type`, so a nullable reference cannot be written.
+      calendar: {
+        type: 'object',
+        description: 'A new calendar (a calendar set of any shape, or the simple form), or null to remove it.',
+        nullable: true,
+        oneOf: [{ $ref: '#/components/schemas/WorldCalendarSet' }, { $ref: '#/components/schemas/SimpleCalendar' }],
+      },
     },
   },
   BranchGraphRequest: {
@@ -206,13 +314,39 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     },
     required: ['id', 'description', 'actor', 'target', 'timestamp'],
   },
+  WorldDate: {
+    description:
+      "A date to store. ISO 8601 (a position on the graph's timeline). In a graph with world calendars, also a date in the world's notation " +
+      '("Thaw 4, 312 AR", "Thaw 312 AR" for a month, "312 AR" for a year; a time after a comma), or its fields. A month or a year records ' +
+      "`metadata.datePrecision`; as an arc's end, a day, month or year without a time is its last moment. In such a graph, text that is " +
+      'neither is refused (docs/specs/world-calendars.md, Req 14-18).',
+    oneOf: [
+      { type: 'string' },
+      {
+        type: 'object',
+        description: "A date in one of the graph's calendars, as fields. `year` counts in `era` (a label, or \"before\"), or is the line year.",
+        properties: {
+          calendar: { type: 'string', description: "The calendar's id (the primary one when left out)" },
+          era: { type: 'string' },
+          year: { type: 'integer' },
+          month: { oneOf: [{ type: 'string' }, { type: 'integer', minimum: 1 }] },
+          day: { type: 'integer', minimum: 1 },
+          hour: { type: 'integer', minimum: 0 },
+          minute: { type: 'integer', minimum: 0 },
+          second: { type: 'integer', minimum: 0 },
+        },
+        required: ['year'],
+        additionalProperties: false,
+      },
+    ],
+  },
   EventRequest: {
     type: 'object',
     properties: {
       description: { type: 'string' },
       actor: { type: 'string' },
       target: { type: 'string' },
-      timestamp: { type: 'string', format: 'date-time' },
+      timestamp: { $ref: '#/components/schemas/WorldDate' },
       metadata: { type: 'object' },
     },
     required: ['description', 'actor', 'target', 'timestamp'],
@@ -223,7 +357,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       description: { type: 'string' },
       actor: { type: 'string' },
       target: { type: 'string' },
-      timestamp: { type: 'string', format: 'date-time' },
+      timestamp: { $ref: '#/components/schemas/WorldDate' },
       metadata: { type: 'object' },
     },
   },
@@ -244,8 +378,8 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       name: { type: 'string' },
       description: { type: 'string' },
-      start_time: { type: 'string', format: 'date-time' },
-      end_time: { type: 'string', format: 'date-time' },
+      start_time: { $ref: '#/components/schemas/WorldDate' },
+      end_time: { $ref: '#/components/schemas/WorldDate' },
       level: { type: 'integer' },
       parent_arc_id: { type: 'string', nullable: true },
     },
@@ -256,8 +390,8 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       name: { type: 'string' },
       description: { type: 'string' },
-      start_time: { type: 'string', format: 'date-time' },
-      end_time: { type: 'string', format: 'date-time' },
+      start_time: { $ref: '#/components/schemas/WorldDate' },
+      end_time: { $ref: '#/components/schemas/WorldDate' },
       level: { type: 'integer' },
     },
   },
@@ -852,6 +986,18 @@ export function buildOpenApiDocument(routes: RouteEntry[]): Record<string, unkno
     const parameters = pathParameters(route.path)
     if (spec.graphScoped) {
       parameters.push(GRAPH_HEADER_PARAMETER)
+    }
+    if (spec.graphScoped && spec.headers?.some((header) => header.name.toLowerCase() === 'x-graph-id')) {
+      throw new Error(`${key} declares X-Graph-Id twice: as graphScoped and in its headers`)
+    }
+    for (const header of spec.headers ?? []) {
+      parameters.push({
+        name: header.name,
+        in: 'header',
+        required: header.required ?? false,
+        schema: { type: 'string' },
+        description: header.description,
+      })
     }
 
     const successStatus = String(spec.status ?? 200)

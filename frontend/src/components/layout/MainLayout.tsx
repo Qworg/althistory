@@ -12,6 +12,8 @@ import { useHelpShortcut } from '@/components/help/useHelpShortcut'
 import { useActiveGraphReconciler } from '@/hooks/useGraphs'
 import { NoActiveGraph } from '@/components/graphs/NoActiveGraph'
 import { ApiKeyRequired } from '@/components/graphs/ApiKeyRequired'
+import { useWorldCalendarSync } from '@/hooks/useWorldCalendar'
+import { WorldCalendarBoundary } from './WorldCalendarBoundary'
 
 interface MainLayoutProps {
   children: ReactNode
@@ -36,6 +38,9 @@ export function MainLayout({ children }: MainLayoutProps) {
 
   // The header's active graph follows the server's, which scopes the data
   const { noActiveGraph, accessProblem } = useActiveGraphReconciler()
+
+  // Dates are shown in the open graph's world calendar, when it has one
+  useWorldCalendarSync()
 
   // Sync high contrast accessibility preference to the root document element
   useEffect(() => {
@@ -175,10 +180,12 @@ export function MainLayout({ children }: MainLayoutProps) {
               ) : noActiveGraph ? (
                 <NoActiveGraph />
               ) : (
-                <>
+                // Remounted when the world calendar changes, so every date in
+                // the views is shown in the new one (WorldCalendarBoundary).
+                <WorldCalendarBoundary>
                   <ActiveFiltersBar className="mb-4" />
                   {children}
-                </>
+                </WorldCalendarBoundary>
               )}
             </div>
           </div>

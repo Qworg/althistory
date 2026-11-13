@@ -1,3 +1,5 @@
+import type { WorldCalendarSet } from '@althistory/calendar'
+
 // Core data types based on backend API
 export interface Event {
   id: string
@@ -221,6 +223,12 @@ export interface CopyOperation {
     timeRange?: TimeRange
     filter?: EntityFilter
   }
+  /**
+   * The world calendar of the graph copied (`null` for none), recorded when
+   * the copy is made: its dates are shown in that graph's years, whichever
+   * graph is open when the notice or the history is read.
+   */
+  sourceCalendar?: GraphCalendar | null
 }
 
 export interface GraphCopyState {
@@ -322,12 +330,22 @@ export interface GraphMetadata {
   arcCount: number
   relationshipCount: number
   pressureCount: number
-  timeRange?: {
+  /** The first and last event's timestamps, as the backend names it (`Graph.ts`). */
+  temporalRange?: {
     start: string
     end: string
   }
   tags?: string[]
 }
+
+/**
+ * An invented world's calendars, of any shape, naming positions on the
+ * graph's one timeline (docs/specs/world-calendars.md). Defined, checked and
+ * formatted by `@althistory/calendar`.
+ */
+export type { WorldCalendarSet }
+/** The name the app's components use for a graph's world calendars: a calendar set. */
+export type GraphCalendar = WorldCalendarSet
 
 export interface Graph {
   id: string
@@ -340,6 +358,8 @@ export interface Graph {
   metadata: GraphMetadata
   parentGraphId?: string
   branchName?: string
+  /** Present when the graph is an invented world with its own calendar. */
+  calendar?: GraphCalendar
 }
 
 export interface GraphVersion {
@@ -368,6 +388,7 @@ export interface CreateGraphRequest {
   name: string
   description?: string
   tags?: string[]
+  calendar?: GraphCalendar
 }
 
 export interface UpdateGraphRequest {
@@ -375,6 +396,8 @@ export interface UpdateGraphRequest {
   description?: string
   tags?: string[]
   status?: GraphStatus
+  /** An object sets the calendar, `null` removes it, omitted keeps it. */
+  calendar?: GraphCalendar | null
 }
 
 export interface BranchGraphRequest {
@@ -491,6 +514,8 @@ export interface AlthistoryExport {
     graphVersion: number
     checksum: string
     filters?: ExportFilters
+    /** The exported graph's world calendar, when it has one (docs/export-format.md). */
+    calendar?: GraphCalendar
   }
   data: {
     events: Array<{
@@ -801,6 +826,8 @@ export interface ExtractedEvent {
   timestamp: string
   /** How much of the date the source stated; absent means a full date. */
   datePrecision?: 'day' | 'month' | 'year'
+  /** The world calendar a month or year was given in. */
+  dateCalendar?: string
   confidence: number
   source: ExtractionSource
   selected: boolean
@@ -911,6 +938,11 @@ export interface TextIngestRequest {
   text: string
   useLLM?: boolean
   context?: TextIngestContext
+  /**
+   * The graph the text is bound for, sent as `X-Graph-Id` (not in the body).
+   * A graph with a world calendar has the model read the text's dates in it.
+   */
+  targetGraphId?: string
 }
 
 export interface ApproveIngestionRequest {

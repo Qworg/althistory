@@ -72,3 +72,38 @@ describe('keyboardTimeStep / offsetByStep', () => {
     expect(offsetByStep(start, { unit: 'day', count: 7 }, 1).toISOString()).toBe('1843-03-22T00:00:00.000Z')
   })
 })
+
+describe('keyboard steps in a world calendar', () => {
+  // VAEL: fourteen parts in the Reckoning (twelve months, two festivals), Midyear's Day after Highsun, the Drowned Days last; days of 30 hours.
+  it("steps by the world's own days, months and years", async () => {
+    const { VAEL, vael } = await import('@/test/fixtures/worldCalendars')
+    const day = offsetByStep(vael(312, 2, 4, 6), { unit: 'day', count: 1 }, 1, VAEL)
+    expect(day.getTime() - vael(312, 2, 4, 6).getTime()).toBe(30 * 3600 * 1000)
+    expect(offsetByStep(vael(312, 2, 4, 6), { unit: 'month', count: 1 }, 1, VAEL)).toEqual(vael(312, 3, 4, 6))
+    // A month past Highsun 15 is Saltreap 15: Midyear's Day is a festival, not a month.
+    expect(offsetByStep(vael(312, 5, 15), { unit: 'month', count: 1 }, 1, VAEL)).toEqual(vael(312, 7, 15))
+    expect(offsetByStep(vael(312, 7, 15), { unit: 'month', count: 1 }, -1, VAEL)).toEqual(vael(312, 5, 15))
+    // From a festival, the month after it (or before it, going back).
+    expect(offsetByStep(vael(312, 6, 1), { unit: 'month', count: 1 }, 1, VAEL)).toEqual(vael(312, 7, 1))
+    expect(offsetByStep(vael(312, 6, 1), { unit: 'month', count: 1 }, -1, VAEL)).toEqual(vael(312, 5, 1))
+    expect(offsetByStep(vael(312, 13, 2), { unit: 'month', count: 1 }, 1, VAEL)).toEqual(vael(313, 0, 2))
+    // Back across the year's start, past the Drowned Days, to Longnight.
+    expect(offsetByStep(vael(312, 0, 4), { unit: 'month', count: 1 }, -1, VAEL)).toEqual(vael(311, 12, 4))
+    // The Drowned Days' fifth day (a leap year) a year on is its fourth.
+    expect(offsetByStep(vael(312, 13, 5), { unit: 'year', count: 1 }, 1, VAEL)).toEqual(vael(313, 13, 4))
+    // The step fits the world's units: a world year in view steps by its days.
+    expect(keyboardTimeStep(vael(313, 0, 1).getTime() - vael(312, 0, 1).getTime(), VAEL)).toEqual({ unit: 'day', count: 7 })
+  })
+})
+
+describe('keyboard month steps on the Gregorian calendar', () => {
+  it('keep the day, or the month\'s last when it is shorter', () => {
+    const step = (iso: string, n: number, unit: 'month' | 'year' = 'month') => offsetByStep(new Date(iso), { unit, count: 1 }, n, null).toISOString()
+    expect(step('2023-01-31T12:00:00.000Z', 1)).toBe('2023-02-28T12:00:00.000Z')
+    expect(step('2024-03-31T00:00:00.000Z', -1)).toBe('2024-02-29T00:00:00.000Z')
+    expect(step('2024-02-29T00:00:00.000Z', 1, 'year')).toBe('2025-02-28T00:00:00.000Z')
+    expect(step('0001-01-15T00:00:00.000Z', -1)).toBe('0000-12-15T00:00:00.000Z')
+    // At the very start of what a Date holds, the 1st of the month is out of range.
+    expect(step('-271821-04-25T00:00:00.000Z', 1)).toBe('-271821-05-25T00:00:00.000Z')
+  })
+})

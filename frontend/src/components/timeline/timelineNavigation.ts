@@ -7,6 +7,10 @@
  * Timeline.tsx wires these to the DOM; nothing here touches it.
  */
 
+import { type CompiledCalendar, type WorldCalendarSet, calendarIn, dateAt, daysInMonth, partLengths, positionOf } from '@althistory/calendar'
+import { getActiveCalendar } from '@/stores/worldCalendarStore'
+
+
 /** A mark's identity in the DOM (`data-mark-key`) and in the model. */
 export type MarkKey = string
 
@@ -182,17 +186,37 @@ const STEPS_PER_VIEW = 40
  * visible move at any zoom (a day when a year is in view, five years when two
  * centuries are).
  */
-export function keyboardTimeStep(visibleSpanMs: number): TimeStep {
+export function keyboardTimeStep(visibleSpanMs: number, calendar: WorldCalendarSet | null = getActiveCalendar()): TimeStep {
   const target = visibleSpanMs / STEPS_PER_VIEW
+  const approx = calendar ? worldUnitMs(calendar) : APPROX_MS
   let chosen = STEPS[0]!
   for (const step of STEPS) {
-    if (APPROX_MS[step.unit] * step.count <= target) chosen = step
+    if (approx[step.unit] * step.count <= target) chosen = step
   }
   return chosen
 }
 
-/** `date` moved by `direction` steps, in UTC (historical dates are UTC instants). */
-export function offsetByStep(date: Date, step: TimeStep, direction: number): Date {
+/** A world calendar's units, in milliseconds (a month and a year on average). */
+function worldUnitMs(set: WorldCalendarSet): Record<Unit, number> {
+  const calendar = calendarIn(set)
+  const yearMs = (calendar.cycleDays / calendar.cycleYears) * calendar.dayMs
+  return {
+    minute: calendar.dayMs / (calendar.time.hoursPerDay * calendar.time.minutesPerHour),
+    hour: calendar.dayMs / calendar.time.hoursPerDay,
+    day: calendar.dayMs,
+    month: yearMs / calendar.definition.parts.length,
+    year: yearMs,
+  }
+}
+
+/**
+ * `date` moved by `direction` steps. In a world, by its own minutes, hours,
+ * days, months and years (a month or a year keeps the day, the last day of a
+ * shorter month or festival when it has fewer); otherwise in UTC on the
+ * Gregorian calendar (historical dates are UTC instants).
+ */
+export function offsetByStep(date: Date, step: TimeStep, direction: number, calendar: WorldCalendarSet | null = getActiveCalendar()): Date {
+  if (calendar) return new Date(offsetInWorld(calendarIn(calendar), date.getTime(), step, direction))
   const next = new Date(date.getTime())
   const n = step.count * direction
   switch (step.unit) {
@@ -202,11 +226,47 @@ export function offsetByStep(date: Date, step: TimeStep, direction: number): Dat
       next.setTime(next.getTime() + n * APPROX_MS[step.unit])
       break
     case 'month':
-      next.setUTCMonth(next.getUTCMonth() + n)
+    case 'year': {
+      // The same day of the month, or the month's last when it is shorter
+      // (Jan 31 + 1 month is Feb 28, not Mar 3).
+      // By arithmetic, then set at once: a day on the way (the 1st of a month)
+      // can lie outside what a Date holds at the ends of its range.
+      const months = next.getUTCFullYear() * 12 + next.getUTCMonth() + (step.unit === 'month' ? n : n * 12)
+      const year = Math.floor(months / 12)
+      const month = months - year * 12
+      next.setUTCFullYear(year, month, Math.min(next.getUTCDate(), daysInMonth(year, month + 1)))
       break
-    case 'year':
-      next.setUTCFullYear(next.getUTCFullYear() + n)
-      break
+    }
   }
   return next
+}
+
+function offsetInWorld(calendar: CompiledCalendar, position: number, step: TimeStep, direction: number): number {
+  const n = step.count * direction
+  if (step.unit === 'minute' || step.unit === 'hour' || step.unit === 'day') {
+    const unit = step.unit === 'day' ? calendar.dayMs : step.unit === 'hour' ? calendar.dayMs / calendar.time.hoursPerDay : calendar.dayMs / (calendar.time.hoursPerDay * calendar.time.minutesPerHour)
+    return position + Math.round(n * unit)
+  }
+  const date = dateAt(calendar, position)
+  let year = date.year
+  let part = date.part
+  if (step.unit === 'year') year += n
+  else {
+    // Months, not festivals: a step from Highsun lands in Saltreap, past
+    // Midyear's Day, and keeps the day. From a festival, the next month.
+    const months = calendar.definition.parts.flatMap((candidate, index) => (candidate.intercalary ? [] : [index]))
+    const here = months.indexOf(part)
+    // A festival sits between two months: forward from the one before it, back from the one after.
+    const after = months.findIndex((index) => index > part)
+    const next = after < 0 ? months.length : after
+    const from = here >= 0 ? here : n > 0 ? next - 1 : next
+    const index = from + n
+    year += Math.floor(index / months.length)
+    part = months[((index % months.length) + months.length) % months.length]!
+  }
+  const day = Math.min(date.day, partLengths(calendar, year)[part]!)
+  // The same time into the new day.
+  const intoDay = position - Math.floor(position / calendar.dayMs) * calendar.dayMs
+  const start = positionOf(calendar, { year, part, day, hour: 0, minute: 0, second: 0 })
+  return start === null ? position : start + intoDay
 }

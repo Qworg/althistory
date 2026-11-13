@@ -32,8 +32,9 @@ import {
   findEscapedParentArc,
 } from './timelineInteractionUtils'
 import type { UpdateArcRequest } from '@/types'
-import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
+import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
 import { useEditHistory } from '@/hooks/useEditHistory'
+import { useKeptRef, useKeptState } from '@/hooks/useKeptState'
 import { useUndoableEventDelete } from '@/hooks/useUndoableEventDelete'
 import { confidenceTier } from '@/components/timeline/confidenceTier'
 import { editShortcutLabels } from '@/utils/platform'
@@ -54,6 +55,9 @@ import {
   eventSource,
 } from '@/components/timeline/eventInspectorUtils'
 import { Portal } from '@/components/ui/Portal'
+
+/** What an event records of how much of its date is known: a month's or year's precision, and the calendar it was given in. */
+type DatePeriod = { datePrecision?: unknown; dateCalendar?: unknown }
 
 
 function describeError(error: unknown): string {
@@ -116,8 +120,10 @@ export function TimelineView() {
     [fetchedArcs, activeFilters]
   )
   const filtersActive = hasActiveFilters(activeFilters)
-  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
-  const [selectedArc, setSelectedArc] = useState<Arc | null>(null)
+  // Kept when the view is remounted to show another of the world's calendars.
+  const selectionGraphId = useActiveGraphId()
+  const [selectedEvent, setSelectedEvent] = useKeptState<Event | null>('timeline.selectedEvent', selectionGraphId, null)
+  const [selectedArc, setSelectedArc] = useKeptState<Arc | null>('timeline.selectedArc', selectionGraphId, null)
 
   // A selection the filter has just hidden leaves the inspector: it would
   // otherwise describe a mark that is no longer on the canvas. (Only once it
@@ -137,7 +143,7 @@ export function TimelineView() {
     ) {
       setSelectedArc(null)
     }
-  }, [events, arcs, fetchedEvents, fetchedArcs, selectedEvent, selectedArc])
+  }, [events, arcs, fetchedEvents, fetchedArcs, selectedEvent, selectedArc, setSelectedEvent, setSelectedArc])
 
   // Context menu and modal state
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
@@ -327,12 +333,12 @@ export function TimelineView() {
   const handleEventSelect = useCallback((event: Event) => {
     setSelectedEvent(event)
     setSelectedArc(null)
-  }, [])
+  }, [setSelectedEvent, setSelectedArc])
 
   const handleArcSelect = useCallback((arc: Arc) => {
     setSelectedArc(arc)
     setSelectedEvent(null)
-  }, [])
+  }, [setSelectedEvent, setSelectedArc])
 
   // A link can name the event to open on (`?event=<id>`; the landing page's
   // hero links into the demo this way). Select it once the events have
@@ -367,7 +373,7 @@ export function TimelineView() {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [hasInspectorSelection])
+  }, [hasInspectorSelection, setSelectedEvent, setSelectedArc])
 
   // The inspector reads the selected event as it is now, not the snapshot
   // taken when it was clicked, so an edit shows without reselecting.
@@ -504,8 +510,13 @@ export function TimelineView() {
     return violation ? `Will be refused: ${violation.reason}` : null
   }, [arcResizeViolation])
 
-  /** Validate and persist an event's new time; resolves to whether it was written. */
-  const moveEvent = useCallback(async (event: Event, newTimestamp: Date): Promise<boolean> => {
+  /**
+   * Validate and persist an event's new time; resolves to whether it was
+   * written. `precision` is how much of the new time is known: a drag puts
+   * the event at an exact instant (none), and undoing it restores the month
+   * or year the event was dated to.
+   */
+  const moveEvent = useCallback(async (event: Event, newTimestamp: Date, restored?: DatePeriod): Promise<boolean> => {
     const reason = eventMoveViolation(event, newTimestamp)
     if (reason) {
       addError({
@@ -515,9 +526,23 @@ export function TimelineView() {
       return false
     }
     try {
+      // The precision goes with the time: a month an event was dated to no
+      // longer applies once it is dragged to an exact instant (left in place it
+      // would show the move as "May 1871"). Metadata is sent only when that
+      // changes, and then whole, as the API replaces it.
+      // (Its calendar, the one a month or year was given in, goes with it.)
+      const { datePrecision, dateCalendar, ...rest } = event.metadata ?? {}
+      const next: DatePeriod = restored?.datePrecision
+        ? { datePrecision: restored.datePrecision, ...(restored.dateCalendar ? { dateCalendar: restored.dateCalendar } : {}) }
+        : {}
+      // An undo restoring a month always says so: the copy of the event held
+      // here can be the one from before the move (an offline queue, a refetch
+      // still on its way), and would read as nothing to change.
+      const changed = next.datePrecision !== undefined || datePrecision !== next.datePrecision || dateCalendar !== next.dateCalendar
+      const metadata = changed ? { ...rest, ...next } : undefined
       await updateEventMutation.mutateAsync({
         id: event.id,
-        data: { timestamp: newTimestamp.toISOString() },
+        data: { timestamp: newTimestamp.toISOString(), ...(metadata ? { metadata } : {}) },
       })
       return true
     } catch (error) {
@@ -560,7 +585,7 @@ export function TimelineView() {
   // Undo/redo for drags and resizes. A different graph has different
   // entities, so switching graphs discards the history.
   const activeGraphId = useActiveGraphId()
-  const editHistory = useEditHistory({ resetKey: activeGraphId })
+  const editHistory = useEditHistory({ resetKey: activeGraphId, keepAs: 'timeline' })
   const recordEdit = editHistory.record
   // Deleting an event ends with "Deleted … · Undo" in the status line below.
   const deleteEventUndoably = useUndoableEventDelete(recordEdit)
@@ -573,13 +598,13 @@ export function TimelineView() {
    * restored; that step is reported and consumed so it does not block the rest
    * of the history.
    */
-  const reapplyEventTime = useCallback(async (eventId: string, description: string, iso: string) => {
+  const reapplyEventTime = useCallback(async (eventId: string, description: string, iso: string, restored?: DatePeriod) => {
     const current = fetchedEventsRef.current.find((e) => e.id === eventId)
     if (!current) {
       addError({ type: 'general', message: `"${description}" no longer exists, so that change cannot be reversed.` })
       return true
     }
-    return moveEvent(current, new Date(iso))
+    return moveEvent(current, new Date(iso), restored)
   }, [moveEvent, addError])
 
   const reapplyArcBounds = useCallback(async (arcId: string, name: string, bounds: { start: string; end: string }) => {
@@ -591,27 +616,34 @@ export function TimelineView() {
     return resizeArc(current, { start: new Date(bounds.start), end: new Date(bounds.end) })
   }, [resizeArc, addError])
 
+  // What an undo entry does, as the view on screen does it: an entry recorded
+  // before the view was remounted for another calendar (it keeps the history)
+  // reaches this, refreshed on every render, not the replaced view's frozen data.
+  const reapply = useKeptRef('timeline.reapply', activeGraphId, { eventTime: reapplyEventTime, arcBounds: reapplyArcBounds })
+  reapply.current = { eventTime: reapplyEventTime, arcBounds: reapplyArcBounds }
+
   const handleEventDrag = useCallback(async (event: Event, newTimestamp: Date) => {
     const from = event.timestamp
+    const fromPeriod: DatePeriod = { datePrecision: event.metadata?.datePrecision, dateCalendar: event.metadata?.dateCalendar }
     const to = newTimestamp.toISOString()
     if (!(await moveEvent(event, newTimestamp))) return
     recordEdit({
       description: `moved "${event.description}" to ${formatHistoricalTimestamp(to)}`,
-      undo: () => reapplyEventTime(event.id, event.description, from),
-      redo: () => reapplyEventTime(event.id, event.description, to),
+      undo: () => reapply.current.eventTime(event.id, event.description, from, fromPeriod),
+      redo: () => reapply.current.eventTime(event.id, event.description, to),
     })
-  }, [moveEvent, recordEdit, reapplyEventTime])
+  }, [moveEvent, recordEdit, reapply])
 
   const handleArcResize = useCallback(async (arc: Arc, newBounds: { start: Date; end: Date }) => {
     const from = { start: arc.start_time, end: arc.end_time }
     const to = { start: newBounds.start.toISOString(), end: newBounds.end.toISOString() }
     if (!(await resizeArc(arc, newBounds))) return
     recordEdit({
-      description: `resized "${arc.name}" to ${formatHistoricalTimestamp(to.start)} – ${formatHistoricalTimestamp(to.end)}`,
-      undo: () => reapplyArcBounds(arc.id, arc.name, from),
-      redo: () => reapplyArcBounds(arc.id, arc.name, to),
+      description: `resized "${arc.name}" to ${formatHistoricalTimestamp(to.start)} – ${formatHistoricalEnd(to.end)}`,
+      undo: () => reapply.current.arcBounds(arc.id, arc.name, from),
+      redo: () => reapply.current.arcBounds(arc.id, arc.name, to),
     })
-  }, [resizeArc, recordEdit, reapplyArcBounds])
+  }, [resizeArc, recordEdit, reapply])
 
   // Context menu handlers
   const handleEventContextMenu = useCallback((event: Event, position: { x: number; y: number }) => {
@@ -707,7 +739,7 @@ export function TimelineView() {
         message: `Failed to delete ${deleteConfirm.type}: ${describeError(error)}`,
       })
     }
-  }, [deleteConfirm, deleteEventUndoably, relationships, deleteArcMutation, selectedEvent, selectedArc, addError])
+  }, [deleteConfirm, deleteEventUndoably, relationships, deleteArcMutation, selectedEvent, selectedArc, addError, setSelectedEvent, setSelectedArc])
 
   // Cancel delete
   const handleDeleteCancel = useCallback(() => {
@@ -750,7 +782,7 @@ export function TimelineView() {
         throw error
       }
     }
-  }, [editModal, deleteEventUndoably, relationships, selectedEvent, addError])
+  }, [editModal, deleteEventUndoably, relationships, selectedEvent, addError, setSelectedEvent])
 
   // Save arc changes
   const handleArcSave = useCallback(async (updates: UpdateArcRequest) => {
@@ -788,7 +820,7 @@ export function TimelineView() {
         throw error
       }
     }
-  }, [editModal, deleteArcMutation, selectedArc, addError])
+  }, [editModal, deleteArcMutation, selectedArc, addError, setSelectedArc])
 
   // Close edit modal
   const handleEditModalClose = useCallback(() => {
@@ -1222,7 +1254,7 @@ export function TimelineView() {
               </div>
               <div>
                 <dt className="text-xs font-medium text-ink-muted">End</dt>
-                <dd className="font-mono-code text-ink">{formatHistoricalTimestamp(selectedArc.end_time)}</dd>
+                <dd className="font-mono-code text-ink">{formatHistoricalEnd(selectedArc.end_time)}</dd>
               </div>
             </dl>
           </div>

@@ -13,6 +13,7 @@ import {
   SimulationStep,
 } from '@/services/SimulationService';
 import type { StoredCausalRelationship } from '@/services/CausalService';
+import { requestCalendar, queryInstant } from '../worldDates';
 
 export const inferenceRoutes = Router();
 
@@ -76,8 +77,8 @@ inferenceRoutes.post('/analyze-clusters', ...entityPermission('read:events'), as
     } else {
       // Get events within time range
       const parsedTimeRange: TimeRange = {
-        start: new Date(timeRange.startTime),
-        end: new Date(timeRange.endTime)
+        start: queryInstant(timeRange.startTime),
+        end: queryInstant(timeRange.endTime)
       };
 
       if (isNaN(parsedTimeRange.start.getTime()) || isNaN(parsedTimeRange.end.getTime())) {
@@ -89,7 +90,7 @@ inferenceRoutes.post('/analyze-clusters', ...entityPermission('read:events'), as
 
     // Analyze clusters
     const inferenceService = req.container.inferenceService;
-    const pressures = inferenceService.analyzeEventClusters(events);
+    const pressures = inferenceService.analyzeEventClusters(events, await requestCalendar(req));
 
     res.json({
       success: true,
@@ -123,8 +124,8 @@ inferenceRoutes.post('/detect-patterns', ...entityPermission('read:events'), asy
     }
 
     const parsedTimeRange: TimeRange = {
-      start: new Date(timeRange.startTime),
-      end: new Date(timeRange.endTime)
+      start: queryInstant(timeRange.startTime),
+      end: queryInstant(timeRange.endTime)
     };
 
     if (isNaN(parsedTimeRange.start.getTime()) || isNaN(parsedTimeRange.end.getTime())) {
@@ -156,7 +157,7 @@ inferenceRoutes.post('/detect-patterns', ...entityPermission('read:events'), asy
 
     // Use existing inference service to analyze clusters and suggest causal links
     const inferenceService = req.container.inferenceService;
-    const pressures = inferenceService.analyzeEventClusters(events);
+    const pressures = inferenceService.analyzeEventClusters(events, await requestCalendar(req));
     const causalSuggestions = inferenceService.suggestCausalLinks(events);
     
     // Confidence lives on the suggested relationship, not on the suggestion wrapper.
@@ -237,7 +238,7 @@ inferenceRoutes.get('/pressures', ...entityPermission('read:events'), async (req
     const inferenceService = req.container.inferenceService;
     
     const events = await eventRepository.findAll(1000); // Get sample of events
-    let pressures = inferenceService.analyzeEventClusters(events);
+    let pressures = inferenceService.analyzeEventClusters(events, await requestCalendar(req));
     
     // Filter by type if specified
     if (typeFilter) {
@@ -311,8 +312,8 @@ inferenceRoutes.get('/actor-relationships', ...entityPermission('read:events'), 
       try {
         const tr = typeof timeRange === 'string' ? JSON.parse(timeRange) : timeRange;
         parsedTimeRange = {
-          start: new Date(tr.startTime),
-          end: new Date(tr.endTime)
+          start: queryInstant(tr.startTime),
+          end: queryInstant(tr.endTime)
         };
 
         if (isNaN(parsedTimeRange.start.getTime()) || isNaN(parsedTimeRange.end.getTime())) {
@@ -439,8 +440,8 @@ inferenceRoutes.get('/anomalies', ...entityPermission('read:events'), async (req
     try {
       const tr = typeof timeRange === 'string' ? JSON.parse(timeRange as string) : timeRange;
       parsedTimeRange = {
-        start: new Date(tr.startTime),
-        end: new Date(tr.endTime)
+        start: queryInstant(tr.startTime),
+        end: queryInstant(tr.endTime)
       };
 
       if (isNaN(parsedTimeRange.start.getTime()) || isNaN(parsedTimeRange.end.getTime())) {
@@ -521,8 +522,8 @@ inferenceRoutes.post('/predict', ...entityPermission('read:events'), async (req:
     }
 
     const parsedBaseTimeRange: TimeRange = {
-      start: new Date(baseTimeRange.startTime),
-      end: new Date(baseTimeRange.endTime)
+      start: queryInstant(baseTimeRange.startTime),
+      end: queryInstant(baseTimeRange.endTime)
     };
 
     if (isNaN(parsedBaseTimeRange.start.getTime()) || isNaN(parsedBaseTimeRange.end.getTime())) {

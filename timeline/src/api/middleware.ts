@@ -808,3 +808,23 @@ export function asyncHandler<T extends AuthenticatedRequest = AuthenticatedReque
     Promise.resolve(fn(req as T, res, next)).catch(next);
   };
 }
+
+/**
+ * Scope a request to the graph its `X-Graph-Id` names, and check the key may
+ * read it, but only when it names one: a route that writes nothing (extraction,
+ * validation) stays unscoped without the header, as it always was.
+ */
+export function scopeToGraphWhenNamed(): RequestHandler[] {
+  const resolve = resolveGraphContext();
+  const authorizeAccess = authorizeGraphAccess((req) => req.graphId);
+  const whenNamed =
+    (handler: RequestHandler): RequestHandler =>
+    (req, res, next: NextFunction) => {
+      if (req.get(GRAPH_ID_HEADER) === undefined) {
+        next();
+        return;
+      }
+      handler(req, res, next);
+    };
+  return [whenNamed(resolve), whenNamed(authorizeAccess as RequestHandler)];
+}

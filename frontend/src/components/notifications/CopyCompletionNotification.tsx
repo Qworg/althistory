@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { CopyOperation } from '@/types'
 import { formatHistoricalDate } from '@/utils/historicalTime'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
 
 interface CopyCompletionNotificationProps {
   operation: CopyOperation
@@ -15,6 +16,11 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
   onDismiss,
   autoHideDelay = 10000 // 10 seconds
 }) => {
+  // A copy's dates read in its source graph's calendar, recorded when it was
+  // made; a copy recorded before that falls back to the open graph's.
+  const activeCalendar = useWorldCalendar()
+  const sourceCalendar = (operation: CopyOperation) =>
+    operation.sourceCalendar === undefined ? activeCalendar : operation.sourceCalendar
   const [isVisible, setIsVisible] = useState(true)
   const [progress, setProgress] = useState(100)
 
@@ -166,7 +172,8 @@ export const CopyCompletionNotification: React.FC<CopyCompletionNotificationProp
               )}
               {operation.parameters.timeRange && (
                 <div>
-                  Range: {formatHistoricalDate(operation.parameters.timeRange.start)} - {formatHistoricalDate(operation.parameters.timeRange.end)}
+                  Range: {formatHistoricalDate(operation.parameters.timeRange.start, undefined, sourceCalendar(operation))} -{' '}
+                  {formatHistoricalDate(operation.parameters.timeRange.end, undefined, sourceCalendar(operation))}
                 </div>
               )}
             </div>

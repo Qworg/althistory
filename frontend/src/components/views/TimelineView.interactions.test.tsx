@@ -180,6 +180,18 @@ describe('TimelineView direct-manipulation handlers', () => {
     expect(useGlobalStore.getState().errors).toHaveLength(0)
   })
 
+  it('drops a month or year precision when an event is dragged to an exact instant, keeping its other metadata', async () => {
+    renderView()
+    const monthEvent = { ...events[0]!, metadata: { datePrecision: 'month', arcId: 'a1', evidence: 'chronicle' } }
+    await act(async () => {
+      await currentTimelineProps().onEventDrag?.(monthEvent, new Date('1066-11-01T06:12:00.000Z'))
+    })
+    expect(mocks.updateEvent).toHaveBeenCalledWith({
+      id: 'e1',
+      data: { timestamp: '1066-11-01T06:12:00.000Z', metadata: { arcId: 'a1', evidence: 'chronicle' } },
+    })
+  })
+
   it('rejects an out-of-bounds drag with a visible validation error instead of writing', async () => {
     renderView()
 
@@ -352,6 +364,37 @@ describe('TimelineView direct-manipulation handlers', () => {
   })
 
   describe('undo and redo', () => {
+    it("undoes a drag of a month-dated event by restoring the month as well as the time", async () => {
+      const monthEvent = { ...events[0]!, timestamp: '1066-10-01T00:00:00.000Z', metadata: { datePrecision: 'month', arcId: 'a1' } }
+      vi.mocked(useEvents).mockReturnValue(eventsResult({ data: [monthEvent, ...events.slice(1)], isLoading: false, error: null }))
+      const view = renderView()
+      await act(async () => {
+        await currentTimelineProps().onEventDrag?.(monthEvent, new Date('1066-11-01T06:00:00.000Z'))
+      })
+      // As the server now holds it: an exact time, no month.
+      const moved = { ...monthEvent, timestamp: '1066-11-01T06:00:00.000Z', metadata: { arcId: 'a1' } }
+      vi.mocked(useEvents).mockReturnValue(eventsResult({ data: [moved, ...events.slice(1)], isLoading: false, error: null }))
+      view.rerender(
+        <QueryClientProvider client={new QueryClient()}>
+          <BrowserRouter>
+            <TimelineView />
+            <NotificationCenter />
+          </BrowserRouter>
+        </QueryClientProvider>
+      )
+
+      mocks.updateEvent.mockClear()
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
+      })
+      await waitFor(() =>
+        expect(mocks.updateEvent).toHaveBeenCalledWith({
+          id: 'e1',
+          data: { timestamp: '1066-10-01T00:00:00.000Z', metadata: { arcId: 'a1', datePrecision: 'month' } },
+        })
+      )
+    })
+
     it('undoes a drag with Ctrl+Z by writing the original time back, then redoes it', async () => {
       renderView()
 
@@ -481,5 +524,30 @@ describe('TimelineView direct-manipulation handlers', () => {
     expect(dialog).toBeInTheDocument()
     expect(within(dialog).getByRole('region', { name: /point of divergence/i })).toHaveTextContent('Battle of Hastings')
     expect((within(dialog).getByLabelText(/branch name/i) as HTMLInputElement).value).toMatch(/what if: Battle of Hastings/)
+  })
+})
+
+describe('undoing a move before the events are fetched again (an offline queue, a refetch on its way)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.timelineProps.current = null
+    mocks.updateEvent.mockResolvedValue(undefined)
+    useGlobalStore.setState({ errors: [], activeFilters: { ...defaultFilters } })
+    vi.mocked(useArcs).mockReturnValue(arcsResult({ data: arcs, isLoading: false, error: null }))
+  })
+
+  it('restores the month, and its calendar, though the copy held still has them', async () => {
+    const monthEvent = { ...events[0]!, timestamp: '1066-10-01T00:00:00.000Z', metadata: { datePrecision: 'month', dateCalendar: 'tide', arcId: 'a1' } }
+    vi.mocked(useEvents).mockReturnValue(eventsResult({ data: [monthEvent, ...events.slice(1)], isLoading: false, error: null }))
+    renderView()
+    await act(async () => {
+      await currentTimelineProps().onEventDrag?.(monthEvent, new Date('1066-11-01T06:00:00.000Z'))
+    })
+    mocks.updateEvent.mockClear()
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
+    })
+    await waitFor(() => expect(mocks.updateEvent).toHaveBeenCalled())
+    expect(mocks.updateEvent.mock.calls[0]![0].data.metadata).toMatchObject({ datePrecision: 'month', dateCalendar: 'tide' })
   })
 })

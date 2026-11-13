@@ -1,4 +1,44 @@
-import { Event, CausalRelationship } from '@/types'
+import { Event, CausalRelationship, GraphCalendar } from '@/types'
+import { formatHistoricalDate } from '@/utils/historicalTime'
+import { getActiveCalendar } from '@/stores/worldCalendarStore'
+import { sameCalendarSet } from '@althistory/calendar'
+
+/**
+ * The world calendars of the two graphs compared. Each is the graph's own
+ * (`null` for none); left out, the open graph's, which is right only when one
+ * of the two is the open graph and the other shares its calendar (a branch).
+ */
+export interface ComparisonCalendars {
+  readonly baseline?: GraphCalendar | null
+  readonly counterfactual?: GraphCalendar | null
+}
+
+/**
+ * The calendar a date in a comparison is shown in. A date from one side (an
+ * event only the branch has, or only the baseline) reads in that graph's
+ * calendar. A date both share -- the axis, a shared or modified event --
+ * reads in their common calendar, or in stored (Gregorian) years when they
+ * have different ones: one world's years must never label the other's dates.
+ */
+export function comparisonCalendar(
+  side: 'baseline' | 'counterfactual' | 'both',
+  calendars: ComparisonCalendars = {}
+): GraphCalendar | null {
+  const baseline = calendars.baseline === undefined ? getActiveCalendar() : calendars.baseline
+  const counterfactual = calendars.counterfactual === undefined ? getActiveCalendar() : calendars.counterfactual
+  if (side === 'baseline') return baseline
+  if (side === 'counterfactual') return counterfactual
+  return sameCalendarSet(baseline, counterfactual) ? baseline : null
+}
+
+/** Which side an item's date belongs to. */
+export function comparisonSide(
+  status: EventComparisonItem['status'] | DivergenceType
+): 'baseline' | 'counterfactual' | 'both' {
+  if (status === 'divergent_added' || status === 'event_added') return 'counterfactual'
+  if (status === 'baseline_only' || status === 'event_removed') return 'baseline'
+  return 'both'
+}
 
 export type DivergenceType = 'event_added' | 'event_modified' | 'event_removed' | 'relationship_changed'
 
@@ -94,7 +134,10 @@ function getEventChanges(base: Event, cf: Event): FieldChange[] {
  * Find the Point of Divergence (PoD): the earliest point in time where the
  * counterfactual timeline deviates from the baseline timeline.
  */
-export function findPointOfDivergence(items: readonly EventComparisonItem[]): PointOfDivergence | null {
+export function findPointOfDivergence(
+  items: readonly EventComparisonItem[],
+  calendars?: ComparisonCalendars
+): PointOfDivergence | null {
   const divergentItems = items.filter(
     item => item.status === 'divergent_added' || item.status === 'modified' || item.status === 'baseline_only'
   )
@@ -121,8 +164,8 @@ export function findPointOfDivergence(items: readonly EventComparisonItem[]): Po
       event,
       type: 'event_added',
       description: event
-        ? `First new counterfactual event: "${event.description}" (${new Date(timestamp).toLocaleDateString()})`
-        : `New event introduced at ${new Date(timestamp).toLocaleDateString()}`,
+        ? `First new counterfactual event: "${event.description}" (${formatHistoricalDate(timestamp, undefined, comparisonCalendar('counterfactual', calendars))})`
+        : `New event introduced at ${formatHistoricalDate(timestamp, undefined, comparisonCalendar('counterfactual', calendars))}`,
     }
   }
 
@@ -144,8 +187,8 @@ export function findPointOfDivergence(items: readonly EventComparisonItem[]): Po
     event,
     type: 'event_removed',
     description: event
-      ? `Prevented/omitted event: "${event.description}" (${new Date(timestamp).toLocaleDateString()})`
-      : `Event prevented at ${new Date(timestamp).toLocaleDateString()}`,
+      ? `Prevented/omitted event: "${event.description}" (${formatHistoricalDate(timestamp, undefined, comparisonCalendar('baseline', calendars))})`
+      : `Event prevented at ${formatHistoricalDate(timestamp, undefined, comparisonCalendar('baseline', calendars))}`,
   }
 }
 
@@ -155,7 +198,9 @@ export function findPointOfDivergence(items: readonly EventComparisonItem[]): Po
  */
 export function analyzeEventDivergence(
   baselineEvents: readonly Event[],
-  counterfactualEvents: readonly Event[]
+  counterfactualEvents: readonly Event[],
+  /** Each graph's world calendar, for the dates written into the descriptions. */
+  calendars?: ComparisonCalendars
 ): { items: EventComparisonItem[]; metrics: DivergenceMetrics } {
   const baselineMap = new Map<string, Event>()
   baselineEvents.forEach(e => baselineMap.set(e.id, e))
@@ -229,7 +274,7 @@ export function analyzeEventDivergence(
   items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 
   // Find Point of Divergence
-  const pointOfDivergence = findPointOfDivergence(items)
+  const pointOfDivergence = findPointOfDivergence(items, calendars)
   const hasDivergence = pointOfDivergence !== null
 
   // Pre-divergence vs post-divergence counts

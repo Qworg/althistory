@@ -1,4 +1,8 @@
 /**
+ * @vitest-environment node
+ */
+
+/**
  * Request-level tests for the graph routes.
  *
  * Unlike the unit-style route tests that mock `@/api/middleware`, these boot the
@@ -9,6 +13,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import { formatInWorld, legacyCalendarSet, storedCalendarSet } from '@althistory/calendar';
 import request from 'supertest';
 import express, { Express } from 'express';
 import * as fs from 'fs/promises';
@@ -21,6 +26,9 @@ import { errorHandler, injectContainer } from '@/api/middleware';
 import { IGraph } from '@/models/Graph';
 import { ValidationError } from '@/utils/errors';
 import type { CopyResult as GraphCopyServiceResult } from '@/services/GraphCopyService';
+import { AddressInfo } from 'net';
+import { RemoteEngine } from '@/cli/engine/RemoteEngine';
+import { ImportService } from '@/services/ImportService';
 
 describe('Graph routes (request-level)', () => {
   let app: Express;
@@ -168,6 +176,355 @@ describe('Graph routes (request-level)', () => {
 
       expect(JSON.stringify(response.body)).not.toContain(hidden.id);
       expect(copySpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('world calendar', () => {
+    const calendar = { epochYear: 1000, eraLabel: 'AR', name: 'the Reckoning' };
+
+    it('creates a graph with a calendar and reads it back', async () => {
+      const created = await request(app)
+        .post('/api/graphs')
+        .set('X-API-Key', writeKey)
+        .send({ name: 'Vael', calendar })
+        .expect(201);
+      expect(created.body.data.calendar).toEqual(legacyCalendarSet(calendar));
+
+      const read = await request(app).get(`/api/graphs/${created.body.data.id}`).set('X-API-Key', readKey).expect(200);
+      expect(read.body.data.calendar).toEqual(legacyCalendarSet(calendar));
+    });
+
+    it('keeps a world of its own shape: festival days outside its months, a leap cycle and a day of twenty hours', async () => {
+      const vael = {
+        version: 2,
+        dayLength: 30 * 3600,
+        primary: 'reckoning',
+        calendars: [
+          {
+            id: 'reckoning',
+            name: 'the Reckoning of the Rising',
+            parts: [
+              ...['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun'].map((name) => ({ name, days: 30 })),
+              { name: "Midyear's Day", days: 1, intercalary: true },
+              ...['Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Longnight'].map((name) => ({ name, days: 30 })),
+              { name: 'The Drowned Days', days: 4, intercalary: true },
+            ],
+            leapRules: [{ every: 6, part: 13, days: 1 }],
+            epoch: 0,
+            eras: [{ label: 'AR', from: 1 }],
+            time: { hoursPerDay: 20, minutesPerHour: 100, secondsPerMinute: 100 },
+          },
+        ],
+      };
+      const key = (
+        await container.authService.createApiKey({
+          name: 'World writer',
+          permissions: ['read:graphs', 'write:graphs', 'read:events', 'write:events', 'read:arcs', 'write:arcs'],
+        })
+      ).key;
+      const created = await request(app).post('/api/graphs').set('X-API-Key', key).send({ name: 'Vael', calendar: vael }).expect(201);
+      const graphId = created.body.data.id;
+      expect(created.body.data.calendar.calendars[0].parts).toHaveLength(14);
+
+      const set = storedCalendarSet(created.body.data.calendar)!;
+      const shown = (timestamp: string, precision: 'day' | 'month' | 'year' = 'day') => formatInWorld(set, Date.parse(timestamp), precision);
+      const post = (path: string, body: Record<string, unknown>, status = 201) =>
+        request(app).post(path).set('X-API-Key', key).set('X-Graph-Id', graphId).send(body).expect(status);
+
+      // Text in the world's notation, and fields: the same day both ways.
+      const byText = await post('/api/events', { description: 'The Tide War', actor: 'Tide-folk', target: 'Salt-kings', timestamp: 'Greywater 4, 312 AR, 13:50' });
+      expect(shown(byText.body.data.timestamp)).toBe('Greywater 4, 312 AR, 13:50');
+      const byFields = await post('/api/events', {
+        description: 'The truce',
+        actor: 'Salt-kings',
+        target: 'Tide-folk',
+        timestamp: { era: 'AR', year: 312, month: 'Greywater', day: 4 },
+      });
+      expect(shown(byFields.body.data.timestamp)).toBe('Greywater 4, 312 AR');
+
+      // A festival, and a month alone, which records its precision.
+      const festival = await post('/api/events', { description: 'Midyear', actor: 'All', target: 'All', timestamp: "Midyear's Day, 312 AR" });
+      expect(shown(festival.body.data.timestamp)).toBe("Midyear's Day, 312 AR");
+      const month = await post('/api/events', { description: 'Some time in Thaw', actor: 'A', target: 'B', timestamp: 'Thaw 312 AR' });
+      expect(month.body.data.metadata.datePrecision).toBe('month');
+      expect(shown(month.body.data.timestamp, 'month')).toBe('Thaw 312 AR');
+
+      // A day the month does not have, and the leap day of a year without one, are refused.
+      const refused = await post('/api/events', { description: 'x', actor: 'A', target: 'B', timestamp: 'Greywater 31, 312 AR' }, 400);
+      expect(refused.body.error.message).toContain('Greywater has 30 days');
+      await post('/api/events', { description: 'x', actor: 'A', target: 'B', timestamp: 'The Drowned Days 5, 313 AR' }, 400);
+      await post('/api/events', { description: 'Leap', actor: 'A', target: 'B', timestamp: 'The Drowned Days 5, 312 AR' });
+
+      // An arc ending in a month ends at that month's last moment.
+      const arc = await post('/api/arcs', { name: 'The war years', start_time: 'Lowtide 312 AR', end_time: 'Longnight 312 AR', level: 0 });
+      expect(shown(arc.body.data.start_time)).toBe('Lowtide 1, 312 AR');
+      expect(shown(arc.body.data.end_time)).toBe('Longnight 30, 312 AR, 19:99');
+
+      // Text that is neither ISO 8601 nor the world's notation is refused, not
+      // read as a Gregorian date in the server's zone.
+      for (const text of ['Year 312', '312', 'Mar 4, 312']) {
+        await post('/api/events', { description: 'x', actor: 'A', target: 'B', timestamp: text }, 400);
+        await post('/api/arcs', { name: 'x', start_time: text, end_time: 'Longnight 312 AR', level: 0 }, 400);
+      }
+
+      // A new date replaces the old one's precision.
+      const put = (id: string, body: Record<string, unknown>) =>
+        request(app).put(`/api/events/${id}`).set('X-API-Key', key).set('X-Graph-Id', graphId).send(body).expect(200);
+      const toDay = await put(month.body.data.id, { timestamp: 'Thaw 4, 312 AR' });
+      expect(toDay.body.data.metadata.datePrecision).toBeUndefined();
+      const toYear = await put(month.body.data.id, { timestamp: '313 AR' });
+      expect(toYear.body.data.metadata.datePrecision).toBe('year');
+      const toIso = await put(month.body.data.id, { timestamp: '2400-01-01T00:00:00Z' });
+      expect(toIso.body.data.metadata.datePrecision).toBeUndefined();
+      // Unless the request says what it is (the app sends ISO with the precision it read).
+      const stated = await put(month.body.data.id, { timestamp: '2400-01-01T00:00:00Z', metadata: { datePrecision: 'month' } });
+      expect(stated.body.data.metadata.datePrecision).toBe('month');
+
+      // A batch reads its dates the same way.
+      const batch = await request(app)
+        .post('/api/batch/events')
+        .set('X-API-Key', key)
+        .set('X-Graph-Id', graphId)
+        .send({ graphId, events: [{ description: 'Batched', actor: 'A', target: 'B', timestamp: 'Thaw 312 AR' }] });
+      expect(batch.status).toBeLessThan(300);
+      const batched = await request(app).get(`/api/events/${batch.body.data?.created?.[0] ?? batch.body.created?.[0]}`).set('X-API-Key', key).set('X-Graph-Id', graphId).expect(200);
+      expect(shown(batched.body.data.timestamp, 'month')).toBe('Thaw 312 AR');
+      expect(batched.body.data.metadata.datePrecision).toBe('month');
+
+      // A batch update with a new date keeps the event's other metadata, and replaces its precision.
+      const kept = await post('/api/events', { description: 'Kept', actor: 'A', target: 'B', timestamp: 'Thaw 4, 312 AR', metadata: { arcId: 'arc-1', confidence: 0.9 } });
+      const step = (data: Record<string, unknown>) =>
+        request(app).post('/api/batch/transaction').set('X-API-Key', key).set('X-Graph-Id', graphId).send({ graphId, operations: [{ type: 'update_event', data: { id: kept.body.data.id, ...data } }] });
+      const monthStep = await step({ timestamp: 'Thaw 312 AR' });
+      expect(monthStep.status, JSON.stringify(monthStep.body)).toBeLessThan(300);
+      const afterMonth = await request(app).get(`/api/events/${kept.body.data.id}`).set('X-API-Key', key).set('X-Graph-Id', graphId).expect(200);
+      expect(afterMonth.body.data.metadata).toMatchObject({ arcId: 'arc-1', confidence: 0.9, datePrecision: 'month', dateCalendar: 'reckoning' });
+      expect((await step({ timestamp: 'Thaw 4, 312 AR' })).status).toBeLessThan(300);
+      const afterDay = await request(app).get(`/api/events/${kept.body.data.id}`).set('X-API-Key', key).set('X-Graph-Id', graphId).expect(200);
+      expect(afterDay.body.data.metadata).toMatchObject({ arcId: 'arc-1', confidence: 0.9 });
+      expect(afterDay.body.data.metadata.datePrecision).toBeUndefined();
+
+      // A lenient batch skips an item whose date names nothing, and keeps the rest.
+      const lenient = await request(app)
+        .post('/api/batch/events')
+        .set('X-API-Key', key)
+        .set('X-Graph-Id', graphId)
+        .send({ graphId, validation: 'lenient', events: [
+          { description: 'Good', actor: 'A', target: 'B', timestamp: 'Thaw 5, 312 AR' },
+          { description: 'Bad', actor: 'A', target: 'B', timestamp: 'Year 312' },
+        ] });
+      expect(lenient.status).toBeLessThan(300);
+      const lenientBody = lenient.body.data ?? lenient.body;
+      expect(lenientBody.created).toHaveLength(1);
+      expect(JSON.stringify(lenientBody.validationWarnings)).toMatch(/not a date/);
+
+      // A remote CLI with a key for events but not the graph sends world text
+      // as written, and the server reads it with the graph's calendars.
+      const eventsOnly = (
+        await container.authService.createApiKey({ name: 'Events only', permissions: ['read:events', 'write:events', 'read:arcs', 'write:arcs'] })
+      ).key;
+      const server = app.listen(0);
+      try {
+        const { port } = server.address() as AddressInfo;
+        const remote = new RemoteEngine(`http://127.0.0.1:${port}`, eventsOnly);
+        const day = await remote.createEvent(graphId, { description: 'Remote', actor: 'A', target: 'B', timestamp: 'Thaw 4, 312 AR' });
+        expect(shown(day.timestamp)).toBe('Thaw 4, 312 AR');
+        const inMonth = await remote.createEvent(graphId, { description: 'Remote month', actor: 'A', target: 'B', timestamp: 'Thaw 312 AR' });
+        expect(inMonth.metadata?.datePrecision).toBe('month');
+        const remoteArc = await remote.createArc(graphId, { name: 'Remote arc', startTime: 'Thaw 312 AR', endTime: 'Thaw 312 AR' });
+        expect(shown(remoteArc.endTime)).toBe('Thaw 30, 312 AR, 19:99');
+        await expect(remote.createEvent(graphId, { description: 'x', actor: 'A', target: 'B', timestamp: 'Year 312' })).rejects.toThrow(/not a date/);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('refuses a calendar that does not check out, saying why', async () => {
+      const response = await request(app)
+        .post('/api/graphs')
+        .set('X-API-Key', writeKey)
+        .send({ name: 'Bad Calendar', calendar: { epochYear: 'soon' } })
+        .expect(400);
+      expect(response.body.error.message).toContain('epochYear');
+    });
+
+    it('changes the calendar with PUT, keeps it when it is not mentioned, and removes it with null', async () => {
+      const graph = await container.graphService.createGraph({ name: 'Calendar Later' });
+
+      const set = await request(app)
+        .put(`/api/graphs/${graph.id}`)
+        .set('X-API-Key', writeKey)
+        .send({ calendar: { epochYear: 1200 } })
+        .expect(200);
+      expect(set.body.data.calendar).toEqual(legacyCalendarSet({ epochYear: 1200 }));
+
+      const renamed = await request(app)
+        .put(`/api/graphs/${graph.id}`)
+        .set('X-API-Key', writeKey)
+        .send({ name: 'Calendar Kept' })
+        .expect(200);
+      expect(renamed.body.data.calendar).toEqual(legacyCalendarSet({ epochYear: 1200 }));
+
+      const cleared = await request(app)
+        .put(`/api/graphs/${graph.id}`)
+        .set('X-API-Key', writeKey)
+        .send({ calendar: null })
+        .expect(200);
+      expect(cleared.body.data.calendar).toBeUndefined();
+    });
+
+    it('carries the calendar to a branch and to a copy, which are the same world', async () => {
+      const world = await container.graphService.createGraph({ name: 'World To Fork', calendar });
+      const branch = await container.graphService.branchGraph(world.id, { name: 'World Branch' });
+      expect(branch.calendar).toEqual(legacyCalendarSet(calendar));
+
+      const copy = await request(app)
+        .post('/api/graphs/copy')
+        .set('X-API-Key', writeKey)
+        .send({ sourceGraphId: world.id, targetName: 'World Copy' })
+        .expect(201);
+      const copied = await container.graphService.getGraph(copy.body.data.id);
+      expect(copied.calendar).toEqual(legacyCalendarSet(calendar));
+    });
+
+    it('lets the remote CLI engine create a world, change its calendar, and nest an arc one level down', async () => {
+      const authorKey = (
+        await container.authService.createApiKey({
+          name: 'Graph Routes Author Key',
+          permissions: [
+            'read:graphs',
+            'write:graphs',
+            'read:arcs',
+            'write:arcs',
+            'read:events',
+            'write:events',
+            'read:relationships',
+            'write:relationships',
+          ],
+        })
+      ).key;
+      const server = app.listen(0);
+      try {
+        const { port } = server.address() as AddressInfo;
+        const engine = new RemoteEngine(`http://127.0.0.1:${port}`, authorKey);
+
+        const made = await engine.createGraph('Remote World', undefined, calendar);
+        expect(made.calendar).toEqual(legacyCalendarSet(calendar));
+        const changed = await engine.setGraphCalendar(made.id, { epochYear: 1200 });
+        expect(changed.calendar).toEqual(legacyCalendarSet({ epochYear: 1200 }));
+        const cleared = await engine.setGraphCalendar(made.id, null);
+        expect(cleared.calendar).toBeUndefined();
+
+        const age = await engine.createArc(made.id, {
+          name: 'Age',
+          startTime: '1000-01-01T00:00:00Z',
+          endTime: '1200-01-01T00:00:00Z',
+        });
+        const reign = await engine.createArc(made.id, {
+          name: 'Reign',
+          startTime: '1100-01-01T00:00:00Z',
+          endTime: '1150-01-01T00:00:00Z',
+          parentArcId: age.id,
+        });
+        const decade = await engine.createArc(made.id, {
+          name: 'Decade',
+          startTime: '1100-01-01T00:00:00Z',
+          endTime: '1110-01-01T00:00:00Z',
+          parentArcId: reign.id,
+        });
+        expect((await engine.getArc(made.id, decade.id)).level).toBe(2);
+
+        // A link with no reasoning is accepted, as in direct mode: the API
+        // requires evidence, so the engine supplies the same default.
+        const cause = await engine.createEvent(made.id, { description: 'Cause', timestamp: '1001-01-01T00:00:00Z' });
+        const effect = await engine.createEvent(made.id, { description: 'Effect', timestamp: '1002-01-01T00:00:00Z' });
+        const link = await engine.createCausalLink(made.id, { causeId: cause.id, effectId: effect.id });
+        expect(link.reasoning).toBe('Observed historical causality');
+      } finally {
+        await new Promise((resolve) => server.close(resolve));
+      }
+    });
+
+    it('keeps every graph in the index when two repositories over the same store create at once', async () => {
+      const { GraphRepository } = await import('@/repositories/GraphRepository');
+      const dataDir = path.join(testDataDir, 'two-repositories');
+      const first = new GraphRepository({ dataDir });
+      const second = new GraphRepository({ dataDir });
+      await first.initialize();
+      await second.initialize();
+      const made = await Promise.all(
+        Array.from({ length: 10 }, (_, n) => (n % 2 ? first : second).create({ name: `Concurrent ${n}` }))
+      );
+      const listed = new Set((await first.findAll({ limit: 100, offset: 0 })).graphs.map((graph) => graph.id));
+      for (const graph of made) expect(listed.has(graph.id)).toBe(true);
+    });
+
+    it('exports a nested arc with its parent, so the export imports again', async () => {
+      const world = await container.graphService.createGraph({ name: 'Nested World', calendar });
+      const scoped = await container.graphScopedRepositories(world.id);
+      const age = await scoped.arcRepository.create({
+        name: 'Age',
+        description: '',
+        start_time: new Date('1000-01-01T00:00:00Z'),
+        end_time: new Date('1200-01-01T00:00:00Z'),
+        level: 0,
+        metadata: {},
+      });
+      await container.graphWriteVersioningService.recordArc(world.id, age, 'create');
+      // How the CLI, MCP and the generator record a parent: in the metadata.
+      const reignArc = await scoped.arcRepository.create({
+        name: 'Reign',
+        description: '',
+        start_time: new Date('1100-01-01T00:00:00Z'),
+        end_time: new Date('1150-01-01T00:00:00Z'),
+        level: 1,
+        metadata: { parentArcId: age.id },
+      });
+      await container.graphWriteVersioningService.recordArc(world.id, reignArc, 'create');
+
+      const exported = await request(app)
+        .get('/api/export')
+        .set('X-API-Key', writeKey)
+        .set('X-Graph-Id', world.id)
+        .expect(200);
+      const reign = exported.body.data.arcs.find((arc: { name: string }) => arc.name === 'Reign');
+      expect(reign.parent_arc_id).toBe(age.id);
+
+      const importService = new ImportService({ dataDir: testDataDir });
+      await importService.initialize();
+      const check = await importService.validateFormat(exported.body);
+      expect(check.errors.filter((error) => error.code === 'ARC_HIERARCHY_VIOLATION')).toEqual([]);
+    });
+
+    it('restores the calendar when an export is imported as a new graph, and drops one that does not check out', async () => {
+      const world = await container.graphService.createGraph({ name: 'Imported World', calendar });
+      const exported = await request(app)
+        .get('/api/export')
+        .set('X-API-Key', writeKey)
+        .set('X-Graph-Id', world.id)
+        .expect(200);
+
+      const importService = new ImportService({ dataDir: testDataDir });
+      await importService.initialize();
+      const restored = await importService.executeImport(exported.body, { mode: 'create-new', conflictResolution: 'skip' });
+      expect(restored.success).toBe(true);
+      expect((await container.graphService.getGraph(restored.graphId)).calendar).toEqual(legacyCalendarSet(calendar));
+
+      const tampered = { ...exported.body, metadata: { ...exported.body.metadata, calendar: { epochYear: 'soon' } } };
+      const dropped = await importService.executeImport(tampered, { mode: 'create-new', conflictResolution: 'skip' });
+      expect(dropped.success).toBe(true);
+      expect((await container.graphService.getGraph(dropped.graphId)).calendar).toBeUndefined();
+    });
+
+    it('puts the calendar in the export metadata, outside the checksum', async () => {
+      const world = await container.graphService.createGraph({ name: 'World To Export', calendar });
+      const response = await request(app)
+        .get('/api/export')
+        .set('X-API-Key', writeKey)
+        .set('X-Graph-Id', world.id)
+        .expect(200);
+      expect(response.body.metadata.calendar).toEqual(legacyCalendarSet(calendar));
+      expect(response.body.data.calendar).toBeUndefined();
     });
   });
 

@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DirectEngine } from './engine/DirectEngine';
-import { TimelineGenerator } from './generator/TimelineGenerator';
+import { TimelineGenerator, parseTimeWindow } from './generator/TimelineGenerator';
 import { LLMClient } from '../services/llm/LLMClient';
 import { ExtractedEvent } from '../services/ingestion/types';
 
@@ -361,5 +361,20 @@ describe('TimelineGenerator Multi-Pass Engine', () => {
     expect(result.eventCount).toBe(3);
     expect(result.events[0].description).toBe('First LLM counterfactual milestone');
     expect(result.events[0].actor).toBe('Ottoman Empire');
+  });
+});
+
+describe('a time window', () => {
+  it("is split where both halves read as dates, so a world's dates may hold a slash", () => {
+    const slashed = {
+      version: 2 as const,
+      dayLength: 86_400,
+      primary: 'r',
+      calendars: [{ id: 'r', name: 'R', parts: [{ name: 'Thaw', days: 30 }, { name: 'Gale', days: 30 }], epoch: 0, eras: [{ label: 'AR', from: 1 }], notation: { date: '{day}/{month}/{year}' } }],
+    };
+    const window = parseTimeWindow('4/Thaw/312 AR..5/Gale/312 AR', slashed);
+    expect(window.end).toBeGreaterThan(window.start);
+    expect(parseTimeWindow('1871-03/1871-09')).toEqual({ start: Date.parse('1871-03-01T00:00:00.000Z'), end: Date.parse('1871-09-30T23:59:59.999Z') });
+    expect(() => parseTimeWindow('1871/1872/1873')).toThrow(/Invalid time window/);
   });
 });

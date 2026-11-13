@@ -28,6 +28,25 @@ import {
 import { clusterEventsIntoArcs } from './arcClustering';
 import { ExtractedArc, ExtractedEvent } from '@/services/ingestion/types';
 import { isTemporalInversion } from '@/utils/causalOrder';
+import {
+  type WorldCalendarSet,
+  calendarIn,
+  calendarSetFromInput,
+  calendarSetInstructions,
+  dateAt,
+  datePrecisionMetadata,
+  formatInWorld,
+  formatWorldYearOf,
+  unreadDateReason,
+  isCalendarSet,
+  parseIsoInstant,
+  positionOf,
+  readWorldTimestamp,
+  storedCalendarSet,
+  toInstant,
+} from '@althistory/calendar';
+import { formatHistoricalDate } from '@/utils/historicalDate';
+import { ValidationErrorCLI } from '../utils/exitCodes';
 
 export interface TimelineGeneratorConfig {
   readonly llmClient?: LLMClient | null;
@@ -39,6 +58,20 @@ interface IntermediateEvent {
   actor: string;
   target: string;
   importance: number;
+  /** A month or a year the model gave, rather than a day (Req 16). */
+  datePrecision?: 'day' | 'month' | 'year';
+  /** The world calendar that month or year was given in. */
+  dateCalendar?: string;
+}
+
+/** The metadata an event's date records: a month's or a year's precision, and its calendar. */
+function dateMetadataOf(event: IntermediateEvent): Record<string, unknown> {
+  return datePrecisionMetadata({ precision: event.datePrecision ?? 'day', calendar: event.dateCalendar });
+}
+
+/** The length of a day on the plan's timeline: the world's, or 24 hours. */
+function dayMsOf(calendar: WorldCalendarSet | undefined): number {
+  return calendar ? calendarIn(calendar).dayMs : MS_PER_DAY;
 }
 
 interface IntermediateCausalLink {
@@ -60,6 +93,78 @@ interface StructuredArc {
   parentArcId?: string;
 }
 
+/**
+ * What a `generate timeline` request comes to once it is checked: an alternate
+ * history turning away from real history, or the chronicle of an invented world.
+ */
+interface GenerationPlan {
+  kind: 'counterfactual' | 'world';
+  /** The premise, or the invented world. */
+  subject: string;
+  /** Where real history turns; empty for an invented world. */
+  divergencePoint: string;
+  /** The world's calendars; only an invented world has them. */
+  calendar?: WorldCalendarSet;
+  startMs: number;
+  endMs: number;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const MS_PER_YEAR = 365.25 * MS_PER_DAY;
+
+/** How long an invented world's chronicle runs when no end date is given. */
+const WORLD_DEFAULT_SPAN_YEARS = 300;
+
+/** An arc that ends where it starts (or before) is given a day, so it has a width. */
+function widenedEnd(startMs: number, endMs: number): number {
+  return startMs >= endMs ? startMs + MS_PER_DAY : endMs;
+}
+
+/** The last instant a four-digit stored year can hold. */
+const LAST_STORED_INSTANT = Date.parse('9999-12-31T23:59:59.999Z');
+
+/**
+ * An ISO-8601 instant in milliseconds, NaN when absent or not ISO 8601. What
+ * reaches the generator is text a person (--start-date, --window) or a model
+ * writes, so it is read strictly (`parseIsoInstant`): a date-time without a
+ * zone is UTC, like every historical date here (`Date.parse` would read it in
+ * the host's zone, and in Tokyo "1000-01-01T00:00" is the last day of 999),
+ * and prose is refused rather than guessed at.
+ */
+function parseInstant(value: string | undefined): number {
+  return value ? (parseIsoInstant(value.trim())?.date.getTime() ?? NaN) : NaN;
+}
+
+/** The stored year an invented world's year 1 falls on when nothing says otherwise. */
+const WORLD_DEFAULT_EPOCH_YEAR = 1000;
+
+/** The ages a template chronicle of an invented world moves through. */
+const WORLD_MILESTONES = [
+  'The founding age, when the first peoples of the world settle the land',
+  'Rival powers rise and contest the land',
+  'A pact or law sets the order of the age',
+  'War, schism or catastrophe breaks the old order',
+  'A new faith, craft or discovery changes daily life',
+  'Old enemies become allies against a new threat',
+  'An age of trade and learning',
+  'Decline, and the seeds of the next age',
+];
+
+/** How each style words a milestone of an invented world's template chronicle. */
+const WORLD_STYLE_RENDERERS: Record<NarrativeStyle, (milestone: string, world: string) => string> = {
+  academic: (milestone, world) => `${milestone}, as recorded in the chronicle of ${world}.`,
+  narrative: (milestone, world) => `In the chronicle of ${world}, ${lowerFirst(milestone)}.`,
+  concise: (milestone) => `${milestone}.`,
+};
+
+/**
+ * Who wrote a generated timeline: a model, or the template used when there is
+ * no model key or the model's answer could not be used. A template is a
+ * skeleton to rewrite, and the result says so, so an agent does not present it
+ * as a history.
+ */
+type GenerationSource = 'model' | 'template';
+
 /** The narrative styles the generator can write in. */
 type NarrativeStyle = 'academic' | 'narrative' | 'concise';
 
@@ -77,6 +182,14 @@ const STYLE_GUIDANCE: Record<NarrativeStyle, string> = {
   concise: 'terse, one sentence per event',
 };
 
+/** Text cut to at most `max` characters at a word boundary, with an ellipsis when cut. */
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:.-]+$/, '')}…`;
+}
+
 function lowerFirst(text: string): string {
   return text.length === 0 ? text : text.charAt(0).toLowerCase() + text.slice(1);
 }
@@ -84,26 +197,51 @@ function lowerFirst(text: string): string {
 /**
  * Read a `start/end` time window.
  *
- * The window is two ISO-8601 instants separated by a slash (`2020-01-01T00:00:00Z/2020-12-31T00:00:00Z`).
+ * The window is two dates separated by a slash (`1871-03/1871-09`,
+ * `2020-01-01T00:00:00Z/2020-12-31T00:00:00Z`, or in a world graph
+ * `Thaw 312 AR/Gale 312 AR`), each read by the rule every door applies, with
+ * the graph's calendars: its end, without a time, is the last moment it names.
  * A window that cannot be read is a mistake the caller has to hear about, so
  * it raises rather than falling back to the graph's own span.
  */
-export function parseTimeWindow(value: string): { start: number; end: number } {
-  const separator = value.includes('/') ? '/' : value.includes('..') ? '..' : null;
-  if (!separator) {
+export function parseTimeWindow(value: string, calendar?: WorldCalendarSet): { start: number; end: number } {
+  // Every place the window could split ("..", or "/" — which a world's dates
+  // may contain, as "4/Thaw/312 AR" does): the one split whose halves both
+  // read as dates is the window.
+  const splits: Array<[string, string]> = [];
+  for (const separator of ['..', '/']) {
+    for (let at = value.indexOf(separator); at >= 0; at = value.indexOf(separator, at + 1)) {
+      splits.push([value.slice(0, at).trim(), value.slice(at + separator.length).trim()]);
+    }
+  }
+  if (splits.length === 0) {
     throw new Error(
-      `Invalid time window "${value}": expected two ISO-8601 instants separated by a slash, for example ` +
-        '"2020-01-01T00:00:00Z/2020-12-31T00:00:00Z"'
+      `Invalid time window "${value}": expected two dates separated by a slash, for example ` +
+        '"1871-03/1871-09" or "2020-01-01T00:00:00Z/2020-12-31T00:00:00Z"'
     );
   }
-
-  const [rawStart, rawEnd] = value.split(separator);
-  const start = Date.parse(rawStart.trim());
-  const end = Date.parse(rawEnd.trim());
-
-  if (Number.isNaN(start) || Number.isNaN(end)) {
-    throw new Error(`Invalid time window "${value}": both instants must be ISO-8601 dates`);
+  const readable = splits
+    .map(([rawStart, rawEnd]) => ({
+      rawStart,
+      rawEnd,
+      start: readWorldTimestamp(calendar, rawStart, 'start'),
+      end: readWorldTimestamp(calendar, rawEnd, 'end'),
+    }))
+    .filter((split) => split.start && split.end);
+  if (readable.length > 1) {
+    throw new Error(`Invalid time window "${value}": it can be read as more than one pair of dates; separate them with ".."`);
   }
+  if (readable.length === 0) {
+    // Say what is wrong with the most likely reading: the split nearest the middle.
+    const [rawStart, rawEnd] = splits.reduce((best, split) =>
+      Math.abs(split[0].length - split[1].length) < Math.abs(best[0].length - best[1].length) ? split : best
+    );
+    const bad = readWorldTimestamp(calendar, rawStart, 'start') ? rawEnd : rawStart;
+    throw new Error(`Invalid time window "${value}": ${unreadDateReason(calendar, bad)}`);
+  }
+  const start = Date.parse(readable[0]!.start!.iso);
+  const end = Date.parse(readable[0]!.end!.iso);
+
   if (start >= end) {
     throw new Error(`Invalid time window "${value}": the start must be before the end`);
   }
@@ -125,15 +263,27 @@ export class TimelineGenerator {
     options: GenerateTimelineOptions,
     container: Container
   ): Promise<GenerationResultDto> {
-    const eventCount = Math.max(3, Math.min(options.eventCount || 8, 30));
-    const targetGraphName = options.graphName || `What If: ${options.premise.slice(0, 40)}`;
-
     // Pass 1: Determine Macro Bounds & Epoch Span
-    const { startMs, stepMs } = this.resolveTimeSpan(options, eventCount);
+    return this.generateFromPlan(options, this.resolvePlan(options), container);
+  }
+
+  /** Passes 2 to 5, and the write, for a checked request. */
+  private async generateFromPlan(
+    options: GenerateTimelineOptions,
+    plan: GenerationPlan,
+    container: Container
+  ): Promise<GenerationResultDto> {
+    const eventCount = Math.max(3, Math.min(options.eventCount || 8, 30));
+    const { startMs } = plan;
+    const stepMs = Math.max(30 * MS_PER_DAY, Math.floor((plan.endMs - plan.startMs) / eventCount));
+    const targetGraphName =
+      options.graphName ||
+      (plan.kind === 'world' ? `World: ${clip(plan.subject, 40)}` : `What If: ${plan.subject.slice(0, 40)}`);
 
     // Pass 2: Generate Chronological Micro-Events
-    const intermediateEvents = await this.generateEventsPass(
+    const { events: intermediateEvents, source } = await this.generateEventsPass(
       options,
+      plan,
       eventCount,
       startMs,
       stepMs
@@ -152,13 +302,14 @@ export class TimelineGenerator {
       edited: false,
     }));
 
-    const clusteredArcs = clusterEventsIntoArcs(extractedEvents, {
-      type: 'llm',
-      extractedAt: new Date().toISOString(),
-    });
+    const clusteredArcs = clusterEventsIntoArcs(
+      extractedEvents,
+      { type: 'llm', extractedAt: new Date().toISOString() },
+      { calendar: plan.calendar }
+    );
 
     // The requested depth decides how many levels of arcs the timeline has.
-    const structuredArcs = this.buildArcHierarchy(clusteredArcs, options.depth ?? 1);
+    const structuredArcs = this.buildArcHierarchy(clusteredArcs, options.depth ?? 1, plan.calendar);
 
     // Pass 4: Causal Ripple Synthesis
     const causalLinks = this.generateCausalRipplesPass(intermediateEvents);
@@ -169,26 +320,43 @@ export class TimelineGenerator {
     // Persist or Dry-Run
     if (options.dryRun) {
       const dryGraphId = `dry-${Date.now()}`;
-      const eventDtos: EventDto[] = intermediateEvents.map((e, idx) => ({
-        id: `evt-dry-${idx}`,
-        graphId: dryGraphId,
-        description: e.description,
-        timestamp: e.timestamp,
-        actor: e.actor,
-        target: e.target,
-        importance: e.importance,
-      }));
-
       const dryArcIdByTempId = new Map<string, string>(
         structuredArcs.map((arc, index) => [arc.tempId, `arc-dry-${index}`])
       );
+      // The preview places each event as the write would: in the innermost
+      // arc that holds it (an arc that ends where it starts is widened to a
+      // day, as there).
+      const dryArcIdOf = (timestamp: string): string | undefined => {
+        const time = parseInstant(timestamp);
+        const holding = structuredArcs
+          .filter((arc) => {
+            const start = parseInstant(arc.start_time);
+            const end = widenedEnd(start, parseInstant(arc.end_time));
+            return start <= time && time <= end;
+          })
+          .sort((a, b) => b.level - a.level);
+        return holding[0] ? dryArcIdByTempId.get(holding[0].tempId) : undefined;
+      };
+      const eventDtos: EventDto[] = intermediateEvents.map((e, idx) => {
+        const arcId = dryArcIdOf(e.timestamp);
+        return {
+          id: `evt-dry-${idx}`,
+          graphId: dryGraphId,
+          description: e.description,
+          timestamp: e.timestamp,
+          actor: e.actor,
+          target: e.target,
+          importance: e.importance,
+          metadata: { ...dateMetadataOf(e), importance: e.importance, ...(arcId ? { arcId } : {}) },
+        };
+      });
       const arcDtos: ArcDto[] = structuredArcs.map((a, idx) => ({
         id: `arc-dry-${idx}`,
         graphId: dryGraphId,
         name: a.name,
         description: a.description,
         startTime: a.start_time,
-        endTime: a.end_time,
+        endTime: new Date(widenedEnd(parseInstant(a.start_time), parseInstant(a.end_time))).toISOString(),
         level: a.level,
         parentArcId: a.parentArcId ? dryArcIdByTempId.get(a.parentArcId) : undefined,
       }));
@@ -207,8 +375,10 @@ export class TimelineGenerator {
       return {
         graphId: dryGraphId,
         graphName: targetGraphName,
-        premise: options.premise,
-        divergencePoint: options.divergencePoint,
+        premise: plan.subject,
+        divergencePoint: plan.divergencePoint,
+        ...this.worldFields(plan),
+        source,
         eventCount: eventDtos.length,
         arcCount: arcDtos.length,
         relationshipCount: relDtos.length,
@@ -222,37 +392,12 @@ export class TimelineGenerator {
     // Persist to Container
     const graph = await container.graphService.createGraph({
       name: targetGraphName,
-      description: `Generated counterfactual: ${options.premise}`,
+      description:
+        plan.kind === 'world' ? `Invented world: ${plan.subject}` : `Generated counterfactual: ${plan.subject}`,
+      calendar: plan.calendar,
     });
     const graphId = graph.id;
     const scoped = await container.graphScopedRepositories(graphId);
-
-    const domainEvents: Event[] = [];
-    const persistedEvents: EventDto[] = [];
-    for (const e of intermediateEvents) {
-      const created = await scoped.eventRepository.create({
-        description: e.description,
-        timestamp: new Date(e.timestamp),
-        actor: e.actor,
-        target: e.target,
-        metadata: { importance: e.importance },
-      });
-      try {
-        await container.graphWriteVersioningService.recordEvent(graphId, created, 'create');
-      } catch {
-        // Best effort
-      }
-      domainEvents.push(created);
-      persistedEvents.push({
-        id: created.id,
-        graphId,
-        description: created.description,
-        timestamp: created.timestamp.toISOString(),
-        actor: created.actor,
-        target: created.target,
-        importance: e.importance,
-      });
-    }
 
     const persistedArcs: ArcDto[] = [];
     // The parents are created first, so that a child arc can name the arc it
@@ -260,11 +405,9 @@ export class TimelineGenerator {
     const arcIdByTempId = new Map<string, string>();
     const orderedArcs = [...structuredArcs].sort((a, b) => a.level - b.level);
     for (const a of orderedArcs) {
-      const startTime = new Date(a.start_time);
-      let endTime = new Date(a.end_time);
-      if (startTime.getTime() >= endTime.getTime()) {
-        endTime = new Date(startTime.getTime() + 24 * 60 * 60 * 1000);
-      }
+      const startTime = toInstant(a.start_time);
+      let endTime = toInstant(a.end_time);
+      endTime = new Date(widenedEnd(startTime.getTime(), endTime.getTime()));
       const created = await scoped.arcRepository.create({
         name: a.name,
         description: a.description || '',
@@ -287,6 +430,45 @@ export class TimelineGenerator {
         startTime: created.start_time.toISOString(),
         endTime: created.end_time.toISOString(),
         level: created.level,
+      });
+    }
+
+    // Each event goes in the innermost arc that holds it, which is what the app
+    // and the exports read (`metadata.arcId`); otherwise every event was left
+    // outside the arcs that were drawn around it.
+    const arcIdOf = (timestamp: string): string | undefined => {
+      const time = parseInstant(timestamp);
+      const holding = persistedArcs
+        .filter((arc) => parseInstant(arc.startTime) <= time && time <= parseInstant(arc.endTime))
+        .sort((a, b) => (b.level ?? 0) - (a.level ?? 0));
+      return holding[0]?.id;
+    };
+
+    const domainEvents: Event[] = [];
+    const persistedEvents: EventDto[] = [];
+    for (const e of intermediateEvents) {
+      const created = await scoped.eventRepository.create({
+        description: e.description,
+        timestamp: toInstant(e.timestamp),
+        actor: e.actor,
+        target: e.target,
+        metadata: { ...dateMetadataOf(e), importance: e.importance, ...(arcIdOf(e.timestamp) ? { arcId: arcIdOf(e.timestamp) } : {}) },
+      });
+      try {
+        await container.graphWriteVersioningService.recordEvent(graphId, created, 'create');
+      } catch {
+        // Best effort
+      }
+      domainEvents.push(created);
+      persistedEvents.push({
+        id: created.id,
+        graphId,
+        description: created.description,
+        timestamp: created.timestamp.toISOString(),
+        actor: created.actor,
+        target: created.target,
+        importance: e.importance,
+        metadata: created.metadata,
       });
     }
 
@@ -323,8 +505,10 @@ export class TimelineGenerator {
     return {
       graphId,
       graphName: targetGraphName,
-      premise: options.premise,
-      divergencePoint: options.divergencePoint,
+      premise: plan.subject,
+      divergencePoint: plan.divergencePoint,
+      ...this.worldFields(plan),
+      source,
       eventCount: persistedEvents.length,
       arcCount: persistedArcs.length,
       relationshipCount: persistedRels.length,
@@ -346,7 +530,12 @@ export class TimelineGenerator {
    * its parent. A child is therefore never at the same level as its parent,
    * and never above it.
    */
-  private buildArcHierarchy(baseArcs: ExtractedArc[], depth: number): StructuredArc[] {
+  private buildArcHierarchy(baseArcs: ExtractedArc[], depth: number, calendar?: WorldCalendarSet): StructuredArc[] {
+    const yearOf = (timestamp: string): string => {
+      if (!calendar) return timestamp.slice(0, 4);
+      const primary = calendarIn(calendar);
+      return formatWorldYearOf(primary.definition, dateAt(primary, toInstant(timestamp).getTime()).year);
+    };
     const maxDepth = Math.max(1, Math.min(Math.trunc(depth) || 1, 4));
 
     let current: StructuredArc[] = baseArcs.map((arc) => ({
@@ -369,7 +558,7 @@ export class TimelineGenerator {
         const end = group[group.length - 1].end_time;
         const parent: StructuredArc = {
           tempId: parentId,
-          name: `Era ${start.slice(0, 4)}-${end.slice(0, 4)}`,
+          name: calendar ? `Era ${yearOf(start)}–${yearOf(end)}` : `Era ${yearOf(start)}-${yearOf(end)}`,
           description: `Enclosing narrative arc for ${group.length} periods`,
           start_time: start,
           end_time: end,
@@ -415,13 +604,13 @@ export class TimelineGenerator {
    */
   private groupArcsForParents(arcs: StructuredArc[]): StructuredArc[][] {
     const sorted = [...arcs].sort(
-      (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+      (a, b) => parseInstant(a.start_time) - parseInstant(b.start_time)
     );
 
     const gaps: number[] = [];
     for (let i = 1; i < sorted.length; i++) {
-      const previousEnd = new Date(sorted[i - 1].end_time).getTime();
-      const currentStart = new Date(sorted[i].start_time).getTime();
+      const previousEnd = toInstant(sorted[i - 1].end_time).getTime();
+      const currentStart = toInstant(sorted[i].start_time).getTime();
       gaps.push(Math.max(0, currentStart - previousEnd));
     }
     const sortedGaps = [...gaps].sort((a, b) => a - b);
@@ -433,8 +622,8 @@ export class TimelineGenerator {
     let current: StructuredArc[] = [sorted[0]];
 
     for (let i = 1; i < sorted.length; i++) {
-      const previousEnd = new Date(sorted[i - 1].end_time).getTime();
-      const currentStart = new Date(sorted[i].start_time).getTime();
+      const previousEnd = toInstant(sorted[i - 1].end_time).getTime();
+      const currentStart = toInstant(sorted[i].start_time).getTime();
       if (currentStart - previousEnd > threshold) {
         groups.push(current);
         current = [sorted[i]];
@@ -461,7 +650,7 @@ export class TimelineGenerator {
       throw new Error(`Divergence pivot event not found: ${options.divergeAtEventId}`);
     }
 
-    const pivotTimeMs = new Date(pivotEvent.timestamp).getTime();
+    const pivotTimeMs = toInstant(pivotEvent.timestamp).getTime();
     const oneYearMs = 365.25 * 24 * 60 * 60 * 1000;
     const stepMs = oneYearMs * 2;
 
@@ -475,8 +664,108 @@ export class TimelineGenerator {
       dryRun: options.dryRun,
     };
 
+    // A branch of an invented world is still that world: it is written as one,
+    // in its calendar, rather than as a turn away from real history.
+    const sourceGraph = await container.graphService.getGraph(options.sourceGraphId);
+    const branchPlan: GenerationPlan = {
+      kind: sourceGraph.calendar ? 'world' : 'counterfactual',
+      subject: options.counterfactualPrompt,
+      divergencePoint: pivotEvent.description,
+      calendar: sourceGraph.calendar,
+      startMs: pivotTimeMs + dayMsOf(sourceGraph.calendar),
+      endMs: pivotTimeMs + stepMs * eventCount,
+    };
+
+    // Generate divergent events
+    const { events: intermediateEvents, source } = await this.generateEventsPass(
+      divergentTimelineOptions,
+      branchPlan,
+      eventCount,
+      branchPlan.startMs,
+      stepMs
+    );
+    const times = intermediateEvents.map((e) => parseInstant(e.timestamp));
+    const arcStart = Math.min(...times);
+    const arcEnd = Math.max(Math.max(...times), arcStart + MS_PER_DAY);
+    const branchArcName = `${options.branchName} Divergence Era`;
+    const branchArcDescription = branchPlan.calendar
+      ? `Another course for the chronicle from ${pivotEvent.actor}: ${options.counterfactualPrompt}`
+      : `Counterfactual divergent timeline from ${pivotEvent.actor}: ${options.counterfactualPrompt}`;
+
+    // The preview is what the write below makes: the same events, one arc
+    // holding them, a link from the pivot and a chain through them.
     if (options.dryRun) {
-      return this.generateTimeline(divergentTimelineOptions, container);
+      const dryGraphId = `dry-${Date.now()}`;
+      const arcId = 'arc-dry-0';
+      const events: EventDto[] = intermediateEvents.map((e, idx) => ({
+        id: `evt-dry-${idx}`,
+        graphId: dryGraphId,
+        description: e.description,
+        timestamp: e.timestamp,
+        actor: e.actor,
+        target: e.target,
+        importance: e.importance,
+        metadata: { ...dateMetadataOf(e), importance: e.importance, arcId },
+      }));
+      const chain: IntermediateCausalLink[] = intermediateEvents.slice(1).map((_, idx) => ({
+        causeIndex: idx,
+        effectIndex: idx + 1,
+        weight: 0.85,
+        type: 'direct',
+        reasoning: `Divergent cascade from ${intermediateEvents[idx].description}`,
+      }));
+      const relationships: CausalRelationshipDto[] = [
+        ...(events.length > 0
+          ? [
+              {
+                id: 'rel-dry-pivot',
+                graphId: dryGraphId,
+                causeId: pivotEvent.id,
+                effectId: events[0].id,
+                weight: 0.95,
+                type: 'direct',
+                reasoning: `Counterfactual branch point: ${options.counterfactualPrompt}`,
+                confidence: 0.95,
+              },
+            ]
+          : []),
+        ...chain.map((link, idx) => ({
+          id: `rel-dry-${idx}`,
+          graphId: dryGraphId,
+          causeId: events[link.causeIndex].id,
+          effectId: events[link.effectIndex].id,
+          weight: link.weight,
+          type: link.type,
+          reasoning: link.reasoning,
+          confidence: 0.9,
+        })),
+      ];
+      const arcPreview = { start_time: new Date(arcStart).toISOString(), end_time: new Date(arcEnd).toISOString() };
+      return {
+        graphId: dryGraphId,
+        graphName: options.branchName,
+        premise: options.counterfactualPrompt,
+        divergencePoint: pivotEvent.description,
+        ...(branchPlan.calendar ? { calendar: branchPlan.calendar } : {}),
+        source,
+        eventCount: events.length,
+        arcCount: 1,
+        relationshipCount: relationships.length,
+        events,
+        arcs: [
+          {
+            id: arcId,
+            graphId: dryGraphId,
+            name: branchArcName,
+            description: branchArcDescription,
+            startTime: arcPreview.start_time,
+            endTime: arcPreview.end_time,
+            level: 0,
+          },
+        ],
+        relationships,
+        validation: { ...this.verifyIntegrityPass(intermediateEvents, [arcPreview], chain), graphId: dryGraphId },
+      };
     }
 
     // Branch source graph
@@ -512,23 +801,44 @@ export class TimelineGenerator {
       branchPivotEvent = pivotEvent;
     }
 
-    // Generate divergent events
-    const intermediateEvents = await this.generateEventsPass(
-      divergentTimelineOptions,
-      eventCount,
-      pivotTimeMs + 24 * 60 * 60 * 1000,
-      stepMs
-    );
+    // The branch's arc holds the events it adds, so it is made first and each
+    // event is placed in it. A top-level arc: it has no parent, so it is level
+    // 0 (an export of a level-1 arc without a parent fails the import's
+    // hierarchy check). It is recorded like the events, or an export of the
+    // branch would leave it out.
+    const arc = await targetScoped.arcRepository.create({
+      name: branchArcName,
+      description: branchArcDescription,
+      start_time: new Date(arcStart),
+      end_time: new Date(arcEnd),
+      level: 0,
+    });
+    try {
+      await container.graphWriteVersioningService.recordArc(branchedGraphId, arc, 'create');
+    } catch {
+      // Best effort
+    }
+    const persistedArcs: ArcDto[] = [
+      {
+        id: arc.id,
+        graphId: branchedGraphId,
+        name: arc.name,
+        description: arc.description,
+        startTime: arc.start_time.toISOString(),
+        endTime: arc.end_time.toISOString(),
+        level: arc.level,
+      },
+    ];
 
     const domainEvents: Event[] = [];
     const persistedEvents: EventDto[] = [];
     for (const e of intermediateEvents) {
       const created = await targetScoped.eventRepository.create({
         description: e.description,
-        timestamp: new Date(e.timestamp),
+        timestamp: toInstant(e.timestamp),
         actor: e.actor,
         target: e.target,
-        metadata: { importance: e.importance },
+        metadata: { ...dateMetadataOf(e), importance: e.importance, arcId: arc.id },
       });
       try {
         await container.graphWriteVersioningService.recordEvent(branchedGraphId, created, 'create');
@@ -544,6 +854,7 @@ export class TimelineGenerator {
         actor: created.actor,
         target: created.target,
         importance: e.importance,
+        metadata: created.metadata,
       });
     }
 
@@ -561,6 +872,13 @@ export class TimelineGenerator {
         domainEvents[0],
         branchRel
       );
+      // Recorded, like the events and the arc: otherwise a diff cannot see the
+      // link, a merge leaves it behind, and a rollback of the branch loses it.
+      try {
+        await container.graphWriteVersioningService.recordRelationship(branchedGraphId, branchLink, 'create');
+      } catch {
+        // Best effort
+      }
       persistedRels.push({
         id: branchLink.id,
         graphId: branchedGraphId,
@@ -584,6 +902,11 @@ export class TimelineGenerator {
         relationship_type: 'direct',
       };
       const link = await targetScoped.causalService.createCausalLink(cause, effect, linkRel);
+      try {
+        await container.graphWriteVersioningService.recordRelationship(branchedGraphId, link, 'create');
+      } catch {
+        // Best effort
+      }
       persistedRels.push({
         id: link.id,
         graphId: branchedGraphId,
@@ -596,31 +919,13 @@ export class TimelineGenerator {
       });
     }
 
-    // Create branch narrative arc
-    const arc = await targetScoped.arcRepository.create({
-      name: `${options.branchName} Divergence Era`,
-      description: `Counterfactual divergent timeline from ${pivotEvent.actor}: ${options.counterfactualPrompt}`,
-      start_time: new Date(persistedEvents[0].timestamp),
-      end_time: new Date(persistedEvents[persistedEvents.length - 1].timestamp),
-      level: 1,
-    });
-    const persistedArcs: ArcDto[] = [
-      {
-        id: arc.id,
-        graphId: branchedGraphId,
-        name: arc.name,
-        description: arc.description,
-        startTime: arc.start_time.toISOString(),
-        endTime: arc.end_time.toISOString(),
-        level: arc.level,
-      },
-    ];
-
     return {
       graphId: branchedGraphId,
       graphName: options.branchName,
       premise: options.counterfactualPrompt,
       divergencePoint: pivotEvent.description,
+      ...(branchPlan.calendar ? { calendar: branchPlan.calendar } : {}),
+      source,
       eventCount: persistedEvents.length,
       arcCount: persistedArcs.length,
       relationshipCount: persistedRels.length,
@@ -674,8 +979,11 @@ export class TimelineGenerator {
       }
     }
 
+    // The graph's world calendars: the window is read, and the arc named, in them.
+    const calendar = storedCalendarSet((await container.graphRepository.findById(options.graphId).catch(() => null))?.calendar) ?? undefined;
+
     if (options.timeWindow) {
-      const parsed = parseTimeWindow(options.timeWindow);
+      const parsed = parseTimeWindow(options.timeWindow, calendar);
       if (parentArc) {
         // The expansion has to stay inside the arc it expands, or the graph
         // would hold an arc that is not contained by its parent.
@@ -684,7 +992,7 @@ export class TimelineGenerator {
         if (start >= end) {
           throw new Error(
             `The time window ${options.timeWindow} does not overlap the arc ${parentArc.id} ` +
-              `(${parentArc.start_time.toISOString()} - ${parentArc.end_time.toISOString()})`
+              `(${formatHistoricalDate(parentArc.start_time, calendar)} – ${formatHistoricalDate(parentArc.end_time, calendar)})`
           );
         }
         windowStart = start;
@@ -713,7 +1021,7 @@ export class TimelineGenerator {
 
     const expansionArcName = parentArc
       ? `Expansion within ${parentArc.name}`
-      : `Expansion ${new Date(windowStart).toISOString().slice(0, 10)} to ${new Date(windowEnd).toISOString().slice(0, 10)}`;
+      : `Expansion ${formatHistoricalDate(new Date(windowStart), calendar)} to ${formatHistoricalDate(new Date(windowEnd), calendar)}`;
 
     if (options.dryRun) {
       return {
@@ -767,16 +1075,29 @@ export class TimelineGenerator {
       level: parentArc ? parentArc.level + 1 : 0,
       metadata: parentArc ? { parentArcId: parentArc.id } : {},
     });
+    // Recorded in the graph's history, like everything else the generator
+    // writes: a merge or rollback rebuilds the live store from that history,
+    // and an unrecorded expansion vanished from the graph.
+    try {
+      await container.graphWriteVersioningService.recordArc(options.graphId, createdArc, 'create');
+    } catch {
+      // Best effort
+    }
 
     const createdEvents: EventDto[] = [];
     for (const e of intermediateEvents) {
       const created = await scoped.eventRepository.create({
         description: e.description,
-        timestamp: new Date(e.timestamp),
+        timestamp: toInstant(e.timestamp),
         actor: e.actor,
         target: e.target,
-        metadata: { importance: e.importance, arcId: createdArc.id },
+        metadata: { ...dateMetadataOf(e), importance: e.importance, arcId: createdArc.id },
       });
+      try {
+        await container.graphWriteVersioningService.recordEvent(options.graphId, created, 'create');
+      } catch {
+        // Best effort
+      }
       createdEvents.push({
         id: created.id,
         graphId: options.graphId,
@@ -905,10 +1226,10 @@ export class TimelineGenerator {
     for (const e of simulatedEvents) {
       const created = await scoped.eventRepository.create({
         description: e.description,
-        timestamp: new Date(e.timestamp),
+        timestamp: toInstant(e.timestamp),
         actor: e.actor,
         target: e.target,
-        metadata: { importance: e.importance },
+        metadata: { ...dateMetadataOf(e), importance: e.importance },
       });
       domainSimEvents.push(created);
       createdEvents.push({
@@ -971,14 +1292,98 @@ export class TimelineGenerator {
 
   // --- Private Helpers for Passes ---
 
-  private resolveTimeSpan(
-    options: GenerateTimelineOptions,
-    eventCount: number
-  ): { startMs: number; stepMs: number } {
-    let startMs = Date.parse(options.startDate || '');
-    if (isNaN(startMs)) {
+  /**
+   * Check a `generate timeline` request and settle what it will write: which
+   * kind of timeline, the span it covers and, for an invented world, its
+   * calendar.
+   */
+  private resolvePlan(options: GenerateTimelineOptions): GenerationPlan {
+    const world = options.world?.trim() ?? '';
+    const premise = options.premise?.trim() ?? '';
+    const divergencePoint = options.divergencePoint?.trim() ?? '';
+    let startParsed = parseInstant(options.startDate);
+    let endParsed = parseInstant(options.endDate);
+    // An invented world's dates may be written in its own notation; they are
+    // read once its calendar is settled, below. Without one, by the rule every
+    // door applies: ISO 8601 or a year first ("312", "44 BCE"), an end
+    // meaning the last moment of the day, month or year it names.
+    if (!world) {
+      const plainDate = (text: string | undefined, edge: 'start' | 'end'): number => {
+        if (!text) return NaN;
+        const read = readWorldTimestamp(null, text, edge);
+        if (!read) throw new ValidationErrorCLI(`Invalid ${edge} date: ${unreadDateReason(null, text)}`);
+        return Date.parse(read.iso);
+      };
+      startParsed = plainDate(options.startDate, 'start');
+      endParsed = plainDate(options.endDate, 'end');
+    }
+
+    if (world) {
+      if (premise || divergencePoint) {
+        throw new ValidationErrorCLI(
+          'Give either a world to invent, or a premise and a point of divergence, not both'
+        );
+      }
+      const startYear = Number.isNaN(startParsed) ? undefined : new Date(startParsed).getUTCFullYear();
+      // A calendar set given whole (any shape), or the simple form: the
+      // Gregorian calendar with its years counted from an epoch.
+      let calendar: WorldCalendarSet;
+      try {
+        if (isCalendarSet(options.calendar)) calendar = calendarSetFromInput(options.calendar);
+        else {
+          const simple = (options.calendar ?? {}) as { epochYear?: number };
+          // Checked as a new graph's calendar is, before any model is asked.
+          calendar = calendarSetFromInput({ ...simple, epochYear: simple.epochYear ?? startYear ?? WORLD_DEFAULT_EPOCH_YEAR });
+        }
+      } catch (err) {
+        throw new ValidationErrorCLI((err as Error).message);
+      }
+      // Dates in the world's notation ("Thaw 4, 312 AR") or ISO 8601.
+      // The end of the chronicle is the last moment of the day, month or year it names.
+      const readDate = (text: string | undefined, what: 'start' | 'end'): number => {
+        if (!text) return NaN;
+        const read = readWorldTimestamp(calendar, text, what);
+        if (!read) {
+          throw new ValidationErrorCLI(`Invalid ${what} date: ${unreadDateReason(calendar, text)}`);
+        }
+        return Date.parse(read.iso);
+      };
+      startParsed = readDate(options.startDate, 'start');
+      endParsed = readDate(options.endDate, 'end');
+      // The world's year 1, unless a start is given.
+      const yearOne = positionOf(calendarIn(calendar), { year: 1, part: 0, day: 1, hour: 0, minute: 0, second: 0 }) ?? 0;
+      const startMs = Number.isNaN(startParsed) ? yearOne : startParsed;
+      // A stored year has four digits; past 9999 a timestamp needs an expanded
+      // year, which the rest of the system does not read. The default span
+      // stops there, and an end date past it is refused.
+      if (!Number.isNaN(endParsed) && endParsed > LAST_STORED_INSTANT) {
+        // Named as the world names it: its own years mean nothing of 9999.
+        throw new ValidationErrorCLI(`The end date must be no later than ${formatInWorld(calendar, LAST_STORED_INSTANT, 'day')}, where the timeline's four-digit years end`);
+      }
+      const endMs = Number.isNaN(endParsed)
+        ? Math.min(startMs + WORLD_DEFAULT_SPAN_YEARS * MS_PER_YEAR, LAST_STORED_INSTANT)
+        : endParsed;
+      if (endMs <= startMs) {
+        throw new ValidationErrorCLI('The end date must be after the start date');
+      }
+      return { kind: 'world', subject: world, divergencePoint: '', calendar, startMs, endMs };
+    }
+
+    if (!premise || !divergencePoint) {
+      throw new ValidationErrorCLI(
+        'Give a premise and a point of divergence for an alternate history, or a world to invent one from scratch'
+      );
+    }
+    if (options.calendar) {
+      throw new ValidationErrorCLI(
+        'A calendar is for an invented world; an alternate history keeps the real calendar'
+      );
+    }
+
+    let startMs = startParsed;
+    if (Number.isNaN(startMs)) {
       // Try to extract 4 digit year from divergencePoint or premise
-      const yearMatch = (options.divergencePoint + ' ' + options.premise).match(/\b(1\d{3}|20\d{2})\b/);
+      const yearMatch = (divergencePoint + ' ' + premise).match(/\b(1\d{3}|20\d{2})\b/);
       if (yearMatch) {
         startMs = new Date(`${yearMatch[1]}-01-01T00:00:00Z`).getTime();
       } else {
@@ -986,57 +1391,80 @@ export class TimelineGenerator {
       }
     }
 
-    let endMs = Date.parse(options.endDate || '');
-    if (isNaN(endMs)) {
-      // Default to 15 years after start
-      endMs = startMs + 15 * 365.25 * 24 * 60 * 60 * 1000;
+    // Default to 15 years after start
+    const endMs = Number.isNaN(endParsed) ? startMs + 15 * MS_PER_YEAR : endParsed;
+    if (endMs <= startMs) {
+      throw new ValidationErrorCLI('The end date must be after the start date');
     }
 
-    const stepMs = Math.max(24 * 60 * 60 * 1000 * 30, Math.floor((endMs - startMs) / eventCount));
-    return { startMs, stepMs };
+    return { kind: 'counterfactual', subject: premise, divergencePoint, startMs, endMs };
+  }
+
+  /** The result fields only an invented world has. */
+  private worldFields(plan: GenerationPlan): Pick<GenerationResultDto, 'world' | 'calendar'> {
+    return plan.kind === 'world' ? { world: plan.subject, calendar: plan.calendar } : {};
   }
 
   private async generateEventsPass(
     options: GenerateTimelineOptions,
+    plan: GenerationPlan,
     eventCount: number,
     startMs: number,
     stepMs: number
-  ): Promise<IntermediateEvent[]> {
+  ): Promise<{ events: IntermediateEvent[]; source: GenerationSource }> {
     const style: NarrativeStyle = options.style || 'academic';
+    const isWorld = plan.kind === 'world';
 
-    // If LLM client is available, prompt LLM for structured counterfactual narrative
+    // If LLM client is available, prompt LLM for a structured narrative
     if (this.llmClient) {
       try {
-        const prompt = `You are an expert counterfactual historian.
-Premise: ${options.premise}
-Point of Divergence: ${options.divergencePoint}
+        const prompt = isWorld
+          ? this.worldPrompt(plan, style, eventCount)
+          : `You are an expert counterfactual historian.
+Premise: ${plan.subject}
+Point of Divergence: ${plan.divergencePoint}
 Style: ${style} (${STYLE_GUIDANCE[style]})
 Generate ${eventCount} chronological historical events demonstrating this counterfactual reality.`;
-        const extracted = await this.llmClient.extractEvents(prompt);
+        const extracted = await this.llmClient.extractEvents(prompt, {
+          defaultTimeRange: {
+            start: new Date(plan.startMs).toISOString(),
+            end: new Date(plan.endMs).toISOString(),
+          },
+          // A world's dates come back in its notation, read with its calendars.
+          ...(plan.calendar ? { calendar: plan.calendar } : {}),
+        });
         if (extracted.length >= 3) {
           const sorted = [...extracted].sort(
-            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            (a, b) => parseInstant(a.timestamp) - parseInstant(b.timestamp)
           );
-          return sorted.map((e, idx) => ({
+          const events = sorted.map((e, idx) => ({
             description: e.description,
             timestamp: e.timestamp,
-            actor: e.actor || 'Divergent Government',
-            target: e.target || 'Opposing Power',
+            actor: e.actor || (isWorld ? 'Unnamed Realm' : 'Divergent Government'),
+            target: e.target || (isWorld ? 'Unnamed People' : 'Opposing Power'),
             importance: Math.max(0.4, 1.0 - idx * 0.05),
+            ...(e.datePrecision ? { datePrecision: e.datePrecision } : {}),
+            ...(e.dateCalendar ? { dateCalendar: e.dateCalendar } : {}),
           }));
+          return { events, source: 'model' };
         }
       } catch {
-        // Fall back to deterministic counterfactual heuristic synthesizer
+        // Fall back to the deterministic template below
       }
+    }
+
+    if (isWorld) {
+      return { events: this.worldTemplateEvents(plan, style, eventCount, startMs, stepMs), source: 'template' };
     }
 
     // Deterministic counterfactual progression synthesizer
     const events: IntermediateEvent[] = [];
-    const actor = options.premise.includes('Napoleon')
+    const premise = plan.subject;
+    const actor = premise.includes('Napoleon')
       ? 'French Empire'
-      : options.premise.includes('Rome')
+      : premise.includes('Rome')
         ? 'Roman Empire'
-        : options.premise.includes('America') || options.premise.includes('Washington')
+        : premise.includes('America') || premise.includes('Washington')
           ? 'United States'
           : 'Divergent Coalition';
 
@@ -1049,7 +1477,7 @@ Generate ${eventCount} chronological historical events demonstrating this counte
           : 'Continental Alliance';
 
     const narrativeMilestones = [
-      `Point of Divergence: ${options.divergencePoint}`,
+      `Point of Divergence: ${plan.divergencePoint}`,
       `Immediate aftermath and consolidation following the turning point`,
       `Geopolitical realignment and formation of new strategic alliances`,
       `Economic and institutional mobilization under new leadership`,
@@ -1064,8 +1492,8 @@ Generate ${eventCount} chronological historical events demonstrating this counte
       const milestone = narrativeMilestones[i % narrativeMilestones.length];
       const desc =
         i === 0
-          ? options.divergencePoint
-          : STYLE_RENDERERS[style](milestone, options.premise.slice(0, 50));
+          ? plan.divergencePoint
+          : STYLE_RENDERERS[style](milestone, premise.slice(0, 50));
       events.push({
         description: desc,
         timestamp: new Date(timeMs).toISOString(),
@@ -1075,6 +1503,66 @@ Generate ${eventCount} chronological historical events demonstrating this counte
       });
     }
 
+    return { events, source: 'template' };
+  }
+
+  /**
+   * What the model is asked for when it chronicles an invented world. The
+   * world is not Earth, so it is told not to borrow real history, and it is
+   * told how the world's years are stored so its dates land where they belong.
+   */
+  private worldPrompt(plan: GenerationPlan, style: NarrativeStyle, eventCount: number): string {
+    const calendar = plan.calendar as WorldCalendarSet;
+    // The world keeps its own time: the model writes dates in its notation,
+    // which the server converts (readWorldTimestamp), whatever the calendar's shape.
+    const calendarLine = `Calendar: ${calendarSetInstructions(calendar)}`;
+    const range = `between ${formatInWorld(calendar, plan.startMs)} and ${formatInWorld(calendar, plan.endMs)}`;
+    if (plan.divergencePoint) {
+      return `You are a worldbuilder writing another course for the chronicle of an invented world. It is not Earth: do not borrow real people, nations, places or events.
+The chronicle turns at: ${plan.divergencePoint}
+In this telling: ${plan.subject}
+${calendarLine}
+Style: ${style} (${STYLE_GUIDANCE[style]})
+Generate ${eventCount} chronological events that follow from this turn, dated in the world's own calendar ${range}. Give each a named actor and target from the world itself.`;
+    }
+    return `You are a worldbuilder writing the chronicle of an invented world. It is not Earth: do not borrow real people, nations, places or events.
+World: ${plan.subject}
+${calendarLine}
+Style: ${style} (${STYLE_GUIDANCE[style]})
+Generate ${eventCount} chronological events of this world's history, from its founding onwards, dated in the world's own calendar ${range}. Give each a named actor and target from the world itself.`;
+  }
+
+  /**
+   * A template chronicle of an invented world, for when there is no model to
+   * write one: the ages a world's history commonly moves through, spaced over
+   * the span, for the author to rewrite.
+   */
+  private worldTemplateEvents(
+    plan: GenerationPlan,
+    style: NarrativeStyle,
+    eventCount: number,
+    startMs: number,
+    stepMs: number
+  ): IntermediateEvent[] {
+    const world = clip(plan.subject, 50);
+    const dayMs = dayMsOf(plan.calendar);
+    const events: IntermediateEvent[] = [];
+    for (let i = 0; i < eventCount; i++) {
+      const milestone = WORLD_MILESTONES[i % WORLD_MILESTONES.length];
+      events.push({
+        description:
+          i === 0
+            ? plan.divergencePoint
+              ? `The chronicle turns: ${plan.subject}`
+              : `The founding of the world: ${plan.subject}`
+            : WORLD_STYLE_RENDERERS[style](milestone, world),
+        // At the start of a day (the world's): a template date is a day, and an hour would show as one.
+        timestamp: new Date(Math.floor((startMs + stepMs * i) / dayMs) * dayMs).toISOString(),
+        actor: i % 2 === 0 ? 'Founding People' : 'Rival Realm',
+        target: i % 2 === 0 ? 'Rival Realm' : 'Founding People',
+        importance: i === 0 ? 1.0 : Math.max(0.5, 0.9 - i * 0.05),
+      });
+    }
     return events;
   }
 
@@ -1115,8 +1603,8 @@ Generate ${eventCount} chronological historical events demonstrating this counte
 
     // Temporal order
     for (let i = 1; i < events.length; i++) {
-      const prev = new Date(events[i - 1].timestamp).getTime();
-      const curr = new Date(events[i].timestamp).getTime();
+      const prev = toInstant(events[i - 1].timestamp).getTime();
+      const curr = toInstant(events[i].timestamp).getTime();
       if (prev >= curr) {
         issues.push({
           type: 'temporal',
@@ -1128,8 +1616,8 @@ Generate ${eventCount} chronological historical events demonstrating this counte
 
     // Arc bounds
     for (let idx = 0; idx < arcs.length; idx++) {
-      const start = new Date(arcs[idx].start_time).getTime();
-      const end = new Date(arcs[idx].end_time).getTime();
+      const start = toInstant(arcs[idx].start_time).getTime();
+      const end = toInstant(arcs[idx].end_time).getTime();
       if (start >= end) {
         issues.push({
           type: 'temporal',
@@ -1141,8 +1629,8 @@ Generate ${eventCount} chronological historical events demonstrating this counte
 
     // Causal direction (the cause may not follow the effect)
     for (const link of links) {
-      const causeTime = new Date(events[link.causeIndex].timestamp).getTime();
-      const effectTime = new Date(events[link.effectIndex].timestamp).getTime();
+      const causeTime = toInstant(events[link.causeIndex].timestamp).getTime();
+      const effectTime = toInstant(events[link.effectIndex].timestamp).getTime();
       if (isTemporalInversion(causeTime, effectTime)) {
         issues.push({
           type: 'causal_direction',

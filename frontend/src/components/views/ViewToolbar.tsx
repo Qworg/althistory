@@ -22,6 +22,8 @@ import { StreamingStatusBadge } from '@/components/streaming/StreamingStatusBadg
 import { SimulationLauncherPanel } from '@/components/branch/SimulationLauncherPanel'
 import { useStreamingWrite } from '@/hooks/useStreamingWrite'
 import { MoreSheet } from '@/components/layout/MoreSheet'
+import { CalendarSwitcher } from '@/components/layout/CalendarSwitcher'
+import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import { useMoreSheetStore } from '@/components/layout/moreSheetStore'
 
 interface ViewToolbarProps {
@@ -133,6 +135,8 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
   } | null>(null)
 
   const moreSheetOpen = useMoreSheetStore((state) => state.isOpen)
+
+  const calendarCount = useWorldCalendarStore((state) => state.set?.calendars.length ?? 0)
   const setMoreSheetOpen = useMoreSheetStore((state) => state.setOpen)
 
   // Widening past lg puts the tools back on the toolbar: the sheet must not
@@ -690,9 +694,13 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
             }
           ]}
           footer={
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-medium text-ink-muted">Live streaming</span>
-              {streamingBadge}
+            <div className="space-y-3">
+              {/* A world with several calendars: which its dates are shown in (in the header on wider screens). */}
+              {calendarCount > 1 && <CalendarSwitcher />}
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-ink-muted">Live streaming</span>
+                {streamingBadge}
+              </div>
             </div>
           }
         />

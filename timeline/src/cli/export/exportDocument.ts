@@ -14,6 +14,7 @@
 import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
 import { ExportRelationship } from './GraphExporter';
+import { type WorldCalendarSet, storedCalendarSet, toInstant } from '@althistory/calendar';
 
 export interface ParsedExportDocument {
   graphId: string;
@@ -22,6 +23,8 @@ export interface ParsedExportDocument {
   events: Event[];
   arcs: Arc[];
   relationships: ExportRelationship[];
+  /** The graph's calendars; one that does not check out is left out. */
+  calendar?: WorldCalendarSet;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -88,7 +91,7 @@ export function parseExportDocument(document: unknown): ParsedExportDocument {
         description: readString(raw.description, 'Untitled event'),
         actor: readString(raw.actor, 'Unknown'),
         target: readString(raw.target, 'Unknown'),
-        timestamp: new Date(readString(raw.timestamp)),
+        timestamp: toInstant(readString(raw.timestamp)),
         metadata: readMetadata(raw.metadata),
       })
     );
@@ -99,8 +102,8 @@ export function parseExportDocument(document: unknown): ParsedExportDocument {
     if (!isRecord(raw)) continue;
     const id = readString(raw.id);
     if (!id) continue;
-    const start = new Date(readString(raw.start_time));
-    const end = new Date(readString(raw.end_time));
+    const start = toInstant(readString(raw.start_time));
+    const end = toInstant(readString(raw.end_time));
     // An arc whose bounds are unusable cannot be rendered; it is dropped and
     // the export says so through the count it reports.
     if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;
@@ -145,5 +148,6 @@ export function parseExportDocument(document: unknown): ParsedExportDocument {
     events,
     arcs,
     relationships,
+    ...(storedCalendarSet(metadata.calendar) ? { calendar: storedCalendarSet(metadata.calendar)! } : {}),
   };
 }

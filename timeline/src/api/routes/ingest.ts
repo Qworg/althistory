@@ -22,7 +22,8 @@
  * `services/ingestion/index.ts`. It has no separate report file.
  */
 
-import { Router, RequestHandler, Response } from 'express';
+import { Router, RequestHandler, Response, NextFunction } from 'express';
+import { getContainer } from '@/container';
 import {
   AuthenticatedRequest,
   authenticate,
@@ -33,7 +34,9 @@ import {
   authorizeGraphAccess,
   requireGraphId,
   asyncHandler,
+  GRAPH_ID_HEADER,
 } from '../middleware';
+import { type GraphCalendar, type WorldCalendarSet, calendarSetInstructions, storedCalendarSet } from '@althistory/calendar';
 import { ValidationError, NotFoundError, UpstreamServiceError } from '../../utils/errors';
 import { ImportService } from '../../services/ImportService';
 import type { HeadReplacedHook } from '../../services/LiveStoreSyncService';
@@ -79,6 +82,50 @@ export interface IngestRouterConfig {
   llm?: LLMClientFactoryConfig;
   /** Test seam: supply a fully wired orchestrator. */
   orchestrator?: IngestionOrchestrator;
+  /**
+   * The calendar of a graph, for text about an invented world. Defaults to
+   * the graph repository's; a test seam.
+   */
+  graphCalendar?: (graphId: string) => Promise<WorldCalendarSet | GraphCalendar | undefined>;
+}
+
+/**
+ * Scope a request to the graph its `X-Graph-Id` names, and check the key may
+ * read it, but only when it names one: extraction writes nothing, so a request
+ * without the header stays unscoped, as it always was.
+ */
+function scopeToGraphWhenNamed(): RequestHandler[] {
+  const resolve = resolveGraphContext();
+  const authorizeAccess = authorizeGraphAccess((req) => req.graphId);
+  const whenNamed =
+    (handler: RequestHandler): RequestHandler =>
+    (req, res, next: NextFunction) => {
+      if (req.get(GRAPH_ID_HEADER) === undefined) {
+        next();
+        return;
+      }
+      handler(req, res, next);
+    };
+  return [whenNamed(resolve), whenNamed(authorizeAccess as RequestHandler)];
+}
+
+async function repositoryCalendar(graphId: string): Promise<WorldCalendarSet | undefined> {
+  const graph = await getContainer().graphRepository.findById(graphId);
+  return graph?.calendar;
+}
+
+
+/**
+ * The extraction context for text bound for a graph: the caller's, plus the
+ * graph's world calendars, so the model writes dates in the world's notation
+ * ("Thaw 4, 312 AR") and they are read with those calendars. A graph without
+ * a calendar leaves the context as it was.
+ */
+function withCalendar(context: ExtractionContext | undefined, calendar: WorldCalendarSet | undefined): ExtractionContext | undefined {
+  if (!calendar) return context;
+  const calendarLine = calendarSetInstructions(calendar);
+  const instructions = context?.instructions ? `${calendarLine}\n${context.instructions}` : calendarLine;
+  return { ...context, instructions, calendar };
 }
 
 /**
@@ -264,9 +311,18 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
     rateLimit() as RequestHandler
   );
 
-  /** POST /api/ingest/text — synchronous pattern/LLM extraction. */
+  const graphCalendar = config.graphCalendar ?? repositoryCalendar;
+
+  /**
+   * POST /api/ingest/text — synchronous pattern/LLM extraction.
+   *
+   * With an `X-Graph-Id` naming a graph that has a world calendar, the model is
+   * told how that world's dates are stored. The pattern reader cannot read
+   * invented years either way.
+   */
   router.post(
     '/text',
+    ...scopeToGraphWhenNamed(),
     asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       const body = isRecord(req.body) ? req.body : {};
       if (typeof body.text !== 'string' || body.text.trim().length === 0) {
@@ -276,9 +332,11 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
         text: body.text,
         useLLM: body.useLLM !== false,
       };
+      // As a set, whatever form it was stored in.
+      const calendar = req.graphId ? (storedCalendarSet(await graphCalendar(req.graphId)) ?? undefined) : undefined;
       const preview = await orchestrator.ingest(
         { source: 'text', text: input },
-        parseExtractionContext(body.context),
+        withCalendar(parseExtractionContext(body.context), calendar),
         ownerKeyId(req)
       );
       res.status(200).json(preview);
@@ -398,7 +456,14 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
       approve.targetGraphId = resolvedGraphId;
 
       try {
-        const result = await orchestrator.approve(req.params.id, approve, ownerKeyId(req));
+        // The reviewer's dates are read with the target graph's calendars; a
+        // graph that cannot be read leaves them to the job's (the import then
+        // reports the graph itself).
+        const target = await graphCalendar(resolvedGraphId).then(
+          (calendar) => ({ calendar: storedCalendarSet(calendar) ?? undefined }),
+          () => undefined
+        );
+        const result = await orchestrator.approve(req.params.id, approve, ownerKeyId(req), target);
         res.status(200).json(result);
       } catch (error) {
         if (error instanceof IngestionJobNotFoundError) {

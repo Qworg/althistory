@@ -146,6 +146,12 @@ describe('useImport hooks', () => {
 
       expect(result.current.data).toEqual(mockValidationResult)
       expect(mockedValidate).toHaveBeenCalledWith(exportData)
+
+      // Bound for a graph, its dates are checked with that graph's calendars.
+      act(() => {
+        result.current.mutate({ data: exportData, targetGraphId: 'vael', mode: 'merge' })
+      })
+      await waitFor(() => expect(mockedValidate).toHaveBeenCalledWith(exportData, 'vael', 'merge'))
     })
 
     it('should handle validation errors', async () => {
@@ -417,6 +423,16 @@ describe('importReducer', () => {
       targetGraphId: undefined,
       error: null,
     })
+  })
+
+  it('keeps the graph it imports into when starting over', () => {
+    const into = { ...initialImportState, targetGraphId: 'vael', mode: 'merge' as const, step: 'execute' as const }
+    expect(importReducer(into, { type: 'RESET' })).toEqual({ ...initialImportState, targetGraphId: 'vael' })
+  })
+
+  it('starts each step without the error of the one before', () => {
+    const failed = importReducer(initialImportState, { type: 'SET_ERROR', payload: 'network down' })
+    expect(importReducer(failed, { type: 'SET_STEP', payload: 'execute' })).toMatchObject({ step: 'execute', error: null })
   })
 
   it('should handle SET_DATA action', () => {

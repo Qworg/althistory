@@ -1,9 +1,10 @@
-import { useState, useEffect, useContext, useMemo } from 'react'
+import { useState, useEffect, useContext, useMemo, useRef } from 'react'
 import { QueryClientContext } from '@tanstack/react-query'
-import { Arc, CausalRelationship, Event } from '@/types'
+import { Arc, CausalRelationship, Event, type GraphCalendar } from '@/types'
 import { useEvents } from '@/hooks/useAPI'
-import { formatHistoricalDateBound, parseHistoricalDate } from '@/components/filters/filterUtils'
-import { formatHistoricalDate } from '@/utils/historicalTime'
+import { type DateEntryRead, type DatePrecision, dateCalendarOf, datePrecisionOf, formatDateEntry, readDateEntry, toInstant, worldBoundExamples } from '@althistory/calendar'
+import { getActiveCalendar, useWorldCalendar } from '@/stores/worldCalendarStore'
+import { formatHistoricalDateAt, formatEventDate } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 
 /** The fields checked on save, in the order they appear (and are focused). */
@@ -84,7 +85,7 @@ function CausePicker({
           <option value="">Nothing yet</option>
           {candidates.map((e) => (
             <option key={e.id} value={e.id}>
-              {formatHistoricalDate(e.timestamp)} · {e.description}
+              {formatEventDate(e)} · {e.description}
             </option>
           ))}
         </select>
@@ -117,37 +118,32 @@ function CausePicker({
 /**
  * The date field, as the filter panel writes dates: year first, as precise as
  * is known (`1843`, `1843-11`, `1843-11-20`), `BCE` before 1 CE, and an
- * optional UTC time after it (`1843-11-20 14:30`). A native date-time picker
- * shows the browser's locale order and cannot reach BCE at all.
+ * optional UTC time after it (`1843-11-20 14:30`); in a world, in its
+ * notation ("Thaw 312 AR", "Thaw 4, 312 AR, 06:30"). A native date-time
+ * picker shows the browser's locale order and cannot reach BCE at all, nor
+ * any other calendar. The reading is `@althistory/calendar` (entry.ts).
  */
-const TIME_SUFFIX = /^(.+?)(?:[ T](\d{1,2}):(\d{2}))$/
-
-function toDateField(isoString: string): string {
-  if (!isoString) return ''
-  const date = new Date(isoString)
-  if (isNaN(date.getTime())) return ''
-  const day = formatHistoricalDateBound(date, 'start')
-  const hours = date.getUTCHours()
-  const minutes = date.getUTCMinutes()
-  return hours || minutes ? `${day} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}` : day
+function toDateField(
+  isoString: string,
+  precision: DatePrecision = 'day',
+  calendar: GraphCalendar | null = getActiveCalendar(),
+  calendarId?: string
+): string {
+  // A month or year is written in the calendar it was given in ("Flooding 312 TC").
+  return formatDateEntry(isoString, precision, calendar, 'start', calendarId)
 }
 
-type DateFieldParse = { ok: true; iso: string } | { ok: false; error: string }
+function fromDateField(text: string, calendar: GraphCalendar | null = getActiveCalendar()): DateEntryRead {
+  return readDateEntry(text, calendar)
+}
 
-function fromDateField(text: string): DateFieldParse {
-  const trimmed = text.trim()
-  const timed = TIME_SUFFIX.exec(trimmed)
-  const datePart = timed ? timed[1]! : trimmed
-  const parsed = parseHistoricalDate(datePart, 'start')
-  if (!parsed.ok) return { ok: false, error: parsed.error }
-  const date = new Date(parsed.date.getTime())
-  if (timed) {
-    const hours = Number(timed[2])
-    const minutes = Number(timed[3])
-    if (hours > 23 || minutes > 59) return { ok: false, error: 'The time must be 00:00 to 23:59, in UTC.' }
-    date.setUTCHours(hours, minutes, 0, 0)
+/** What the date field's hint says before it reads as a date. */
+function dateFieldHint(calendar: GraphCalendar | null): string {
+  if (!calendar) {
+    return 'Year first, as precise as you know: 1843, 1843-11 or 1843-11-20. Add BCE before 1 CE, and a time if it matters (1843-11-20 14:30).'
   }
-  return { ok: true, iso: date.toISOString() }
+  const examples = worldBoundExamples(calendar)
+  return `In this world’s calendar, as precise as you know: ${examples.year}, ${examples.month} or ${examples.day}, and a time if it matters.`
 }
 
 /** The event's recorded confidence, as the field shows it ('' when none is recorded). */
@@ -233,6 +229,8 @@ export function EventDetailModal({
   // Suggestions need the events query; a host without a query client (a
   // unit test, say) simply gets none.
   const hasQueryClient = !!useContext(QueryClientContext)
+  // The date is typed in the world calendar shown, when the graph has one.
+  const worldCalendar = useWorldCalendar()
 
   useEffect(() => {
     if (!pendingFocus) return
@@ -240,29 +238,71 @@ export function EventDetailModal({
     setPendingFocus(null)
   }, [pendingFocus])
 
+  // The date as the form first showed it, and the calendar it is written in.
+  // A date left as shown is saved as it was stored: the text names the whole
+  // day, month or year it falls in (in the calendar shown), not the instant.
+  const shownDate = useRef('')
+  const fieldCalendar = useRef(worldCalendar)
+
+  // The date as it is now, for the switch below (read, not set, in an effect).
+  // Declared before the load below: when the event and the calendar change
+  // together, the switch acts on the old text, and the load then writes the
+  // new event's date in the new calendar.
+  const dateText = useRef(formData.timestamp)
+  useEffect(() => {
+    dateText.current = formData.timestamp
+  }, [formData.timestamp])
+
+  // Another calendar shown rewrites the date in it (and only the date): text
+  // in the old calendar could read as another day in the new one. The new
+  // text is worked out here, once; the state update only sets it (React may
+  // run an updater twice).
+  useEffect(() => {
+    const previous = fieldCalendar.current
+    if (previous === worldCalendar) return
+    fieldCalendar.current = worldCalendar
+    const current = dateText.current
+    let next: string | null = null
+    if (event && current === shownDate.current) {
+      shownDate.current = toDateField(event.timestamp || '', datePrecisionOf(event.metadata), worldCalendar, dateCalendarOf(event.metadata))
+      next = shownDate.current
+    } else {
+      const read = current.trim() ? fromDateField(current, previous) : null
+      if (read?.ok) next = toDateField(read.iso, read.precision, worldCalendar, read.calendar)
+    }
+    if (next === null) return
+    const rewritten = next
+    dateText.current = rewritten
+    setFormData((form) => ({ ...form, timestamp: rewritten }))
+  }, [worldCalendar, event])
+
   // Update form data when event changes
   useEffect(() => {
+    const calendar = fieldCalendar.current
     if (event) {
+      shownDate.current = toDateField(event.timestamp || '', datePrecisionOf(event.metadata), calendar, dateCalendarOf(event.metadata))
       setFormData({
         ...EMPTY_FORM,
         description: event.description || '',
         actor: event.actor || '',
         target: event.target || '',
-        timestamp: toDateField(event.timestamp || ''),
+        timestamp: shownDate.current,
         // Kept in the event's metadata, where the timeline reads confidence.
         event_type: metadataText(event, 'eventType'),
         confidence: confidenceField(event),
         evidence: metadataText(event, 'evidence'),
       })
     } else {
+      shownDate.current = ''
       setFormData({
         ...EMPTY_FORM,
-        timestamp: initialTimestamp ? toDateField(initialTimestamp) : '',
+        timestamp: initialTimestamp ? toDateField(initialTimestamp, 'day', calendar) : '',
       })
     }
     setErrors({})
     setShowDeleteConfirm(false)
   }, [event, isOpen, initialTimestamp])
+
 
   // Handle escape key
   useEffect(() => {
@@ -299,9 +339,9 @@ export function EventDetailModal({
     }
 
     if (!formData.timestamp.trim()) {
-      newErrors.timestamp = 'Give the date it happened, year first: 1843, 1843-11 or 1843-11-20.'
+      newErrors.timestamp = worldCalendar ? `Give the date it happened. ${dateFieldHint(worldCalendar)}` : 'Give the date it happened, year first: 1843, 1843-11 or 1843-11-20.'
     } else {
-      const parsed = fromDateField(formData.timestamp)
+      const parsed = fromDateField(formData.timestamp, worldCalendar)
       if (!parsed.ok) newErrors.timestamp = parsed.error
     }
 
@@ -344,7 +384,8 @@ export function EventDetailModal({
     try {
       // Only pass fields that exist on Event type
       // Convert datetime-local format to ISO string for API
-      const parsedDate = fromDateField(formData.timestamp)
+      const parsedDate = fromDateField(formData.timestamp, worldCalendar)
+      const dateUntouched = Boolean(event) && formData.timestamp === shownDate.current
       // The rest of the metadata is the event's own; only the fields this form
       // edits are replaced (an empty one is removed rather than saved blank).
       const metadata: Record<string, unknown> = { ...(event?.metadata ?? {}) }
@@ -355,11 +396,18 @@ export function EventDetailModal({
       setOrDrop('confidence', formData.confidence.trim() === '' ? undefined : Number(formData.confidence))
       setOrDrop('evidence', formData.evidence.trim())
       setOrDrop('eventType', formData.event_type.trim())
+      // The field states the date's precision ("1871-03" a month), and shows
+      // an event at the precision it is known to (toDateField), so saving it
+      // untouched keeps a month a month and a day on the 1st a day.
+      if (parsedDate.ok && !dateUntouched) {
+        setOrDrop('datePrecision', parsedDate.precision === 'day' ? undefined : parsedDate.precision)
+        setOrDrop('dateCalendar', parsedDate.precision === 'day' ? undefined : parsedDate.calendar)
+      }
       const eventData: Partial<Event> = {
         description: formData.description,
         actor: formData.actor,
         target: formData.target,
-        timestamp: parsedDate.ok ? parsedDate.iso : '',
+        timestamp: dateUntouched && event ? toInstant(event.timestamp).toISOString() : parsedDate.ok ? parsedDate.iso : '',
         metadata,
       }
       const extras: EventSaveExtras | undefined =
@@ -549,10 +597,10 @@ export function EventDetailModal({
                           />
                           <p id="timestamp-hint" className="mt-1 text-xs text-ink-muted">
                             {(() => {
-                              const parsed = formData.timestamp.trim() ? fromDateField(formData.timestamp) : null
+                              const parsed = formData.timestamp.trim() ? fromDateField(formData.timestamp, worldCalendar) : null
                               return parsed?.ok
-                                ? `Reads as ${formatHistoricalDate(parsed.iso)}.`
-                                : 'Year first, as precise as you know: 1843, 1843-11 or 1843-11-20. Add BCE before 1 CE, and a time if it matters (1843-11-20 14:30).'
+                                ? `Reads as ${formatHistoricalDateAt(parsed.iso, parsed.precision, undefined, worldCalendar, parsed.calendar)}.`
+                                : dateFieldHint(worldCalendar)
                             })()}
                           </p>
                           {errors.timestamp && (

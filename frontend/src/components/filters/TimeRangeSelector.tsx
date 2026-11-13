@@ -1,6 +1,10 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { TimeRange } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
+import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { DateField } from '@/components/ui/DateField'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { dateFieldIso, dateFieldValue } from '@/utils/dateField'
 
 interface TimeRangeSelectorProps {
   value: TimeRange | null
@@ -18,20 +22,33 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
   showPresets = true
 }) => {
   const { events } = useGlobalStore()
+  // The open graph's world calendar, subscribed so the range and hints follow it.
+  const worldCalendar = useWorldCalendar()
   
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [rangeError, setRangeError] = useState<string | null>(null)
+  // The range these fields last sent: when it comes back as `value`, the
+  // fields already say it, as typed, and are not written over.
+  const sentRef = useRef<TimeRange | null | undefined>(undefined)
+  const shownCalendarRef = useRef(worldCalendar)
 
-  // Update local state when value changes
+  // Update local state when value changes: a UTC picker's value, or the
+  // world's notation in the calendar shown.
   useEffect(() => {
+    const calendarChanged = shownCalendarRef.current !== worldCalendar
+    shownCalendarRef.current = worldCalendar
+    if (!calendarChanged && value === sentRef.current) return
+    sentRef.current = undefined
+    setRangeError(null)
     if (value) {
-      setStartDate(value.start.toISOString().slice(0, 16))
-      setEndDate(value.end.toISOString().slice(0, 16))
+      setStartDate(dateFieldValue(value.start, 'datetime', { calendar: worldCalendar, edge: 'start' }))
+      setEndDate(dateFieldValue(value.end, 'datetime', { calendar: worldCalendar, edge: 'end' }))
     } else {
       setStartDate('')
       setEndDate('')
     }
-  }, [value])
+  }, [value, worldCalendar])
 
   // Calculate date range from events
   const eventDateRange = React.useMemo(() => {
@@ -44,26 +61,38 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
     return { min: minDate, max: maxDate }
   }, [events])
 
-  const handleDateChange = useCallback(() => {
-    if (startDate && endDate) {
-      const start = new Date(startDate)
-      const end = new Date(endDate)
-      
-      if (start <= end) {
-        onChange({ start, end })
-      } else {
-        // Swap dates if start is after end
-        onChange({ start: end, end: start })
-      }
-    } else if (!startDate && !endDate) {
-      onChange(null)
-    }
-  }, [startDate, endDate, onChange])
+  // Sent when the user changes a field, never when the fields are filled
+  // from `value` (which would send it straight back).
+  const send = useCallback((range: TimeRange | null) => {
+    sentRef.current = range
+    onChange(range)
+  }, [onChange])
 
-  // Apply date changes when inputs change
-  useEffect(() => {
-    handleDateChange()
-  }, [handleDateChange])
+  const commit = useCallback((startText: string, endText: string) => {
+    setRangeError(null)
+    if (startText && endText) {
+      // The fields hold UTC wall-clock times, as every historical date is
+      // (read in the browser's zone they moved by its offset on each round
+      // trip through `value`), or dates in the world's notation. A value
+      // that is not a real date sends no range, rather than an invalid one
+      // or (in Chrome) the day it rolls over into.
+      const startIso = dateFieldIso(startText, { calendar: worldCalendar, edge: 'start' })
+      const endIso = dateFieldIso(endText, { calendar: worldCalendar, edge: 'end' })
+      if (!startIso || !endIso) return
+      const start = new Date(startIso)
+      const end = new Date(endIso)
+      // Each field names its own edge (a start's first moment, an end's
+      // last), so a reversed range is said, not swapped: the user may be
+      // part-way through typing the end.
+      if (start > end) {
+        setRangeError('The end is before the start.')
+        return
+      }
+      send({ start, end })
+    } else if (!startText && !endText) {
+      send(null)
+    }
+  }, [send, worldCalendar])
 
   const handlePresetSelect = useCallback((preset: string) => {
     if (!eventDateRange) return
@@ -110,12 +139,12 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
   const handleClear = useCallback(() => {
     setStartDate('')
     setEndDate('')
+    setRangeError(null)
     onChange(null)
   }, [onChange])
 
-  const formatDateForDisplay = (date: Date) => {
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  }
+  // A historical range: in UTC, and in the graph's world calendar when it has one.
+  const formatDateForDisplay = (date: Date) => formatHistoricalTimestamp(date, undefined, worldCalendar)
 
   return (
     <div className={`space-y-4 ${className}`}>
@@ -125,11 +154,16 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
           <label htmlFor="startDate" className="block text-sm font-medium text-ink-secondary mb-1">
             Start Date & Time
           </label>
-          <input
+          <DateField
             id="startDate"
-            type="datetime-local"
+            kind="datetime"
+            edge="start"
             value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
+            onChange={(text) => {
+              setStartDate(text)
+              commit(text, endDate)
+            }}
+            aria-describedby={rangeError ? 'timeRangeError' : undefined}
             className="w-full px-3 py-2 border border-line bg-card text-ink rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent"
             disabled={disabled}
             min={eventDateRange?.min.toISOString().slice(0, 16)}
@@ -140,11 +174,17 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
           <label htmlFor="endDate" className="block text-sm font-medium text-ink-secondary mb-1">
             End Date & Time
           </label>
-          <input
+          <DateField
             id="endDate"
-            type="datetime-local"
+            kind="datetime"
+            edge="end"
             value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
+            onChange={(text) => {
+              setEndDate(text)
+              commit(startDate, text)
+            }}
+            aria-invalid={rangeError ? true : undefined}
+            aria-describedby={rangeError ? 'timeRangeError' : undefined}
             className="w-full px-3 py-2 border border-line bg-card text-ink rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent"
             disabled={disabled}
             min={eventDateRange?.min.toISOString().slice(0, 16)}
@@ -152,6 +192,12 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
           />
         </div>
       </div>
+
+      {rangeError && (
+        <p id="timeRangeError" role="alert" className="text-sm text-red-600 dark:text-red-400">
+          {rangeError}
+        </p>
+      )}
 
       {/* Current Selection Display */}
       {value && (

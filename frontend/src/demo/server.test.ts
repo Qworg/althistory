@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios'
+import { type WorldCalendarSet, formatInWorld } from '@althistory/calendar'
 
 /** A request as the API client's axios instance would hand it to the adapter. */
 function request(method: string, url: string, data?: unknown, headers: Record<string, string> = {}): InternalAxiosRequestConfig {
@@ -104,6 +105,57 @@ describe('demo server', () => {
     } finally {
       localStorage.removeItem('active_graph_id')
     }
+  })
+
+  it('serves the invented world with its calendar', async () => {
+    const { respond } = await load()
+    const list = await respond(request('get', '/graphs'))
+    const vael = (list.data.data as Array<{ id: string; name: string; calendar?: unknown }>).find((g) => g.id === 'graph_vael')
+    expect(vael).toMatchObject({ name: 'Vael', calendar: { version: 2, primary: 'reckoning', calendars: [{ name: 'the Reckoning of the Rising' }, { name: 'the Tide-count' }] } })
+
+    await respond(request('post', '/graphs/graph_vael/activate', {}))
+    const active = await respond(request('get', '/graphs/active'))
+    expect(active.data.data).toMatchObject({ id: 'graph_vael', calendar: { version: 2, primary: 'reckoning' } })
+    const events = await respond(request('get', '/events'))
+    expect(events.data.data).toHaveLength(9)
+    // The Rising, Thaw 4 of the Reckoning's year 1, on the timeline its days of 30 hours make.
+    expect(formatInWorld(vael!.calendar as WorldCalendarSet, Date.parse(events.data.data[0].timestamp))).toBe('Thaw 4, 1 AR')
+    expect((await respond(request('get', '/arcs'))).data.data).toHaveLength(3)
+    expect((await respond(request('get', '/causal/relationships'))).data.data).toHaveLength(9)
+  })
+
+  it('keeps the calendar on a branch of the world', async () => {
+    const { respond } = await load()
+    const made = await respond(request('post', '/graphs/graph_vael/branch', { name: 'The Last King Lives' }))
+    expect(made.status).toBe(201)
+    const branch = made.data.data as { id: string; parentGraphId: string; calendar?: unknown; metadata: { eventCount: number } }
+    expect(branch).toMatchObject({ parentGraphId: 'graph_vael', calendar: { version: 2, primary: 'reckoning', calendars: [{ name: 'the Reckoning of the Rising' }, { name: 'the Tide-count' }] } })
+    expect(branch.metadata.eventCount).toBe(9)
+
+    // And it lasts: from the list, as the active graph, and after a reload.
+    const reloaded = await load()
+    await reloaded.respond(request('post', `/graphs/${branch.id}/activate`, {}))
+    const active = await reloaded.respond(request('get', '/graphs/active'))
+    expect(active.data.data).toMatchObject({ id: branch.id, calendar: { version: 2, primary: 'reckoning' } })
+    const byId = await reloaded.respond(request('get', `/graphs/${branch.id}`))
+    const world = await reloaded.respond(request('get', '/graphs/graph_vael'))
+    expect(byId.data.data.calendar).toEqual(world.data.data.calendar)
+    // The main history still has no calendar.
+    const main = await reloaded.respond(request('get', '/graphs/graph_engine_age'))
+    expect(main.data.data.calendar).toBeUndefined()
+  })
+
+  it('adds the world to a tab saved before the recording had it', async () => {
+    const { respond } = await load()
+    await respond(request('post', '/events', { description: 'Kept', actor: 'a', target: 'b', timestamp: '1850-01-01T00:00:00.000Z' }))
+    const saved = JSON.parse(sessionStorage.getItem('althistory-demo') ?? '{}') as { graphs: Record<string, unknown> }
+    delete saved.graphs.graph_vael
+    sessionStorage.setItem('althistory-demo', JSON.stringify(saved))
+
+    const reloaded = await load()
+    expect((await reloaded.respond(request('get', '/events'))).data.data).toHaveLength(20)
+    const world = await reloaded.respond(request('get', '/events', undefined, { 'X-Graph-Id': 'graph_vael' }))
+    expect(world.data.data).toHaveLength(9)
   })
 
   it('says plainly when something needs the server', async () => {

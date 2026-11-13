@@ -222,14 +222,14 @@ describe('Event API Endpoints', () => {
         timestamp: 'invalid-date'
       };
 
-      mockRepository.create.mockRejectedValue(new Error('Event validation failed: Timestamp must be a valid date'));
-
       const response = await request(app)
         .post('/events')
         .send(invalidData)
         .expect(400);
 
-      expect(response.body.error.message).toContain('Event validation failed');
+      // Refused as the text it is, before anything is stored.
+      expect(response.body.error.message).toContain('is not a date');
+      expect(mockRepository.create).not.toHaveBeenCalled();
     });
 
     it('should handle repository errors', async () => {
@@ -558,9 +558,11 @@ describe('Event API Endpoints', () => {
         .send(updateWithStringTimestamp)
         .expect(200);
 
+      // A new date also clears the old one's recorded precision (the rest of the metadata stays).
       expect(mockRepository.update).toHaveBeenCalledWith('test-id', {
         ...updateData,
-        timestamp: new Date('2023-01-02T10:00:00Z')
+        timestamp: new Date('2023-01-02T10:00:00Z'),
+        metadata: expect.not.objectContaining({ datePrecision: expect.anything() }),
       });
     });
 

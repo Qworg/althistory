@@ -16,6 +16,9 @@ import { BranchComparisonModal } from '@/components/branch/BranchComparisonModal
 import { CreateGraphModal } from './CreateGraphModal'
 import { Portal } from '@/components/ui/Portal'
 import { branchLabel } from './graphTree'
+import { WorldCalendarFields } from './WorldCalendarFields'
+import { toInstant } from '@althistory/calendar'
+import { useCalendarDraft, type CalendarDraftState } from './useCalendarDraft'
 
 interface GraphManagerModalProps {
   isOpen: boolean
@@ -45,6 +48,9 @@ export const GraphManagerModal = memo(function GraphManagerModal({
   const [branchDescription, setBranchDescription] = useState('')
   const [branchError, setBranchError] = useState<string | null>(null)
   const [comparingBranchId, setComparingBranchId] = useState<string | null>(null)
+  // The edit form's "World calendar" section, reset to the graph being edited.
+  const calendarDraft = useCalendarDraft()
+  const resetCalendar = calendarDraft.reset
 
   const {
     activeGraphId,
@@ -75,7 +81,8 @@ export const GraphManagerModal = memo(function GraphManagerModal({
   const handleEditGraph = useCallback((graph: Graph) => {
     setEditingGraph(graph)
     setSelectedGraph(null)
-  }, [])
+    resetCalendar(graph.calendar ?? null)
+  }, [resetCalendar])
 
   const handleCreateGraph = useCallback(async (request: CreateGraphRequest) => {
     await createGraph(request)
@@ -84,13 +91,18 @@ export const GraphManagerModal = memo(function GraphManagerModal({
 
   const handleSaveEdit = useCallback(() => {
     if (!editingGraph) return
+    // An invalid calendar keeps the form open with its errors showing.
+    const calendar = calendarDraft.resolve()
+    if (!calendar.ok) return
     updateGraph({ id: editingGraph.id, data: {
       name: editingGraph.name,
       description: editingGraph.description,
       status: editingGraph.status,
+      // A calendar to set, null to remove it; left out when unchanged.
+      ...(calendar.calendar !== undefined ? { calendar: calendar.calendar } : {}),
     }})
     setEditingGraph(null)
-  }, [editingGraph, updateGraph])
+  }, [editingGraph, updateGraph, calendarDraft])
 
   const handleDeleteGraph = useCallback(() => {
     if (!selectedGraph) return
@@ -175,6 +187,7 @@ export const GraphManagerModal = memo(function GraphManagerModal({
                 onSaveEdit={handleSaveEdit}
                 onCancelEdit={() => setEditingGraph(null)}
                 onEditChange={setEditingGraph}
+                calendarDraft={calendarDraft}
                 onSwitch={handleSwitchAndClose}
                 onDelete={() => setShowDeleteDialog(true)}
                 onBranch={openBranchDialog}
@@ -320,6 +333,8 @@ interface GraphsTabProps {
   onSaveEdit: () => void
   onCancelEdit: () => void
   onEditChange: (graph: Graph) => void
+  /** The edit form's world calendar section. */
+  calendarDraft: CalendarDraftState
   onSwitch: (graphId: string) => void
   onDelete: () => void
   onBranch: () => void
@@ -336,6 +351,7 @@ const GraphsTab = memo(function GraphsTab({
   onSaveEdit,
   onCancelEdit,
   onEditChange,
+  calendarDraft,
   onSwitch,
   onDelete,
   onBranch,
@@ -401,6 +417,11 @@ const GraphsTab = memo(function GraphsTab({
                   <option value="active">Active</option>
                   <option value="archived">Archived</option>
                 </select>
+                <WorldCalendarFields
+                  state={calendarDraft}
+                  idPrefix={`edit-graph-${graph.id}`}
+                  samplePosition={firstPosition(graph)}
+                />
                 <div className="flex gap-2">
                   <button
                     onClick={onSaveEdit}
@@ -588,6 +609,15 @@ const BranchesTab = memo(function BranchesTab({
 })
 
 export default GraphManagerModal
+
+/** The UTC year of a graph's first event, for the calendar preview; undefined when it has none. */
+/** Where a graph's history begins on the timeline, for the calendar preview. */
+function firstPosition(graph: Graph): number | undefined {
+  const start = graph.metadata.temporalRange?.start
+  if (!start) return undefined
+  const time = toInstant(start).getTime()
+  return Number.isNaN(time) ? undefined : time
+}
 
 /**
  * A graph's number in Version history (its head commit): the same number the

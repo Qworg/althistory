@@ -1,7 +1,9 @@
+import { toInstant } from '@althistory/calendar';
 import { Event, InferredPressure, PressureType } from '@/models';
 import { CausalSuggestion, CausalRelationshipType, DrivenByRelationship } from '@/models/relationships';
 import { isTemporalInversion } from '@/utils/causalOrder';
 import { formatHistoricalSpan } from '@/utils/historicalDate';
+import type { WorldCalendarSet } from '@althistory/calendar';
 
 /**
  * Represents a cluster of temporally related events
@@ -157,7 +159,19 @@ export class InferenceService {
   /**
    * Analyze event clusters to identify patterns and infer pressures
    */
-  analyzeEventClusters(events: Event[]): InferredPressure[] {
+  /** The world calendars the pressures' descriptions name their time in (set for one analysis). */
+  private describeIn: WorldCalendarSet | undefined;
+
+  analyzeEventClusters(events: Event[], calendar?: WorldCalendarSet): InferredPressure[] {
+    this.describeIn = calendar;
+    try {
+      return this.analyzeClusters(events);
+    } finally {
+      this.describeIn = undefined;
+    }
+  }
+
+  private analyzeClusters(events: Event[]): InferredPressure[] {
     if (events.length === 0) {
       return [];
     }
@@ -366,7 +380,7 @@ export class InferenceService {
 
     // Sort events by timestamp
     const sortedEvents = [...events].sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      (a, b) => toInstant(a.timestamp).getTime() - toInstant(b.timestamp).getTime()
     );
 
     // Find temporal gaps (periods > TEMPORAL_GAP_THRESHOLD_DAYS with no events)
@@ -616,7 +630,7 @@ export class InferenceService {
     };
     
     return new InferredPressure({
-      description: `Economic pressure detected in cluster ${formatHistoricalSpan(cluster.timeRange.start, cluster.timeRange.end)}`,
+      description: `Economic pressure detected in cluster ${formatHistoricalSpan(cluster.timeRange.start, cluster.timeRange.end, this.describeIn)}`,
       confidence_score: confidence,
       pressure_type: 'economic',
       evidence,
@@ -651,7 +665,7 @@ export class InferenceService {
     };
     
     return new InferredPressure({
-      description: `Social pressure detected in cluster ${formatHistoricalSpan(cluster.timeRange.start, cluster.timeRange.end)}`,
+      description: `Social pressure detected in cluster ${formatHistoricalSpan(cluster.timeRange.start, cluster.timeRange.end, this.describeIn)}`,
       confidence_score: confidence,
       pressure_type: 'social',
       evidence,
@@ -686,7 +700,7 @@ export class InferenceService {
     };
     
     return new InferredPressure({
-      description: `Political pressure detected in cluster ${formatHistoricalSpan(cluster.timeRange.start, cluster.timeRange.end)}`,
+      description: `Political pressure detected in cluster ${formatHistoricalSpan(cluster.timeRange.start, cluster.timeRange.end, this.describeIn)}`,
       confidence_score: confidence,
       pressure_type: 'political',
       evidence,
@@ -721,7 +735,7 @@ export class InferenceService {
     };
     
     return new InferredPressure({
-      description: `Environmental pressure detected in cluster ${formatHistoricalSpan(cluster.timeRange.start, cluster.timeRange.end)}`,
+      description: `Environmental pressure detected in cluster ${formatHistoricalSpan(cluster.timeRange.start, cluster.timeRange.end, this.describeIn)}`,
       confidence_score: confidence,
       pressure_type: 'environmental',
       evidence,

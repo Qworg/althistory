@@ -2,6 +2,7 @@
  "scenario": "The Engine Age",
  "mainGraphId": "graph_engine_age",
  "branchGraphId": "graph_clerks_prevail",
+ "worldGraphId": "graph_vael",
  "entities": {
   "graph_engine_age": {
    "events": [
@@ -969,6 +970,221 @@
      "relationship_type": "direct"
     }
    ]
+  },
+  "graph_vael": {
+   "events": [
+    {
+     "id": "event_vael_rising",
+     "description": "The waters rise; the survivors crown the first salt-king on Hollow Isle",
+     "actor": "Salt-kings",
+     "target": "Vael",
+     "timestamp": "1970-03-20T18:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_vael_salt",
+      "significance": 0.5
+     }
+    },
+    {
+     "id": "event_vael_coin",
+     "description": "The salt-kings fix the weight of the salt coin",
+     "actor": "Salt-kings",
+     "target": "Merchants of Vael",
+     "timestamp": "2015-05-27T12:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_vael_salt",
+      "significance": 0.5
+     }
+    },
+    {
+     "id": "event_vael_reckoning",
+     "description": "The tide-priests begin the Reckoning, counting years from the Rising",
+     "actor": "Tide-priests",
+     "target": "Vael",
+     "timestamp": "2079-08-14T12:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_vael_salt",
+      "significance": 0.5
+     }
+    },
+    {
+     "id": "event_vael_saltban",
+     "description": "A salt ban forbids Ambry's glassmakers to trade without the king's salt",
+     "actor": "Salt-kings",
+     "target": "Glassmakers of Ambry",
+     "timestamp": "2121-05-09T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_vael_salt",
+      "significance": 0.5
+     }
+    },
+    {
+     "id": "event_vael_shrinetax",
+     "description": "The salt-kings tax the tide-priests' shrines",
+     "actor": "Salt-kings",
+     "target": "Tide-priests",
+     "timestamp": "2133-09-11T18:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_vael_salt",
+      "significance": 0.5
+     }
+    },
+    {
+     "id": "event_vael_harbours",
+     "description": "The priests close the harbours; the Tide War begins",
+     "actor": "Tide-priests",
+     "target": "Salt-kings",
+     "timestamp": "2145-07-30T18:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_vael_tidewar",
+      "significance": 0.5
+     }
+    },
+    {
+     "id": "event_vael_ambry",
+     "description": "The glassmakers of Ambry side with the priests",
+     "actor": "Glassmakers of Ambry",
+     "target": "Salt-kings",
+     "timestamp": "2159-01-21T06:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_vael_tidewar",
+      "significance": 0.5
+     }
+    },
+    {
+     "id": "event_vael_siege",
+     "description": "The last salt-king drowns at the Siege of Hollow Isle",
+     "actor": "Tide-priests",
+     "target": "Salt-kings",
+     "timestamp": "2173-04-13T12:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_vael_tidewar",
+      "significance": 0.5
+     }
+    },
+    {
+     "id": "event_vael_republic",
+     "description": "The Glass Republic is proclaimed in Ambry",
+     "actor": "Glassmakers of Ambry",
+     "target": "Vael",
+     "timestamp": "2185-02-27T00:00:00.000Z",
+     "metadata": {
+      "arcId": "arc_vael_glass",
+      "significance": 0.5
+     }
+    }
+   ],
+   "arcs": [
+    {
+     "id": "arc_vael_salt",
+     "name": "The Age of Salt",
+     "description": "From the Rising to the closing of the harbours: the salt-kings rule Hollow Isle.",
+     "start_time": "1970-01-01T00:00:00.000Z",
+     "end_time": "2145-07-30T17:59:59.999Z",
+     "level": 0,
+     "metadata": {}
+    },
+    {
+     "id": "arc_vael_tidewar",
+     "name": "The Tide War",
+     "description": "The tide-priests against the salt-kings, and the glassmakers who decided it.",
+     "start_time": "2145-07-30T18:00:00.000Z",
+     "end_time": "2173-04-14T17:59:59.999Z",
+     "level": 0,
+     "metadata": {}
+    },
+    {
+     "id": "arc_vael_glass",
+     "name": "The Glass Republic",
+     "description": "Ambry's republic of glassmakers, after the last salt-king.",
+     "start_time": "2185-02-27T00:00:00.000Z",
+     "end_time": "2269-12-08T23:59:59.999Z",
+     "level": 0,
+     "metadata": {}
+    }
+   ],
+   "relationships": [
+    {
+     "id": "local_26",
+     "cause_event_id": "event_vael_rising",
+     "effect_event_id": "event_vael_coin",
+     "weight": 0.8,
+     "confidence": 0.8,
+     "evidence": "The salt-kings' crown rested on salt.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_27",
+     "cause_event_id": "event_vael_coin",
+     "effect_event_id": "event_vael_shrinetax",
+     "weight": 0.6,
+     "confidence": 0.8,
+     "evidence": "A fixed coin made the shrines' salt worth taxing.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_28",
+     "cause_event_id": "event_vael_reckoning",
+     "effect_event_id": "event_vael_shrinetax",
+     "weight": 0.5,
+     "confidence": 0.8,
+     "evidence": "Keeping the count of years had made the shrines rich and powerful.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_29",
+     "cause_event_id": "event_vael_reckoning",
+     "effect_event_id": "event_vael_harbours",
+     "weight": 0.5,
+     "confidence": 0.8,
+     "evidence": "The Reckoning gave the priests authority over the harbours' tides.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_30",
+     "cause_event_id": "event_vael_shrinetax",
+     "effect_event_id": "event_vael_harbours",
+     "weight": 0.9,
+     "confidence": 0.8,
+     "evidence": "The priests answered the tax by closing the harbours.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_31",
+     "cause_event_id": "event_vael_saltban",
+     "effect_event_id": "event_vael_ambry",
+     "weight": 0.85,
+     "confidence": 0.8,
+     "evidence": "Thirty years of the salt ban had made the glassmakers enemies of the crown.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_32",
+     "cause_event_id": "event_vael_harbours",
+     "effect_event_id": "event_vael_ambry",
+     "weight": 0.6,
+     "confidence": 0.8,
+     "evidence": "The war gave the glassmakers their chance.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_33",
+     "cause_event_id": "event_vael_ambry",
+     "effect_event_id": "event_vael_siege",
+     "weight": 0.85,
+     "confidence": 0.8,
+     "evidence": "Ambry's fleet closed the siege.",
+     "relationship_type": "direct"
+    },
+    {
+     "id": "local_34",
+     "cause_event_id": "event_vael_siege",
+     "effect_event_id": "event_vael_republic",
+     "weight": 0.9,
+     "confidence": 0.8,
+     "evidence": "With no king left, Ambry proclaimed a republic.",
+     "relationship_type": "direct"
+    }
+   ]
   }
  },
  "responses": {
@@ -1080,6 +1296,52 @@
      "timeRange": null
     },
     "requestId": "req_2"
+   }
+  },
+  "GET /arcs @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "arc_vael_salt",
+      "name": "The Age of Salt",
+      "description": "From the Rising to the closing of the harbours: the salt-kings rule Hollow Isle.",
+      "start_time": "1970-01-01T00:00:00.000Z",
+      "end_time": "2145-07-30T17:59:59.999Z",
+      "level": 0,
+      "metadata": {}
+     },
+     {
+      "id": "arc_vael_tidewar",
+      "name": "The Tide War",
+      "description": "The tide-priests against the salt-kings, and the glassmakers who decided it.",
+      "start_time": "2145-07-30T18:00:00.000Z",
+      "end_time": "2173-04-14T17:59:59.999Z",
+      "level": 0,
+      "metadata": {}
+     },
+     {
+      "id": "arc_vael_glass",
+      "name": "The Glass Republic",
+      "description": "Ambry's republic of glassmakers, after the last salt-king.",
+      "start_time": "2185-02-27T00:00:00.000Z",
+      "end_time": "2269-12-08T23:59:59.999Z",
+      "level": 0,
+      "metadata": {}
+     }
+    ],
+    "pagination": {
+     "limit": 50,
+     "offset": 0,
+     "total": 3,
+     "hasMore": false
+    },
+    "filters": {
+     "level": null,
+     "timeRange": null
+    },
+    "requestId": "req_3"
    }
   },
   "GET /causal/relationships @graph_engine_age": {
@@ -1304,7 +1566,7 @@
       "relationship_type": "indirect"
      }
     ],
-    "requestId": "req_3"
+    "requestId": "req_4"
    }
   },
   "GET /causal/relationships @graph_clerks_prevail": {
@@ -1538,484 +1800,96 @@
       "relationship_type": "direct"
      }
     ],
-    "requestId": "req_4"
-   }
-  },
-  "GET /events @graph_engine_age": {
-   "status": 200,
-   "body": {
-    "success": true,
-    "data": [
-     {
-      "id": "event_design",
-      "description": "Babbage completes the full design of the Analytical Engine",
-      "actor": "Charles Babbage",
-      "target": "Analytical Engine",
-      "timestamp": "1834-12-15T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_build",
-       "significance": 0.7
-      }
-     },
-     {
-      "id": "event_peel",
-      "description": "Prime Minister Peel reverses course and funds construction",
-      "actor": "Robert Peel",
-      "target": "Charles Babbage",
-      "timestamp": "1838-03-02T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_build",
-       "significance": 0.9
-      }
-     },
-     {
-      "id": "event_clement",
-      "description": "Joseph Clement standardises the engine’s gears and screw threads",
-      "actor": "Joseph Clement",
-      "target": "Analytical Engine",
-      "timestamp": "1839-09-10T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_build",
-       "significance": 0.6
-      }
-     },
-     {
-      "id": "event_noteg",
-      "description": "Ada Lovelace publishes Note G, the first program",
-      "actor": "Ada Lovelace",
-      "target": "Analytical Engine",
-      "timestamp": "1843-09-01T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_build",
-       "significance": 0.95
-      }
-     },
-     {
-      "id": "event_firstrun",
-      "description": "The Engine computes Bernoulli numbers before the Royal Society",
-      "actor": "Charles Babbage",
-      "target": "Royal Society",
-      "timestamp": "1843-11-20T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_build",
-       "significance": 1
-      }
-     },
-     {
-      "id": "event_admiralty",
-      "description": "The Admiralty orders engines to compute navigation tables",
-      "actor": "British Admiralty",
-      "target": "Analytical Engine",
-      "timestamp": "1845-04-14T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_offices",
-       "significance": 0.8
-      }
-     },
-     {
-      "id": "event_lloyds",
-      "description": "Lloyd’s opens an actuarial engine room for the insurance market",
-      "actor": "Lloyd’s of London",
-      "target": "Analytical Engine",
-      "timestamp": "1847-06-01T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_offices",
-       "significance": 0.6
-      }
-     },
-     {
-      "id": "event_bank",
-      "description": "The Bank of England moves its ledgers onto engines",
-      "actor": "Bank of England",
-      "target": "Analytical Engine",
-      "timestamp": "1847-06-18T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_offices",
-       "significance": 0.65
-      }
-     },
-     {
-      "id": "event_school",
-      "description": "Lovelace founds the School of Engine Programming in London",
-      "actor": "Ada Lovelace",
-      "target": "School of Engine Programming",
-      "timestamp": "1848-10-05T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_offices",
-       "significance": 0.75
-      }
-     },
-     {
-      "id": "event_census",
-      "description": "The 1851 census is tabulated entirely by engine",
-      "actor": "General Register Office",
-      "target": "Census of 1851",
-      "timestamp": "1851-05-30T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_telegraph",
-       "significance": 0.85
-      }
-     },
-     {
-      "id": "event_exhibition",
-      "description": "The Great Exhibition’s centrepiece is a working engine hall",
-      "actor": "Prince Albert",
-      "target": "Great Exhibition",
-      "timestamp": "1851-07-01T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_telegraph",
-       "significance": 0.7
-      }
-     },
-     {
-      "id": "event_wire",
-      "description": "Engines in London and Manchester exchange results by telegraph",
-      "actor": "Electric Telegraph Company",
-      "target": "Analytical Engine",
-      "timestamp": "1853-02-11T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_telegraph",
-       "significance": 0.85
-      }
-     },
-     {
-      "id": "event_prussia",
-      "description": "Prussia buys three engines for its General Staff",
-      "actor": "Prussian General Staff",
-      "target": "Analytical Engine",
-      "timestamp": "1855-08-20T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_telegraph",
-       "significance": 0.7
-      }
-     },
-     {
-      "id": "event_clerks",
-      "description": "Ten thousand clerks protest at Westminster against the engines",
-      "actor": "Clerks’ Union",
-      "target": "Parliament",
-      "timestamp": "1859-03-17T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_reaction",
-       "significance": 0.8
-      }
-     },
-     {
-      "id": "event_manchester",
-      "description": "Manchester clerks hold a demonstration in solidarity",
-      "actor": "Clerks’ Union",
-      "target": "Manchester Exchange",
-      "timestamp": "1859-03-29T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_reaction",
-       "significance": 0.5
-      }
-     },
-     {
-      "id": "event_debate",
-      "description": "Parliament debates engine licensing legislation",
-      "actor": "Parliament",
-      "target": "Analytical Engine",
-      "timestamp": "1860-06-05T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_reaction",
-       "significance": 0.6
-      }
-     },
-     {
-      "id": "event_act",
-      "description": "Parliament passes the Engine Licensing Act",
-      "actor": "Parliament",
-      "target": "Clerks’ Union",
-      "timestamp": "1860-06-28T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_reaction",
-       "significance": 0.75
-      }
-     },
-     {
-      "id": "event_moltke",
-      "description": "Moltke uses engine-planned railway timetables to mobilise",
-      "actor": "Prussian General Staff",
-      "target": "Austrian Empire",
-      "timestamp": "1866-06-16T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_reaction",
-       "significance": 0.85
-      }
-     },
-     {
-      "id": "event_race",
-      "description": "Britain and Prussia begin an engine arms race",
-      "actor": "British Admiralty",
-      "target": "Prussian General Staff",
-      "timestamp": "1868-01-09T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_reaction",
-       "significance": 0.8
-      }
-     }
-    ],
-    "pagination": {
-     "limit": 50,
-     "offset": 0,
-     "total": 19,
-     "hasMore": false
-    },
-    "filters": {
-     "actor": null,
-     "target": null,
-     "timeRange": null
-    },
     "requestId": "req_5"
    }
   },
-  "GET /events @graph_clerks_prevail": {
+  "GET /causal/relationships @graph_vael": {
    "status": 200,
    "body": {
     "success": true,
     "data": [
      {
-      "id": "event_design",
-      "description": "Babbage completes the full design of the Analytical Engine",
-      "actor": "Charles Babbage",
-      "target": "Analytical Engine",
-      "timestamp": "1834-12-15T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_build",
-       "significance": 0.7
-      }
+      "id": "local_26",
+      "cause_event_id": "event_vael_rising",
+      "effect_event_id": "event_vael_coin",
+      "weight": 0.8,
+      "confidence": 0.8,
+      "evidence": "The salt-kings' crown rested on salt.",
+      "relationship_type": "direct"
      },
      {
-      "id": "event_peel",
-      "description": "Prime Minister Peel reverses course and funds construction",
-      "actor": "Robert Peel",
-      "target": "Charles Babbage",
-      "timestamp": "1838-03-02T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_build",
-       "significance": 0.9
-      }
+      "id": "local_27",
+      "cause_event_id": "event_vael_coin",
+      "effect_event_id": "event_vael_shrinetax",
+      "weight": 0.6,
+      "confidence": 0.8,
+      "evidence": "A fixed coin made the shrines' salt worth taxing.",
+      "relationship_type": "contributory"
      },
      {
-      "id": "event_clement",
-      "description": "Joseph Clement standardises the engine’s gears and screw threads",
-      "actor": "Joseph Clement",
-      "target": "Analytical Engine",
-      "timestamp": "1839-09-10T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_build",
-       "significance": 0.6
-      }
+      "id": "local_28",
+      "cause_event_id": "event_vael_reckoning",
+      "effect_event_id": "event_vael_shrinetax",
+      "weight": 0.5,
+      "confidence": 0.8,
+      "evidence": "Keeping the count of years had made the shrines rich and powerful.",
+      "relationship_type": "contributory"
      },
      {
-      "id": "event_noteg",
-      "description": "Ada Lovelace publishes Note G, the first program",
-      "actor": "Ada Lovelace",
-      "target": "Analytical Engine",
-      "timestamp": "1843-09-01T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_build",
-       "significance": 0.95
-      }
+      "id": "local_29",
+      "cause_event_id": "event_vael_reckoning",
+      "effect_event_id": "event_vael_harbours",
+      "weight": 0.5,
+      "confidence": 0.8,
+      "evidence": "The Reckoning gave the priests authority over the harbours' tides.",
+      "relationship_type": "contributory"
      },
      {
-      "id": "event_firstrun",
-      "description": "The Engine computes Bernoulli numbers before the Royal Society",
-      "actor": "Charles Babbage",
-      "target": "Royal Society",
-      "timestamp": "1843-11-20T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_build",
-       "significance": 1
-      }
+      "id": "local_30",
+      "cause_event_id": "event_vael_shrinetax",
+      "effect_event_id": "event_vael_harbours",
+      "weight": 0.9,
+      "confidence": 0.8,
+      "evidence": "The priests answered the tax by closing the harbours.",
+      "relationship_type": "direct"
      },
      {
-      "id": "event_admiralty",
-      "description": "The Admiralty orders engines to compute navigation tables",
-      "actor": "British Admiralty",
-      "target": "Analytical Engine",
-      "timestamp": "1845-04-14T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_offices",
-       "significance": 0.8
-      }
+      "id": "local_31",
+      "cause_event_id": "event_vael_saltban",
+      "effect_event_id": "event_vael_ambry",
+      "weight": 0.85,
+      "confidence": 0.8,
+      "evidence": "Thirty years of the salt ban had made the glassmakers enemies of the crown.",
+      "relationship_type": "direct"
      },
      {
-      "id": "event_lloyds",
-      "description": "Lloyd’s opens an actuarial engine room for the insurance market",
-      "actor": "Lloyd’s of London",
-      "target": "Analytical Engine",
-      "timestamp": "1847-06-01T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_offices",
-       "significance": 0.6
-      }
+      "id": "local_32",
+      "cause_event_id": "event_vael_harbours",
+      "effect_event_id": "event_vael_ambry",
+      "weight": 0.6,
+      "confidence": 0.8,
+      "evidence": "The war gave the glassmakers their chance.",
+      "relationship_type": "contributory"
      },
      {
-      "id": "event_bank",
-      "description": "The Bank of England moves its ledgers onto engines",
-      "actor": "Bank of England",
-      "target": "Analytical Engine",
-      "timestamp": "1847-06-18T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_offices",
-       "significance": 0.65
-      }
+      "id": "local_33",
+      "cause_event_id": "event_vael_ambry",
+      "effect_event_id": "event_vael_siege",
+      "weight": 0.85,
+      "confidence": 0.8,
+      "evidence": "Ambry's fleet closed the siege.",
+      "relationship_type": "direct"
      },
      {
-      "id": "event_school",
-      "description": "Lovelace founds the School of Engine Programming in London",
-      "actor": "Ada Lovelace",
-      "target": "School of Engine Programming",
-      "timestamp": "1848-10-05T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_offices",
-       "significance": 0.75
-      }
-     },
-     {
-      "id": "event_census",
-      "description": "The 1851 census is tabulated entirely by engine",
-      "actor": "General Register Office",
-      "target": "Census of 1851",
-      "timestamp": "1851-05-30T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_telegraph",
-       "significance": 0.85
-      }
-     },
-     {
-      "id": "event_exhibition",
-      "description": "The Great Exhibition’s centrepiece is a working engine hall",
-      "actor": "Prince Albert",
-      "target": "Great Exhibition",
-      "timestamp": "1851-07-01T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_telegraph",
-       "significance": 0.7
-      }
-     },
-     {
-      "id": "event_wire",
-      "description": "Engines in London and Manchester exchange results by telegraph",
-      "actor": "Electric Telegraph Company",
-      "target": "Analytical Engine",
-      "timestamp": "1853-02-11T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_telegraph",
-       "significance": 0.85
-      }
-     },
-     {
-      "id": "event_prussia",
-      "description": "Prussia buys three engines for its General Staff",
-      "actor": "Prussian General Staff",
-      "target": "Analytical Engine",
-      "timestamp": "1855-08-20T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_telegraph",
-       "significance": 0.7
-      }
-     },
-     {
-      "id": "event_clerks",
-      "description": "Ten thousand clerks protest at Westminster against the engines",
-      "actor": "Clerks’ Union",
-      "target": "Parliament",
-      "timestamp": "1859-03-17T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_reaction",
-       "significance": 0.8
-      }
-     },
-     {
-      "id": "event_manchester",
-      "description": "Manchester clerks hold a demonstration in solidarity",
-      "actor": "Clerks’ Union",
-      "target": "Manchester Exchange",
-      "timestamp": "1859-03-29T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_reaction",
-       "significance": 0.5
-      }
-     },
-     {
-      "id": "event_debate",
-      "description": "Parliament debates engine licensing legislation",
-      "actor": "Parliament",
-      "target": "Analytical Engine",
-      "timestamp": "1860-06-05T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_reaction",
-       "significance": 0.6
-      }
-     },
-     {
-      "id": "event_act",
-      "description": "Parliament passes the Engine Licensing Act",
-      "actor": "Parliament",
-      "target": "Clerks’ Union",
-      "timestamp": "1860-06-28T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_reaction",
-       "significance": 0.75
-      }
-     },
-     {
-      "id": "event_1",
-      "description": "Parliament bans private calculating engines",
-      "actor": "Parliament",
-      "target": "Analytical Engine",
-      "timestamp": "1860-07-12T00:00:00.000Z",
-      "metadata": {
-       "significance": 0.9
-      }
-     },
-     {
-      "id": "event_2",
-      "description": "Lovelace’s programmers emigrate to Berlin",
-      "actor": "School of Engine Programming",
-      "target": "Prussian General Staff",
-      "timestamp": "1861-04-02T00:00:00.000Z",
-      "metadata": {
-       "significance": 0.8
-      }
-     },
-     {
-      "id": "event_moltke",
-      "description": "Moltke uses engine-planned railway timetables to mobilise",
-      "actor": "Prussian General Staff",
-      "target": "Austrian Empire",
-      "timestamp": "1866-06-16T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_reaction",
-       "significance": 0.85
-      }
-     },
-     {
-      "id": "event_race",
-      "description": "Britain and Prussia begin an engine arms race",
-      "actor": "British Admiralty",
-      "target": "Prussian General Staff",
-      "timestamp": "1868-01-09T00:00:00.000Z",
-      "metadata": {
-       "arcId": "arc_reaction",
-       "significance": 0.8
-      }
+      "id": "local_34",
+      "cause_event_id": "event_vael_siege",
+      "effect_event_id": "event_vael_republic",
+      "weight": 0.9,
+      "confidence": 0.8,
+      "evidence": "With no king left, Ambry proclaimed a republic.",
+      "relationship_type": "direct"
      }
     ],
-    "pagination": {
-     "limit": 50,
-     "offset": 0,
-     "total": 21,
-     "hasMore": false
-    },
-    "filters": {
-     "actor": null,
-     "target": null,
-     "timeRange": null
-    },
     "requestId": "req_6"
    }
   },
@@ -2497,6 +2371,125 @@
     "requestId": "req_8"
    }
   },
+  "GET /events?limit=1000 @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "event_vael_rising",
+      "description": "The waters rise; the survivors crown the first salt-king on Hollow Isle",
+      "actor": "Salt-kings",
+      "target": "Vael",
+      "timestamp": "1970-03-20T18:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_vael_salt",
+       "significance": 0.5
+      }
+     },
+     {
+      "id": "event_vael_coin",
+      "description": "The salt-kings fix the weight of the salt coin",
+      "actor": "Salt-kings",
+      "target": "Merchants of Vael",
+      "timestamp": "2015-05-27T12:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_vael_salt",
+       "significance": 0.5
+      }
+     },
+     {
+      "id": "event_vael_reckoning",
+      "description": "The tide-priests begin the Reckoning, counting years from the Rising",
+      "actor": "Tide-priests",
+      "target": "Vael",
+      "timestamp": "2079-08-14T12:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_vael_salt",
+       "significance": 0.5
+      }
+     },
+     {
+      "id": "event_vael_saltban",
+      "description": "A salt ban forbids Ambry's glassmakers to trade without the king's salt",
+      "actor": "Salt-kings",
+      "target": "Glassmakers of Ambry",
+      "timestamp": "2121-05-09T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_vael_salt",
+       "significance": 0.5
+      }
+     },
+     {
+      "id": "event_vael_shrinetax",
+      "description": "The salt-kings tax the tide-priests' shrines",
+      "actor": "Salt-kings",
+      "target": "Tide-priests",
+      "timestamp": "2133-09-11T18:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_vael_salt",
+       "significance": 0.5
+      }
+     },
+     {
+      "id": "event_vael_harbours",
+      "description": "The priests close the harbours; the Tide War begins",
+      "actor": "Tide-priests",
+      "target": "Salt-kings",
+      "timestamp": "2145-07-30T18:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_vael_tidewar",
+       "significance": 0.5
+      }
+     },
+     {
+      "id": "event_vael_ambry",
+      "description": "The glassmakers of Ambry side with the priests",
+      "actor": "Glassmakers of Ambry",
+      "target": "Salt-kings",
+      "timestamp": "2159-01-21T06:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_vael_tidewar",
+       "significance": 0.5
+      }
+     },
+     {
+      "id": "event_vael_siege",
+      "description": "The last salt-king drowns at the Siege of Hollow Isle",
+      "actor": "Tide-priests",
+      "target": "Salt-kings",
+      "timestamp": "2173-04-13T12:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_vael_tidewar",
+       "significance": 0.5
+      }
+     },
+     {
+      "id": "event_vael_republic",
+      "description": "The Glass Republic is proclaimed in Ambry",
+      "actor": "Glassmakers of Ambry",
+      "target": "Vael",
+      "timestamp": "2185-02-27T00:00:00.000Z",
+      "metadata": {
+       "arcId": "arc_vael_glass",
+       "significance": 0.5
+      }
+     }
+    ],
+    "pagination": {
+     "limit": 1000,
+     "offset": 0,
+     "total": 9,
+     "hasMore": false
+    },
+    "filters": {
+     "actor": null,
+     "target": null,
+     "timeRange": null
+    },
+    "requestId": "req_9"
+   }
+  },
   "GET /export/jobs @graph_engine_age": {
    "status": 200,
    "body": {
@@ -2508,7 +2501,7 @@
      "offset": 0,
      "hasMore": false
     },
-    "requestId": "req_9"
+    "requestId": "req_10"
    }
   },
   "GET /export/jobs @graph_clerks_prevail": {
@@ -2522,7 +2515,21 @@
      "offset": 0,
      "hasMore": false
     },
-    "requestId": "req_10"
+    "requestId": "req_11"
+   }
+  },
+  "GET /export/jobs @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [],
+    "pagination": {
+     "total": 0,
+     "limit": 50,
+     "offset": 0,
+     "hasMore": false
+    },
+    "requestId": "req_12"
    }
   },
   "GET /export/stats @graph_engine_age": {
@@ -2538,7 +2545,7 @@
       "failed": 0
      }
     },
-    "requestId": "req_11"
+    "requestId": "req_13"
    }
   },
   "GET /export/stats @graph_clerks_prevail": {
@@ -2554,7 +2561,23 @@
       "failed": 0
      }
     },
-    "requestId": "req_12"
+    "requestId": "req_14"
+   }
+  },
+  "GET /export/stats @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": {
+     "export": {
+      "total": 0,
+      "pending": 0,
+      "processing": 0,
+      "completed": 0,
+      "failed": 0
+     }
+    },
+    "requestId": "req_15"
    }
   },
   "GET /graphs @graph_engine_age": {
@@ -2563,11 +2586,156 @@
     "success": true,
     "data": [
      {
+      "id": "graph_vael",
+      "name": "Vael",
+      "description": "A drowned archipelago where salt is money and the tide-priests keep the count of years.",
+      "createdAt": "2026-11-12T22:32:51.655Z",
+      "updatedAt": "2026-11-12T22:32:54.816Z",
+      "version": 21,
+      "status": "active",
+      "metadata": {
+       "eventCount": 9,
+       "arcCount": 3,
+       "relationshipCount": 9,
+       "pressureCount": 0,
+       "temporalRange": {
+        "start": "1970-03-20T18:00:00.000Z",
+        "end": "2185-02-27T00:00:00.000Z"
+       },
+       "actors": [
+        "Salt-kings",
+        "Tide-priests",
+        "Glassmakers of Ambry"
+       ]
+      },
+      "calendar": {
+       "version": 2,
+       "dayLength": 108000,
+       "primary": "reckoning",
+       "calendars": [
+        {
+         "id": "reckoning",
+         "name": "the Reckoning of the Rising",
+         "parts": [
+          {
+           "name": "Lowtide",
+           "days": 30
+          },
+          {
+           "name": "Greywater",
+           "days": 30
+          },
+          {
+           "name": "Thaw",
+           "days": 30
+          },
+          {
+           "name": "Seedtide",
+           "days": 30
+          },
+          {
+           "name": "Brightwater",
+           "days": 30
+          },
+          {
+           "name": "Highsun",
+           "days": 30
+          },
+          {
+           "name": "Midyear's Day",
+           "days": 1,
+           "intercalary": true
+          },
+          {
+           "name": "Saltreap",
+           "days": 30
+          },
+          {
+           "name": "Panfire",
+           "days": 30
+          },
+          {
+           "name": "Gale",
+           "days": 30
+          },
+          {
+           "name": "Ebb",
+           "days": 30
+          },
+          {
+           "name": "Wrack",
+           "days": 30
+          },
+          {
+           "name": "Longnight",
+           "days": 30
+          },
+          {
+           "name": "The Drowned Days",
+           "days": 4,
+           "intercalary": true
+          }
+         ],
+         "leapRules": [
+          {
+           "every": 6,
+           "part": 13,
+           "days": 1
+          }
+         ],
+         "epoch": 0,
+         "eras": [
+          {
+           "label": "AR",
+           "from": 1
+          }
+         ],
+         "week": {
+          "days": [
+           "Firstfast",
+           "Netday",
+           "Saltday",
+           "Moonsday",
+           "Restday"
+          ],
+          "skipsIntercalary": true
+         },
+         "time": {
+          "hoursPerDay": 20,
+          "minutesPerHour": 100,
+          "secondsPerMinute": 100
+         }
+        },
+        {
+         "id": "tide",
+         "name": "the Tide-count",
+         "parts": [
+          {
+           "name": "Ebbing",
+           "days": 183
+          },
+          {
+           "name": "Flooding",
+           "days": 183
+          }
+         ],
+         "epoch": -100,
+         "eras": [
+          {
+           "label": "TC",
+           "from": 1
+          }
+         ]
+        }
+       ]
+      }
+     },
+     {
       "id": "graph_clerks_prevail",
       "name": "The Engine Age — Clerks Prevail",
       "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
-      "createdAt": "2026-11-10T17:46:56.744Z",
-      "updatedAt": "2026-11-10T17:46:57.451Z",
+      "createdAt": "2026-11-12T22:32:50.974Z",
+      "updatedAt": "2026-11-12T22:32:51.510Z",
       "version": 4,
       "parentGraphId": "graph_engine_age",
       "branchPoint": 46,
@@ -2603,8 +2771,8 @@
       "id": "graph_engine_age",
       "name": "The Engine Age",
       "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-      "createdAt": "2026-11-10T17:46:49.003Z",
-      "updatedAt": "2026-11-10T17:46:56.607Z",
+      "createdAt": "2026-11-12T22:32:43.434Z",
+      "updatedAt": "2026-11-12T22:32:50.826Z",
       "version": 47,
       "status": "active",
       "metadata": {
@@ -2635,12 +2803,12 @@
      }
     ],
     "pagination": {
-     "total": 2,
+     "total": 3,
      "limit": 50,
      "offset": 0,
      "hasMore": false
     },
-    "requestId": "req_13"
+    "requestId": "req_16"
    }
   },
   "GET /graphs @graph_clerks_prevail": {
@@ -2649,11 +2817,156 @@
     "success": true,
     "data": [
      {
+      "id": "graph_vael",
+      "name": "Vael",
+      "description": "A drowned archipelago where salt is money and the tide-priests keep the count of years.",
+      "createdAt": "2026-11-12T22:32:51.655Z",
+      "updatedAt": "2026-11-12T22:32:54.816Z",
+      "version": 21,
+      "status": "active",
+      "metadata": {
+       "eventCount": 9,
+       "arcCount": 3,
+       "relationshipCount": 9,
+       "pressureCount": 0,
+       "temporalRange": {
+        "start": "1970-03-20T18:00:00.000Z",
+        "end": "2185-02-27T00:00:00.000Z"
+       },
+       "actors": [
+        "Salt-kings",
+        "Tide-priests",
+        "Glassmakers of Ambry"
+       ]
+      },
+      "calendar": {
+       "version": 2,
+       "dayLength": 108000,
+       "primary": "reckoning",
+       "calendars": [
+        {
+         "id": "reckoning",
+         "name": "the Reckoning of the Rising",
+         "parts": [
+          {
+           "name": "Lowtide",
+           "days": 30
+          },
+          {
+           "name": "Greywater",
+           "days": 30
+          },
+          {
+           "name": "Thaw",
+           "days": 30
+          },
+          {
+           "name": "Seedtide",
+           "days": 30
+          },
+          {
+           "name": "Brightwater",
+           "days": 30
+          },
+          {
+           "name": "Highsun",
+           "days": 30
+          },
+          {
+           "name": "Midyear's Day",
+           "days": 1,
+           "intercalary": true
+          },
+          {
+           "name": "Saltreap",
+           "days": 30
+          },
+          {
+           "name": "Panfire",
+           "days": 30
+          },
+          {
+           "name": "Gale",
+           "days": 30
+          },
+          {
+           "name": "Ebb",
+           "days": 30
+          },
+          {
+           "name": "Wrack",
+           "days": 30
+          },
+          {
+           "name": "Longnight",
+           "days": 30
+          },
+          {
+           "name": "The Drowned Days",
+           "days": 4,
+           "intercalary": true
+          }
+         ],
+         "leapRules": [
+          {
+           "every": 6,
+           "part": 13,
+           "days": 1
+          }
+         ],
+         "epoch": 0,
+         "eras": [
+          {
+           "label": "AR",
+           "from": 1
+          }
+         ],
+         "week": {
+          "days": [
+           "Firstfast",
+           "Netday",
+           "Saltday",
+           "Moonsday",
+           "Restday"
+          ],
+          "skipsIntercalary": true
+         },
+         "time": {
+          "hoursPerDay": 20,
+          "minutesPerHour": 100,
+          "secondsPerMinute": 100
+         }
+        },
+        {
+         "id": "tide",
+         "name": "the Tide-count",
+         "parts": [
+          {
+           "name": "Ebbing",
+           "days": 183
+          },
+          {
+           "name": "Flooding",
+           "days": 183
+          }
+         ],
+         "epoch": -100,
+         "eras": [
+          {
+           "label": "TC",
+           "from": 1
+          }
+         ]
+        }
+       ]
+      }
+     },
+     {
       "id": "graph_clerks_prevail",
       "name": "The Engine Age — Clerks Prevail",
       "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
-      "createdAt": "2026-11-10T17:46:56.744Z",
-      "updatedAt": "2026-11-10T17:46:57.451Z",
+      "createdAt": "2026-11-12T22:32:50.974Z",
+      "updatedAt": "2026-11-12T22:32:51.510Z",
       "version": 4,
       "parentGraphId": "graph_engine_age",
       "branchPoint": 46,
@@ -2689,8 +3002,8 @@
       "id": "graph_engine_age",
       "name": "The Engine Age",
       "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-      "createdAt": "2026-11-10T17:46:49.003Z",
-      "updatedAt": "2026-11-10T17:46:56.607Z",
+      "createdAt": "2026-11-12T22:32:43.434Z",
+      "updatedAt": "2026-11-12T22:32:50.826Z",
       "version": 47,
       "status": "active",
       "metadata": {
@@ -2721,12 +3034,243 @@
      }
     ],
     "pagination": {
-     "total": 2,
+     "total": 3,
      "limit": 50,
      "offset": 0,
      "hasMore": false
     },
-    "requestId": "req_14"
+    "requestId": "req_17"
+   }
+  },
+  "GET /graphs @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "id": "graph_vael",
+      "name": "Vael",
+      "description": "A drowned archipelago where salt is money and the tide-priests keep the count of years.",
+      "createdAt": "2026-11-12T22:32:51.655Z",
+      "updatedAt": "2026-11-12T22:32:54.816Z",
+      "version": 21,
+      "status": "active",
+      "metadata": {
+       "eventCount": 9,
+       "arcCount": 3,
+       "relationshipCount": 9,
+       "pressureCount": 0,
+       "temporalRange": {
+        "start": "1970-03-20T18:00:00.000Z",
+        "end": "2185-02-27T00:00:00.000Z"
+       },
+       "actors": [
+        "Salt-kings",
+        "Tide-priests",
+        "Glassmakers of Ambry"
+       ]
+      },
+      "calendar": {
+       "version": 2,
+       "dayLength": 108000,
+       "primary": "reckoning",
+       "calendars": [
+        {
+         "id": "reckoning",
+         "name": "the Reckoning of the Rising",
+         "parts": [
+          {
+           "name": "Lowtide",
+           "days": 30
+          },
+          {
+           "name": "Greywater",
+           "days": 30
+          },
+          {
+           "name": "Thaw",
+           "days": 30
+          },
+          {
+           "name": "Seedtide",
+           "days": 30
+          },
+          {
+           "name": "Brightwater",
+           "days": 30
+          },
+          {
+           "name": "Highsun",
+           "days": 30
+          },
+          {
+           "name": "Midyear's Day",
+           "days": 1,
+           "intercalary": true
+          },
+          {
+           "name": "Saltreap",
+           "days": 30
+          },
+          {
+           "name": "Panfire",
+           "days": 30
+          },
+          {
+           "name": "Gale",
+           "days": 30
+          },
+          {
+           "name": "Ebb",
+           "days": 30
+          },
+          {
+           "name": "Wrack",
+           "days": 30
+          },
+          {
+           "name": "Longnight",
+           "days": 30
+          },
+          {
+           "name": "The Drowned Days",
+           "days": 4,
+           "intercalary": true
+          }
+         ],
+         "leapRules": [
+          {
+           "every": 6,
+           "part": 13,
+           "days": 1
+          }
+         ],
+         "epoch": 0,
+         "eras": [
+          {
+           "label": "AR",
+           "from": 1
+          }
+         ],
+         "week": {
+          "days": [
+           "Firstfast",
+           "Netday",
+           "Saltday",
+           "Moonsday",
+           "Restday"
+          ],
+          "skipsIntercalary": true
+         },
+         "time": {
+          "hoursPerDay": 20,
+          "minutesPerHour": 100,
+          "secondsPerMinute": 100
+         }
+        },
+        {
+         "id": "tide",
+         "name": "the Tide-count",
+         "parts": [
+          {
+           "name": "Ebbing",
+           "days": 183
+          },
+          {
+           "name": "Flooding",
+           "days": 183
+          }
+         ],
+         "epoch": -100,
+         "eras": [
+          {
+           "label": "TC",
+           "from": 1
+          }
+         ]
+        }
+       ]
+      }
+     },
+     {
+      "id": "graph_clerks_prevail",
+      "name": "The Engine Age — Clerks Prevail",
+      "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
+      "createdAt": "2026-11-12T22:32:50.974Z",
+      "updatedAt": "2026-11-12T22:32:51.510Z",
+      "version": 4,
+      "parentGraphId": "graph_engine_age",
+      "branchPoint": 46,
+      "status": "active",
+      "metadata": {
+       "eventCount": 21,
+       "arcCount": 4,
+       "relationshipCount": 25,
+       "pressureCount": 0,
+       "temporalRange": {
+        "start": "1834-12-15T00:00:00.000Z",
+        "end": "1868-01-09T00:00:00.000Z"
+       },
+       "actors": [
+        "Charles Babbage",
+        "Robert Peel",
+        "Joseph Clement",
+        "Ada Lovelace",
+        "British Admiralty",
+        "Lloyd’s of London",
+        "Bank of England",
+        "General Register Office",
+        "Prince Albert",
+        "Electric Telegraph Company",
+        "Prussian General Staff",
+        "Clerks’ Union",
+        "Parliament",
+        "School of Engine Programming"
+       ]
+      }
+     },
+     {
+      "id": "graph_engine_age",
+      "name": "The Engine Age",
+      "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
+      "createdAt": "2026-11-12T22:32:43.434Z",
+      "updatedAt": "2026-11-12T22:32:50.826Z",
+      "version": 47,
+      "status": "active",
+      "metadata": {
+       "eventCount": 19,
+       "arcCount": 4,
+       "relationshipCount": 24,
+       "pressureCount": 0,
+       "temporalRange": {
+        "start": "1834-12-15T00:00:00.000Z",
+        "end": "1868-01-09T00:00:00.000Z"
+       },
+       "actors": [
+        "Charles Babbage",
+        "Robert Peel",
+        "Joseph Clement",
+        "Ada Lovelace",
+        "British Admiralty",
+        "Lloyd’s of London",
+        "Bank of England",
+        "General Register Office",
+        "Prince Albert",
+        "Electric Telegraph Company",
+        "Prussian General Staff",
+        "Clerks’ Union",
+        "Parliament"
+       ]
+      }
+     }
+    ],
+    "pagination": {
+     "total": 3,
+     "limit": 50,
+     "offset": 0,
+     "hasMore": false
+    },
+    "requestId": "req_18"
    }
   },
   "GET /graphs/active @graph_engine_age": {
@@ -2737,8 +3281,8 @@
      "id": "graph_engine_age",
      "name": "The Engine Age",
      "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-     "createdAt": "2026-11-10T17:46:49.003Z",
-     "updatedAt": "2026-11-10T17:46:56.607Z",
+     "createdAt": "2026-11-12T22:32:43.434Z",
+     "updatedAt": "2026-11-12T22:32:50.826Z",
      "version": 47,
      "status": "active",
      "metadata": {
@@ -2767,7 +3311,7 @@
       ]
      }
     },
-    "requestId": "req_15"
+    "requestId": "req_19"
    }
   },
   "GET /graphs/active @graph_clerks_prevail": {
@@ -2778,8 +3322,8 @@
      "id": "graph_clerks_prevail",
      "name": "The Engine Age — Clerks Prevail",
      "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
-     "createdAt": "2026-11-10T17:46:56.744Z",
-     "updatedAt": "2026-11-10T17:46:57.451Z",
+     "createdAt": "2026-11-12T22:32:50.974Z",
+     "updatedAt": "2026-11-12T22:32:51.510Z",
      "version": 4,
      "parentGraphId": "graph_engine_age",
      "branchPoint": 46,
@@ -2811,7 +3355,159 @@
       ]
      }
     },
-    "requestId": "req_16"
+    "requestId": "req_20"
+   }
+  },
+  "GET /graphs/active @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": {
+     "id": "graph_vael",
+     "name": "Vael",
+     "description": "A drowned archipelago where salt is money and the tide-priests keep the count of years.",
+     "createdAt": "2026-11-12T22:32:51.655Z",
+     "updatedAt": "2026-11-12T22:32:54.816Z",
+     "version": 21,
+     "status": "active",
+     "metadata": {
+      "eventCount": 9,
+      "arcCount": 3,
+      "relationshipCount": 9,
+      "pressureCount": 0,
+      "temporalRange": {
+       "start": "1970-03-20T18:00:00.000Z",
+       "end": "2185-02-27T00:00:00.000Z"
+      },
+      "actors": [
+       "Salt-kings",
+       "Tide-priests",
+       "Glassmakers of Ambry"
+      ]
+     },
+     "calendar": {
+      "version": 2,
+      "dayLength": 108000,
+      "primary": "reckoning",
+      "calendars": [
+       {
+        "id": "reckoning",
+        "name": "the Reckoning of the Rising",
+        "parts": [
+         {
+          "name": "Lowtide",
+          "days": 30
+         },
+         {
+          "name": "Greywater",
+          "days": 30
+         },
+         {
+          "name": "Thaw",
+          "days": 30
+         },
+         {
+          "name": "Seedtide",
+          "days": 30
+         },
+         {
+          "name": "Brightwater",
+          "days": 30
+         },
+         {
+          "name": "Highsun",
+          "days": 30
+         },
+         {
+          "name": "Midyear's Day",
+          "days": 1,
+          "intercalary": true
+         },
+         {
+          "name": "Saltreap",
+          "days": 30
+         },
+         {
+          "name": "Panfire",
+          "days": 30
+         },
+         {
+          "name": "Gale",
+          "days": 30
+         },
+         {
+          "name": "Ebb",
+          "days": 30
+         },
+         {
+          "name": "Wrack",
+          "days": 30
+         },
+         {
+          "name": "Longnight",
+          "days": 30
+         },
+         {
+          "name": "The Drowned Days",
+          "days": 4,
+          "intercalary": true
+         }
+        ],
+        "leapRules": [
+         {
+          "every": 6,
+          "part": 13,
+          "days": 1
+         }
+        ],
+        "epoch": 0,
+        "eras": [
+         {
+          "label": "AR",
+          "from": 1
+         }
+        ],
+        "week": {
+         "days": [
+          "Firstfast",
+          "Netday",
+          "Saltday",
+          "Moonsday",
+          "Restday"
+         ],
+         "skipsIntercalary": true
+        },
+        "time": {
+         "hoursPerDay": 20,
+         "minutesPerHour": 100,
+         "secondsPerMinute": 100
+        }
+       },
+       {
+        "id": "tide",
+        "name": "the Tide-count",
+        "parts": [
+         {
+          "name": "Ebbing",
+          "days": 183
+         },
+         {
+          "name": "Flooding",
+          "days": 183
+         }
+        ],
+        "epoch": -100,
+        "eras": [
+         {
+          "label": "TC",
+          "from": 1
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "requestId": "req_21"
    }
   },
   "GET /graphs/graph_engine_age @graph_engine_age": {
@@ -2822,8 +3518,8 @@
      "id": "graph_engine_age",
      "name": "The Engine Age",
      "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-     "createdAt": "2026-11-10T17:46:49.003Z",
-     "updatedAt": "2026-11-10T17:46:56.607Z",
+     "createdAt": "2026-11-12T22:32:43.434Z",
+     "updatedAt": "2026-11-12T22:32:50.826Z",
      "version": 47,
      "status": "active",
      "metadata": {
@@ -2852,7 +3548,7 @@
       ]
      }
     },
-    "requestId": "req_17"
+    "requestId": "req_22"
    }
   },
   "GET /graphs/graph_engine_age @graph_clerks_prevail": {
@@ -2863,8 +3559,8 @@
      "id": "graph_engine_age",
      "name": "The Engine Age",
      "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-     "createdAt": "2026-11-10T17:46:49.003Z",
-     "updatedAt": "2026-11-10T17:46:56.607Z",
+     "createdAt": "2026-11-12T22:32:43.434Z",
+     "updatedAt": "2026-11-12T22:32:50.826Z",
      "version": 47,
      "status": "active",
      "metadata": {
@@ -2893,7 +3589,48 @@
       ]
      }
     },
-    "requestId": "req_18"
+    "requestId": "req_23"
+   }
+  },
+  "GET /graphs/graph_engine_age @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": {
+     "id": "graph_engine_age",
+     "name": "The Engine Age",
+     "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
+     "createdAt": "2026-11-12T22:32:43.434Z",
+     "updatedAt": "2026-11-12T22:32:50.826Z",
+     "version": 47,
+     "status": "active",
+     "metadata": {
+      "eventCount": 19,
+      "arcCount": 4,
+      "relationshipCount": 24,
+      "pressureCount": 0,
+      "temporalRange": {
+       "start": "1834-12-15T00:00:00.000Z",
+       "end": "1868-01-09T00:00:00.000Z"
+      },
+      "actors": [
+       "Charles Babbage",
+       "Robert Peel",
+       "Joseph Clement",
+       "Ada Lovelace",
+       "British Admiralty",
+       "Lloyd’s of London",
+       "Bank of England",
+       "General Register Office",
+       "Prince Albert",
+       "Electric Telegraph Company",
+       "Prussian General Staff",
+       "Clerks’ Union",
+       "Parliament"
+      ]
+     }
+    },
+    "requestId": "req_24"
    }
   },
   "GET /graphs/graph_engine_age/branches @graph_engine_age": {
@@ -2905,8 +3642,8 @@
       "id": "graph_clerks_prevail",
       "name": "The Engine Age — Clerks Prevail",
       "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
-      "createdAt": "2026-11-10T17:46:56.744Z",
-      "updatedAt": "2026-11-10T17:46:57.451Z",
+      "createdAt": "2026-11-12T22:32:50.974Z",
+      "updatedAt": "2026-11-12T22:32:51.510Z",
       "version": 4,
       "parentGraphId": "graph_engine_age",
       "branchPoint": 46,
@@ -2939,7 +3676,7 @@
       }
      }
     ],
-    "requestId": "req_19"
+    "requestId": "req_25"
    }
   },
   "GET /graphs/graph_engine_age/versions?limit=1 @graph_engine_age": {
@@ -2950,7 +3687,7 @@
      {
       "graphId": "graph_engine_age",
       "version": 46,
-      "timestamp": "2026-11-10T17:46:56.604Z",
+      "timestamp": "2026-11-12T22:32:50.815Z",
       "parentVersion": 45,
       "operation": "create",
       "description": "Added link: “Parliament passes the Engine Licensing Act” → “Britain and Prussia begin an engine arms race”",
@@ -2959,13 +3696,13 @@
         {
          "type": "relationship",
          "id": "local_24",
-         "hash": "7d3db3b08893d857aeb9a9979f8dcb5595c952bef111bab40afe6a663d3cc0eb"
+         "hash": "9545aad46213cca65857dc0d5ac6f3cc08dc9e8a31a1673e63057fa82fb46c62"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "856c80a828634f9c3089350b0c29e3ca96b1f054a50ef9d073972207a8097eb2"
+      "treeHash": "2b6b3ec2cbfeaa4436a7afa30190fbe668be1e84aec93fa949cfeff3980980ce"
      }
     ],
     "pagination": {
@@ -2974,7 +3711,7 @@
      "offset": 0,
      "hasMore": true
     },
-    "requestId": "req_20"
+    "requestId": "req_26"
    }
   },
   "GET /graphs/graph_engine_age/versions?limit=1 @graph_clerks_prevail": {
@@ -2985,7 +3722,7 @@
      {
       "graphId": "graph_engine_age",
       "version": 46,
-      "timestamp": "2026-11-10T17:46:56.604Z",
+      "timestamp": "2026-11-12T22:32:50.815Z",
       "parentVersion": 45,
       "operation": "create",
       "description": "Added link: “Parliament passes the Engine Licensing Act” → “Britain and Prussia begin an engine arms race”",
@@ -2994,13 +3731,13 @@
         {
          "type": "relationship",
          "id": "local_24",
-         "hash": "7d3db3b08893d857aeb9a9979f8dcb5595c952bef111bab40afe6a663d3cc0eb"
+         "hash": "9545aad46213cca65857dc0d5ac6f3cc08dc9e8a31a1673e63057fa82fb46c62"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "856c80a828634f9c3089350b0c29e3ca96b1f054a50ef9d073972207a8097eb2"
+      "treeHash": "2b6b3ec2cbfeaa4436a7afa30190fbe668be1e84aec93fa949cfeff3980980ce"
      }
     ],
     "pagination": {
@@ -3009,7 +3746,42 @@
      "offset": 0,
      "hasMore": true
     },
-    "requestId": "req_21"
+    "requestId": "req_27"
+   }
+  },
+  "GET /graphs/graph_engine_age/versions?limit=1 @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_engine_age",
+      "version": 46,
+      "timestamp": "2026-11-12T22:32:50.815Z",
+      "parentVersion": 45,
+      "operation": "create",
+      "description": "Added link: “Parliament passes the Engine Licensing Act” → “Britain and Prussia begin an engine arms race”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_24",
+         "hash": "9545aad46213cca65857dc0d5ac6f3cc08dc9e8a31a1673e63057fa82fb46c62"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "2b6b3ec2cbfeaa4436a7afa30190fbe668be1e84aec93fa949cfeff3980980ce"
+     }
+    ],
+    "pagination": {
+     "total": 47,
+     "limit": 1,
+     "offset": 0,
+     "hasMore": true
+    },
+    "requestId": "req_28"
    }
   },
   "GET /graphs/graph_engine_age/versions?limit=100 @graph_engine_age": {
@@ -3020,7 +3792,7 @@
      {
       "graphId": "graph_engine_age",
       "version": 46,
-      "timestamp": "2026-11-10T17:46:56.604Z",
+      "timestamp": "2026-11-12T22:32:50.815Z",
       "parentVersion": 45,
       "operation": "create",
       "description": "Added link: “Parliament passes the Engine Licensing Act” → “Britain and Prussia begin an engine arms race”",
@@ -3029,18 +3801,18 @@
         {
          "type": "relationship",
          "id": "local_24",
-         "hash": "7d3db3b08893d857aeb9a9979f8dcb5595c952bef111bab40afe6a663d3cc0eb"
+         "hash": "9545aad46213cca65857dc0d5ac6f3cc08dc9e8a31a1673e63057fa82fb46c62"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "856c80a828634f9c3089350b0c29e3ca96b1f054a50ef9d073972207a8097eb2"
+      "treeHash": "2b6b3ec2cbfeaa4436a7afa30190fbe668be1e84aec93fa949cfeff3980980ce"
      },
      {
       "graphId": "graph_engine_age",
       "version": 45,
-      "timestamp": "2026-11-10T17:46:56.462Z",
+      "timestamp": "2026-11-12T22:32:50.654Z",
       "parentVersion": 44,
       "operation": "create",
       "description": "Added link: “Moltke uses engine-planned railway timetables to mobilise” → “Britain and Prussia begin an engine arms race”",
@@ -3049,18 +3821,18 @@
         {
          "type": "relationship",
          "id": "local_23",
-         "hash": "a847bfca370627902dc0c74d67de8b4d885891c395e551baa94520be0e7381d0"
+         "hash": "553ef0f9fc3225619b5ad336c48689b85c3b497e360b15b9329dc9e64a2b0734"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "4c452a7513b74d158b3d62e761c64765889777dd68064459b1162084dcde430d"
+      "treeHash": "a3b2c440eefe7b354cd4170e607382ec4f7f175797eff74c4dee5d5f2c283dec"
      },
      {
       "graphId": "graph_engine_age",
       "version": 44,
-      "timestamp": "2026-11-10T17:46:56.298Z",
+      "timestamp": "2026-11-12T22:32:50.501Z",
       "parentVersion": 43,
       "operation": "create",
       "description": "Added link: “Prussia buys three engines for its General Staff” → “Moltke uses engine-planned railway timetables to mobilise”",
@@ -3069,18 +3841,18 @@
         {
          "type": "relationship",
          "id": "local_22",
-         "hash": "a83a8729c0fa73622492c601d577c271c16c28335022ee4d854ebff9aa53eeb1"
+         "hash": "a086bf281bfd13f1f6fad041eaebb16f2b7a0399d71ffe8c3a54ef209946bdbe"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "ffc3007ba95e58279010bd172babe0f94b3ba64447a24ec25adacc335d990e8b"
+      "treeHash": "f99286d2a36742692fd3f63d743d8f769a39eb5e61df56bad2cae32d34fe2ae5"
      },
      {
       "graphId": "graph_engine_age",
       "version": 43,
-      "timestamp": "2026-11-10T17:46:56.134Z",
+      "timestamp": "2026-11-12T22:32:50.347Z",
       "parentVersion": 42,
       "operation": "create",
       "description": "Added link: “Engines in London and Manchester exchange results by telegraph” → “Moltke uses engine-planned railway timetables to mobilise”",
@@ -3089,18 +3861,18 @@
         {
          "type": "relationship",
          "id": "local_21",
-         "hash": "ed79ab335f7682885f7b7b6f90cb0d20cd0ad6aee39d22345b2173ddf93640e2"
+         "hash": "99f8cdcb33b5f678235910c5aa963494464b6f153eef87d20da0adc4c51c99e1"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "babda53de375831a443f911aba164f8a2542f73400d6b83910acbd4b57a20ac1"
+      "treeHash": "dc6837a27c856a3d4d7ecc2f1ca6b81e7abcdc9ca78a865fbe83ebefcce4c21e"
      },
      {
       "graphId": "graph_engine_age",
       "version": 42,
-      "timestamp": "2026-11-10T17:46:55.960Z",
+      "timestamp": "2026-11-12T22:32:50.187Z",
       "parentVersion": 41,
       "operation": "create",
       "description": "Added link: “Ten thousand clerks protest at Westminster against the engines” → “Parliament passes the Engine Licensing Act”",
@@ -3109,18 +3881,18 @@
         {
          "type": "relationship",
          "id": "local_20",
-         "hash": "047916053ed7f210b1d58573cb96f17878a337fcd0f36d6455f5487ff80112d0"
+         "hash": "2e154e9362e98904fce02cf071f69947c339e6c2396fb6ae432d6dfd457a8b21"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "99d2efe5f1f3b452e4824b3a8a8636cc4dbb51a0a3e2d3d43ba3dc06637e09f1"
+      "treeHash": "624e66c0ae91cd594c296dbd249515e208a7fb0f61d247a848b26ca14458e6f4"
      },
      {
       "graphId": "graph_engine_age",
       "version": 41,
-      "timestamp": "2026-11-10T17:46:55.810Z",
+      "timestamp": "2026-11-12T22:32:50.032Z",
       "parentVersion": 40,
       "operation": "create",
       "description": "Added link: “Parliament debates engine licensing legislation” → “Parliament passes the Engine Licensing Act”",
@@ -3129,18 +3901,18 @@
         {
          "type": "relationship",
          "id": "local_19",
-         "hash": "5f253a2410779cfe5043339527513726cc14f225b00b58202c112e0279161d97"
+         "hash": "9116997e50970c722f59fa2bb099ceb02d254200fd171754b3d12a5d559184fb"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "d46872515c7c9cb93bbdbbf7c284246ffb4f359495ca027c490496b938860d6e"
+      "treeHash": "1be436490648cfd2541204d6d08e2269abe4650b857c01c410e584754f3b8979"
      },
      {
       "graphId": "graph_engine_age",
       "version": 40,
-      "timestamp": "2026-11-10T17:46:55.645Z",
+      "timestamp": "2026-11-12T22:32:49.876Z",
       "parentVersion": 39,
       "operation": "create",
       "description": "Added link: “Ten thousand clerks protest at Westminster against the engines” → “Parliament debates engine licensing legislation”",
@@ -3149,18 +3921,18 @@
         {
          "type": "relationship",
          "id": "local_18",
-         "hash": "f01003f3f60c0050903a703fd9bb2ee9dc5572723e7dca577ee36fe9078a672b"
+         "hash": "24616dd549e52d8d5cb6c3b64a8674120f444dc38fb67b2e1a9dcd99314f658b"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "3f0273b34cb4b175464575875d3b2bd1a1d0e6d9b4dfe5e72744380caaf24851"
+      "treeHash": "c21c0e958d3ea5dd766d7ccf23a35b6fa3e0f774b43ca485f811b697684f6c71"
      },
      {
       "graphId": "graph_engine_age",
       "version": 39,
-      "timestamp": "2026-11-10T17:46:55.466Z",
+      "timestamp": "2026-11-12T22:32:49.715Z",
       "parentVersion": 38,
       "operation": "create",
       "description": "Added link: “Ten thousand clerks protest at Westminster against the engines” → “Manchester clerks hold a demonstration in solidarity”",
@@ -3169,18 +3941,18 @@
         {
          "type": "relationship",
          "id": "local_17",
-         "hash": "25820d5806f26df8380923a4bb7b6adf688249b50e7c2ddc6f3483d8db9b7d5d"
+         "hash": "6bc6e7731e4eb209a03b412061c9c37bd6e7be5afa0796b1ac967548057d90dd"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "0aea8fa639f8e6f22ae58d76ff56d5ea39cfc53f0e89787e3a06f924f41045bf"
+      "treeHash": "f6b4cddcb474272a1f19f109212d6dca9fea6823344f9d9f72ab736be83942c6"
      },
      {
       "graphId": "graph_engine_age",
       "version": 38,
-      "timestamp": "2026-11-10T17:46:55.295Z",
+      "timestamp": "2026-11-12T22:32:49.553Z",
       "parentVersion": 37,
       "operation": "create",
       "description": "Added link: “Lloyd’s opens an actuarial engine room for the insurance market” → “The Bank of England moves its ledgers onto engines”",
@@ -3189,18 +3961,18 @@
         {
          "type": "relationship",
          "id": "local_16",
-         "hash": "e4bfb13c6953cdb4716e1786e539efa722dd0384cfc5690cc9a43c1d3e50bf5b"
+         "hash": "e701b80140d83c3c4e5f9bd058c7ca75cf2af0561edffe01f6711be6017dee14"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "7375c15e5d9ca0c44151a5f7804a588bff696f89305f81c2502a0fc0524bcae6"
+      "treeHash": "9513adbf8ce637263e3abb0eb85a30c70c53a1ef31a024374d87089349d9a86a"
      },
      {
       "graphId": "graph_engine_age",
       "version": 37,
-      "timestamp": "2026-11-10T17:46:55.049Z",
+      "timestamp": "2026-11-12T22:32:49.397Z",
       "parentVersion": 36,
       "operation": "create",
       "description": "Added link: “Lloyd’s opens an actuarial engine room for the insurance market” → “Ten thousand clerks protest at Westminster against the engines”",
@@ -3209,18 +3981,18 @@
         {
          "type": "relationship",
          "id": "local_15",
-         "hash": "1e10db05eca9d7874588f4c786ab8bd81e1da246933c82ba73c1a297c589e3e6"
+         "hash": "05bbfec66464ef9752e04222ef5badc6464639a0d83c79ef54423481a1c97d81"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "5a8076d4c99fea1bf319aee201cd9dbc3ffb3003c1a622364729ba1c8a0465bc"
+      "treeHash": "a199bf9c75a986f9dda63fa86a1e4ba4cedf31111b3c849e005a382319fd1ef4"
      },
      {
       "graphId": "graph_engine_age",
       "version": 36,
-      "timestamp": "2026-11-10T17:46:54.860Z",
+      "timestamp": "2026-11-12T22:32:49.233Z",
       "parentVersion": 35,
       "operation": "create",
       "description": "Added link: “The 1851 census is tabulated entirely by engine” → “Ten thousand clerks protest at Westminster against the engines”",
@@ -3229,18 +4001,18 @@
         {
          "type": "relationship",
          "id": "local_14",
-         "hash": "c1ef3e9db90c7620edeb2b77fc0ea06565e070e3e313cd4138beac9221254752"
+         "hash": "5447313b6c161c97f6dc405c8a3b508ed66ad4315df06f08860ccf8555ef0ddb"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "9dd450d7005069c2073b951f313ee41b619a6a8f0d9db3f9139bac7de7d5dee3"
+      "treeHash": "5f7e7f1a879a5e56acf3f1aece3aa0b5b4b28c1864535a1fb69a3f90c5933ee2"
      },
      {
       "graphId": "graph_engine_age",
       "version": 35,
-      "timestamp": "2026-11-10T17:46:54.705Z",
+      "timestamp": "2026-11-12T22:32:49.075Z",
       "parentVersion": 34,
       "operation": "create",
       "description": "Added link: “The Great Exhibition’s centrepiece is a working engine hall” → “Prussia buys three engines for its General Staff”",
@@ -3249,18 +4021,18 @@
         {
          "type": "relationship",
          "id": "local_13",
-         "hash": "b262329d1409e6f8fa6061ec75def47c6139b88dba3901c138c18704a3574c82"
+         "hash": "950e3427a1756ef9e3b3f8e5bc0783ae595eff9541114d928ceee36398c06bdc"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "b60584823a6514b0f51db35c2dbee005650d763d6fc12ff088c4af76d877eac6"
+      "treeHash": "5a12dcc2e26f7f7bde4ce087c619dc8cf951ce7eb50767419bb2f0ad33b46b83"
      },
      {
       "graphId": "graph_engine_age",
       "version": 34,
-      "timestamp": "2026-11-10T17:46:54.533Z",
+      "timestamp": "2026-11-12T22:32:48.919Z",
       "parentVersion": 33,
       "operation": "create",
       "description": "Added link: “Lloyd’s opens an actuarial engine room for the insurance market” → “Engines in London and Manchester exchange results by telegraph”",
@@ -3269,18 +4041,18 @@
         {
          "type": "relationship",
          "id": "local_12",
-         "hash": "94dcc954e4bf88214ea4dbae7d9ea5661282bea66dcb60d14fbd778c3fabf6b4"
+         "hash": "927b702a2d4a55bb840e85dbfb34ea9ee0972c5df03ecdf0dc78762b4077227e"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "e1b98b472dd0170e0a47234f4282fce8d3f0922ff847592262d4e9f65495ca77"
+      "treeHash": "19a4c8526a9b73f7b750c430f60c0b36353735fe986b1495522370dad4bc67de"
      },
      {
       "graphId": "graph_engine_age",
       "version": 33,
-      "timestamp": "2026-11-10T17:46:54.327Z",
+      "timestamp": "2026-11-12T22:32:48.765Z",
       "parentVersion": 32,
       "operation": "create",
       "description": "Added link: “The 1851 census is tabulated entirely by engine” → “The Great Exhibition’s centrepiece is a working engine hall”",
@@ -3289,18 +4061,18 @@
         {
          "type": "relationship",
          "id": "local_11",
-         "hash": "c7015342bdbc62925a491f5438df669dc4bff62ddbcd2c341674f3992e844d2c"
+         "hash": "d3be4e50e2e9b4f1f123d4e15df8f94d682fdc9acc7eb31c77c82321b95e7f5c"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "05a53d69fceee43325ebb4c9702f7548118072f9ad4f3c8573b5d26935915e2d"
+      "treeHash": "85e4ba109a5e8096641454f0e9b4b926d756e4f7fb482024899ab1c15d484e41"
      },
      {
       "graphId": "graph_engine_age",
       "version": 32,
-      "timestamp": "2026-11-10T17:46:54.158Z",
+      "timestamp": "2026-11-12T22:32:48.607Z",
       "parentVersion": 31,
       "operation": "create",
       "description": "Added link: “The Admiralty orders engines to compute navigation tables” → “The 1851 census is tabulated entirely by engine”",
@@ -3309,18 +4081,18 @@
         {
          "type": "relationship",
          "id": "local_10",
-         "hash": "ebd5771615f93f0cfcbcc4237112d6c36e48858b4ac69d77014e777268d31531"
+         "hash": "6df46a54e61f1aae97562e9f109a9c864299a986dcfe461dd77eef505e15eb21"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "e76a3d1c038f0df6eff9664c6ad970ef33629cf0cc3b19051e4cd22877eac50d"
+      "treeHash": "65d233ee7e6d2338f1dac80158178da4df4e47e10027993bce0f475d8ee96cf0"
      },
      {
       "graphId": "graph_engine_age",
       "version": 31,
-      "timestamp": "2026-11-10T17:46:53.959Z",
+      "timestamp": "2026-11-12T22:32:48.442Z",
       "parentVersion": 30,
       "operation": "create",
       "description": "Added link: “Lovelace founds the School of Engine Programming in London” → “The 1851 census is tabulated entirely by engine”",
@@ -3329,18 +4101,18 @@
         {
          "type": "relationship",
          "id": "local_9",
-         "hash": "e1a3a9de7932eb84458ced851e6cc43a3b89c4d9da3581fe0f3a8b1e7e61ad94"
+         "hash": "4623a959b8e278e20f65f890cbdaa1fbf9f4147b022fab41d58b222c96894fe5"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "0fe14620349cca7b3abd97bb8de406d37d7c0f6cd4666bfcd6026d7ef65c6252"
+      "treeHash": "32cf46cef54bf151c5406f48faab9cd09b009582ef070b0361dc27037d0eae61"
      },
      {
       "graphId": "graph_engine_age",
       "version": 30,
-      "timestamp": "2026-11-10T17:46:53.765Z",
+      "timestamp": "2026-11-12T22:32:48.285Z",
       "parentVersion": 29,
       "operation": "create",
       "description": "Added link: “Ada Lovelace publishes Note G, the first program” → “Lovelace founds the School of Engine Programming in London”",
@@ -3349,18 +4121,18 @@
         {
          "type": "relationship",
          "id": "local_8",
-         "hash": "2932b0ddb79bf8d33ce23ee07383b4f6659143ed8dbf8832756187a1098e7fe5"
+         "hash": "aff02d5279283cb7747bcf9a32b13dc4ddb95f589ecd9300bfd65031dba69ba4"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "f29ba5644e9cf75c09aefa90564bc3b21ef8b1ab5b5d0927dd1d25c0fa3fad88"
+      "treeHash": "921c01cc359d591eaf78fa59c46ce6b1030540c68ee2e5e3bcbd72718dab17de"
      },
      {
       "graphId": "graph_engine_age",
       "version": 29,
-      "timestamp": "2026-11-10T17:46:53.590Z",
+      "timestamp": "2026-11-12T22:32:48.125Z",
       "parentVersion": 28,
       "operation": "create",
       "description": "Added link: “The Engine computes Bernoulli numbers before the Royal Society” → “Lloyd’s opens an actuarial engine room for the insurance market”",
@@ -3369,18 +4141,18 @@
         {
          "type": "relationship",
          "id": "local_7",
-         "hash": "ee72e730d12a9cc86e79a54e571c9793fc38199396c7f5eb2631849bc5a88da1"
+         "hash": "b734f8d98ba0f4fca594bd76a6e53e20251ff39ebf589c2aeb456965493103af"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "2fa381bad8cfc54436a8878d69e0a083768c4632c8b0b7907c1fef61cfcbb93d"
+      "treeHash": "cbbeb291aef2a9772af8c4ec5850a375789f78031a8941b690418e67c777e875"
      },
      {
       "graphId": "graph_engine_age",
       "version": 28,
-      "timestamp": "2026-11-10T17:46:53.418Z",
+      "timestamp": "2026-11-12T22:32:47.971Z",
       "parentVersion": 27,
       "operation": "create",
       "description": "Added link: “The Engine computes Bernoulli numbers before the Royal Society” → “The Admiralty orders engines to compute navigation tables”",
@@ -3389,18 +4161,18 @@
         {
          "type": "relationship",
          "id": "local_6",
-         "hash": "253da3d1acacd1915ceaf39b47672b3455b92b1197020bfa8a1eba15bc7b4c1e"
+         "hash": "86d774eb84d263d60637aa48fd52d6054490fd71bba61df5bd2bcd86919e7f8e"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "03420c59c51f0e9fb3b8537940260564f9b482c4ee4bb3a9004d0b9ed1d31ded"
+      "treeHash": "5b94615673454fb63240f2be5676d54533de73d8ddc3e0876f15123b0e0411bf"
      },
      {
       "graphId": "graph_engine_age",
       "version": 27,
-      "timestamp": "2026-11-10T17:46:53.245Z",
+      "timestamp": "2026-11-12T22:32:47.815Z",
       "parentVersion": 26,
       "operation": "create",
       "description": "Added link: “Ada Lovelace publishes Note G, the first program” → “The Engine computes Bernoulli numbers before the Royal Society”",
@@ -3409,18 +4181,18 @@
         {
          "type": "relationship",
          "id": "local_5",
-         "hash": "f8aa0d72a8ae9fd68f05f750f91e390fa96fd38c442a905550aa7fe4bb4b8875"
+         "hash": "84b5f96a18040dface43bdc00616dc10a74bb45b000f71a70b8c72f74b67b6d3"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "f515e829a07b08546b498f43d0d1e8c981fe8affdf4932601da242e70f9e3260"
+      "treeHash": "06c88cf364dea1ea92377a925ef8cd995a1f4905c44d4fc00bd90fbf7cb387cc"
      },
      {
       "graphId": "graph_engine_age",
       "version": 26,
-      "timestamp": "2026-11-10T17:46:53.077Z",
+      "timestamp": "2026-11-12T22:32:47.660Z",
       "parentVersion": 25,
       "operation": "create",
       "description": "Added link: “Babbage completes the full design of the Analytical Engine” → “Ada Lovelace publishes Note G, the first program”",
@@ -3429,18 +4201,18 @@
         {
          "type": "relationship",
          "id": "local_4",
-         "hash": "0ad8720f427d3291b50dbde428b0ca90058aa5d276e3e72ba72f2e241ebc27ba"
+         "hash": "26cf01c776daffe76d0c29639787706533777cb2af6976ec736c66530ce3ced9"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "c21686dcd7d31098e633b371335074f00e42d240f18a109892efbd0289929d9b"
+      "treeHash": "12d705efe7477c1c00f53e7e1153ab3912ec85e2601fb38c423091831b79f34d"
      },
      {
       "graphId": "graph_engine_age",
       "version": 25,
-      "timestamp": "2026-11-10T17:46:52.914Z",
+      "timestamp": "2026-11-12T22:32:47.507Z",
       "parentVersion": 24,
       "operation": "create",
       "description": "Added link: “Joseph Clement standardises the engine’s gears and screw threads” → “The Engine computes Bernoulli numbers before the Royal Society”",
@@ -3449,18 +4221,18 @@
         {
          "type": "relationship",
          "id": "local_3",
-         "hash": "173e2196003a6620019b7a5d74dd4e9ab773a1c4c63419e52142d158d0b854d5"
+         "hash": "a090472aeef13dba0cec08985ca8fedb9c1734893eeb05775bc06c1ed1a03902"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "fb0fb53365055596cc89cc7e34a42692a8cb6435403a7c300a7cd45063171592"
+      "treeHash": "0a57eea672f65ee06078f555f7bd3a49f4ef03b940569644c169ca587a8a9814"
      },
      {
       "graphId": "graph_engine_age",
       "version": 24,
-      "timestamp": "2026-11-10T17:46:52.747Z",
+      "timestamp": "2026-11-12T22:32:47.349Z",
       "parentVersion": 23,
       "operation": "create",
       "description": "Added link: “Prime Minister Peel reverses course and funds construction” → “Joseph Clement standardises the engine’s gears and screw threads”",
@@ -3469,18 +4241,18 @@
         {
          "type": "relationship",
          "id": "local_2",
-         "hash": "f5b2c84996d6ff56aac2fc7891164113f376c7e520b29733f934be6344dc85a5"
+         "hash": "743c1900c5e6ff5fbc5dd434b9012116cf1c43345e10e1ccc7700f2235ebb1dd"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "a51eead30b48d89be6de526b6bc087d75b51a4d8f3730cf52e0b0fe1050eeea9"
+      "treeHash": "d02df69fa9ef40aa2eba9fd1c100c0ea61c5180e5b12bd8104015201c0098570"
      },
      {
       "graphId": "graph_engine_age",
       "version": 23,
-      "timestamp": "2026-11-10T17:46:52.600Z",
+      "timestamp": "2026-11-12T22:32:47.190Z",
       "parentVersion": 22,
       "operation": "create",
       "description": "Added link: “Babbage completes the full design of the Analytical Engine” → “Prime Minister Peel reverses course and funds construction”",
@@ -3489,18 +4261,18 @@
         {
          "type": "relationship",
          "id": "local_1",
-         "hash": "09e22f45956bde17c4dec23f065ca16c1c1085547ff9d104c67c083815298eeb"
+         "hash": "3bf3be8b0970afd37cb272cc88b20f916e3a4d9bbd402f9e16c7852e54bb327c"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "a2bf96fdcdd21a34b34d16615418eb014181f9a32eabe41621be7d27f428ec3f"
+      "treeHash": "d0b881c0b0d729dbf03755da8d293ac9906f5ae0afabe923dd3c534898bdd24f"
      },
      {
       "graphId": "graph_engine_age",
       "version": 22,
-      "timestamp": "2026-11-10T17:46:52.451Z",
+      "timestamp": "2026-11-12T22:32:47.025Z",
       "parentVersion": 21,
       "operation": "create",
       "description": "Added event “Britain and Prussia begin an engine arms race”",
@@ -3509,18 +4281,18 @@
         {
          "type": "event",
          "id": "event_race",
-         "hash": "2831d26f7be689b695d31871f6c7a0342ed58a48541fe323a2629bd3b6a19547"
+         "hash": "7362f3a137db0ce92285ea541d96a930295f62ec68e0ed7057f2e36c2d761e43"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "97a05eb9e2d649dc246741d74ace008ad38e4cbee5ab52e96837219c1b964e27"
+      "treeHash": "69a292315a7d3b276e2d9ca5a110de12b2e1fb6076cb94ded49302f2e4f7a682"
      },
      {
       "graphId": "graph_engine_age",
       "version": 21,
-      "timestamp": "2026-11-10T17:46:52.309Z",
+      "timestamp": "2026-11-12T22:32:46.870Z",
       "parentVersion": 20,
       "operation": "create",
       "description": "Added event “Moltke uses engine-planned railway timetables to mobilise”",
@@ -3529,18 +4301,18 @@
         {
          "type": "event",
          "id": "event_moltke",
-         "hash": "bc2873c41a1e5bc74a6aa4ffa3e4bc44069d1320389371fac3eb7d8074a71c3b"
+         "hash": "7f7f144c663cf58f1f2bd779b23a8f86c7007243b939b6bc51ec00ac8e555388"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "ee7ad826d06e2e4e8d6bc18f8b3f353f3f89f00511ca1d52818fa2b47133c690"
+      "treeHash": "b8874260c42041cfb84f5e715dc4e7fca3fe72872a52ff5c877061c5771655c3"
      },
      {
       "graphId": "graph_engine_age",
       "version": 20,
-      "timestamp": "2026-11-10T17:46:52.170Z",
+      "timestamp": "2026-11-12T22:32:46.716Z",
       "parentVersion": 19,
       "operation": "create",
       "description": "Added event “Parliament passes the Engine Licensing Act”",
@@ -3549,18 +4321,18 @@
         {
          "type": "event",
          "id": "event_act",
-         "hash": "c4bbf6661b745ffbceaa8d2fab06d3a6ba3f383468273ac6b1fd91fe50200a7b"
+         "hash": "3b91eedfebfb129b47e3598cb65b2964ffe3fabc4100feeafe91114b6bd23811"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "253650f25080fc3ce60f25d1da1e556e9bed3d75dbfd85aee6d697ca80b3e453"
+      "treeHash": "30c39d0ffac05d82a5d9be25668c0f46bce0a056ca3d87a8108633b37dc32102"
      },
      {
       "graphId": "graph_engine_age",
       "version": 19,
-      "timestamp": "2026-11-10T17:46:52.027Z",
+      "timestamp": "2026-11-12T22:32:46.562Z",
       "parentVersion": 18,
       "operation": "create",
       "description": "Added event “Parliament debates engine licensing legislation”",
@@ -3569,18 +4341,18 @@
         {
          "type": "event",
          "id": "event_debate",
-         "hash": "c5b0250d363eb07d4cd06d25bed2e0d35f98641a8a6313e159c3c3728d0f5e9e"
+         "hash": "9f2c6ee96b36238595b55e8d4384ed98190b0c4c09381f3866b6e8541457ad6a"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "4033be348e94c164abf0f6f71e7575890281392f66f7c381c5215b584f4da34e"
+      "treeHash": "dfa0e78d8fe2ea6de97da15012067a3c0373d179230de9b6985b4861c603aaf3"
      },
      {
       "graphId": "graph_engine_age",
       "version": 18,
-      "timestamp": "2026-11-10T17:46:51.886Z",
+      "timestamp": "2026-11-12T22:32:46.408Z",
       "parentVersion": 17,
       "operation": "create",
       "description": "Added event “Manchester clerks hold a demonstration in solidarity”",
@@ -3589,18 +4361,18 @@
         {
          "type": "event",
          "id": "event_manchester",
-         "hash": "a0eac33b94084c76e90c12316ad7f35856adc068fea2ddce5a61e42fc64154d8"
+         "hash": "e5daec650fbd651f1f42b430438f95cd4c00e70f3d81907ab7d2fbde185248e4"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "f3d180bb2892e5a3064bef51cf9236a4ad8f6b86c10faf508c512f6c66079b38"
+      "treeHash": "fb896f044efae47e052f24ad3dc69d3589b286346dbe8918c2a565083fc06c41"
      },
      {
       "graphId": "graph_engine_age",
       "version": 17,
-      "timestamp": "2026-11-10T17:46:51.733Z",
+      "timestamp": "2026-11-12T22:32:46.253Z",
       "parentVersion": 16,
       "operation": "create",
       "description": "Added event “Ten thousand clerks protest at Westminster against the engines”",
@@ -3609,18 +4381,18 @@
         {
          "type": "event",
          "id": "event_clerks",
-         "hash": "6a9885a16c12ef664d50f68033c4fec7696b248c9133516dd9518a5dfac92229"
+         "hash": "c13093d8b8c11e66058d9eb72d8e2ca6d2fb3cde5a7d78009e56802277a778dc"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "dbfaa43032b0823310fccbf1a92be5d54795e7d761b0ca5385c49ebe1346c449"
+      "treeHash": "e8755e050d9dec1f41482db1a6c2c1ab0df324f2f1015985bebfa9d14c4836dd"
      },
      {
       "graphId": "graph_engine_age",
       "version": 16,
-      "timestamp": "2026-11-10T17:46:51.592Z",
+      "timestamp": "2026-11-12T22:32:46.095Z",
       "parentVersion": 15,
       "operation": "create",
       "description": "Added event “Prussia buys three engines for its General Staff”",
@@ -3629,18 +4401,18 @@
         {
          "type": "event",
          "id": "event_prussia",
-         "hash": "912c7dedd45760a7913cd5f4c41b0b6dd6e8e8722dc7ca53add41d326679c892"
+         "hash": "345ab27952fede93c65351f50d2a1b0ada80a9dad67bc6ed9fca715f29cc8cb8"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "374a26b6cd7adf6d06491c633a11cd9badbcc8798e32ea2d8d9ef2c50e7b5aa1"
+      "treeHash": "356df405f529ef5ed52dd548c5d885c76052e695b5b55250a84ecb789498407d"
      },
      {
       "graphId": "graph_engine_age",
       "version": 15,
-      "timestamp": "2026-11-10T17:46:51.450Z",
+      "timestamp": "2026-11-12T22:32:45.942Z",
       "parentVersion": 14,
       "operation": "create",
       "description": "Added event “Engines in London and Manchester exchange results by telegraph”",
@@ -3649,18 +4421,18 @@
         {
          "type": "event",
          "id": "event_wire",
-         "hash": "db471de20ba8dc9bc8dc741328078f1bc8cf36cffebe599313baf67217074f4e"
+         "hash": "d979c50dcc62909336e55aeb166127b76dc307043b51a64f62887b360ba1d847"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "5972b1acb1851265722ec2858b24ce05c7da8e5eaf44d22d370937493eb084eb"
+      "treeHash": "304978b3ac33debc539f0d3cb919bc13d52f7919b4f273d1037090c767ca3f3a"
      },
      {
       "graphId": "graph_engine_age",
       "version": 14,
-      "timestamp": "2026-11-10T17:46:51.311Z",
+      "timestamp": "2026-11-12T22:32:45.789Z",
       "parentVersion": 13,
       "operation": "create",
       "description": "Added event “The Great Exhibition’s centrepiece is a working engine hall”",
@@ -3669,18 +4441,18 @@
         {
          "type": "event",
          "id": "event_exhibition",
-         "hash": "44efec7eb2732b0f3144217d31b36ea00cd6b9032c92df10fa506a3de808a83b"
+         "hash": "6fd0cd522772b126f014092740453e7f789a2e0c0f2a41e3e362b0ec6f1bc4a2"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "a22e3b8ff6b346ec6311fd409961a56f611156cb52f139077568662b67f6b4f6"
+      "treeHash": "9bb064be2f30a36fb2859ee91cd79fd4a068d65eeb4c6baf8b8f0b76674869b5"
      },
      {
       "graphId": "graph_engine_age",
       "version": 13,
-      "timestamp": "2026-11-10T17:46:51.170Z",
+      "timestamp": "2026-11-12T22:32:45.634Z",
       "parentVersion": 12,
       "operation": "create",
       "description": "Added event “The 1851 census is tabulated entirely by engine”",
@@ -3689,18 +4461,18 @@
         {
          "type": "event",
          "id": "event_census",
-         "hash": "5bea677972569849a2bdfe796f534962e6df294bd8e3d46d2a2c071b6eac574c"
+         "hash": "5f99d97afaa6a2245d74969f238f4a7a34afe45bc976d273f42fc98040be8cd2"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "3d59bb3dcc1b7a56bc93b8be418413a53e8b5a8a0d8d120d9545267b2c007e1b"
+      "treeHash": "d009d6ed3ec5047a457655452c3d667f789c54ec65ce249246bc953e28e65689"
      },
      {
       "graphId": "graph_engine_age",
       "version": 12,
-      "timestamp": "2026-11-10T17:46:51.030Z",
+      "timestamp": "2026-11-12T22:32:45.474Z",
       "parentVersion": 11,
       "operation": "create",
       "description": "Added event “Lovelace founds the School of Engine Programming in London”",
@@ -3709,18 +4481,18 @@
         {
          "type": "event",
          "id": "event_school",
-         "hash": "17fa99fb6e941d0807868981e2c770f892fa0a7dc30cc31bf962eb3a81c21990"
+         "hash": "94a0fe5aff9739b5b281013216b9d9ac6a48d2ff749b8cea59e4ba2b1a3fa4fa"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "43b20952ed7e73603557f3512806ebddabec773cf2dfb7274cb3d58ef91104ac"
+      "treeHash": "89180801c7d562cff00f71f93cbc31f7b28c7f1670abed8e0f50501a61136191"
      },
      {
       "graphId": "graph_engine_age",
       "version": 11,
-      "timestamp": "2026-11-10T17:46:50.880Z",
+      "timestamp": "2026-11-12T22:32:45.317Z",
       "parentVersion": 10,
       "operation": "create",
       "description": "Added event “The Bank of England moves its ledgers onto engines”",
@@ -3729,18 +4501,18 @@
         {
          "type": "event",
          "id": "event_bank",
-         "hash": "cfbf21c0a9d0d44e667b92ee4cc2015608cd5720e9ff0a2035b5a53f59285a5e"
+         "hash": "e77ad69aca4a836bf2b93274753119bff4427e14605dcb5cda9b360eb9d97f00"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "346c8a46143a294796747248591838de831a44ada9a515a15b6ed5f84b9f529b"
+      "treeHash": "dba07aa126ee2eca3b72d0d79e95474e1ea1368602a66f06df31a5dcdf003c3d"
      },
      {
       "graphId": "graph_engine_age",
       "version": 10,
-      "timestamp": "2026-11-10T17:46:50.733Z",
+      "timestamp": "2026-11-12T22:32:45.161Z",
       "parentVersion": 9,
       "operation": "create",
       "description": "Added event “Lloyd’s opens an actuarial engine room for the insurance market”",
@@ -3749,18 +4521,18 @@
         {
          "type": "event",
          "id": "event_lloyds",
-         "hash": "150d6f86a0d2d585eb87ab54305d8a3773181a88d4bd2c7c8c53ca2f0c7adce4"
+         "hash": "d7a2e0cae953912d1a5fe3a12ed0192731fbd5b9128cf337f8f5f3a483d66ecc"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "0cc4a3a64cd68795b5696bcbcdcabb4869b0c40b89ba94fb5c1892983889f904"
+      "treeHash": "09f78e55b96bfc4df58d3dfc5903b724d3d0592d8466f57714da31a9a8921fb8"
      },
      {
       "graphId": "graph_engine_age",
       "version": 9,
-      "timestamp": "2026-11-10T17:46:50.590Z",
+      "timestamp": "2026-11-12T22:32:45.003Z",
       "parentVersion": 8,
       "operation": "create",
       "description": "Added event “The Admiralty orders engines to compute navigation tables”",
@@ -3769,18 +4541,18 @@
         {
          "type": "event",
          "id": "event_admiralty",
-         "hash": "6f7c1953173d5021deb12a4226cdeba735f5c93382fa385c7779383adddf4344"
+         "hash": "c1abb7cf5b515da7be49e001343513c3ff53ff0e5c46d598e58423405a89d7e8"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "aef183dad19b8f9e873097716b90fbdf9667138380c471a653a2cce4fbfd0c59"
+      "treeHash": "9a5f578345b7039ee136242f86ca9951dddfdca6a7a19d78dc95a7d9f38fc252"
      },
      {
       "graphId": "graph_engine_age",
       "version": 8,
-      "timestamp": "2026-11-10T17:46:50.449Z",
+      "timestamp": "2026-11-12T22:32:44.849Z",
       "parentVersion": 7,
       "operation": "create",
       "description": "Added event “The Engine computes Bernoulli numbers before the Royal Society”",
@@ -3789,18 +4561,18 @@
         {
          "type": "event",
          "id": "event_firstrun",
-         "hash": "650ce52fe3ff47f3e0a171784d01fb52e72602baceeea2918c6b112ae5e99d6d"
+         "hash": "4a4d9eface73a957e689a34fa4a36f499df328e3482eb7c8f2ae8568864257c5"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "31ae27f66c313b5ce044490622fba18edf36f168effec625ef682b4f844992ce"
+      "treeHash": "8495244e4d1a86998cf80771bb2a4a401492e809f812d55f814fa0b8c9f4874a"
      },
      {
       "graphId": "graph_engine_age",
       "version": 7,
-      "timestamp": "2026-11-10T17:46:50.289Z",
+      "timestamp": "2026-11-12T22:32:44.694Z",
       "parentVersion": 6,
       "operation": "create",
       "description": "Added event “Ada Lovelace publishes Note G, the first program”",
@@ -3809,18 +4581,18 @@
         {
          "type": "event",
          "id": "event_noteg",
-         "hash": "16c8cf2642c58003659fbd32d8fec876b642aaacc1de22d5662240679ac2463c"
+         "hash": "93490ddfccafdb496c12716d25991f3cf27bd9f3db4686ad274061a39fdbc839"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "bae3fdd61369c1fb2969c7b2f22d8d3ac39c5970c2dd535ec40417e499e57dee"
+      "treeHash": "d9c7cd53a4537dd1132250436774d4fabbbba1d3f902e8e37d2238122847a31f"
      },
      {
       "graphId": "graph_engine_age",
       "version": 6,
-      "timestamp": "2026-11-10T17:46:50.135Z",
+      "timestamp": "2026-11-12T22:32:44.539Z",
       "parentVersion": 5,
       "operation": "create",
       "description": "Added event “Joseph Clement standardises the engine’s gears and screw threads”",
@@ -3829,18 +4601,18 @@
         {
          "type": "event",
          "id": "event_clement",
-         "hash": "a57a38554372285f7ddf4862cb6706d07b62067e292f12414584a027144105f7"
+         "hash": "b8bb342967af555b2279c08a6025ad3be8e1196927527c4d464c160715c01528"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "040f531d03876a0bb3b48a585298776ce8d865d0872b0a4151874dcbb2ef5133"
+      "treeHash": "e184a7a06d5e9d35a424bd68601a23278573d3c148b6aef33907d26c69ac998d"
      },
      {
       "graphId": "graph_engine_age",
       "version": 5,
-      "timestamp": "2026-11-10T17:46:49.974Z",
+      "timestamp": "2026-11-12T22:32:44.379Z",
       "parentVersion": 4,
       "operation": "create",
       "description": "Added event “Prime Minister Peel reverses course and funds construction”",
@@ -3849,18 +4621,18 @@
         {
          "type": "event",
          "id": "event_peel",
-         "hash": "8abf34748671bb70a195493647339179ddccc181e79bc9b5148f130558cfab14"
+         "hash": "411eb23ec8cf2dba48a3dd7454dfb1e49502d367d48a927c4765f50c15b5a4ad"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "1476de7856c70447159fa34fd32402357b3956c3ab9874d2b7572457fd20fef1"
+      "treeHash": "aca6e6082aa7dac73c14778f0ed5fec61bdd5abfa3bf23a194b606d1ed0db070"
      },
      {
       "graphId": "graph_engine_age",
       "version": 4,
-      "timestamp": "2026-11-10T17:46:49.825Z",
+      "timestamp": "2026-11-12T22:32:44.223Z",
       "parentVersion": 3,
       "operation": "create",
       "description": "Added event “Babbage completes the full design of the Analytical Engine”",
@@ -3869,18 +4641,18 @@
         {
          "type": "event",
          "id": "event_design",
-         "hash": "394a175eee53324d7b7633d66d4a7a9b4bc595b430f766d7a79c989c7fc5ab0a"
+         "hash": "1cca536e2df93f3d3992414d1216957179ba9e7a92449575627bbdb5f0784705"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "952b9234b2e1c113604fb9a3d2045cf1640e96ecc2bafa45e3cc16e2ce06af3b"
+      "treeHash": "b5ae78b8bd2a490178cfe5ab643a5df264fab772205f9d40d8ddc7460f541c67"
      },
      {
       "graphId": "graph_engine_age",
       "version": 3,
-      "timestamp": "2026-11-10T17:46:49.652Z",
+      "timestamp": "2026-11-12T22:32:44.066Z",
       "parentVersion": 2,
       "operation": "create",
       "description": "Added arc “Engines on the Wire”",
@@ -3889,18 +4661,18 @@
         {
          "type": "arc",
          "id": "arc_telegraph",
-         "hash": "70c287fc63cd80a8f7b7259267a974e5d9de863ae72ce19537bedab94251ef8b"
+         "hash": "b68eb7f38c52c3bb04de9153076d057c7d44847ac6c336b1dd7fe603d6a46625"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "19b6f85d0169024f2262a1bf9bceb1cb9948ab9890b1b25713d7e00b0ba4232b"
+      "treeHash": "7c6e757a4e18d06dbc1122a286d792cfeb04f754e1235f9dc825afba6d2abefc"
      },
      {
       "graphId": "graph_engine_age",
       "version": 2,
-      "timestamp": "2026-11-10T17:46:49.497Z",
+      "timestamp": "2026-11-12T22:32:43.910Z",
       "parentVersion": 1,
       "operation": "create",
       "description": "Added arc “The Clerks’ Rebellion”",
@@ -3909,18 +4681,18 @@
         {
          "type": "arc",
          "id": "arc_reaction",
-         "hash": "eb2755256a4eee6398be19c8934e289d38df75b36727c1cd3b7158168fa0624b"
+         "hash": "b28fd30d7a4b0dde83be71e21077245c3fd4d146b67fd1a15872f94a1edf95f0"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "5d545581fb6c2b6d2314aca7ec352ca1538a49ef1840a78710d7b03fb017019f"
+      "treeHash": "4b049b1f18d0e2649decec827d43b94129fea5ecc7e277e83e4d70eb16d33df3"
      },
      {
       "graphId": "graph_engine_age",
       "version": 1,
-      "timestamp": "2026-11-10T17:46:49.337Z",
+      "timestamp": "2026-11-12T22:32:43.754Z",
       "parentVersion": 0,
       "operation": "create",
       "description": "Added arc “The Calculating Offices”",
@@ -3929,18 +4701,18 @@
         {
          "type": "arc",
          "id": "arc_offices",
-         "hash": "a8d803c620f3c3814730526c2f5fbb9a39ea2f4af8347d8233f1544db670e346"
+         "hash": "7297a1dfa3189131c8be89cb1ae108aed4a9825947b301d86a0b42dde3acec6c"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "fc28c0905c7a46bfc532ddfb9a847a3e4dbcb8dec805fa160ad78b6d49fef70a"
+      "treeHash": "c999e924aadd02e4aac7eedd93db249668e0a7191761b227c2f379b001079277"
      },
      {
       "graphId": "graph_engine_age",
       "version": 0,
-      "timestamp": "2026-11-10T17:46:49.179Z",
+      "timestamp": "2026-11-12T22:32:43.594Z",
       "parentVersion": null,
       "operation": "create",
       "description": "Added arc “Building the Engine”",
@@ -3949,13 +4721,13 @@
         {
          "type": "arc",
          "id": "arc_build",
-         "hash": "ac3fc5168fd6b2fbe76279fbecbca667c770e12cb1b529bdb7f73f5fda0f266c"
+         "hash": "3d88f848d91405fc3c9d504238a8257cc1f7d96abf6502bf64fb1bf853ca38a5"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "1632d795c535bf80f76aff2baad75ead021873e05b381f18d7b492ff10d580db"
+      "treeHash": "a6bcfc190d666118086c9358b36b6d059f93f80e94f894e124dd83f442629d11"
      }
     ],
     "pagination": {
@@ -3964,7 +4736,7 @@
      "offset": 0,
      "hasMore": false
     },
-    "requestId": "req_22"
+    "requestId": "req_29"
    }
   },
   "GET /graphs/graph_clerks_prevail @graph_clerks_prevail": {
@@ -3975,8 +4747,8 @@
      "id": "graph_clerks_prevail",
      "name": "The Engine Age — Clerks Prevail",
      "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
-     "createdAt": "2026-11-10T17:46:56.744Z",
-     "updatedAt": "2026-11-10T17:46:57.451Z",
+     "createdAt": "2026-11-12T22:32:50.974Z",
+     "updatedAt": "2026-11-12T22:32:51.510Z",
      "version": 4,
      "parentGraphId": "graph_engine_age",
      "branchPoint": 46,
@@ -4008,7 +4780,15 @@
       ]
      }
     },
-    "requestId": "req_23"
+    "requestId": "req_30"
+   }
+  },
+  "GET /graphs/graph_clerks_prevail/branches @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [],
+    "requestId": "req_31"
    }
   },
   "GET /graphs/graph_clerks_prevail/versions?limit=1 @graph_engine_age": {
@@ -4019,7 +4799,7 @@
      {
       "graphId": "graph_clerks_prevail",
       "version": 3,
-      "timestamp": "2026-11-10T17:46:57.430Z",
+      "timestamp": "2026-11-12T22:32:51.497Z",
       "parentVersion": 2,
       "operation": "create",
       "description": "Added link: “Parliament bans private calculating engines” → “Lovelace’s programmers emigrate to Berlin”",
@@ -4028,13 +4808,13 @@
         {
          "type": "relationship",
          "id": "local_25",
-         "hash": "5e0ae1e069f7e38d909df3a9047e2427b5ea3b504410873d4aea8c36882ed285"
+         "hash": "1c5f012de405d1446eeb1aebd6457cf7a2998bce5687bd5e8dc2c432261424b1"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "075e251945e4bf686bb1e11eb5bed7bbdc0a9a10e85fb8bfdb86fb6187429ae3"
+      "treeHash": "6db10f647bea78470a6154322237d90ce8629fb1de7b5afadba0a1da5f0b058a"
      }
     ],
     "pagination": {
@@ -4043,7 +4823,7 @@
      "offset": 0,
      "hasMore": true
     },
-    "requestId": "req_24"
+    "requestId": "req_32"
    }
   },
   "GET /graphs/graph_clerks_prevail/versions?limit=1 @graph_clerks_prevail": {
@@ -4054,7 +4834,7 @@
      {
       "graphId": "graph_clerks_prevail",
       "version": 3,
-      "timestamp": "2026-11-10T17:46:57.430Z",
+      "timestamp": "2026-11-12T22:32:51.497Z",
       "parentVersion": 2,
       "operation": "create",
       "description": "Added link: “Parliament bans private calculating engines” → “Lovelace’s programmers emigrate to Berlin”",
@@ -4063,13 +4843,13 @@
         {
          "type": "relationship",
          "id": "local_25",
-         "hash": "5e0ae1e069f7e38d909df3a9047e2427b5ea3b504410873d4aea8c36882ed285"
+         "hash": "1c5f012de405d1446eeb1aebd6457cf7a2998bce5687bd5e8dc2c432261424b1"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "075e251945e4bf686bb1e11eb5bed7bbdc0a9a10e85fb8bfdb86fb6187429ae3"
+      "treeHash": "6db10f647bea78470a6154322237d90ce8629fb1de7b5afadba0a1da5f0b058a"
      }
     ],
     "pagination": {
@@ -4078,7 +4858,7 @@
      "offset": 0,
      "hasMore": true
     },
-    "requestId": "req_25"
+    "requestId": "req_33"
    }
   },
   "GET /graphs/graph_clerks_prevail/versions?limit=100 @graph_clerks_prevail": {
@@ -4089,7 +4869,7 @@
      {
       "graphId": "graph_clerks_prevail",
       "version": 3,
-      "timestamp": "2026-11-10T17:46:57.430Z",
+      "timestamp": "2026-11-12T22:32:51.497Z",
       "parentVersion": 2,
       "operation": "create",
       "description": "Added link: “Parliament bans private calculating engines” → “Lovelace’s programmers emigrate to Berlin”",
@@ -4098,18 +4878,18 @@
         {
          "type": "relationship",
          "id": "local_25",
-         "hash": "5e0ae1e069f7e38d909df3a9047e2427b5ea3b504410873d4aea8c36882ed285"
+         "hash": "1c5f012de405d1446eeb1aebd6457cf7a2998bce5687bd5e8dc2c432261424b1"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "075e251945e4bf686bb1e11eb5bed7bbdc0a9a10e85fb8bfdb86fb6187429ae3"
+      "treeHash": "6db10f647bea78470a6154322237d90ce8629fb1de7b5afadba0a1da5f0b058a"
      },
      {
       "graphId": "graph_clerks_prevail",
       "version": 2,
-      "timestamp": "2026-11-10T17:46:57.241Z",
+      "timestamp": "2026-11-12T22:32:51.340Z",
       "parentVersion": 1,
       "operation": "create",
       "description": "Added event “Lovelace’s programmers emigrate to Berlin”",
@@ -4118,18 +4898,18 @@
         {
          "type": "event",
          "id": "event_2",
-         "hash": "61b0c19d1af6c610eab48520ad9ca911958d0b71313a778ab27da97c68edcc07"
+         "hash": "12605d072daf55e4c70ee7d694949ff7c03b287c6d037a228a1451e920ef4e84"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "9fdd13c09d075eb92df86bbaa31e1ba03dbb9dffc4f8ab8aa169017549e82d6a"
+      "treeHash": "dc79c9bb10e5f2044a752e9d1c125140a9c536c4af0bf24213bcc0c2a241b3c2"
      },
      {
       "graphId": "graph_clerks_prevail",
       "version": 1,
-      "timestamp": "2026-11-10T17:46:57.058Z",
+      "timestamp": "2026-11-12T22:32:51.183Z",
       "parentVersion": 0,
       "operation": "create",
       "description": "Added event “Parliament bans private calculating engines”",
@@ -4138,18 +4918,18 @@
         {
          "type": "event",
          "id": "event_1",
-         "hash": "8849d7c2ddaa55107915da5cdffe151ec1fde6edea2ea423653b3d1000879ed8"
+         "hash": "7e188139232ed9c02a7d22027002d96eb69481ece701bfb2337878ae408ca775"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "2d4ac71921c1f630a959fab66e300e24cdb219c2b27ff31f3220288832a0dd7e"
+      "treeHash": "3d83575a98cd34a90fbf4e1fe6a1ad97390a9749cd65ab1959d13bffbdbb3d1b"
      },
      {
       "graphId": "graph_clerks_prevail",
       "version": 0,
-      "timestamp": "2026-11-10T17:46:56.826Z",
+      "timestamp": "2026-11-12T22:32:50.998Z",
       "parentVersion": null,
       "operation": "branch",
       "description": "Branched from The Engine Age",
@@ -4158,243 +4938,243 @@
         {
          "type": "event",
          "id": "event_design",
-         "hash": "394a175eee53324d7b7633d66d4a7a9b4bc595b430f766d7a79c989c7fc5ab0a"
+         "hash": "1cca536e2df93f3d3992414d1216957179ba9e7a92449575627bbdb5f0784705"
         },
         {
          "type": "event",
          "id": "event_peel",
-         "hash": "8abf34748671bb70a195493647339179ddccc181e79bc9b5148f130558cfab14"
+         "hash": "411eb23ec8cf2dba48a3dd7454dfb1e49502d367d48a927c4765f50c15b5a4ad"
         },
         {
          "type": "event",
          "id": "event_clement",
-         "hash": "a57a38554372285f7ddf4862cb6706d07b62067e292f12414584a027144105f7"
+         "hash": "b8bb342967af555b2279c08a6025ad3be8e1196927527c4d464c160715c01528"
         },
         {
          "type": "event",
          "id": "event_noteg",
-         "hash": "16c8cf2642c58003659fbd32d8fec876b642aaacc1de22d5662240679ac2463c"
+         "hash": "93490ddfccafdb496c12716d25991f3cf27bd9f3db4686ad274061a39fdbc839"
         },
         {
          "type": "event",
          "id": "event_firstrun",
-         "hash": "650ce52fe3ff47f3e0a171784d01fb52e72602baceeea2918c6b112ae5e99d6d"
+         "hash": "4a4d9eface73a957e689a34fa4a36f499df328e3482eb7c8f2ae8568864257c5"
         },
         {
          "type": "event",
          "id": "event_admiralty",
-         "hash": "6f7c1953173d5021deb12a4226cdeba735f5c93382fa385c7779383adddf4344"
+         "hash": "c1abb7cf5b515da7be49e001343513c3ff53ff0e5c46d598e58423405a89d7e8"
         },
         {
          "type": "event",
          "id": "event_lloyds",
-         "hash": "150d6f86a0d2d585eb87ab54305d8a3773181a88d4bd2c7c8c53ca2f0c7adce4"
+         "hash": "d7a2e0cae953912d1a5fe3a12ed0192731fbd5b9128cf337f8f5f3a483d66ecc"
         },
         {
          "type": "event",
          "id": "event_bank",
-         "hash": "cfbf21c0a9d0d44e667b92ee4cc2015608cd5720e9ff0a2035b5a53f59285a5e"
+         "hash": "e77ad69aca4a836bf2b93274753119bff4427e14605dcb5cda9b360eb9d97f00"
         },
         {
          "type": "event",
          "id": "event_school",
-         "hash": "17fa99fb6e941d0807868981e2c770f892fa0a7dc30cc31bf962eb3a81c21990"
+         "hash": "94a0fe5aff9739b5b281013216b9d9ac6a48d2ff749b8cea59e4ba2b1a3fa4fa"
         },
         {
          "type": "event",
          "id": "event_census",
-         "hash": "5bea677972569849a2bdfe796f534962e6df294bd8e3d46d2a2c071b6eac574c"
+         "hash": "5f99d97afaa6a2245d74969f238f4a7a34afe45bc976d273f42fc98040be8cd2"
         },
         {
          "type": "event",
          "id": "event_exhibition",
-         "hash": "44efec7eb2732b0f3144217d31b36ea00cd6b9032c92df10fa506a3de808a83b"
+         "hash": "6fd0cd522772b126f014092740453e7f789a2e0c0f2a41e3e362b0ec6f1bc4a2"
         },
         {
          "type": "event",
          "id": "event_wire",
-         "hash": "db471de20ba8dc9bc8dc741328078f1bc8cf36cffebe599313baf67217074f4e"
+         "hash": "d979c50dcc62909336e55aeb166127b76dc307043b51a64f62887b360ba1d847"
         },
         {
          "type": "event",
          "id": "event_prussia",
-         "hash": "912c7dedd45760a7913cd5f4c41b0b6dd6e8e8722dc7ca53add41d326679c892"
+         "hash": "345ab27952fede93c65351f50d2a1b0ada80a9dad67bc6ed9fca715f29cc8cb8"
         },
         {
          "type": "event",
          "id": "event_clerks",
-         "hash": "6a9885a16c12ef664d50f68033c4fec7696b248c9133516dd9518a5dfac92229"
+         "hash": "c13093d8b8c11e66058d9eb72d8e2ca6d2fb3cde5a7d78009e56802277a778dc"
         },
         {
          "type": "event",
          "id": "event_manchester",
-         "hash": "a0eac33b94084c76e90c12316ad7f35856adc068fea2ddce5a61e42fc64154d8"
+         "hash": "e5daec650fbd651f1f42b430438f95cd4c00e70f3d81907ab7d2fbde185248e4"
         },
         {
          "type": "event",
          "id": "event_debate",
-         "hash": "c5b0250d363eb07d4cd06d25bed2e0d35f98641a8a6313e159c3c3728d0f5e9e"
+         "hash": "9f2c6ee96b36238595b55e8d4384ed98190b0c4c09381f3866b6e8541457ad6a"
         },
         {
          "type": "event",
          "id": "event_act",
-         "hash": "c4bbf6661b745ffbceaa8d2fab06d3a6ba3f383468273ac6b1fd91fe50200a7b"
+         "hash": "3b91eedfebfb129b47e3598cb65b2964ffe3fabc4100feeafe91114b6bd23811"
         },
         {
          "type": "event",
          "id": "event_moltke",
-         "hash": "bc2873c41a1e5bc74a6aa4ffa3e4bc44069d1320389371fac3eb7d8074a71c3b"
+         "hash": "7f7f144c663cf58f1f2bd779b23a8f86c7007243b939b6bc51ec00ac8e555388"
         },
         {
          "type": "event",
          "id": "event_race",
-         "hash": "2831d26f7be689b695d31871f6c7a0342ed58a48541fe323a2629bd3b6a19547"
+         "hash": "7362f3a137db0ce92285ea541d96a930295f62ec68e0ed7057f2e36c2d761e43"
         },
         {
          "type": "arc",
          "id": "arc_build",
-         "hash": "ac3fc5168fd6b2fbe76279fbecbca667c770e12cb1b529bdb7f73f5fda0f266c"
+         "hash": "3d88f848d91405fc3c9d504238a8257cc1f7d96abf6502bf64fb1bf853ca38a5"
         },
         {
          "type": "arc",
          "id": "arc_offices",
-         "hash": "a8d803c620f3c3814730526c2f5fbb9a39ea2f4af8347d8233f1544db670e346"
+         "hash": "7297a1dfa3189131c8be89cb1ae108aed4a9825947b301d86a0b42dde3acec6c"
         },
         {
          "type": "arc",
          "id": "arc_reaction",
-         "hash": "eb2755256a4eee6398be19c8934e289d38df75b36727c1cd3b7158168fa0624b"
+         "hash": "b28fd30d7a4b0dde83be71e21077245c3fd4d146b67fd1a15872f94a1edf95f0"
         },
         {
          "type": "arc",
          "id": "arc_telegraph",
-         "hash": "70c287fc63cd80a8f7b7259267a974e5d9de863ae72ce19537bedab94251ef8b"
+         "hash": "b68eb7f38c52c3bb04de9153076d057c7d44847ac6c336b1dd7fe603d6a46625"
         },
         {
          "type": "relationship",
          "id": "local_1",
-         "hash": "09e22f45956bde17c4dec23f065ca16c1c1085547ff9d104c67c083815298eeb"
+         "hash": "3bf3be8b0970afd37cb272cc88b20f916e3a4d9bbd402f9e16c7852e54bb327c"
         },
         {
          "type": "relationship",
          "id": "local_2",
-         "hash": "f5b2c84996d6ff56aac2fc7891164113f376c7e520b29733f934be6344dc85a5"
+         "hash": "743c1900c5e6ff5fbc5dd434b9012116cf1c43345e10e1ccc7700f2235ebb1dd"
         },
         {
          "type": "relationship",
          "id": "local_3",
-         "hash": "173e2196003a6620019b7a5d74dd4e9ab773a1c4c63419e52142d158d0b854d5"
+         "hash": "a090472aeef13dba0cec08985ca8fedb9c1734893eeb05775bc06c1ed1a03902"
         },
         {
          "type": "relationship",
          "id": "local_4",
-         "hash": "0ad8720f427d3291b50dbde428b0ca90058aa5d276e3e72ba72f2e241ebc27ba"
+         "hash": "26cf01c776daffe76d0c29639787706533777cb2af6976ec736c66530ce3ced9"
         },
         {
          "type": "relationship",
          "id": "local_5",
-         "hash": "f8aa0d72a8ae9fd68f05f750f91e390fa96fd38c442a905550aa7fe4bb4b8875"
+         "hash": "84b5f96a18040dface43bdc00616dc10a74bb45b000f71a70b8c72f74b67b6d3"
         },
         {
          "type": "relationship",
          "id": "local_6",
-         "hash": "253da3d1acacd1915ceaf39b47672b3455b92b1197020bfa8a1eba15bc7b4c1e"
+         "hash": "86d774eb84d263d60637aa48fd52d6054490fd71bba61df5bd2bcd86919e7f8e"
         },
         {
          "type": "relationship",
          "id": "local_7",
-         "hash": "ee72e730d12a9cc86e79a54e571c9793fc38199396c7f5eb2631849bc5a88da1"
+         "hash": "b734f8d98ba0f4fca594bd76a6e53e20251ff39ebf589c2aeb456965493103af"
         },
         {
          "type": "relationship",
          "id": "local_8",
-         "hash": "2932b0ddb79bf8d33ce23ee07383b4f6659143ed8dbf8832756187a1098e7fe5"
+         "hash": "aff02d5279283cb7747bcf9a32b13dc4ddb95f589ecd9300bfd65031dba69ba4"
         },
         {
          "type": "relationship",
          "id": "local_9",
-         "hash": "e1a3a9de7932eb84458ced851e6cc43a3b89c4d9da3581fe0f3a8b1e7e61ad94"
+         "hash": "4623a959b8e278e20f65f890cbdaa1fbf9f4147b022fab41d58b222c96894fe5"
         },
         {
          "type": "relationship",
          "id": "local_10",
-         "hash": "ebd5771615f93f0cfcbcc4237112d6c36e48858b4ac69d77014e777268d31531"
+         "hash": "6df46a54e61f1aae97562e9f109a9c864299a986dcfe461dd77eef505e15eb21"
         },
         {
          "type": "relationship",
          "id": "local_11",
-         "hash": "c7015342bdbc62925a491f5438df669dc4bff62ddbcd2c341674f3992e844d2c"
+         "hash": "d3be4e50e2e9b4f1f123d4e15df8f94d682fdc9acc7eb31c77c82321b95e7f5c"
         },
         {
          "type": "relationship",
          "id": "local_12",
-         "hash": "94dcc954e4bf88214ea4dbae7d9ea5661282bea66dcb60d14fbd778c3fabf6b4"
+         "hash": "927b702a2d4a55bb840e85dbfb34ea9ee0972c5df03ecdf0dc78762b4077227e"
         },
         {
          "type": "relationship",
          "id": "local_13",
-         "hash": "b262329d1409e6f8fa6061ec75def47c6139b88dba3901c138c18704a3574c82"
+         "hash": "950e3427a1756ef9e3b3f8e5bc0783ae595eff9541114d928ceee36398c06bdc"
         },
         {
          "type": "relationship",
          "id": "local_14",
-         "hash": "c1ef3e9db90c7620edeb2b77fc0ea06565e070e3e313cd4138beac9221254752"
+         "hash": "5447313b6c161c97f6dc405c8a3b508ed66ad4315df06f08860ccf8555ef0ddb"
         },
         {
          "type": "relationship",
          "id": "local_15",
-         "hash": "1e10db05eca9d7874588f4c786ab8bd81e1da246933c82ba73c1a297c589e3e6"
+         "hash": "05bbfec66464ef9752e04222ef5badc6464639a0d83c79ef54423481a1c97d81"
         },
         {
          "type": "relationship",
          "id": "local_16",
-         "hash": "e4bfb13c6953cdb4716e1786e539efa722dd0384cfc5690cc9a43c1d3e50bf5b"
+         "hash": "e701b80140d83c3c4e5f9bd058c7ca75cf2af0561edffe01f6711be6017dee14"
         },
         {
          "type": "relationship",
          "id": "local_17",
-         "hash": "25820d5806f26df8380923a4bb7b6adf688249b50e7c2ddc6f3483d8db9b7d5d"
+         "hash": "6bc6e7731e4eb209a03b412061c9c37bd6e7be5afa0796b1ac967548057d90dd"
         },
         {
          "type": "relationship",
          "id": "local_18",
-         "hash": "f01003f3f60c0050903a703fd9bb2ee9dc5572723e7dca577ee36fe9078a672b"
+         "hash": "24616dd549e52d8d5cb6c3b64a8674120f444dc38fb67b2e1a9dcd99314f658b"
         },
         {
          "type": "relationship",
          "id": "local_19",
-         "hash": "5f253a2410779cfe5043339527513726cc14f225b00b58202c112e0279161d97"
+         "hash": "9116997e50970c722f59fa2bb099ceb02d254200fd171754b3d12a5d559184fb"
         },
         {
          "type": "relationship",
          "id": "local_20",
-         "hash": "047916053ed7f210b1d58573cb96f17878a337fcd0f36d6455f5487ff80112d0"
+         "hash": "2e154e9362e98904fce02cf071f69947c339e6c2396fb6ae432d6dfd457a8b21"
         },
         {
          "type": "relationship",
          "id": "local_21",
-         "hash": "ed79ab335f7682885f7b7b6f90cb0d20cd0ad6aee39d22345b2173ddf93640e2"
+         "hash": "99f8cdcb33b5f678235910c5aa963494464b6f153eef87d20da0adc4c51c99e1"
         },
         {
          "type": "relationship",
          "id": "local_22",
-         "hash": "a83a8729c0fa73622492c601d577c271c16c28335022ee4d854ebff9aa53eeb1"
+         "hash": "a086bf281bfd13f1f6fad041eaebb16f2b7a0399d71ffe8c3a54ef209946bdbe"
         },
         {
          "type": "relationship",
          "id": "local_23",
-         "hash": "a847bfca370627902dc0c74d67de8b4d885891c395e551baa94520be0e7381d0"
+         "hash": "553ef0f9fc3225619b5ad336c48689b85c3b497e360b15b9329dc9e64a2b0734"
         },
         {
          "type": "relationship",
          "id": "local_24",
-         "hash": "7d3db3b08893d857aeb9a9979f8dcb5595c952bef111bab40afe6a663d3cc0eb"
+         "hash": "9545aad46213cca65857dc0d5ac6f3cc08dc9e8a31a1673e63057fa82fb46c62"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "856c80a828634f9c3089350b0c29e3ca96b1f054a50ef9d073972207a8097eb2"
+      "treeHash": "2b6b3ec2cbfeaa4436a7afa30190fbe668be1e84aec93fa949cfeff3980980ce"
      }
     ],
     "pagination": {
@@ -4403,7 +5183,699 @@
      "offset": 0,
      "hasMore": false
     },
-    "requestId": "req_26"
+    "requestId": "req_34"
+   }
+  },
+  "GET /graphs/graph_vael @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": {
+     "id": "graph_vael",
+     "name": "Vael",
+     "description": "A drowned archipelago where salt is money and the tide-priests keep the count of years.",
+     "createdAt": "2026-11-12T22:32:51.655Z",
+     "updatedAt": "2026-11-12T22:32:54.816Z",
+     "version": 21,
+     "status": "active",
+     "metadata": {
+      "eventCount": 9,
+      "arcCount": 3,
+      "relationshipCount": 9,
+      "pressureCount": 0,
+      "temporalRange": {
+       "start": "1970-03-20T18:00:00.000Z",
+       "end": "2185-02-27T00:00:00.000Z"
+      },
+      "actors": [
+       "Salt-kings",
+       "Tide-priests",
+       "Glassmakers of Ambry"
+      ]
+     },
+     "calendar": {
+      "version": 2,
+      "dayLength": 108000,
+      "primary": "reckoning",
+      "calendars": [
+       {
+        "id": "reckoning",
+        "name": "the Reckoning of the Rising",
+        "parts": [
+         {
+          "name": "Lowtide",
+          "days": 30
+         },
+         {
+          "name": "Greywater",
+          "days": 30
+         },
+         {
+          "name": "Thaw",
+          "days": 30
+         },
+         {
+          "name": "Seedtide",
+          "days": 30
+         },
+         {
+          "name": "Brightwater",
+          "days": 30
+         },
+         {
+          "name": "Highsun",
+          "days": 30
+         },
+         {
+          "name": "Midyear's Day",
+          "days": 1,
+          "intercalary": true
+         },
+         {
+          "name": "Saltreap",
+          "days": 30
+         },
+         {
+          "name": "Panfire",
+          "days": 30
+         },
+         {
+          "name": "Gale",
+          "days": 30
+         },
+         {
+          "name": "Ebb",
+          "days": 30
+         },
+         {
+          "name": "Wrack",
+          "days": 30
+         },
+         {
+          "name": "Longnight",
+          "days": 30
+         },
+         {
+          "name": "The Drowned Days",
+          "days": 4,
+          "intercalary": true
+         }
+        ],
+        "leapRules": [
+         {
+          "every": 6,
+          "part": 13,
+          "days": 1
+         }
+        ],
+        "epoch": 0,
+        "eras": [
+         {
+          "label": "AR",
+          "from": 1
+         }
+        ],
+        "week": {
+         "days": [
+          "Firstfast",
+          "Netday",
+          "Saltday",
+          "Moonsday",
+          "Restday"
+         ],
+         "skipsIntercalary": true
+        },
+        "time": {
+         "hoursPerDay": 20,
+         "minutesPerHour": 100,
+         "secondsPerMinute": 100
+        }
+       },
+       {
+        "id": "tide",
+        "name": "the Tide-count",
+        "parts": [
+         {
+          "name": "Ebbing",
+          "days": 183
+         },
+         {
+          "name": "Flooding",
+          "days": 183
+         }
+        ],
+        "epoch": -100,
+        "eras": [
+         {
+          "label": "TC",
+          "from": 1
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "requestId": "req_35"
+   }
+  },
+  "GET /graphs/graph_vael/versions?limit=1 @graph_engine_age": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_vael",
+      "version": 20,
+      "timestamp": "2026-11-12T22:32:54.811Z",
+      "parentVersion": 19,
+      "operation": "create",
+      "description": "Added link: “The last salt-king drowns at the Siege of Hollow Isle” → “The Glass Republic is proclaimed in Ambry”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_34",
+         "hash": "aaffad15142335f2defd710e9b85b99f47b67e24290cde51b92c1c1a300ff5f4"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "fb5125bc04b12529f3b4065cd279e250d24857e21f930eef3da30c9a7fdb2afb"
+     }
+    ],
+    "pagination": {
+     "total": 21,
+     "limit": 1,
+     "offset": 0,
+     "hasMore": true
+    },
+    "requestId": "req_36"
+   }
+  },
+  "GET /graphs/graph_vael/versions?limit=1 @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_vael",
+      "version": 20,
+      "timestamp": "2026-11-12T22:32:54.811Z",
+      "parentVersion": 19,
+      "operation": "create",
+      "description": "Added link: “The last salt-king drowns at the Siege of Hollow Isle” → “The Glass Republic is proclaimed in Ambry”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_34",
+         "hash": "aaffad15142335f2defd710e9b85b99f47b67e24290cde51b92c1c1a300ff5f4"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "fb5125bc04b12529f3b4065cd279e250d24857e21f930eef3da30c9a7fdb2afb"
+     }
+    ],
+    "pagination": {
+     "total": 21,
+     "limit": 1,
+     "offset": 0,
+     "hasMore": true
+    },
+    "requestId": "req_37"
+   }
+  },
+  "GET /graphs/graph_vael/versions?limit=1 @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_vael",
+      "version": 20,
+      "timestamp": "2026-11-12T22:32:54.811Z",
+      "parentVersion": 19,
+      "operation": "create",
+      "description": "Added link: “The last salt-king drowns at the Siege of Hollow Isle” → “The Glass Republic is proclaimed in Ambry”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_34",
+         "hash": "aaffad15142335f2defd710e9b85b99f47b67e24290cde51b92c1c1a300ff5f4"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "fb5125bc04b12529f3b4065cd279e250d24857e21f930eef3da30c9a7fdb2afb"
+     }
+    ],
+    "pagination": {
+     "total": 21,
+     "limit": 1,
+     "offset": 0,
+     "hasMore": true
+    },
+    "requestId": "req_38"
+   }
+  },
+  "GET /graphs/graph_vael/versions?limit=100 @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_vael",
+      "version": 20,
+      "timestamp": "2026-11-12T22:32:54.811Z",
+      "parentVersion": 19,
+      "operation": "create",
+      "description": "Added link: “The last salt-king drowns at the Siege of Hollow Isle” → “The Glass Republic is proclaimed in Ambry”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_34",
+         "hash": "aaffad15142335f2defd710e9b85b99f47b67e24290cde51b92c1c1a300ff5f4"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "fb5125bc04b12529f3b4065cd279e250d24857e21f930eef3da30c9a7fdb2afb"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 19,
+      "timestamp": "2026-11-12T22:32:54.658Z",
+      "parentVersion": 18,
+      "operation": "create",
+      "description": "Added link: “The glassmakers of Ambry side with the priests” → “The last salt-king drowns at the Siege of Hollow Isle”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_33",
+         "hash": "9292c6b2142e355d72a1debc7ad5e253d22e686f7d58a79cc4cb1a26b42d1e12"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "91ec6d70142957647a3862f949fb0cbb4b78a4e469efada0d05423fcb4446344"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 18,
+      "timestamp": "2026-11-12T22:32:54.508Z",
+      "parentVersion": 17,
+      "operation": "create",
+      "description": "Added link: “The priests close the harbours; the Tide War begins” → “The glassmakers of Ambry side with the priests”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_32",
+         "hash": "e689aade8328019eafd34c27f46293a60e1c479046c2bc3653adf55fdc36d55d"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "6bd0ddb2e625e0c6b43a87aa07134dde46a10f4488b7a4b332cbd5f501d9b206"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 17,
+      "timestamp": "2026-11-12T22:32:54.358Z",
+      "parentVersion": 16,
+      "operation": "create",
+      "description": "Added link: “A salt ban forbids Ambry's glassmakers to trade without the king's salt” → “The glassmakers of Ambry side with the priests”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_31",
+         "hash": "fb73dd5fd8f5f2c3fde4558c6c1e81af86b8a052a5584c4e835cbc8c81fc59aa"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "7e9947a001bb2274d6652c4a98112283031331ced70bb083efdb47a169d9b783"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 16,
+      "timestamp": "2026-11-12T22:32:54.205Z",
+      "parentVersion": 15,
+      "operation": "create",
+      "description": "Added link: “The salt-kings tax the tide-priests' shrines” → “The priests close the harbours; the Tide War begins”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_30",
+         "hash": "50c119dad803116a1c591bd944b35007caaf5a864c7d3f9eff4cf92f0d70fb7b"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "66dd1b4d5e49f42843957fb4757e64dceac9d6e30f69be3a72851f9f2bcaa5e0"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 15,
+      "timestamp": "2026-11-12T22:32:54.055Z",
+      "parentVersion": 14,
+      "operation": "create",
+      "description": "Added link: “The tide-priests begin the Reckoning, counting years from the Rising” → “The priests close the harbours; the Tide War begins”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_29",
+         "hash": "520bbe6bfa144db93d14697ee80821764ea62790374fffaa424aceed81ee6967"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "cff452c798bf378562a9e45dcf373e6e18f612b9d09df12a2f86d8ee7d804a93"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 14,
+      "timestamp": "2026-11-12T22:32:53.904Z",
+      "parentVersion": 13,
+      "operation": "create",
+      "description": "Added link: “The tide-priests begin the Reckoning, counting years from the Rising” → “The salt-kings tax the tide-priests' shrines”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_28",
+         "hash": "7c1e860da298a4caf8b97477b26d9feb0a5ee0da1e99750c95898a6272b04038"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "3f14ebfc74997e51d3e8260ee4bd35bf71327be44d0666bc5067a63ac8909542"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 13,
+      "timestamp": "2026-11-12T22:32:53.754Z",
+      "parentVersion": 12,
+      "operation": "create",
+      "description": "Added link: “The salt-kings fix the weight of the salt coin” → “The salt-kings tax the tide-priests' shrines”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_27",
+         "hash": "e48583e19d7c1947cf9cfb92fe7262750cf2fbbfd8989e2ec9651d08ee81d225"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "6738d9bd7e605f195b76af825bcb1aa225ec4be77f67f56bb862d7f23223240e"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 12,
+      "timestamp": "2026-11-12T22:32:53.603Z",
+      "parentVersion": 11,
+      "operation": "create",
+      "description": "Added link: “The waters rise; the survivors crown the first salt-king on Hollow Isle” → “The salt-kings fix the weight of the salt coin”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_26",
+         "hash": "059b76d48f8053a1336dbfa3b66b525d9d018ab19a9e2f92d4bc92c0b565ca9a"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "865439f59e3b4648cce3fae744b834f8a49a5c51bad27721b62a7de3824dab93"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 11,
+      "timestamp": "2026-11-12T22:32:53.453Z",
+      "parentVersion": 10,
+      "operation": "create",
+      "description": "Added event “The Glass Republic is proclaimed in Ambry”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_vael_republic",
+         "hash": "9a88dd007ec72424649205ad1cbd178978a6edf5e7579dde669c5266c210debe"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "b122fc7dc35e4e38ec41da19b39693344a5cfaeef4caf75b8860c894b3301bf8"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 10,
+      "timestamp": "2026-11-12T22:32:53.304Z",
+      "parentVersion": 9,
+      "operation": "create",
+      "description": "Added event “The last salt-king drowns at the Siege of Hollow Isle”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_vael_siege",
+         "hash": "6943ddfd3da1105a65fde534bf32981b13b07eac8ac0af81ec8ee8b69e353b4f"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "46544139c6d6805e7490f48f7a1c55e6b3e4178183e388a27aeb22a62b0e0727"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 9,
+      "timestamp": "2026-11-12T22:32:53.152Z",
+      "parentVersion": 8,
+      "operation": "create",
+      "description": "Added event “The glassmakers of Ambry side with the priests”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_vael_ambry",
+         "hash": "6ee9d6510c0645232fe5296ba1a8fc135a43dc964c6d3c1d6f263ab7443ae220"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "ff06960367054df3bebfef533521ad7fc65c347b372f7ed3f8131de8a4aca16b"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 8,
+      "timestamp": "2026-11-12T22:32:53.005Z",
+      "parentVersion": 7,
+      "operation": "create",
+      "description": "Added event “The priests close the harbours; the Tide War begins”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_vael_harbours",
+         "hash": "171497e128b4d9fcdf4f41a280e7a8a35a993d322ee2bc807065adac67b66026"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "5923ab1df4191f5f1ac6d0c31f87c86b74ec8cc399790da1155aff4066373825"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 7,
+      "timestamp": "2026-11-12T22:32:52.854Z",
+      "parentVersion": 6,
+      "operation": "create",
+      "description": "Added event “The salt-kings tax the tide-priests' shrines”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_vael_shrinetax",
+         "hash": "2ae4256f17dee7fdcfd9215d28fc555cdb4ec14d930a853b11fa65b236073167"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "cb7633051e8f9ee775bfc20f5626f23ae1a92e51e129a5bb30d8e99e2b38940f"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 6,
+      "timestamp": "2026-11-12T22:32:52.705Z",
+      "parentVersion": 5,
+      "operation": "create",
+      "description": "Added event “A salt ban forbids Ambry's glassmakers to trade without the king's salt”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_vael_saltban",
+         "hash": "372b7f555b566ee54599e34af54956116a63674ff972734175025cd593b51e92"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "bdd7132a26dad68756ede9999059951ad4075ffd67dc08c02081a8c8e9b8bf24"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 5,
+      "timestamp": "2026-11-12T22:32:52.556Z",
+      "parentVersion": 4,
+      "operation": "create",
+      "description": "Added event “The tide-priests begin the Reckoning, counting years from the Rising”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_vael_reckoning",
+         "hash": "3c8af3b7e8ab51e0d6d265ed978c52321dd25f173b0f9598da0611b0812a8f89"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "e7d6496f6fedb51a1c277d853c3c5e2035d04c80ba9a171249b44f98aee2bb0e"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 4,
+      "timestamp": "2026-11-12T22:32:52.408Z",
+      "parentVersion": 3,
+      "operation": "create",
+      "description": "Added event “The salt-kings fix the weight of the salt coin”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_vael_coin",
+         "hash": "805df5545a3f81fee3eced70a951c88eaac83c60d092fce4ba71eeec959bafe9"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "bb5135b812b0bbf009335e731db0a6d030028aa631a36e5955794025a5ecf7b4"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 3,
+      "timestamp": "2026-11-12T22:32:52.261Z",
+      "parentVersion": 2,
+      "operation": "create",
+      "description": "Added event “The waters rise; the survivors crown the first salt-king on Hollow Isle”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_vael_rising",
+         "hash": "27b4b51ebdbdb2b7660cd9ae648c1b52e06329eba9bc16c57bfc0fa917c188c9"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "08328ea7345145fa5b9250dd6f29831d60abbee5dd83a14193bc7ef877d7bba8"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 2,
+      "timestamp": "2026-11-12T22:32:52.113Z",
+      "parentVersion": 1,
+      "operation": "create",
+      "description": "Added arc “The Glass Republic”",
+      "changes": {
+       "added": [
+        {
+         "type": "arc",
+         "id": "arc_vael_glass",
+         "hash": "a2af565b2ef76f676db79461f8b7cd8396679c81659a58991d273b020086e4bc"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "4b6491a4e87c9a0f913ae1342f5c0c9eb64d261590d72331fa5aa6d02a42d7f2"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 1,
+      "timestamp": "2026-11-12T22:32:51.961Z",
+      "parentVersion": 0,
+      "operation": "create",
+      "description": "Added arc “The Tide War”",
+      "changes": {
+       "added": [
+        {
+         "type": "arc",
+         "id": "arc_vael_tidewar",
+         "hash": "ee4acbc8c0553c7023580a8e115597c9f6cef909cb2bbc1cf8398d2cc47c2078"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "367550aac40d68b896978184a1493c5808956bd323000c2edb63f93aa8c6562c"
+     },
+     {
+      "graphId": "graph_vael",
+      "version": 0,
+      "timestamp": "2026-11-12T22:32:51.809Z",
+      "parentVersion": null,
+      "operation": "create",
+      "description": "Added arc “The Age of Salt”",
+      "changes": {
+       "added": [
+        {
+         "type": "arc",
+         "id": "arc_vael_salt",
+         "hash": "6d5c250b1b2d3d84a5c5c8109868129eb2fe4323191c0099729ac25c3f97290c"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "c415384078bade7bef6c1d8c68bddaf3c5de27aca626b91bde75d5364ba69d8f"
+     }
+    ],
+    "pagination": {
+     "total": 21,
+     "limit": 100,
+     "offset": 0,
+     "hasMore": false
+    },
+    "requestId": "req_39"
    }
   },
   "GET /inference/pressures?limit=500 @graph_engine_age": {
@@ -4476,7 +5948,7 @@
      "minStrength": 0.1,
      "minConfidence": 0.3
     },
-    "requestId": "req_27"
+    "requestId": "req_40"
    }
   },
   "GET /inference/pressures?limit=500 @graph_clerks_prevail": {
@@ -4549,7 +6021,25 @@
      "minStrength": 0.1,
      "minConfidence": 0.3
     },
-    "requestId": "req_28"
+    "requestId": "req_41"
+   }
+  },
+  "GET /inference/pressures?limit=500 @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [],
+    "pagination": {
+     "limit": 500,
+     "offset": 0,
+     "total": 0,
+     "hasMore": false
+    },
+    "filters": {
+     "minStrength": 0.1,
+     "minConfidence": 0.3
+    },
+    "requestId": "req_42"
    }
   }
  }

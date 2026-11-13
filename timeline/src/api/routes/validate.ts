@@ -2,6 +2,7 @@
  * Validation API routes for checking data integrity
  */
 
+import { bodyInstant, queryInstant, requestCalendar, withReadDates } from '../worldDates';
 import { Router, Response, RequestHandler } from 'express';
 import {
   AuthenticatedRequest,
@@ -13,6 +14,7 @@ import {
   authorizeGraphAccess,
   authorizeAny,
   asyncHandler,
+  scopeToGraphWhenNamed,
 } from '../middleware';
 import { IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
@@ -144,6 +146,8 @@ validateRoutes.post(
   requireAuth as RequestHandler,
   authorizeAny('read:events', 'read:arcs', 'read:relationships') as RequestHandler,
   rateLimit() as RequestHandler,
+  // Its dates are read with the calendars of the graph an X-Graph-Id names.
+  ...scopeToGraphWhenNamed(),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const request = req.body as ValidationRequest;
@@ -164,8 +168,10 @@ validateRoutes.post(
         },
       };
 
-      const events = request.events || [];
-      const arcs = request.arcs || [];
+      // Dates read as every door reads them, with the graph's calendars.
+      const calendar = await requestCalendar(req);
+      const events = withReadDates(request.events, calendar, [['timestamp', 'start']]);
+      const arcs = withReadDates(request.arcs, calendar, [['start_time', 'start'], ['end_time', 'end']]);
       const relationships = request.relationships || [];
 
       // Build lookup maps
@@ -186,7 +192,7 @@ validateRoutes.post(
             continue;
           }
 
-          const timestamp = new Date(event.timestamp);
+          const timestamp = bodyInstant(event.timestamp, calendar);
           if (isNaN(timestamp.getTime())) {
             response.errors.temporal.push({
               type: 'temporal',
@@ -199,8 +205,8 @@ validateRoutes.post(
 
         // Validate arc time ranges
         for (const arc of arcs) {
-          const startTime = new Date(arc.start_time);
-          const endTime = new Date(arc.end_time);
+          const startTime = bodyInstant(arc.start_time, calendar);
+          const endTime = bodyInstant(arc.end_time, calendar, 'end');
 
           if (isNaN(startTime.getTime())) {
             response.errors.temporal.push({
@@ -234,8 +240,8 @@ validateRoutes.post(
           if (arc.parent_arc_id) {
             const parentArc = arcMap.get(arc.parent_arc_id);
             if (parentArc) {
-              const parentStart = new Date(parentArc.start_time);
-              const parentEnd = new Date(parentArc.end_time);
+              const parentStart = bodyInstant(parentArc.start_time, calendar);
+              const parentEnd = bodyInstant(parentArc.end_time, calendar, 'end');
 
               if (startTime < parentStart || endTime > parentEnd) {
                 response.errors.temporal.push({
@@ -274,8 +280,8 @@ validateRoutes.post(
 
           // Temporal causality check (the cause may not follow the effect)
           if (causeEvent && effectEvent) {
-            const causeTime = new Date(causeEvent.timestamp);
-            const effectTime = new Date(effectEvent.timestamp);
+            const causeTime = bodyInstant(causeEvent.timestamp, calendar);
+            const effectTime = bodyInstant(effectEvent.timestamp, calendar);
 
             if (isTemporalInversion(causeTime, effectTime)) {
               response.errors.causal.push({
@@ -415,7 +421,13 @@ validateRoutes.post(
         },
       };
 
-      const { additions } = request;
+      const calendar = await requestCalendar(req);
+      const additions = request.additions && {
+        ...request.additions,
+        // Dates read as every door reads them, with the graph's calendars.
+        ...(request.additions.events ? { events: withReadDates(request.additions.events, calendar, [['timestamp', 'start']]) } : {}),
+        ...(request.additions.arcs ? { arcs: withReadDates(request.additions.arcs, calendar, [['start_time', 'start'], ['end_time', 'end']]) } : {}),
+      };
       if (!additions) {
         return res.json(response);
       }
@@ -449,7 +461,7 @@ validateRoutes.post(
 
           // Check timestamp validity
           if (event.timestamp) {
-            const timestamp = new Date(event.timestamp);
+            const timestamp = bodyInstant(event.timestamp, calendar);
             if (isNaN(timestamp.getTime())) {
               response.conflicts.push({
                 type: 'invalid_data',
@@ -481,6 +493,28 @@ validateRoutes.post(
               });
               response.valid = false;
             }
+          }
+
+          // Its times, read as POST /api/arcs reads them (an end without a
+          // time is the last moment it names), and in order.
+          const start = bodyInstant(arc.start_time, calendar);
+          const end = bodyInstant(arc.end_time, calendar, 'end');
+          if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+            response.conflicts.push({
+              type: 'invalid_data',
+              entityType: 'arc',
+              entityId: arc.id || 'new',
+              message: `Invalid start_time or end_time: ${JSON.stringify(arc.start_time)} – ${JSON.stringify(arc.end_time)}`,
+            });
+            response.valid = false;
+          } else if (start >= end) {
+            response.conflicts.push({
+              type: 'invalid_data',
+              entityType: 'arc',
+              entityId: arc.id || 'new',
+              message: 'start_time must be before end_time',
+            });
+            response.valid = false;
           }
 
           // Check parent arc exists
@@ -624,7 +658,7 @@ function suggestArcs(events: IEvent[]): SuggestedArc[] {
 
   // Sort events by timestamp
   const sortedEvents = [...events].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    (a, b) => queryInstant(a.timestamp).getTime() - queryInstant(b.timestamp).getTime()
   );
 
   // Simple clustering by time proximity (events within 30 days)
@@ -632,8 +666,8 @@ function suggestArcs(events: IEvent[]): SuggestedArc[] {
   let currentCluster: IEvent[] = [sortedEvents[0]];
 
   for (let i = 1; i < sortedEvents.length; i++) {
-    const prevTime = new Date(sortedEvents[i - 1].timestamp).getTime();
-    const currTime = new Date(sortedEvents[i].timestamp).getTime();
+    const prevTime = queryInstant(sortedEvents[i - 1].timestamp).getTime();
+    const currTime = queryInstant(sortedEvents[i].timestamp).getTime();
     const daysDiff = (currTime - prevTime) / (1000 * 60 * 60 * 24);
 
     if (daysDiff <= 30) {
@@ -652,8 +686,8 @@ function suggestArcs(events: IEvent[]): SuggestedArc[] {
 
   // Create arc suggestions for clusters
   for (const cluster of clusters) {
-    const startTime = new Date(cluster[0].timestamp).toISOString();
-    const endTime = new Date(cluster[cluster.length - 1].timestamp).toISOString();
+    const startTime = queryInstant(cluster[0].timestamp).toISOString();
+    const endTime = queryInstant(cluster[cluster.length - 1].timestamp).toISOString();
 
     suggestions.push({
       name: `Event cluster (${cluster.length} events)`,
@@ -684,7 +718,7 @@ function suggestRelationships(
 
   // Sort events by timestamp
   const sortedEvents = [...events].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    (a, b) => queryInstant(a.timestamp).getTime() - queryInstant(b.timestamp).getTime()
   );
 
   // Suggest relationships between consecutive events by same actor

@@ -34,3 +34,15 @@ describe('datePhrase', () => {
     expect(datePhrase('1862-13')).toBeNull()
   })
 })
+
+describe('the out-of-span flag on text a reviewer typed', () => {
+  it('reads it as the importer does, never as new Date would guess', async () => {
+    const { VAEL, vael } = await import('@/test/fixtures/worldCalendars')
+    const span = { start: vael(300, 0, 1).getTime(), end: vael(320, 0, 1).getTime() }
+    expect(isOutsideSpan('Thaw 4, 312 AR', span, VAEL)).toBe(false)
+    expect(isOutsideSpan('Thaw 4, 900 AR', span, VAEL)).toBe(true)
+    // Prose, and a day the month does not have, name nothing to flag.
+    expect(isOutsideSpan('Year 312', span, VAEL)).toBe(false)
+    expect(isOutsideSpan('2019-02-31', { start: Date.parse('1800-01-01'), end: Date.parse('1850-01-01') }, null)).toBe(false)
+  })
+})

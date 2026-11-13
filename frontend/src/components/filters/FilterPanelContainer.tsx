@@ -12,6 +12,7 @@ import {
 import { useEvents, VIEW_EVENT_LIMIT } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
 import { useGlobalStore } from '@/stores/globalStore'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values))
@@ -38,17 +39,19 @@ export function FilterPanelContainer() {
   const { data: events = [] } = useEvents({ limit: VIEW_EVENT_LIMIT })
   const { data: arcs = [] } = useArcs()
 
+  // Bounds are written in the world calendar shown, and rewritten when it changes.
+  const calendar = useWorldCalendar()
   const panelFilters = useMemo(
-    () => toPanelFilters(activeFilters),
-    [activeFilters]
+    () => toPanelFilters(activeFilters, calendar),
+    [activeFilters, calendar]
   )
 
   const handleFiltersChange = useCallback((next: PanelFilterState) => {
-    const mapped = fromPanelFilters(next)
+    const mapped = fromPanelFilters(next, calendar)
     if (!filtersEqual(mapped, activeFilters)) {
       setFilters(mapped)
     }
-  }, [activeFilters, setFilters])
+  }, [activeFilters, setFilters, calendar])
 
   const availableActors = useMemo(
     () => unique(events.flatMap(event => [event.actor, event.target])).sort(),
@@ -145,9 +148,10 @@ export function ActiveFiltersBar({ className = '' }: { className?: string }) {
     clearFilters
   } = useGlobalStore()
 
+  const calendar = useWorldCalendar()
   const panelFilters = useMemo(
-    () => toPanelFilters(activeFilters),
-    [activeFilters]
+    () => toPanelFilters(activeFilters, calendar),
+    [activeFilters, calendar]
   )
 
   const handleRemoveFilter = useCallback((key: keyof PanelFilterState, value?: unknown) => {

@@ -4,10 +4,17 @@
  * Pasted-text source form for the ingestion wizard (Req 19.1). The `useLLM`
  * flag lets the user choose between the offline pattern extractor and the
  * configured LLM.
+ *
+ * In a graph with a world calendar the server tells the model how the world
+ * dates things, so "141 AR" lands on the stored year 1140; the pattern reader
+ * cannot read invented dates, and the tab says so. The time range takes stored
+ * dates, with the world date under each.
  */
 
 import { useEffect, useState, type FormEvent } from 'react'
-import type { TextIngestContext, TextIngestRequest } from '@/types'
+import type { GraphCalendar, TextIngestContext, TextIngestRequest } from '@/types'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { calendarIn, worldBoundExamples } from '@althistory/calendar'
 
 export interface TextIngestTabProps {
   onSubmit: (request: TextIngestRequest) => void
@@ -28,6 +35,7 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [locale, setLocale] = useState('')
+  const calendar = useWorldCalendar()
 
   const canSubmit = !isSubmitting && text.trim().length > 0
   useEffect(() => {
@@ -78,6 +86,8 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
         />
       </div>
 
+      {calendar && <WorldCalendarNote calendar={calendar} useLLM={useLLM} />}
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
         <div className="sm:col-span-2">
           <label htmlFor="ingest-text-actors" className="block text-xs font-medium text-ink-secondary">
@@ -101,7 +111,7 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
             type="text"
             value={startDate}
             onChange={(event) => setStartDate(event.target.value)}
-            placeholder="e.g. 1066-01-01"
+            placeholder={calendar ? `e.g. ${worldBoundExamples(calendar).day}` : 'e.g. 1066-01-01'}
             className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
           />
         </div>
@@ -114,7 +124,7 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
             type="text"
             value={endDate}
             onChange={(event) => setEndDate(event.target.value)}
-            placeholder="e.g. 1066-12-31"
+            placeholder={calendar ? `e.g. ${worldBoundExamples(calendar).year}` : 'e.g. 1066-12-31'}
             className="mt-1 block w-full rounded-md border border-line px-2 py-1 text-sm bg-card text-ink placeholder:text-ink-muted focus:border-selected focus:outline-none focus:ring-1 focus:ring-selected"
           />
         </div>
@@ -144,6 +154,32 @@ export function TextIngestTab({ onSubmit, isSubmitting, formId, onCanSubmitChang
       </label>
 
     </form>
+  )
+}
+
+/**
+ * What a world's calendars mean for the text: the model is told them and
+ * reads its dates in them (as the range above is written); the pattern
+ * reader knows only Gregorian dates.
+ */
+function WorldCalendarNote({ calendar, useLLM }: { calendar: GraphCalendar; useLLM: boolean }) {
+  const name = calendarIn(calendar).definition.name
+  const example = worldBoundExamples(calendar).day
+  return (
+    <p className="rounded-md border border-line bg-subtle px-3 py-2 text-xs text-ink-secondary" role="note">
+      {useLLM ? (
+        <>
+          This graph keeps {name}
+          {calendar.calendars.length > 1 ? ` and ${calendar.calendars.length - 1} other calendar${calendar.calendars.length > 2 ? 's' : ''}` : ''}.
+          The model is told how they count time, so the text can give its dates in them (“{example}”).
+        </>
+      ) : (
+        <>
+          This graph keeps {name}, but the pattern reader only reads Gregorian dates, which this world does not
+          use. Use LLM extraction to read dates like “{example}”.
+        </>
+      )}
+    </p>
   )
 }
 

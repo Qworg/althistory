@@ -2,6 +2,9 @@
  * Batch operations API routes
  */
 
+import { type WorldCalendarSet, toInstant } from '@althistory/calendar';
+import { newDateMetadata, readRequestTime } from '../worldDates';
+import { ValidationError } from '@/utils/errors';
 import { Router, Request, Response, RequestHandler } from 'express';
 import {
   AuthenticatedRequest,
@@ -175,23 +178,22 @@ batchRoutes.post(
 
     const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
 
+    const calendarOf = calendarLookup(req);
     for (let i = 0; i < events.length; i++) {
-      const eventData = events[i];
+      let eventData = events[i];
 
       try {
-        // Validate if not skipping
-        if (validation !== 'skip') {
-          const warnings = validateEventData(eventData);
-          if (warnings.length > 0) {
-            result.validationWarnings!.push(...warnings.map((w) => ({ index: i, warning: w })));
-            
-            if (validation === 'strict') {
-              throw new Error(`Validation failed: ${warnings.join(', ')}`);
-            }
-            if (validation === 'lenient') {
-              continue;
-            }
+        // Its date read as POST /api/events reads it (in a world, its notation too).
+        const dated = await readDates(eventData as Record<string, unknown>, calendarOf, 'event');
+        eventData = dated.data as typeof eventData;
+        // A date that names nothing cannot be stored, even without validation.
+        const warnings = dated.problems.length > 0 ? dated.problems : validation !== 'skip' ? validateEventData(eventData) : [];
+        if (warnings.length > 0) {
+          result.validationWarnings!.push(...warnings.map((w) => ({ index: i, warning: w })));
+          if (validation === 'lenient') {
+            continue;
           }
+          throw new Error(`Validation failed: ${warnings.join(', ')}`);
         }
 
         // Create the event
@@ -274,23 +276,22 @@ batchRoutes.post(
 
     const { arcRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
 
+    const calendarOf = calendarLookup(req);
     for (let i = 0; i < arcs.length; i++) {
-      const arcData = arcs[i];
+      let arcData = arcs[i];
 
       try {
-        // Validate if not skipping
-        if (validation !== 'skip') {
-          const warnings = validateArcData(arcData);
-          if (warnings.length > 0) {
-            result.validationWarnings!.push(...warnings.map((w) => ({ index: i, warning: w })));
-            
-            if (validation === 'strict') {
-              throw new Error(`Validation failed: ${warnings.join(', ')}`);
-            }
-            if (validation === 'lenient') {
-              continue;
-            }
+        // Its dates read as POST /api/arcs reads them (in a world, its notation too).
+        const dated = await readDates(arcData as Record<string, unknown>, calendarOf, 'arc');
+        arcData = dated.data as typeof arcData;
+        // A date that names nothing cannot be stored, even without validation.
+        const warnings = dated.problems.length > 0 ? dated.problems : validation !== 'skip' ? validateArcData(arcData) : [];
+        if (warnings.length > 0) {
+          result.validationWarnings!.push(...warnings.map((w) => ({ index: i, warning: w })));
+          if (validation === 'lenient') {
+            continue;
           }
+          throw new Error(`Validation failed: ${warnings.join(', ')}`);
         }
 
         // Create the arc
@@ -548,6 +549,7 @@ batchRoutes.post(
 
     const createdIds: Array<{ type: string; id: string }> = [];
 
+    const calendarOf = calendarLookup(req);
     for (let i = 0; i < operations.length; i++) {
       const op = operations[i];
       let opResult: { success: boolean; id?: string; error?: string } = { success: false };
@@ -556,7 +558,7 @@ batchRoutes.post(
         switch (op.type) {
           case 'create_event': {
             const event = await eventRepository.create(
-              op.data as unknown as Parameters<typeof eventRepository.create>[0]
+              (await readStepDates(op.data as Record<string, unknown>, calendarOf, 'event')) as unknown as Parameters<typeof eventRepository.create>[0]
             );
             opResult = { success: true, id: event.id };
             createdIds.push({ type: 'event', id: event.id });
@@ -565,7 +567,7 @@ batchRoutes.post(
 
           case 'create_arc': {
             const arc = await arcRepository.create(
-              op.data as unknown as Parameters<typeof arcRepository.create>[0]
+              (await readStepDates(op.data as Record<string, unknown>, calendarOf, 'arc')) as unknown as Parameters<typeof arcRepository.create>[0]
             );
             opResult = { success: true, id: arc.id };
             createdIds.push({ type: 'arc', id: arc.id });
@@ -574,14 +576,17 @@ batchRoutes.post(
 
           case 'update_event': {
             const { id: eventId, ...eventUpdates } = op.data as { id: string } & Record<string, unknown>;
-            const updatedEvent = await eventRepository.update(eventId, eventUpdates);
+            // A new date keeps the event's other metadata, replacing only its date's precision (as PUT does).
+            const current = eventUpdates.timestamp !== undefined ? await eventRepository.findById(eventId) : null;
+            const dated = await readStepDates(eventUpdates, calendarOf, 'event', current ? { metadata: current.metadata } : { metadata: {} });
+            const updatedEvent = await eventRepository.update(eventId, dated);
             opResult = { success: !!updatedEvent, id: eventId };
             break;
           }
 
           case 'update_arc': {
             const { id: arcId, ...arcUpdates } = op.data as { id: string } & Record<string, unknown>;
-            const updatedArc = await arcRepository.update(arcId, arcUpdates);
+            const updatedArc = await arcRepository.update(arcId, await readStepDates(arcUpdates, calendarOf, 'arc'));
             opResult = { success: !!updatedArc, id: arcId };
             break;
           }
@@ -720,6 +725,69 @@ function validateBatchRequest(
   return null;
 }
 
+/** The graph's world calendars, looked up at most once per request (only a date that is not ISO 8601 needs them). */
+function calendarLookup(req: Request): () => Promise<WorldCalendarSet | undefined> {
+  let cached: Promise<WorldCalendarSet | undefined> | undefined;
+  return () => (cached ??= req.container.graphRepository.findById(requireGraphId(req)).then((graph) => graph?.calendar));
+}
+
+/**
+ * An event's or an arc's dates read as the event and arc routes read them
+ * (worldDates.ts): ISO 8601, and in a world graph its notation or fields,
+ * stored as ISO with a month's or year's precision (and calendar) recorded.
+ * With `existing` (an update), the event's other metadata is kept and only
+ * its date's precision replaced. A date that names nothing is a problem, left
+ * as given: the caller fails or skips the item.
+ */
+async function readDates(
+  data: Record<string, unknown>,
+  calendarOf: () => Promise<WorldCalendarSet | undefined>,
+  kind: 'event' | 'arc',
+  existing?: { metadata?: Record<string, unknown> }
+): Promise<{ data: Record<string, unknown>; problems: string[] }> {
+  const out: Record<string, unknown> = { ...data };
+  const problems: string[] = [];
+  const read = async (field: string, edge: 'start' | 'end') => {
+    try {
+      const time = await readRequestTime(out[field], field, calendarOf, edge);
+      if (Number.isNaN(time.date.getTime())) {
+        problems.push(`${field} is invalid`);
+        return undefined;
+      }
+      out[field] = time.date.toISOString();
+      return time;
+    } catch (error) {
+      problems.push(error instanceof Error ? error.message : `${field} is invalid`);
+      return undefined;
+    }
+  };
+  if (kind === 'event' && out.timestamp !== undefined && out.timestamp !== null) {
+    const time = await read('timestamp', 'start');
+    if (time) {
+      const dated = { precision: time.precision ?? ('day' as const), calendar: time.calendar };
+      const given = typeof out.metadata === 'object' && out.metadata !== null ? (out.metadata as Record<string, unknown>) : undefined;
+      if (existing) out.metadata = newDateMetadata(given, existing.metadata, dated);
+      else {
+        const created = newDateMetadata(given, undefined, dated);
+        if (given !== undefined || Object.keys(created).length > 0) out.metadata = created;
+      }
+    }
+  }
+  if (kind === 'arc') {
+    for (const [field, edge] of [['start_time', 'start'], ['end_time', 'end']] as const) {
+      if (out[field] !== undefined && out[field] !== null) await read(field, edge);
+    }
+  }
+  return { data: out, problems };
+}
+
+/** A transaction step's dates, read; a date that names nothing fails the step. */
+async function readStepDates(...args: Parameters<typeof readDates>): Promise<Record<string, unknown>> {
+  const { data, problems } = await readDates(...args);
+  if (problems.length > 0) throw new ValidationError(problems.join('; '));
+  return data;
+}
+
 function validateEventData(data: Partial<IEvent>): string[] {
   const warnings: string[] = [];
 
@@ -729,7 +797,7 @@ function validateEventData(data: Partial<IEvent>): string[] {
 
   if (!data.timestamp) {
     warnings.push('timestamp is required');
-  } else if (isNaN(new Date(data.timestamp).getTime())) {
+  } else if (isNaN(toInstant(data.timestamp).getTime())) {
     warnings.push('timestamp is invalid');
   }
 
@@ -752,8 +820,8 @@ function validateArcData(data: Partial<IArc>): string[] {
   }
 
   if (data.start_time && data.end_time) {
-    const start = new Date(data.start_time);
-    const end = new Date(data.end_time);
+    const start = toInstant(data.start_time);
+    const end = toInstant(data.end_time);
     if (start >= end) {
       warnings.push('start_time must be before end_time');
     }

@@ -2,6 +2,8 @@
  * Export Service for generating Althistory export files
  */
 
+import { toInstant } from '@althistory/calendar';
+import type { WorldCalendarSet } from '@althistory/calendar';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -33,6 +35,8 @@ export interface ExportMetadata {
   graphVersion: number;
   checksum: string;
   filters?: ExportFilters;
+  /** The graph's own calendar, when it has one. Outside the checksum, like the rest of `metadata`. */
+  calendar?: WorldCalendarSet;
 }
 
 export interface ExportData {
@@ -248,6 +252,13 @@ const DEFAULT_ASYNC_EXPORT_ENTITY_THRESHOLD = 10_000;
 /**
  * Service for exporting graph data
  */
+/** An arc's parent: its own field, or the `parentArcId` its metadata records. */
+function parentArcIdOf(field: unknown, metadata: unknown): string | null {
+  if (typeof field === 'string' && field) return field;
+  const recorded = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).parentArcId : undefined;
+  return typeof recorded === 'string' && recorded ? recorded : null;
+}
+
 export class ExportService {
   private readonly graphRepository: GraphRepository;
   private readonly dataDir: string;
@@ -352,6 +363,7 @@ export class ExportService {
         graphVersion: versionRef?.version ?? 0,
         checksum: '', // Will be calculated
         filters: options.scope === 'filtered' ? options.filters : undefined,
+        ...(graph.calendar ? { calendar: graph.calendar } : {}),
       },
       data: exportData,
     };
@@ -527,6 +539,7 @@ export class ExportService {
       graphVersion: versionRef?.version ?? 0,
       checksum,
       filters: options.scope === 'filtered' ? options.filters : undefined,
+      ...(graph.calendar ? { calendar: graph.calendar } : {}),
     };
 
     const provenance = options.includeProvenance
@@ -862,9 +875,9 @@ export class ExportService {
 
     // Check time range
     if (filters.timeRange) {
-      const timestamp = new Date(event.timestamp as string).getTime();
-      const start = new Date(filters.timeRange.start).getTime();
-      const end = new Date(filters.timeRange.end).getTime();
+      const timestamp = toInstant(event.timestamp).getTime();
+      const start = toInstant(filters.timeRange.start).getTime();
+      const end = toInstant(filters.timeRange.end).getTime();
       
       if (timestamp < start || timestamp > end) {
         return false;
@@ -898,10 +911,10 @@ export class ExportService {
 
     // Check time range (arc must overlap with filter range)
     if (filters.timeRange) {
-      const arcStart = new Date(arc.start_time as string).getTime();
-      const arcEnd = new Date(arc.end_time as string).getTime();
-      const filterStart = new Date(filters.timeRange.start).getTime();
-      const filterEnd = new Date(filters.timeRange.end).getTime();
+      const arcStart = toInstant(arc.start_time).getTime();
+      const arcEnd = toInstant(arc.end_time).getTime();
+      const filterStart = toInstant(filters.timeRange.start).getTime();
+      const filterEnd = toInstant(filters.timeRange.end).getTime();
       
       // Arc overlaps if it starts before filter ends and ends after filter starts
       if (arcEnd < filterStart || arcStart > filterEnd) {
@@ -991,7 +1004,10 @@ export class ExportService {
       start_time: a.start_time as string,
       end_time: a.end_time as string,
       level: a.level as number,
-      parent_arc_id: a.parent_arc_id as string | null,
+      // An arc made through the CLI, MCP or the generator records its parent in
+      // its metadata only; without it, a nested arc exported as a root fails
+      // the import's level check.
+      parent_arc_id: parentArcIdOf(a.parent_arc_id, a.metadata),
       metadata,
       sourceRef: a.sourceRef as string | undefined,
     };

@@ -23,6 +23,7 @@
  * them; they are inferred from the events on every read.
  */
 
+import { toInstant } from '@althistory/calendar';
 import type { ResolvedGraphData } from '@/repositories/VersionRepository';
 import type { GraphScopedRepositories } from '@/container';
 import type { StoredCausalRelationship } from './CausalService';
@@ -56,12 +57,9 @@ function asString(value: unknown): string | undefined {
 }
 
 function asDate(value: unknown): Date | undefined {
-  if (value instanceof Date) return value;
-  if (typeof value === 'string' || typeof value === 'number') {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? undefined : date;
-  }
-  return undefined;
+  // Read as the import validated it and every other reader reads it.
+  const date = toInstant(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 function asNumber(value: unknown, fallback: number): number {

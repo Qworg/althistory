@@ -63,6 +63,10 @@ COPY --from=prod-deps /app/timeline/node_modules /app/timeline/node_modules
 COPY --from=prod-deps /app/timeline/package.json /app/timeline/package.json
 COPY timeline/tsconfig.json timeline/tsconfig.runtime.json /app/timeline/
 COPY --from=build /app/timeline/dist /app/timeline/dist
+# The shared date and calendar package, compiled by the timeline build.
+# tsconfig.runtime.json maps `@althistory/calendar` to its dist/index.js; it
+# has no dependencies of its own.
+COPY --from=build /app/calendar/dist /app/calendar/dist
 
 # Production CLI entrypoint: runs the compiled CLI instead of the dev-only
 # ts-node wrapper in bin/althistory.

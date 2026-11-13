@@ -297,6 +297,8 @@ describe('Configuration System', () => {
       delete process.env.NODE_ENV;
       // Clear LOCAL_EXECUTION_ENABLED to test default
       delete process.env.LOCAL_EXECUTION_ENABLED;
+      // And the store the test setup points every file at.
+      delete process.env.LOCAL_DATA_DIR;
       // Cloud mode now requires the deployment to acknowledge that it is a
       // single replica with a persistent volume; see the tests below.
       process.env.CLOUD_SINGLE_REPLICA_STATE = 'true';
