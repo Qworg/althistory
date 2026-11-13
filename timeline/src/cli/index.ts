@@ -1189,7 +1189,8 @@ export function createProgram(): Command {
       const opts = program.opts<GlobalCLIOptions>();
       // An agent working through the app: its changes are announced as an agent's.
       const ctx = new ExecutionContext(opts, { client: 'mcp' });
-      const engine = await ctx.getEngine();
+      // Decided again at each call: the client often starts this server before the app.
+      const engine = await ctx.getFollowingEngine();
       const server = new McpServer(engine);
       server.start(process.stdin, process.stdout);
 

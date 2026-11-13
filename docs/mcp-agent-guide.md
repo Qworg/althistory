@@ -61,6 +61,10 @@ path to `bin/althistory` in the clone instead; it runs through `npx`, so
 When the althistory app is running on `127.0.0.1:3000`, the server works
 through it, so what an agent writes appears in the app as it goes; otherwise
 it works on the local files (`timeline/data`, the same store the app reads).
+The server looks again at each call (an answer is trusted for a few seconds),
+so an MCP client that starts the server before `./start-local.sh` is handed
+over to the app as soon as it answers: no restart is needed, and the agent is
+never a second writer beside the app.
 Every tool works either way, `althistory_generate_timeline` and
 `althistory_branch_timeline` included: through the app they run as its
 generation jobs (see [Watching an agent work](#watching-an-agent-work)), with

@@ -23,6 +23,8 @@ export interface ExecutionContextOptions {
   client?: 'cli' | 'mcp';
   /** The addresses to look for the app at; a test seam. */
   appAddresses?: string[];
+  /** How long a "no app answers" probe is trusted by `getFollowingEngine`, in ms. Default 3000. */
+  reprobeMs?: number;
 }
 
 /**
@@ -62,11 +64,15 @@ export class ExecutionContext {
   private options: GlobalCLIOptions;
   private readonly client: 'cli' | 'mcp';
   private readonly appAddresses: string[];
+  private readonly reprobeMs: number;
+  private lastProbeAt = 0;
+  private following?: Promise<IEngine>;
 
   constructor(options: GlobalCLIOptions = {}, extra: ExecutionContextOptions = {}) {
     this.options = options;
     this.client = extra.client ?? 'cli';
     this.appAddresses = extra.appAddresses ?? DEFAULT_APP_ADDRESSES;
+    this.reprobeMs = extra.reprobeMs ?? 3000;
   }
 
   /**
@@ -161,6 +167,70 @@ export class ExecutionContext {
     logger.debug('Daemon not reachable. Falling back to DirectEngine');
     this.engine = new DirectEngine();
     return this.engine;
+  }
+
+  /**
+   * An engine that decides again at each call, for a process that outlives the
+   * app's start order: an MCP client usually starts its server when the client
+   * opens, often before the app. `getEngine` picks once; an engine picked as
+   * direct would then stay a second writer beside an app that started later,
+   * each overwriting the other's changes without an error and nothing on the
+   * live feed. This one, while it works on the local files, looks for the app
+   * again before a call (an answer or its absence is trusted for
+   * `reprobeMs`), and when one answers it hands the files over: it switches to
+   * the app, or, for `--direct`, refuses as `getEngine` does. An engine for an
+   * explicit `--url` is fixed.
+   */
+  async getFollowingEngine(): Promise<IEngine> {
+    const first = await this.getEngine();
+    const context = this;
+    const current = (): IEngine => context.engine ?? first;
+    const resolve = async (): Promise<IEngine> => {
+      let engine = current();
+      if (engine.mode !== 'direct' || this.options.url) return engine;
+      if (Date.now() - this.lastProbeAt < this.reprobeMs) return engine;
+      if (this.following) return this.following;
+      this.following = (async () => {
+        try {
+          const app = await this.findApp();
+          this.lastProbeAt = Date.now();
+          if (!app) return engine;
+          if (this.options.direct) {
+            if (process.env[ALLOW_DIRECT_ENV] === '1') return engine;
+            throw new CLIError(
+              `An althistory app is now running at ${app}, so this server, started with --direct, would be a second writer: ` +
+                'the app and this process would each overwrite the other\'s changes without an error. ' +
+                `Restart the server without --direct and it works through the app. If the app keeps its data somewhere else, set ${ALLOW_DIRECT_ENV}=1.`,
+              ExitCode.GENERAL_ERROR,
+              'APP_RUNNING'
+            );
+          }
+          logger.debug(`Daemon appeared at ${app}. Handing over from DirectEngine to RemoteEngine`);
+          const previous = engine;
+          this.engine = undefined;
+          this.engine = await this.getEngine();
+          // Flush the files before the app's writes land on them.
+          await previous.shutdown().catch(() => undefined);
+          engine = this.engine;
+          return engine;
+        } finally {
+          this.following = undefined;
+        }
+      })();
+      return this.following;
+    };
+    return new Proxy(first, {
+      get(_target, property) {
+        if (property === 'mode') return current().mode;
+        if (property === 'shutdown') return () => context.shutdown();
+        const value = Reflect.get(current(), property) as unknown;
+        if (typeof value !== 'function') return value;
+        return async (...args: unknown[]) => {
+          const engine = await resolve();
+          return (engine as unknown as Record<string | symbol, (...a: unknown[]) => unknown>)[property](...args);
+        };
+      },
+    });
   }
 
   async shutdown(): Promise<void> {

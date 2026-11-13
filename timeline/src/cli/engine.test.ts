@@ -101,3 +101,66 @@ describe('--direct beside a running app', () => {
     expect((await ctx.getEngine()).mode).toBe('remote');
   });
 });
+
+describe('an engine that follows the app (the MCP server)', () => {
+  let app: Server | undefined;
+  afterEach(async () => {
+    delete process.env[ALLOW_DIRECT_ENV];
+    if (app) await new Promise<void>((resolve) => app?.close(() => resolve()));
+    app = undefined;
+  });
+
+  /** Where an app will answer, once started: a port is reserved by listening, then released. */
+  async function freeAddress(): Promise<{ port: number; address: string }> {
+    const probe = express().listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => probe.once('listening', () => resolve()));
+    const port = (probe.address() as AddressInfo).port;
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+    return { port, address: `http://127.0.0.1:${port}` };
+  }
+
+  async function startApp(port: number): Promise<void> {
+    const stand = express();
+    stand.get('/health', (_req, res) => {
+      res.status(503).json({ status: 'degraded', services: { graphService: true } });
+    });
+    app = stand.listen(port, '127.0.0.1');
+    await new Promise<void>((resolve) => app?.once('listening', () => resolve()));
+  }
+
+  it('starts on the files and works through the app once one starts later', async () => {
+    const { port, address } = await freeAddress();
+    const ctx = new ExecutionContext({}, { appAddresses: [address], reprobeMs: 0 });
+    const engine = await ctx.getFollowingEngine();
+    expect(engine.mode).toBe('direct');
+    await startApp(port);
+    // The next call looks again and hands over; the mode follows.
+    await engine.getHealth().catch(() => undefined);
+    expect(engine.mode).toBe('remote');
+    expect((await ctx.getEngine()).mode).toBe('remote');
+  });
+
+  it('does not probe on every call while it keeps finding nothing', async () => {
+    const { port, address } = await freeAddress();
+    const ctx = new ExecutionContext({}, { appAddresses: [address], reprobeMs: 60_000 });
+    const engine = await ctx.getFollowingEngine();
+    await engine.getHealth();
+    await startApp(port);
+    await engine.getHealth();
+    expect(engine.mode).toBe('direct');
+  });
+
+  it('refuses writes under --direct once an app starts, rather than becoming a second writer', async () => {
+    const { port, address } = await freeAddress();
+    const ctx = new ExecutionContext({ direct: true }, { appAddresses: [address], reprobeMs: 0 });
+    const engine = await ctx.getFollowingEngine();
+    expect((await engine.getHealth()).executionMode).toBe('direct');
+    await startApp(port);
+    await expect(engine.listGraphs()).rejects.toMatchObject({ code: 'APP_RUNNING' });
+  });
+
+  it('leaves an explicit --url alone', async () => {
+    const ctx = new ExecutionContext({ url: 'http://custom-host:8080' }, { reprobeMs: 0 });
+    expect((await ctx.getFollowingEngine()).mode).toBe('remote');
+  });
+});
