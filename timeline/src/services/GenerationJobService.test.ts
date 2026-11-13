@@ -285,6 +285,33 @@ describe('GenerationJobService', () => {
       expect(last).toMatchObject({ status: 'cancelled' });
     });
 
+    it('names the graph a cancel left behind when it landed while the graph was being made', async () => {
+      const service = serviceWith();
+      const started: { id?: string } = {};
+      let madeGraph: string | undefined;
+      const stop = feed.subscribe((record) => {
+        // The graph exists the moment it is announced; the run has not yet written to it.
+        if (record.kind === 'graph' && record.actor.kind === 'generation' && madeGraph === undefined) {
+          madeGraph = record.graphId;
+          if (started.id) service.cancel(started.id, OWNER.keyId);
+        }
+      });
+      const job = service.start(TIMELINE, OWNER);
+      started.id = job.id;
+      await service.idle();
+      stop();
+
+      const done = service.get(job.id, OWNER.keyId) as GenerationJobView;
+      expect(madeGraph).toBeDefined();
+      expect(done.status).toBe('cancelled');
+      expect(done.written).toEqual({ events: 0, arcs: 0, relationships: 0 });
+      // The job says which graph it made, in its view and on the feed.
+      expect(done.graphId).toBe(madeGraph);
+      expect(done.message).toContain(`graph ${madeGraph}`);
+      const last = [...heard].reverse().find((record) => record.kind === 'generation' && record.graphId === madeGraph);
+      expect(last).toMatchObject({ status: 'cancelled', message: done.message });
+    });
+
     it('reports what the graph holds when the cancel came after the last write', async () => {
       // Learn how many links a run writes, then cancel as the last one is announced.
       const probe = serviceWith();

@@ -270,9 +270,7 @@ export class GenerationJobService {
     if (!record || record.ownerKeyId !== ownerKeyId) return undefined;
     if (TERMINAL.has(record.view.status)) return this.viewOf(record);
     record.controller.abort();
-    this.finish(record, 'cancelled', {
-      message: `Cancelled; ${describeWritten(record.view.written)} stays in the graph`,
-    });
+    this.finish(record, 'cancelled', { message: cancelledMessage(record.view, record.view.written) });
     return this.viewOf(record);
   }
 
@@ -415,9 +413,7 @@ export class GenerationJobService {
           if (error instanceof GenerationCancelledError) {
             // `cancel` has normally finished the job already; a cancel that came from the abort alone ends it here.
             if (record.view.status === 'running') {
-              this.finish(record, 'cancelled', {
-                message: `Cancelled; ${describeWritten(error.written)} stays in the graph`,
-              });
+              this.finish(record, 'cancelled', { message: cancelledMessage(record.view, error.written) });
             } else {
               // The run stopped a write after the cancel: the count is now exact.
               if (record.view.status === 'cancelled') this.correctCancelled(record, error.written);
@@ -446,14 +442,27 @@ export class GenerationJobService {
       view.written.events !== written.events ||
       view.written.arcs !== written.arcs ||
       view.written.relationships !== written.relationships;
+    const message = cancelledMessage(view, written);
+    const messageChanged = view.message !== message;
     view.written = { ...written };
-    view.message = `Cancelled; ${describeWritten(written)} stays in the graph`;
-    if (changed) this.publish(record);
+    view.message = message;
+    if (changed || messageChanged) this.publish(record);
   }
 
   private onProgress(record: JobRecord, progress: GenerationProgress): void {
-    if (record.view.status !== 'running') return;
     const view = record.view;
+    if (view.status !== 'running') {
+      // A cancel that landed while the graph was being made: the graph exists
+      // all the same, and the caller must be told which it is (a branch is a
+      // full copy of its source). Nothing else about a stopped job moves.
+      if (view.status === 'cancelled' && view.graphId === undefined && progress.graphId !== undefined) {
+        view.graphId = progress.graphId;
+        if (progress.source !== undefined) view.source = progress.source;
+        view.message = cancelledMessage(view, view.written);
+        this.publish(record);
+      }
+      return;
+    }
     view.phase = progress.phase;
     view.message = progress.message;
     // A run is not complete until the job says so, whatever the generator reports.
@@ -521,6 +530,13 @@ export class GenerationJobService {
 
 function defaultLlm(choice: ModelChoice): LLMClient | null {
   return createLLMClient({ provider: choice.provider, model: choice.model, temperature: choice.temperature });
+}
+
+/** What a cancelled job says: what stays, and, when it is nothing, which graph the job made. */
+function cancelledMessage(view: GenerationJobView, written: GenerationWritten): string {
+  const nothing = written.events === 0 && written.arcs === 0 && written.relationships === 0;
+  const graph = nothing && view.graphId && !view.dryRun ? ` (graph ${view.graphId})` : '';
+  return `Cancelled; ${describeWritten(written)} stays in the graph${graph}`;
 }
 
 function describeWritten(written: GenerationWritten): string {
