@@ -244,34 +244,10 @@ export function EventDetailModal({
   const shownDate = useRef('')
   const fieldCalendar = useRef(worldCalendar)
 
-  // Update form data when event changes
-  useEffect(() => {
-    const calendar = fieldCalendar.current
-    if (event) {
-      shownDate.current = toDateField(event.timestamp || '', datePrecisionOf(event.metadata), calendar, dateCalendarOf(event.metadata))
-      setFormData({
-        ...EMPTY_FORM,
-        description: event.description || '',
-        actor: event.actor || '',
-        target: event.target || '',
-        timestamp: shownDate.current,
-        // Kept in the event's metadata, where the timeline reads confidence.
-        event_type: metadataText(event, 'eventType'),
-        confidence: confidenceField(event),
-        evidence: metadataText(event, 'evidence'),
-      })
-    } else {
-      shownDate.current = ''
-      setFormData({
-        ...EMPTY_FORM,
-        timestamp: initialTimestamp ? toDateField(initialTimestamp, 'day', calendar) : '',
-      })
-    }
-    setErrors({})
-    setShowDeleteConfirm(false)
-  }, [event, isOpen, initialTimestamp])
-
   // The date as it is now, for the switch below (read, not set, in an effect).
+  // Declared before the load below: when the event and the calendar change
+  // together, the switch acts on the old text, and the load then writes the
+  // new event's date in the new calendar.
   const dateText = useRef(formData.timestamp)
   useEffect(() => {
     dateText.current = formData.timestamp
@@ -299,6 +275,34 @@ export function EventDetailModal({
     dateText.current = rewritten
     setFormData((form) => ({ ...form, timestamp: rewritten }))
   }, [worldCalendar, event])
+
+  // Update form data when event changes
+  useEffect(() => {
+    const calendar = fieldCalendar.current
+    if (event) {
+      shownDate.current = toDateField(event.timestamp || '', datePrecisionOf(event.metadata), calendar, dateCalendarOf(event.metadata))
+      setFormData({
+        ...EMPTY_FORM,
+        description: event.description || '',
+        actor: event.actor || '',
+        target: event.target || '',
+        timestamp: shownDate.current,
+        // Kept in the event's metadata, where the timeline reads confidence.
+        event_type: metadataText(event, 'eventType'),
+        confidence: confidenceField(event),
+        evidence: metadataText(event, 'evidence'),
+      })
+    } else {
+      shownDate.current = ''
+      setFormData({
+        ...EMPTY_FORM,
+        timestamp: initialTimestamp ? toDateField(initialTimestamp, 'day', calendar) : '',
+      })
+    }
+    setErrors({})
+    setShowDeleteConfirm(false)
+  }, [event, isOpen, initialTimestamp])
+
 
   // Handle escape key
   useEffect(() => {

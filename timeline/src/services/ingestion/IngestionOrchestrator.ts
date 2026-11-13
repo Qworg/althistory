@@ -232,7 +232,7 @@ export class IngestionOrchestrator {
       throw error;
     }
 
-    const validationIssues = validateExtraction(extraction);
+    const validationIssues = validateExtraction(extraction, context?.calendar);
     const updatedAt = this.now().toISOString();
 
     const job: IngestionJob = {
@@ -310,7 +310,7 @@ export class IngestionOrchestrator {
     }
     const selected = selectForImport(job.extraction, request, job.calendar);
 
-    const issues = validateExtraction(selected);
+    const issues = validateExtraction(selected, job.calendar);
     const errors = issues.filter((issue) => issue.severity === 'error');
     if (errors.length > 0) {
       throw new IngestionValidationError(errors);
@@ -414,13 +414,18 @@ function typedTimestamp(
 }
 
 /**
- * An extraction's time in milliseconds, NaN unless it is ISO 8601. Ingestion
- * is where a model's or a reviewer's text first enters, so prose ("Feb 14
- * 1870") is refused here, as the review shows it ("Not a date"), rather than
- * read leniently later in the server's zone.
+ * An extraction's time in milliseconds, NaN unless it is a date the one rule
+ * reads (`readWorldTimestamp`): ISO 8601, and in a world an ISO date or date
+ * and time (a Gregorian month or year is no period of the world's; the
+ * reviewer's text in the world's notation was read into ISO already).
+ * Ingestion is where a model's or a reviewer's text first enters, so prose
+ * ("Feb 14 1870") is refused here, as the review shows it ("Not a date"),
+ * rather than read leniently later in the server's zone.
  */
-function strictTime(text: string): number {
-  return parseIsoInstant(String(text).trim())?.date.getTime() ?? NaN;
+function strictTime(text: string, calendar?: WorldCalendarSet): number {
+  if (!parseIsoInstant(String(text).trim())) return NaN;
+  const read = readWorldTimestamp(calendar, String(text));
+  return read ? Date.parse(read.iso) : NaN;
 }
 
 function mergeEvent(event: ExtractedEvent, edit: ExtractedEdit | undefined, calendar?: WorldCalendarSet): ExtractedEvent {
@@ -457,7 +462,7 @@ function mergeArc(arc: ExtractedArc, edit: ExtractedEdit | undefined, calendar?:
  * the reviewer. Mirrors the required-field rules `ImportService` enforces so a
  * reviewer sees the problem before approving rather than after.
  */
-export function validateExtraction(extraction: ExtractionResult): ValidationIssue[] {
+export function validateExtraction(extraction: ExtractionResult, calendar?: WorldCalendarSet): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const eventIds = new Set<string>();
   const seen = new Set<string>();
@@ -478,10 +483,11 @@ export function validateExtraction(extraction: ExtractionResult): ValidationIssu
     if (!event.target.trim()) {
       issues.push(issue(event.tempId, 'event', 'error', 'Event target is required'));
     }
-    const time = strictTime(event.timestamp);
+    const time = strictTime(event.timestamp, calendar);
     if (Number.isNaN(time)) {
       issues.push(issue(event.tempId, 'event', 'error', `Invalid event timestamp: ${event.timestamp}`));
-    } else if (time > Date.now()) {
+    } else if (!calendar && time > Date.now()) {
+      // (An invented world's timeline has no "now".)
       issues.push(issue(event.tempId, 'event', 'warning', 'Event timestamp is in the future'));
     }
     if (event.confidence < 0 || event.confidence > 1) {
@@ -498,8 +504,8 @@ export function validateExtraction(extraction: ExtractionResult): ValidationIssu
     if (!arc.name.trim()) {
       issues.push(issue(arc.tempId, 'arc', 'error', 'Arc name is required'));
     }
-    const start = strictTime(arc.start_time);
-    const end = strictTime(arc.end_time);
+    const start = strictTime(arc.start_time, calendar);
+    const end = strictTime(arc.end_time, calendar);
     if (Number.isNaN(start) || Number.isNaN(end)) {
       issues.push(issue(arc.tempId, 'arc', 'error', 'Arc start/end must be valid timestamps'));
     } else if (start > end) {

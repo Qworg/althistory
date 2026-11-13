@@ -171,15 +171,18 @@ year alone ("Greywater 312 AR") is stored at its first day, with its precision
 recorded; as an arc's `endTime`, a day, month or year written without a time
 means its last moment. Every tool result gives an event's date as the world
 writes it (`worldDate`) beside its `timestamp`, and an arc's as `worldStart` and
-`worldEnd`. `althistory_export_context` shows each date in the world's
+`worldEnd`. These are written only as finely as the world's notation shows a
+time (its minutes, say); to keep an exact moment, give the `timestamp`. `althistory_export_context` shows each date in the world's
 notation, with its place on the timeline (an ISO 8601 instant) in brackets. Text written about the world, sent to
 `althistory_ingest_text` with the graph named, has its dates read in the
 world's notation too.
 
 Setting a calendar replaces the whole calendar. Names cannot contain a `|`,
 braces or a control character; month, festival and weekday names cannot
-contain a comma, brackets or a double quote either, and era labels cannot
-contain a digit. A set whose text would read back as another date (a festival
+contain a comma, brackets or a double quote either, month, festival names
+and era labels cannot contain a digit, and each calendar's era labels (and
+its name for the years before them) must be its own, not another calendar's
+of the world. A set whose text would read back as another date (a festival
 "Midyear 3" beside a month "Midyear"; two calendars that both write "Year 5")
 is refused, with the text that collides.
 

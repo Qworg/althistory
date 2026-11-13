@@ -93,8 +93,12 @@ fields give later positions, and no position lacks a date.
 
 **Req 14. Text.** A date written in a calendar's notation, at any precision,
 reads back as the date it names: `parse(format(d)) = d`, in its own calendar
-and as the only date it names in the world's set. A set is checked for this
-when it is given: a sample of each calendar's dates (every month and festival,
+and as the only date it names in the world's set. Two rules make that so by
+construction: a month's or festival's name holds no digit (which would read
+as a day or a year), and each calendar writes its years with words of its own
+(its era labels, its name for the years before them, or "Year" when its years
+have none), so no calendar's text is a date in another's. A set is also
+checked when it is given: a sample of each calendar's dates (every month and festival,
 each precision, a time, years before and in each era) is written and read
 back, and a set whose text reads as another date, or as a date in another of
 its calendars, is refused with the text that collides. Text that names a

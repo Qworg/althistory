@@ -44,9 +44,9 @@ import {
 import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { calendarSetInstructions, type WorldCalendarSet, toInstant, formatInWorld } from '@althistory/calendar';
+import { calendarSetInstructions, type WorldCalendarSet, toInstant, dateCalendarOf, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
-import { isIsoText, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
+import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import type { IGraph } from '@/models/Graph';
 import { validateCausalRelationshipFields } from '@/services/CausalService';
 
@@ -516,9 +516,12 @@ export class DirectEngine implements IEngine {
     if (isTemporalInversion(cause.timestamp, effect.timestamp)) {
       // In a world, each date as the world names it, its instant beside it.
       const calendar = await this.calendarOf(graphId);
-      const when = (date: Date) => (calendar ? `${formatInWorld(calendar, date.getTime())}, ${date.toISOString()}` : date.toISOString());
+      const when = (event: { timestamp: Date; metadata?: Record<string, unknown> }) =>
+        calendar
+          ? `${formatHistoricalDateAt(event.timestamp, datePrecisionOf(event.metadata), 'en-US', calendar, dateCalendarOf(event.metadata))}, ${event.timestamp.toISOString()}`
+          : event.timestamp.toISOString();
       throw new ValidationErrorCLI(
-        `Temporal ordering violation: cause timestamp (${when(cause.timestamp)}) must not be after effect timestamp (${when(effect.timestamp)})`
+        `Temporal ordering violation: cause timestamp (${when(cause)}) must not be after effect timestamp (${when(effect)})`
       );
     }
 
@@ -841,7 +844,7 @@ export class DirectEngine implements IEngine {
 
   /** The graph's world calendars, when text is not ISO 8601 and may be a world date; read only then. */
   private async worldCalendarFor(graphId: string, text: string): Promise<WorldCalendarSet | undefined> {
-    return isIsoText(text) ? undefined : this.calendarOf(graphId);
+    return needsCalendar(text) ? this.calendarOf(graphId) : undefined;
   }
 
   /** The calendar of a stored graph; none for a dry run's placeholder or a missing graph. */

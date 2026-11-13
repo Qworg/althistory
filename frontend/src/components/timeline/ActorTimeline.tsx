@@ -3,7 +3,7 @@ import * as d3 from 'd3'
 import { Event, Arc, TimeRange } from '@/types'
 import { axisTicks, formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
 import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
 
@@ -621,7 +621,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                           aria-pressed={isSelected}
                           aria-label={
                             `${event.description}, ${event.actor} → ${event.target}, ` +
-                            `${formatHistoricalTimestamp(event.timestamp)} (${actor} as ${event.role})`
+                            `${formatEventDate(event)} (${actor} as ${event.role})`
                           }
                           style={{ cursor: 'pointer', outline: 'none' }}
                           onClick={(e) => {

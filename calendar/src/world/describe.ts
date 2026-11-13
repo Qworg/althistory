@@ -73,8 +73,12 @@ export function readWorldTimestamp(
 /** Why {@link readWorldTimestamp} read nothing from the text, as a sentence. */
 export function unreadDateReason(set: WorldCalendarSet | null | undefined, text: string): string {
   const trimmed = String(text).trim()
+  const asIso = parseIsoInstant(trimmed)
+  if (asIso && (!set || (asIso.precision !== 'year' && asIso.precision !== 'month'))) {
+    return `"${trimmed}" reaches beyond the range a date can hold.`
+  }
   if (set) {
-    const iso = parseIsoInstant(trimmed)
+    const iso = asIso
     if (iso && (iso.precision === 'year' || iso.precision === 'month')) {
       const example = formatInWorld(set, calendarIn(set).definition.epoch * calendarIn(set).dayMs, iso.precision)
       return `"${trimmed}" is a Gregorian ${iso.precision}, which is no ${iso.precision} of this world: give it in the world's calendar ("${example}"), or give a day.`

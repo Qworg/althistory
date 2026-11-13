@@ -35,9 +35,9 @@ describe('a time sent for a graph with world calendars', () => {
   });
 
   it("reads the world's notation and fields, recording a month's or a year's precision", async () => {
-    expect(await readRequestTime('Thaw 4, 312 AR', 'timestamp', calendarOf)).toEqual({ date: new Date(at(312, 2, 4)) });
+    expect(await readRequestTime('Thaw 4, 312 AR', 'timestamp', calendarOf)).toEqual({ date: new Date(at(312, 2, 4)), calendar: 'reckoning' });
     expect(await readRequestTime('Thaw 312 AR', 'timestamp', calendarOf)).toEqual({ date: new Date(at(312, 2, 1)), precision: 'month', calendar: 'reckoning' });
-    expect(await readRequestTime({ year: 312, month: 'Thaw', day: 4, hour: 6 }, 'timestamp', calendarOf)).toEqual({ date: new Date(at(312, 2, 4, 6)) });
+    expect(await readRequestTime({ year: 312, month: 'Thaw', day: 4, hour: 6 }, 'timestamp', calendarOf)).toEqual({ date: new Date(at(312, 2, 4, 6)), calendar: 'reckoning' });
   });
 
   it("reads an arc's end as the last moment of the day, month or year it names, unless it gives a time", async () => {
@@ -77,5 +77,11 @@ describe('ISO 8601 text, the same at every door', () => {
     expect(read.calendar).toBe('reckoning');
     expect(newDateMetadata(undefined, { keep: 1, datePrecision: 'year', dateCalendar: 'x' }, { precision: 'day' })).toEqual({ keep: 1 });
     expect(newDateMetadata({ datePrecision: 'month' }, { keep: 1 }, { precision: 'day' })).toEqual({ datePrecision: 'month' });
+    // A day written in the world's notation states its own precision.
+    expect(newDateMetadata({ keep: 1, datePrecision: 'month', dateCalendar: 'tide' }, undefined, { precision: 'day', calendar: 'reckoning' })).toEqual({ keep: 1 });
+  });
+
+  it('refuses an ISO date whose end is past the range a date can hold, saying so', async () => {
+    await expect(readRequestTime('+275760-09-13', 'end_time', plain, 'end')).rejects.toThrow(/beyond the range a date can hold/);
   });
 });

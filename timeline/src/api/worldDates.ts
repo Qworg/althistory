@@ -33,14 +33,14 @@ export interface RequestTime {
   date: Date;
   /** Set when the date named a month or a year rather than a day. */
   precision?: 'month' | 'year';
-  /** The world calendar a month or year was given in. */
+  /** The world calendar the date was written in (absent for ISO 8601). */
   calendar?: string;
 }
 
 function asTime(read: { iso: string; precision: 'day' | 'month' | 'year'; calendar?: string }): RequestTime {
   const date = new Date(read.iso);
-  if (read.precision === 'day') return { date };
-  return read.calendar ? { date, precision: read.precision, calendar: read.calendar } : { date, precision: read.precision };
+  const calendar = read.calendar ? { calendar: read.calendar } : {};
+  return read.precision === 'day' ? { date, ...calendar } : { date, precision: read.precision, ...calendar };
 }
 
 /**
@@ -61,6 +61,8 @@ export async function readRequestTime(
     if (iso && iso.precision !== 'year' && iso.precision !== 'month') {
       const read = readWorldTimestamp(null, value, edge);
       if (read) return asTime(read);
+      // An ISO date whose end is past the last moment a date can hold.
+      throw new ValidationError(`${field}: "${value.trim()}" reaches beyond the range a date can hold`, field, value);
     }
     // A graph that cannot be read has no calendar to read a date with.
     const calendar = await calendarOf().catch(() => undefined);
@@ -97,6 +99,8 @@ export function newDateMetadata(
   existing: Record<string, unknown> | undefined,
   read: { precision: 'day' | 'month' | 'year'; calendar?: string }
 ): Record<string, unknown> {
-  if (requested && 'datePrecision' in requested && read.precision === 'day') return { ...requested };
+  // The app sends ISO with the precision its form read; a day written in the
+  // world's notation states its own (a day), and replaces any old one.
+  if (requested && 'datePrecision' in requested && read.precision === 'day' && !read.calendar) return { ...requested };
   return withDatePrecision(requested ?? existing, read);
 }

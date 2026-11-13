@@ -532,7 +532,10 @@ export function TimelineView() {
       const next: DatePeriod = restored?.datePrecision
         ? { datePrecision: restored.datePrecision, ...(restored.dateCalendar ? { dateCalendar: restored.dateCalendar } : {}) }
         : {}
-      const changed = datePrecision !== next.datePrecision || dateCalendar !== next.dateCalendar
+      // An undo restoring a month always says so: the copy of the event held
+      // here can be the one from before the move (an offline queue, a refetch
+      // still on its way), and would read as nothing to change.
+      const changed = next.datePrecision !== undefined || datePrecision !== next.datePrecision || dateCalendar !== next.dateCalendar
       const metadata = changed ? { ...rest, ...next } : undefined
       await updateEventMutation.mutateAsync({
         id: event.id,

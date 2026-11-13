@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { useActiveGraph, useBranchGraph, useSwitchGraph } from '@/hooks/useGraphs'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 import type { Event, Graph } from '@/types'
 
 /** The API accepts 255 characters; a name this long is still readable in the graph selector. */
@@ -33,7 +33,7 @@ function defaultBranchName(graphName: string, event: Event): string {
 function defaultBranchDescription(event: Event): string {
   return (
     `Counterfactual branch diverging at “${event.description.trim()}” ` +
-    `(${formatHistoricalTimestamp(event.timestamp)}).`
+    `(${formatEventDate(event)}).`
   )
 }
 
@@ -169,7 +169,7 @@ function BranchFromEventForm({ event, onClose }: { event: Event; onClose: () => 
           <div className="min-w-0">
             <p className="text-sm font-medium text-ink break-words">{event.description}</p>
             <p className="mt-1 text-xs text-ink-muted">
-              <span className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</span>
+              <span className="font-mono-code">{formatEventDate(event)}</span>
               {event.actor?.trim() && (
                 <>
                   <span aria-hidden="true"> · </span>

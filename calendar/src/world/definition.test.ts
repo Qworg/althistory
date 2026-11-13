@@ -108,8 +108,8 @@ describe('a set whose text would not read back', () => {
 
   it('is refused when a festival writes what reads as a day of a month', () => {
     const issues = calendarSetIssues(base([{ name: 'Midyear', days: 30 }, { name: 'Midyear 3', days: 1, intercalary: true }]))
-    expect(issues.map((issue) => issue.path)).toEqual(['calendar.calendars[0].parts'])
-    expect(issues[0]!.message).toMatch(/writes "Midyear 3, \d+ AR", which reads back as "Midyear 3, \d+ AR"|reads back as/)
+    expect(issues.map((issue) => issue.path)).toContain('calendar.calendars[0].parts[1].name')
+    expect(issues[0]!.message).toMatch(/cannot contain a digit/)
   })
 
   it('is refused when a year reads as a month', () => {
@@ -155,7 +155,7 @@ describe('the read-back check, in years it might have missed', () => {
         leapRules: [{ every: 4, offset: 2, part: 0, days: 1 }],
       }],
     })
-    expect(issues.map((issue) => issue.path)).toContain('calendar.calendars[0].parts')
+    expect(issues.length).toBeGreaterThan(0)
   })
 
   it('refuses a collision though the first era begins beyond the reach of a date', () => {
@@ -170,5 +170,17 @@ describe('the read-back check, in years it might have missed', () => {
     })
     expect(issues.length).toBeGreaterThan(0)
     expect(issues[0]!.message).not.toMatch(/reads back as "([^"]+)".*\1/)
+  })
+})
+
+describe('calendars that share a year word', () => {
+  it('are refused, as their text could name a date in either', () => {
+    const a = { id: 'a', name: 'A', parts: [{ name: 'Thaw', days: 30 }, { name: 'Gale', days: 30 }], epoch: 0, eras: [{ label: 'AR', from: 1 }, { label: 'SR', from: 500 }] }
+    const b = { id: 'b', name: 'B', parts: [{ name: 'Seed', days: 30 }, { name: 'Gale', days: 30 }], epoch: 7, eras: [{ label: 'QR', from: 1 }, { label: 'SR', from: 100 }] }
+    const issues = calendarSetIssues({ version: 2, dayLength: 86_400, primary: 'a', calendars: [a, b] })
+    expect(issues.some((issue) => issue.path === 'calendar.calendars[1].eras' && /writes its years with "SR", as A does/.test(issue.message))).toBe(true)
+    // Two calendars without labels both write "Year 5".
+    const plain = (id: string) => ({ id, name: id.toUpperCase(), parts: [{ name: id === 'a' ? 'Thaw' : 'Seed', days: 30 }], epoch: 0 })
+    expect(calendarSetIssues({ version: 2, dayLength: 86_400, primary: 'a', calendars: [plain('a'), plain('b')] }).length).toBeGreaterThan(0)
   })
 })

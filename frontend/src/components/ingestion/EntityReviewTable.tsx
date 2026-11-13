@@ -113,7 +113,9 @@ const eventColumns: ReviewColumn[] = [
     kind: 'date',
     width: 'w-36',
     value: (entity) => ('timestamp' in entity ? entity.timestamp : ''),
-    edit: (raw) => ({ timestamp: raw }),
+    // A date typed over the extracted one says how much it knows itself: the
+    // extraction's month (and its calendar) no longer describe it.
+    edit: (raw) => ({ timestamp: raw, datePrecision: undefined, dateCalendar: undefined }),
   },
   CONFIDENCE_COLUMN,
 ]

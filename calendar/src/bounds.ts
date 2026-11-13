@@ -61,21 +61,36 @@ function formatBound(astronomicalYear: number, month?: number, day?: number): st
  */
 export function parseHistoricalDate(input: string, edge: DateBoundEdge): HistoricalDateParse {
   const trimmed = input.trim().replace(/\s+/g, ' ')
-  const match = HISTORICAL_DATE_PATTERN.exec(trimmed)
-  if (!match) {
-    return { ok: false, error: 'Write the year first: 1843, 1843-11 or 1843-11-20 (add BCE before 1 CE).' }
+  // ISO 8601's own spelling of a year outside 1-9999 (a signed six-digit
+  // year, or 0000) counts astronomically, as toISOString writes it and every
+  // other reader reads it: "-000043" is 44 BCE, "0000" is 1 BCE.
+  const iso = /^(?:([+-]\d{6})|(0000))(?:-(\d{1,2})(?:-(\d{1,2}))?)?$/.exec(trimmed)
+  let astronomicalYear: number
+  let monthText: string | undefined
+  let dayText: string | undefined
+  if (iso) {
+    astronomicalYear = Number(iso[1] ?? 0)
+    monthText = iso[3]
+    dayText = iso[4]
+  } else {
+    const match = HISTORICAL_DATE_PATTERN.exec(trimmed)
+    if (!match) {
+      return { ok: false, error: 'Write the year first: 1843, 1843-11 or 1843-11-20 (add BCE before 1 CE).' }
+    }
+    const [, minus, yearText, monthPart, dayPart, era] = match
+    const eraUpper = era?.toUpperCase()
+    const isBce = Boolean(minus) || eraUpper === 'BCE' || eraUpper === 'BC'
+    if (minus && (eraUpper === 'BCE' || eraUpper === 'BC' || eraUpper === 'CE' || eraUpper === 'AD')) {
+      return { ok: false, error: 'Use a minus sign or an era, not both.' }
+    }
+    const year = Number(yearText)
+    if (year === 0) {
+      return { ok: false, error: 'There is no year 0: 1 BCE is followed by 1 CE.' }
+    }
+    astronomicalYear = isBce ? 1 - year : year
+    monthText = monthPart
+    dayText = dayPart
   }
-  const [, minus, yearText, monthText, dayText, era] = match
-  const eraUpper = era?.toUpperCase()
-  const isBce = Boolean(minus) || eraUpper === 'BCE' || eraUpper === 'BC'
-  if (minus && (eraUpper === 'BCE' || eraUpper === 'BC' || eraUpper === 'CE' || eraUpper === 'AD')) {
-    return { ok: false, error: 'Use a minus sign or an era, not both.' }
-  }
-  const year = Number(yearText)
-  if (year === 0) {
-    return { ok: false, error: 'There is no year 0: 1 BCE is followed by 1 CE.' }
-  }
-  const astronomicalYear = isBce ? 1 - year : year
   const month = monthText === undefined ? undefined : Number(monthText)
   const day = dayText === undefined ? undefined : Number(dayText)
   if (month !== undefined && (month < 1 || month > 12)) {

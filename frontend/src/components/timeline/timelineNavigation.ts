@@ -226,11 +226,18 @@ export function offsetByStep(date: Date, step: TimeStep, direction: number, cale
       next.setTime(next.getTime() + n * APPROX_MS[step.unit])
       break
     case 'month':
-      next.setUTCMonth(next.getUTCMonth() + n)
+    case 'year': {
+      // The same day of the month, or the month's last when it is shorter
+      // (Jan 31 + 1 month is Feb 28, not Mar 3).
+      const day = next.getUTCDate()
+      next.setUTCDate(1)
+      if (step.unit === 'month') next.setUTCMonth(next.getUTCMonth() + n)
+      else next.setUTCFullYear(next.getUTCFullYear() + n)
+      const last = new Date(Date.UTC(2000, 0, 1))
+      last.setUTCFullYear(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)
+      next.setUTCDate(Math.min(day, last.getUTCDate()))
       break
-    case 'year':
-      next.setUTCFullYear(next.getUTCFullYear() + n)
-      break
+    }
   }
   return next
 }

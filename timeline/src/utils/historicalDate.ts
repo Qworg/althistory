@@ -8,13 +8,13 @@
  * fixed so the stored text does not depend on the machine that wrote it.
  */
 
-import { formatHistoricalDate as formatInLocale, toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, formatHistoricalDate as formatInLocale, toInstant } from '@althistory/calendar';
 
-/** "May 31, 1847". An unparseable value yields "an unknown date". */
-export function formatHistoricalDate(value: Date | string | number): string {
+/** "May 31, 1847", or in a world "Thaw 4, 312 AR". An unparseable value yields "an unknown date". */
+export function formatHistoricalDate(value: Date | string | number, calendar?: WorldCalendarSet): string {
   const date = toInstant(value);
   if (Number.isNaN(date.getTime())) return 'an unknown date';
-  return formatInLocale(date, 'en-US', null);
+  return formatInLocale(date, 'en-US', calendar ?? null);
 }
 
 /**

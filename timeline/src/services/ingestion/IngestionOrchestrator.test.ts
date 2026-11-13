@@ -448,3 +448,28 @@ describe('review edits in a world', () => {
     expect(formatInWorld(VAEL, Date.parse(arc.end_time))).toBe('Seedtide 30, 312 AR, 23:59');
   });
 });
+
+describe('validating an extraction for a world', () => {
+  it('refuses a Gregorian month the reviewer typed, and calls no world date future', () => {
+    const extraction = {
+      events: [
+        { tempId: 'e1', description: 'A', actor: 'A', target: 'B', timestamp: '1871-03', confidence: 1, source: { type: 'llm' }, selected: true, edited: true },
+        { tempId: 'e2', description: 'B', actor: 'A', target: 'B', timestamp: '2358-11-19T06:00:00.000Z', confidence: 1, source: { type: 'llm' }, selected: true, edited: false },
+      ],
+      arcs: [],
+      relationships: [],
+      sources: [],
+      overallConfidence: 1,
+    } as unknown as Parameters<typeof validateExtraction>[0];
+    const world: WorldCalendarSet = {
+      version: 2, dayLength: 86_400, primary: 'r',
+      calendars: [{ id: 'r', name: 'R', parts: [{ name: 'Thaw', days: 30 }], epoch: 0, eras: [{ label: 'AR', from: 1 }] }],
+    };
+    const issues = validateExtraction(extraction, world);
+    expect(issues.filter((issue) => issue.severity === 'error').map((issue) => issue.entityTempId)).toEqual(['e1']);
+    expect(issues.some((issue) => /future/.test(issue.message))).toBe(false);
+    // Without a world, the same month is read (and the far date is future).
+    const plain = validateExtraction(extraction);
+    expect(plain.filter((issue) => issue.severity === 'error')).toEqual([]);
+  });
+});

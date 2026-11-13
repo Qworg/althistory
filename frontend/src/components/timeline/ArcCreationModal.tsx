@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { TimeRange, CreateArcRequest, Event, Arc } from '@/types'
 import { useCreateArc } from '@/hooks/useAPI'
-import { formatHistoricalDate, formatHistoricalTimestamp, formatHistoricalEnd } from '@/utils/historicalTime'
+import { formatHistoricalDate, formatHistoricalTimestamp, formatHistoricalEnd, formatEventDate } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 import { DateField } from '@/components/ui/DateField'
 import { readDateFieldValue } from '@/utils/dateField'
@@ -401,7 +401,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
                     <div key={event.id} className="bg-subtle rounded-md p-2">
                       <p className="text-sm font-medium text-ink">{event.description}</p>
                       <p className="text-xs text-ink-muted">
-                        {event.actor} → {event.target} • <span className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</span>
+                        {event.actor} → {event.target} • <span className="font-mono-code">{formatEventDate(event)}</span>
                       </p>
                     </div>
                   ))}

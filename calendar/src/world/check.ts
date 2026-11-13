@@ -13,10 +13,13 @@
  * time, in years before and inside each era) and reads each back.
  */
 
+import { sameNameKey } from '../text'
 import {
+  type CalendarDefinition,
   type WorldCalendarIssue,
   type WorldCalendarSet,
   calendarSetShapeIssues,
+  cycleYears,
   trimCalendarSet,
 } from './definition'
 import { type CompiledCalendar, type WorldDateFields, calendarIn, dateAt, partLengths, positionOf } from './engine'
@@ -65,12 +68,52 @@ function leapYears(calendar: CompiledCalendar, near: number): number[] {
     .filter((year) => reachable(calendar, year))
 }
 
+/**
+ * For each festival, a year near `near` for each length its leap rules give
+ * it (over the cycle of the rules that touch it, which the shape check keeps
+ * within 100,000 years).
+ */
+function festivalYears(calendar: CompiledCalendar, near: number): number[] {
+  const years = new Set<number>()
+  const rules = calendar.definition.leapRules ?? []
+  calendar.definition.parts.forEach((part, index) => {
+    if (!part.intercalary) return
+    const own = rules.filter((rule) => rule.part === index)
+    if (own.length === 0) return
+    const seen = new Set<number>()
+    const cycle = cycleYears(own)
+    for (let year = near; year < near + cycle; year++) {
+      let days = part.days
+      for (const rule of own) {
+        const offset = rule.offset ?? 0
+        if ((((year - offset) % rule.every) + rule.every) % rule.every === 0) days += rule.days
+      }
+      if (!seen.has(days)) {
+        seen.add(days)
+        if (reachable(calendar, year)) years.add(year)
+      }
+    }
+  })
+  return [...years]
+}
+
 function samplesOf(calendar: CompiledCalendar): Sample[] {
   const samples: Sample[] = []
   const { hoursPerDay, minutesPerHour } = calendar.time
   const at = (year: number, part: number, day: number, hour = 0, minute = 0): WorldDateFields => ({ year, part, day, hour, minute, second: 0 })
   const { full, brief } = sampleYears(calendar)
   const base = full[0] ?? brief[0]
+  // Every length a festival takes in its leap cycle (a one-day festival is
+  // written differently from a longer one), in a year it takes it.
+  for (const year of base === undefined ? [] : festivalYears(calendar, base)) {
+    if (full.includes(year)) continue
+    const lengths = partLengths(calendar, year)
+    lengths.forEach((days, part) => {
+      if (!calendar.definition.parts[part]!.intercalary) return
+      samples.push({ fields: at(year, part, 1), precision: 'day', withTime: false, across: false })
+      if (days > 1) samples.push({ fields: at(year, part, days), precision: 'day', withTime: false, across: false })
+    })
+  }
   // In a year a rule changes, the parts whose length changes that year.
   for (const year of base === undefined ? [] : leapYears(calendar, base)) {
     if (full.includes(year)) continue
@@ -102,6 +145,19 @@ function samplesOf(calendar: CompiledCalendar): Sample[] {
 }
 
 /**
+ * The words a calendar writes its years with: its eras' labels, what years
+ * before them are called, and "Year" when its years have no label. Every
+ * date it writes holds one; a calendar that shares none with another can
+ * never write text the other reads.
+ */
+function yearWords(definition: CalendarDefinition): string[] {
+  const eras = definition.eras ?? [{ label: '', from: 1 }]
+  const labels = eras.map((era) => era.label).filter((label) => label !== '')
+  const before = definition.beforeEra ?? (eras[0]!.label ? `before ${eras[0]!.label}` : 'before Year 1')
+  return [...labels, before, ...(labels.length === 0 ? ['Year'] : [])]
+}
+
+/**
  * Text the set writes that reads back as another date, or in another of its
  * calendars too. The shape must already check out.
  */
@@ -109,6 +165,29 @@ export function readBackIssues(set: WorldCalendarSet): WorldCalendarIssue[] {
   const trimmed = trimCalendarSet(set)
   const calendars = trimmed.calendars.map((definition) => calendarIn(trimmed, definition.id))
   const issues: WorldCalendarIssue[] = []
+  // No digit in a month's or festival's name: it reads as a day or a year (a
+  // festival "Midyear 3" beside a month "Midyear" writes what reads as that
+  // month's third day). A rule for new calendars; one stored before it is shown.
+  trimmed.calendars.forEach((definition, index) => {
+    definition.parts.forEach((part, at) => {
+      if (/\p{Nd}/u.test(part.name)) {
+        const path = `calendar.calendars[${index}].parts[${at}].name`
+        issues.push({ path, message: `${path} cannot contain a digit, which would read as a day or a year` })
+      }
+    })
+  })
+  // Year words of its own, whatever the sample below finds.
+  trimmed.calendars.forEach((definition, index) => {
+    const mine = new Map(yearWords(definition).map((word) => [sameNameKey(word), word]))
+    const other = trimmed.calendars.findIndex((candidate, at) => at < index && yearWords(candidate).some((word) => mine.has(sameNameKey(word))))
+    if (other >= 0) {
+      const word = yearWords(trimmed.calendars[other]!).find((candidate) => mine.has(sameNameKey(candidate)))!
+      issues.push({
+        path: `calendar.calendars[${index}].eras`,
+        message: `calendar.calendars[${index}] writes its years with "${word}", as ${trimmed.calendars[other]!.name} does: give ${definition.name} era labels (and a name for the years before them) of its own`,
+      })
+    }
+  })
   calendars.forEach((calendar, index) => {
     const path = `calendar.calendars[${index}]`
     const name = calendar.definition.name

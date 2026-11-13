@@ -11,7 +11,7 @@ import { useArcs } from '@/hooks/useArcs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
 import { Event, Arc } from '@/types'
-import { formatHistoricalTimestamp, historicalYear } from '@/utils/historicalTime'
+import { historicalYear, formatEventDate } from '@/utils/historicalTime'
 
 export interface ActorPerspectiveViewProps {
   className?: string
@@ -407,7 +407,7 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-ink-muted">Timestamp</dt>
-                  <dd className="font-mono-code text-ink">{formatHistoricalTimestamp(selectedEvent.timestamp)}</dd>
+                  <dd className="font-mono-code text-ink">{formatEventDate(selectedEvent)}</dd>
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-ink-muted">Role</dt>

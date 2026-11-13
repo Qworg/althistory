@@ -2,7 +2,7 @@ import { memo, useMemo, useState, useCallback, useRef, useLayoutEffect, useEffec
 import type React from 'react'
 import * as d3 from 'd3'
 import { Event, Arc, GraphCalendar } from '@/types'
-import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
 import { axisTicks } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import {
@@ -60,7 +60,7 @@ const COMPACT_WIDTH = 560
 
 /** "Halifax Appointed, King → Halifax, May 10, 1940, 12:00 UTC (Halifax Government lane)". */
 function eventLabel(event: Event, laneName: string, calendar: GraphCalendar | null): string {
-  return `${event.description}, ${event.actor} → ${event.target}, ${formatHistoricalTimestamp(event.timestamp, undefined, calendar)} (${laneName} lane)`
+  return `${event.description}, ${event.actor} → ${event.target}, ${formatEventDate(event, undefined, calendar)} (${laneName} lane)`
 }
 
 /** Keyboard focus ring for an event mark, shown while its group is :focus-visible. */

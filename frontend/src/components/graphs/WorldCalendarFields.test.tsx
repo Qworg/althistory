@@ -9,6 +9,9 @@ import { VAEL } from '@/test/fixtures/worldCalendars'
 
 vi.mock('@/hooks/useGraphs')
 
+// These type whole calendars into the editor: slow under a full parallel run.
+vi.setConfig({ testTimeout: 20_000 })
+
 const vael: Graph = {
   id: 'vael',
   name: 'Vael',

@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { storedCalendarSet, toInstant } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
-import { isIsoText, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
+import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import { IEngine } from './IEngine';
 import {
   HealthInfo,
@@ -277,7 +277,7 @@ export class RemoteEngine implements IEngine {
     text: string,
     edge: 'start' | 'end' = 'start'
   ): Promise<{ iso: string; precision: 'day' | 'month' | 'year'; deferred: boolean }> {
-    if (isIsoText(text)) return { ...readAgentTimestamp(text, undefined, edge), deferred: false };
+    if (!needsCalendar(text)) return { ...readAgentTimestamp(text, undefined, edge), deferred: false };
     let refused = false;
     const graph = await this.getGraph(graphId).catch((err: unknown) => {
       refused = err instanceof AuthErrorCLI;

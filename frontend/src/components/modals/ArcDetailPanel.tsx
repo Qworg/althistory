@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Arc, Event, UpdateArcRequest, CreateArcRequest } from '@/types'
 import { formatDuration } from '../timeline/arcHierarchyUtils'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 import { DateField } from '@/components/ui/DateField'
 import { describedBy } from '@/utils/aria'
@@ -400,7 +400,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
                       <div key={event.id} className="bg-subtle rounded-md p-3">
                         <p className="text-sm font-medium text-ink">{event.description}</p>
                         <p className="text-xs text-ink-muted">
-                          {event.actor} → {event.target} • <span className="font-mono-code">{formatHistoricalTimestamp(event.timestamp)}</span>
+                          {event.actor} → {event.target} • <span className="font-mono-code">{formatEventDate(event)}</span>
                         </p>
                       </div>
                     ))}

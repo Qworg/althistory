@@ -35,6 +35,16 @@ export function isIsoText(text: string): boolean {
 }
 
 /**
+ * Whether reading the text needs the graph's calendars: anything but an ISO
+ * date or date and time does (a world's notation, and an ISO month or year,
+ * which a world refuses).
+ */
+export function needsCalendar(text: string): boolean {
+  const iso = parseIsoInstant(String(text).trim());
+  return iso === null || iso.precision === 'month' || iso.precision === 'year';
+}
+
+/**
  * An agent's timestamp: ISO 8601, or in a graph with world calendars a date
  * in the world's notation ("Thaw 4, 312 AR", "Thaw 312 AR"). With `edge:
  * 'end'`, a world date without a time is the last moment of the day, month

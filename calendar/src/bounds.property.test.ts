@@ -74,11 +74,35 @@ const typedBound = fc
     const body = `${shown}${month !== undefined ? `-${unit(month)}` : ''}${day !== undefined ? `-${unit(day)}` : ''}`
     let text: string
     if (year >= 1) text = era === 'word' ? `${body} CE` : era === 'word-lower' ? `${body} ad` : body
-    else text = era === 'minus' ? `-${body}` : era === 'word-lower' ? `${body} bc` : `${body} BCE`
+    // A minus sign before six digits is ISO 8601's astronomical year (tested below), not a count back.
+    else text = era === 'minus' && shown < 100000 ? `-${body}` : era === 'word-lower' ? `${body} bc` : `${body} BCE`
     return { text, year, month, day }
   })
 
 const edge = fc.constantFrom<DateBoundEdge>('start', 'end')
+
+describe("a bound in ISO 8601's own spelling of a year outside 1-9999", () => {
+  it('counts astronomically, as toISOString writes it and every other reader reads it', () => {
+    fc.assert(
+      fc.property(arb.instant, edge, (date, side) => {
+        const iso = date.toISOString()
+        const yearPart = iso.slice(0, iso.indexOf('-', 1))
+        fc.pre(yearPart.length === 7 || yearPart === '0000')
+        // The last day a date holds has no end inside the range (refused as out of range).
+        fc.pre(!(side === 'end' && date.getTime() > arb.MAX_TIME - 86_400_000))
+        const read = parseHistoricalDate(iso.slice(0, iso.indexOf('T')), side)
+        expect(read.ok, iso).toBe(true)
+        const day = (text: string) => text.slice(0, text.indexOf('T'))
+        if (read.ok && side === 'start') expect(day(read.date.toISOString())).toBe(day(iso))
+      }),
+      arb.runs(500)
+    )
+    const bce = parseHistoricalDate('-000043-03-15', 'start')
+    expect(bce.ok && bce.text).toBe('44-03-15 BCE')
+    const zero = parseHistoricalDate('0000', 'start')
+    expect(zero.ok && zero.text).toBe('1 BCE')
+  })
+})
 
 describe('a typed bound, for every year, month and day', () => {
   it('names the right period, or says exactly why it cannot', () => {

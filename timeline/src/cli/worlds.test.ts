@@ -648,6 +648,10 @@ describe('invented worlds', () => {
       const inRange = await engine.listEvents(graph.id, { from: '141 AR', to: '141 AR' });
       expect(inRange.map((event) => event.description)).toEqual(['The harbours close']);
       expect(await engine.listEvents(graph.id, { from: '152 AR' })).toHaveLength(1);
+
+      // A Gregorian month or year is no period of the world's: refused here as by the API.
+      await expect(engine.createEvent(graph.id, { description: 'x', timestamp: '1871-03' })).rejects.toThrow(/Gregorian month, which is no month of this world/);
+      await expect(engine.createArc(graph.id, { name: 'x', startTime: '1 AR', endTime: '1871' })).rejects.toThrow(/Gregorian year/);
     });
 
     it('is chronicled from a start written in its own calendar', async () => {

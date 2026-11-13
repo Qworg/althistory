@@ -36,6 +36,7 @@ import { Arc } from '@/models/Arc';
 import { createLogger, ILogger } from '@/utils/logger';
 import { StoredCausalRelationship } from './CausalService';
 import { formatHistoricalDate } from '@/utils/historicalDate';
+import type { WorldCalendarSet } from '@althistory/calendar';
 
 /** A write to a live entity that should be reflected in one named graph's version. */
 export type EntityWriteOperation = 'create' | 'update';
@@ -166,6 +167,8 @@ export interface EntityWriteContext {
   effect?: Record<string, unknown>;
   /** For an event delete: how many links went with it. */
   cascadedLinks?: number;
+  /** The graph's world calendars, so a moved date is named as the world names it. */
+  calendar?: WorldCalendarSet;
 }
 
 /**
@@ -198,7 +201,7 @@ export function describeEntityWrite(
       const renamed = entityName(type, before) !== name;
       const otherChange = before.actor !== after.actor || before.target !== after.target;
       if (moved && !renamed && !otherChange) {
-        return `Moved ${name} to ${formatHistoricalDate(after.timestamp as string)}`;
+        return `Moved ${name} to ${formatHistoricalDate(after.timestamp as string, context.calendar)}`;
       }
       if (renamed && !moved && !otherChange) {
         return `Renamed event ${entityName(type, before)} to ${name}`;
@@ -333,6 +336,7 @@ export class GraphWriteVersioningService {
     const context: EntityWriteContext = { data: entity.data };
     if (operation === 'update') {
       context.previous = (await this.headEntities(graphId, write.type, [write.id]))[write.id];
+      if (write.type === 'event') context.calendar = (await this.graphRepository.findById(graphId).catch(() => null))?.calendar;
     }
     if (write.type === 'relationship') {
       Object.assign(context, await this.linkEnds(graphId, entity.data));

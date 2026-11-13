@@ -6,7 +6,7 @@ import {
   getPressureTypeIconPath,
   getConfidenceLevel 
 } from '@/utils/pressureVisualization'
-import { formatHistoricalDate, formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 
 export interface PressureDetailModalProps {
@@ -212,7 +212,7 @@ export const PressureDetailModal: React.FC<PressureDetailModalProps> = ({
                         </div>
                       </div>
                       <div className="font-mono-code text-sm text-ink-muted ml-4 shrink-0">
-                        {formatHistoricalTimestamp(event.timestamp)}
+                        {formatEventDate(event)}
                       </div>
                     </div>
                   ))}
