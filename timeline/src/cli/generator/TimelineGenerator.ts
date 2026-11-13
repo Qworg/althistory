@@ -36,6 +36,7 @@ import {
   dateAt,
   datePrecisionMetadata,
   formatInWorld,
+  formatHistoricalDateAt,
   formatWorldYearOf,
   unreadDateReason,
   isCalendarSet,
@@ -55,6 +56,17 @@ import {
 } from '@althistory/calendar';
 import { formatHistoricalDate } from '@/utils/historicalDate';
 import { ValidationErrorCLI } from '../utils/exitCodes';
+
+/**
+ * The year a generated era's name carries: the world's own year in a world, and
+ * otherwise the year as the rest of the app writes it (a year of any size, BCE
+ * years with their era), never the first four characters of the stored text.
+ */
+export function eraYearLabel(timestamp: string, calendar?: WorldCalendarSet): string {
+  if (!calendar) return formatHistoricalDateAt(timestamp, 'year', 'en', null);
+  const primary = calendarIn(calendar);
+  return formatWorldYearOf(primary.definition, dateAt(primary, toAxisTime(toInstant(timestamp)) ?? 0n).year);
+}
 
 export interface TimelineGeneratorConfig {
   readonly llmClient?: LLMClient | null;
@@ -574,11 +586,7 @@ export class TimelineGenerator {
    * and never above it.
    */
   private buildArcHierarchy(baseArcs: ExtractedArc[], depth: number, calendar?: WorldCalendarSet): StructuredArc[] {
-    const yearOf = (timestamp: string): string => {
-      if (!calendar) return timestamp.slice(0, 4);
-      const primary = calendarIn(calendar);
-      return formatWorldYearOf(primary.definition, dateAt(primary, toInstant(timestamp).getTime()).year);
-    };
+    const yearOf = (timestamp: string): string => eraYearLabel(timestamp, calendar);
     const maxDepth = Math.max(1, Math.min(Math.trunc(depth) || 1, 4));
 
     let current: StructuredArc[] = baseArcs.map((arc) => ({
