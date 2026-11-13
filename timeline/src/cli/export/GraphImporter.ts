@@ -59,7 +59,7 @@ export class GraphImporter {
       warnings.push(
         calendar
           ? "The document's dates are in its own world calendars, which this graph does not keep: they are shown in the graph's calendars instead."
-          : "The document's dates are in its own world calendars, and this graph has none: they are shown as Gregorian dates. Import without --graph-id to keep the calendars."
+          : "The document's dates are in its own world calendars, and this graph has none: they are shown as Gregorian dates. Import into a new graph to keep the calendars."
       );
     }
     const problems: string[] = [];

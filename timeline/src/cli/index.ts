@@ -25,6 +25,11 @@ function withCalendarFile<T extends { calendarFile?: unknown }>(cmdOpts: T): T &
 import { formatSuccessJson } from './formatters/jsonFormatter';
 import { type WorldCalendarSet, storedCalendarSet } from '@althistory/calendar';
 
+/** The world calendars a result carries itself (a generated world's), if any. */
+function worldOf(result: unknown): WorldCalendarSet | undefined {
+  return storedCalendarSet((result as { calendar?: unknown } | null)?.calendar) ?? undefined;
+}
+
 /** A graph's world calendars, to show its dates in; none for a graph without (or one that cannot be read). */
 async function graphCalendar(engine: { getGraph(id: string): Promise<{ calendar?: unknown }> }, graphId: string): Promise<WorldCalendarSet | undefined> {
   try {
@@ -558,7 +563,7 @@ export function createProgram(): Command {
           { success: true, event, arcId: String(cmdOpts?.arc) },
           getFormat(opts),
           engine.mode,
-          { durationMs: Date.now() - start, graphId: String(cmdOpts?.graphId) }
+          { durationMs: Date.now() - start, graphId: String(cmdOpts?.graphId), calendar: await graphCalendar(engine, String(cmdOpts?.graphId)) }
         );
         process.stdout.write(output + '\n');
       } finally {
@@ -661,6 +666,7 @@ export function createProgram(): Command {
         const output = formatOutput(res, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -726,6 +732,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -775,6 +783,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -814,6 +824,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -882,6 +894,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -925,6 +939,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -966,6 +982,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -1033,6 +1051,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -1148,6 +1168,8 @@ export function createProgram(): Command {
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: result.graphId,
+          // Its dates as the world writes them: a generated world's own calendars, or the graph's.
+          calendar: worldOf(result) ?? (await graphCalendar(engine, result.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {

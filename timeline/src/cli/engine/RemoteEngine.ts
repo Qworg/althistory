@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { storedCalendarSet, toInstant } from '@althistory/calendar';
+import { datePrecisionMetadata, storedCalendarSet, toInstant } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
 import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import { IEngine } from './IEngine';
@@ -862,6 +862,11 @@ export class RemoteEngine implements IEngine {
             timestamp: readString(event.timestamp),
             actor: readOptionalString(event.actor),
             target: readOptionalString(event.target),
+            // Its date's precision and calendar, so it is shown as the server read it (as in direct mode).
+            metadata: datePrecisionMetadata({
+              precision: event.datePrecision === 'month' || event.datePrecision === 'year' ? event.datePrecision : 'day',
+              calendar: typeof event.dateCalendar === 'string' ? event.dateCalendar : undefined,
+            }),
           };
         }),
         arcs: arcs.map((entry) => {
@@ -1487,6 +1492,10 @@ export class RemoteEngine implements IEngine {
         },
         conflicts: Array.isArray(body.errors) ? body.errors.length : 0,
         strategy: options?.strategy || 'skip',
+        // What the server warned of (a document's calendars the graph does not keep), as in direct mode.
+        ...(Array.isArray(body.warnings) && body.warnings.length > 0
+          ? { warnings: body.warnings.map((warning) => (isRecord(warning) ? readString(warning.message) : String(warning))) }
+          : {}),
       };
     } catch (err) {
       return this.handleError(err, 'importing graph');

@@ -695,6 +695,23 @@ describe('invented worlds', () => {
       expect(listed.body.data.map((event: { worldDate: string }) => event.worldDate)).toContain('Flooding 401 TC');
     });
 
+    it("leaves a world's prose undated when only the patterns read it, rather than store its numbers as Gregorian years", async () => {
+      const graph = await engine.createGraph('Vael prose', undefined, VAEL as never);
+      created.push(graph.id);
+      const result = await engine.ingestText(graph.id, 'In 1312 AR the Salt Council met in Vael. On March 4, 1871 the tide turned.', { mode: 'pattern', dryRun: false });
+      expect(result.eventsCreated).toBe(0);
+      expect(await engine.listEvents(graph.id)).toEqual([]);
+    });
+
+    it('shows world dates in every CLI answer that carries one', async () => {
+      const graph = await engine.createGraph('Vael assign', undefined, VAEL as never);
+      created.push(graph.id);
+      const arc = await engine.createArc(graph.id, { name: 'Age', startTime: '1 AR', endTime: '900 AR' });
+      const event = await engine.createEvent(graph.id, { description: 'Thaw', timestamp: 'Thaw 312 AR' });
+      const assigned = await cli(['arc', 'assign', event.id, '-g', graph.id, '--arc', arc.id]);
+      expect(assigned.body.data.event.worldDate).toBe('Thaw 312 AR');
+    });
+
     it('says so when a world export is imported into a graph that does not keep its calendars', async () => {
       const world = await engine.createGraph('Vael source', undefined, VAEL as never);
       const plain = await engine.createGraph('Plain target');

@@ -425,6 +425,11 @@ describe('importReducer', () => {
     })
   })
 
+  it('keeps the graph it imports into when starting over', () => {
+    const into = { ...initialImportState, targetGraphId: 'vael', mode: 'merge' as const, step: 'execute' as const }
+    expect(importReducer(into, { type: 'RESET' })).toEqual({ ...initialImportState, targetGraphId: 'vael' })
+  })
+
   it('starts each step without the error of the one before', () => {
     const failed = importReducer(initialImportState, { type: 'SET_ERROR', payload: 'network down' })
     expect(importReducer(failed, { type: 'SET_STEP', payload: 'execute' })).toMatchObject({ step: 'execute', error: null })

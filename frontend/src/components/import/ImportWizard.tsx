@@ -394,6 +394,8 @@ export function ImportWizard({
       // If going back from execute after completion, reset
       if (state.step === 'execute' && state.result) {
         dispatch({ type: 'RESET' })
+        shownMode.current = initialImportState.mode
+        checkSeq.current += 1
         return
       }
       const prevStep = STEP_ORDER[currentIndex - 1]

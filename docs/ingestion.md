@@ -45,9 +45,9 @@ a date, and has it write every date that way: "the Tide War began on
 Midyear's Day, 141 AR" is read by the graph's own calendar, a month or a year
 alone ("in Thaw of 141 AR") with that precision. The review step shows and
 takes dates in the world's notation too. The patterns read only Gregorian
-dates, which an invented world does not use: for a world, use `llm` (the
-pattern reader's dates would be places on the timeline, not the world's
-days).
+dates, which an invented world does not use: in a graph with world
+calendars they date nothing, and every sentence goes to the review undated,
+for the reviewer to date in the world's notation. For a world, use `llm`.
 
 Both ingestion paths do this. The CLI's in-process ingestion (the CLI and the
 MCP server when no app is running) reads the target graph's calendar, and

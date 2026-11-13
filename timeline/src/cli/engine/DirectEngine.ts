@@ -896,13 +896,14 @@ export class DirectEngine implements IEngine {
     mode: 'pattern' | 'llm' | 'hybrid',
     calendar?: WorldCalendarSet
   ): Promise<ExtractionResult> {
+    // Prose about an invented world dates things in the world's years; the
+    // model is told how they are stored. Pattern extraction cannot read them:
+    // told the calendar, it leaves every sentence undated, for the review.
+    const context = calendar ? { instructions: calendarSetInstructions(calendar), calendar } : undefined;
     if (mode === 'pattern') {
-      return extractor.extract({ text, useLLM: false });
+      return extractor.extract({ text, useLLM: false }, context);
     }
 
-    // Prose about an invented world dates things in the world's years; the
-    // model is told how they are stored. Pattern extraction cannot read them.
-    const context = calendar ? { instructions: calendarSetInstructions(calendar), calendar } : undefined;
     const llmResult = await extractor.extractWithLLM({ text }, context);
 
     if (mode === 'llm') {
@@ -915,7 +916,7 @@ export class DirectEngine implements IEngine {
       return llmResult;
     }
 
-    const patternResult = await extractor.extract({ text, useLLM: false });
+    const patternResult = await extractor.extract({ text, useLLM: false }, context);
     return mergeExtractionResults(patternResult, llmResult);
   }
 

@@ -210,7 +210,8 @@ Give `reasoning` on every `althistory_link_events` call: without it the link
 records "Observed historical causality", which reads oddly in a world nobody
 observed. Ingesting prose about a world (`althistory_ingest_text`
 into a graph with a calendar) tells the model the calendar too; the offline
-pattern reader cannot read invented years, so give it ISO dates or use a model.
+pattern reader cannot read invented years: in a world graph it leaves every
+sentence undated (nothing is created without a review), so use a model.
 
 ---
 

@@ -175,7 +175,9 @@ export function importReducer(state: ImportWizardState, action: ImportAction): I
     case 'SET_ERROR':
       return { ...state, error: action.payload }
     case 'RESET':
-      return initialImportState
+      // Starting over keeps the graph the wizard imports into: the next file
+      // is checked against it, and can be merged into it, as the first was.
+      return { ...initialImportState, targetGraphId: state.targetGraphId }
     default:
       return state
   }

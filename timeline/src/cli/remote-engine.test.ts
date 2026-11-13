@@ -264,6 +264,18 @@ function createDaemon(): { app: Express; requests: RecordedRequest[]; state: Dae
    * `text` for the pattern path -- and the result names the reading as a
    * whole with `llm-generated` or `text-extraction`.
    */
+  app.post('/api/import', (_req, res) => {
+    res.json({
+      success: true,
+      graphId: 'g1',
+      graphVersion: 2,
+      imported: { events: 1, arcs: 0, relationships: 0, pressures: 0 },
+      skipped: { events: 0, arcs: 0, relationships: 0, pressures: 0 },
+      errors: [],
+      warnings: [{ path: '$.metadata.calendar', code: 'CALENDAR_MISMATCH', message: 'shown as Gregorian dates' }],
+    });
+  });
+
   app.post('/api/ingest/text', (req, res) => {
     const useLLM = (req.body as { useLLM?: boolean }).useLLM !== false;
     const modelAnswered = state.ingestSourceType
@@ -282,6 +294,7 @@ function createDaemon(): { app: Express; requests: RecordedRequest[]; state: Dae
             actor: 'Continental Congress',
             target: 'King George III',
             timestamp: '1776-07-04T00:00:00Z',
+            ...(state.ingestDate ?? {}),
             confidence: 0.9,
             source: {
               type: eventSourceType,
@@ -363,6 +376,8 @@ interface DaemonState {
    * model answered, `text` when the patterns did.
    */
   ingestSourceType?: 'llm' | 'text';
+  /** The date fields the ingestion preview gives its event (a month in a world's other calendar, say). */
+  ingestDate?: { timestamp: string; datePrecision?: string; dateCalendar?: string };
   /** Whether `GET /api/graphs/:id` refuses the key (403), as a key allowed events but not graphs. */
   refuseGraph?: boolean;
   /** Whether `GET /export` answers 202 with a job instead of the document. */
@@ -455,6 +470,15 @@ describe('RemoteEngine against a stand-in daemon', () => {
 
     // The event list's filter takes instants only, so such a bound is refused here.
     await expect(engine.listEvents('g1', { from: 'Thaw 312 AR' })).rejects.toThrow(/cannot read the graph/);
+  });
+
+  it("shows an ingested date at the precision and in the calendar the server read, and passes on an import's warnings", async () => {
+    daemon.state.ingestDate = { timestamp: '2026-01-01T00:00:00.000Z', datePrecision: 'month', dateCalendar: 'tide' };
+    const result = await engine.ingestText('g1', 'x', { mode: 'pattern' });
+    expect(result.entities.events[0]!.metadata).toEqual({ datePrecision: 'month', dateCalendar: 'tide' });
+
+    const imported = await engine.importGraph(JSON.stringify({ version: '1.0', metadata: {}, data: { events: [] } }), { graphId: 'g1' });
+    expect(imported.warnings).toEqual(['shown as Gregorian dates']);
   });
 
   it("keeps an event's metadata when its date changes, replacing only the date's precision", async () => {

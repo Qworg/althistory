@@ -28,4 +28,9 @@ describe('what the model is told about dates', () => {
     const event = { tempId: 'e', description: 'The river rose', timestamp: thaw.iso, datePrecision: 'month' } as ExtractedEvent;
     expect(buildRelationshipPrompt([event], { calendar: VAEL }).userPrompt).toContain('0: The river rose (Thaw 312 AR)');
   });
+
+  it("reads a world's default time range by the one rule, and shows text it cannot read as written", () => {
+    const prompt = buildEventExtractionPrompt('text', { calendar: VAEL, defaultTimeRange: { start: 'Thaw 312 AR', end: 'whenever' } });
+    expect(prompt.userPrompt).toContain('Default time range: Thaw 312 AR to whenever');
+  });
 });

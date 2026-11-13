@@ -1936,7 +1936,9 @@ export class ImportService {
     options: ImportOptions
   ): Promise<ImportPreview> {
     // As the import will read them: with the calendars of the graph it goes into.
-    importData = (await this.readDates(importData, options)).data;
+    const read = await this.readDates(importData, options);
+    const targetCalendar = options.mode === 'create-new' || !options.graphId ? undefined : (read.calendar ?? null);
+    importData = read.data;
     const conflicts = options.graphId
       ? await this.detectConflicts(importData, options.graphId, options.mode)
       : [];
@@ -2023,8 +2025,8 @@ export class ImportService {
       });
     }
 
-    // Gather warnings
-    const validation = await this.validateFormat(importData);
+    // Gather warnings (a document's calendars the target does not keep among them)
+    const validation = await this.validateFormat(importData, targetCalendar);
 
     return {
       toCreate,

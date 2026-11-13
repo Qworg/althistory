@@ -2,7 +2,7 @@
  * Prompt builders and JSON schema for LLM-assisted extraction (spec Req 10.2).
  */
 
-import { type WorldCalendarSet, formatInWorld } from '@althistory/calendar';
+import { type WorldCalendarSet, formatInWorld, readWorldTimestamp } from '@althistory/calendar';
 import { ExtractedEvent, ExtractionContext } from '../ingestion/types';
 
 export interface LLMExtractionPrompt {
@@ -61,10 +61,14 @@ function contextLines(context?: ExtractionContext): string {
   if (context.defaultTimeRange) {
     // In a world, as the world writes dates: an ISO date here would contradict
     // the instruction never to write one.
+    // Read by the rule every door applies; text it cannot read is shown as written.
     const { start, end } = context.defaultTimeRange;
-    const shown = (value: string) =>
-      context.calendar && Number.isFinite(Date.parse(value)) ? formatInWorld(context.calendar, Date.parse(value)) : value;
-    lines.push(`Default time range: ${shown(start)} to ${shown(end)}`);
+    const shown = (value: string, edge: 'start' | 'end') => {
+      if (!context.calendar) return value;
+      const read = readWorldTimestamp(context.calendar, String(value), edge);
+      return read ? formatInWorld(context.calendar, Date.parse(read.iso), read.precision, read.calendar) : value;
+    };
+    lines.push(`Default time range: ${shown(start, 'start')} to ${shown(end, 'end')}`);
   }
   if (context.defaultActors?.length) {
     lines.push(`Known actors: ${context.defaultActors.join(', ')}`);

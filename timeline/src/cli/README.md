@@ -135,7 +135,7 @@ event in the one shown, with its place on the timeline beside it ("Thaw 4,
 312 AR (2358-11-19T06:00:00.000Z)"), so an agent reading it knows how to write
 the world's dates. `ingest text` into a graph with calendars tells the model
 how they name a date and has it write dates that way; the pattern reader
-reads only Gregorian dates. See [the MCP guide](../../../docs/mcp-agent-guide.md#inventing-a-world).
+reads only Gregorian dates, so in a world it dates (and creates) nothing. See [the MCP guide](../../../docs/mcp-agent-guide.md#inventing-a-world).
 
 ## What the daemon cannot do
 
