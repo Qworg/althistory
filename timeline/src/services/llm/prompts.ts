@@ -59,7 +59,12 @@ function contextLines(context?: ExtractionContext): string {
   if (!context) return '';
   const lines: string[] = [];
   if (context.defaultTimeRange) {
-    lines.push(`Default time range: ${context.defaultTimeRange.start} to ${context.defaultTimeRange.end}`);
+    // In a world, as the world writes dates: an ISO date here would contradict
+    // the instruction never to write one.
+    const { start, end } = context.defaultTimeRange;
+    const shown = (value: string) =>
+      context.calendar && Number.isFinite(Date.parse(value)) ? formatInWorld(context.calendar, Date.parse(value)) : value;
+    lines.push(`Default time range: ${shown(start)} to ${shown(end)}`);
   }
   if (context.defaultActors?.length) {
     lines.push(`Known actors: ${context.defaultActors.join(', ')}`);

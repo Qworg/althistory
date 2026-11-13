@@ -68,7 +68,9 @@ describe('direct ingestion into a world graph', () => {
   it("stores each date at the precision and in the calendar the model gave it", async () => {
     const graph = await engine.createGraph('Vael', undefined, VAEL as never);
     created.push(graph.id);
-    await engine.ingestText(graph.id, 'The council of Vael met thrice.', { mode: 'llm', dryRun: false });
+    const result = await engine.ingestText(graph.id, 'The council of Vael met thrice.', { mode: 'llm', dryRun: false });
+    // What the tool answers carries each date's precision and calendar too.
+    expect(result.entities.events.map((event) => event.metadata?.datePrecision).sort()).toEqual(['month', 'month', 'year']);
     const events = await engine.listEvents(graph.id);
     const shown = events
       .map((event) => formatInWorld(VAEL, Date.parse(event.timestamp), event.metadata?.datePrecision as never, event.metadata?.dateCalendar as never))

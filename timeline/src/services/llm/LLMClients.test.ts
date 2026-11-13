@@ -8,6 +8,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FetchHttpClient } from '../ingestion/http';
+import { readWorldTimestamp } from '@althistory/calendar';
 import openAiFixture from './fixtures/openai-chat-completions.json';
 import anthropicFixture from './fixtures/anthropic-messages.json';
 
@@ -135,6 +136,31 @@ describe('AnthropicClient', () => {
       description: 'The Battle of Hastings was fought',
       source: { type: 'llm' },
     });
+  });
+
+  it("shows the model a world's events and range in the world's notation, never as ISO dates", async () => {
+    const vael = {
+      version: 2 as const,
+      dayLength: 86_400,
+      primary: 'reckoning',
+      calendars: [{ id: 'reckoning', name: 'the Reckoning', parts: [{ name: 'Thaw', days: 30 }, { name: 'Gale', days: 30 }], epoch: 0, eras: [{ label: 'AR', from: 1 }] }],
+    };
+    const thaw = readWorldTimestamp(vael, 'Thaw 312 AR')!;
+    mocks.anthropicCreate.mockResolvedValue({ content: [{ type: 'text', text: '{"relationships":[]}' }] });
+    const client = new AnthropicClient({ apiKey: 'test-key' });
+    const event = (tempId: string) => ({
+      tempId, description: `The river rose ${tempId}`, actor: 'A', target: 'B', timestamp: thaw.iso, datePrecision: 'month' as const,
+      confidence: 0.5, source: { type: 'llm' as const, extractedAt: '2020-01-01T00:00:00Z' }, selected: true, edited: false,
+    });
+    await client.suggestRelationships([event('a'), event('b')], { calendar: vael });
+    const sent = JSON.stringify(mocks.anthropicCreate.mock.calls[0]![0]);
+    expect(sent).toContain('(Thaw 312 AR)');
+
+    mocks.anthropicCreate.mockResolvedValue({ content: [{ type: 'text', text: '{"events":[]}' }] });
+    await client.extractEvents('text', { calendar: vael, defaultTimeRange: { start: thaw.iso, end: thaw.iso } }).catch(() => []);
+    const extraction = JSON.stringify(mocks.anthropicCreate.mock.calls[1]![0]);
+    expect(extraction).toContain('Default time range: Thaw 1, 312 AR to Thaw 1, 312 AR');
+    expect(extraction).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
 
   it('sends the prompt through the messages endpoint', async () => {

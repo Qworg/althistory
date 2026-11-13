@@ -205,26 +205,42 @@ function lowerFirst(text: string): string {
  * it raises rather than falling back to the graph's own span.
  */
 export function parseTimeWindow(value: string, calendar?: WorldCalendarSet): { start: number; end: number } {
-  const separator = value.includes('/') ? '/' : value.includes('..') ? '..' : null;
-  if (!separator) {
+  // Every place the window could split ("..", or "/" — which a world's dates
+  // may contain, as "4/Thaw/312 AR" does): the one split whose halves both
+  // read as dates is the window.
+  const splits: Array<[string, string]> = [];
+  for (const separator of ['..', '/']) {
+    for (let at = value.indexOf(separator); at >= 0; at = value.indexOf(separator, at + 1)) {
+      splits.push([value.slice(0, at).trim(), value.slice(at + separator.length).trim()]);
+    }
+  }
+  if (splits.length === 0) {
     throw new Error(
       `Invalid time window "${value}": expected two dates separated by a slash, for example ` +
         '"1871-03/1871-09" or "2020-01-01T00:00:00Z/2020-12-31T00:00:00Z"'
     );
   }
-
-  const parts = value.split(separator);
-  if (parts.length !== 2) {
-    throw new Error(`Invalid time window "${value}": expected exactly two dates, a start and an end`);
+  const readable = splits
+    .map(([rawStart, rawEnd]) => ({
+      rawStart,
+      rawEnd,
+      start: readWorldTimestamp(calendar, rawStart, 'start'),
+      end: readWorldTimestamp(calendar, rawEnd, 'end'),
+    }))
+    .filter((split) => split.start && split.end);
+  if (readable.length > 1) {
+    throw new Error(`Invalid time window "${value}": it can be read as more than one pair of dates; separate them with ".."`);
   }
-  const [rawStart, rawEnd] = parts as [string, string];
-  const read = (text: string, edge: 'start' | 'end') => {
-    const at = readWorldTimestamp(calendar, text.trim(), edge);
-    if (!at) throw new Error(`Invalid time window "${value}": ${unreadDateReason(calendar, text.trim())}`);
-    return Date.parse(at.iso);
-  };
-  const start = read(rawStart, 'start');
-  const end = read(rawEnd, 'end');
+  if (readable.length === 0) {
+    // Say what is wrong with the most likely reading: the split nearest the middle.
+    const [rawStart, rawEnd] = splits.reduce((best, split) =>
+      Math.abs(split[0].length - split[1].length) < Math.abs(best[0].length - best[1].length) ? split : best
+    );
+    const bad = readWorldTimestamp(calendar, rawStart, 'start') ? rawEnd : rawStart;
+    throw new Error(`Invalid time window "${value}": ${unreadDateReason(calendar, bad)}`);
+  }
+  const start = Date.parse(readable[0]!.start!.iso);
+  const end = Date.parse(readable[0]!.end!.iso);
 
   if (start >= end) {
     throw new Error(`Invalid time window "${value}": the start must be before the end`);

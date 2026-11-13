@@ -29,7 +29,8 @@ export interface LLMClient {
   readonly provider: string;
 
   extractEvents(text: string, context?: ExtractionContext): Promise<ExtractedEvent[]>;
-  suggestRelationships(events: ExtractedEvent[]): Promise<ExtractedRelationship[]>;
+  /** `context.calendar`, when given, is how the events' dates are shown to the model. */
+  suggestRelationships(events: ExtractedEvent[], context?: ExtractionContext): Promise<ExtractedRelationship[]>;
   enrichDescription(event: ExtractedEvent): Promise<string>;
 }
 

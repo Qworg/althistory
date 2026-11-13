@@ -69,6 +69,9 @@ export function ImportWizard({
   // Each check of the file (on upload, on a change of mode) is numbered; an
   // answer to one that a later check has replaced is dropped.
   const checkSeq = useRef(0)
+  // The mode whose check (and, on the preview step, preview) is on screen:
+  // where a failed check of another mode falls back to.
+  const shownMode = useRef<ImportMode>(state.mode)
   // FIX #17: Track current async job for cancellation
   const [currentJobId, setCurrentJobId] = useState<string | null>(null)
   const [isCancelling, setIsCancelling] = useState(false)
@@ -136,6 +139,7 @@ export function ImportWizard({
         const validation = await validateMutation.mutateAsync({ data, targetGraphId: state.targetGraphId, mode: state.mode })
         if (seq !== checkSeq.current) return
         dispatch({ type: 'SET_VALIDATION', payload: validation })
+        shownMode.current = state.mode
         dispatch({ type: 'SET_STEP', payload: 'validate' })
       } catch (error) {
         if (seq !== checkSeq.current) return
@@ -151,6 +155,8 @@ export function ImportWizard({
   // Handle validation continue
   const handleValidationContinue = useCallback(async () => {
     if (!state.data) return
+    // Numbered with the checks: a preview a change of mode has overtaken is dropped.
+    const seq = ++checkSeq.current
 
     try {
       const preview = await previewMutation.mutateAsync({
@@ -158,9 +164,13 @@ export function ImportWizard({
         targetGraphId: state.targetGraphId,
         mode: state.mode,
       })
+      if (seq !== checkSeq.current) return
       dispatch({ type: 'SET_PREVIEW', payload: preview })
+      // Conflicts are this preview's; choices made for another mode's go.
+      dispatch({ type: 'SET_ALL_RESOLUTIONS', payload: {} })
       dispatch({ type: 'SET_STEP', payload: 'preview' })
     } catch (error) {
+      if (seq !== checkSeq.current) return
       dispatch({
         type: 'SET_ERROR',
         payload: error instanceof Error ? error.message : 'Preview failed',
@@ -173,10 +183,9 @@ export function ImportWizard({
   // answer for a mode since left is dropped.
   const handleModeChange = useCallback(
     async (mode: ImportMode, then: 'preview' | 'validate' = 'preview') => {
-      // The mode whose check and preview are on screen: a check of the new
-      // one that fails puts it back, so the import never runs in a mode that
+      // A check of the new mode that fails puts back the mode whose check
+      // (and preview) is on screen, so the import never runs in a mode that
       // was not checked and previewed.
-      const checked = state.mode
       dispatch({ type: 'SET_MODE', payload: mode })
       dispatch({ type: 'SET_ERROR', payload: null })
 
@@ -188,8 +197,9 @@ export function ImportWizard({
         // graph's own, or the target's. If they no longer read, say so.
         const validation = await validateMutation.mutateAsync({ data: state.data, targetGraphId: state.targetGraphId, mode })
         if (seq !== checkSeq.current) return
-        dispatch({ type: 'SET_VALIDATION', payload: validation })
         if (!validation.valid || then === 'validate') {
+          dispatch({ type: 'SET_VALIDATION', payload: validation })
+          shownMode.current = mode
           dispatch({ type: 'SET_STEP', payload: 'validate' })
           return
         }
@@ -199,19 +209,22 @@ export function ImportWizard({
           mode,
         })
         if (seq !== checkSeq.current) return
+        // The check and the preview of this mode, shown together.
+        dispatch({ type: 'SET_VALIDATION', payload: validation })
         dispatch({ type: 'SET_PREVIEW', payload: preview })
+        shownMode.current = mode
         // Conflicts are the new preview's; choices made for the old one go.
         dispatch({ type: 'SET_ALL_RESOLUTIONS', payload: {} })
       } catch (error) {
         if (seq !== checkSeq.current) return
-        dispatch({ type: 'SET_MODE', payload: checked })
+        dispatch({ type: 'SET_MODE', payload: shownMode.current })
         dispatch({
           type: 'SET_ERROR',
           payload: error instanceof Error ? error.message : 'Checking the import failed',
         })
       }
     },
-    [state.data, state.targetGraphId, state.mode, previewMutation, validateMutation]
+    [state.data, state.targetGraphId, previewMutation, validateMutation]
   )
   const handleValidationModeChange = useCallback((mode: ImportMode) => handleModeChange(mode, 'validate'), [handleModeChange])
 

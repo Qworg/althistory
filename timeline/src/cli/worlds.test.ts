@@ -680,6 +680,31 @@ describe('invented worlds', () => {
       expect(formatInWorld(graph.calendar!, Date.parse(event!.timestamp), event!.metadata?.datePrecision as never)).toBe('Thaw 312 AR');
     });
 
+    it('shows each date as it was given, in the calendar it was given in, wherever the tools and the CLI answer', async () => {
+      const graph = await engine.createGraph('Vael shown', undefined, VAEL as never);
+      created.push(graph.id);
+      const arc = await engine.createArc(graph.id, { name: 'Age', startTime: '1 AR', endTime: '900 AR' });
+      const flood = await engine.createEvent(graph.id, { description: 'Flood', timestamp: 'Flooding 401 TC' });
+      const assigned = await callTool(server, 'althistory_assign_to_arc', { graphId: graph.id, eventId: flood.id, arcId: arc.id });
+      expect(assigned.worldDate).toBe('Flooding 401 TC');
+
+      const added = await cli(['event', 'add', 'Thaw arrives', '-g', graph.id, '-t', 'Seedtide 312 AR', '-a', 'A', '--target', 'B']);
+      expect(added.code).toBe(0);
+      expect(added.body.data.worldDate).toBe('Seedtide 312 AR');
+      const listed = await cli(['event', 'list', '-g', graph.id]);
+      expect(listed.body.data.map((event: { worldDate: string }) => event.worldDate)).toContain('Flooding 401 TC');
+    });
+
+    it('says so when a world export is imported into a graph that does not keep its calendars', async () => {
+      const world = await engine.createGraph('Vael source', undefined, VAEL as never);
+      const plain = await engine.createGraph('Plain target');
+      created.push(world.id, plain.id);
+      await engine.createEvent(world.id, { description: 'Thaw', timestamp: 'Thaw 312 AR' });
+      const document = (await engine.exportGraph(world.id, 'json')).content!;
+      const result = await engine.importGraph(document, { graphId: plain.id });
+      expect(result.warnings?.join(' ')).toMatch(/shown as Gregorian dates/);
+    });
+
     it("expands a window written in the world's calendar, naming the expansion in it", async () => {
       const world = await engine.generateTimeline({ world: 'Vael', calendar: VAEL as never, startDate: 'Lowtide 1, 300 AR', eventCount: 4 });
       created.push(world.graphId);

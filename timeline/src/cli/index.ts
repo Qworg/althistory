@@ -23,6 +23,16 @@ function withCalendarFile<T extends { calendarFile?: unknown }>(cmdOpts: T): T &
   }
 }
 import { formatSuccessJson } from './formatters/jsonFormatter';
+import { type WorldCalendarSet, storedCalendarSet } from '@althistory/calendar';
+
+/** A graph's world calendars, to show its dates in; none for a graph without (or one that cannot be read). */
+async function graphCalendar(engine: { getGraph(id: string): Promise<{ calendar?: unknown }> }, graphId: string): Promise<WorldCalendarSet | undefined> {
+  try {
+    return storedCalendarSet((await engine.getGraph(graphId)).calendar) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export function createProgram(): Command {
   const program = new Command();
@@ -310,6 +320,8 @@ export function createProgram(): Command {
         const output = formatOutput(event, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -338,6 +350,8 @@ export function createProgram(): Command {
         const output = formatOutput(events, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -359,6 +373,8 @@ export function createProgram(): Command {
         const output = formatOutput(event, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -389,6 +405,8 @@ export function createProgram(): Command {
         const output = formatOutput(updated, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -444,6 +462,8 @@ export function createProgram(): Command {
         const output = formatOutput(arc, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -465,6 +485,8 @@ export function createProgram(): Command {
         const output = formatOutput(arcs, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {
@@ -486,6 +508,8 @@ export function createProgram(): Command {
         const output = formatOutput(arc, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
           graphId: String(cmdOpts?.graphId),
+          // Each date also as the world writes it (worldDate, worldStart, worldEnd).
+          calendar: await graphCalendar(engine, String(cmdOpts?.graphId)),
         });
         process.stdout.write(output + '\n');
       } finally {

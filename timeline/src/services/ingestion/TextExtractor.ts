@@ -106,7 +106,7 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
     try {
       const events = await this.llmClient.extractEvents(input.text, context);
       if (events.length === 0) return null;
-      return this.toResult(events, 'llm', await this.suggestRelationships(events));
+      return this.toResult(events, 'llm', await this.suggestRelationships(events, context));
     } catch {
       return null;
     }
@@ -120,10 +120,10 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
    * failing the extraction. Fewer than two events cannot have a causal link, so
    * that case skips the provider call entirely.
    */
-  private async suggestRelationships(events: ExtractedEvent[]): Promise<ExtractedRelationship[]> {
+  private async suggestRelationships(events: ExtractedEvent[], context?: ExtractionContext): Promise<ExtractedRelationship[]> {
     if (!this.llmClient || events.length < 2) return [];
     try {
-      const suggested = await this.llmClient.suggestRelationships(events);
+      const suggested = await this.llmClient.suggestRelationships(events, context);
       const eventIds = new Set(events.map((event) => event.tempId));
       return suggested.filter(
         (relationship) =>

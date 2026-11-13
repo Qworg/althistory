@@ -19,6 +19,7 @@ import { GraphRepository } from '../repositories/GraphRepository';
 import {
   type WorldCalendarSet,
   adoptableCalendarSet,
+  sameCalendarSet,
   storedCalendarSet,
   toInstant,
   unreadDateReason,
@@ -99,7 +100,8 @@ export type ImportWarningCode =
   | 'LOW_CONFIDENCE'
   | 'DEPRECATED_FIELD'
   | 'EMPTY_COLLECTION'
-  | 'INVALID_VALUE';
+  | 'INVALID_VALUE'
+  | 'CALENDAR_MISMATCH';
 
 export interface ImportSummary {
   eventCount: number;
@@ -577,8 +579,20 @@ export class ImportService {
 
     // Validate events. An invented world's timeline has no "now": its dates
     // are positions, which can lie anywhere, so none is "in the future".
-    const world =
-      calendar !== undefined ? calendar ?? undefined : readableCalendar((metadata as { calendar?: unknown } | undefined)?.calendar);
+    const own = readableCalendar((metadata as { calendar?: unknown } | undefined)?.calendar);
+    const world = calendar !== undefined ? calendar ?? undefined : own;
+    // Going into a graph that does not keep the document's calendars, its
+    // dates keep their places on the timeline but are shown, and read, in the
+    // graph's: worth saying before the import, not after.
+    if (calendar !== undefined && own && !sameCalendarSet(own, calendar)) {
+      warnings.push({
+        path: '$.metadata.calendar',
+        message: calendar
+          ? "The document's dates are in its own world calendars, which the target graph does not keep: they will be shown in the graph's calendars instead."
+          : "The document's dates are in its own world calendars, and the target graph has none: they will be shown as Gregorian dates. Import into a new graph to keep the calendars.",
+        code: 'CALENDAR_MISMATCH',
+      });
+    }
     this.validateEvents(exportData.events, errors, warnings, world);
 
     // Validate arcs

@@ -164,6 +164,8 @@ export interface ImportResultDto {
   };
   conflicts: number;
   strategy: 'skip' | 'overwrite' | 'rename';
+  /** What the import did that the caller may not expect (a document's calendars the graph does not keep). */
+  warnings?: string[];
 }
 
 export interface IngestTextOptions {

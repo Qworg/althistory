@@ -80,9 +80,9 @@ export class AnthropicClient implements LLMClient {
     return parseExtractedEvents(coerceJsonPayload(content), this.source(), context?.calendar);
   }
 
-  async suggestRelationships(events: ExtractedEvent[]): Promise<ExtractedRelationship[]> {
+  async suggestRelationships(events: ExtractedEvent[], context?: ExtractionContext): Promise<ExtractedRelationship[]> {
     if (events.length === 0) return [];
-    const prompt = buildRelationshipPrompt(events);
+    const prompt = buildRelationshipPrompt(events, context);
     const content = await this.message(prompt.systemPrompt, prompt.userPrompt);
     const parsed = parseRelationshipPayload(coerceJsonPayload(content));
     return parsed

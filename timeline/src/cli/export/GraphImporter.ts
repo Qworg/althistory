@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { type WorldCalendarSet, adoptableCalendarSet, storedCalendarSet, unreadDateReason } from '@althistory/calendar';
+import { type WorldCalendarSet, adoptableCalendarSet, sameCalendarSet, storedCalendarSet, unreadDateReason } from '@althistory/calendar';
 import { type ImportedTime, importedMetadata, readImportedTime } from '@/utils/importedTime';
 import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
@@ -53,6 +53,15 @@ export class GraphImporter {
       typeof id === 'string' && id ? container.graphRepository.findById(id).catch(() => null) : Promise.resolve(null);
     const existingTarget = options?.graphId ? await findGraph(options.graphId) : await findGraph(metadataObj?.graphId);
     const calendar = existingTarget ? (storedCalendarSet(existingTarget.calendar) ?? undefined) : importedCalendar(metadataObj);
+    const warnings: string[] = [];
+    const own = importedCalendar(metadataObj);
+    if (existingTarget && own && !sameCalendarSet(own, calendar ?? null)) {
+      warnings.push(
+        calendar
+          ? "The document's dates are in its own world calendars, which this graph does not keep: they are shown in the graph's calendars instead."
+          : "The document's dates are in its own world calendars, and this graph has none: they are shown as Gregorian dates. Import without --graph-id to keep the calendars."
+      );
+    }
     const problems: string[] = [];
     const readTime = (value: unknown, edge: 'start' | 'end', where: string): ImportedTime => {
       const read = typeof value === 'string' ? readImportedTime(value, calendar, edge) : null;
@@ -281,6 +290,7 @@ export class GraphImporter {
       skipped,
       conflicts,
       strategy,
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 }

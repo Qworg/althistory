@@ -497,6 +497,8 @@ export class DirectEngine implements IEngine {
       timestamp: updated.timestamp.toISOString(),
       actor: updated.actor,
       target: updated.target,
+      // Its date's precision and calendar, so it is shown as it was given (and the arc it is now in).
+      metadata: updated.metadata,
     };
   }
 
@@ -704,6 +706,7 @@ export class DirectEngine implements IEngine {
             timestamp: e.timestamp,
             actor: e.actor,
             target: e.target,
+            metadata: datePrecisionMetadata({ precision: e.datePrecision ?? 'day', calendar: e.dateCalendar }),
           })),
           arcs: arcs.map((a) => ({
             id: a.tempId,
@@ -754,6 +757,7 @@ export class DirectEngine implements IEngine {
         timestamp: created.timestamp.toISOString(),
         actor: created.actor,
         target: created.target,
+        metadata: created.metadata,
       });
     }
 

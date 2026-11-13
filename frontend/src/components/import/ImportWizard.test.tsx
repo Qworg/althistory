@@ -394,6 +394,34 @@ describe('ImportWizard', () => {
       expect(screen.getByRole('radio', { name: 'Replacing this graph' })).not.toBeChecked()
     })
 
+    it('falls back to the mode whose check is on screen, not to one still being checked', async () => {
+      renderComponent({ targetGraphId: 'vael' })
+      await paste()
+      const answers: Array<{ resolve: (r: ImportValidationResult) => void; reject: (e: Error) => void }> = []
+      vi.mocked(mockValidateMutation.mutateAsync).mockImplementation(
+        () => new Promise((resolve, reject) => answers.push({ resolve, reject }))
+      )
+      await user.click(await screen.findByRole('radio', { name: 'Merged into this graph' }))
+      await user.click(screen.getByRole('radio', { name: 'Replacing this graph' }))
+      await act(async () => answers[1]!.reject(new Error('network down')))
+      await act(async () => answers[0]!.resolve(validValidationResult))
+      expect(screen.getByRole('radio', { name: 'As a new graph' })).toBeChecked()
+    })
+
+    it('drops a preview asked for before the mode changed', async () => {
+      renderComponent({ targetGraphId: 'vael' })
+      await paste()
+      let previewed!: (p: ImportPreview) => void
+      vi.mocked(mockPreviewMutation.mutateAsync).mockImplementationOnce(() => new Promise((resolve) => (previewed = resolve)))
+      await user.click(screen.getByRole('button', { name: 'Continue to Preview' }))
+      await user.click(screen.getByRole('radio', { name: 'Merged into this graph' }))
+      await waitFor(() => expect(mockValidateMutation.mutateAsync).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'merge' })))
+      await act(async () => previewed(validPreviewResult))
+      // Still checking the merge, on the validation step: the create-new preview went nowhere.
+      expect(screen.getByText('Validation Results')).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: 'Merged into this graph' })).toBeChecked()
+    })
+
     it('offers no choice without a graph to import into', async () => {
       renderComponent()
       await paste()

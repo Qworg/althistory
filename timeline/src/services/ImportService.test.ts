@@ -2080,6 +2080,18 @@ describe('ImportService', () => {
       expect((await stored(result.graphId)).map((event) => event.precision)).toEqual(['year', 'month']);
     });
 
+    it('warns when a world document goes into a graph that does not keep its calendars', async () => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const plain = await repository.create({ name: 'Plain' });
+      const result = await importService.executeImport(withDates(['2023-01-01T00:00:00Z'], VAEL), { mode: 'merge', graphId: plain.id, conflictResolution: 'skip' });
+      expect(result.success).toBe(true);
+      expect(result.warnings.map((warning) => warning.code)).toContain('CALENDAR_MISMATCH');
+      // A new graph takes the document's calendars: nothing to warn of.
+      const fresh = await importService.executeImport(withDates(['Thaw 312 AR'], VAEL), { mode: 'create-new', conflictResolution: 'skip' });
+      expect(fresh.warnings.map((warning) => warning.code)).not.toContain('CALENDAR_MISMATCH');
+    });
+
     it('reads a document going into an existing graph with that graph\'s calendars', async () => {
       const repository = new GraphRepository({ dataDir: testDataDir });
       await repository.initialize();
