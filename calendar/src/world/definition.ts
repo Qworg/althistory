@@ -5,6 +5,7 @@
  */
 
 import { FORBIDDEN_IN_LABEL, FORBIDDEN_IN_MONTH_NAME, bidiClosed, hasVisible, sameNameKey } from '../text'
+import { MAX_AXIS_MS } from '../time'
 
 /** A month, or a run of festival days that belongs to no month (Req 4). */
 export interface CalendarPart {
@@ -109,9 +110,6 @@ export const DEFAULT_NOTATION: Required<CalendarNotation> = {
   festival: '{month}, {year}',
   time: '{hour}:{minute}',
 }
-
-/** A Date holds ±8.64e15 ms. */
-export const MAX_TIME = 8.64e15
 
 const PLACEHOLDERS = {
   date: ['day', 'month', 'year'],
@@ -319,8 +317,8 @@ export function calendarDefinitionIssues(value: unknown, path: string, dayLength
     }
   }
 
-  if (!isInt(value.epoch) || Math.abs(value.epoch * dayLength * 1000) > MAX_TIME) {
-    issues.push({ path: `${path}.epoch`, message: `${path}.epoch must be a whole axis day within the range a date can hold` })
+  if (!isInt(value.epoch) || BigInt(Math.abs(value.epoch)) * BigInt(dayLength) * 1000n > MAX_AXIS_MS) {
+    issues.push({ path: `${path}.epoch`, message: `${path}.epoch must be a whole axis day within the range the timeline holds (about ±285 million years)` })
   }
 
   const eras = value.eras

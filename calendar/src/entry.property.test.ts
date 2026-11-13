@@ -8,7 +8,9 @@ import {
   datePrecisionMetadata,
   formatDateEntry,
   formatEventDate,
+  MAX_AXIS_MS,
   formatHistoricalEnd,
+  isoOfAxisTime,
   parseWorldText,
   readDateEntry,
   readWorldTimestamp,
@@ -53,10 +55,10 @@ describe('a typed date without a world', () => {
   })
 
   it('reads an end at a day, month or year as its last moment', () => {
-    expect(readDateEntry('1843', null, 'end')).toEqual({ ok: true, iso: '1843-12-31T23:59:59.999Z', precision: 'year' })
-    expect(readDateEntry('1843-02', null, 'end')).toEqual({ ok: true, iso: '1843-02-28T23:59:59.999Z', precision: 'month' })
-    expect(readDateEntry('1843-02-03 14:30', null, 'end')).toEqual({ ok: true, iso: '1843-02-03T14:30:00.000Z', precision: 'day' })
-    expect(readDateEntry('44 BCE', null, 'start')).toEqual({ ok: true, iso: '-000043-01-01T00:00:00.000Z', precision: 'year' })
+    expect(readDateEntry('1843', null, 'end')).toMatchObject({ ok: true, iso: '1843-12-31T23:59:59.999Z', precision: 'year' })
+    expect(readDateEntry('1843-02', null, 'end')).toMatchObject({ ok: true, iso: '1843-02-28T23:59:59.999Z', precision: 'month' })
+    expect(readDateEntry('1843-02-03 14:30', null, 'end')).toMatchObject({ ok: true, iso: '1843-02-03T14:30:00.000Z', precision: 'day' })
+    expect(readDateEntry('44 BCE', null, 'start')).toMatchObject({ ok: true, iso: '-000043-01-01T00:00:00.000Z', precision: 'year' })
     expect(readDateEntry('1843-02-03 24:00', null).ok).toBe(false)
   })
 })
@@ -100,7 +102,7 @@ describe('a typed date in a world', () => {
       fc.property(warb.calendarSet, arb.instant, (set, date) => {
         const iso = date.toISOString()
         fc.pre(!parseWorldText(set, iso).ok)
-        expect(readDateEntry(iso, set)).toEqual({ ok: true, iso, precision: 'day' })
+        expect(readDateEntry(iso, set)).toMatchObject({ ok: true, iso, precision: 'day' })
         const refused = readDateEntry('not a date at all', set)
         expect(refused.ok).toBe(false)
         if (!refused.ok) expect(refused.error).toMatch(/^[A-Z"].*\.$/)
@@ -117,9 +119,9 @@ describe('an ISO date typed as an end', () => {
         const day = date.toISOString().slice(0, 10)
         fc.pre(!parseWorldText(set, day).ok)
         const end = `${day}T23:59:59.999Z`
-        expect(readDateEntry(day, set, 'end')).toEqual({ ok: true, iso: end, precision: 'day' })
-        expect(readDateEntry(day, null, 'end')).toEqual({ ok: true, iso: end, precision: 'day' })
-        expect(readDateEntry(`${day}T06:00:00Z`, set, 'end')).toEqual({ ok: true, iso: `${day}T06:00:00.000Z`, precision: 'day' })
+        expect(readDateEntry(day, set, 'end')).toMatchObject({ ok: true, iso: end, precision: 'day' })
+        expect(readDateEntry(day, null, 'end')).toMatchObject({ ok: true, iso: end, precision: 'day' })
+        expect(readDateEntry(`${day}T06:00:00Z`, set, 'end')).toMatchObject({ ok: true, iso: `${day}T06:00:00.000Z`, precision: 'day' })
       }),
       arb.runs(300)
     )
@@ -162,17 +164,21 @@ describe('one rule for ISO text, at every door', () => {
         const expected = new Date(Date.UTC(2000, month - 1, day, hour, minute))
         expected.setUTCFullYear(bce ? 1 - year : year)
         const door = readWorldTimestamp(null, text, side)
-        expect(door, text).toEqual({ iso: expected.toISOString(), precision: 'day' })
+        expect(door, text).toMatchObject({ iso: expected.toISOString(), precision: 'day' })
         const form = readDateEntry(text, null, side)
-        expect(form.ok && { iso: form.iso, precision: form.precision }, text).toEqual(door)
+        expect(form.ok && { iso: form.iso, time: form.time, precision: form.precision }, text).toEqual(door)
       }),
       arb.runs(300)
     )
     expect(readWorldTimestamp(null, '1843-11-20 24:00')).toBeNull()
     // The last day a date can hold, at a time past its last moment: refused, not thrown.
-    expect(readWorldTimestamp(null, '275760-09-13 01:00')).toBeNull()
-    expect(readDateEntry('275760-09-13 01:00', null)).toEqual({ ok: false, error: 'That date is beyond the range a date can hold.' })
-    expect(unreadDateReason(null, '275760-09-13 01:00')).toMatch(/beyond the range/)
+    // A Date's last day now reads: the axis reaches ±285 million years.
+    expect(readWorldTimestamp(null, '275760-09-13 01:00')).toMatchObject({ iso: '+275760-09-13T01:00:00.000Z' })
+    // The axis's own last day, at a time past its last moment: refused, not thrown.
+    const lastDay = isoOfAxisTime(MAX_AXIS_MS).split('T')[0]!
+    expect(readWorldTimestamp(null, `${lastDay} 23:59`)).toBeNull()
+    expect(readDateEntry(`${lastDay} 23:59`, null)).toEqual({ ok: false, error: 'That date is beyond the range a date can hold.' })
+    expect(unreadDateReason(null, `${lastDay}T23:59:59Z`)).toMatch(/beyond the range/)
     expect(unreadDateReason(null, '1843-11-20 24:00')).toMatch(/00:00 to 23:59/)
   })
 
@@ -184,8 +190,8 @@ describe('one rule for ISO text, at every door', () => {
         const world = readWorldTimestamp(set, text, side)
         const form = readDateEntry(text, set, side)
         if (plain.precision === 'day') {
-          expect(world).toEqual(plain)
-          expect(form.ok && { iso: form.iso, precision: form.precision }).toEqual(plain)
+          expect(world).toMatchObject(plain)
+          expect(form.ok && { iso: form.iso, time: form.time, precision: form.precision }).toEqual({ iso: plain.iso, time: plain.time, precision: plain.precision })
         } else {
           expect(world).toBeNull()
           expect(form.ok).toBe(false)

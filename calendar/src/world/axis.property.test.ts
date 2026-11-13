@@ -1,8 +1,9 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import * as arb from '../test/arbitraries'
+import { MAX_TIME } from '../test/arbitraries'
 import * as warb from '../test/worldArbitraries'
-import { MAX_TIME, calendarIn, compileCalendar, dateAt, formatWorldFields, gregorianDefinition, positionOf, worldBound, worldBoundExamples, worldTicks } from './index'
+import { calendarIn, compileCalendar, dateAt, formatWorldFields, gregorianDefinition, positionOf, worldBound, worldBoundExamples, worldTicks } from './index'
 
 /** A domain as a timeline shows one: minutes to tens of thousands of years wide. */
 const domain = fc
@@ -46,11 +47,11 @@ describe('a filter bound in a world calendar (Req 15)', () => {
         expect(start.ok && end.ok, text).toBe(true)
         if (!start.ok || !end.ok) return
         expect(start.precision).toBe(precision)
-        expect(start.position).toBeLessThanOrEqual(p)
-        expect(p).toBeLessThanOrEqual(end.position)
+        expect(start.position).toBeLessThanOrEqual(BigInt(p))
+        expect(BigInt(p)).toBeLessThanOrEqual(end.position)
         // The end is the last millisecond: one more is the next period.
         expect(formatWorldFields(calendar, dateAt(calendar, end.position), precision)).toBe(text)
-        expect(formatWorldFields(calendar, dateAt(calendar, end.position + 1), precision)).not.toBe(text)
+        expect(formatWorldFields(calendar, dateAt(calendar, end.position + 1n), precision)).not.toBe(text)
       }),
       arb.runs(2000)
     )

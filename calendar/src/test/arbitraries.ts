@@ -6,6 +6,7 @@
 
 import fc from 'fast-check'
 import type { GraphCalendar } from '../calendar'
+import { MAX_AXIS_MS, MIN_AXIS_MS, axisTimeOfCivil } from '../time'
 
 /** The instants a Date can hold: ±8.64e15 ms, about 271,821 BCE to 275,760 CE. */
 export const MAX_TIME = 8.64e15
@@ -170,3 +171,37 @@ export const SCALE = Number(process.env.FC_SCALE) || 1
 
 /** A property's own run count, scaled by FC_SCALE. */
 export const runs = (numRuns: number) => ({ numRuns: Math.round(numRuns * SCALE) })
+
+/** A year, in milliseconds: the unit deep time is measured in here. */
+const YEAR_MS = 31_556_952_000n
+
+/**
+ * Any axis time (time.ts), weighted towards where it matters: the edges of
+ * a Date's range, the years 0-99, ±300,000 years, and the bound itself.
+ */
+export const axisTime: fc.Arbitrary<bigint> = fc.oneof(
+  fc.bigInt({ min: MIN_AXIS_MS, max: MAX_AXIS_MS }),
+  fc.bigInt({ min: -8_700_000_000_000_000n, max: 8_700_000_000_000_000n }),
+  fc.bigInt({ min: -600_000n * YEAR_MS, max: 600_000n * YEAR_MS }),
+  // The years 0-99, which a two-digit year reading would take for the 1900s.
+  fc.tuple(fc.integer({ min: -5, max: 120 }), fc.integer({ min: 0, max: 31_000_000_000 })).map(([year, ms]) => axisTimeOfCivil(year, 1, 1) + BigInt(ms)),
+  fc.bigInt({ min: -3_000_000n * YEAR_MS, max: 3_000_000n * YEAR_MS }),
+  fc.constantFrom(
+    MIN_AXIS_MS,
+    MAX_AXIS_MS,
+    0n,
+    -1n,
+    1n,
+    8_640_000_000_000_000n,
+    8_640_000_000_000_001n,
+    -8_640_000_000_000_000n,
+    -8_640_000_000_000_001n,
+    9_007_199_254_740_993n,
+    -9_007_199_254_740_993n,
+    300_000n * YEAR_MS,
+    -300_000n * YEAR_MS
+  )
+)
+
+/** Axis times beyond what a Date holds. */
+export const deepAxisTime: fc.Arbitrary<bigint> = axisTime.filter((time) => time > 8_640_000_000_000_000n || time < -8_640_000_000_000_000n)

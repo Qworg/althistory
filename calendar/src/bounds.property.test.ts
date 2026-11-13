@@ -2,6 +2,7 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import {
   type DateBoundEdge,
+  axisOf,
   boundPrecision,
   calendarIn,
   dateAt,
@@ -118,21 +119,19 @@ describe('a typed bound, for every year, month and day', () => {
           expect(parsed).toEqual({ ok: false, error: `That month has no day ${day}.` })
           return
         }
-        const start = daysFromCivil(year, month ?? 1, day ?? 1) * DAY
+        const start = BigInt(daysFromCivil(year, month ?? 1, day ?? 1)) * BigInt(DAY)
         const next =
           day !== undefined
-            ? start + DAY
+            ? start + BigInt(DAY)
             : month !== undefined
-              ? start + daysInMonth(year, month) * DAY
-              : daysFromCivil(year + 1, 1, 1) * DAY
-        const instant = side === 'start' ? start : next - 1
-        if (Math.abs(instant) > arb.MAX_TIME) {
-          expect(parsed, text).toEqual({ ok: false, error: 'That date is out of range.' })
-          return
-        }
-        expect(parsed.ok, `${text}: ${JSON.stringify(parsed)}`).toBe(true)
+              ? start + BigInt(daysInMonth(year, month) * DAY)
+              : BigInt(daysFromCivil(year + 1, 1, 1)) * BigInt(DAY)
+        const instant = side === 'start' ? start : next - 1n
+        expect(parsed.ok, `${text}: ${String(parsed.ok ? '' : parsed.error)}`).toBe(true)
         if (!parsed.ok) return
-        expect(parsed.date.getTime(), text).toBe(instant)
+        // Exactly, however far from 1970: a Date's range is no limit.
+        expect(parsed.time, text).toBe(instant)
+        expect(axisOf(parsed.date), text).toBe(instant)
         const shown = year >= 1 ? year : 1 - year
         const canonical = `${shown}${month !== undefined ? `-${pad2(month)}` : ''}${day !== undefined ? `-${pad2(day)}` : ''}${year <= 0 ? ' BCE' : ''}`
         expect(parsed.text).toBe(canonical)

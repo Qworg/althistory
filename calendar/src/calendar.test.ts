@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  MAX_EPOCH_YEAR,
+  MIN_EPOCH_YEAR,
   calendarProblems,
   storedCalendar,
   formatWorldDate,
@@ -55,8 +57,12 @@ describe('worldCalendar', () => {
       expect(calendarProblems({})).toContain('calendar.epochYear must be an integer year');
       expect(calendarProblems({ epochYear: 1000.5 })).toContain('calendar.epochYear must be an integer year');
       expect(calendarProblems({ epochYear: '1000' })).toContain('calendar.epochYear must be an integer year');
-      expect(calendarProblems({ epochYear: 0 })[0]).toMatch(/between 1 and 9999/);
-      expect(calendarProblems({ epochYear: 10000 })[0]).toMatch(/between 1 and 9999/);
+      // Any year the axis holds is a year 1; beyond it is refused with the range.
+      expect(calendarProblems({ epochYear: 0 })).toEqual([]);
+      expect(calendarProblems({ epochYear: 10000 })).toEqual([]);
+      expect(calendarProblems({ epochYear: MAX_EPOCH_YEAR })).toEqual([]);
+      expect(calendarProblems({ epochYear: MAX_EPOCH_YEAR + 1 })[0]).toMatch(/between -\d+ and \d+/);
+      expect(calendarProblems({ epochYear: MIN_EPOCH_YEAR - 1 })[0]).toMatch(/between -\d+ and \d+/);
       expect(calendarProblems({ epochYear: 1000, eraLabel: 'x'.repeat(17) })[0]).toMatch(/at most 16/);
       expect(calendarProblems({ epochYear: 1000, eraLabel: 7 })).toContain('calendar.eraLabel must be a string');
       expect(calendarProblems({ epochYear: 1000, name: 'x'.repeat(81) })[0]).toMatch(/at most 80/);
@@ -71,7 +77,7 @@ describe('worldCalendar', () => {
     });
 
     it('throws with every problem when normalizing a bad calendar', () => {
-      expect(() => normalizeCalendar({ epochYear: 0, eraLabel: 5 })).toThrow(/epochYear.*eraLabel/);
+      expect(() => normalizeCalendar({ epochYear: 'x', eraLabel: 5 })).toThrow(/epochYear.*eraLabel/);
     });
   });
 
@@ -141,7 +147,7 @@ describe('worldCalendar', () => {
     });
 
     it('has no calendar without a usable epoch', () => {
-      expect(storedCalendar({ epochYear: 0, eraLabel: 'AR' })).toBeUndefined();
+      expect(storedCalendar({ epochYear: MAX_EPOCH_YEAR + 1, eraLabel: 'AR' })).toBeUndefined();
       expect(storedCalendar('1000')).toBeUndefined();
       expect(storedCalendar(undefined)).toBeUndefined();
     });

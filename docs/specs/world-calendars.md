@@ -12,8 +12,8 @@ by number.
 ## The timeline
 
 **Req 1. One linear timeline.** Every graph stores its times as positions on
-one linear axis: a count of milliseconds, held in the existing timestamp
-fields. Sorting, durations, causal order, time ranges and the timeline's scales
+one linear axis: a count of milliseconds (an `AxisTime`, see
+[deep-time.md](deep-time.md)), held in the existing timestamp fields. Sorting, durations, causal order, time ranges and the timeline's scales
 read positions and never need a calendar. A calendar is only a way to name a
 position.
 
@@ -22,9 +22,10 @@ position.
 *n* × `dayLength` × 1000 ms. All the world's calendars begin their days at the
 same moment.
 
-**Req 3. Range.** A position is a JavaScript `Date`, about ±8.64 × 10¹⁵ ms. A
-calendar's dates exist only within that range, and the package refuses one it
-cannot reach.
+**Req 3. Range.** A position is an `AxisTime`, a `bigint`, within ±9 × 10¹⁸
+ms: about ±285 million years, far beyond a JavaScript `Date`'s ±8.64 × 10¹⁵ ms
+(deep-time.md Req 1, 5). A calendar's dates exist within that range, and the
+package refuses one it cannot reach.
 
 ## A calendar
 
