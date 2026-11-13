@@ -4,6 +4,7 @@ import {
   MIN_EPOCH_YEAR,
   calendarProblems,
   storedCalendar,
+  storedCalendarSet,
   formatWorldDate,
   formatWorldYear,
   normalizeCalendar,
@@ -63,6 +64,8 @@ describe('worldCalendar', () => {
       expect(calendarProblems({ epochYear: MAX_EPOCH_YEAR })).toEqual([]);
       expect(calendarProblems({ epochYear: MAX_EPOCH_YEAR + 1 })[0]).toMatch(/between -\d+ and \d+/);
       expect(calendarProblems({ epochYear: MIN_EPOCH_YEAR - 1 })[0]).toMatch(/between -\d+ and \d+/);
+      // The axis is symmetric about 1970, not year 0: every epoch it accepts, at either edge, is one a set can hold.
+      for (const epochYear of [MIN_EPOCH_YEAR, MAX_EPOCH_YEAR]) expect(storedCalendarSet({ epochYear })).not.toBeNull();
       expect(calendarProblems({ epochYear: 1000, eraLabel: 'x'.repeat(17) })[0]).toMatch(/at most 16/);
       expect(calendarProblems({ epochYear: 1000, eraLabel: 7 })).toContain('calendar.eraLabel must be a string');
       expect(calendarProblems({ epochYear: 1000, name: 'x'.repeat(81) })[0]).toMatch(/at most 80/);

@@ -17,6 +17,7 @@ import {
   isoOfAxisTime,
   parseIsoInstant,
   readTimestamp,
+  readWorldTimestamp,
   toAxisTime,
   toInstant,
 } from './index'
@@ -129,6 +130,22 @@ describe('the axis time (docs/specs/deep-time.md, Req 1-6)', () => {
         expect(toInstant(text).getUTCFullYear()).toBe(year)
       }),
       arb.runs(500)
+    )
+  })
+})
+
+describe('the doors read a year before 100 as that year (Req 6)', () => {
+  it('reads "50" and a dated "50-03-01" as the year 50 at every door that takes text, never as 1950', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 99 }), (year) => {
+        const text = String(year)
+        expect(civilOfAxisTime(readWorldTimestamp(null, text)!.time).year).toBe(year)
+        expect(civilOfAxisTime(readTimestamp(String(year).padStart(4, '0'))!.time).year).toBe(year)
+        // Text that is neither ISO nor year-first is refused, not guessed at as 19xx.
+        expect(readTimestamp(`${text}-03-01`)).toBeNull()
+        expect(readTimestamp(`1/1/${text}`)).toBeNull()
+      }),
+      arb.runs(200)
     )
   })
 })

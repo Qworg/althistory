@@ -5,7 +5,7 @@
  */
 
 import fc from 'fast-check'
-import type { GraphCalendar } from '../calendar'
+import { MAX_EPOCH_YEAR, MIN_EPOCH_YEAR, type GraphCalendar } from '../calendar'
 import { MAX_AXIS_MS, MIN_AXIS_MS, axisTimeOfCivil } from '../time'
 
 /** The instants a Date can hold: ±8.64e15 ms, about 271,821 BCE to 275,760 CE. */
@@ -60,7 +60,17 @@ function text(chars: string[], maxLength: number): fc.Arbitrary<string> {
     .filter((value) => value.length > 0 && value.length <= maxLength && /[^\s\p{Cf}]/u.test(value))
 }
 
-export const epochYear = fc.integer({ min: 1, max: 9999 })
+/**
+ * Any epoch year the calendar accepts: mostly the familiar 1..9999, but also
+ * 0 and the years before it, the years past 9999, and the edges of the axis.
+ */
+export const epochYear = fc.oneof(
+  { weight: 5, arbitrary: fc.integer({ min: 1, max: 9999 }) },
+  { weight: 2, arbitrary: fc.integer({ min: -9999, max: 0 }) },
+  { weight: 2, arbitrary: fc.integer({ min: 10000, max: 5_000_000 }) },
+  { weight: 1, arbitrary: fc.integer({ min: MIN_EPOCH_YEAR, max: MAX_EPOCH_YEAR }) },
+  { weight: 1, arbitrary: fc.constantFrom(MIN_EPOCH_YEAR, MAX_EPOCH_YEAR, 0, -1, 1) }
+)
 export const eraLabel = text(LABEL_CHARS, 16)
 export const calendarName = text(LABEL_CHARS, 80)
 export const monthName = text(MONTH_CHARS, 24)

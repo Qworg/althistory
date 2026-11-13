@@ -50,7 +50,15 @@ the bound is refused, with a message that says so. Going farther needs a
 `{ day, msOfDay }` pair; the bound is that one constant.
 
 **Req 6. Years 0-99.** A year before 100 reads as the year it names, never as
-a 19xx year, in every reader, and an epoch year of any size is allowed
+a 19xx year, in every reader of ISO 8601 text (`parseIsoInstant`, and so
+`toInstant`, `toAxisTime` and `readTimestamp` for ISO text) and in every door
+where text first enters (`readTimestamp` and `readDateField` take ISO text:
+"0050-03-01" is March of the year 50; `readWorldTimestamp` also reads the
+year-first notation, where "50" is the year 50).
+The one exception is `toInstant`'s fallback for non-ISO text stored before
+ISO was the only spelling ("50-03-01", "1/1/50"): it reads that as JavaScript
+always did, in the host's zone, and so as a 19xx year; the doors refuse such
+text before it is stored. An epoch year of any size is allowed
 (`MIN_EPOCH_YEAR`..`MAX_EPOCH_YEAR`, computed from the bound).
 
 ## Carrying it
