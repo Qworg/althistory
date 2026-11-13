@@ -15,8 +15,8 @@
  *
  * Who may start one. A key needs the `generate` permission, or every write
  * permission the run makes use of (`write:graphs`, `write:events`, `write:arcs`
- * and `write:relationships` for a timeline or branch; the last three for an
- * expansion), and must be allowed the graph a branch or expansion works on.
+ * and `write:relationships` for a timeline or branch; `write:events` and
+ * `write:arcs` for an expansion), and must be allowed the graph a branch or expansion works on.
  * The model key is the app's: a request may choose the provider and model, never
  * supply a key. Starts are rate-limited like every authenticated route, and also
  * capped per key and app-wide (see `GenerationJobService`); a refused start is a

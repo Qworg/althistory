@@ -285,6 +285,46 @@ describe('GenerationJobService', () => {
       expect(last).toMatchObject({ status: 'cancelled' });
     });
 
+    it('reports what the graph holds when the cancel came after the last write', async () => {
+      // Learn how many links a run writes, then cancel as the last one is announced.
+      const probe = serviceWith();
+      const probed = await settled(probe, probe.start(TIMELINE, OWNER).id);
+      const linkCount = probed.written.relationships;
+      expect(linkCount).toBeGreaterThan(0);
+
+      const service = serviceWith();
+      const started: { id?: string } = {};
+      let links = 0;
+      const stop = feed.subscribe((record) => {
+        if (record.kind === 'entities' && record.entities[0].type === 'relationship' && record.actor.kind === 'generation') {
+          links += 1;
+          if (links === linkCount && started.id) service.cancel(started.id, OWNER.keyId);
+        }
+      });
+      const job = service.start(TIMELINE, OWNER);
+      started.id = job.id;
+      await service.idle();
+      stop();
+
+      const done = service.get(job.id, OWNER.keyId) as GenerationJobView;
+      expect(done.status).toBe('cancelled');
+      expect(done.written).toEqual(probed.written);
+      expect(done.message).toContain(`${linkCount} link`);
+      const { eventRepository } = await container.graphScopedRepositories(done.graphId as string);
+      expect(await eventRepository.findAll()).toHaveLength(done.written.events);
+    });
+
+    it('stops every job at shutdown, waits no longer than its grace for a call that never returns, and takes no more', async () => {
+      const never = new Promise<void>(() => undefined);
+      const service = serviceWith({ llmClient: () => modelClient(modelEvents(4), never) });
+      const job = service.start(TIMELINE, OWNER);
+      const began = Date.now();
+      await service.shutdown(30);
+      expect(Date.now() - began).toBeLessThan(2000);
+      expect(service.get(job.id, OWNER.keyId)).toMatchObject({ status: 'cancelled', message: 'The app stopped' });
+      expect(() => service.start(TIMELINE, OWNER)).toThrow(GenerationLimitError);
+    });
+
     it('returns a finished job as it is', async () => {
       const service = serviceWith();
       const done = await settled(service, service.start(TIMELINE, OWNER).id);
@@ -329,14 +369,32 @@ describe('GenerationJobService', () => {
       return { service, release };
     }
 
-    it('refuses a third job from one key while two run, and takes it once one is cancelled', async () => {
+    it('refuses a third job from one key while two run, and takes it once one has stopped', async () => {
       const { service, release } = gated();
       const a = service.start(TIMELINE, OWNER);
       service.start(TIMELINE, OWNER);
       expect(() => service.start(TIMELINE, OWNER)).toThrow(GenerationLimitError);
+      // Cancelling marks the job cancelled, but its model call is still in
+      // flight and still spending the key, so it keeps its slot: otherwise
+      // start-cancel-start would run past every limit.
       service.cancel(a.id, OWNER.keyId);
+      expect(service.get(a.id, OWNER.keyId)?.status).toBe('cancelled');
+      expect(() => service.start(TIMELINE, OWNER)).toThrow(GenerationLimitError);
+      release();
+      await service.idle();
       expect(() => service.start(TIMELINE, OWNER)).not.toThrow();
       release();
+      await service.shutdown();
+    });
+
+    it('holds the app-wide slot of a cancelled job until its run has unwound', async () => {
+      const { service, release } = gated();
+      const jobs = [service.start(TIMELINE, OWNER), service.start(TIMELINE, OWNER), service.start(TIMELINE, OTHER)];
+      for (const job of jobs) service.cancel(job.id, job.id === jobs[2].id ? OTHER.keyId : OWNER.keyId);
+      expect(() => service.start(TIMELINE, { keyId: 'third-key' })).toThrow(GenerationLimitError);
+      release();
+      await service.idle();
+      expect(() => service.start(TIMELINE, { keyId: 'third-key' })).not.toThrow();
       await service.shutdown();
     });
 

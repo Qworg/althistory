@@ -176,6 +176,8 @@ export class GenerationJobService {
   /** When each key started its jobs in the last hour, oldest first. */
   private readonly starts = new Map<string, number[]>();
   private readonly running = new Map<string, Promise<void>>();
+  /** Set by `shutdown`: the app is stopping and takes no more jobs. */
+  private closed = false;
 
   constructor(config: GenerationJobServiceConfig) {
     this.config = config;
@@ -190,6 +192,7 @@ export class GenerationJobService {
    * key, or the app, is at a limit.
    */
   start(request: GenerationRequest, owner: GenerationOwner, model: ModelChoice = {}): GenerationJobView {
+    if (this.closed) throw new GenerationLimitError('The app is shutting down and is not starting generation jobs', 15);
     this.prune();
     this.enforceLimits(owner.keyId);
 
@@ -258,15 +261,29 @@ export class GenerationJobService {
     return this.viewOf(record);
   }
 
-  /** Stop every job (the app is shutting down) and wait for their runs to unwind. */
-  async shutdown(): Promise<void> {
+  /**
+   * Stop every job (the app is shutting down) and wait for their runs to unwind,
+   * for at most `graceMs` (a model call that never returns must not hold the
+   * shutdown; an aborted run writes nothing more once its call does return).
+   * Afterwards no job can be started.
+   */
+  async shutdown(graceMs = 10_000): Promise<void> {
+    this.closed = true;
     for (const record of this.jobs.values()) {
       if (!TERMINAL.has(record.view.status)) {
         record.controller.abort();
         this.finish(record, 'cancelled', { message: 'The app stopped' });
       }
     }
-    await this.idle();
+    let timer: NodeJS.Timeout | undefined;
+    const grace = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, graceMs);
+    });
+    try {
+      await Promise.race([this.idle(), grace]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /** Resolves once no run is still unwinding: a cancelled job stops at its next write, not at once. */
@@ -284,7 +301,12 @@ export class GenerationJobService {
   }
 
   private enforceLimits(keyId: string): void {
-    const records = Array.from(this.jobs.values()).filter((record) => record.view.status === 'running');
+    // A cancelled job still holds its slot until its run has unwound: its model
+    // call is not interrupted, so it is still spending the key. Counting only
+    // `running` would let a key start, cancel and start again past every limit.
+    const records = Array.from(this.jobs.values()).filter(
+      (record) => record.view.status === 'running' || this.running.has(record.view.id)
+    );
     const total = records.length;
     const own = records.filter((record) => record.ownerKeyId === keyId).length;
     if (own >= this.limits.maxRunningPerKey) {
@@ -348,7 +370,18 @@ export class GenerationJobService {
           } else {
             result = await generator.generateExpand(request.options, container, hooks);
           }
-          if (record.view.status !== 'running') return; // Cancelled while the last write finished.
+          if (record.view.status !== 'running') {
+            // Cancelled while the last write finished: the graph holds all of it.
+            if (record.view.status === 'cancelled') {
+              record.view.written = {
+                events: result.eventCount,
+                arcs: result.arcCount,
+                relationships: result.relationshipCount,
+              };
+              record.view.message = `Cancelled; ${describeWritten(record.view.written)} stays in the graph`;
+            }
+            return;
+          }
           record.view.result = result;
           record.view.graphId = result.graphId;
           record.view.source = result.source ?? record.view.source;
