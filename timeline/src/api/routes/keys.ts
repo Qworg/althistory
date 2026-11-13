@@ -359,6 +359,19 @@ keyRoutes.put(
 );
 
 /**
+ * A key that is gone must not keep writing through a generation job it started:
+ * permissions are checked when a job starts, and the job outlives the request.
+ */
+function stopJobsOf(req: AuthenticatedRequest, keyId: string): void {
+  try {
+    const stopped = req.container.generationJobService.cancelOwnedBy(keyId);
+    if (stopped > 0) logger.info('Stopped generation jobs of a revoked key', { keyId, stopped });
+  } catch (error) {
+    logger.warn('Could not stop the generation jobs of a revoked key', { keyId, error });
+  }
+}
+
+/**
  * Revoke an API key (soft delete)
  * POST /api/keys/:id/revoke
  * Requires: admin permission
@@ -389,6 +402,7 @@ keyRoutes.post(
         });
       }
 
+      stopJobsOf(req, id);
       logger.info('Revoked API key', { keyId: id });
 
       res.json({ success: true, message: 'API key revoked' });
@@ -432,6 +446,7 @@ keyRoutes.delete(
         });
       }
 
+      stopJobsOf(req, id);
       logger.info('Deleted API key', { keyId: id });
 
       res.json({ success: true, message: 'API key deleted' });

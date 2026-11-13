@@ -401,6 +401,41 @@ describe('GenerationJobService', () => {
       await service.shutdown();
     });
 
+    it('stops every running job of a key whose authority is gone, and no one else\'s', async () => {
+      const { service, release } = gated();
+      const mine = service.start(TIMELINE, OWNER);
+      const theirs = service.start(TIMELINE, OTHER);
+      expect(service.cancelOwnedBy(OWNER.keyId)).toBe(1);
+      expect(service.get(mine.id, OWNER.keyId)?.status).toBe('cancelled');
+      expect(service.get(theirs.id, OTHER.keyId)?.status).toBe('running');
+      expect(service.cancelOwnedBy(OWNER.keyId)).toBe(0);
+      release();
+      await service.shutdown();
+    });
+
+    it('does not forget a cancelled job whose run is still unwinding, so its slot is still counted', async () => {
+      let now = Date.parse('2026-05-01T00:00:00Z');
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const service = serviceWith({
+        llmClient: () => modelClient(modelEvents(4), gate),
+        limits: { maxRunningPerKey: 1, retentionMs: 60_000 },
+        now: () => now,
+      });
+      const job = service.start(TIMELINE, OWNER);
+      service.cancel(job.id, OWNER.keyId);
+      // Retention passes while the model call is still in flight.
+      now += 10 * 60 * 1000;
+      expect(() => service.start(TIMELINE, OWNER)).toThrow(GenerationLimitError);
+      release();
+      await service.idle();
+      expect(() => service.start(TIMELINE, OWNER)).not.toThrow();
+      release();
+      await service.shutdown();
+    });
+
     it('refuses any key once the app is at its own limit', async () => {
       const { service, release } = gated();
       service.start(TIMELINE, OWNER);

@@ -114,7 +114,7 @@ import {
   readNonEmptyString,
 } from './StreamProtocol';
 import type { ServerMessage, StreamErrorCode } from './StreamProtocol';
-import type { ChangeFeedService, ChangeRecord } from '@/services/ChangeFeedService';
+import type { ChangeFeedService, ChangeRecord, ChangedEntity } from '@/services/ChangeFeedService';
 import { runWithChangeContext } from '@/utils/ChangeContext';
 
 /** The single WebSocket endpoint this handler serves. */
@@ -125,6 +125,31 @@ export const STREAM_REQUIRED_PERMISSION: Permission = 'write:events';
 
 /** Permission required to open a read-only (`feed`) stream and to watch a graph. */
 export const STREAM_FEED_PERMISSION: Permission = 'read:events';
+
+/** What reading each kind of entity needs, as the entity routes ask for it (pressures are inferred from events). */
+const ENTITY_READ_PERMISSION: Record<ChangedEntity['type'], Permission> = {
+  event: 'read:events',
+  arc: 'read:arcs',
+  relationship: 'read:relationships',
+  pressure: 'read:events',
+};
+
+/**
+ * What a key may be told of a change. Watching a graph needs only `read:events`,
+ * but a change to arcs or links carries their ids and a line naming them, which
+ * the entity routes would refuse a key without `read:arcs` or `read:relationships`.
+ * Entities the key cannot read are dropped from the record; when any were, the
+ * line (which may name them) becomes a count, and a record with nothing left to
+ * show is not sent.
+ */
+export function visibleTo(apiKey: Pick<ApiKey, 'hasPermission'>, record: ChangeRecord): ChangeRecord | null {
+  if (record.kind !== 'entities') return record;
+  const entities = record.entities.filter((entity) => apiKey.hasPermission(ENTITY_READ_PERMISSION[entity.type]));
+  if (entities.length === record.entities.length) return record;
+  if (entities.length === 0) return null;
+  const verb = record.operation === 'create' ? 'Added' : record.operation === 'delete' ? 'Removed' : 'Changed';
+  return { ...record, entities, summary: `${verb} ${entities.length} ${entities.length === 1 ? 'item' : 'items'}` };
+}
 
 /** Permission required to watch the graph list (the `*` channel). */
 export const STREAM_GRAPH_LIST_PERMISSION: Permission = 'read:graphs';
@@ -1182,7 +1207,10 @@ export class StreamHandler {
     let replay: ReturnType<StreamFeed['replay']> | undefined;
     if (!isList && since !== undefined) replay = this.feed.replay(channel, epoch, since);
     const resync = replay && !replay.ok ? replay.reason : undefined;
-    const records = replay && replay.ok ? replay.records : [];
+    const records = (replay && replay.ok ? replay.records : []).flatMap((record) => {
+      const visible = visibleTo(apiKey, record);
+      return visible ? [visible] : [];
+    });
     this.send(ws, {
       type: 'subscribed',
       requestId,
@@ -1229,7 +1257,8 @@ export class StreamHandler {
         context.apiKey.canAccessGraph(record.graphId);
       if (!direct && !listed) continue;
       if (direct && !context.apiKey.canAccessGraph(record.graphId)) continue;
-      this.send(ws, { type: 'change', ...record });
+      const visible = visibleTo(context.apiKey, record);
+      if (visible) this.send(ws, { type: 'change', ...visible });
     }
   }
 

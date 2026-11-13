@@ -247,6 +247,21 @@ export class GenerationJobService {
   }
 
   /**
+   * Stop every job a key has running: the key was revoked or deleted, and what
+   * a job writes after that is written with authority it no longer has. Returns
+   * how many were running.
+   */
+  cancelOwnedBy(ownerKeyId: string): number {
+    let cancelled = 0;
+    for (const record of Array.from(this.jobs.values())) {
+      if (record.ownerKeyId !== ownerKeyId || TERMINAL.has(record.view.status)) continue;
+      this.cancel(record.view.id, ownerKeyId);
+      cancelled += 1;
+    }
+    return cancelled;
+  }
+
+  /**
    * Cancel a job the key owns. A job that already finished is returned as it
    * is. The job is `cancelled` at once; its run stops at its next write.
    */
@@ -337,7 +352,9 @@ export class GenerationJobService {
   private prune(): void {
     const cutoff = this.now() - this.limits.retentionMs;
     const finished = Array.from(this.jobs.values())
-      .filter((record) => TERMINAL.has(record.view.status))
+      // A cancelled job whose run is still unwinding keeps counting toward the
+      // limits (`enforceLimits`), so it is not forgotten until the run is over.
+      .filter((record) => TERMINAL.has(record.view.status) && !this.running.has(record.view.id))
       .sort((a, b) => a.view.updatedAt.localeCompare(b.view.updatedAt));
     for (const record of finished) {
       if (Date.parse(record.view.updatedAt) < cutoff) this.jobs.delete(record.view.id);

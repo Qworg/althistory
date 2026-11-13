@@ -455,6 +455,13 @@ has its socket closed (`KEY_INVALID`), and one that loses a graph is sent
 idle for 5 minutes is closed, and every session ends after 30 minutes, which is
 what the reconnect below is for.
 
+Watching needs `read:events` alone, but a change is told only as far as the key
+could read it over HTTP: entities the key may not read (arcs without
+`read:arcs`, links without `read:relationships`) are left out of an `entities`
+change, its `summary` becomes a count, and a change with nothing left to show is
+not sent. Replays are redacted the same way. Jobs a key started are stopped when
+the key is revoked or deleted.
+
 **A `change` message** carries `graphId`, `seq`, `at`, the `actor` and a `kind`:
 
 | `kind` | When | Fields |

@@ -139,6 +139,8 @@ describe('the live change feed over the WebSocket', () => {
   let graphA: string;
   let graphB: string;
   let readerKey: string;
+  /** May watch a graph (read:events) and nothing else of it. */
+  let eventsOnlyKey: string;
   let agentKey: string;
   let agentKeyId: string;
   let writerKey: string;
@@ -193,7 +195,8 @@ describe('the live change feed over the WebSocket', () => {
 
     const create = async (name: string, permissions: Parameters<typeof container.authService.createApiKey>[0]['permissions'], allowedGraphs: string[] | '*' = '*') =>
       container.authService.createApiKey({ name, permissions, allowedGraphs, rateLimit: { concurrentStreams: 8 } });
-    readerKey = (await create('Watcher', ['read:events', 'read:graphs'])).key;
+    readerKey = (await create('Watcher', ['read:events', 'read:arcs', 'read:relationships', 'read:graphs'])).key;
+    eventsOnlyKey = (await create('Events only', ['read:events'])).key;
     const agent = await create('Claude agent', ['read:events', 'write:events', 'write:arcs', 'write:relationships', 'read:arcs', 'read:relationships', 'read:graphs', 'write:graphs']);
     agentKey = agent.key;
     agentKeyId = agent.id;
@@ -344,6 +347,26 @@ describe('the live change feed over the WebSocket', () => {
       for (const change of changes) {
         expect(change).toMatchObject({ kind: 'entities', operation: 'create', actor: { kind: 'agent', name: 'Claude agent' } });
       }
+    });
+
+    it('tells a key that may read events only nothing of the links a simulation wrote', async () => {
+      const anchor = await agentAddsEvent(graphA, 'The Tide Treaty is signed');
+      const client = await watcher(eventsOnlyKey, graphA);
+      await request(app)
+        .post('/api/inference/simulate')
+        .set('X-API-Key', agentKey)
+        .set('X-Graph-Id', graphA)
+        .send({ anchorEventId: anchor, steps: 2 })
+        .expect(200);
+      const marker = await agentAddsEvent(graphA, 'A marker after the simulation');
+      const announced: Array<{ type: string; id: string }> = [];
+      for (;;) {
+        const change = await client.nextOf('change');
+        announced.push(...(change.entities as Array<{ type: string; id: string }>));
+        if (announced.some((entity) => entity.id === marker)) break;
+      }
+      expect(announced.length).toBeGreaterThanOrEqual(3);
+      expect(announced.every((entity) => entity.type === 'event')).toBe(true);
     });
 
     it('delivers a batch, which writes without a version', async () => {

@@ -13,6 +13,7 @@ import { Permission, PERMISSION_GROUPS } from '@/models/ApiKey';
 let mockAuthService: any;
 
 // Mock the rate limiter, which counts the requests per key.
+let mockCancelOwnedBy: ReturnType<typeof vi.fn>;
 let mockRateLimitService: { getState: ReturnType<typeof vi.fn> };
 
 // The key the auth service returns, so a test can make it return a different
@@ -122,6 +123,8 @@ describe('Keys Routes', () => {
       }),
     };
 
+    mockCancelOwnedBy = vi.fn().mockReturnValue(0);
+
     // Create fresh app for each test
     app = express();
     app.use(express.json());
@@ -132,6 +135,7 @@ describe('Keys Routes', () => {
       req.container = {
         authService: mockAuthService,
         rateLimitService: mockRateLimitService,
+        generationJobService: { cancelOwnedBy: mockCancelOwnedBy },
       } as any;
       next();
     });
@@ -426,6 +430,11 @@ describe('Keys Routes', () => {
       expect(mockAuthService.revokeApiKey).toHaveBeenCalledWith('other-key-id');
     });
 
+    it('stops the generation jobs the revoked key had running', async () => {
+      await request(app).post('/api/keys/other-key-id/revoke').set('X-API-Key', 'valid-admin-key').expect(200);
+      expect(mockCancelOwnedBy).toHaveBeenCalledWith('other-key-id');
+    });
+
     it('should not allow revoking own key', async () => {
       await request(app)
         .post('/api/keys/test-key-id/revoke')
@@ -443,6 +452,11 @@ describe('Keys Routes', () => {
 
       expect(response.body.success).toBe(true);
       expect(mockAuthService.deleteApiKey).toHaveBeenCalledWith('other-key-id');
+    });
+
+    it('stops the generation jobs the deleted key had running', async () => {
+      await request(app).delete('/api/keys/other-key-id').set('X-API-Key', 'valid-admin-key').expect(200);
+      expect(mockCancelOwnedBy).toHaveBeenCalledWith('other-key-id');
     });
 
     it('should not allow deleting own key', async () => {

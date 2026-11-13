@@ -89,7 +89,9 @@ export class McpServer {
 
     try {
       const result = await this.dispatch(request.method, request.params, controller.signal);
-      if (isNotification) {
+      // The only thing that aborts the signal is the client's own cancellation,
+      // and a receiver SHOULD NOT answer a request the sender cancelled.
+      if (isNotification || controller.signal.aborted) {
         return null;
       }
       const response: JsonRpcResponse = {
@@ -99,7 +101,7 @@ export class McpServer {
       };
       return JSON.stringify(response);
     } catch (err) {
-      if (isNotification) {
+      if (isNotification || controller.signal.aborted) {
         return null;
       }
       const response: JsonRpcResponse = {

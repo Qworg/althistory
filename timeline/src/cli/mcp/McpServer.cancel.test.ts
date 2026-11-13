@@ -40,9 +40,8 @@ describe('MCP cancellation', () => {
 
     expect(await server.handleMessage(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 7 } }))).toBeNull();
     expect(first.signal?.aborted).toBe(true);
-    const response = JSON.parse((await running) as string);
-    expect(response.id).toBe(7);
-    expect(response.result.isError ?? response.error).toBeTruthy();
+    // The client gave up on the call: the MCP spec says not to answer it.
+    expect(await running).toBeNull();
   });
 
   it('hands a branch call its signal too', async () => {
