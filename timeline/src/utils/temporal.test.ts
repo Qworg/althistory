@@ -29,7 +29,7 @@ describe('a query that holds a moment beyond a Date', () => {
   it('is turned back into the text the local store keeps', () => {
     const sent = deepTemporalQuery('CREATE (e:Event {timestamp: datetime($timestamp)})', { timestamp: '-499999-06-15T00:00:00.000Z' });
     expect(sent.query).toContain('epochMillis');
-    const read = readEpochMillis(sent.query, sent.parameters);
+    const read = readEpochMillis(sent.query, sent.parameters as never);
     expect(read.query).toBe('CREATE (e:Event {timestamp: datetime($timestamp__iso)})');
     expect(read.parameters.timestamp__iso).toBe('-499999-06-15T00:00:00.000Z');
   });

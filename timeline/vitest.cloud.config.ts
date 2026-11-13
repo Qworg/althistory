@@ -27,6 +27,8 @@ export default defineConfig({
       // #59: cross-graph isolation. Creates two graphs through the scoped
       // repositories and asserts neither can read, count or mutate the other.
       'src/tests/integration/graph-scoped-storage.test.ts',
+      // Moments beyond a Date (docs/specs/deep-time.md, Req 13): +-300000 years through epochMillis.
+      'src/repositories/DeepTime.neo4j.test.ts',
     ],
     // These suites share one Neo4j instance and each deletes every node with
     // its label in its own hooks, so running the files concurrently makes them
