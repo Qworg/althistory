@@ -11,7 +11,7 @@
  * two functions, so they cannot drift apart again.
  */
 
-import { toAxisTime } from '@althistory/calendar';
+import { axisTimeOf, toAxisTime } from '@althistory/calendar';
 
 /**
  * The time of a value the project compares: a `Date` or a millisecond
@@ -27,6 +27,9 @@ export type CausalTime = Date | number | bigint;
  */
 function toMillis(value: CausalTime): bigint | null {
   if (typeof value === 'bigint') return value;
+  // A number is milliseconds, read exactly: `new Date(n)` goes invalid past
+  // +-275,760 years, where every pair would pass as "not an inversion".
+  if (typeof value === 'number') return axisTimeOf(value);
   return toAxisTime(value);
 }
 

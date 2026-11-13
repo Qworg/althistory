@@ -13,7 +13,7 @@
  * compares a cause with an effect on its own.
  */
 
-import { toAxisTime } from '@althistory/calendar';
+import { axisTimeOf, toAxisTime } from '@althistory/calendar';
 
 /**
  * The time of a value the project compares: a `Date` (an `AxisDate` beyond a
@@ -27,6 +27,9 @@ export type CausalTime = Date | number;
  * time that names no moment.
  */
 function toMillis(value: CausalTime): bigint | null {
+  // A number is milliseconds, read exactly: `new Date(n)` goes invalid past
+  // +-275,760 years, where every pair would pass as "not an inversion".
+  if (typeof value === 'number') return axisTimeOf(value);
   return toAxisTime(value);
 }
 

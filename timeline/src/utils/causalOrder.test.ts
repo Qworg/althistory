@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { toInstant } from '@althistory/calendar'
 import {
   isTemporalInversion,
   isCausalOrderValid,
@@ -33,6 +34,14 @@ describe('isTemporalInversion', () => {
   it('should be false when the cause and the effect are at the same moment', () => {
     const moment = new Date('2023-01-01T00:00:00Z')
     expect(isTemporalInversion(moment, moment)).toBe(false)
+  })
+
+  it('should order millisecond numbers beyond a Date\'s range exactly, not as unreadable', () => {
+    const late = toInstant('+300000-01-01T00:00:00.000Z')
+    const early = toInstant('+299000-01-01T00:00:00.000Z')
+    expect(isTemporalInversion(late.getTime(), early.getTime())).toBe(true)
+    expect(isTemporalInversion(early.getTime(), late.getTime())).toBe(false)
+    expect(isSimultaneous(late.getTime(), late.getTime())).toBe(true)
   })
 
   it('should accept millisecond timestamps as well as dates', () => {

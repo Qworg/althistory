@@ -1637,8 +1637,8 @@ Generate ${eventCount} chronological events of this world's history, from its fo
 
     // Causal direction (the cause may not follow the effect)
     for (const link of links) {
-      const causeTime = toInstant(events[link.causeIndex].timestamp).getTime();
-      const effectTime = toInstant(events[link.effectIndex].timestamp).getTime();
+      const causeTime = toInstant(events[link.causeIndex].timestamp);
+      const effectTime = toInstant(events[link.effectIndex].timestamp);
       if (isTemporalInversion(causeTime, effectTime)) {
         issues.push({
           type: 'causal_direction',

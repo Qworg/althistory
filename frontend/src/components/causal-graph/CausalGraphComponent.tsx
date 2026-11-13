@@ -843,7 +843,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     const first = events.find(e => e.id === selectedEvents[0])
     const second = events.find(e => e.id === selectedEvents[1])
     if (!first || !second || first.id === second.id) return null
-    return isTemporalInversion(toInstant(first.timestamp).getTime(), toInstant(second.timestamp).getTime())
+    return isTemporalInversion(toInstant(first.timestamp), toInstant(second.timestamp))
       ? { cause: second, effect: first }
       : { cause: first, effect: second }
   }, [selectedEvents, events])
@@ -1133,10 +1133,10 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       // Mark nodes that can't be valid targets (events that occurred before
       // the source). The names say which is which, so that a comparison
       // between the two is recognisable as a causal-order comparison.
-      const causeTimestamp = toInstant(linkCreationSource.timestamp).getTime()
+      const causeTimestamp = toInstant(linkCreationSource.timestamp)
 
       // Guard against invalid timestamp
-      if (isNaN(causeTimestamp)) {
+      if (isNaN(causeTimestamp.getTime())) {
         console.warn('[CausalGraph] Invalid source timestamp:', linkCreationSource.timestamp)
         return
       }
@@ -1148,10 +1148,10 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           return
         }
 
-        const effectTimestamp = toInstant(nodeData.event.timestamp).getTime()
+        const effectTimestamp = toInstant(nodeData.event.timestamp)
 
         // Skip if timestamp is invalid
-        if (isNaN(effectTimestamp)) {
+        if (isNaN(effectTimestamp.getTime())) {
           console.warn('[CausalGraph] Invalid node timestamp:', nodeData.event.timestamp)
           return
         }
@@ -1526,16 +1526,16 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
             {isCreatingLink && (
               <div className={`text-xs mt-2 pt-2 border-t border-line font-medium ${
                 linkCreationSource && isTemporalInversion(
-                  toInstant(linkCreationSource.timestamp).getTime(),
-                  toInstant(hoveredNode.timestamp).getTime()
+                  toInstant(linkCreationSource.timestamp),
+                  toInstant(hoveredNode.timestamp)
                 )
                   ? 'text-ink-muted'
                   : 'text-selected'
               }`}>
                 {linkCreationSource
                   ? (isTemporalInversion(
-                      toInstant(linkCreationSource.timestamp).getTime(),
-                      toInstant(hoveredNode.timestamp).getTime()
+                      toInstant(linkCreationSource.timestamp),
+                      toInstant(hoveredNode.timestamp)
                     )
                     ? 'Cannot link - this event occurs before the source'
                     : 'Click to make this the effect'
