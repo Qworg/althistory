@@ -234,6 +234,8 @@ export class Container implements ServiceContainer {
         inferenceService: this.inferenceService,
         validationService: this.validationService,
         graphScopedRepositories: (graphId: string) => this.graphScopedRepositories(graphId),
+        // Versions each milestone and announces it on the live feed.
+        recorder: this.graphWriteVersioningService,
       });
     }
     return this._simulationService;
@@ -826,6 +828,15 @@ export class Container implements ServiceContainer {
       // Stop Phase 3: Authentication services
       if (this._rateLimitService) {
         this._rateLimitService.stop();
+      }
+
+      // Stop generation jobs first: a job writes to the live stores and then
+      // commits a version, so one still running while the stores are flushed and
+      // evicted could write to a store nothing will flush again, or leave the
+      // version tree behind the live store. Bounded, so a hung model call cannot
+      // hold the shutdown; an aborted job writes nothing more either way.
+      if (this._generationJobService) {
+        await this._generationJobService.shutdown();
       }
 
       // Shut down graph-scoped live stores so pending writes are saved and

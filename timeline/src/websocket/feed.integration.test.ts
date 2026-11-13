@@ -40,6 +40,7 @@ import { attributeChanges } from '@/api/changeAttribution';
 import { streamRoutes } from '@/api/routes/stream';
 import { eventRoutes } from '@/api/routes/events';
 import { batchRoutes } from '@/api/routes/batch';
+import { inferenceRoutes } from '@/api/routes/inference';
 import {
   StreamHandler,
   StreamSessionManager,
@@ -227,6 +228,7 @@ describe('the live change feed over the WebSocket', () => {
     app.use('/api/stream', streamRoutes);
     app.use('/api/events', eventRoutes);
     app.use('/api/batch', batchRoutes);
+    app.use('/api/inference', inferenceRoutes);
     app.use(errorHandler);
 
     server = createServer(app);
@@ -318,6 +320,30 @@ describe('the live change feed over the WebSocket', () => {
       expect(await client.nextOf('change')).toMatchObject({ operation: 'update', entities: [{ type: 'event', id }] });
       await request(app).delete(`/api/events/${id}`).set('X-API-Key', agentKey).set('X-Graph-Id', graphA).expect(200);
       expect(await client.nextOf('change')).toMatchObject({ operation: 'delete', entities: [{ type: 'event', id }] });
+    });
+
+    it("delivers a simulation's milestones and their links as they are written", async () => {
+      const anchor = await agentAddsEvent(graphA, 'The Tide Treaty is signed');
+      const client = await watcher(readerKey, graphA);
+      const res = await request(app)
+        .post('/api/inference/simulate')
+        .set('X-API-Key', agentKey)
+        .set('X-Graph-Id', graphA)
+        .set('X-Althistory-Client', 'mcp')
+        .send({ anchorEventId: anchor, steps: 2 })
+        .expect(200);
+      const events = res.body.data.events as Array<{ id: string }>;
+      expect(events).toHaveLength(2);
+
+      const changes: Message[] = [];
+      // Two events and two links, each announced by its own commit.
+      for (let i = 0; i < 4; i += 1) changes.push(await client.nextOf('change'));
+      const announced = changes.flatMap((change) => change.entities as Array<{ type: string; id: string }>);
+      for (const event of events) expect(announced).toContainEqual({ type: 'event', id: event.id });
+      expect(announced.filter((entity) => entity.type === 'relationship')).toHaveLength(2);
+      for (const change of changes) {
+        expect(change).toMatchObject({ kind: 'entities', operation: 'create', actor: { kind: 'agent', name: 'Claude agent' } });
+      }
     });
 
     it('delivers a batch, which writes without a version', async () => {
@@ -458,6 +484,23 @@ describe('the live change feed over the WebSocket', () => {
       expect(await client.next()).toMatchObject({ type: 'auth_result', mode: 'write' });
       client.send({ type: 'subscribe', graphId: graphA });
       expect((await client.nextOf('subscribed')).graphId).toBe(graphA);
+    });
+
+    it("credits a write made over the write socket to the key that made it, not to the app", async () => {
+      const watching = await watcher(readerKey, graphA);
+      const record = tokenStore.issue({ apiKeyId: agentKeyId, graphId: graphA, permissions: ['write:events'] });
+      const writer = await connect(url(record.token));
+      open.push(writer);
+      expect((await writer.next()).type).toBe('auth_result');
+      writer.send({
+        type: 'event',
+        requestId: 'w-credit',
+        data: { description: 'Written over the socket', actor: 'The League', target: 'The Tide', timestamp: '1302-01-01T00:00:00Z' },
+      });
+      expect(await writer.nextOf('ack')).toMatchObject({ success: true });
+      const change = await watching.nextOf('change');
+      expect(change).toMatchObject({ operation: 'create', actor: { kind: 'api', name: 'Claude agent', keyId: agentKeyId } });
+      expect(String(change.summary)).toContain('Written over the socket');
     });
 
     it('stops delivering when the key loses the graph, and ends the socket when the key is revoked', async () => {

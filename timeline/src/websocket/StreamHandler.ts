@@ -115,6 +115,7 @@ import {
 } from './StreamProtocol';
 import type { ServerMessage, StreamErrorCode } from './StreamProtocol';
 import type { ChangeFeedService, ChangeRecord } from '@/services/ChangeFeedService';
+import { runWithChangeContext } from '@/utils/ChangeContext';
 
 /** The single WebSocket endpoint this handler serves. */
 export const STREAM_PATH = '/api/ws/stream';
@@ -920,7 +921,12 @@ export class StreamHandler {
 
     this.inFlightWrites.set(context.session.id, inFlight + 1);
     try {
-      await this.handleEntity(ws, context, entityType, data, requestId);
+      // A socket is no Express request, so the router's attribution never ran:
+      // say whose key this write is by, or the live feed credits it to "the app".
+      await runWithChangeContext(
+        { actor: { kind: 'api', name: context.apiKey.name, keyId: context.apiKey.id } },
+        () => this.handleEntity(ws, context, entityType, data, requestId)
+      );
     } finally {
       const remaining = (this.inFlightWrites.get(context.session.id) ?? 1) - 1;
       if (remaining > 0) {
