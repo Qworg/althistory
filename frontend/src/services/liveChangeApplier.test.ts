@@ -3,7 +3,8 @@ import { QueryClient } from '@tanstack/react-query'
 import type { ChangeActor, LiveChange } from '@/types'
 import {
   DATA_REFRESH_MS,
-  DATA_REFRESHES_PER_MINUTE,
+  DATA_REFRESH_BURST,
+  DATA_REFRESH_TOKEN_MS,
   DERIVED_REFRESH_MS,
   GRAPH_COUNTS_REFRESH_MS,
   LiveChangeApplier,
@@ -41,7 +42,7 @@ describe('LiveChangeApplier', () => {
     }) as unknown as QueryClient['invalidateQueries'])
     sink = { markFresh: vi.fn(), addNotices: vi.fn(), setNotice: vi.fn() }
     active = 'g1'
-    applier = new LiveChangeApplier({ queryClient, sink, activeGraphId: () => active, clientId: 'tab-1', windowMs: 150 })
+    applier = new LiveChangeApplier({ queryClient, sink, activeGraphId: () => active, clientId: 'tab-1', windowMs: 150, hasActiveQueries: () => true })
   })
 
   afterEach(() => {
@@ -116,14 +117,54 @@ describe('LiveChangeApplier', () => {
     }
     vi.advanceTimersByTime(60_000)
     const refetches = invalidated.filter((root) => root !== 'graphs')
-    // Over the five minutes, and in no minute of them, more than a half of the budget.
-    expect(refetches.length).toBeLessThanOrEqual(5 * 40)
+    // The burst, then one token per DATA_REFRESH_TOKEN_MS, over the six minutes.
+    expect(refetches.length).toBeLessThanOrEqual(DATA_REFRESH_BURST + Math.ceil(360_000 / DATA_REFRESH_TOKEN_MS))
     // The slow derived root is slower than the entities.
     const inference = invalidated.filter((root) => root === 'inference').length
     expect(inference).toBeLessThanOrEqual(Math.ceil(360_000 / DERIVED_REFRESH_MS) + 1)
   })
 
-  it('never invalidates more than the per-minute cap in any minute, but catches up when the minute allows', () => {
+  it('shows a steady agent\'s changes within a few seconds for as long as it writes, with no stall', () => {
+    // Every refetch time per root, and every change time per root: the delay is change -> next refetch.
+    const refetchAt: Record<string, number[]> = { events: [], causal: [] }
+    ;(queryClient.invalidateQueries as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      ((filters: { queryKey?: readonly unknown[] }) => {
+        const root = String(filters?.queryKey?.[0])
+        refetchAt[root]?.push(Date.now())
+        return Promise.resolve()
+      }) as unknown as QueryClient['invalidateQueries']
+    )
+    const start = Date.now()
+    const changeAt: Record<string, number[]> = { events: [], causal: [] }
+    for (let t = 0; t < 300_000; t += 2000) {
+      applier.push(added('g1', 'event', `e${t}`))
+      changeAt.events!.push(Date.now())
+      changeAt.causal!.push(Date.now())
+      vi.advanceTimersByTime(1000)
+      applier.push(added('g1', 'relationship', `r${t}`))
+      changeAt.causal!.push(Date.now())
+      vi.advanceTimersByTime(1000)
+    }
+    vi.advanceTimersByTime(60_000)
+    for (const root of ['events', 'causal']) {
+      const refetches = refetchAt[root]!
+      let worst = 0
+      for (const at of changeAt[root]!) {
+        // The first refetch that starts after the change was made (the window is gathered first).
+        const next = refetches.find((r) => r >= at)
+        expect(next).toBeDefined()
+        worst = Math.max(worst, next! - at)
+      }
+      expect(worst, `${root} change-to-refetch delay`).toBeLessThanOrEqual(6_000)
+      // And no long gap in the middle of the stream: the budget is spread, not spent up front.
+      const during = refetches.filter((r) => r - start <= 300_000)
+      for (let i = 1; i < during.length; i += 1) {
+        expect(during[i]! - during[i - 1]!, `${root} gap`).toBeLessThanOrEqual(6_000)
+      }
+    }
+  })
+
+  it('never invalidates more than the burst plus the sustained rate in any minute, but catches up', () => {
     const times: number[] = []
     ;(queryClient.invalidateQueries as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       ((filters: { queryKey?: readonly unknown[] }) => {
@@ -138,15 +179,35 @@ describe('LiveChangeApplier', () => {
       applier.push(added('g1', 'relationship', `r${t}`))
       vi.advanceTimersByTime(500)
     }
+    const cap = DATA_REFRESH_BURST + Math.ceil(60_000 / DATA_REFRESH_TOKEN_MS)
     for (const start of times) {
       const inMinute = times.filter((at) => at >= start && at < start + 60_000).length
-      expect(inMinute).toBeLessThanOrEqual(DATA_REFRESHES_PER_MINUTE)
+      expect(inMinute).toBeLessThanOrEqual(cap)
     }
-    // And a change is never lost: the roots still refresh once the minute makes room.
+    // And a change is never lost: the roots still refresh once the budget makes room.
     const before = times.length
     vi.advanceTimersByTime(120_000)
     expect(times.length).toBeGreaterThanOrEqual(before)
     expect(times.length).toBeGreaterThan(30)
+  })
+
+  it('spends no budget on a root nothing is showing', () => {
+    const quiet = new LiveChangeApplier({
+      queryClient,
+      sink,
+      activeGraphId: () => active,
+      clientId: 'tab-1',
+      windowMs: 150,
+      hasActiveQueries: (root) => root === 'events',
+    })
+    invalidated.length = 0
+    // Far more causal changes than the budget: all are invalidated at the per-root interval, none held.
+    for (let i = 0; i < 40; i += 1) {
+      quiet.push(added('g1', 'relationship', `r${i}`))
+      vi.advanceTimersByTime(DATA_REFRESH_MS)
+    }
+    expect(invalidated.filter((root) => root === 'causal').length).toBeGreaterThanOrEqual(35)
+    quiet.dispose()
   })
 
   it('refreshes the data once more when the interval ends, so the view is never left behind the last change', () => {
@@ -174,6 +235,16 @@ describe('LiveChangeApplier', () => {
   })
 
   it('applies a steady stream within the window, not only when it stops', async () => {
+    // The timeline is on screen: only the events are being watched.
+    applier.dispose()
+    applier = new LiveChangeApplier({
+      queryClient,
+      sink,
+      activeGraphId: () => active,
+      clientId: 'tab-1',
+      windowMs: 150,
+      hasActiveQueries: (root) => root === 'events',
+    })
     for (let i = 0; i < 300; i += 1) {
       applier.push(added('g1', 'event', `e${i}`))
       await vi.advanceTimersByTimeAsync(20)
@@ -243,17 +314,19 @@ describe('LiveChangeApplier', () => {
   })
 
   it('highlights an item the minute\'s budget held back once it is finally delivered', async () => {
-    // Spend the whole budget, across roots, within the minute.
-    for (let i = 0; i < DATA_REFRESHES_PER_MINUTE; i += 1) {
+    // Spend the whole budget, across roots: three roots a second drain it faster than it refills.
+    for (let i = 0; i < DATA_REFRESH_BURST; i += 1) {
       applier.push(added('g1', 'event', `warm${i}`))
-      await vi.advanceTimersByTimeAsync(DATA_REFRESH_MS + 200)
+      applier.push(added('g1', 'arc', `warm-a${i}`))
+      applier.push(added('g1', 'relationship', `warm-r${i}`))
+      await vi.advanceTimersByTimeAsync(DATA_REFRESH_MS + 100)
     }
     sink.markFresh.mockClear()
     applier.push(added('g1', 'event', 'late'))
     await vi.advanceTimersByTimeAsync(300)
     // Held by the budget: not delivered, so not highlighted yet.
     expect(sink.markFresh.mock.calls.flatMap((call) => call[0] as unknown[])).not.toContainEqual({ type: 'event', id: 'late' })
-    await vi.advanceTimersByTimeAsync(60_000)
+    await vi.advanceTimersByTimeAsync(DATA_REFRESH_TOKEN_MS * 4)
     expect(sink.markFresh.mock.calls.flatMap((call) => call[0] as unknown[])).toContainEqual({ type: 'event', id: 'late' })
   })
 

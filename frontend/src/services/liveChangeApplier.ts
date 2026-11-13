@@ -23,7 +23,7 @@ export const GRAPH_COUNTS_REFRESH_MS = 10_000
  * The least time between refetches of one data root (events, arcs, links).
  * Short, so an agent writing a call every second or two appears about as it
  * writes (the issue asks for within about a second); the sustained rate is
- * bounded by `DATA_REFRESHES_PER_MINUTE`, not by this. The first change after
+ * bounded by the token bucket below (`DATA_REFRESH_TOKEN_MS`), not by this. The first change after
  * a quiet spell refreshes at once; changes inside the interval are covered by
  * one trailing refresh when it ends, so a view is at most this far behind the
  * last change while the minute's budget lasts.
@@ -56,14 +56,19 @@ interface PendingFresh {
 const DERIVED_ROOTS: ReadonlySet<string> = new Set(['inference'])
 
 /**
- * The most data-root invalidations in any minute, across all roots. The
- * per-root intervals bound each root; this bounds their sum, so a steady
- * stream (an agent writing an event and a link every two seconds, for an
- * hour) leaves the key most of its 60 requests a minute for the person using
- * the page. What the cap holds back is not lost: it is refreshed as soon as
- * the minute makes room.
+ * The refetch budget is a token bucket, so it is spread over the minute instead
+ * of spent at the start of it: one token every `DATA_REFRESH_TOKEN_MS` (30 a
+ * minute, sustained), with room for `DATA_REFRESH_BURST` at once. A burst of
+ * changes after a quiet spell is shown at once; an agent writing steadily is
+ * shown every few seconds, for as long as it writes, and never stalls for the
+ * rest of a minute whose budget it spent in the first twenty seconds. In any
+ * minute there are at most 30 + `DATA_REFRESH_BURST` refetches, which leaves
+ * the key most of its 60 requests a minute for the person using the page.
+ * What the budget holds back is not lost: it is refreshed as soon as a token
+ * arrives, and roots waiting for one are served in the order they asked.
  */
-export const DATA_REFRESHES_PER_MINUTE = 30
+export const DATA_REFRESH_TOKEN_MS = 2_000
+export const DATA_REFRESH_BURST = 6
 
 export interface LiveChangeApplierOptions {
   queryClient: QueryClient
@@ -74,6 +79,12 @@ export interface LiveChangeApplierOptions {
   clientId: string
   /** How long changes are gathered before they are applied. Defaults to 150ms. */
   windowMs?: number
+  /**
+   * Whether a screen is showing a root's data. Invalidating a root nothing
+   * shows only marks it stale: no request is made, so it spends no budget.
+   * Defaults to looking for an observed query of that root in the client.
+   */
+  hasActiveQueries?: (root: string) => boolean
 }
 
 /**
@@ -95,7 +106,7 @@ export interface LiveChangeApplierOptions {
  * because the tag that says it is this tab's is one any writer can send.
  *
  * Data refetches are throttled per root (`DATA_REFRESH_MS`, slower for the
- * derived pressures) and across roots (`DATA_REFRESHES_PER_MINUTE`), because
+ * derived pressures) and across roots (a token bucket, `DATA_REFRESH_TOKEN_MS`), because
  * every refetch is a request against a rate-limited key.
  */
 export class LiveChangeApplier {
@@ -111,8 +122,9 @@ export class LiveChangeApplier {
     { at: number; timer: ReturnType<typeof setTimeout> | undefined; pending: PendingFresh[] }
   >()
   private disposed = false
-  /** When each data-root invalidation of the last minute happened. */
-  private spent: number[] = []
+  /** The refetch budget: tokens held, and when they were last topped up. */
+  private tokens = DATA_REFRESH_BURST
+  private tokensAt = Date.now()
   /** Changes this tab made itself: they still refresh the data, but are not announced or highlighted. */
   private readonly own = new WeakSet<LiveChange>()
 
@@ -206,21 +218,35 @@ export class LiveChangeApplier {
     const attempt = (): void => {
       held.timer = undefined
       const now = Date.now()
-      this.spent = this.spent.filter((at) => now - at < 60_000)
-      const budgetWait = this.spent.length >= DATA_REFRESHES_PER_MINUTE ? (this.spent[0] ?? now) + 60_000 - now : 0
-      const wait = Math.max(held.at + interval - now, budgetWait)
+      // A root nothing shows is only marked stale: it makes no request, so it costs no token.
+      const costs = this.hasActiveQueries(root)
+      const wait = Math.max(held.at + interval - now, costs ? this.tokenWait(now) : 0)
       if (wait > 0) {
         held.timer = setTimeout(attempt, wait)
         return
       }
       held.at = now
-      this.spent.push(now)
+      if (costs) this.tokens -= 1
       const delivering = held.pending
       held.pending = []
       const delivered = (): void => this.highlight(delivering)
       void this.options.queryClient.invalidateQueries({ queryKey: [root] }).then(delivered, delivered)
     }
     attempt()
+  }
+
+  private hasActiveQueries(root: string): boolean {
+    const { hasActiveQueries, queryClient } = this.options
+    if (hasActiveQueries) return hasActiveQueries(root)
+    return queryClient.getQueryCache().findAll({ queryKey: [root] }).some((query) => query.getObserversCount() > 0)
+  }
+
+  /** How long until the budget holds a token (0 if it does now), after topping it up. */
+  private tokenWait(now: number): number {
+    this.tokens = Math.min(DATA_REFRESH_BURST, this.tokens + Math.max(0, now - this.tokensAt) / DATA_REFRESH_TOKEN_MS)
+    this.tokensAt = now
+    // Tolerate float dust from the division, so a token that has arrived is not waited for again.
+    return this.tokens >= 1 - 1e-9 ? 0 : Math.ceil((1 - this.tokens) * DATA_REFRESH_TOKEN_MS)
   }
 
   /** The refetch that carries these items has finished: highlight those on the graph still on screen. */
