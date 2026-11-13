@@ -187,4 +187,4 @@ export interface EventValidationResult {
 export interface TimeRange {
   start: Date;
   end: Date;
-}
+}

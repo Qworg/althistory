@@ -47,6 +47,7 @@ import {
   toAxisTime,
   compareInstants,
   addInstantMs,
+  instantOfMs,
   type AxisTime,
   MAX_AXIS_MS,
   instantOfAxisTime,
@@ -819,8 +820,9 @@ export class TimelineGenerator {
 
     // Copy ancestor events up to pivot into target graph store if not already present
     const sourceEvents = await sourceScoped.eventRepository.findAll();
-    const pivotTime = pivotEvent.timestamp.getTime();
-    const ancestorEvents = sourceEvents.filter((e) => e.timestamp.getTime() <= pivotTime);
+    const ancestorEvents = sourceEvents.filter(
+      (e) => compareInstants(e.timestamp, pivotEvent.timestamp) <= 0
+    );
 
     let branchPivotEvent = await targetScoped.eventRepository.findById(pivotEvent.id);
     for (const ancestor of ancestorEvents) {
@@ -1004,9 +1006,7 @@ export class TimelineGenerator {
     }
 
     const count = Math.max(2, Math.min(options.eventCount || 3, 10));
-    const sorted = [...existingEvents].sort(
-      (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
-    );
+    const sorted = [...existingEvents].sort((a, b) => compareInstants(a.timestamp, b.timestamp));
 
     let windowStart = sorted[0].timestamp.getTime();
     let windowEnd = sorted[sorted.length - 1].timestamp.getTime();
@@ -1050,8 +1050,9 @@ export class TimelineGenerator {
 
     for (let i = 1; i <= count; i++) {
       const timeMs = windowStart + interval * i;
-      const before = [...sorted].reverse().find((e) => e.timestamp.getTime() <= timeMs);
-      const after = sorted.find((e) => e.timestamp.getTime() >= timeMs);
+      const at = instantOfMs(timeMs);
+      const before = [...sorted].reverse().find((e) => compareInstants(e.timestamp, at) <= 0);
+      const after = sorted.find((e) => compareInstants(e.timestamp, at) >= 0);
       intermediateEvents.push({
         description: this.describeExpansion(before, after, i, count),
         timestamp: isoOf(timeMs),
@@ -1214,9 +1215,7 @@ export class TimelineGenerator {
       throw new Error(`Cannot simulate advancement on empty graph: ${options.graphId}`);
     }
 
-    const sorted = [...existingEvents].sort(
-      (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
-    );
+    const sorted = [...existingEvents].sort((a, b) => compareInstants(a.timestamp, b.timestamp));
     const lastEvent = sorted[sorted.length - 1];
     const steps = Math.max(1, Math.min(options.steps || 3, 10));
     const advanceMs = (options.timeAdvanceMonths || 12) * 30.4 * 24 * 60 * 60 * 1000;

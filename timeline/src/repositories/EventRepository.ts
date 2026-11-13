@@ -702,4 +702,4 @@ export class AdvancedEventRepository extends EventRepository {
       await session.close();
     }
   }
-}
+}

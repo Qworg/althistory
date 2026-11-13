@@ -245,4 +245,4 @@ export interface ArcHierarchyValidation {
   parentArc?: Arc;
   childArcs: Arc[];
   violations: string[];
-}
+}
