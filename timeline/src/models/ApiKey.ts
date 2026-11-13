@@ -383,6 +383,12 @@ export interface StreamToken {
   apiKeyId: string;
   graphId: string;
   permissions: Permission[];
+  /**
+   * What the socket is for: `write` (the default) may write entities and needs
+   * `write:events`; `feed` is read-only, for the live change feed, and needs
+   * `read:events`.
+   */
+  mode?: 'write' | 'feed';
   createdAt: string;
   expiresAt: string;
 }
