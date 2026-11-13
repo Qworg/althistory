@@ -40,6 +40,7 @@ import {
   type LabelBox
 } from './causalGraphPresentation'
 import { buildCausalGraphStylesheet, GRAPH_STYLESHEET_REPLACED_EVENT } from './causalGraphStylesheet'
+import { toInstant } from '@althistory/calendar'
 
 export interface CausalGraphComponentProps {
   className?: string
@@ -284,8 +285,8 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   // Initialize Cytoscape instance
   // Validate temporal ordering for causal relationships
   const validateTemporalOrdering = useCallback((causeEvent: Event, effectEvent: Event): boolean => {
-    const causeTime = new Date(causeEvent.timestamp)
-    const effectTime = new Date(effectEvent.timestamp)
+    const causeTime = toInstant(causeEvent.timestamp)
+    const effectTime = toInstant(effectEvent.timestamp)
     return isCausalOrderValid(causeTime, effectTime)
   }, [])
 
@@ -842,7 +843,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     const first = events.find(e => e.id === selectedEvents[0])
     const second = events.find(e => e.id === selectedEvents[1])
     if (!first || !second || first.id === second.id) return null
-    return isTemporalInversion(new Date(first.timestamp).getTime(), new Date(second.timestamp).getTime())
+    return isTemporalInversion(toInstant(first.timestamp).getTime(), toInstant(second.timestamp).getTime())
       ? { cause: second, effect: first }
       : { cause: first, effect: second }
   }, [selectedEvents, events])
@@ -1132,7 +1133,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       // Mark nodes that can't be valid targets (events that occurred before
       // the source). The names say which is which, so that a comparison
       // between the two is recognisable as a causal-order comparison.
-      const causeTimestamp = new Date(linkCreationSource.timestamp).getTime()
+      const causeTimestamp = toInstant(linkCreationSource.timestamp).getTime()
 
       // Guard against invalid timestamp
       if (isNaN(causeTimestamp)) {
@@ -1147,7 +1148,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           return
         }
 
-        const effectTimestamp = new Date(nodeData.event.timestamp).getTime()
+        const effectTimestamp = toInstant(nodeData.event.timestamp).getTime()
 
         // Skip if timestamp is invalid
         if (isNaN(effectTimestamp)) {
@@ -1525,16 +1526,16 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
             {isCreatingLink && (
               <div className={`text-xs mt-2 pt-2 border-t border-line font-medium ${
                 linkCreationSource && isTemporalInversion(
-                  new Date(linkCreationSource.timestamp).getTime(),
-                  new Date(hoveredNode.timestamp).getTime()
+                  toInstant(linkCreationSource.timestamp).getTime(),
+                  toInstant(hoveredNode.timestamp).getTime()
                 )
                   ? 'text-ink-muted'
                   : 'text-selected'
               }`}>
                 {linkCreationSource
                   ? (isTemporalInversion(
-                      new Date(linkCreationSource.timestamp).getTime(),
-                      new Date(hoveredNode.timestamp).getTime()
+                      toInstant(linkCreationSource.timestamp).getTime(),
+                      toInstant(hoveredNode.timestamp).getTime()
                     )
                     ? 'Cannot link - this event occurs before the source'
                     : 'Click to make this the effect'

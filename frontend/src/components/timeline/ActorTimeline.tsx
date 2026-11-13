@@ -1,11 +1,13 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
+import { instantOfMs, instantScale, isDeepInstant, rescaleInstantX } from '@/utils/timeScale'
 import { Event, Arc, TimeRange } from '@/types'
 import { axisTicks, formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
 import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
+import { toInstant } from '@althistory/calendar'
 
 /** Two rows of 12px labels (the 12px floor); the pitch is the font plus leading. */
 const ACTOR_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: [-16, -30], fontSize: 12 }
@@ -110,15 +112,15 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
         end: new Date()
       }
     }
-    const times = events.map(e => new Date(e.timestamp).getTime())
+    const times = events.map(e => toInstant(e.timestamp).getTime())
     const first = Math.min(...times)
     const last = Math.max(...times)
     // Pad by a share of the span, not a fixed day: on a span of years one day
     // put the first and last events on the chart's edges.
     const padding = Math.max(86400000, (last - first) * 0.03)
     return {
-      start: new Date(first - padding),
-      end: new Date(last + padding)
+      start: instantOfMs(first - padding),
+      end: instantOfMs(last + padding)
     }
   }, [events])
 
@@ -161,7 +163,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
 
   // Time scale over the visible (zoomed) range
   const timeScale = useMemo(
-    () => d3.scaleTime()
+    () => instantScale()
       .domain([state.visibleTimeRange.start, state.visibleTimeRange.end])
       .range([0, innerWidth]),
     [state.visibleTimeRange, innerWidth]
@@ -217,7 +219,9 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     // In a world calendar, its own years, months, days and hours; otherwise
     // UTC ticks and labels, as the event labels read every date (the
     // positions are the same linear scale either way).
-    if (worldCalendar) {
+    // Beyond what a Date holds, d3's ticks cannot reach: the calendar package's.
+    const deepDomain = timeScale.domain().some(isDeepInstant)
+    if (worldCalendar || deepDomain) {
       const [start = 0, end = 0] = timeScale.range()
       return axisTicks(timeScale.domain(), Math.max(2, Math.floor(Math.abs(end - start) / 96)), worldCalendar).map(({ date, label }) => ({
         key: date.getTime(),
@@ -254,8 +258,8 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     const placed = new Map<string, { y: number; barY: number; text: string; startX: number; endX: number }>()
     const ordered = [...arcs].sort((a, b) => a.start_time.localeCompare(b.start_time) || b.end_time.localeCompare(a.end_time))
     for (const arc of ordered) {
-      const startX = Math.min(innerWidth, Math.max(0, timeScale(new Date(arc.start_time))))
-      const endX = Math.min(innerWidth, Math.max(0, timeScale(new Date(arc.end_time))))
+      const startX = Math.min(innerWidth, Math.max(0, timeScale(toInstant(arc.start_time))))
+      const endX = Math.min(innerWidth, Math.max(0, timeScale(toInstant(arc.end_time))))
       if (endX - startX < 1) continue
       let row = rows.findIndex((end) => startX >= end + ARC_BAR_GAP_PX)
       if (row === -1) {
@@ -298,7 +302,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
       const lane = layoutEventLabels(
         groupEvents.map(event => ({
           id: event.id,
-          x: timeScale(new Date(event.timestamp)),
+          x: timeScale(toInstant(event.timestamp)),
           description: event.description,
           priority: event.id === state.selectedEventId,
         })),
@@ -319,7 +323,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
         const below = layoutEventLabels(
           groupEvents
             .filter(event => unplaced.has(event.id))
-            .map(event => ({ id: event.id, x: timeScale(new Date(event.timestamp)), description: event.description })),
+            .map(event => ({ id: event.id, x: timeScale(toInstant(event.timestamp)), description: event.description })),
           innerWidth,
           ACTOR_LABEL_BELOW_CONFIG
         )
@@ -362,7 +366,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
 
     // A base scale from the ORIGINAL extent (not the current visible range),
     // which prevents compounding zoom.
-    const baseTimeScale = d3.scaleTime()
+    const baseTimeScale = instantScale()
       .domain([originalTimeExtent.start, originalTimeExtent.end])
       .range([0, innerWidth])
 
@@ -372,7 +376,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
         const { transform } = event
         zoomTransformRef.current = transform
 
-        const newDomain = transform.rescaleX(baseTimeScale).domain()
+        const newDomain = rescaleInstantX(transform, baseTimeScale).domain()
 
         setState(prev => ({
           ...prev,
@@ -576,7 +580,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
             <g className="events-layer">
               {events.length > 0 && groups.map(([groupKey, groupEvents]) => {
                 const sorted = layoutMode === 'thematic' && groupEvents.length > 1
-                  ? [...groupEvents].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                  ? [...groupEvents].sort((a, b) => toInstant(a.timestamp).getTime() - toInstant(b.timestamp).getTime())
                   : []
                 const rowY = layoutMode === 'thematic' ? yScale(groupKey) : 0
                 return (
@@ -589,9 +593,9 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                         <line
                           key={`${current.id}-${next.id}`}
                           className="connection-line"
-                          x1={timeScale(new Date(current.timestamp))}
+                          x1={timeScale(toInstant(current.timestamp))}
                           y1={rowY}
-                          x2={timeScale(new Date(next.timestamp))}
+                          x2={timeScale(toInstant(next.timestamp))}
                           y2={rowY}
                           strokeWidth={1}
                           strokeDasharray="2,2"
@@ -603,7 +607,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                     })}
 
                     {groupEvents.map(event => {
-                      const x = timeScale(new Date(event.timestamp))
+                      const x = timeScale(toInstant(event.timestamp))
                       const y = yFor(event)
                       const isSelected = state.selectedEventId === event.id
                       const isHovered = state.hoveredEventId === event.id

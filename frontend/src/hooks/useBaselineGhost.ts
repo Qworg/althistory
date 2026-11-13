@@ -29,6 +29,7 @@ import { apiClient } from '@/services/api'
 import { useActiveGraphId, useGraph } from '@/hooks/useGraphs'
 import { analyzeEventDivergence, PointOfDivergence } from '@/utils/divergenceAnalysis'
 import type { Event, Graph } from '@/types'
+import { toInstant } from '@althistory/calendar'
 
 /** The shape of Timeline's `ghost` prop. */
 export interface TimelineGhost {
@@ -81,7 +82,7 @@ export function useBaselineGhost(branchEvents: readonly Event[]): BaselineGhostS
       // The bare name: Timeline composes "Baseline: <label>" and "Branch of <label>"
       label: baseline.name,
       events: baselineEvents,
-      divergence: pointOfDivergence ? new Date(pointOfDivergence.timestamp) : null,
+      divergence: pointOfDivergence ? toInstant(pointOfDivergence.timestamp) : null,
     }
   }, [parentId, baseline, baselineEvents, pointOfDivergence])
 

@@ -11,7 +11,7 @@
 
 import type { GraphCalendar } from '@/types'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { type DateBoundEdge, type DatePrecision, formatDateEntry, readDateEntry, readDateField, toInstant } from '@althistory/calendar'
+import { type DateBoundEdge, type DatePrecision, addMs, formatDateEntry, isoOfAxisTime, readDateEntry, readDateField, toAxisTime, toInstant } from '@althistory/calendar'
 
 export type DateFieldKind = 'date' | 'datetime'
 
@@ -33,9 +33,28 @@ export function dateFieldValue(
   const date = toInstant(value)
   if (Number.isNaN(date.getTime())) return ''
   const iso = date.toISOString()
-  // A native picker holds a four-digit year: anything else it cannot show.
-  if (!/^\d{4}-/.test(iso)) return ''
+  // A native picker holds a year of four digits, 0001 to 9999: any other date
+  // (before 1 CE, after 9999 CE, as far as the timeline goes) is shown as the
+  // year-first text the field reads (`44 BCE`, `300000-06-15`), and the field is text.
+  if (!NATIVE_YEAR.test(iso)) return formatDateEntry(date, options.precision ?? 'day', null, options.edge ?? 'start')
   return kind === 'date' ? iso.slice(0, 10) : iso.slice(0, 16)
+}
+
+/** An ISO date in the years a native date picker holds (0001-9999). */
+const NATIVE_YEAR = /^(?!0000)\d{4}-/
+
+/** What a native picker's value looks like: a whole date, or a date and a time. */
+export function isNativeDateValue(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?$/.test(value)
+}
+
+/**
+ * Whether text is year-first text for a date the picker cannot hold, which
+ * the field reads as every other typed date: an era ("44 BCE"), a sign, or a
+ * year of five digits or more.
+ */
+function isTypedYearText(value: string): boolean {
+  return /\b(?:BCE|BC|CE|AD)\b/i.test(value) || /^[+-]/.test(value.trim()) || /^\d{5,}/.test(value.trim())
 }
 
 export type DateFieldRead = { ok: true; iso: string; precision: DatePrecision } | { ok: false; error: string }
@@ -48,10 +67,18 @@ export function readDateFieldValue(
   const world = resolve(options.calendar)
   if (world) return readDateEntry(value, world, options.edge ?? 'start')
   const field = readDateField(value)
-  if (!field) return { ok: false, error: 'Give a whole date.' }
+  if (!field) {
+    // A date the picker cannot hold, typed year first as the rest of the app reads it.
+    if (isTypedYearText(value)) {
+      const typed = readDateEntry(value, null, options.edge ?? 'start')
+      return typed.ok ? { ok: true, iso: typed.iso, precision: typed.precision } : { ok: false, error: typed.error }
+    }
+    return { ok: false, error: 'Give a whole date.' }
+  }
   // A date alone as an end is its last moment (Req 15), as in a world and in a filter.
-  const end = options.edge === 'end' && field.dateOnly ? new Date(field.date.getTime() + DAY_MS - 1) : field.date
-  return { ok: true, iso: end.toISOString(), precision: 'day' }
+  const start = toAxisTime(field.date)
+  const last = options.edge === 'end' && field.dateOnly && start !== null ? addMs(start, DAY_MS - 1) : start
+  return last === null ? { ok: false, error: 'Give a whole date.' } : { ok: true, iso: isoOfAxisTime(last), precision: 'day' }
 }
 
 /** A field's value as an ISO instant, or '' when it names none. */

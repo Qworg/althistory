@@ -1,4 +1,5 @@
 import { Arc, Event } from '@/types'
+import { toInstant } from '@althistory/calendar'
 // Re-export formatDuration from shared utilities to avoid duplication
 export { formatDuration } from '@/utils/d3Calculations'
 
@@ -81,8 +82,8 @@ export function calculateArcHierarchy(arcs: ArcWithUIState[]): { arcHierarchy: A
   // Pre-parse timestamps and map by arc
   const timingByArc = new Map<ArcWithUIState, ArcWithTiming>()
   for (const arc of arcs) {
-    const startMs = new Date(arc.start_time).getTime()
-    const endMs = new Date(arc.end_time).getTime()
+    const startMs = toInstant(arc.start_time).getTime()
+    const endMs = toInstant(arc.end_time).getTime()
     timingByArc.set(arc, { arc, startMs, endMs })
   }
 
@@ -172,13 +173,13 @@ export function processArcsWithUIState(
   // 2. Pre-parse event timestamps once and sort chronologically for O(log E) interval binary search
   const parsedEvents: ParsedEvent[] = events.map(event => ({
     event,
-    time: new Date(event.timestamp).getTime()
+    time: toInstant(event.timestamp).getTime()
   }))
   parsedEvents.sort((a, b) => a.time - b.time)
 
   return arcs.map(arc => {
-    const arcStart = new Date(arc.start_time).getTime()
-    const arcEnd = new Date(arc.end_time).getTime()
+    const arcStart = toInstant(arc.start_time).getTime()
+    const arcEnd = toInstant(arc.end_time).getTime()
     const duration = arcEnd - arcStart
 
     // Binary search for events falling within [arcStart, arcEnd]

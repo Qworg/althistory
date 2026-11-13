@@ -56,12 +56,12 @@ function CausePicker({
 }) {
   const { data: events } = useEvents({ limit: 1000 })
   const parsed = timestampText.trim() ? fromDateField(timestampText) : null
-  const limit = parsed?.ok ? new Date(parsed.iso).getTime() : null
+  const limit = parsed?.ok ? toInstant(parsed.iso).getTime() : null
   const candidates = useMemo(
     () =>
       [...(events ?? [])]
-        .filter((e) => limit === null || new Date(e.timestamp).getTime() <= limit)
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+        .filter((e) => limit === null || toInstant(e.timestamp).getTime() <= limit)
+        .sort((a, b) => toInstant(b.timestamp).getTime() - toInstant(a.timestamp).getTime()),
     [events, limit]
   )
   // A cause the new date has overtaken is no longer offered, so drop it.

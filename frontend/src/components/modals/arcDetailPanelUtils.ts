@@ -49,8 +49,8 @@ export function validateArcForm(
   }
 
   if (formData.start_time && formData.end_time) {
-    const startTime = new Date(formData.start_time)
-    const endTime = new Date(formData.end_time)
+    const startTime = toInstant(formData.start_time)
+    const endTime = toInstant(formData.end_time)
 
     if (startTime >= endTime) {
       errors.end_time = 'End time must be after start time'
@@ -60,7 +60,7 @@ export function validateArcForm(
     const endMs = endTime.getTime()
 
     const eventsOutsideRange = containedEvents.filter(event => {
-      const eventTime = new Date(event.timestamp).getTime()
+      const eventTime = toInstant(event.timestamp).getTime()
       return eventTime < startMs || eventTime > endMs
     })
 

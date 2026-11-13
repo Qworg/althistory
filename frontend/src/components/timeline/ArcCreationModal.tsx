@@ -6,6 +6,7 @@ import { Portal } from '@/components/ui/Portal'
 import { DateField } from '@/components/ui/DateField'
 import { readDateFieldValue } from '@/utils/dateField'
 import { useDateFieldText } from '@/hooks/useDateFieldText'
+import { toInstant } from '@althistory/calendar'
 
 export interface ArcCreationModalProps {
   isOpen: boolean
@@ -146,8 +147,8 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
     }
 
     if (formData.start_time && formData.end_time) {
-      const startTime = new Date(toIso(formData.start_time, 'start'))
-      const endTime = new Date(toIso(formData.end_time, 'end'))
+      const startTime = toInstant(toIso(formData.start_time, 'start'))
+      const endTime = toInstant(toIso(formData.end_time, 'end'))
       
       if (startTime >= endTime) {
         newErrors.end_time = 'End time must be after start time'
@@ -157,8 +158,8 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
       if (selectedParentId) {
         const parentArc = parentArcs.find(arc => arc.id === selectedParentId)
         if (parentArc) {
-          const parentStart = new Date(parentArc.start_time)
-          const parentEnd = new Date(parentArc.end_time)
+          const parentStart = toInstant(parentArc.start_time)
+          const parentEnd = toInstant(parentArc.end_time)
           
           if (startTime < parentStart || endTime > parentEnd) {
             newErrors.time_range = 'Arc must be contained within parent arc time range'
@@ -173,8 +174,8 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
         )
         
         const hasOverlap = siblingArcs.some(sibling => {
-          const siblingStart = new Date(sibling.start_time)
-          const siblingEnd = new Date(sibling.end_time)
+          const siblingStart = toInstant(sibling.start_time)
+          const siblingEnd = toInstant(sibling.end_time)
           
           return (startTime < siblingEnd && endTime > siblingStart)
         })
@@ -225,7 +226,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
     return `${hours} hour${hours !== 1 ? 's' : ''}`
   }
 
-  const duration = formatDuration(new Date(toIso(formData.start_time, 'start')), new Date(toIso(formData.end_time, 'end')))
+  const duration = formatDuration(toInstant(toIso(formData.start_time, 'start')), toInstant(toIso(formData.end_time, 'end')))
 
   return (
     <Portal>

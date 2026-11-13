@@ -5,6 +5,8 @@ import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { DateField } from '@/components/ui/DateField'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { dateFieldIso, dateFieldValue } from '@/utils/dateField'
+import { toInstant } from '@althistory/calendar'
+import { instantOfMs } from '@/utils/timeScale'
 
 interface TimeRangeSelectorProps {
   value: TimeRange | null
@@ -54,9 +56,9 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
   const eventDateRange = React.useMemo(() => {
     if (events.length === 0) return null
     
-    const dates = events.map(e => new Date(e.timestamp))
-    const minDate = new Date(Math.min(...dates.map(d => d.getTime())))
-    const maxDate = new Date(Math.max(...dates.map(d => d.getTime())))
+    const dates = events.map(e => toInstant(e.timestamp))
+    const minDate = instantOfMs(Math.min(...dates.map(d => d.getTime())))
+    const maxDate = instantOfMs(Math.max(...dates.map(d => d.getTime())))
     
     return { min: minDate, max: maxDate }
   }, [events])
@@ -79,8 +81,8 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
       const startIso = dateFieldIso(startText, { calendar: worldCalendar, edge: 'start' })
       const endIso = dateFieldIso(endText, { calendar: worldCalendar, edge: 'end' })
       if (!startIso || !endIso) return
-      const start = new Date(startIso)
-      const end = new Date(endIso)
+      const start = toInstant(startIso)
+      const end = toInstant(endIso)
       // Each field names its own edge (a start's first moment, an end's
       // last), so a reversed range is said, not swapped: the user may be
       // part-way through typing the end.
@@ -118,13 +120,13 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
       case 'first_half':
         start = eventDateRange.min
         {
-          const midpoint = new Date((eventDateRange.min.getTime() + eventDateRange.max.getTime()) / 2)
+          const midpoint = instantOfMs((eventDateRange.min.getTime() + eventDateRange.max.getTime()) / 2)
           end = midpoint
         }
         break
       case 'second_half':
         {
-          const midpoint2 = new Date((eventDateRange.min.getTime() + eventDateRange.max.getTime()) / 2)
+          const midpoint2 = instantOfMs((eventDateRange.min.getTime() + eventDateRange.max.getTime()) / 2)
           start = midpoint2
         }
         end = eventDateRange.max

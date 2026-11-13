@@ -13,6 +13,7 @@ import { useEvents, VIEW_EVENT_LIMIT } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { toInstant } from '@althistory/calendar'
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values))
@@ -68,7 +69,7 @@ export function FilterPanelContainer() {
       return { start: '', end: '' }
     }
     const timestamps = events
-      .map(event => new Date(event.timestamp).getTime())
+      .map(event => toInstant(event.timestamp).getTime())
       .filter(time => !Number.isNaN(time))
     if (timestamps.length === 0) {
       return { start: '', end: '' }

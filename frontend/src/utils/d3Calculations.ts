@@ -29,7 +29,8 @@
 import * as d3 from 'd3'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { calendarIn, worldTicks } from '@althistory/calendar'
+import { axisOf, calendarIn, compareInstants, gregorianTicks, inDateRange, instantOfAxisTime, toInstant, worldTicks } from '@althistory/calendar'
+import { type InstantScale, type PositionScale, instantScale } from '@/utils/timeScale'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
 /**
@@ -63,8 +64,8 @@ export interface ArcPosition {
 export function createTimeScale(
   domain: [Date, Date],
   range: [number, number]
-): d3.ScaleTime<number, number> {
-  return d3.scaleTime()
+): InstantScale {
+  return instantScale()
     .domain(domain)
     .range(range)
     .nice()
@@ -81,30 +82,33 @@ export function calculateTimeDomain(
   events: Event[],
   arcs: Arc[]
 ): [Date, Date] {
-  const times: number[] = []
+  // The earliest and the latest moment, compared exactly: a history of a
+  // million years has moments a double cannot tell apart from their neighbours.
+  let first: Date | null = null
+  let last: Date | null = null
+  const see = (date: Date) => {
+    if (Number.isNaN(date.getTime())) return
+    if (first === null || compareInstants(date, first) < 0) first = date
+    if (last === null || compareInstants(date, last) > 0) last = date
+  }
 
   // Collect timestamps from events
-  for (const e of events) {
-    const t = new Date(e.timestamp).getTime()
-    if (!Number.isNaN(t)) times.push(t)
-  }
+  for (const e of events) see(toInstant(e.timestamp))
 
   // Collect start/end times from arcs
   for (const a of arcs) {
-    const s = new Date(a.start_time).getTime()
-    const e = new Date(a.end_time).getTime()
-    if (!Number.isNaN(s)) times.push(s)
-    if (!Number.isNaN(e)) times.push(e)
+    see(toInstant(a.start_time))
+    see(toInstant(a.end_time))
   }
 
   // Default to ±30 days if no data
-  if (times.length === 0) {
+  if (first === null || last === null) {
     const now = Date.now()
     const thirtyDays = 1000 * 60 * 60 * 24 * 30
     return [new Date(now - thirtyDays), new Date(now + thirtyDays)]
   }
 
-  return [new Date(Math.min(...times)), new Date(Math.max(...times))]
+  return [first, last]
 }
 
 /**
@@ -117,12 +121,12 @@ export function calculateTimeDomain(
  */
 export function calculateEventPositions(
   events: Event[],
-  xScale: d3.ScaleTime<number, number>,
+  xScale: PositionScale,
   yPosition: number
 ): EventPosition[] {
   return events.map(event => ({
     id: event.id,
-    x: xScale(new Date(event.timestamp)),
+    x: xScale(toInstant(event.timestamp)),
     y: yPosition,
     event
   }))
@@ -138,12 +142,12 @@ export function calculateEventPositions(
  */
 export function calculateArcPositions(
   arcs: ArcWithUIState[],
-  xScale: d3.ScaleTime<number, number>,
+  xScale: PositionScale,
   yScale: (level: number) => number
 ): ArcPosition[] {
   return arcs.map(arc => {
-    const x = xScale(new Date(arc.start_time))
-    const endX = xScale(new Date(arc.end_time))
+    const x = xScale(toInstant(arc.start_time))
+    const endX = xScale(toInstant(arc.end_time))
     return {
       id: arc.id,
       x,
@@ -179,7 +183,7 @@ export function createArcYScale(
  */
 export function pixelToTimestamp(
   x: number,
-  xScale: d3.ScaleTime<number, number>,
+  xScale: PositionScale,
   marginLeft: number,
   innerWidth: number
 ): Date {
@@ -326,11 +330,23 @@ export function axisTicks(
   count: number,
   calendar: GraphCalendar | null = getActiveCalendar()
 ): Array<{ date: Date; label: string }> {
-  const start = +domain[0]!
-  const end = +domain[domain.length - 1]!
+  const first = domain[0]!
+  const last = domain[domain.length - 1]!
+  const start = +first
+  const end = +last
+  // Exact beyond a Date's range, where a double has no whole milliseconds.
+  const from = axisOf(first)
+  const to = axisOf(last)
   if (calendar) {
-    return worldTicks(calendarIn(calendar), [start, end], Math.max(2, count)).map((tick) => ({
-      date: new Date(tick.position),
+    return worldTicks(calendarIn(calendar), [from ?? 0n, to ?? 0n], Math.max(2, count)).map((tick) => ({
+      date: instantOfAxisTime(tick.position) ?? new Date(NaN),
+      label: tick.label,
+    }))
+  }
+  if (from !== null && to !== null && (!inDateRange(from) || !inDateRange(to))) {
+    // Past what d3's ticks reach: the calendar package's, labelled in years ("300000 BCE").
+    return gregorianTicks([from, to], Math.max(2, count)).map((tick) => ({
+      date: instantOfAxisTime(tick.position) ?? new Date(NaN),
       label: tick.label,
     }))
   }

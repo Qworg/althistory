@@ -3,7 +3,7 @@
 
 import React from 'react'
 import { Event, Arc } from './index'
-import type { ScaleTime } from 'd3'
+import type { InstantScale, PositionScale } from '@/utils/timeScale'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
 /**
@@ -85,7 +85,7 @@ export interface TimelineEventHandlerProps {
   onEventSelect?: (event: Event) => void
   onArcSelect?: (arc: Arc) => void
   onEventCreate?: (timestamp: Date) => void
-  xScale: ScaleTime<number, number> | null
+  xScale: PositionScale | null
   margin: TimelineMargin
   innerWidth: number
 }
@@ -94,7 +94,7 @@ export interface TimelineEventHandlerProps {
  * Return type for useTimelineScales hook
  */
 export interface UseTimelineScalesResult {
-  xScale: ScaleTime<number, number>
+  xScale: InstantScale
   innerWidth: number
   innerHeight: number
   xDomain: [Date, Date]

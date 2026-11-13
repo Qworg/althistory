@@ -7,7 +7,21 @@
  * Timeline.tsx wires these to the DOM; nothing here touches it.
  */
 
-import { type CompiledCalendar, type WorldCalendarSet, calendarIn, dateAt, daysInMonth, partLengths, positionOf } from '@althistory/calendar'
+import {
+  type AxisTime,
+  type CompiledCalendar,
+  type WorldCalendarSet,
+  axisTimeOfCivil,
+  calendarIn,
+  civilOfAxisTime,
+  dateAt,
+  daysInMonth,
+  instantOfAxisTime,
+  partLengths,
+  positionOf,
+  toAxisTime,
+  toInstant,
+} from '@althistory/calendar'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
 
 
@@ -46,8 +60,8 @@ export function buildNavModel(
 ): NavModel {
   const rows = new Map<number, NavItem[]>()
   for (const arc of arcs) {
-    const start = new Date(arc.start_time).getTime()
-    const end = new Date(arc.end_time).getTime()
+    const start = toInstant(arc.start_time).getTime()
+    const end = toInstant(arc.end_time).getTime()
     if (Number.isNaN(start) || Number.isNaN(end)) continue
     const row = rows.get(arc.renderLevel) ?? []
     row.push({ key: arcMarkKey(arc.id), start, end })
@@ -59,7 +73,7 @@ export function buildNavModel(
 
   const track: NavItem[] = []
   for (const event of events) {
-    const t = new Date(event.timestamp).getTime()
+    const t = toInstant(event.timestamp).getTime()
     if (!Number.isNaN(t)) track.push({ key: eventMarkKey(event.id), start: t, end: t })
   }
   if (track.length > 0) lanes.push(track.sort(byTime))
@@ -216,36 +230,41 @@ function worldUnitMs(set: WorldCalendarSet): Record<Unit, number> {
  * Gregorian calendar (historical dates are UTC instants).
  */
 export function offsetByStep(date: Date, step: TimeStep, direction: number, calendar: WorldCalendarSet | null = getActiveCalendar()): Date {
-  if (calendar) return new Date(offsetInWorld(calendarIn(calendar), date.getTime(), step, direction))
-  const next = new Date(date.getTime())
+  const at = toAxisTime(date)
+  if (at === null) return new Date(NaN)
+  // By exact axis arithmetic, so a date beyond a Date's range moves as one inside it does.
+  const moved = calendar ? offsetInWorld(calendarIn(calendar), at, step, direction) : offsetInGregorian(at, step, direction)
+  return instantOfAxisTime(moved) ?? date
+}
+
+/** The Gregorian step of an axis time, in UTC. */
+function offsetInGregorian(position: AxisTime, step: TimeStep, direction: number): AxisTime {
   const n = step.count * direction
   switch (step.unit) {
     case 'minute':
     case 'hour':
     case 'day':
-      next.setTime(next.getTime() + n * APPROX_MS[step.unit])
-      break
+      return position + BigInt(Math.round(n * APPROX_MS[step.unit]))
     case 'month':
     case 'year': {
       // The same day of the month, or the month's last when it is shorter
       // (Jan 31 + 1 month is Feb 28, not Mar 3).
-      // By arithmetic, then set at once: a day on the way (the 1st of a month)
-      // can lie outside what a Date holds at the ends of its range.
-      const months = next.getUTCFullYear() * 12 + next.getUTCMonth() + (step.unit === 'month' ? n : n * 12)
+      const civil = civilOfAxisTime(position)
+      const months = civil.year * 12 + (civil.month - 1) + (step.unit === 'month' ? n : n * 12)
       const year = Math.floor(months / 12)
       const month = months - year * 12
-      next.setUTCFullYear(year, month, Math.min(next.getUTCDate(), daysInMonth(year, month + 1)))
-      break
+      const day = Math.min(civil.day, daysInMonth(year, month + 1))
+      const msOfDay = ((civil.hour * 60 + civil.minute) * 60 + civil.second) * 1000 + civil.millisecond
+      return axisTimeOfCivil(year, month + 1, day, msOfDay)
     }
   }
-  return next
 }
 
-function offsetInWorld(calendar: CompiledCalendar, position: number, step: TimeStep, direction: number): number {
+function offsetInWorld(calendar: CompiledCalendar, position: AxisTime, step: TimeStep, direction: number): AxisTime {
   const n = step.count * direction
   if (step.unit === 'minute' || step.unit === 'hour' || step.unit === 'day') {
     const unit = step.unit === 'day' ? calendar.dayMs : step.unit === 'hour' ? calendar.dayMs / calendar.time.hoursPerDay : calendar.dayMs / (calendar.time.hoursPerDay * calendar.time.minutesPerHour)
-    return position + Math.round(n * unit)
+    return position + BigInt(Math.round(n * unit))
   }
   const date = dateAt(calendar, position)
   let year = date.year
@@ -266,7 +285,7 @@ function offsetInWorld(calendar: CompiledCalendar, position: number, step: TimeS
   }
   const day = Math.min(date.day, partLengths(calendar, year)[part]!)
   // The same time into the new day.
-  const intoDay = position - Math.floor(position / calendar.dayMs) * calendar.dayMs
+  const intoDay = ((position % BigInt(calendar.dayMs)) + BigInt(calendar.dayMs)) % BigInt(calendar.dayMs)
   const start = positionOf(calendar, { year, part, day, hour: 0, minute: 0, second: 0 })
   return start === null ? position : start + intoDay
 }

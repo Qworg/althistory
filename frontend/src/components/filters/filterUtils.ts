@@ -30,7 +30,7 @@ function boundTimestamp(
   if (value === null || value === undefined || value === '') return open
   const time = value instanceof Date
     ? value.getTime()
-    : new Date(value).getTime()
+    : toInstant(value).getTime()
   return Number.isNaN(time) ? open : time
 }
 
@@ -45,7 +45,7 @@ function withinRange(
   filters: FilterState
 ): boolean {
   if (!filters.dateRange) return true
-  const time = new Date(timestamp).getTime()
+  const time = toInstant(timestamp).getTime()
   if (Number.isNaN(time)) return false
   return (
     time >= boundTimestamp(filters.dateRange.start, 'start') &&
@@ -73,8 +73,8 @@ export function filterArcs(arcs: Arc[], filters: FilterState): Arc[] {
     if (filters.dateRange) {
       const start = boundTimestamp(filters.dateRange.start, 'start')
       const end = boundTimestamp(filters.dateRange.end, 'end')
-      const arcStart = new Date(arc.start_time).getTime()
-      const arcEnd = new Date(arc.end_time).getTime()
+      const arcStart = toInstant(arc.start_time).getTime()
+      const arcEnd = toInstant(arc.end_time).getTime()
       if (Number.isNaN(arcStart) || Number.isNaN(arcEnd)) return false
       // Keep arcs that overlap the selected window.
       if (arcStart > end || arcEnd < start) return false
