@@ -704,6 +704,10 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   // --- import --------------------------------------------------------------
   'POST /api/import/validate': {
     summary: 'Check that an export document can be imported. Needs the `import` permission.',
+    query: [
+      { name: 'targetGraphId', type: 'string', description: "The graph it would go into: its dates are read with that graph's calendars (with mode merge or replace)." },
+      { name: 'mode', type: 'string', description: 'merge, replace or create-new (the default: the document is read with its own calendars).' },
+    ],
     request: 'ExportDocument',
     requestRequired: true,
     response: 'ValidationReport',

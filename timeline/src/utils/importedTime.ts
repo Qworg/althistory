@@ -7,7 +7,7 @@
  * that starts with a digit and is not such a date is refused.
  */
 
-import { type WorldCalendarSet, readWorldTimestamp, toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, readWorldTimestamp, toInstant, withDatePrecision } from '@althistory/calendar';
 
 export interface ImportedTime {
   iso: string;
@@ -28,4 +28,18 @@ export function readImportedTime(
   if (/^[+-]?\d/.test(text.trim())) return null;
   const stored = toInstant(text);
   return Number.isFinite(stored.getTime()) ? { iso: stored.toISOString(), precision: 'day' } : null;
+}
+
+/**
+ * An imported event's metadata once its date is read, by the API's rule
+ * (`newDateMetadata`): a precision the metadata states is kept when the text
+ * was a day in ISO 8601 (an export's stored instant); a month, a year or a
+ * date in the world's notation states its own. Metadata that is not an
+ * object counts as none.
+ */
+export function importedMetadata(metadata: unknown, read: ImportedTime): Record<string, unknown> {
+  const base =
+    metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? (metadata as Record<string, unknown>) : {};
+  if (read.precision === 'day' && !read.calendar && 'datePrecision' in base) return base;
+  return withDatePrecision(base, read);
 }

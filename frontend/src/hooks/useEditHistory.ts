@@ -124,39 +124,28 @@ export function useEditHistory({
     rerender()
   }, [limit, rerender])
 
-  const undo = useCallback(async () => {
-    const entry = history.current.past[history.current.past.length - 1]
-    if (!entry || history.current.busy) return
+  // An undo or redo finishes in the history it began in, even if another
+  // graph's has been shown since; only that history's views redraw.
+  const step = useCallback(async (from: 'past' | 'future') => {
     const held = history.current
+    const entry = held[from][held[from].length - 1]
+    if (!entry || held.busy) return
     held.busy = true
     try {
-      if (await entry.undo()) {
-        history.current.past = history.current.past.slice(0, -1)
-        history.current.future = [...history.current.future, entry]
-        history.current.message = `Undone: ${entry.description}`
-        rerender()
+      if (await (from === 'past' ? entry.undo() : entry.redo())) {
+        const to = from === 'past' ? 'future' : 'past'
+        held[from] = held[from].slice(0, -1)
+        held[to] = [...held[to], entry]
+        held.message = `${from === 'past' ? 'Undone' : 'Redone'}: ${entry.description}`
+        if (history.current === held) rerender()
+        else for (const view of held.views) view()
       }
     } finally {
       held.busy = false
     }
   }, [rerender])
-
-  const redo = useCallback(async () => {
-    const entry = history.current.future[history.current.future.length - 1]
-    if (!entry || history.current.busy) return
-    const held = history.current
-    held.busy = true
-    try {
-      if (await entry.redo()) {
-        history.current.future = history.current.future.slice(0, -1)
-        history.current.past = [...history.current.past, entry]
-        history.current.message = `Redone: ${entry.description}`
-        rerender()
-      }
-    } finally {
-      held.busy = false
-    }
-  }, [rerender])
+  const undo = useCallback(() => step('past'), [step])
+  const redo = useCallback(() => step('future'), [step])
 
   useEffect(() => {
     if (!enableShortcuts) return

@@ -40,6 +40,12 @@ export function useKeptState<T>(name: string, key: unknown, initial: T): [T, (ne
   // A value set under another key (the graph before) is not this key's.
   const current = stale ? { key, value: initial } : state
   useHolding(name, stale ? null : state)
+  // And forgets it, so a return to that key starts from `initial` too.
+  useEffect(() => {
+    if (stale) setState({ key, value: initial })
+    // `initial` is a constant for a caller (null, a default).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stale, key])
 
   const set = useCallback(
     (next: SetStateAction<T>) =>

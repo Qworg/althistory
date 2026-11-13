@@ -1,6 +1,6 @@
 import * as fs from 'fs';
-import { type WorldCalendarSet, adoptableCalendarSet, datePrecisionMetadata, storedCalendarSet, unreadDateReason } from '@althistory/calendar';
-import { type ImportedTime, readImportedTime } from '@/utils/importedTime';
+import { type WorldCalendarSet, adoptableCalendarSet, storedCalendarSet, unreadDateReason } from '@althistory/calendar';
+import { type ImportedTime, importedMetadata, readImportedTime } from '@/utils/importedTime';
 import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
 import { ImportResultDto } from '../types';
@@ -163,9 +163,8 @@ export class GraphImporter {
 
       const existing = await scoped.eventRepository.findById(origId);
       const time = eventTimes.get(evtData)!;
-      const meta = { ...((evtData.metadata as Record<string, unknown>) || {}) };
-      // A month or a year the document gave, unless its metadata states the precision (an export's does).
-      if (!('datePrecision' in meta)) Object.assign(meta, datePrecisionMetadata(time));
+      // A month's or a year's precision as the API records it (an export's stated one is kept).
+      const meta = { ...importedMetadata(evtData.metadata, time) };
       if (meta.arcId && idMap.has(String(meta.arcId))) {
         meta.arcId = idMap.get(String(meta.arcId));
       }

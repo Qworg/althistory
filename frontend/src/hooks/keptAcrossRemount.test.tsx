@@ -117,3 +117,44 @@ describe('a ref kept across a remount', () => {
     view.unmount()
   })
 })
+
+describe('state that outlives a change of graph in the same view', () => {
+  it('does not bring back a selection on a return to the graph it was made in', () => {
+    let state!: [string | null, (next: string | null) => void]
+    function Sel({ graph }: { graph: string }) {
+      state = useKeptState<string | null>('remount-test.roundtrip', graph, null)
+      return null
+    }
+    const view = render(<Sel graph="graph-a" />)
+    act(() => state[1]('x'))
+    view.rerender(<Sel graph="graph-b" />)
+    expect(state[0]).toBeNull()
+    view.rerender(<Sel graph="graph-a" />)
+    expect(state[0]).toBeNull()
+    view.unmount()
+  })
+
+  it('finishes an undo in the history it began in, not the next graph\'s', async () => {
+    let finish!: (applied: boolean) => void
+    const slow = { description: 'moved "A"', undo: () => new Promise<boolean>((resolve) => (finish = resolve)), redo: async () => true }
+    let history!: EditHistory
+    function H({ graph }: { graph: string }) {
+      history = useEditHistory({ resetKey: graph, keepAs: 'remount-test.slow' })
+      return null
+    }
+    const view = render(<H graph="graph-a" />)
+    act(() => history.record(slow))
+    let pending!: Promise<void>
+    act(() => {
+      pending = history.undo()
+    })
+    view.rerender(<H graph="graph-b" />)
+    await act(async () => {
+      finish(true)
+      await pending
+    })
+    expect(history.canRedo).toBe(false)
+    expect(history.lastMessage).toBeNull()
+    view.unmount()
+  })
+})

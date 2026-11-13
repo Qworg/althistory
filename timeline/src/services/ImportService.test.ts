@@ -2061,6 +2061,25 @@ describe('ImportService', () => {
       expect(checked.errors.map((error) => error.message)).toContain('Arc start_time is required');
     });
 
+    it('refuses metadata that is not an object, rather than throw', async () => {
+      const doc = withDates(['1871']);
+      (doc.data.events[0] as unknown as Record<string, unknown>).metadata = 'note';
+      const checked = await importService.validateFormat(doc);
+      expect(checked.errors.map((error) => error.path)).toContain('$.data.events[0].metadata');
+      const preview = await importService.preview(doc, { mode: 'create-new', conflictResolution: 'skip' });
+      expect(preview).toBeTruthy();
+    });
+
+    it('records the precision the text states over a stale one in the metadata, as the API does', async () => {
+      const doc = withDates(['1871', '1871-03-04T00:00:00.000Z']);
+      doc.data.events[0]!.metadata = { datePrecision: 'day' };
+      doc.data.events[1]!.metadata = { datePrecision: 'month' };
+      const result = await importService.executeImport(doc, { mode: 'create-new', conflictResolution: 'skip' });
+      expect(result.errors).toEqual([]);
+      // A year the text gives is a year; an export's stored instant keeps the precision it states.
+      expect((await stored(result.graphId)).map((event) => event.precision)).toEqual(['year', 'month']);
+    });
+
     it('reads a document going into an existing graph with that graph\'s calendars', async () => {
       const repository = new GraphRepository({ dataDir: testDataDir });
       await repository.initialize();

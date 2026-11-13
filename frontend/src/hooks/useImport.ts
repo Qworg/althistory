@@ -21,6 +21,9 @@ import {
 // Types for mutation options
 export interface ValidateImportOptions {
   data: AlthistoryExport
+  /** The graph it goes into, whose calendars read its dates (merge or replace). */
+  targetGraphId?: string
+  mode?: ImportMode
 }
 
 export interface PreviewImportOptions {
@@ -44,8 +47,8 @@ export function useValidateImport(
   options?: UseMutationOptions<ImportValidationResult, APIError, ValidateImportOptions>
 ) {
   return useMutation({
-    mutationFn: async ({ data }: ValidateImportOptions) => {
-      return apiClient.import.validate(data)
+    mutationFn: async ({ data, targetGraphId, mode }: ValidateImportOptions) => {
+      return targetGraphId ? apiClient.import.validate(data, targetGraphId, mode) : apiClient.import.validate(data)
     },
     ...options,
   })

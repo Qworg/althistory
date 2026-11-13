@@ -975,10 +975,11 @@ class APIClient {
 
     // Import operations
     import = {
-        validate: async (data: AlthistoryExport): Promise<ImportValidationResult> => {
+        /** With a target and a merge or replace, its dates are read with that graph's calendars. */
+        validate: async (data: AlthistoryExport, targetGraphId?: string, mode: ImportMode = 'create-new'): Promise<ImportValidationResult> => {
             try {
                 const response: AxiosResponse<ImportValidationResult> = 
-                    await this.client.post('/import/validate', data)
+                    await this.client.post('/import/validate', data, targetGraphId && mode !== 'create-new' ? { params: { targetGraphId, mode } } : undefined)
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)

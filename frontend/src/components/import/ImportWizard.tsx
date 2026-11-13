@@ -126,7 +126,13 @@ export function ImportWizard({
       dispatch({ type: 'SET_ERROR', payload: null })
 
       try {
-        const validation = await validateMutation.mutateAsync({ data })
+        // Its dates are read as an import into the target will read them, with
+        // the target's calendars; a change of mode checks them again.
+        const validation = await validateMutation.mutateAsync({
+          data,
+          targetGraphId: state.targetGraphId,
+          mode: state.targetGraphId && state.mode === 'create-new' ? 'merge' : state.mode,
+        })
         dispatch({ type: 'SET_VALIDATION', payload: validation })
         dispatch({ type: 'SET_STEP', payload: 'validate' })
       } catch (error) {
@@ -136,7 +142,7 @@ export function ImportWizard({
         })
       }
     },
-    [validateMutation]
+    [validateMutation, state.targetGraphId, state.mode]
   )
 
   // Handle validation continue
@@ -167,6 +173,14 @@ export function ImportWizard({
       if (!state.data) return
 
       try {
+        // Its dates read with the calendars this mode reads them with: a new
+        // graph's own, or the target's. If they no longer read, say so.
+        const validation = await validateMutation.mutateAsync({ data: state.data, targetGraphId: state.targetGraphId, mode })
+        dispatch({ type: 'SET_VALIDATION', payload: validation })
+        if (!validation.valid) {
+          dispatch({ type: 'SET_STEP', payload: 'validate' })
+          return
+        }
         const preview = await previewMutation.mutateAsync({
           data: state.data,
           targetGraphId: state.targetGraphId,
@@ -180,7 +194,7 @@ export function ImportWizard({
         })
       }
     },
-    [state.data, state.targetGraphId, previewMutation]
+    [state.data, state.targetGraphId, previewMutation, validateMutation]
   )
 
   // Handle preview continue

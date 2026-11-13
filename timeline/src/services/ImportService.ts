@@ -19,12 +19,11 @@ import { GraphRepository } from '../repositories/GraphRepository';
 import {
   type WorldCalendarSet,
   adoptableCalendarSet,
-  datePrecisionMetadata,
   storedCalendarSet,
   toInstant,
   unreadDateReason,
 } from '@althistory/calendar';
-import { readImportedTime } from '@/utils/importedTime';
+import { importedMetadata, readImportedTime } from '@/utils/importedTime';
 import { JobRepository } from '../repositories/JobRepository';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 import {
@@ -895,6 +894,12 @@ export class ImportService {
             code: 'FUTURE_DATE',
           });
         }
+      }
+
+      // `metadata` is an object (absent or null for none): anything else
+      // would be dropped by the import, or spread as characters.
+      if (e.metadata !== undefined && e.metadata !== null && (typeof e.metadata !== 'object' || Array.isArray(e.metadata))) {
+        errors.push({ path: `${path}.metadata`, message: 'Event metadata must be an object', code: 'INVALID_TYPE' });
       }
 
       // `sourceRef` is a string in the format; a number or object would be
@@ -2937,13 +2942,11 @@ function readImportedDates(data: AlthistoryExport, calendar: WorldCalendarSet | 
         if (!event || typeof event !== 'object') return event;
         const read = time(event.timestamp, 'start');
         if (!read) return event;
-        const metadata = event.metadata ?? {};
-        const stated = 'datePrecision' in metadata;
-        const precision = stated ? {} : datePrecisionMetadata(read);
+        const metadata = importedMetadata(event.metadata, read);
         return {
           ...event,
           timestamp: read.iso,
-          ...(Object.keys(precision).length > 0 ? { metadata: { ...metadata, ...precision } } : {}),
+          ...(event.metadata !== undefined || Object.keys(metadata).length > 0 ? { metadata } : {}),
         };
       })
     : data.data?.events;

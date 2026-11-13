@@ -563,16 +563,21 @@ function createAuthMiddleware(config: ImportRouterConfig): RequestHandler[] {
  * API key with graph restrictions, so with auth disabled or a test validator
  * this does nothing.
  */
-function createGraphAccessMiddleware(config: ImportRouterConfig, field: 'targetGraphId' | 'graphId'): RequestHandler {
+function createGraphAccessMiddleware(
+  config: ImportRouterConfig,
+  field: 'targetGraphId' | 'graphId',
+  from: 'body' | 'query' = 'body'
+): RequestHandler {
   if (config.disableAuth || config.validateApiKey) {
     return (_req: Request, _res: Response, next: NextFunction): void => {
       next();
     };
   }
 
-  const check = authorizeGraphAccess((req) => req.body?.[field]) as RequestHandler;
+  const read = (req: Request): unknown => (from === 'body' ? req.body?.[field] : req.query?.[field]);
+  const check = authorizeGraphAccess((req) => read(req) as string | undefined) as RequestHandler;
   return (req: Request, res: Response, next: NextFunction): void => {
-    const graphId: unknown = req.body?.[field];
+    const graphId: unknown = read(req);
     if (graphId !== undefined && typeof graphId !== 'string') {
       // A non-string id would skip the access check and reach the service.
       next(new ValidationError(`${field} must be a string`, field));
@@ -698,6 +703,7 @@ export function createImportRouter(config: ImportRouterConfig): Router {
 
   const targetGraphAccess = createGraphAccessMiddleware(config, 'targetGraphId');
   const graphAccess = createGraphAccessMiddleware(config, 'graphId');
+  const queryTargetAccess = createGraphAccessMiddleware(config, 'targetGraphId', 'query');
 
   // FIX #6: Apply CSRF protection to state-changing routes
   const csrfMiddleware = createCsrfMiddleware(config);
@@ -709,11 +715,12 @@ export function createImportRouter(config: ImportRouterConfig): Router {
    * POST /api/import/validate
    * 
    * Validate import data format and structure without executing the import.
+   * `?targetGraphId=&mode=merge|replace` reads its dates with that graph's calendars.
    * 
    * Request body: AlthistoryExport JSON
    * Response: ImportValidationResult
    */
-  router.post('/validate', async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/validate', queryTargetAccess, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = req.body;
 
@@ -721,8 +728,16 @@ export function createImportRouter(config: ImportRouterConfig): Router {
         throw new ValidationError('Request body must be a valid JSON object');
       }
 
-      logger.info('Validating import data');
-      const result = await importService.validateFormat(data);
+      // Its dates are read as the import will read them: with the calendars of
+      // the graph it goes into (`?targetGraphId=…&mode=merge|replace`), or for
+      // a new graph its own.
+      const targetGraphId = typeof req.query.targetGraphId === 'string' ? req.query.targetGraphId : undefined;
+      const mode = req.query.mode === 'merge' || req.query.mode === 'replace' ? req.query.mode : 'create-new';
+      logger.info('Validating import data', { targetGraphId, mode });
+      const calendar = targetGraphId && mode !== 'create-new'
+        ? (await importService.readDates(data as AlthistoryExport, { graphId: targetGraphId, mode })).calendar ?? null
+        : undefined;
+      const result = await importService.validateFormat(data, calendar);
 
       res.json(result);
     } catch (error) {

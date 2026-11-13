@@ -172,7 +172,13 @@ period, is stored at its first moment with a month's or year's
 `metadata.datePrecision` recorded, and as an arc's `end_time` is the period's
 last moment. The query-string filters (and the time ranges of the temporal,
 inference and export routes) read ISO 8601 as instants; text that starts
-with a digit and is not ISO 8601 (`312`) is refused there.
+with a digit and is not ISO 8601 (`312`) is refused there. Dates a body sends
+to be checked rather than stored (`/api/validate/*`, `/api/suggest/*`, a
+`time_range` copy's `timeRange`) are read as the event routes read them, with
+the graph's calendars. An import reads a document's dates with the calendars
+of the graph it goes into: `POST /api/import/validate` does too when given
+`?targetGraphId=…&mode=merge` (or `replace`), and otherwise reads them as a
+new graph would, with the document's own.
 
 A date that does not exist (`2019-02-31`, `1870-13-01`) is refused. In a graph
 without world calendars, year-first text is read as the app's forms and the

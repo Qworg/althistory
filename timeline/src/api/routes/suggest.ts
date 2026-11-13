@@ -2,7 +2,6 @@
  * Suggestion API routes for AI-powered recommendations
  */
 
-import { toInstant } from '@althistory/calendar';
 import { Router, Response, RequestHandler } from 'express';
 import {
   AuthenticatedRequest,
@@ -23,7 +22,7 @@ import type {
   CompletenessEvent,
   CompletenessResponse,
 } from '@/services/InferenceService';
-import { requestCalendar } from '../worldDates';
+import { bodyInstant, requestCalendar } from '../worldDates';
 
 export const suggestRoutes = Router();
 
@@ -70,6 +69,8 @@ suggestRoutes.post(
   resolveGraphContext(),
   authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    // The events' dates, read with the graph's calendars as every door reads them.
+    const calendar = await requestCalendar(req);
     try {
       const request = req.body as RelationshipSuggestionRequest;
       const options = request.options || {};
@@ -85,7 +86,7 @@ suggestRoutes.post(
               description: e.description,
               actor: e.actor,
               target: e.target,
-              timestamp: toInstant(e.timestamp),
+              timestamp: bodyInstant(e.timestamp, calendar),
             })
         );
       } else {
@@ -98,7 +99,7 @@ suggestRoutes.post(
               description: e.description,
               actor: e.actor,
               target: e.target,
-              timestamp: toInstant(e.timestamp),
+              timestamp: bodyInstant(e.timestamp, calendar),
             })
         );
       }
@@ -135,6 +136,8 @@ suggestRoutes.post(
   resolveGraphContext(),
   authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    // The events' dates, read with the graph's calendars as every door reads them.
+    const calendar = await requestCalendar(req);
     try {
       const request = req.body as ArcSuggestionRequest;
       const options = request.options || {};
@@ -150,7 +153,7 @@ suggestRoutes.post(
           description: e.description,
           actor: e.actor,
           target: e.target,
-          timestamp: toInstant(e.timestamp),
+          timestamp: bodyInstant(e.timestamp, calendar),
         }));
       } else {
         const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
@@ -160,7 +163,7 @@ suggestRoutes.post(
           description: e.description,
           actor: e.actor,
           target: e.target,
-          timestamp: toInstant(e.timestamp),
+          timestamp: bodyInstant(e.timestamp, calendar),
         }));
       }
 
@@ -201,6 +204,8 @@ suggestRoutes.post(
   resolveGraphContext(),
   authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    // The events' dates, read with the graph's calendars as every door reads them.
+    const calendar = await requestCalendar(req);
     try {
       // Read from the graph this request is scoped to. The scoped repository
       // is bound to that graph's store, so the read cannot leak across graphs.
@@ -218,7 +223,7 @@ suggestRoutes.post(
         description: e.description,
         actor: e.actor,
         target: e.target,
-        timestamp: toInstant(e.timestamp),
+        timestamp: bodyInstant(e.timestamp, calendar),
       }));
       
       for (const event of eventEntities) {
@@ -244,7 +249,7 @@ suggestRoutes.post(
         description: e.description,
         actor: e.actor,
         target: e.target,
-        timestamp: toInstant(e.timestamp).toISOString(),
+        timestamp: bodyInstant(e.timestamp, calendar).toISOString(),
       }));
 
       const response: CompletenessResponse = req.container.inferenceService.analyzeCompleteness(
@@ -276,6 +281,8 @@ suggestRoutes.post(
   resolveGraphContext(),
   authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    // The events' dates, read with the graph's calendars as every door reads them.
+    const calendar = await requestCalendar(req);
     try {
       const request = req.body as { events?: unknown[] };
 
@@ -296,7 +303,7 @@ suggestRoutes.post(
               description: e.description,
               actor: e.actor,
               target: e.target,
-              timestamp: toInstant(e.timestamp),
+              timestamp: bodyInstant(e.timestamp, calendar),
             })
         );
       } else {
@@ -309,7 +316,7 @@ suggestRoutes.post(
               description: e.description,
               actor: e.actor,
               target: e.target,
-              timestamp: toInstant(e.timestamp),
+              timestamp: bodyInstant(e.timestamp, calendar),
             })
         );
       }
@@ -320,7 +327,7 @@ suggestRoutes.post(
 
       // Use inference service to analyze pressures
       const inferenceService = req.container.inferenceService;
-      const pressures = inferenceService.analyzeEventClusters(events, await requestCalendar(req));
+      const pressures = inferenceService.analyzeEventClusters(events, calendar);
 
       res.json({
         pressures: pressures.map((p) => ({

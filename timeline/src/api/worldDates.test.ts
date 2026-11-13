@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type WorldCalendarSet, calendarIn, positionOf } from '@althistory/calendar';
-import { newDateMetadata, queryInstant, readRequestTime } from './worldDates';
+import { bodyInstant, newDateMetadata, queryInstant, readRequestTime, withReadDates } from './worldDates';
 import { ValidationError } from '../utils/errors';
 
 /** A Reckoning of twelve months of thirty days and five festival days, in a 30-hour day of 20 hours. */
@@ -107,5 +107,22 @@ describe('a time a query gives', () => {
     expect(queryInstant('1871-03-04T10:00').toISOString()).toBe('1871-03-04T10:00:00.000Z');
     expect(queryInstant('0312-01-01').toISOString()).toBe('0312-01-01T00:00:00.000Z');
     for (const text of ['312', '0', '12/25/1870']) expect(Number.isNaN(queryInstant(text).getTime()), text).toBe(true);
+  });
+});
+
+describe('a date a body gives for checking', () => {
+  it('is read as the event routes read it, with the graph\'s calendars, its end the last moment', () => {
+    expect(bodyInstant('Thaw 4, 312 AR', VAEL).getTime()).toBe(at(312, 2, 4));
+    expect(bodyInstant('312-03-04 14:30', undefined).toISOString()).toBe('0312-03-04T14:30:00.000Z');
+    expect(bodyInstant('1871', undefined, 'end').toISOString()).toBe('1871-12-31T23:59:59.999Z');
+    for (const [text, calendar] of [['0', undefined], ['12/25/1870', undefined], ['1871-03', VAEL]] as const) {
+      expect(Number.isNaN(bodyInstant(text, calendar).getTime()), text).toBe(true);
+    }
+  });
+
+  it('is written as ISO 8601 in the entities it came in, or left as written when it names no instant', () => {
+    const [arc] = withReadDates([{ id: 'a', start_time: '1871', end_time: '1871' }], undefined, [['start_time', 'start'], ['end_time', 'end']]);
+    expect(arc).toEqual({ id: 'a', start_time: '1871-01-01T00:00:00.000Z', end_time: '1871-12-31T23:59:59.999Z' });
+    expect(withReadDates([{ id: 'e', timestamp: '0' }], undefined, [['timestamp', 'start']])[0]!.timestamp).toBe('0');
   });
 });

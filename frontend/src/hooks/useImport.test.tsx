@@ -146,6 +146,12 @@ describe('useImport hooks', () => {
 
       expect(result.current.data).toEqual(mockValidationResult)
       expect(mockedValidate).toHaveBeenCalledWith(exportData)
+
+      // Bound for a graph, its dates are checked with that graph's calendars.
+      act(() => {
+        result.current.mutate({ data: exportData, targetGraphId: 'vael', mode: 'merge' })
+      })
+      await waitFor(() => expect(mockedValidate).toHaveBeenCalledWith(exportData, 'vael', 'merge'))
     })
 
     it('should handle validation errors', async () => {

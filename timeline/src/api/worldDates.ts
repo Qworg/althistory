@@ -138,3 +138,40 @@ export function queryInstant(value: unknown): Date {
   if (typeof value === 'string' && /^[+-]?\d/.test(value.trim()) && !parseIsoInstant(value.trim())) return new Date(NaN);
   return toInstant(value as string);
 }
+
+/**
+ * A date a request body gives for checking rather than storing (the
+ * validation and suggestion routes, a copy's time range), read by the rule
+ * every door applies with the graph's calendars: the instant it names, or an
+ * Invalid Date when it names none. Without a world, prose is read as the API
+ * always read it.
+ */
+export function bodyInstant(value: unknown, calendar: WorldCalendarSet | undefined, edge: 'start' | 'end' = 'start'): Date {
+  if (value instanceof Date) return value;
+  if (typeof value !== 'string') return new Date(NaN);
+  const read = readWorldTimestamp(calendar, value, edge);
+  if (read) return new Date(read.iso);
+  if (calendar || /^[+-]?\d/.test(value.trim())) return new Date(NaN);
+  return toInstant(value);
+}
+
+/**
+ * Entities a request body gives, their dates read by {@link bodyInstant}:
+ * each one that names an instant is written as ISO 8601, so what follows
+ * compares instants; one that names none is left as written, to be refused.
+ */
+export function withReadDates<T extends object>(
+  items: T[] | undefined,
+  calendar: WorldCalendarSet | undefined,
+  fields: Array<[keyof T & string, 'start' | 'end']>
+): T[] {
+  return (items ?? []).map((item) => {
+    if (!item || typeof item !== 'object') return item;
+    const copy = { ...item } as Record<string, unknown>;
+    for (const [field, edge] of fields) {
+      const at = bodyInstant(copy[field], calendar, edge);
+      if (!Number.isNaN(at.getTime()) && copy[field] !== undefined) copy[field] = at.toISOString();
+    }
+    return copy as T;
+  });
+}
