@@ -273,6 +273,46 @@ describe('LiveFeedClient', () => {
       expect(h.client.currentStatus).toBe('live')
     })
 
+    it('keeps its position behind a replay that was cut off, so the next try asks for the rest', async () => {
+      const h = harness()
+      const first = await connected(h)
+      first.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 5, replayed: 0 })
+      first.drop()
+      await vi.advanceTimersByTimeAsync(1000)
+
+      const second = socketAt(1)
+      second.say({ type: 'auth_result', success: true })
+      // Three changes are owed, up to seq 9; one arrives and the socket drops.
+      second.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 9, replayed: 3 })
+      second.say({ type: 'change', ...change('g1', 7) })
+      second.drop()
+      await vi.advanceTimersByTimeAsync(2000)
+
+      const third = socketAt(2)
+      third.say({ type: 'auth_result', success: true })
+      expect(third.sent[0]).toEqual({ type: 'subscribe', graphId: 'g1', epoch: 'E1', since: 7 })
+    })
+
+    it('takes the server\'s position once the whole replay is in', async () => {
+      const h = harness()
+      const first = await connected(h)
+      first.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 5, replayed: 0 })
+      first.drop()
+      await vi.advanceTimersByTimeAsync(1000)
+      const second = socketAt(1)
+      second.say({ type: 'auth_result', success: true })
+      second.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 9, replayed: 2 })
+      second.say({ type: 'change', ...change('g1', 7) })
+      second.say({ type: 'change', ...change('g1', 8) })
+      // Nothing was committed for this graph after 8 that the feed counted for it, but the
+      // server's position is 9: the next resume starts there.
+      second.drop()
+      await vi.advanceTimersByTimeAsync(2000)
+      const third = socketAt(2)
+      third.say({ type: 'auth_result', success: true })
+      expect(third.sent[0]).toEqual({ type: 'subscribe', graphId: 'g1', epoch: 'E1', since: 9 })
+    })
+
     it('refetches when the server cannot replay: too much happened, or it restarted', async () => {
       const h = harness()
       const first = await connected(h)
@@ -327,6 +367,27 @@ describe('LiveFeedClient', () => {
       expect(h.client.currentStatus).toBe('error')
       await vi.advanceTimersByTimeAsync(60000)
       expect(h.getToken).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not end the feed for a refusal about a graph the tab has left', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      h.client.setGraph('g2')
+      h.client.setGraph('g3')
+      socket.say({ type: 'error', code: 'GRAPH_NOT_FOUND', message: 'gone', graphId: 'g2' })
+      expect(h.client.currentStatus).toBe('live')
+      expect(socket.closed).toBe(false)
+    })
+
+    it('keeps the graph subscription when only the graph list is refused', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.say({ type: 'error', code: 'PERMISSION_DENIED', message: 'no', graphId: '*' })
+      expect(h.client.currentStatus).toBe('live')
+      expect(socket.closed).toBe(false)
+      // A refusal of the graph being watched still ends the feed.
+      socket.say({ type: 'error', code: 'GRAPH_ACCESS_DENIED', message: 'no', graphId: 'g1' })
+      expect(h.client.currentStatus).toBe('error')
     })
 
     it('reconnects when the server ends an expired session', async () => {

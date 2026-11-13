@@ -17,6 +17,17 @@ export interface LiveChangeSink {
  */
 export const GRAPH_COUNTS_REFRESH_MS = 10_000
 
+/**
+ * The least time between refetches of one data root (events, arcs, links,
+ * pressures). Every refetch is a request against the browser key's rate limit
+ * (60 a minute by default when the entity routes need a key), and one flush
+ * refetches several roots, so a stream of writes must not refetch at every
+ * flush. The first change refreshes at once; changes inside the interval are
+ * covered by one trailing refresh when it ends, so a view is at most this far
+ * behind the last change.
+ */
+export const DATA_REFRESH_MS = 1_000
+
 export interface LiveChangeApplierOptions {
   queryClient: QueryClient
   sink: LiveChangeSink
@@ -37,8 +48,12 @@ export interface LiveChangeApplierOptions {
  * window is fixed from the first change, so a steady stream is still applied
  * several times a second.
  *
- * A change this tab made itself is skipped: the edit that made it already
- * refreshed what it touched, and announcing your own edit back to you is noise.
+ * A change this tab made itself is applied but not announced or highlighted:
+ * announcing your own edit back to you is noise. It still refreshes the data,
+ * because the tag that says it is this tab's is one any writer can send.
+ *
+ * Data refetches are throttled per root (`DATA_REFRESH_MS`), because every
+ * refetch is a request against a rate-limited key.
  */
 export class LiveChangeApplier {
   private readonly options: LiveChangeApplierOptions
@@ -47,13 +62,20 @@ export class LiveChangeApplier {
   /** When the graph queries were last invalidated, and the pending trailing refresh. */
   private graphsAt = Number.NEGATIVE_INFINITY
   private graphsTimer: ReturnType<typeof setTimeout> | undefined
+  /** The same for each data root: when it was last invalidated, and its pending trailing refresh. */
+  private readonly roots = new Map<string, { at: number; timer: ReturnType<typeof setTimeout> | undefined }>()
+  /** Changes this tab made itself: they still refresh the data, but are not announced or highlighted. */
+  private readonly own = new WeakSet<LiveChange>()
 
   constructor(options: LiveChangeApplierOptions) {
     this.options = options
   }
 
   push(change: LiveChange): void {
-    if (change.origin !== undefined && change.origin === this.options.clientId) return
+    // The origin is a tag any writer can set, so it can say what not to announce
+    // or highlight, never what not to refetch: a writer naming this tab's id
+    // must not be able to hide its edits from the screen.
+    if (change.origin !== undefined && change.origin === this.options.clientId) this.own.add(change)
     this.batch.push(change)
     if (this.timer === undefined) {
       this.timer = setTimeout(() => this.flush(), this.options.windowMs ?? 150)
@@ -68,10 +90,13 @@ export class LiveChangeApplier {
         ? [['graphs'], ['events'], ['arcs'], ['causal'], ['inference']]
         : [['graphs']]
     if (graphId === GRAPH_LIST_CHANNEL) {
-      void queryClient.invalidateQueries({ queryKey: ['graphs'] })
+      this.invalidateGraphs()
       return
     }
-    for (const queryKey of roots) void queryClient.invalidateQueries({ queryKey })
+    for (const queryKey of roots) {
+      if (queryKey[0] === 'graphs') this.invalidateGraphs()
+      else void queryClient.invalidateQueries({ queryKey })
+    }
   }
 
   /** Apply what has been gathered. */
@@ -85,15 +110,31 @@ export class LiveChangeApplier {
     const active = this.options.activeGraphId()
     for (const queryKey of queryRootsFor(batch, active)) {
       if (queryKey[0] === 'graphs') this.invalidateGraphs()
-      else void this.options.queryClient.invalidateQueries({ queryKey: [...queryKey] })
+      else this.invalidateData(queryKey[0])
     }
     if (changesGraphCounts(batch)) this.scheduleGraphCounts()
 
-    const fresh = batch.filter((change) => change.graphId === active).flatMap(freshIdsOf)
+    const announced = batch.filter((change) => !this.own.has(change))
+    const fresh = announced.filter((change) => change.graphId === active).flatMap(freshIdsOf)
     if (fresh.length > 0) this.options.sink.markFresh(fresh)
 
-    const notices = describeChanges(batch, (graphId) => this.graphName(graphId, active))
+    const notices = describeChanges(announced, (graphId) => this.graphName(graphId, active))
     if (notices.length > 0) this.options.sink.addNotices(notices)
+  }
+
+  /** Refetch a data root now if it has been a while, else once the interval is over. */
+  private invalidateData(root: string): void {
+    const held = this.roots.get(root) ?? { at: Number.NEGATIVE_INFINITY, timer: undefined }
+    this.roots.set(root, held)
+    if (held.timer !== undefined) return
+    const run = (): void => {
+      held.timer = undefined
+      held.at = Date.now()
+      void this.options.queryClient.invalidateQueries({ queryKey: [root] })
+    }
+    const wait = held.at + DATA_REFRESH_MS - Date.now()
+    if (wait <= 0) run()
+    else held.timer = setTimeout(run, wait)
   }
 
   /** Refetch the graph queries now, and count it against the throttle. */
@@ -117,6 +158,8 @@ export class LiveChangeApplier {
     this.timer = undefined
     if (this.graphsTimer !== undefined) clearTimeout(this.graphsTimer)
     this.graphsTimer = undefined
+    for (const held of this.roots.values()) if (held.timer !== undefined) clearTimeout(held.timer)
+    this.roots.clear()
     this.batch = []
   }
 

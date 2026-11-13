@@ -44,6 +44,14 @@ describe('StreamingStatusBadge', () => {
     expect(screen.getByRole('status')).toHaveAttribute('title', expect.stringMatching(/Turn on live sync to see changes made elsewhere/))
   })
 
+  it('says it is waiting for a graph, in neutral colours rather than as a warning', () => {
+    render(<StreamingStatusBadge status="waiting" />)
+    const badge = screen.getByRole('status', { name: 'Live sync: waiting for a graph' })
+    expect(badge.className).toContain('bg-subtle')
+    expect(badge.className).not.toContain('warning')
+    expect(badge.querySelector('.animate-pulse')).toBeNull()
+  })
+
   it('renders connecting state correctly', () => {
     render(<StreamingStatusBadge status="connecting" />)
     expect(screen.getByText('Live sync: connecting…')).toBeInTheDocument()

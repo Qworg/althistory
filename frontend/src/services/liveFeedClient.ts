@@ -104,6 +104,13 @@ export class LiveFeedClient {
   private resumed = false
   /** Channels whose pending subscribe named a position, so the server replays them. */
   private readonly resuming = new Set<string>()
+  /**
+   * Channels whose replay is under way: the changes still owed, and the
+   * position the server named once they are all in. The position is not taken
+   * until then, or a drop part-way through would resume from beyond changes
+   * that never arrived.
+   */
+  private readonly replaying = new Map<string, { remaining: number; seq: number }>()
   /** Channels whose subscribe was refused for a passing reason, and the timer that tries again. */
   private readonly refused = new Map<string, { attempts: number; timer: ReturnType<typeof setTimeout> | undefined }>()
 
@@ -129,6 +136,7 @@ export class LiveFeedClient {
     const socket = this.socket
     this.socket = undefined
     this.confirmed.clear()
+    this.replaying.clear()
     this.clearRefused()
     this.connecting = false
     if (socket) {
@@ -226,6 +234,7 @@ export class LiveFeedClient {
     this.socket = undefined
     this.connecting = false
     this.confirmed.clear()
+    this.replaying.clear()
     this.clearRefused()
     this.clearPing()
     if (!this.running) return
@@ -271,10 +280,11 @@ export class LiveFeedClient {
         this.subscribeAll()
         return
       case 'subscribed':
-        this.onSubscribed(message.graphId, message.epoch, message.seq, message.resync)
+        this.onSubscribed(message.graphId, message.epoch, message.seq, message.replayed, message.resync)
         return
       case 'unsubscribed':
         this.confirmed.delete(message.graphId)
+        this.replaying.delete(message.graphId)
         if (message.reason === 'access_revoked') this.options.onAccessRevoked?.(message.graphId)
         return
       case 'change':
@@ -285,11 +295,20 @@ export class LiveFeedClient {
         // as if they were new.
         if (message.graphId === this.graphId) {
           this.cursors.set(message.graphId, Math.max(this.cursors.get(message.graphId) ?? 0, message.seq))
+          this.countReplayed(message.graphId)
         }
         this.options.onChange(message)
         return
       case 'error':
         if (FATAL_CODES.has(message.code)) {
+          // A refusal that names a channel is about that channel. One the tab
+          // has left changes nothing; one for the graph list (a key that may
+          // watch a graph but not list them) costs only the list. A key the
+          // server calls invalid is invalid for every channel.
+          if (message.code !== 'KEY_INVALID' && message.graphId !== undefined && message.graphId !== this.graphId) {
+            if (message.graphId === GRAPH_LIST_CHANNEL) this.clearRefusal(message.graphId)
+            return
+          }
           this.setStatus('error', message.message)
           this.closeFor(socket)
         } else if (message.graphId !== undefined && RETRYABLE_SUBSCRIBE_CODES.has(message.code)) {
@@ -301,11 +320,25 @@ export class LiveFeedClient {
     }
   }
 
-  private onSubscribed(channel: string, epoch: string, seq: number, resync: 'gap' | 'epoch' | undefined): void {
+  private onSubscribed(
+    channel: string,
+    epoch: string,
+    seq: number,
+    replayed: number,
+    resync: 'gap' | 'epoch' | undefined
+  ): void {
     // A different process: its numbers mean nothing against the ones held.
     if (this.epoch !== undefined && this.epoch !== epoch) this.cursors.clear()
     this.epoch = epoch
-    this.cursors.set(channel, Math.max(this.cursors.get(channel) ?? 0, seq))
+    this.replaying.delete(channel)
+    if (!resync && replayed > 0 && channel !== GRAPH_LIST_CHANNEL) {
+      // The changes follow this message. The position moves with them, and
+      // reaches `seq` only when the last is in: a drop before then resumes
+      // from the last one handled, not from beyond the ones that never came.
+      this.replaying.set(channel, { remaining: replayed, seq })
+    } else {
+      this.cursors.set(channel, Math.max(this.cursors.get(channel) ?? 0, seq))
+    }
     this.confirmed.add(channel)
     this.clearRefusal(channel)
     const resumedChannel = this.resuming.delete(channel)
@@ -320,6 +353,16 @@ export class LiveFeedClient {
       // The graph list is never replayed: after a reconnect it is read again.
       this.options.onResync(channel, 'reconnect')
     }
+  }
+
+  /** A replayed change for `channel` arrived: once the last is in, the position is the server's. */
+  private countReplayed(channel: string): void {
+    const pending = this.replaying.get(channel)
+    if (!pending) return
+    pending.remaining -= 1
+    if (pending.remaining > 0) return
+    this.replaying.delete(channel)
+    this.cursors.set(channel, Math.max(this.cursors.get(channel) ?? 0, pending.seq))
   }
 
   private subscribeAll(): void {
@@ -391,6 +434,7 @@ export class LiveFeedClient {
     this.clearRefusal(channel)
     this.confirmed.delete(channel)
     this.cursors.delete(channel)
+    this.replaying.delete(channel)
     this.resuming.delete(channel)
     if (!socket || socket.readyState !== OPEN) return
     socket.send(JSON.stringify({ type: 'unsubscribe', graphId: channel }))
@@ -416,6 +460,7 @@ export class LiveFeedClient {
     this.socket = undefined
     this.connecting = false
     this.confirmed.clear()
+    this.replaying.clear()
     this.clearRefused()
     this.clearPing()
     socket.onmessage = null

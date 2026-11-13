@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
 import type { ChangeActor, LiveChange } from '@/types'
-import { GRAPH_COUNTS_REFRESH_MS, LiveChangeApplier } from './liveChangeApplier'
+import { DATA_REFRESH_MS, GRAPH_COUNTS_REFRESH_MS, LiveChangeApplier } from './liveChangeApplier'
 
 let seq = 0
 function added(graphId: string, type: 'event' | 'arc' | 'relationship', id: string, extra: Partial<LiveChange> = {}): LiveChange {
@@ -85,6 +85,31 @@ describe('LiveChangeApplier', () => {
     expect(invalidated).toEqual(['graphs'])
   })
 
+  it('refetches the data a bounded number of times for a burst of writes lasting seconds', () => {
+    // A generation job or an agent: 60 writes over 2 seconds, against a key with 60 requests a minute.
+    for (let i = 0; i < 60; i += 1) {
+      applier.push(added('g1', 'event', `e${i}`))
+      vi.advanceTimersByTime(2000 / 60)
+    }
+    vi.advanceTimersByTime(DATA_REFRESH_MS * 2)
+    // The first change refreshes at once, then one every DATA_REFRESH_MS, the last trailing.
+    const events = invalidated.filter((root) => root === 'events').length
+    expect(events).toBeGreaterThanOrEqual(2)
+    expect(events).toBeLessThanOrEqual(Math.ceil(2000 / DATA_REFRESH_MS) + 2)
+  })
+
+  it('refreshes the data once more when the interval ends, so the view is never left behind the last change', () => {
+    applier.push(added('g1', 'event', 'e1'))
+    vi.advanceTimersByTime(150)
+    applier.push(added('g1', 'event', 'e2'))
+    vi.advanceTimersByTime(150)
+    expect(invalidated.filter((root) => root === 'events')).toHaveLength(1)
+    vi.advanceTimersByTime(DATA_REFRESH_MS)
+    expect(invalidated.filter((root) => root === 'events')).toHaveLength(2)
+    vi.advanceTimersByTime(DATA_REFRESH_MS * 5)
+    expect(invalidated.filter((root) => root === 'events')).toHaveLength(2)
+  })
+
   it('applies a burst once, rather than once per change', () => {
     for (let i = 0; i < 30; i += 1) {
       applier.push(added('g1', 'event', `e${i}`))
@@ -102,8 +127,10 @@ describe('LiveChangeApplier', () => {
       applier.push(added('g1', 'event', `e${i}`))
       vi.advanceTimersByTime(20)
     }
-    // 2 seconds of messages arriving every 20ms: applied about every 150ms.
-    expect(invalidated.filter((root) => root === 'events').length).toBeGreaterThanOrEqual(10)
+    // 2 seconds of messages arriving every 20ms: applied about every 150ms
+    // (highlighted and announced), while the refetch is held to DATA_REFRESH_MS.
+    expect(sink.markFresh.mock.calls.length).toBeGreaterThanOrEqual(10)
+    expect(invalidated.filter((root) => root === 'events').length).toBeGreaterThanOrEqual(2)
   })
 
   it('highlights what arrived on the open graph, and says who changed what', () => {
@@ -131,10 +158,11 @@ describe('LiveChangeApplier', () => {
     expect(invalidated).toEqual(['graphs'])
   })
 
-  it('does not announce, highlight or refetch for the tab\'s own edits', () => {
+  it('does not announce or highlight the tab\'s own edits, but still refetches for them', () => {
+    // The origin is a tag any writer can send: it must not hide a change from the screen.
     applier.push(added('g1', 'event', 'e1', { origin: 'tab-1' }))
     vi.advanceTimersByTime(500)
-    expect(invalidated).toEqual([])
+    expect(invalidated).toContain('events')
     expect(sink.markFresh).not.toHaveBeenCalled()
     expect(sink.addNotices).not.toHaveBeenCalled()
     // Another tab's edits are another writer's.
@@ -164,10 +192,15 @@ describe('LiveChangeApplier', () => {
       expect(invalidated.sort()).toEqual(['arcs', 'causal', 'events', 'graphs', 'inference'])
     })
 
-    it('refetches only the list for the graph list or another graph', () => {
+    it('refetches only the list for the graph list or another graph, and counts it against the throttle', () => {
       applier.resync('*')
       applier.resync('g2')
       expect(invalidated).toEqual(['graphs', 'graphs'])
+      // The counts were just read: a write right after does not read them again.
+      invalidated.length = 0
+      applier.push(added('g1', 'event', 'e1'))
+      vi.advanceTimersByTime(150)
+      expect(invalidated).not.toContain('graphs')
     })
   })
 

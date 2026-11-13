@@ -190,7 +190,7 @@ describe('useLiveChanges', () => {
     expect(state.notices[0]?.message).toBe('An agent (Claude) added 2 events to this graph')
   })
 
-  it("does not announce, highlight or refetch for the tab's own edits", async () => {
+  it("does not announce or highlight the tab's own edits, but still refetches for them", async () => {
     const events = vi.fn().mockResolvedValue([])
     function Probe() {
       useLiveChanges()
@@ -202,8 +202,8 @@ describe('useLiveChanges', () => {
     const socket = await live()
     await waitFor(() => expect(events).toHaveBeenCalledTimes(2))
     socket.say(change(1, { origin: CLIENT_ID }))
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    expect(events).toHaveBeenCalledTimes(2)
+    // The tag is one any writer can send, so it cannot suppress the refetch.
+    await waitFor(() => expect(events).toHaveBeenCalledTimes(3), { timeout: 3000 })
     expect(useLiveChangesStore.getState().notices).toEqual([])
     expect(useLiveChangesStore.getState().fresh.event).toEqual({})
   })

@@ -183,8 +183,11 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
     : liveStatus === 'live'
       ? 'connected'
       : liveStatus === 'off'
-        ? // Wanted, and not yet started (no graph open, or the first moment).
-          'connecting'
+        ? // Wanted, and not started: the first moment, or no graph is open (a
+          // connection is made for a graph, so there is nothing to wait on).
+          activeGraphId
+          ? 'connecting'
+          : 'waiting'
         : liveStatus
   // Turning it on, or (when it is on and gave up) trying again.
   const connectStream = useCallback(() => (liveEnabled ? retryLive() : setLiveEnabled(true)), [liveEnabled, retryLive, setLiveEnabled])

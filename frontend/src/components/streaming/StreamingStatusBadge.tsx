@@ -13,7 +13,7 @@ import React from 'react'
 import type { StreamingConnectionStatus, StreamingStats } from '@/hooks/useStreamingWrite'
 
 /** The write stream's states, plus the one only a feed that reopens itself has. */
-export type LiveSyncBadgeStatus = StreamingConnectionStatus | 'reconnecting'
+export type LiveSyncBadgeStatus = StreamingConnectionStatus | 'reconnecting' | 'waiting'
 
 export interface StreamingStatusBadgeProps {
   status: LiveSyncBadgeStatus
@@ -30,6 +30,8 @@ const OFF_HINT =
 const ON_HINT = "Changes made elsewhere, such as by an agent, appear here as they happen, and are marked as new for a few seconds."
 
 const RECONNECTING_HINT = 'The connection dropped. Reconnecting; whatever was missed is caught up when it is back.'
+
+const WAITING_HINT = 'Live sync is on. It starts when a graph is open: a connection is made for one graph.'
 
 const ERROR_MESSAGE =
   "Couldn't start live sync. Your edits still save as you go; retry when the server is reachable."
@@ -65,6 +67,12 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
           dot: 'bg-warning animate-pulse',
           label: 'Live sync: reconnecting…',
         }
+      case 'waiting':
+        return {
+          bg: 'bg-subtle text-ink-secondary border-line',
+          dot: 'border border-ink-muted',
+          label: 'Live sync: waiting for a graph',
+        }
       case 'error':
         return {
           bg: 'bg-danger/10 text-danger border-danger/30',
@@ -90,7 +98,9 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
       ? `${ERROR_MESSAGE}${error ? ` (Details: ${error})` : ''}`
       : status === 'reconnecting'
         ? RECONNECTING_HINT
-        : statsTitle || (status === 'disconnected' ? OFF_HINT : status === 'connected' ? ON_HINT : undefined)
+        : status === 'waiting'
+          ? WAITING_HINT
+          : statsTitle || (status === 'disconnected' ? OFF_HINT : status === 'connected' ? ON_HINT : undefined)
 
   return (
     <div

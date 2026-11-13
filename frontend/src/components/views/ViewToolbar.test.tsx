@@ -672,11 +672,18 @@ describe('ViewToolbar', () => {
       })
 
       it('is on by default, and says so once the feed is connected', () => {
+        localStorage.setItem('active_graph_id', 'g1')
         renderWithProviders(<ViewToolbar viewMode="timeline" />)
         // Wanted and not yet connected: connecting, not "off".
         expect(screen.getByRole('status', { name: 'Live sync: connecting…' })).toBeInTheDocument()
         act(() => useLiveChangesStore.getState().setStatus('live'))
         expect(screen.getByRole('status', { name: 'Live sync on' })).toBeInTheDocument()
+      })
+
+      it('waits, in neutral colours, while no graph is open, rather than pulsing "connecting" for ever', () => {
+        renderWithProviders(<ViewToolbar viewMode="timeline" />)
+        expect(screen.getByRole('status', { name: 'Live sync: waiting for a graph' })).toBeInTheDocument()
+        expect(screen.queryByRole('status', { name: 'Live sync: connecting…' })).toBeNull()
       })
 
       it('says when the connection dropped and is being reopened', () => {
