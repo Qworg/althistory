@@ -63,12 +63,15 @@ function announceBatch(
 
 /** The writes a transaction's steps made, in the form `announceBatch` takes. */
 function stepsOf(
-  results: Array<{ type: string; success: boolean; id?: string }>
+  results: Array<{ type: string; success: boolean; id?: string }>,
+  liveIds: ReadonlyMap<string, string> = new Map()
 ): Array<{ operation: ChangeOperation; type: ChangedEntityType; id: string }> {
   return results.flatMap((step) => {
     if (!step.success || !step.id) return [];
     const kind = /^(create|update|delete)_(event|arc|relationship)$/.exec(step.type);
-    return kind ? [{ operation: kind[1] as ChangeOperation, type: kind[2] as ChangedEntityType, id: step.id }] : [];
+    if (!kind) return [];
+    const id = kind[1] === 'create' ? (liveIds.get(step.id) ?? step.id) : step.id;
+    return [{ operation: kind[1] as ChangeOperation, type: kind[2] as ChangedEntityType, id }];
   });
 }
 
@@ -413,6 +416,8 @@ batchRoutes.post(
     const onError = request.onError || 'abort';
     const { relationships } = request;
 
+    // The ids the graph gave the links, for the announcement (result.created keeps the cause_effect keys).
+    const storedIds: string[] = [];
     const result: BatchResult = {
       success: true,
       created: [],
@@ -454,7 +459,7 @@ batchRoutes.post(
         }
 
         // Create the relationship using createCausalLink
-        await causalService.createCausalLink(
+        const stored = await causalService.createCausalLink(
           causeEvent,
           effectEvent,
           {
@@ -468,6 +473,9 @@ batchRoutes.post(
         // Generate relationship ID
         const relId = `${relData.cause_event_id}_${relData.effect_event_id}`;
         result.created.push(relId);
+        // What the graph calls the link, which the response's cause_effect key is not:
+        // a watcher matches its highlights on this id.
+        storedIds.push(stored.id);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
@@ -501,7 +509,7 @@ batchRoutes.post(
 
     result.success = result.failed.length === 0;
 
-    announceBatch(req, requireGraphId(req), result.created.map((id) => ({ operation: 'create', type: 'relationship', id })));
+    announceBatch(req, requireGraphId(req), storedIds.map((id) => ({ operation: 'create', type: 'relationship', id })));
     res.status(result.success ? 201 : 207).json(result);
   })
 );
@@ -598,6 +606,8 @@ batchRoutes.post(
     };
 
     const createdIds: Array<{ type: string; id: string }> = [];
+    // A created link is announced under the id the graph gave it, not the cause_effect key the response uses.
+    const liveIds = new Map<string, string>();
 
     const calendarOf = calendarLookup(req);
     for (let i = 0; i < operations.length; i++) {
@@ -668,7 +678,7 @@ batchRoutes.post(
             const effectEvent = await eventRepository.findById(relData.effect_event_id);
             if (!causeEvent) throw new Error(`Cause event not found: ${relData.cause_event_id}`);
             if (!effectEvent) throw new Error(`Effect event not found: ${relData.effect_event_id}`);
-            await causalService.createCausalLink(causeEvent, effectEvent, {
+            const stored = await causalService.createCausalLink(causeEvent, effectEvent, {
               weight: relData.weight || 0.5,
               evidence: relData.evidence || '',
               confidence: relData.confidence || 0.5,
@@ -677,6 +687,7 @@ batchRoutes.post(
             const relId = `${relData.cause_event_id}_${relData.effect_event_id}`;
             opResult = { success: true, id: relId };
             createdIds.push({ type: 'relationship', id: relId });
+            liveIds.set(relId, stored.id);
             break;
           }
 
@@ -742,7 +753,10 @@ batchRoutes.post(
           announceBatch(
             req,
             requireGraphId(req),
-            stepsOf(result.results).filter((step) => !rolledBack.has(step.id))
+            stepsOf(
+              result.results.filter((step) => !(step.id !== undefined && rolledBack.has(step.id))),
+              liveIds
+            )
           );
 
           return res.status(400).json({
@@ -757,7 +771,7 @@ batchRoutes.post(
       }
     }
 
-    announceBatch(req, requireGraphId(req), stepsOf(result.results));
+    announceBatch(req, requireGraphId(req), stepsOf(result.results, liveIds));
     res.status(result.success ? 200 : 207).json(result);
   })
 );
