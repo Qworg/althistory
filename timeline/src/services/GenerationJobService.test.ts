@@ -310,6 +310,9 @@ describe('GenerationJobService', () => {
       expect(done.status).toBe('cancelled');
       expect(done.written).toEqual(probed.written);
       expect(done.message).toContain(`${linkCount} link`);
+      // Watchers of the feed hear the exact count too, not the one announced at the cancel.
+      const last = [...heard].reverse().find((record) => record.kind === 'generation' && record.graphId === done.graphId);
+      expect(last).toMatchObject({ status: 'cancelled', written: done.written, message: done.message });
       const { eventRepository } = await container.graphScopedRepositories(done.graphId as string);
       expect(await eventRepository.findAll()).toHaveLength(done.written.events);
     });

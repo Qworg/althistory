@@ -373,12 +373,11 @@ export class GenerationJobService {
           if (record.view.status !== 'running') {
             // Cancelled while the last write finished: the graph holds all of it.
             if (record.view.status === 'cancelled') {
-              record.view.written = {
+              this.correctCancelled(record, {
                 events: result.eventCount,
                 arcs: result.arcCount,
                 relationships: result.relationshipCount,
-              };
-              record.view.message = `Cancelled; ${describeWritten(record.view.written)} stays in the graph`;
+              });
             }
             return;
           }
@@ -404,10 +403,8 @@ export class GenerationJobService {
               });
             } else {
               // The run stopped a write after the cancel: the count is now exact.
-              record.view.written = { ...error.written };
-              if (record.view.status === 'cancelled') {
-                record.view.message = `Cancelled; ${describeWritten(error.written)} stays in the graph`;
-              }
+              if (record.view.status === 'cancelled') this.correctCancelled(record, error.written);
+              else record.view.written = { ...error.written };
             }
             return;
           }
@@ -418,6 +415,23 @@ export class GenerationJobService {
         }
       }
     );
+  }
+
+  /**
+   * A cancelled job's run has unwound and knows exactly what it wrote. The
+   * count `cancel` announced may be one write short, so say it again, but only
+   * if it changed: watchers of the feed see the same number the job's view
+   * reports.
+   */
+  private correctCancelled(record: JobRecord, written: GenerationWritten): void {
+    const view = record.view;
+    const changed =
+      view.written.events !== written.events ||
+      view.written.arcs !== written.arcs ||
+      view.written.relationships !== written.relationships;
+    view.written = { ...written };
+    view.message = `Cancelled; ${describeWritten(written)} stays in the graph`;
+    if (changed) this.publish(record);
   }
 
   private onProgress(record: JobRecord, progress: GenerationProgress): void {

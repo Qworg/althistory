@@ -61,6 +61,17 @@ function announceBatch(
   }
 }
 
+/** The writes a transaction's steps made, in the form `announceBatch` takes. */
+function stepsOf(
+  results: Array<{ type: string; success: boolean; id?: string }>
+): Array<{ operation: ChangeOperation; type: ChangedEntityType; id: string }> {
+  return results.flatMap((step) => {
+    if (!step.success || !step.id) return [];
+    const kind = /^(create|update|delete)_(event|arc|relationship)$/.exec(step.type);
+    return kind ? [{ operation: kind[1] as ChangeOperation, type: kind[2] as ChangedEntityType, id: step.id }] : [];
+  });
+}
+
 export const batchRoutes = Router();
 
 /**
@@ -697,6 +708,7 @@ batchRoutes.post(
 
         if (atomic) {
           // Rollback all created entities
+          const rolledBack = new Set<string>();
           for (const created of createdIds.reverse()) {
             try {
               switch (created.type) {
@@ -715,12 +727,23 @@ batchRoutes.post(
                   break;
                 }
               }
+              rolledBack.add(created.id);
             } catch (rollbackError) {
               logger.error('Rollback failed', rollbackError, { type: created.type, id: created.id });
             }
           }
 
           result.rollbackPerformed = true;
+
+          // The rollback undoes only what the transaction created. The updates
+          // and deletes that ran before the failing step stay in the store, and
+          // so does anything whose rollback failed: tell whoever has the graph
+          // open. What was created and removed again nets to nothing.
+          announceBatch(
+            req,
+            requireGraphId(req),
+            stepsOf(result.results).filter((step) => !rolledBack.has(step.id))
+          );
 
           return res.status(400).json({
             ...createBatchError(
@@ -734,15 +757,7 @@ batchRoutes.post(
       }
     }
 
-    announceBatch(
-      req,
-      requireGraphId(req),
-      result.results.flatMap((step) => {
-        if (!step.success || !step.id) return [];
-        const kind = /^(create|update|delete)_(event|arc|relationship)$/.exec(step.type);
-        return kind ? [{ operation: kind[1] as ChangeOperation, type: kind[2] as ChangedEntityType, id: step.id }] : [];
-      })
-    );
+    announceBatch(req, requireGraphId(req), stepsOf(result.results));
     res.status(result.success ? 200 : 207).json(result);
   })
 );

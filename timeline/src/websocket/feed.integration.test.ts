@@ -366,6 +366,31 @@ describe('the live change feed over the WebSocket', () => {
       expect(String(change.summary)).toBe('Added 2 events in a batch');
     });
 
+    it('delivers the updates of a failed atomic transaction, which the rollback leaves in place, and not the creates it undid', async () => {
+      const existing = await agentAddsEvent(graphA, 'Before the transaction');
+      const client = await watcher(readerKey, graphA);
+      const res = await request(app)
+        .post('/api/batch/transaction')
+        .set('X-API-Key', agentKey)
+        .set('X-Graph-Id', graphA)
+        .send({
+          graphId: graphA,
+          atomic: true,
+          operations: [
+            { type: 'update_event', data: { id: existing, description: 'Changed by the transaction' } },
+            { type: 'create_event', data: { description: 'Rolled back', actor: 'A', target: 'B', timestamp: '1310-01-01T00:00:00Z' } },
+            { type: 'create_relationship', data: { cause_event_id: existing, effect_event_id: 'no-such-event' } },
+          ],
+        })
+        .expect(400);
+      expect(res.body.result.rollbackPerformed).toBe(true);
+      const change = await client.nextOf('change');
+      expect(change).toMatchObject({ kind: 'entities', operation: 'update', graphId: graphA });
+      expect(change.entities).toEqual([{ type: 'event', id: existing }]);
+      await settle();
+      expect(client.drain().filter((message) => message.type === 'change')).toEqual([]);
+    });
+
     it('delivers a rollback as a replaced graph, after the live store holds the old head', async () => {
       const graph = (await container.graphService.createGraph({ name: 'Rolled back' })).id;
       const scoped = await container.graphScopedRepositories(graph);
