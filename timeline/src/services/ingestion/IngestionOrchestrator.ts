@@ -422,7 +422,7 @@ function typedTimestamp(
 }
 
 /**
- * An extraction's time in milliseconds, NaN unless it is a date the one rule
+ * An extraction's time on the axis (exact, not a double), null unless it is a date the one rule
  * reads (`readWorldTimestamp`): ISO 8601, and in a world an ISO date or date
  * and time (a Gregorian month or year is no period of the world's; the
  * reviewer's text in the world's notation was read into ISO already).
@@ -430,10 +430,10 @@ function typedTimestamp(
  * ("Feb 14 1870") is refused here, as the review shows it ("Not a date"),
  * rather than read leniently later in the server's zone.
  */
-function strictTime(text: string, calendar?: WorldCalendarSet): number {
-  if (!parseIsoInstant(String(text).trim())) return NaN;
+function strictTime(text: string, calendar?: WorldCalendarSet): bigint | null {
+  if (!parseIsoInstant(String(text).trim())) return null;
   const read = readWorldTimestamp(calendar, String(text));
-  return read ? Number(read.time) : NaN;
+  return read ? read.time : null;
 }
 
 function mergeEvent(event: ExtractedEvent, edit: ExtractedEdit | undefined, calendar?: WorldCalendarSet): ExtractedEvent {
@@ -492,9 +492,9 @@ export function validateExtraction(extraction: ExtractionResult, calendar?: Worl
       issues.push(issue(event.tempId, 'event', 'error', 'Event target is required'));
     }
     const time = strictTime(event.timestamp, calendar);
-    if (Number.isNaN(time)) {
+    if (time === null) {
       issues.push(issue(event.tempId, 'event', 'error', `Invalid event timestamp: ${event.timestamp}`));
-    } else if (!calendar && time > Date.now()) {
+    } else if (!calendar && time > BigInt(Date.now())) {
       // (An invented world's timeline has no "now".)
       issues.push(issue(event.tempId, 'event', 'warning', 'Event timestamp is in the future'));
     }
@@ -514,7 +514,7 @@ export function validateExtraction(extraction: ExtractionResult, calendar?: Worl
     }
     const start = strictTime(arc.start_time, calendar);
     const end = strictTime(arc.end_time, calendar);
-    if (Number.isNaN(start) || Number.isNaN(end)) {
+    if (start === null || end === null) {
       issues.push(issue(arc.tempId, 'arc', 'error', 'Arc start/end must be valid timestamps'));
     } else if (start > end) {
       issues.push(issue(arc.tempId, 'arc', 'error', 'Arc start_time is after end_time'));

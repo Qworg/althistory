@@ -580,7 +580,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
             <g className="events-layer">
               {events.length > 0 && groups.map(([groupKey, groupEvents]) => {
                 const sorted = layoutMode === 'thematic' && groupEvents.length > 1
-                  ? [...groupEvents].sort((a, b) => toInstant(a.timestamp).getTime() - toInstant(b.timestamp).getTime())
+                  ? [...groupEvents].sort((a, b) => compareInstants(toInstant(a.timestamp), toInstant(b.timestamp)))
                   : []
                 const rowY = layoutMode === 'thematic' ? yScale(groupKey) : 0
                 return (

@@ -15,6 +15,7 @@ import { compareAxisTime, isoOfAxisTime, toAxisTime, MAX_AXIS_MS, type WorldCale
 import * as crypto from 'crypto';
 import { DirectEngine } from './engine/DirectEngine';
 import type { EventDto } from './types';
+import { TimelineGenerator } from './generator/TimelineGenerator';
 import { withAxisTimes } from './mcp/worldDates';
 
 /** The moment of each event as an axis time, which every reader of a timestamp reads alike. */
@@ -32,6 +33,31 @@ function checksums(content: string): { claimed: string; actual: string; version:
     document,
   };
 }
+
+describe('the generator\'s integrity pass beyond a Date\'s range', () => {
+  // verifyIntegrityPass is private; it is what reports a generated timeline's
+  // inverted links and unordered events, and it must read deep moments exactly.
+  const pass = (events: Array<{ timestamp: string }>, arcs: Array<{ start_time: string; end_time: string }>, links: Array<{ causeIndex: number; effectIndex: number }>) =>
+    (new TimelineGenerator() as unknown as { verifyIntegrityPass: (e: unknown, a: unknown, l: unknown) => { issues: Array<{ type: string }> } }).verifyIntegrityPass(events, arcs, links);
+
+  it('reports a cause that follows its effect at +300000', () => {
+    const report = pass(
+      [{ timestamp: '+299000-01-01T00:00:00.000Z' }, { timestamp: '+300000-01-01T00:00:00.000Z' }],
+      [],
+      [{ causeIndex: 1, effectIndex: 0 }]
+    );
+    expect(report.issues.map((issue) => issue.type)).toContain('causal_direction');
+  });
+
+  it('tells apart events and an arc end a millisecond apart', () => {
+    const report = pass(
+      [{ timestamp: '+300000-01-01T00:00:00.001Z' }, { timestamp: '+300000-01-01T00:00:00.002Z' }],
+      [{ start_time: '+300000-01-01T00:00:00.001Z', end_time: '+300000-01-01T00:00:00.002Z' }],
+      []
+    );
+    expect(report.issues).toEqual([]);
+  });
+});
 
 describe('deep time', () => {
   let engine: DirectEngine;

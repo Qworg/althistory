@@ -1,5 +1,6 @@
 import { readRequestTime, queryInstant } from '../worldDates';
 import { Router, Response, NextFunction } from 'express';
+import { compareInstants } from '@althistory/calendar';
 import { CreateArcRequest, UpdateArcRequest } from '@/models/Arc';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
@@ -437,7 +438,7 @@ arcRoutes.post('/:id/validate-hierarchy', ...entityPermission('read:arcs'), asyn
 
       if (
         existing.level < arc.level &&
-        !(arc.start_time >= existing.start_time && arc.end_time <= existing.end_time)
+        !(compareInstants(arc.start_time, existing.start_time) >= 0 && compareInstants(arc.end_time, existing.end_time) <= 0)
       ) {
         violations.push({
           arcId: existing.id,
@@ -448,7 +449,7 @@ arcRoutes.post('/:id/validate-hierarchy', ...entityPermission('read:arcs'), asyn
         });
       } else if (
         existing.level > arc.level &&
-        !(existing.start_time >= arc.start_time && existing.end_time <= arc.end_time)
+        !(compareInstants(existing.start_time, arc.start_time) >= 0 && compareInstants(existing.end_time, arc.end_time) <= 0)
       ) {
         violations.push({
           arcId: existing.id,

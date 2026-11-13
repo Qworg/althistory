@@ -44,6 +44,10 @@ import {
   readWorldTimestamp,
   storedCalendarSet,
   toInstant,
+  toAxisTime,
+  compareInstants,
+  addInstantMs,
+  type AxisTime,
   MAX_AXIS_MS,
   instantOfAxisTime,
   isoOfAxisTime,
@@ -118,9 +122,20 @@ const MS_PER_YEAR = 365.25 * MS_PER_DAY;
 /** How long an invented world's chronicle runs when no end date is given. */
 const WORLD_DEFAULT_SPAN_YEARS = 300;
 
-/** An arc that ends where it starts (or before) is given a day, so it has a width. */
-function widenedEnd(startMs: number, endMs: number): number {
-  return startMs >= endMs ? startMs + MS_PER_DAY : endMs;
+/**
+ * An ISO-8601 instant as an exact axis time, null when absent or not ISO 8601.
+ * Arc bounds and what is compared with them are read this way: a double moves
+ * an odd millisecond of a deep moment into the next year.
+ */
+function parseAxis(value: string | undefined): AxisTime | null {
+  return value ? (parseIsoInstant(value.trim())?.time ?? null) : null;
+}
+
+/** An arc that ends where it starts (or before) is given a day, exactly, and never past the axis's bound. */
+function widenedEndAxis(start: AxisTime, end: AxisTime): AxisTime {
+  if (start < end) return end;
+  const widened = start + BigInt(MS_PER_DAY);
+  return widened > MAX_AXIS_MS ? MAX_AXIS_MS : widened;
 }
 
 /**
@@ -341,13 +356,19 @@ export class TimelineGenerator {
       // The preview places each event as the write would: in the innermost
       // arc that holds it (an arc that ends where it starts is widened to a
       // day, as there).
+      const dryArcEndOf = (startText: string, endText: string): string => {
+        const start = parseAxis(startText);
+        const end = parseAxis(endText);
+        return start === null || end === null ? endText : isoOfAxisTime(widenedEndAxis(start, end));
+      };
       const dryArcIdOf = (timestamp: string): string | undefined => {
-        const time = parseInstant(timestamp);
+        const time = parseAxis(timestamp);
         const holding = structuredArcs
           .filter((arc) => {
-            const start = parseInstant(arc.start_time);
-            const end = widenedEnd(start, parseInstant(arc.end_time));
-            return start <= time && time <= end;
+            const start = parseAxis(arc.start_time);
+            const end = parseAxis(arc.end_time);
+            if (time === null || start === null || end === null) return false;
+            return start <= time && time <= widenedEndAxis(start, end);
           })
           .sort((a, b) => b.level - a.level);
         return holding[0] ? dryArcIdByTempId.get(holding[0].tempId) : undefined;
@@ -371,7 +392,7 @@ export class TimelineGenerator {
         name: a.name,
         description: a.description,
         startTime: a.start_time,
-        endTime: isoOf(widenedEnd(parseInstant(a.start_time), parseInstant(a.end_time))),
+        endTime: dryArcEndOf(a.start_time, a.end_time),
         level: a.level,
         parentArcId: a.parentArcId ? dryArcIdByTempId.get(a.parentArcId) : undefined,
       }));
@@ -422,7 +443,9 @@ export class TimelineGenerator {
     for (const a of orderedArcs) {
       const startTime = toInstant(a.start_time);
       let endTime = toInstant(a.end_time);
-      endTime = instantOf(widenedEnd(startTime.getTime(), endTime.getTime()));
+      // Exactly, as the engine does: through a double an odd millisecond of a
+      // deep end moves into the next year.
+      if (compareInstants(startTime, endTime) >= 0) endTime = addInstantMs(startTime, MS_PER_DAY);
       const created = await scoped.arcRepository.create({
         name: a.name,
         description: a.description || '',
@@ -452,9 +475,13 @@ export class TimelineGenerator {
     // and the exports read (`metadata.arcId`); otherwise every event was left
     // outside the arcs that were drawn around it.
     const arcIdOf = (timestamp: string): string | undefined => {
-      const time = parseInstant(timestamp);
+      const time = parseAxis(timestamp);
       const holding = persistedArcs
-        .filter((arc) => parseInstant(arc.startTime) <= time && time <= parseInstant(arc.endTime))
+        .filter((arc) => {
+          const start = parseAxis(arc.startTime);
+          const end = parseAxis(arc.endTime);
+          return time !== null && start !== null && end !== null && start <= time && time <= end;
+        })
         .sort((a, b) => (b.level ?? 0) - (a.level ?? 0));
       return holding[0]?.id;
     };
@@ -1611,9 +1638,9 @@ Generate ${eventCount} chronological events of this world's history, from its fo
 
     // Temporal order
     for (let i = 1; i < events.length; i++) {
-      const prev = toInstant(events[i - 1].timestamp).getTime();
-      const curr = toInstant(events[i].timestamp).getTime();
-      if (prev >= curr) {
+      const prev = toAxisTime(events[i - 1].timestamp);
+      const curr = toAxisTime(events[i].timestamp);
+      if (prev !== null && curr !== null && prev >= curr) {
         issues.push({
           type: 'temporal',
           severity: 'error',
@@ -1624,9 +1651,9 @@ Generate ${eventCount} chronological events of this world's history, from its fo
 
     // Arc bounds
     for (let idx = 0; idx < arcs.length; idx++) {
-      const start = toInstant(arcs[idx].start_time).getTime();
-      const end = toInstant(arcs[idx].end_time).getTime();
-      if (start >= end) {
+      const start = toAxisTime(arcs[idx].start_time);
+      const end = toAxisTime(arcs[idx].end_time);
+      if (start !== null && end !== null && start >= end) {
         issues.push({
           type: 'temporal',
           severity: 'error',
