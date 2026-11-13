@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
-import { clampedInstantOfMs, instantScale, isDeepInstant, rescaleInstantX } from '@/utils/timeScale'
+import { clampedInstantOfMs, instantScale, rescaleInstantX, usesArithmeticTicks } from '@/utils/timeScale'
 import { Event, Arc, TimeRange } from '@/types'
 import { axisTicks, formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
@@ -219,8 +219,10 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     // In a world calendar, its own years, months, days and hours; otherwise
     // UTC ticks and labels, as the event labels read every date (the
     // positions are the same linear scale either way).
-    // Beyond what a Date holds, d3's ticks cannot reach: the calendar package's.
-    const deepDomain = timeScale.domain().some(isDeepInstant)
+    // Beyond what a Date holds, or near its bounds or before year -9999, d3's ticks
+    // cannot reach or mislabel: the calendar package's.
+    const [domainStart, domainEnd] = timeScale.domain()
+    const deepDomain = usesArithmeticTicks(domainStart, domainEnd)
     const [start = 0, end = 0] = timeScale.range()
     const maxTicks = Math.max(2, Math.floor(Math.abs(end - start) / 96))
     const countTicks = () => axisTicks(timeScale.domain(), maxTicks, worldCalendar).map(({ date, label }) => ({
@@ -235,7 +237,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     // hundreds of thousands of years is thousands of decades. Past what the
     // width holds, the count-based ticks (as the main timeline draws them).
     // The slack keeps a narrow chart's crowded, turned labels as they were.
-    if (dates.length > Math.max(maxTicks * 3, 24)) return countTicks()
+    if (dates.length === 0 || dates.length > Math.max(maxTicks * 3, 24)) return countTicks()
     return dates.map(date => ({
       key: date.getTime(),
       x: timeScale(date),

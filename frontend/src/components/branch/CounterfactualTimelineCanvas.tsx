@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, useCallback, useRef, useLayoutEffect, useEffect } from 'react'
 import type React from 'react'
-import { clampedInstantOfMs, instantScale, isDeepInstant } from '@/utils/timeScale'
+import { clampedInstantOfMs, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
 import { axisTicks } from '@/utils/d3Calculations'
@@ -379,7 +379,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
     const count = Math.max(2, Math.min(6, Math.floor(innerWidth / 110)))
     // In a world calendar, its own years, months and days, in its notation.
     // Beyond what a Date holds, d3's ticks cannot reach: the calendar package's.
-    const ticks = worldCalendar || xScale.domain().some(isDeepInstant)
+    const ticks = worldCalendar || usesArithmeticTicks(...xScale.domain())
       ? axisTicks(xScale.domain(), count, worldCalendar)
       : (() => {
           const dates = xScale.ticks(count)

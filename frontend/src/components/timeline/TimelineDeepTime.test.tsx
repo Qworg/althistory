@@ -94,6 +94,37 @@ describe('a timeline of a million years', () => {
   })
 })
 
+describe('a history a Date can hold, near its lower bound', () => {
+  // d3's utcYear.every(k) floors the domain's start to a multiple of k, which near -271,821
+  // is an Invalid Date: it ticks nothing. These histories are inside a Date's range.
+  const spans: Array<[string, string]> = [
+    ['-250000-01-01T00:00:00.000Z', '+050000-01-01T00:00:00.000Z'],
+    ['-200000-01-01T00:00:00.000Z', '+100000-01-01T00:00:00.000Z'],
+  ]
+  const actorEvents = (stamps: string[]): ActorEventData[] =>
+    stamps.map((stamp, i) => ({ ...event(`e${i}`, stamp), actor: 'Actor', role: 'actor' as const, isHighlighted: false }))
+
+  for (const [from, to] of spans) {
+    it(`labels a Timeline's axis from ${from} to ${to} in BCE years`, () => {
+      render(<Timeline events={[event('a', from), event('b', to)]} arcs={[]} width={900} height={400} />)
+      const labels = axisLabels()
+      expect(labels.length).toBeGreaterThan(2)
+      expect(new Set(labels).size).toBe(labels.length)
+      expect(labels.some((label) => /BCE/.test(label))).toBe(true)
+      // 200,001 BCE is year -200000: never "-200000s" or a bare negative year.
+      expect(labels.some((label) => /^-|s$/.test(label))).toBe(false)
+    })
+
+    it(`labels an ActorTimeline's axis from ${from} to ${to} in BCE years`, () => {
+      render(<ActorTimeline events={actorEvents([from, to])} arcs={[]} actor="Actor" layoutMode="chronological" width={900} height={400} />)
+      const labels = axisLabels()
+      expect(labels.length).toBeGreaterThan(2)
+      expect(labels.some((label) => /BCE/.test(label))).toBe(true)
+      expect(labels.some((label) => /^-|s$/.test(label))).toBe(false)
+    })
+  }
+})
+
 describe('a world chronicle of a million years', () => {
   const world = {
     version: 2,

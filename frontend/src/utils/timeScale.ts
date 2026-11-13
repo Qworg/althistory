@@ -45,6 +45,34 @@ export function isDeepInstant(value: Date): boolean {
   return value instanceof AxisDate
 }
 
+/** The earliest and latest moments a Date holds, in milliseconds. */
+const DATE_MIN_MS = -8_640_000_000_000_000
+const DATE_MAX_MS = 8_640_000_000_000_000
+/**
+ * The first millisecond of year -9999: before it a year needs the signed six-digit form, and d3 labels it
+ * astronomically ("-200000s" for 200,001 BCE). A history inside 0000-9999 is ticked by d3 as it always was.
+ */
+const SIX_DIGIT_YEARS_MS = -377_705_116_800_000
+
+/**
+ * Whether a Gregorian domain is better ticked by the calendar package than by
+ * d3 (docs/specs/deep-time.md, Req 12). Beyond a Date's range d3 cannot tick at
+ * all; but it fails before that too: `utcYear.every(k)` floors the domain's
+ * start to a multiple of k, and near the lower bound that floor is an Invalid
+ * Date, so the axis has no ticks; and before year -9999 its labels are astronomical
+ * ("-200000s"). So: any domain that starts before year -9999, or comes within a
+ * span of a Date's bounds, takes the calendar package's ticks ("200000 BCE").
+ */
+export function usesArithmeticTicks(first: Date, last: Date): boolean {
+  if (isDeepInstant(first) || isDeepInstant(last)) return true
+  const start = +first
+  const end = +last
+  if (Number.isNaN(start) || Number.isNaN(end)) return false
+  if (Math.min(start, end) < SIX_DIGIT_YEARS_MS) return true
+  const span = Math.abs(end - start)
+  return Math.max(start, end) + span > DATE_MAX_MS || Math.min(start, end) - span < DATE_MIN_MS
+}
+
 function toDate(value: Date | number): Date {
   return value instanceof Date ? value : instantOfMs(value)
 }
@@ -116,7 +144,12 @@ export function instantScale(utc = false): InstantScale {
   }
 
   scale.ticks = (count?: number | d3.TimeInterval): Date[] => {
-    if (!deep()) return count === undefined ? d3Scale().ticks() : typeof count === 'number' ? d3Scale().ticks(count) : d3Scale().ticks(count)
+    if (!usesArithmeticTicks(d0, d1)) {
+      const dates = count === undefined ? d3Scale().ticks() : typeof count === 'number' ? d3Scale().ticks(count) : d3Scale().ticks(count)
+      // d3 can make none where its interval floors out of a Date's range; the calendar package's below.
+      // (A given interval may legitimately have no tick inside the domain.)
+      if (dates.length > 0 || typeof count === 'function') return dates
+    }
     const a0 = axisOf(d0)
     const a1 = axisOf(d1)
     if (a0 === null || a1 === null) return []

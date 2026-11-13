@@ -166,3 +166,11 @@ describe('zooming out of a view past the axis bound', () => {
     expect(Number.isFinite(scale(instantOfMs(near)))).toBe(true)
   })
 })
+
+describe('ticks of a domain a Date holds, near its lower bound', () => {
+  it('are not empty where d3 would floor the start out of a Date\'s range', () => {
+    const scale = instantScale(true).domain([new Date('-250000-01-01T00:00:00.000Z'), new Date('+050000-01-01T00:00:00.000Z')]).range([0, 900])
+    expect(isDeepInstant(scale.domain()[0])).toBe(false)
+    expect(scale.ticks(8).length).toBeGreaterThan(2)
+  })
+})

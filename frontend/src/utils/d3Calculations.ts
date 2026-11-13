@@ -29,8 +29,8 @@
 import * as d3 from 'd3'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { axisOf, calendarIn, compareInstants, gregorianTicks, inDateRange, instantOfAxisTime, toInstant, worldTicks } from '@althistory/calendar'
-import { type InstantScale, type PositionScale, instantScale } from '@/utils/timeScale'
+import { axisOf, calendarIn, compareInstants, gregorianTicks, instantOfAxisTime, toInstant, worldTicks } from '@althistory/calendar'
+import { type InstantScale, type PositionScale, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
 /**
@@ -343,14 +343,22 @@ export function axisTicks(
       label: tick.label,
     }))
   }
-  if (from !== null && to !== null && (!inDateRange(from) || !inDateRange(to))) {
-    // Past what d3's ticks reach: the calendar package's, labelled in years ("300000 BCE").
+  if (from !== null && to !== null && usesArithmeticTicks(first, last)) {
+    // Past what d3's ticks reach, or where they floor out of a Date's range or label a BCE year
+    // astronomically: the calendar package's, labelled in years ("300000 BCE").
     return gregorianTicks([from, to], Math.max(2, count)).map((tick) => ({
       date: instantOfAxisTime(tick.position) ?? new Date(NaN),
       label: tick.label,
     }))
   }
   const ticks = d3.scaleUtc().domain([new Date(start), new Date(end)]).ticks(Math.max(2, count))
+  if (ticks.length === 0 && from !== null && to !== null && from !== to) {
+    // d3 made none (its interval floored the start out of a Date's range).
+    return gregorianTicks([from, to], Math.max(2, count)).map((tick) => ({
+      date: instantOfAxisTime(tick.position) ?? new Date(NaN),
+      label: tick.label,
+    }))
+  }
   const labels = formatTimeAxisTicks(ticks, Math.abs(end - start), true)
   return ticks.map((date, index) => ({ date, label: labels[index]! }))
 }
