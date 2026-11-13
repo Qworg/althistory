@@ -146,3 +146,7 @@ Some behaviours were changed on purpose, and stay:
   `Date`'s bounds) takes the calendar package's year ticks ("200000 BCE")
   rather than d3's, which tick nothing there, or label years astronomically
   ("-200000s" for 200,001 BCE). A history inside years 0000 to 9999 keeps d3's.
+- A year without a world's calendar (graph cards, the graph selector, the
+  actor view and ingestion span labels) is written with its era ("500000 BC")
+  only below year -9999. Within years -9999 to 9999 it keeps the astronomical
+  number it always had ("-43" for 44 BCE), so real BCE labels do not change.

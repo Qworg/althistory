@@ -509,8 +509,14 @@ export interface CreateExportJobRequest {
   webhook?: string
 }
 
+/**
+ * "1.0" is an export whose dates all lie within a Date's range; "1.1" holds a
+ * date beyond it (expanded ISO years). Both are read (docs/export-format.md).
+ */
+export type AlthistoryExportVersion = '1.0' | '1.1'
+
 export interface AlthistoryExport {
-  version: '1.0'
+  version: AlthistoryExportVersion
   metadata: {
     graphId: string
     graphName: string

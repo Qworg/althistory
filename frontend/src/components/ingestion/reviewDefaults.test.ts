@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyReviewDefaults, datePhrase, historySpan, isOutsideSpan } from './reviewDefaults'
+import { applyReviewDefaults, datePhrase, formatSpan, historySpan, isOutsideSpan } from './reviewDefaults'
 import type { ExtractionResult } from '@/types'
 
 const span = historySpan([{ timestamp: '1834-01-01T00:00:00Z' }, { timestamp: '1868-01-09T00:00:00Z' }])
@@ -22,6 +22,24 @@ describe('review defaults', () => {
     } as unknown as ExtractionResult
     const selected = applyReviewDefaults(extraction, span).events.map((e) => [e.tempId, e.selected])
     expect(selected).toEqual([['good', true], ['weak', false], ['modern', false]])
+  })
+})
+
+describe('formatSpan', () => {
+  it('writes a real history\'s span as it always was', () => {
+    expect(formatSpan(span!)).toBe('1834–1868')
+  })
+
+  it('writes a deep history\'s span, never "?–?"', () => {
+    const deep = historySpan([{ timestamp: '-499999-03-15T00:00:00.000Z' }, { timestamp: '+300000-01-01T00:00:00.000Z' }])
+    expect(deep).not.toBeNull()
+    expect(formatSpan(deep!)).toBe('500000 BC–300000')
+  })
+
+  it('flags a date outside a deep span', () => {
+    const deep = historySpan([{ timestamp: '-499999-03-15T00:00:00.000Z' }, { timestamp: '-399999-01-01T00:00:00.000Z' }])
+    expect(isOutsideSpan('+000100-01-01T00:00:00.000Z', deep)).toBe(true)
+    expect(isOutsideSpan('-449999-01-01T00:00:00.000Z', deep)).toBe(false)
   })
 })
 

@@ -5,7 +5,14 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react'
-import { AlthistoryExport } from '@/types'
+import { AlthistoryExport, type AlthistoryExportVersion } from '@/types'
+
+/**
+ * Every export version this build reads: "1.0", and "1.1" for a history with
+ * a date beyond a Date's range (docs/export-format.md, deep-time Req 15).
+ * Mirrors READABLE_EXPORT_VERSIONS in timeline/src/utils/exportVersion.ts.
+ */
+export const READABLE_EXPORT_VERSIONS: readonly AlthistoryExportVersion[] = ['1.0', '1.1']
 
 export interface ImportUploadStepProps {
   onUpload: (data: AlthistoryExport) => void
@@ -63,8 +70,8 @@ export function ImportUploadStep({
           return
         }
 
-        if (parsed.version !== '1.0') {
-          onError(`This export is format version ${parsed.version}; this version of althistory reads version 1.0.`)
+        if (!READABLE_EXPORT_VERSIONS.includes(parsed.version)) {
+          onError(`This export is format version ${parsed.version}; this version of althistory reads versions ${READABLE_EXPORT_VERSIONS.join(' and ')}.`)
           return
         }
 

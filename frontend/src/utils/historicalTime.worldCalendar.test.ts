@@ -61,6 +61,10 @@ describe("historical dates in Vael's own calendars", () => {
     expect(formatEventDate({ timestamp: vael(312, 2, 4).toISOString() }, 'en-US')).toBe('Thaw 4, 312 AR')
     expect(formatHistoricalDate('1843-11-20T00:00:00Z', 'en-US', null)).toBe('Nov 20, 1843')
     expect(historicalYear('1843-11-20T00:00:00Z', null)).toBe('1843')
+    // Real BCE years keep their astronomical numbers; only deep time gets the era.
+    expect(historicalYear('-000043-03-15T00:00:00Z', null)).toBe('-43')
+    expect(historicalYear('-499999-03-15T00:00:00.000Z', null)).toBe('500000 BC')
+    expect(historicalYear('+300000-01-01T00:00:00.000Z', null)).toBe('300000')
   })
 
   it('still says an unreadable date is invalid', () => {

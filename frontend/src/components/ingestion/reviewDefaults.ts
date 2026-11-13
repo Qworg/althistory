@@ -1,7 +1,7 @@
 import type { Event, ExtractionResult } from '@/types'
 import { historicalYear } from '@/utils/historicalTime'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { type WorldCalendarSet, readWorldTimestamp, toInstant } from '@althistory/calendar'
+import { type WorldCalendarSet, instantOfMs, readWorldTimestamp, toInstant } from '@althistory/calendar'
 
 /**
  * The confidence a row needs to start selected. The review's "Select rows
@@ -45,7 +45,9 @@ export function isOutsideSpan(timestamp: string, span: HistorySpan | null, calen
 
 /** "1834–1868" (or "835 AR–869 AR" in a world calendar), for the flag on an out-of-span row. */
 export function formatSpan(span: HistorySpan): string {
-  return `${historicalYear(span.start)}–${historicalYear(span.end)}`
+  // The span holds milliseconds as numbers, and a deep date's lie beyond a
+  // Date's range: name them as instants, which hold any year of the axis.
+  return `${historicalYear(instantOfMs(span.start))}–${historicalYear(instantOfMs(span.end))}`
 }
 
 /**
