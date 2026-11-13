@@ -25,7 +25,12 @@ export interface ExecutionContextOptions {
   appAddresses?: string[];
   /** How long a "no app answers" probe is trusted by `getFollowingEngine`, in ms. Default 3000. */
   reprobeMs?: number;
+  /** How often a direct engine saves the files while a call is still running, in ms (0 turns it off). Default 1000. */
+  flushMs?: number;
 }
+
+/** Engine calls that never write, so the files need no save after them. */
+const READ_ONLY_CALL = /^(get|list|find|diff|export)/;
 
 /**
  * The admin key of this clone's own app, for when the CLI found it running on
@@ -65,6 +70,7 @@ export class ExecutionContext {
   private readonly client: 'cli' | 'mcp';
   private readonly appAddresses: string[];
   private readonly reprobeMs: number;
+  private readonly flushMs: number;
   private lastProbeAt = 0;
   private following?: Promise<IEngine>;
 
@@ -73,6 +79,7 @@ export class ExecutionContext {
     this.client = extra.client ?? 'cli';
     this.appAddresses = extra.appAddresses ?? DEFAULT_APP_ADDRESSES;
     this.reprobeMs = extra.reprobeMs ?? 3000;
+    this.flushMs = extra.flushMs ?? 1000;
   }
 
   /**
@@ -180,15 +187,38 @@ export class ExecutionContext {
    * `reprobeMs`), and when one answers it hands the files over: it switches to
    * the app, or, for `--direct`, refuses as `getEngine` does. An engine for an
    * explicit `--url` is fixed.
+   *
+   * Two things keep the handover from losing writes. While it works on the
+   * files, the engine saves them after each call that may have written, and
+   * every `flushMs` while a call is still running, so the app reads what the
+   * agent wrote whenever it starts and loads the graph. And the handover waits
+   * for the direct calls still running (a generation can wait minutes on a
+   * model) before it shuts the files' container down, while new calls wait for
+   * the handover instead of starting on the container being closed.
    */
   async getFollowingEngine(): Promise<IEngine> {
     const first = await this.getEngine();
     const current = (): IEngine => this.engine ?? first;
+    let running = 0;
+    let drained: (() => void) | undefined;
+    let flushTimer: NodeJS.Timeout | undefined;
+
+    const flushQuietly = async (engine: IEngine): Promise<void> => {
+      try {
+        await engine.flush?.();
+      } catch (error) {
+        logger.debug(`Flush of the live files failed: ${String(error)}`);
+      }
+    };
+    const whenDrained = (): Promise<void> =>
+      running === 0 ? Promise.resolve() : new Promise<void>((resolve) => (drained = resolve));
+
     const resolve = async (): Promise<IEngine> => {
+      // A handover in progress holds every new call until it is done.
+      if (this.following) return this.following;
       let engine = current();
       if (engine.mode !== 'direct' || this.options.url) return engine;
       if (Date.now() - this.lastProbeAt < this.reprobeMs) return engine;
-      if (this.following) return this.following;
       this.following = (async () => {
         try {
           const app = await this.findApp();
@@ -206,9 +236,12 @@ export class ExecutionContext {
           }
           logger.debug(`Daemon appeared at ${app}. Handing over from DirectEngine to RemoteEngine`);
           const previous = engine;
+          // Calls already running on the files finish (and save them) before
+          // the container under them is closed.
+          await whenDrained();
           this.engine = undefined;
           this.engine = await this.getEngine();
-          // Flush the files before the app's writes land on them.
+          await flushQuietly(previous);
           await previous.shutdown().catch(() => undefined);
           engine = this.engine;
           return engine;
@@ -218,6 +251,33 @@ export class ExecutionContext {
       })();
       return this.following;
     };
+
+    /** Run one call on the files, counted so a handover can wait for it. */
+    const runDirect = async (
+      engine: IEngine,
+      property: string | symbol,
+      args: unknown[]
+    ): Promise<unknown> => {
+      running += 1;
+      if (!flushTimer && this.flushMs > 0) {
+        flushTimer = setInterval(() => void flushQuietly(engine), this.flushMs);
+        flushTimer.unref?.();
+      }
+      try {
+        return await (engine as unknown as Record<string | symbol, (...a: unknown[]) => unknown>)[property](...args);
+      } finally {
+        if (!READ_ONLY_CALL.test(String(property))) await flushQuietly(engine);
+        running -= 1;
+        if (running === 0) {
+          if (flushTimer) clearInterval(flushTimer);
+          flushTimer = undefined;
+          const done = drained;
+          drained = undefined;
+          done?.();
+        }
+      }
+    };
+
     return new Proxy(first, {
       get: (_target, property) => {
         if (property === 'mode') return current().mode;
@@ -226,7 +286,10 @@ export class ExecutionContext {
         if (typeof value !== 'function') return value;
         return async (...args: unknown[]) => {
           const engine = await resolve();
-          return (engine as unknown as Record<string | symbol, (...a: unknown[]) => unknown>)[property](...args);
+          if (engine.mode !== 'direct') {
+            return (engine as unknown as Record<string | symbol, (...a: unknown[]) => unknown>)[property](...args);
+          }
+          return runDirect(engine, property, args);
         };
       },
     });

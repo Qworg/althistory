@@ -45,6 +45,12 @@ export interface IEngine {
   // System
   getHealth(): Promise<HealthInfo>;
   shutdown(): Promise<void>;
+  /**
+   * Write what this engine holds in memory to the files it works on, without
+   * closing anything. Only an engine that works on the files has anything to
+   * flush; a remote one has nothing in memory.
+   */
+  flush?(): Promise<void>;
 
   // Graph CRUD & Versioning
   listGraphs(): Promise<GraphSummaryDto[]>;

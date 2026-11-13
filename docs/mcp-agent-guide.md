@@ -63,8 +63,13 @@ through it, so what an agent writes appears in the app as it goes; otherwise
 it works on the local files (`timeline/data`, the same store the app reads).
 The server looks again at each call (an answer is trusted for a few seconds),
 so an MCP client that starts the server before `./start-local.sh` is handed
-over to the app as soon as it answers: no restart is needed, and the agent is
-never a second writer beside the app.
+over to the app as soon as it answers: no restart is needed. While it works on
+the files it saves them after each call that writes (and every second during a
+long one), so an app that starts and opens a graph reads what the agent wrote;
+the handover waits for a call still running before it closes the files. The
+one window left is a write made between the app loading a graph and the
+server's next look for the app (a few seconds): the app does not see it until
+it next reads the graph from disk.
 Every tool works either way, `althistory_generate_timeline` and
 `althistory_branch_timeline` included: through the app they run as its
 generation jobs (see [Watching an agent work](#watching-an-agent-work)), with

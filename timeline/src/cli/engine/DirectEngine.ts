@@ -127,6 +127,19 @@ export class DirectEngine implements IEngine {
     return this.getInitializedContainer();
   }
 
+  /**
+   * Save every live store without evicting it. Repositories write in memory and
+   * save only on eviction or shutdown, so a second reader of the files (the app,
+   * starting while this process works) would otherwise read a graph without what
+   * this process has written since. Does nothing before the first call has
+   * opened a container.
+   */
+  async flush(): Promise<void> {
+    if (!this.containerPromise) return;
+    const container = await this.containerPromise;
+    await container.graphContextStore.saveAll();
+  }
+
   async shutdown(): Promise<void> {
     try {
       await cleanupContainer();

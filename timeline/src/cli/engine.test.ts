@@ -2,7 +2,9 @@
  * @vitest-environment node
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
 import express from 'express';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
@@ -157,6 +159,106 @@ describe('an engine that follows the app (the MCP server)', () => {
     expect((await engine.getHealth()).executionMode).toBe('direct');
     await startApp(port);
     await expect(engine.listGraphs()).rejects.toMatchObject({ code: 'APP_RUNNING' });
+  });
+
+  /** The live file the app would load for a graph the first time it touched it. */
+  function liveFile(graphId: string): string {
+    return path.join(process.env.LOCAL_DATA_DIR as string, 'graphs-live', `${graphId}.json`);
+  }
+  function eventsOnDisk(graphId: string): string[] {
+    const file = liveFile(graphId);
+    if (!fs.existsSync(file)) return [];
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { nodes: Record<string, { properties?: { description?: string } }> };
+    return Object.values(parsed.nodes)
+      .map((node) => node.properties?.description)
+      .filter((description): description is string => typeof description === 'string');
+  }
+
+  it('keeps the files as current as its memory, so an app that starts later reads what the agent wrote', async () => {
+    const { port, address } = await freeAddress();
+    const ctx = new ExecutionContext({}, { appAddresses: [address], reprobeMs: 60_000, flushMs: 0 });
+    const engine = await ctx.getFollowingEngine();
+    const graph = await engine.createGraph('Written before the app');
+    await engine.createEvent(graph.id, { description: 'Agent event before the app', timestamp: '1800-01-01T00:00:00Z' });
+    // The app starts and loads the graph from the file now: the event is there.
+    await startApp(port);
+    expect(eventsOnDisk(graph.id)).toContain('Agent event before the app');
+    await ctx.shutdown();
+  });
+
+  it('keeps a write that lands just before the handover', async () => {
+    const { port, address } = await freeAddress();
+    const ctx = new ExecutionContext({}, { appAddresses: [address], reprobeMs: 0, flushMs: 0 });
+    const engine = await ctx.getFollowingEngine();
+    const graph = await engine.createGraph('Handover keeps writes');
+    await engine.createEvent(graph.id, { description: 'Written while direct', timestamp: '1801-01-01T00:00:00Z' });
+    await startApp(port);
+    // The app has now read the file; the handover runs on the next call.
+    const seenByApp = eventsOnDisk(graph.id);
+    await engine.getHealth().catch(() => undefined);
+    expect(engine.mode).toBe('remote');
+    expect(seenByApp).toContain('Written while direct');
+    expect(eventsOnDisk(graph.id)).toContain('Written while direct');
+  });
+
+  it('waits for a direct call still running before it hands over', async () => {
+    const { port, address } = await freeAddress();
+    const ctx = new ExecutionContext({}, { appAddresses: [address], reprobeMs: 0, flushMs: 0 });
+    const engine = await ctx.getFollowingEngine();
+    const graph = await engine.createGraph('Slow call during handover');
+
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const original = DirectEngine.prototype.createEvent;
+    vi.spyOn(DirectEngine.prototype, 'createEvent').mockImplementation(async function (this: DirectEngine, ...args) {
+      await gate;
+      return original.apply(this, args);
+    });
+    const shutdown = vi.spyOn(DirectEngine.prototype, 'shutdown');
+    try {
+      const slow = engine.createEvent(graph.id, { description: 'Slow event', timestamp: '1802-01-01T00:00:00Z' });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await startApp(port);
+      // A second call finds the app and starts the handover; the slow call is still running.
+      const next = engine.getHealth().catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(shutdown).not.toHaveBeenCalled();
+      expect(engine.mode).toBe('direct');
+      release();
+      await expect(slow).resolves.toMatchObject({ description: 'Slow event' });
+      await next;
+      expect(engine.mode).toBe('remote');
+      expect(shutdown).toHaveBeenCalled();
+      expect(eventsOnDisk(graph.id)).toContain('Slow event');
+    } finally {
+      release();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('saves the files while a long direct call is still running', async () => {
+    const { address } = await freeAddress();
+    const ctx = new ExecutionContext({}, { appAddresses: [address], reprobeMs: 60_000, flushMs: 20 });
+    const engine = await ctx.getFollowingEngine();
+    const graph = await engine.createGraph('Long call');
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const original = DirectEngine.prototype.listEvents;
+    vi.spyOn(DirectEngine.prototype, 'listEvents').mockImplementation(async function (this: DirectEngine, ...args) {
+      await this.createEvent(graph.id, { description: 'Written mid-call', timestamp: '1803-01-01T00:00:00Z' });
+      await gate;
+      return original.apply(this, args);
+    });
+    try {
+      const long = engine.listEvents(graph.id);
+      await vi.waitFor(() => expect(eventsOnDisk(graph.id)).toContain('Written mid-call'), { timeout: 2000 });
+      release();
+      await long;
+    } finally {
+      release();
+      vi.restoreAllMocks();
+      await ctx.shutdown();
+    }
   });
 
   it('leaves an explicit --url alone', async () => {
