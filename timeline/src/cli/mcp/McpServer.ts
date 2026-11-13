@@ -38,6 +38,12 @@ export class McpServer {
   private isRunning = false;
   /** Requests still being answered; the input can close before they finish. */
   private readonly inFlight = new Set<Promise<void>>();
+  /**
+   * One controller per tool call still running, by its JSON-RPC id, so a
+   * `notifications/cancelled` from the client can stop the call. A generation
+   * call hands its signal to the engine, which cancels the app's job.
+   */
+  private readonly calls = new Map<string | number, AbortController>();
 
   constructor(private readonly engine: IEngine) {}
 
@@ -67,8 +73,22 @@ export class McpServer {
     // Ignore notifications without id
     const isNotification = request.id === undefined || request.id === null;
 
+    // A client that gives up on a request (a timeout, a stop button) says so; the
+    // call it names is asked to stop. There is no response to a notification.
+    if (request.method === 'notifications/cancelled') {
+      const requestId = request.params?.requestId;
+      if (typeof requestId === 'string' || typeof requestId === 'number') {
+        this.calls.get(requestId)?.abort();
+      }
+      return null;
+    }
+
+    const controller = new AbortController();
+    const callId = !isNotification && request.method === 'tools/call' ? (request.id as string | number) : undefined;
+    if (callId !== undefined) this.calls.set(callId, controller);
+
     try {
-      const result = await this.dispatch(request.method, request.params);
+      const result = await this.dispatch(request.method, request.params, controller.signal);
       if (isNotification) {
         return null;
       }
@@ -93,13 +113,19 @@ export class McpServer {
         },
       };
       return JSON.stringify(response);
+    } finally {
+      if (callId !== undefined && this.calls.get(callId) === controller) this.calls.delete(callId);
     }
   }
 
   /**
    * Dispatches incoming JSON-RPC methods.
    */
-  private async dispatch(method: string, params?: Record<string, unknown>): Promise<unknown> {
+  private async dispatch(
+    method: string,
+    params?: Record<string, unknown>,
+    signal?: AbortSignal
+  ): Promise<unknown> {
     switch (method) {
       case 'initialize':
         return {
@@ -126,7 +152,7 @@ export class McpServer {
         };
 
       case 'tools/call':
-        return this.callTool(params);
+        return this.callTool(params, signal);
 
       case 'prompts/list':
         return {
@@ -151,7 +177,7 @@ export class McpServer {
   /**
    * Executes an MCP tool call against the engine.
    */
-  private async callTool(params?: Record<string, unknown>): Promise<unknown> {
+  private async callTool(params?: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const name = String(params?.name || '');
     const args = (params?.arguments as Record<string, unknown> | undefined) || {};
 
@@ -289,7 +315,7 @@ export class McpServer {
             eventCount: typeof args.eventCount === 'number' ? args.eventCount : undefined,
             style: args.style as 'academic' | 'narrative' | 'concise' | undefined,
             dryRun: Boolean(args.dryRun),
-          });
+          }, { signal });
           break;
         }
 
@@ -301,7 +327,7 @@ export class McpServer {
             branchName: String(args.branchName),
             eventCount: typeof args.eventCount === 'number' ? args.eventCount : undefined,
             dryRun: Boolean(args.dryRun),
-          });
+          }, { signal });
           break;
         }
 
