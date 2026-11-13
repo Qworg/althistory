@@ -16,7 +16,7 @@ and worth an issue.
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.0" | "1.1",
   "metadata": { "...": "..." },
   "data": { "...": "..." },
   "provenance": { "...": "..." }
@@ -25,14 +25,20 @@ and worth an issue.
 
 | Field | Type | Always present | Meaning |
 | --- | --- | --- | --- |
-| `version` | `"1.0"` | yes | The **format** version. Import accepts `"1.0"` and nothing else; any other value is rejected with the error code `VERSION_MISMATCH`. |
+| `version` | `"1.0"` or `"1.1"` | yes | The **format** version. `"1.0"` when every date in `data` is inside what a JavaScript `Date` holds (about ±275,760 years), exactly as it was before deep time, with the same checksum; `"1.1"` when any date lies beyond it. Import accepts both and nothing else; any other value is rejected with the error code `VERSION_MISMATCH`. |
 | `metadata` | object | yes | Provenance and integrity information about the export itself. |
 | `data` | object | yes | The graph's entities. This is the section the checksum covers. |
 | `provenance` | object | only with `includeProvenance` | How the graph was built. |
 
 Three versions are in play and they mean different things:
 
-- `version` — the shape of *this document*. `"1.0"`.
+- `version` — the shape of *this document*. `"1.0"`, or `"1.1"` for a history
+  with dates beyond a `Date`'s range. The two have the same shape; `"1.1"` only
+  allows an **expanded year** in a date, written as ISO 8601 writes it past
+  `9999`: a sign and six digits or more (`"+300000-01-01T00:00:00.000Z"`,
+  `"-499999-06-15T00:00:00.000Z"`). See
+  [docs/specs/deep-time.md](specs/deep-time.md), which also says how far the
+  timeline reaches (±9 × 10¹⁸ ms, about ±285 million years).
 - `metadata.graphVersion` — the graph's own committed version number, or `0`
   when the graph has no committed version (the head).
 - `metadata.sourceVersion` — the version of the Althistory build that wrote
@@ -218,7 +224,7 @@ Only `json` is this format. The others are renderings of the same data.
 
 `POST /api/import`, or `althistory import <file>`. The importer:
 
-1. Validates the document — `version` must be `"1.0"`; ids must be unique;
+1. Validates the document — `version` must be `"1.0"` or `"1.1"`; ids must be unique;
    every reference (`parent_arc_id`, `cause_event_id`, `effect_event_id`,
    `evidence_event_ids`, `affected_arc_ids`) must resolve within the document
    unless it names another graph; causal order must hold.
