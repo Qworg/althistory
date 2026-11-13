@@ -322,8 +322,8 @@ export function createProgram(): Command {
     .description('List events in a graph with optional filtering')
     .requiredOption('-g, --graph-id <id>', 'Target graph ID')
     .option('-a, --actor <actor>', 'Filter events by actor name')
-    .option('--from <iso>', 'Filter events on or after timestamp')
-    .option('--to <iso>', 'Filter events on or before timestamp')
+    .option('--from <date>', 'Filter events on or after a date (ISO 8601, a year first, or the world\'s notation)')
+    .option('--to <date>', 'Filter events on or before a date (its last moment, without a time)')
     .action(async (cmdOpts?: Record<string, unknown>) => {
       const opts = program.opts<GlobalCLIOptions>();
       const ctx = new ExecutionContext(opts);

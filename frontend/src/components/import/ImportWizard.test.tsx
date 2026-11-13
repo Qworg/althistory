@@ -384,6 +384,16 @@ describe('ImportWizard', () => {
       expect(screen.getByRole('radio', { name: 'Replacing this graph' })).toBeChecked()
     })
 
+    it('puts the mode back when its check fails, so nothing goes ahead in a mode that was not checked', async () => {
+      renderComponent({ targetGraphId: 'vael' })
+      await paste()
+      vi.mocked(mockValidateMutation.mutateAsync).mockRejectedValueOnce(new Error('network down'))
+      await user.click(await screen.findByRole('radio', { name: 'Replacing this graph' }))
+      await screen.findByText(/network down/)
+      expect(screen.getByRole('radio', { name: 'As a new graph' })).toBeChecked()
+      expect(screen.getByRole('radio', { name: 'Replacing this graph' })).not.toBeChecked()
+    })
+
     it('offers no choice without a graph to import into', async () => {
       renderComponent()
       await paste()

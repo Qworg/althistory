@@ -97,16 +97,27 @@ export async function readRequestTime(
   if (typeof value === 'object' && value !== null) {
     const calendar = await calendarOf().catch(() => undefined);
     if (!calendar) throw new ValidationError(`${field}: a date given as fields needs a graph with a world calendar`, field, value);
-    const read = readWorldInput(calendar, value);
+    const read = readFields(calendar, value, edge);
     if (!read.ok) throw new ValidationError(`${field}: ${read.error}`, field, value);
-    let at = read.position;
-    if (edge === 'end' && !read.timed) {
-      const period = worldPeriod(calendarIn(calendar, read.calendar), read.fields, read.precision);
-      if (period) at = period.end;
-    }
-    return asTime({ iso: new Date(at).toISOString(), precision: read.precision, calendar: read.calendar });
+    return asTime(read.value);
   }
   return { date: toInstant(value) };
+}
+
+/** A date given as fields ({ calendar, era, year, month, day, … }) in a world; as an end without a time, the last moment it names. */
+function readFields(
+  calendar: WorldCalendarSet,
+  value: unknown,
+  edge: 'start' | 'end'
+): { ok: true; value: { iso: string; precision: 'day' | 'month' | 'year'; calendar: string } } | { ok: false; error: string } {
+  const read = readWorldInput(calendar, value);
+  if (!read.ok) return read;
+  let at = read.position;
+  if (edge === 'end' && !read.timed) {
+    const period = worldPeriod(calendarIn(calendar, read.calendar), read.fields, read.precision);
+    if (period) at = period.end;
+  }
+  return { ok: true, value: { iso: new Date(at).toISOString(), precision: read.precision, calendar: read.calendar } };
 }
 
 /**
@@ -150,6 +161,11 @@ export function bodyInstant(value: unknown, calendar: WorldCalendarSet | undefin
   if (value instanceof Date) return value;
   // Milliseconds since 1970, as the API has always taken them.
   if (typeof value === 'number') return toInstant(value);
+  // Fields, in a world, as the event routes take them.
+  if (calendar && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const read = readFields(calendar, value, edge);
+    return read.ok ? new Date(read.value.iso) : new Date(NaN);
+  }
   if (typeof value !== 'string') return new Date(NaN);
   const read = readWorldTimestamp(calendar, value, edge);
   if (read) return new Date(read.iso);

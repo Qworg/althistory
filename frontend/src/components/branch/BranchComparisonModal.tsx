@@ -150,10 +150,14 @@ function describeDifference(item: EventComparisonItem, calendars: ComparisonCale
         .map((change) => {
           const name = FIELD_NAMES[change.field] ?? change.field
           if (change.field === 'description') return name
-          // Each side's date in its own graph's calendar.
+          // Each side's date in its own graph's calendar, at the precision that side gives it.
           const show = (value: unknown, side: 'baseline' | 'counterfactual') =>
             change.field === 'timestamp' && typeof value === 'string'
-              ? formatHistoricalDate(value, undefined, comparisonCalendar(side, calendars))
+              ? formatEventDate(
+                  { timestamp: value, metadata: (side === 'baseline' ? item.baselineEvent : item.counterfactualEvent)?.metadata },
+                  undefined,
+                  comparisonCalendar(side, calendars)
+                )
               : String(value)
           return `${name}: ${show(change.baselineValue, 'baseline')} → ${show(change.counterfactualValue, 'counterfactual')}`
         })
@@ -897,7 +901,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                               const event = item.counterfactualEvent || item.baselineEvent
                               return (
                                 <li key={item.id} className="flex flex-wrap gap-x-3">
-                                  <span className="w-24 shrink-0 font-mono-code text-ink-muted">{formatHistoricalDate(item.timestamp, undefined, calendarFor(item.status))}</span>
+                                  <span className="w-24 shrink-0 font-mono-code text-ink-muted">{formatEventDate(event ?? item, undefined, calendarFor(item.status))}</span>
                                   <span className="min-w-0 flex-1 text-ink">
                                     {event?.description ?? item.id}
                                     {status === 'modified' && (

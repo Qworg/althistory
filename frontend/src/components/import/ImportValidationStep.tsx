@@ -85,7 +85,9 @@ export function ImportValidationStep({
   return (
     <div className="space-y-6">
       {mode && onModeChange && (
-        <fieldset className="rounded-md border border-line p-3">
+        // Left enabled while a check runs (a later choice replaces it), so
+        // keyboard focus stays on the group.
+        <fieldset className="rounded-md border border-line p-3" aria-busy={isLoading || undefined}>
           <legend className="px-1 text-sm font-medium text-ink-secondary">Import</legend>
           <div className="flex flex-wrap gap-x-4 gap-y-2">
             {(Object.keys(MODE_LABELS) as ImportMode[]).map((option) => (
@@ -96,7 +98,6 @@ export function ImportValidationStep({
                   value={option}
                   checked={mode === option}
                   onChange={() => onModeChange(option)}
-                  disabled={isLoading}
                   className="h-4 w-4 text-baseline border-line focus:ring-selected"
                 />
                 {MODE_LABELS[option]}

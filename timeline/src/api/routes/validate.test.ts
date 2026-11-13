@@ -324,6 +324,24 @@ describe('Validate Routes', () => {
       expect((await check('plain', '0')).body.conflicts.map((c: { type: string }) => c.type)).toContain('invalid_data');
     });
 
+    it("checks an addition's arc times and takes dates given as fields, as the storing routes do", async () => {
+      const send = (additions: unknown) =>
+        request(app)
+          .post('/api/validate/incremental')
+          .set('X-API-Key', 'valid-read-key')
+          .set('X-Graph-Id', 'vael')
+          .send({ additions })
+          .expect(200);
+      const arc = (start_time: unknown, end_time: unknown) => ({ arcs: [{ name: 'A', level: 0, start_time, end_time }] });
+      expect((await send(arc('Thaw 1, 312 AR', 'Thaw 312 AR'))).body.conflicts).toEqual([]);
+      for (const [start, end] of [['1871-03', '1871-09'], ['garbage', {}], ['Thaw 312 AR', 'Thaw 4, 311 AR']] as const) {
+        const response = await send(arc(start, end));
+        expect(response.body.conflicts.map((c: { type: string }) => c.type), `${start} – ${JSON.stringify(end)}`).toContain('invalid_data');
+      }
+      const fields = await send({ events: [{ description: 'x', actor: 'a', target: 'b', timestamp: { year: 312, month: 'Thaw', day: 4 } }] });
+      expect(fields.body.conflicts).toEqual([]);
+    });
+
     it('should validate empty additions', async () => {
       const response = await request(app)
         .post('/api/validate/incremental')

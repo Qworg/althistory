@@ -425,6 +425,11 @@ describe('importReducer', () => {
     })
   })
 
+  it('starts each step without the error of the one before', () => {
+    const failed = importReducer(initialImportState, { type: 'SET_ERROR', payload: 'network down' })
+    expect(importReducer(failed, { type: 'SET_STEP', payload: 'execute' })).toMatchObject({ step: 'execute', error: null })
+  })
+
   it('should handle SET_DATA action', () => {
     const exportData = createValidExport()
     const action: ImportAction = { type: 'SET_DATA', payload: exportData }

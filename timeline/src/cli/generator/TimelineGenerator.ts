@@ -213,7 +213,11 @@ export function parseTimeWindow(value: string, calendar?: WorldCalendarSet): { s
     );
   }
 
-  const [rawStart, rawEnd = ''] = value.split(separator);
+  const parts = value.split(separator);
+  if (parts.length !== 2) {
+    throw new Error(`Invalid time window "${value}": expected exactly two dates, a start and an end`);
+  }
+  const [rawStart, rawEnd] = parts as [string, string];
   const read = (text: string, edge: 'start' | 'end') => {
     const at = readWorldTimestamp(calendar, text.trim(), edge);
     if (!at) throw new Error(`Invalid time window "${value}": ${unreadDateReason(calendar, text.trim())}`);
@@ -972,7 +976,7 @@ export class TimelineGenerator {
         if (start >= end) {
           throw new Error(
             `The time window ${options.timeWindow} does not overlap the arc ${parentArc.id} ` +
-              `(${parentArc.start_time.toISOString()} - ${parentArc.end_time.toISOString()})`
+              `(${formatHistoricalDate(parentArc.start_time, calendar)} – ${formatHistoricalDate(parentArc.end_time, calendar)})`
           );
         }
         windowStart = start;

@@ -170,7 +170,8 @@ export function importReducer(state: ImportWizardState, action: ImportAction): I
     case 'SET_TARGET_GRAPH':
       return { ...state, targetGraphId: action.payload }
     case 'SET_STEP':
-      return { ...state, step: action.payload }
+      // A step starts clean: an error belongs to the step it happened on.
+      return { ...state, step: action.payload, error: null }
     case 'SET_ERROR':
       return { ...state, error: action.payload }
     case 'RESET':

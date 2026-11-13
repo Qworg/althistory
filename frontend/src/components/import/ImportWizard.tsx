@@ -128,16 +128,17 @@ export function ImportWizard({
       dispatch({ type: 'SET_DATA', payload: data })
       dispatch({ type: 'SET_ERROR', payload: null })
 
+      // Its dates are read as the mode it will be imported in reads them (a
+      // new graph's own calendars, or the target's); a change of mode checks
+      // them again.
+      const seq = ++checkSeq.current
       try {
-        // Its dates are read as the mode it will be imported in reads them (a
-        // new graph's own calendars, or the target's); a change of mode checks
-        // them again.
-        const seq = ++checkSeq.current
         const validation = await validateMutation.mutateAsync({ data, targetGraphId: state.targetGraphId, mode: state.mode })
         if (seq !== checkSeq.current) return
         dispatch({ type: 'SET_VALIDATION', payload: validation })
         dispatch({ type: 'SET_STEP', payload: 'validate' })
       } catch (error) {
+        if (seq !== checkSeq.current) return
         dispatch({
           type: 'SET_ERROR',
           payload: error instanceof Error ? error.message : 'Validation failed',
@@ -172,6 +173,10 @@ export function ImportWizard({
   // answer for a mode since left is dropped.
   const handleModeChange = useCallback(
     async (mode: ImportMode, then: 'preview' | 'validate' = 'preview') => {
+      // The mode whose check and preview are on screen: a check of the new
+      // one that fails puts it back, so the import never runs in a mode that
+      // was not checked and previewed.
+      const checked = state.mode
       dispatch({ type: 'SET_MODE', payload: mode })
       dispatch({ type: 'SET_ERROR', payload: null })
 
@@ -195,15 +200,18 @@ export function ImportWizard({
         })
         if (seq !== checkSeq.current) return
         dispatch({ type: 'SET_PREVIEW', payload: preview })
+        // Conflicts are the new preview's; choices made for the old one go.
+        dispatch({ type: 'SET_ALL_RESOLUTIONS', payload: {} })
       } catch (error) {
         if (seq !== checkSeq.current) return
+        dispatch({ type: 'SET_MODE', payload: checked })
         dispatch({
           type: 'SET_ERROR',
           payload: error instanceof Error ? error.message : 'Checking the import failed',
         })
       }
     },
-    [state.data, state.targetGraphId, previewMutation, validateMutation]
+    [state.data, state.targetGraphId, state.mode, previewMutation, validateMutation]
   )
   const handleValidationModeChange = useCallback((mode: ImportMode) => handleModeChange(mode, 'validate'), [handleModeChange])
 

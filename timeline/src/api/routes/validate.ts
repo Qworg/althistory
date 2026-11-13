@@ -495,6 +495,28 @@ validateRoutes.post(
             }
           }
 
+          // Its times, read as POST /api/arcs reads them (an end without a
+          // time is the last moment it names), and in order.
+          const start = bodyInstant(arc.start_time, calendar);
+          const end = bodyInstant(arc.end_time, calendar, 'end');
+          if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+            response.conflicts.push({
+              type: 'invalid_data',
+              entityType: 'arc',
+              entityId: arc.id || 'new',
+              message: `Invalid start_time or end_time: ${JSON.stringify(arc.start_time)} – ${JSON.stringify(arc.end_time)}`,
+            });
+            response.valid = false;
+          } else if (start >= end) {
+            response.conflicts.push({
+              type: 'invalid_data',
+              entityType: 'arc',
+              entityId: arc.id || 'new',
+              message: 'start_time must be before end_time',
+            });
+            response.valid = false;
+          }
+
           // Check parent arc exists
           if (arc.parent_arc_id) {
             const parentExists = await arcRepository.findById(arc.parent_arc_id);
