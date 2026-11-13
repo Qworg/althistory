@@ -1284,7 +1284,24 @@ export class StreamHandler {
             );
             if (!resolved.ok) {
               const { code, message } = resolved.rejection;
-              if (code === 'GRAPH_ACCESS_DENIED' && !isList) {
+              if (isList) {
+                // The graph list is checked against the graph the token was minted for, which is
+                // usually not the one watched now: losing *that* graph says nothing about the
+                // list, which is filtered per graph as it is delivered. Only a key that is gone
+                // ends the socket; losing read:graphs ends the list alone.
+                if (code === 'GRAPH_ACCESS_DENIED') {
+                  const current = await this.deps.authService.getApiKey(context.apiKey.id);
+                  if (current && current.isValid() && current.hasPermission(STREAM_GRAPH_LIST_PERMISSION)) {
+                    context.apiKey = current;
+                    continue;
+                  }
+                }
+                if (code !== 'KEY_INVALID') {
+                  context.subscriptions.delete(channel);
+                  this.send(ws, { type: 'unsubscribed', graphId: channel, reason: 'access_revoked' });
+                  continue;
+                }
+              } else if (code === 'GRAPH_ACCESS_DENIED') {
                 context.subscriptions.delete(channel);
                 this.send(ws, { type: 'unsubscribed', graphId: channel, reason: 'access_revoked' });
                 continue;

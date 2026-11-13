@@ -621,6 +621,32 @@ describe('the live change feed over the WebSocket', () => {
       expect(await client.nextOf('change')).toMatchObject({ kind: 'replaced', reason: 'branch', graphId: branch.id });
     });
 
+    it('keeps the list and the watched graph when the key loses only the graph the token was minted for', async () => {
+      const key = await container.authService.createApiKey({ name: 'Moves on', permissions: ['read:events', 'read:graphs'] });
+      // The socket is opened on graph A, then watches B and the list.
+      const client = await watcher(key.key, graphA, [graphB, '*']);
+      await container.authService.updateApiKey(key.id, { allowedGraphs: [graphB] });
+      await handler.revalidateFeedSessions();
+      await settle();
+      expect(client.drain().filter((message) => message.type === 'error' || message.type === 'unsubscribed')).toEqual([]);
+      // B is still live, and the list still hears graphs the key may access.
+      await agentAddsEvent(graphB, 'Still watched');
+      expect(await client.nextOf('change')).toMatchObject({ graphId: graphB });
+      const made = await container.graphService.createGraph({ name: 'Visible only if allowed' });
+      await settle();
+      expect(client.drain().filter((message) => message.type === 'change' && message.graphId === made.id)).toEqual([]);
+    });
+
+    it('drops only the list when the key loses read:graphs, and keeps the graph it watches', async () => {
+      const key = await container.authService.createApiKey({ name: 'Loses list', permissions: ['read:events', 'read:graphs'] });
+      const client = await watcher(key.key, graphA, [graphA, '*']);
+      await container.authService.updateApiKey(key.id, { permissions: ['read:events'] });
+      await handler.revalidateFeedSessions();
+      expect(await client.nextOf('unsubscribed')).toMatchObject({ graphId: '*', reason: 'access_revoked' });
+      await agentAddsEvent(graphA, 'Still watched');
+      expect(await client.nextOf('change')).toMatchObject({ graphId: graphA });
+    });
+
     it('needs read:graphs', async () => {
       const key = await container.authService.createApiKey({ name: 'No list', permissions: ['read:events'] });
       const client = await watcher(key.key, graphA, []);
