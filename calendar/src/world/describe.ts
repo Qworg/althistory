@@ -87,7 +87,7 @@ export function unreadDateReason(set: WorldCalendarSet | null | undefined, text:
   const trimmed = String(text).trim()
   const asIso = parseIsoInstant(trimmed)
   if (isoBeyondRange(trimmed) || (asIso && (!set || (asIso.precision !== 'year' && asIso.precision !== 'month')))) {
-    return `"${trimmed}" reaches beyond the range a date can hold.`
+    return `"${trimmed}" reaches beyond the range the timeline holds (about 285 million years).`
   }
   if (set) {
     const iso = asIso

@@ -394,7 +394,7 @@ export function readWorldInput(set: WorldCalendarSet, input: unknown): WorldPars
 /**
  * The period a date names (Req 15): from its first position to the last
  * millisecond before the next day, month or year. Null when it is beyond
- * the range a date can hold.
+ * the range the timeline holds.
  */
 export function worldPeriod(
   calendar: CompiledCalendar,

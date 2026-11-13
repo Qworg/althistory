@@ -177,7 +177,7 @@ describe('one rule for ISO text, at every door', () => {
     // The axis's own last day, at a time past its last moment: refused, not thrown.
     const lastDay = isoOfAxisTime(MAX_AXIS_MS).split('T')[0]!
     expect(readWorldTimestamp(null, `${lastDay} 23:59`)).toBeNull()
-    expect(readDateEntry(`${lastDay} 23:59`, null)).toEqual({ ok: false, error: 'That date is beyond the range a date can hold.' })
+    expect(readDateEntry(`${lastDay} 23:59`, null)).toEqual({ ok: false, error: 'That date is beyond the range the timeline holds (about 285 million years).' })
     expect(unreadDateReason(null, `${lastDay}T23:59:59Z`)).toMatch(/beyond the range/)
     expect(unreadDateReason(null, '1843-11-20 24:00')).toMatch(/00:00 to 23:59/)
   })

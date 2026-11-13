@@ -199,7 +199,7 @@ export function readHistoricalText(
   if (hours > 23 || minutes > 59) return { ok: false, error: 'The time must be 00:00 to 23:59, in UTC.' }
   const time = parsed.time + BigInt((hours * 60 + minutes) * 60_000)
   // The last day the axis holds ends before some of its times.
-  if (!inAxisRange(time)) return { ok: false, error: 'That date is beyond the range a date can hold.' }
+  if (!inAxisRange(time)) return { ok: false, error: 'That date is beyond the range the timeline holds (about 285 million years).' }
   return { ok: true, iso: isoOfAxisTime(time), time, precision: 'day' }
 }
 

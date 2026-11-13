@@ -44,7 +44,7 @@ export function readDateEntry(text: string, calendar: WorldCalendarSet | null, e
       let position = shown.position
       if (edge === 'end' && !shown.timed) {
         const period = worldPeriod(calendarIn(calendar, shown.calendar), shown.fields, shown.precision)
-        if (!period) return { ok: false, error: 'That date is beyond the range a date can hold.' }
+        if (!period) return { ok: false, error: 'That date is beyond the range the timeline holds (about 285 million years).' }
         position = period.end
       }
       return { ok: true, iso: isoOfAxisTime(position), time: position, precision: shown.precision, calendar: shown.calendar }

@@ -244,3 +244,31 @@ export function axisTimeOf(value: Date | number | bigint | string): AxisTime | n
   if (typeof value === 'string') return axisTimeOfIso(value)
   return axisOf(value)
 }
+
+// ── Dates as the app holds them ──────────────────────────────────────────
+//
+// An event's or an arc's moment is held as a Date (a plain one, or an
+// AxisDate beyond a Date's range). These compare and step such values
+// exactly, where `a.getTime() - b.getTime()` would round beyond ±2^53 ms.
+
+/** -1, 0 or 1: how the instant `a` orders against `b`, exactly. An invalid Date orders before every valid one, and equal to another. */
+export function compareInstants(a: Date, b: Date): -1 | 0 | 1 {
+  const x = axisOf(a)
+  const y = axisOf(b)
+  if (x === null || y === null) return x === y ? 0 : x === null ? -1 : 1
+  return compareAxisTime(x, y)
+}
+
+/** The instant `ms` milliseconds from `date` (fractions cut), or an invalid Date past the bound. */
+export function addInstantMs(date: Date, ms: number): Date {
+  const time = axisOf(date)
+  const sum = time === null ? null : addMs(time, ms)
+  return sum === null ? new Date(NaN) : (instantOfAxisTime(sum) as Date)
+}
+
+/** Milliseconds from `a` to `b` as a number: exact while the gap is within ±2^53, the nearest double beyond; NaN if either is invalid. */
+export function msApart(a: Date, b: Date): number {
+  const x = axisOf(a)
+  const y = axisOf(b)
+  return x === null || y === null ? NaN : msBetween(x, y)
+}
