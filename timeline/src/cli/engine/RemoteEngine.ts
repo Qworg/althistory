@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { datePrecisionMetadata, storedCalendarSet, toInstant } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
 import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
-import { IEngine } from './IEngine';
+import { IEngine, type GenerationRunHooks } from './IEngine';
 import {
   HealthInfo,
   GraphSummaryDto,
@@ -53,6 +53,50 @@ export /** How long the export download may take: a large graph is a large file.
 const DOWNLOAD_TIMEOUT_MS = 120000;
 
 const GRAPH_ID_HEADER = 'X-Graph-Id';
+
+/** Tells the app what kind of client is writing, so a watcher can say who changed what. */
+const CLIENT_KIND_HEADER = 'X-Althistory-Client';
+
+/** How often a running generation job is read: quickly at first, then less often. */
+const POLL_START_MS = 400;
+const POLL_MAX_MS = 2000;
+/** Consecutive failed reads of a job before the wait is given up. */
+const POLL_MAX_FAILURES = 5;
+/** How long a generation may run before the engine cancels it. */
+const DEFAULT_GENERATION_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** The app's description of a generation job (`GET /api/generate/jobs/:id`), as far as the engine reads it. */
+interface GenerationJobPayload {
+  id: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  progress: number;
+  phase?: string;
+  message?: string;
+  graphId?: string;
+  source?: string;
+  error?: string;
+  written?: { events?: number; arcs?: number; relationships?: number };
+  result?: GenerationResultDto;
+}
+
+/** " (3 events, 1 arc and 2 links stay in graph g)", for a job that stopped part way. */
+function describeWrittenSoFar(job: GenerationJobPayload): string {
+  const written = job.written;
+  const total = (written?.events ?? 0) + (written?.arcs ?? 0) + (written?.relationships ?? 0);
+  if (!written || total === 0) return '';
+  const part = (n: number | undefined, noun: string): string => `${n ?? 0} ${noun}${n === 1 ? '' : 's'}`;
+  const where = job.graphId ? ` in graph ${job.graphId}` : '';
+  return `; ${part(written.events, 'event')}, ${part(written.arcs, 'arc')} and ${part(written.relationships, 'link')} stay${where}`;
+}
+
+export interface RemoteEngineOptions {
+  /** What kind of client this is, for the app's live change feed. Defaults to `cli`. */
+  client?: 'cli' | 'mcp';
+  /** How long a generation may run before it is cancelled. Defaults to 30 minutes. */
+  generationTimeoutMs?: number;
+  /** Waits between reads of a job; a test seam. */
+  sleep?: (ms: number) => Promise<void>;
+}
 
 /** Page size for the list routes, which are paginated. */
 const PAGE_LIMIT = 1000;
@@ -106,12 +150,17 @@ export class RemoteEngine implements IEngine {
 
   /** Whether requests carry a key, so a 401 can say what to do. */
   private readonly sentApiKey: boolean;
+  private readonly generationTimeoutMs: number;
+  private readonly sleep: (ms: number) => Promise<void>;
 
-  constructor(baseUrl: string = 'http://localhost:3000', apiKey?: string) {
+  constructor(baseUrl: string = 'http://localhost:3000', apiKey?: string, options: RemoteEngineOptions = {}) {
     this.sentApiKey = Boolean(apiKey);
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.generationTimeoutMs = options.generationTimeoutMs ?? DEFAULT_GENERATION_TIMEOUT_MS;
+    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      [CLIENT_KIND_HEADER]: options.client ?? 'cli',
     };
     if (apiKey) {
       headers['X-API-Key'] = apiKey;
@@ -1007,33 +1056,158 @@ export class RemoteEngine implements IEngine {
   }
 
   /**
-   * The daemon serves no generation routes.
+   * Run a generation through the app, which holds the model key and stays the
+   * one writer of its graphs.
    *
-   * `POST /api/generate/timeline`, `/branch` and `/expand` are not mounted, so
-   * a request to them would be answered by the 404 handler. The CLI says so
-   * instead of pointing at a route that does something else.
+   * The app answers a start with a running job (`POST /api/generate/*`); the
+   * engine polls the job, reports its progress, and returns its result when it
+   * completes. Aborting the signal asks the app to cancel the job: it stops
+   * before its next write, and what it had already written stays, which the
+   * error says. A job that fails, or is cancelled by someone else, is an error
+   * naming why.
    */
-  private unsupportedGeneration(command: string, route: string): never {
-    throw new CLIError(
-      `The daemon at ${this.baseUrl} does not serve ${route}, so "${command}" cannot run in remote mode. ` +
-        'Generation runs only in-process: stop the althistory app (this CLI or MCP server found it running and ' +
-        'is working through it) and try again, or run the command with --direct when no app shares the data. ' +
-        'An agent can instead write the history itself with the create and link tools, which work either way.',
-      ExitCode.GENERAL_ERROR,
-      'UNSUPPORTED_REMOTE_OPERATION'
+  private async runGeneration(
+    route: string,
+    body: Record<string, unknown>,
+    graphId: string | undefined,
+    hooks: GenerationRunHooks | undefined,
+    context: string
+  ): Promise<GenerationResultDto> {
+    let job: GenerationJobPayload;
+    try {
+      const res = await this.client.post<GenerationJobPayload>(route, body, {
+        headers: this.graphHeaders(graphId),
+      });
+      job = res.data;
+    } catch (err) {
+      return this.handleError(err, context);
+    }
+    if (!isRecord(job) || typeof job.id !== 'string') {
+      throw new CLIError(
+        `The daemon at ${this.baseUrl} did not answer ${route} with a generation job; it may be an older version that cannot generate.`,
+        ExitCode.GENERAL_ERROR,
+        'UNSUPPORTED_REMOTE_OPERATION'
+      );
+    }
+
+    const jobUrl = `/api/generate/jobs/${job.id}`;
+    const deadline = Date.now() + this.generationTimeoutMs;
+    let cancelSent = false;
+    let timedOut = false;
+    let delay = POLL_START_MS;
+    let failures = 0;
+    let lastReported = '';
+
+    const cancel = async (): Promise<void> => {
+      if (cancelSent) return;
+      cancelSent = true;
+      try {
+        await this.client.post(`${jobUrl}/cancel`);
+      } catch {
+        // The job may already be over; the next poll says.
+      }
+    };
+
+    for (;;) {
+      lastReported = this.reportProgress(job, hooks, lastReported);
+      if (job.status === 'completed') {
+        if (!job.result) {
+          throw new CLIError(`The generation job ${job.id} completed without a result`, ExitCode.GENERAL_ERROR, 'GENERATION_FAILED');
+        }
+        return job.result;
+      }
+      if (job.status === 'failed') {
+        throw new CLIError(
+          `Generation failed: ${job.error ?? job.message ?? 'no reason was given'}${describeWrittenSoFar(job)}`,
+          ExitCode.GENERAL_ERROR,
+          'GENERATION_FAILED'
+        );
+      }
+      if (job.status === 'cancelled') {
+        throw timedOut
+          ? new CLIError(
+              `Generation did not finish within ${Math.round(this.generationTimeoutMs / 1000)}s and was cancelled${describeWrittenSoFar(job)}`,
+              ExitCode.GENERAL_ERROR,
+              'GENERATION_TIMEOUT'
+            )
+          : new CLIError(`Generation was cancelled${describeWrittenSoFar(job)}`, ExitCode.GENERAL_ERROR, 'GENERATION_CANCELLED');
+      }
+
+      // Asked to stop, or out of time: the app is told once, and the next read says how it ended.
+      if (hooks?.signal?.aborted || Date.now() > deadline) {
+        timedOut = timedOut || !hooks?.signal?.aborted;
+        await cancel();
+      }
+
+      await this.sleep(delay);
+      delay = Math.min(POLL_MAX_MS, Math.round(delay * 1.5));
+      try {
+        const res = await this.client.get<GenerationJobPayload>(jobUrl);
+        job = res.data;
+        failures = 0;
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 404) {
+          throw new CLIError(
+            `The daemon no longer knows the generation job ${job.id}: it may have restarted. ` +
+              'What the job had written stays in its graph.',
+            ExitCode.GENERAL_ERROR,
+            'GENERATION_LOST'
+          );
+        }
+        failures += 1;
+        if (failures >= POLL_MAX_FAILURES) return this.handleError(err, `${context} (waiting for the job)`);
+      }
+    }
+  }
+
+  /** Report a job's progress to the caller, when it moved. */
+  private reportProgress(job: GenerationJobPayload, hooks: GenerationRunHooks | undefined, previous: string): string {
+    const line = `${job.progress}|${job.phase}|${job.message}`;
+    if (!hooks?.onProgress || line === previous) return previous;
+    try {
+      hooks.onProgress({
+        progress: typeof job.progress === 'number' ? job.progress : 0,
+        phase: typeof job.phase === 'string' ? job.phase : '',
+        message: typeof job.message === 'string' ? job.message : '',
+        ...(typeof job.graphId === 'string' ? { graphId: job.graphId } : {}),
+        ...(job.source === 'model' || job.source === 'template' ? { source: job.source } : {}),
+      });
+    } catch {
+      // A listener's failure must not stop the run it is watching.
+    }
+    return line;
+  }
+
+  async generateTimeline(options: GenerateTimelineOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto> {
+    return this.runGeneration(
+      '/api/generate/timeline',
+      { ...options },
+      undefined,
+      hooks,
+      'generating a timeline'
     );
   }
 
-  async generateTimeline(_options: GenerateTimelineOptions): Promise<GenerationResultDto> {
-    return this.unsupportedGeneration('generate timeline', 'POST /api/generate/timeline');
+  async generateBranch(options: GenerateBranchOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto> {
+    const { sourceGraphId, ...rest } = options;
+    return this.runGeneration(
+      '/api/generate/branch',
+      { ...rest },
+      sourceGraphId,
+      hooks,
+      'generating a branch'
+    );
   }
 
-  async generateBranch(_options: GenerateBranchOptions): Promise<GenerationResultDto> {
-    return this.unsupportedGeneration('generate branch', 'POST /api/generate/branch');
-  }
-
-  async generateExpand(_options: GenerateExpandOptions): Promise<GenerationResultDto> {
-    return this.unsupportedGeneration('generate expand', 'POST /api/generate/expand');
+  async generateExpand(options: GenerateExpandOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto> {
+    const { graphId, ...rest } = options;
+    return this.runGeneration(
+      '/api/generate/expand',
+      { ...rest },
+      graphId,
+      hooks,
+      'expanding a timeline'
+    );
   }
 
   async generateSimulate(options: GenerateSimulateOptions): Promise<GenerationResultDto> {

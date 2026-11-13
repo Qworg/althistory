@@ -779,7 +779,97 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     type: 'object',
     properties: {
       graphId: { type: 'string' },
+      mode: {
+        type: 'string',
+        enum: ['write', 'feed'],
+        description:
+          '`write` (the default) opens a session that may write entities and needs `write:events`. ' +
+          '`feed` opens a read-only session for the live change feed and needs `read:events`.',
+      },
     },
+  },
+  GenerateTimelineRequest: {
+    type: 'object',
+    description:
+      'An alternate history (`premise` and `divergencePoint`) or an invented world (`world`, never both).',
+    properties: {
+      premise: { type: 'string' },
+      divergencePoint: { type: 'string' },
+      world: { type: 'string' },
+      calendar: { type: 'object', description: "A world's calendars (a set, or the simple `{ epochYear, eraLabel, name, monthNames }`). Only with `world`." },
+      startDate: { type: 'string' },
+      endDate: { type: 'string' },
+      eventCount: { type: 'integer', description: 'How many events to write; the app keeps it between 3 and 30.' },
+      depth: { type: 'integer', description: 'How many levels of arcs.' },
+      style: { type: 'string', enum: ['academic', 'narrative', 'concise'] },
+      provider: { type: 'string', enum: ['openai', 'anthropic'] },
+      model: { type: 'string' },
+      temperature: { type: 'number' },
+      graphName: { type: 'string' },
+      dryRun: { type: 'boolean', description: 'Draft a preview and write nothing. The model is still called.' },
+    },
+  },
+  GenerateBranchRequest: {
+    type: 'object',
+    properties: {
+      sourceGraphId: { type: 'string', description: 'Optional; when given it must be the graph `X-Graph-Id` names.' },
+      divergeAtEventId: { type: 'string' },
+      counterfactualPrompt: { type: 'string' },
+      branchName: { type: 'string' },
+      eventCount: { type: 'integer' },
+      provider: { type: 'string', enum: ['openai', 'anthropic'] },
+      model: { type: 'string' },
+      dryRun: { type: 'boolean' },
+    },
+    required: ['divergeAtEventId', 'counterfactualPrompt', 'branchName'],
+  },
+  GenerateExpandRequest: {
+    type: 'object',
+    properties: {
+      graphId: { type: 'string', description: 'Optional; when given it must be the graph `X-Graph-Id` names.' },
+      arcId: { type: 'string' },
+      timeWindow: { type: 'string', description: '`start/end`, each read as the graph reads a date.' },
+      eventCount: { type: 'integer' },
+      provider: { type: 'string', enum: ['openai', 'anthropic'] },
+      model: { type: 'string' },
+      dryRun: { type: 'boolean' },
+    },
+  },
+  GenerationJob: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      kind: { type: 'string', enum: ['timeline', 'branch', 'expand'] },
+      status: { type: 'string', enum: ['running', 'completed', 'failed', 'cancelled'] },
+      progress: { type: 'integer', description: '0 to 100.' },
+      phase: { type: 'string', description: 'planning, drafting, graph, arcs, events, links or done.' },
+      message: { type: 'string' },
+      dryRun: { type: 'boolean' },
+      graphId: { type: 'string', description: 'The graph being written, once it exists.' },
+      source: {
+        type: 'string',
+        enum: ['model', 'template'],
+        description: 'Who wrote the events: a language model, or the template used without a model key. A template is a skeleton to rewrite.',
+      },
+      written: {
+        type: 'object',
+        properties: {
+          events: { type: 'integer' },
+          arcs: { type: 'integer' },
+          relationships: { type: 'integer' },
+        },
+      },
+      createdAt: { type: 'string' },
+      updatedAt: { type: 'string' },
+      completedAt: { type: 'string' },
+      error: { type: 'string' },
+      result: { type: 'object', description: 'The generated graph, arcs, events and links; present when the job completed.' },
+    },
+    required: ['id', 'kind', 'status', 'progress'],
+  },
+  GenerationJobList: {
+    type: 'object',
+    properties: { jobs: { type: 'array', items: { $ref: '#/components/schemas/GenerationJob' } } },
   },
   StreamToken: {
     type: 'object',
@@ -907,6 +997,7 @@ const AREA_TAGS: Array<{ prefix: string; tag: string }> = [
   { prefix: '/api/keys', tag: 'keys' },
   { prefix: '/api/batch', tag: 'batch' },
   { prefix: '/api/stream', tag: 'stream' },
+  { prefix: '/api/generate', tag: 'generate' },
   { prefix: '/api', tag: 'service' },
 ]
 
@@ -1127,7 +1218,8 @@ export function buildOpenApiDocument(routes: RouteEntry[]): Record<string, unkno
       { name: 'ingest', description: 'Extracting entities from the web.' },
       { name: 'keys', description: 'API key management.' },
       { name: 'batch', description: 'Batch operations.' },
-      { name: 'stream', description: 'WebSocket write sessions.' },
+      { name: 'stream', description: 'WebSocket sessions: writes, and the live change feed.' },
+      { name: 'generate', description: 'Drafting timelines, branches and expansions as cancellable jobs.' },
     ],
     paths,
     components: {

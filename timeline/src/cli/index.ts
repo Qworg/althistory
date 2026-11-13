@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { ExecutionContext } from './engine/ExecutionContext';
+import { cliGenerationHooks } from './utils/generationHooks';
 import { formatOutput, formatErrorJson } from './formatters';
 import { GlobalCLIOptions, OutputFormat, ExportFormat } from './types';
 import { CLIError, ExitCode, ValidationErrorCLI } from './utils/exitCodes';
@@ -874,6 +875,7 @@ export function createProgram(): Command {
           ? (cmdOpts.provider as 'openai' | 'anthropic')
           : undefined;
 
+        const run = cliGenerationHooks();
         const result = await engine.generateTimeline({
           premise: cmdOpts?.premise as string | undefined,
           divergencePoint: cmdOpts?.divergencePoint as string | undefined,
@@ -889,7 +891,7 @@ export function createProgram(): Command {
           temperature: cmdOpts?.temperature ? parseFloat(String(cmdOpts.temperature)) : undefined,
           graphName: cmdOpts?.graphName as string | undefined,
           dryRun: Boolean(cmdOpts?.dryRun),
-        });
+        }, run.hooks).finally(run.dispose);
 
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
@@ -925,6 +927,7 @@ export function createProgram(): Command {
           ? (cmdOpts.provider as 'openai' | 'anthropic')
           : undefined;
 
+        const run = cliGenerationHooks();
         const result = await engine.generateBranch({
           sourceGraphId: String(cmdOpts?.sourceGraphId || ''),
           divergeAtEventId: String(cmdOpts?.divergeAtEvent || ''),
@@ -934,7 +937,7 @@ export function createProgram(): Command {
           provider,
           model: cmdOpts?.model as string | undefined,
           dryRun: Boolean(cmdOpts?.dryRun),
-        });
+        }, run.hooks).finally(run.dispose);
 
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
@@ -969,6 +972,7 @@ export function createProgram(): Command {
           ? (cmdOpts.provider as 'openai' | 'anthropic')
           : undefined;
 
+        const run = cliGenerationHooks();
         const result = await engine.generateExpand({
           graphId: String(cmdOpts?.graphId || ''),
           arcId: cmdOpts?.arc as string | undefined,
@@ -977,7 +981,7 @@ export function createProgram(): Command {
           provider,
           model: cmdOpts?.model as string | undefined,
           dryRun: Boolean(cmdOpts?.dryRun),
-        });
+        }, run.hooks).finally(run.dispose);
 
         const output = formatOutput(result, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,
@@ -1183,7 +1187,8 @@ export function createProgram(): Command {
     .description('Run stdio JSON-RPC 2.0 Model Context Protocol (MCP) server')
     .action(async () => {
       const opts = program.opts<GlobalCLIOptions>();
-      const ctx = new ExecutionContext(opts);
+      // An agent working through the app: its changes are announced as an agent's.
+      const ctx = new ExecutionContext(opts, { client: 'mcp' });
       const engine = await ctx.getEngine();
       const server = new McpServer(engine);
       server.start(process.stdin, process.stdout);

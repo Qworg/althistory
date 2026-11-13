@@ -27,6 +27,7 @@ import { toInstant } from '@althistory/calendar';
 import type { ResolvedGraphData } from '@/repositories/VersionRepository';
 import type { GraphScopedRepositories } from '@/container';
 import type { StoredCausalRelationship } from './CausalService';
+import type { ReplacedReason } from './ChangeFeedService';
 import { createLogger, ILogger } from '@/utils/logger';
 
 export interface LiveStoreSyncConfig {
@@ -38,6 +39,12 @@ export interface LiveStoreSyncConfig {
   clearLiveStore(graphId: string): Promise<void>;
   /** Drop cached reads that could still describe the replaced entities. */
   invalidateCaches?(): Promise<void>;
+  /**
+   * Told once the live store holds the new head, so a watcher that refetches
+   * on it sees the new graph (the live change feed's `replaced` message). A
+   * failure here is logged and does not fail the operation that replaced the head.
+   */
+  onReplaced?(graphId: string, result: MaterializeResult, reason: ReplacedReason): void;
   logger?: ILogger;
 }
 
@@ -49,8 +56,11 @@ export interface MaterializeResult {
   skipped: Array<{ type: 'event' | 'arc' | 'relationship'; id: string; reason: string }>;
 }
 
-/** Called after an operation replaced a graph's version head. */
-export type HeadReplacedHook = (graphId: string) => Promise<void>;
+/**
+ * Called after an operation replaced a graph's version head. `reason` names the
+ * operation, for the live change feed; a caller that does not say is `sync`.
+ */
+export type HeadReplacedHook = (graphId: string, reason?: ReplacedReason) => Promise<void>;
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
@@ -98,10 +108,10 @@ export class LiveStoreSyncService {
     this.logger = config.logger ?? createLogger('LiveStoreSyncService');
   }
 
-  async materialize(graphId: string): Promise<MaterializeResult> {
+  async materialize(graphId: string, reason: ReplacedReason = 'sync'): Promise<MaterializeResult> {
     const previous = this.inFlight.get(graphId);
     const run = (previous ? previous.catch(() => undefined) : Promise.resolve()).then(() =>
-      this.replace(graphId)
+      this.replace(graphId, reason)
     );
     this.inFlight.set(graphId, run);
     try {
@@ -111,7 +121,7 @@ export class LiveStoreSyncService {
     }
   }
 
-  private async replace(graphId: string): Promise<MaterializeResult> {
+  private async replace(graphId: string, reason: ReplacedReason): Promise<MaterializeResult> {
     const tree = await this.config.checkout(graphId);
     const { eventRepository, arcRepository, causalService } = await this.config.scopedRepositories(graphId);
     await this.config.clearLiveStore(graphId);
@@ -184,6 +194,12 @@ export class LiveStoreSyncService {
     }
 
     await this.config.invalidateCaches?.();
+
+    try {
+      this.config.onReplaced?.(graphId, result, reason);
+    } catch (error) {
+      this.logger.warn('Could not announce a replaced graph head', { graphId, error: reasonOf(error) });
+    }
 
     if (result.skipped.length > 0) {
       this.logger.warn('Some version entities could not be written to the live store', {

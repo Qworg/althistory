@@ -22,8 +22,44 @@ import { IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
 import { CausalService } from '@/services/CausalService';
 import { createLogger } from '@/utils/logger';
+import type { ChangedEntity, ChangedEntityType, ChangeOperation } from '@/services/ChangeFeedService';
 
 const logger = createLogger('BatchRoutes');
+
+/**
+ * Tell the live change feed what a batch wrote. A batch writes the live store
+ * directly (it does not go through the versioning bridge, which is where every
+ * other write is announced), so it announces for itself, once per kind of
+ * change, after the batch is done. Never fails the batch.
+ */
+function announceBatch(
+  req: Request,
+  graphId: string,
+  steps: Array<{ operation: ChangeOperation; type: ChangedEntityType; id: string }>
+): void {
+  try {
+    const groups = new Map<string, ChangedEntity[]>();
+    for (const step of steps) {
+      const key = `${step.operation}:${step.type}`;
+      groups.set(key, [...(groups.get(key) ?? []), { type: step.type, id: step.id }]);
+    }
+    for (const [key, entities] of groups) {
+      const operation = key.split(':')[0] as ChangeOperation;
+      const noun = entities[0].type === 'relationship' ? 'link' : entities[0].type;
+      const verb = operation === 'create' ? 'Added' : operation === 'update' ? 'Edited' : 'Deleted';
+      req.container.changeFeedService.publish(graphId, {
+        kind: 'entities',
+        operation,
+        entities,
+        summary: `${verb} ${entities.length} ${noun}${entities.length === 1 ? '' : 's'} in a batch`,
+      });
+    }
+  } catch (error) {
+    logger.warn('Could not announce a batch to the live feed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 export const batchRoutes = Router();
 
@@ -238,6 +274,7 @@ batchRoutes.post(
     // Set success based on failure count
     result.success = result.failed.length === 0;
 
+    announceBatch(req, requireGraphId(req), result.created.map((id) => ({ operation: 'create', type: 'event', id })));
     res.status(result.success ? 201 : 207).json(result);
   })
 );
@@ -335,6 +372,7 @@ batchRoutes.post(
 
     result.success = result.failed.length === 0;
 
+    announceBatch(req, requireGraphId(req), result.created.map((id) => ({ operation: 'create', type: 'arc', id })));
     res.status(result.success ? 201 : 207).json(result);
   })
 );
@@ -452,6 +490,7 @@ batchRoutes.post(
 
     result.success = result.failed.length === 0;
 
+    announceBatch(req, requireGraphId(req), result.created.map((id) => ({ operation: 'create', type: 'relationship', id })));
     res.status(result.success ? 201 : 207).json(result);
   })
 );
@@ -695,6 +734,15 @@ batchRoutes.post(
       }
     }
 
+    announceBatch(
+      req,
+      requireGraphId(req),
+      result.results.flatMap((step) => {
+        if (!step.success || !step.id) return [];
+        const kind = /^(create|update|delete)_(event|arc|relationship)$/.exec(step.type);
+        return kind ? [{ operation: kind[1] as ChangeOperation, type: kind[2] as ChangedEntityType, id: step.id }] : [];
+      })
+    );
     res.status(result.success ? 200 : 207).json(result);
   })
 );

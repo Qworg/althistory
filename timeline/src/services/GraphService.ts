@@ -33,6 +33,7 @@ import { createLogger, ILogger } from '../utils/logger';
 import { isTemporalInversion } from '@/utils/causalOrder';
 import { type WorldCalendarSet, calendarSetFromInput } from '@althistory/calendar';
 import type { HeadReplacedHook } from './LiveStoreSyncService';
+import type { ChangeBody } from './ChangeFeedService';
 
 /**
  * How many times a merge is recomputed when a concurrent commit advances the
@@ -60,6 +61,11 @@ export interface GraphServiceConfig {
    * the old state. See `LiveStoreSyncService`.
    */
   onHeadReplaced?: HeadReplacedHook;
+  /**
+   * Told when a graph is made, changed (name, description, status, calendar) or
+   * deleted, for the live change feed. A failure is logged, never raised.
+   */
+  onGraphChanged?: (graphId: string, change: Extract<ChangeBody, { kind: 'graph' }>) => void;
 }
 
 /**
@@ -139,12 +145,14 @@ class OperationRateLimiter {
 export class GraphService {
   private readonly graphRepository: GraphRepository;
   private readonly onHeadReplaced?: HeadReplacedHook;
+  private readonly onGraphChanged?: GraphServiceConfig['onGraphChanged'];
   private readonly rateLimiter: OperationRateLimiter;
   private readonly logger: ILogger;
 
   constructor(config: GraphServiceConfig) {
     this.graphRepository = new GraphRepository({ dataDir: config.dataDir });
     this.onHeadReplaced = config.onHeadReplaced;
+    this.onGraphChanged = config.onGraphChanged;
     // Allow 10 expensive operations per minute
     this.rateLimiter = new OperationRateLimiter(10, 60000);
     this.logger = createLogger('GraphService');
@@ -172,7 +180,25 @@ export class GraphService {
       calendar: request.calendar === undefined ? undefined : checkedCalendar(request.calendar),
     });
 
+    this.announce(graph.id, {
+      kind: 'graph',
+      operation: 'create',
+      name: graph.name,
+      summary: `Created the graph “${graph.name}”`,
+    });
     return graph.toJSON();
+  }
+
+  /** Tell the live change feed about a graph-level change. Never throws. */
+  private announce(graphId: string, change: Extract<ChangeBody, { kind: 'graph' }>): void {
+    try {
+      this.onGraphChanged?.(graphId, change);
+    } catch (error) {
+      this.logger.warn('Could not announce a graph change', {
+        graphId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**
@@ -211,6 +237,22 @@ export class GraphService {
       throw new NotFoundError('Graph not found', 'Graph', id);
     }
 
+    const fields = [
+      ...(request.name !== undefined ? ['name'] : []),
+      ...(request.description !== undefined ? ['description'] : []),
+      ...(request.status !== undefined ? ['status'] : []),
+      ...(request.calendar !== undefined ? ['calendar'] : []),
+    ];
+    this.announce(id, {
+      kind: 'graph',
+      operation: 'update',
+      fields,
+      name: graph.name,
+      summary:
+        fields.length === 1 && fields[0] === 'calendar'
+          ? `Changed the calendar of “${graph.name}”`
+          : `Changed the graph “${graph.name}”`,
+    });
     return graph.toJSON();
   }
 
@@ -218,10 +260,23 @@ export class GraphService {
    * Delete a graph (soft delete)
    */
   async deleteGraph(id: string): Promise<void> {
+    // Its name, for the announcement; a graph that cannot be read is still deleted.
+    let before: { name: string } | null | undefined;
+    try {
+      before = await this.graphRepository.findById(id);
+    } catch {
+      before = null;
+    }
     const success = await this.graphRepository.delete(id);
     if (!success) {
       throw new NotFoundError('Graph not found', 'Graph', id);
     }
+    this.announce(id, {
+      kind: 'graph',
+      operation: 'delete',
+      ...(before ? { name: before.name } : {}),
+      summary: before ? `Deleted the graph “${before.name}”` : 'Deleted a graph',
+    });
   }
 
   /**
@@ -299,7 +354,7 @@ export class GraphService {
     }
 
     const versionRef = await this.graphRepository.rollback(graphId, version, userId);
-    await this.onHeadReplaced?.(graphId);
+    await this.onHeadReplaced?.(graphId, 'rollback');
     return versionRef;
   }
 
@@ -325,7 +380,13 @@ export class GraphService {
       request.name.trim(),
       request.description?.trim()
     );
-    await this.onHeadReplaced?.(branchGraph.id);
+    this.announce(branchGraph.id, {
+      kind: 'graph',
+      operation: 'create',
+      name: branchGraph.name,
+      summary: `Branched “${sourceGraph.name}” as “${branchGraph.name}”`,
+    });
+    await this.onHeadReplaced?.(branchGraph.id, 'branch');
 
     return branchGraph.toJSON();
   }
@@ -510,7 +571,7 @@ export class GraphService {
           targetHead?.version ?? null
         );
 
-        await this.onHeadReplaced?.(targetGraphId);
+        await this.onHeadReplaced?.(targetGraphId, 'merge');
         const updatedGraph = await this.graphRepository.findById(targetGraphId);
 
         return {
@@ -570,7 +631,7 @@ export class GraphService {
       description,
       userId
     );
-    await this.onHeadReplaced?.(graphId);
+    await this.onHeadReplaced?.(graphId, 'commit');
     return versionRef;
   }
 

@@ -1,4 +1,5 @@
-import { IEngine } from './IEngine';
+import { IEngine, type GenerationRunHooks } from './IEngine';
+import type { GenerationHooks } from '../generator/GenerationHooks';
 import {
   HealthInfo,
   GraphSummaryDto,
@@ -72,6 +73,25 @@ function toGraphSummary(graph: IGraph): GraphSummaryDto {
     createdAt: graph.createdAt,
     updatedAt: graph.updatedAt,
     ...(graph.calendar ? { calendar: graph.calendar } : {}),
+  };
+}
+
+/** The generator's hooks for what a caller of the engine asked for. */
+function toGeneratorHooks(hooks: GenerationRunHooks | undefined): GenerationHooks {
+  if (!hooks) return {};
+  const { onProgress, signal } = hooks;
+  return {
+    signal,
+    onProgress: onProgress
+      ? (p) =>
+          onProgress({
+            progress: Math.round(p.fraction * 100),
+            phase: p.phase,
+            message: p.message,
+            ...(p.graphId !== undefined ? { graphId: p.graphId } : {}),
+            ...(p.source !== undefined ? { source: p.source } : {}),
+          })
+      : undefined,
   };
 }
 
@@ -984,7 +1004,7 @@ export class DirectEngine implements IEngine {
     return this.persistExtractedEntities(targetGraphId, extractionResult, options);
   }
 
-  async generateTimeline(options: GenerateTimelineOptions): Promise<GenerationResultDto> {
+  async generateTimeline(options: GenerateTimelineOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto> {
     const container = await this.getInitializedContainer();
     const llmClient = createLLMClient({
       provider: options.provider,
@@ -992,27 +1012,27 @@ export class DirectEngine implements IEngine {
       temperature: options.temperature,
     });
     const generator = new TimelineGenerator({ llmClient });
-    return generator.generateTimeline(options, container);
+    return generator.generateTimeline(options, container, toGeneratorHooks(hooks));
   }
 
-  async generateBranch(options: GenerateBranchOptions): Promise<GenerationResultDto> {
+  async generateBranch(options: GenerateBranchOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto> {
     const container = await this.getInitializedContainer();
     const llmClient = createLLMClient({
       provider: options.provider,
       model: options.model,
     });
     const generator = new TimelineGenerator({ llmClient });
-    return generator.generateBranch(options, container);
+    return generator.generateBranch(options, container, toGeneratorHooks(hooks));
   }
 
-  async generateExpand(options: GenerateExpandOptions): Promise<GenerationResultDto> {
+  async generateExpand(options: GenerateExpandOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto> {
     const container = await this.getInitializedContainer();
     const llmClient = createLLMClient({
       provider: options.provider,
       model: options.model,
     });
     const generator = new TimelineGenerator({ llmClient });
-    return generator.generateExpand(options, container);
+    return generator.generateExpand(options, container, toGeneratorHooks(hooks));
   }
 
   async generateSimulate(options: GenerateSimulateOptions): Promise<GenerationResultDto> {

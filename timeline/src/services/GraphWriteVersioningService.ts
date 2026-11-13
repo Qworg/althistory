@@ -35,6 +35,7 @@ import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
 import { createLogger, ILogger } from '@/utils/logger';
 import { StoredCausalRelationship } from './CausalService';
+import type { ChangeBody, ChangedEntity, ChangeRecord } from './ChangeFeedService';
 import { type WorldCalendarSet, dateCalendarOf, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
 
 /** A write to a live entity that should be reflected in one named graph's version. */
@@ -43,6 +44,12 @@ export type EntityWriteOperation = 'create' | 'update';
 export interface GraphWriteVersioningConfig {
   graphRepository: GraphRepository;
   logger?: ILogger;
+  /**
+   * Where a committed entity write is announced to the live change feed. The
+   * live store already holds the change by the time this service is asked to
+   * record it, so the announcement means "refetch and you will see it".
+   */
+  changeFeed?: { publish(graphId: string, body: ChangeBody): ChangeRecord };
 }
 
 /**
@@ -224,9 +231,11 @@ export function describeEntityWrite(
 export class GraphWriteVersioningService {
   private readonly graphRepository: GraphRepository;
   private readonly logger: ILogger;
+  private readonly changeFeed?: GraphWriteVersioningConfig['changeFeed'];
 
   constructor(config: GraphWriteVersioningConfig) {
     this.graphRepository = config.graphRepository;
+    this.changeFeed = config.changeFeed;
     this.logger = config.logger ?? createLogger('GraphWriteVersioningService');
   }
 
@@ -414,7 +423,32 @@ export class GraphWriteVersioningService {
       await this.graphRepository.commitChanges(graphId, changes, operation, description);
     } catch (error) {
       this.logger.error(`Failed to commit ${description} to graph ${graphId}`, error);
+      // The live store changed before this was asked, and it is what the app
+      // reads, so a watcher is told even though the version was not made.
+      this.announce(graphId, changes, operation, `${description} (not versioned)`);
       throw error;
+    }
+    this.announce(graphId, changes, operation, description);
+  }
+
+  /** Tell the live change feed which entities a write touched. */
+  private announce(
+    graphId: string,
+    changes: EntityChanges,
+    operation: EntityWriteOperation | 'delete',
+    summary: string
+  ): void {
+    if (!this.changeFeed) return;
+    const touched = operation === 'create' ? changes.added : operation === 'update' ? changes.modified : changes.deleted;
+    const entities: ChangedEntity[] = touched.map((entity) => ({ type: entity.type, id: entity.id }));
+    if (entities.length === 0) return;
+    try {
+      this.changeFeed.publish(graphId, { kind: 'entities', operation, entities, summary });
+    } catch (error) {
+      this.logger.warn('Could not announce a change to the live feed', {
+        graphId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }

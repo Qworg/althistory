@@ -14,6 +14,7 @@ export type Permission =
   | 'export'
   | 'import'
   | 'ingest'
+  | 'generate'
   | 'admin';
 
 export interface RateLimitConfig {
@@ -87,6 +88,7 @@ export const PERMISSION_GROUPS = {
     'export',
     'import',
     'ingest',
+    'generate',
   ] as Permission[],
   
   admin: [
@@ -101,6 +103,7 @@ export const PERMISSION_GROUPS = {
     'export',
     'import',
     'ingest',
+    'generate',
     'admin',
   ] as Permission[],
 };
@@ -169,7 +172,7 @@ export class ApiKey implements IApiKey {
       'read:arcs', 'write:arcs',
       'read:relationships', 'write:relationships',
       'read:graphs', 'write:graphs',
-      'export', 'import', 'ingest', 'admin',
+      'export', 'import', 'ingest', 'generate', 'admin',
     ];
     
     if (data.permissions) {

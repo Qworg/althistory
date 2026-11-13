@@ -29,6 +29,8 @@ import {
 } from '@/repositories';
 import { AppConfig } from '@/utils/config';
 import { LiveStoreSyncService } from '@/services/LiveStoreSyncService';
+import { ChangeFeedService, replacedSummary } from '@/services/ChangeFeedService';
+import { GenerationJobService } from '@/services/GenerationJobService';
 
 /**
  * Minimal shape for a component that may expose an async `initialize()`.
@@ -106,6 +108,10 @@ export interface ServiceContainer {
   jobService: JobService;
   graphWriteVersioningService: GraphWriteVersioningService;
   liveStoreSyncService: LiveStoreSyncService;
+  /** The live change feed: every committed change to a graph is announced on it. */
+  changeFeedService: ChangeFeedService;
+  /** Generation jobs: `generate timeline`, `branch` and `expand`, run by the app. */
+  generationJobService: GenerationJobService;
   
   // Repositories
   eventRepository: EventRepository;
@@ -133,6 +139,11 @@ export interface ServiceContainer {
 /**
  * Dependency injection container
  */
+/** A copy of the object without its unset fields, so unset options keep a service's defaults. */
+function definedOnly<T extends object>(value: T | undefined): Partial<T> {
+  return Object.fromEntries(Object.entries(value ?? {}).filter(([, entry]) => entry !== undefined)) as Partial<T>;
+}
+
 export class Container implements ServiceContainer {
   private _temporalService?: TemporalService;
   private _causalService?: CausalService;
@@ -156,6 +167,8 @@ export class Container implements ServiceContainer {
   private _jobService?: JobService;
   private _graphWriteVersioningService?: GraphWriteVersioningService;
   private _liveStoreSyncService?: LiveStoreSyncService;
+  private _changeFeedService?: ChangeFeedService;
+  private _generationJobService?: GenerationJobService;
   
   // Phase 1 I/O repositories
   private _graphRepository?: GraphRepository;
@@ -500,6 +513,32 @@ export class Container implements ServiceContainer {
    * Get graph service instance (singleton)
    */
   /**
+   * The live change feed (singleton): the one bus every committed change is
+   * announced on, and the WebSocket handler's source of change messages.
+   */
+  get changeFeedService(): ChangeFeedService {
+    if (!this._changeFeedService) {
+      this._changeFeedService = new ChangeFeedService();
+    }
+    return this._changeFeedService;
+  }
+
+  /**
+   * Generation jobs (singleton): the app runs `generate timeline`, `branch` and
+   * `expand` itself, as cancellable jobs, so it stays the one writer.
+   */
+  get generationJobService(): GenerationJobService {
+    if (!this._generationJobService) {
+      this._generationJobService = new GenerationJobService({
+        container: () => this,
+        changeFeed: this.changeFeedService,
+        limits: definedOnly(this.config.generation),
+      });
+    }
+    return this._generationJobService;
+  }
+
+  /**
    * Rebuilds a graph's live store from its version head after an operation
    * that wrote only the version tree (singleton).
    */
@@ -512,6 +551,15 @@ export class Container implements ServiceContainer {
         invalidateCaches: async () => {
           await this.cacheInvalidationService.invalidateCausalCache();
           await this.cacheInvalidationService.invalidateTemporalCache();
+        },
+        // The live store holds the new head: tell whoever is watching the graph.
+        onReplaced: (graphId, result, reason) => {
+          this.changeFeedService.publish(graphId, {
+            kind: 'replaced',
+            reason,
+            summary: replacedSummary(reason),
+            counts: { events: result.events, arcs: result.arcs, relationships: result.relationships },
+          });
         },
       });
     }
@@ -545,8 +593,14 @@ export class Container implements ServiceContainer {
         dataDir: this.config.localExecution.dataDirectory,
         // Branch, rollback and merge write only the version tree; bring the
         // graph's live store up to the new head so the UI shows it.
-        onHeadReplaced: async (graphId) => {
-          await this.liveStoreSyncService.materialize(graphId);
+        onHeadReplaced: async (graphId, reason) => {
+          await this.liveStoreSyncService.materialize(graphId, reason);
+        },
+        // A graph made, renamed, given a calendar or deleted is announced to
+        // whoever is watching the graph list.
+        onGraphChanged: (graphId, change) => {
+          this.changeFeedService.publish(graphId, change);
+          if (change.operation === 'delete') this.changeFeedService.forget(graphId);
         },
       });
     }
@@ -563,6 +617,7 @@ export class Container implements ServiceContainer {
     if (!this._graphWriteVersioningService) {
       this._graphWriteVersioningService = new GraphWriteVersioningService({
         graphRepository: this.graphRepository,
+        changeFeed: this.changeFeedService,
       });
     }
     return this._graphWriteVersioningService;

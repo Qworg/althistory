@@ -816,6 +816,67 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     auth: 'required',
   },
 
+  // --- generate ------------------------------------------------------------
+  'POST /api/generate/timeline': {
+    summary:
+      'Start a job that drafts a timeline: an alternate history from a premise and a point of ' +
+      'divergence, or an invented world. The job writes the graph, its arcs, events and links as it ' +
+      'goes, and reports `source` (`model` or `template`). Needs `generate` (or every write permission).',
+    request: 'GenerateTimelineRequest',
+    requestRequired: true,
+    response: 'GenerationJob',
+    envelope: 'bare',
+    status: 202,
+    auth: 'required',
+    responses: { 429: 'The key, or the app, is at its limit of generation jobs; see `Retry-After`.' },
+  },
+  'POST /api/generate/branch': {
+    summary:
+      'Start a job that branches a graph at an event and drafts what follows. The graph comes from ' +
+      'the `X-Graph-Id` header and the key must be allowed it.',
+    request: 'GenerateBranchRequest',
+    requestRequired: true,
+    response: 'GenerationJob',
+    envelope: 'bare',
+    status: 202,
+    auth: 'required',
+    graphScoped: true,
+    responses: { 429: 'The key, or the app, is at its limit of generation jobs; see `Retry-After`.' },
+  },
+  'POST /api/generate/expand': {
+    summary:
+      'Start a job that adds interpolated events to a graph, an arc or a time window, recorded as an ' +
+      'arc of their own. The graph comes from the `X-Graph-Id` header and the key must be allowed it.',
+    request: 'GenerateExpandRequest',
+    requestRequired: true,
+    response: 'GenerationJob',
+    envelope: 'bare',
+    status: 202,
+    auth: 'required',
+    graphScoped: true,
+    responses: { 429: 'The key, or the app, is at its limit of generation jobs; see `Retry-After`.' },
+  },
+  'GET /api/generate/jobs': {
+    summary: "The key's generation jobs, newest first, without their results.",
+    response: 'GenerationJobList',
+    envelope: 'bare',
+    auth: 'required',
+  },
+  'GET /api/generate/jobs/:id': {
+    summary: 'One generation job: its status and progress, and its result once it completed. Another key\'s job is a 404.',
+    response: 'GenerationJob',
+    envelope: 'bare',
+    auth: 'required',
+  },
+  'POST /api/generate/jobs/:id/cancel': {
+    summary:
+      'Cancel a generation job. It stops before its next write; what it already wrote stays in the ' +
+      'graph. A job that already finished is returned as it is.',
+    response: 'GenerationJob',
+    envelope: 'bare',
+    auth: 'required',
+  },
+
   // --- keys ----------------------------------------------------------------
   'GET /api/keys': {
     summary: 'The API keys, with their pagination.',
@@ -919,8 +980,9 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   // --- stream --------------------------------------------------------------
   'POST /api/stream/token': {
     summary:
-      'Issue a short-lived token for a WebSocket write session. The graph comes ' +
-      'from the `X-Graph-Id` header; a `graphId` in the body is ignored.',
+      'Issue a short-lived token for a WebSocket session: a write session, or with `mode: "feed"` a ' +
+      'read-only session for the live change feed (see docs/api-integration.md). The graph the ' +
+      'socket is bound to comes from the `X-Graph-Id` header; a `graphId` in the body is ignored.',
     request: 'StreamTokenRequest',
     response: 'StreamToken',
     envelope: 'bare',

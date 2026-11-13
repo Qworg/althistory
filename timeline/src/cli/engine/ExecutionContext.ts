@@ -7,6 +7,23 @@ import { DirectEngine } from './DirectEngine';
 import { RemoteEngine } from './RemoteEngine';
 import { GlobalCLIOptions } from '../types';
 import { logger } from '../utils/logger';
+import { CLIError, ExitCode } from '../utils/exitCodes';
+
+/** Where this clone's app listens in local mode: the IPv4 loopback, then the IPv6 one. */
+export const DEFAULT_APP_ADDRESSES = ['http://127.0.0.1:3000', 'http://[::1]:3000'];
+
+/**
+ * Set to `1` to run `--direct` although an app answers on the default
+ * address: for an app that keeps its data somewhere else.
+ */
+export const ALLOW_DIRECT_ENV = 'ALTHISTORY_ALLOW_DIRECT';
+
+export interface ExecutionContextOptions {
+  /** What kind of client this is, for the app's live change feed. `mcp` for the MCP server. */
+  client?: 'cli' | 'mcp';
+  /** The addresses to look for the app at; a test seam. */
+  appAddresses?: string[];
+}
 
 /**
  * The admin key of this clone's own app, for when the CLI found it running on
@@ -43,9 +60,36 @@ export function isAlthistoryHealth(body: unknown): boolean {
 export class ExecutionContext {
   private engine?: IEngine;
   private options: GlobalCLIOptions;
+  private readonly client: 'cli' | 'mcp';
+  private readonly appAddresses: string[];
 
-  constructor(options: GlobalCLIOptions = {}) {
+  constructor(options: GlobalCLIOptions = {}, extra: ExecutionContextOptions = {}) {
     this.options = options;
+    this.client = extra.client ?? 'cli';
+    this.appAddresses = extra.appAddresses ?? DEFAULT_APP_ADDRESSES;
+  }
+
+  /**
+   * The address of an althistory app answering on this machine, if there is one.
+   *
+   * Any answer means the app is there, including 503: /health reports
+   * "degraded" until its services have warmed up. It has to be althistory's own
+   * health report, though: port 3000 is the default of many dev servers, and
+   * the caller may be about to send it a key.
+   */
+  private async findApp(): Promise<string | undefined> {
+    for (const candidate of this.appAddresses) {
+      let answered = false;
+      try {
+        logger.debug(`Probing daemon at ${candidate}...`);
+        const response = await axios.get(`${candidate}/health`, { timeout: 400 });
+        answered = isAlthistoryHealth(response.data);
+      } catch (error) {
+        answered = axios.isAxiosError(error) && isAlthistoryHealth(error.response?.data);
+      }
+      if (answered) return candidate;
+    }
+    return undefined;
   }
 
   async getEngine(): Promise<IEngine> {
@@ -60,8 +104,25 @@ export class ExecutionContext {
       logger.setVerbose(true);
     }
 
-    // Explicit direct flag
+    // Explicit direct flag. In process, this is a second writer beside the app
+    // (each keeps its own copy of a graph in memory and writes the same files,
+    // with no lock between them, so each would overwrite the other's changes
+    // without an error). The app serves every command, generation included, so
+    // `--direct` is for when none is running.
     if (this.options.direct) {
+      if (process.env[ALLOW_DIRECT_ENV] !== '1') {
+        const app = await this.findApp();
+        if (app) {
+          throw new CLIError(
+            `An althistory app is running at ${app}, so --direct would make this process a second writer: ` +
+              'the app and this process would each overwrite the other\'s changes without an error. ' +
+              'Run the command without --direct and it works through the app, generation included. ' +
+              `If the app keeps its data somewhere else, set ${ALLOW_DIRECT_ENV}=1.`,
+            ExitCode.GENERAL_ERROR,
+            'APP_RUNNING'
+          );
+        }
+      }
       logger.debug('Direct mode explicitly requested');
       this.engine = new DirectEngine();
       return this.engine;
@@ -71,41 +132,31 @@ export class ExecutionContext {
     // sets that in the server's env, since it cannot pass flags per call).
     if (this.options.url) {
       logger.debug(`Remote URL explicitly provided: ${this.options.url}`);
-      this.engine = new RemoteEngine(this.options.url, this.options.apiKey || process.env.ALTHISTORY_API_KEY || undefined);
+      this.engine = new RemoteEngine(this.options.url, this.options.apiKey || process.env.ALTHISTORY_API_KEY || undefined, {
+        client: this.client,
+      });
       return this.engine;
     }
 
     // Default probe: is this clone's app running? It binds 127.0.0.1 in local
-    // mode; an app bound to the IPv6 loopback only is tried next.
-    // Any answer means the app is there, including 503: /health reports
-    // "degraded" until its services have warmed up. Falling back to the files
-    // then would make this process a second writer beside the running app.
-    // It has to be althistory's own health report, though: port 3000 is the
-    // default of many dev servers, and this one is about to be sent a key.
-    for (const candidate of ['http://127.0.0.1:3000', 'http://[::1]:3000']) {
-      let daemonAnswered = false;
-      try {
-        logger.debug(`Probing daemon at ${candidate}...`);
-        const response = await axios.get(`${candidate}/health`, { timeout: 400 });
-        daemonAnswered = isAlthistoryHealth(response.data);
-      } catch (error) {
-        daemonAnswered = axios.isAxiosError(error) && isAlthistoryHealth(error.response?.data);
-      }
-      if (daemonAnswered) {
-        logger.debug(`Daemon detected at ${candidate}. Using RemoteEngine`);
-        // A key the caller chose comes first, so a scoped key given to an agent
-        // is never swapped for the admin key. Then the app's own, found where
-        // the app looks: the environment, then this clone's .env.local and .env.
-        this.engine = new RemoteEngine(
-          candidate,
-          this.options.apiKey ||
-            process.env.ALTHISTORY_API_KEY ||
-            process.env.ADMIN_API_KEY ||
-            localAppKey() ||
-            undefined
-        );
-        return this.engine;
-      }
+    // mode; an app bound to the IPv6 loopback only is tried next. Falling back
+    // to the files while it runs would make this process a second writer.
+    const candidate = await this.findApp();
+    if (candidate) {
+      logger.debug(`Daemon detected at ${candidate}. Using RemoteEngine`);
+      // A key the caller chose comes first, so a scoped key given to an agent
+      // is never swapped for the admin key. Then the app's own, found where
+      // the app looks: the environment, then this clone's .env.local and .env.
+      this.engine = new RemoteEngine(
+        candidate,
+        this.options.apiKey ||
+          process.env.ALTHISTORY_API_KEY ||
+          process.env.ADMIN_API_KEY ||
+          localAppKey() ||
+          undefined,
+        { client: this.client }
+      );
+      return this.engine;
     }
     logger.debug('Daemon not reachable. Falling back to DirectEngine');
     this.engine = new DirectEngine();

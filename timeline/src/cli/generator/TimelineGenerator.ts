@@ -271,6 +271,15 @@ export class TimelineGenerator {
     return this.generateFromPlan(options, this.resolvePlan(options), container, run);
   }
 
+  /**
+   * Check a `generate timeline` request without running it: throws the
+   * `ValidationErrorCLI` the run would, naming what is wrong. The app uses it to
+   * refuse a bad request before it starts a job.
+   */
+  checkTimelineRequest(options: GenerateTimelineOptions): void {
+    this.resolvePlan(options);
+  }
+
   /** Passes 2 to 5, and the write, for a checked request. */
   private async generateFromPlan(
     options: GenerateTimelineOptions,

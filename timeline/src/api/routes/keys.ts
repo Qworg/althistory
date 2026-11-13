@@ -221,7 +221,7 @@ keyRoutes.post(
         'read:arcs', 'write:arcs',
         'read:relationships', 'write:relationships',
         'read:graphs', 'write:graphs',
-        'export', 'import', 'ingest', 'admin',
+        'export', 'import', 'ingest', 'generate', 'admin',
       ];
 
       const invalidPermissions = request.permissions.filter(
@@ -323,7 +323,7 @@ keyRoutes.put(
           'read:arcs', 'write:arcs',
           'read:relationships', 'write:relationships',
           'read:graphs', 'write:graphs',
-          'export', 'import', 'ingest', 'admin',
+          'export', 'import', 'ingest', 'generate', 'admin',
         ];
 
         const invalidPermissions = updates.permissions.filter(

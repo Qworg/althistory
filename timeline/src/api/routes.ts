@@ -13,16 +13,23 @@ import { validateRoutes } from './routes/validate';
 import { suggestRoutes } from './routes/suggest';
 import { createIngestRouter } from './routes/ingest';
 import { streamRoutes } from './routes/stream';
+import { generateRoutes } from './routes/generate';
 import { loadConfig } from '../utils/config';
+import type { ReplacedReason } from '../services/ChangeFeedService';
 import { getContainer } from '../container';
 import { buildOpenApiDocument } from './openapi/document';
 import { uniqueRoutes } from './openapi/routeInventory';
 import { mountApi } from './openapi/mounts';
+import { attributeChanges } from './changeAttribution';
 
 /**
  * Main API router
  */
 export const apiRouter = Router();
+
+// Every change a request makes is announced on the live change feed, labelled
+// with who made it.
+apiRouter.use(attributeChanges);
 
 // Get config for data directory
 const config = loadConfig();
@@ -32,8 +39,8 @@ const dataDir = config.localExecution.dataDirectory;
 // version tree; bring the graph's live store up to the new head so the entity
 // routes and the UI see it. Resolved at call time: the container is built after
 // this module loads.
-const onHeadReplaced = async (graphId: string): Promise<void> => {
-  await getContainer().liveStoreSyncService.materialize(graphId);
+const onHeadReplaced = async (graphId: string, reason?: ReplacedReason): Promise<void> => {
+  await getContainer().liveStoreSyncService.materialize(graphId, reason);
 };
 
 // Create import router with config
@@ -55,6 +62,7 @@ apiRouter.get('/', (_req, res) => {
       export: '/api/export',
       import: '/api/import',
       ingest: '/api/ingest',
+      generate: '/api/generate',
       events: '/api/events',
       arcs: '/api/arcs',
       causal: '/api/causal',
@@ -81,6 +89,9 @@ mountApi(apiRouter, '/import', importRoutes);
 
 // Web ingestion API endpoints (Wikipedia, Wikidata, free text, LLM)
 mountApi(apiRouter, '/ingest', ingestRoutes);
+
+// Generation jobs: timelines, branches and expansions the app writes itself
+mountApi(apiRouter, '/generate', generateRoutes);
 
 // Event API endpoints
 mountApi(apiRouter, '/events', eventRoutes);
@@ -132,6 +143,7 @@ apiRouter.get('/info', (_req, res) => {
       export: '/api/export - Export graphs and manage export jobs',
       import: '/api/import - Import data from export files',
       ingest: '/api/ingest - Extract entities from Wikipedia, Wikidata and text for review',
+      generate: '/api/generate - Draft timelines, branches and expansions as cancellable jobs',
       events: '/api/events - CRUD operations for historical events',
       arcs: '/api/arcs - CRUD operations for historical arcs/periods',
       causal: '/api/causal - Causal relationship analysis and management',
@@ -147,6 +159,7 @@ apiRouter.get('/info', (_req, res) => {
       export: ['Async export jobs', 'Sync export', 'Filtered export', 'Download', 'Validate'],
       import: ['Validate format', 'Preview changes', 'Conflict detection', 'Import with resolutions'],
       ingest: ['Wikipedia extraction', 'Wikidata SPARQL', 'Text extraction', 'LLM-assisted extraction', 'Review and approve'],
+      generate: ['Timeline drafts', 'Invented worlds', 'Branches', 'Expansions', 'Cancellable jobs with progress'],
       events: ['Create', 'Read', 'Update', 'Delete', 'Filter by time/actor/target', 'Statistics'],
       arcs: ['Create', 'Read', 'Update', 'Delete', 'Hierarchy validation', 'Child relationships'],
       causal: ['Create links', 'Find chains', 'Detect cycles', 'Get suggestions', 'Validate relationships'],
@@ -156,7 +169,7 @@ apiRouter.get('/info', (_req, res) => {
       batch: ['Batch events', 'Batch arcs', 'Batch relationships', 'Atomic transactions'],
       validate: ['Graph validation', 'Incremental validation', 'Temporal checks', 'Causal checks', 'Referential checks'],
       suggest: ['Relationship suggestions', 'Arc suggestions', 'Completeness analysis', 'Pressure analysis'],
-      stream: ['Short-lived stream tokens', 'Persistent WebSocket write session', 'Per-event acknowledgments']
+      stream: ['Short-lived stream tokens', 'Persistent WebSocket write session', 'Per-event acknowledgments', 'Live change feed']
     }
   });
 });

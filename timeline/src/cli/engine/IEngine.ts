@@ -20,6 +20,25 @@ import {
 } from '../types';
 import type { CalendarInput } from '../../models/Graph';
 
+/**
+ * What a caller can ask of a generation run: to hear how it is going, and to be
+ * able to stop it. A run writes as it goes, so what was written when it is
+ * stopped stays written.
+ */
+export interface GenerationRunHooks {
+  onProgress?: (progress: {
+    /** 0 to 100. */
+    progress: number;
+    phase: string;
+    /** One line a person can read: "Writing events (3 of 8)". */
+    message: string;
+    graphId?: string;
+    source?: 'model' | 'template';
+  }) => void;
+  /** Aborting asks the run to stop before its next write. */
+  signal?: AbortSignal;
+}
+
 export interface IEngine {
   readonly mode: 'direct' | 'remote';
 
@@ -64,9 +83,9 @@ export interface IEngine {
   ingestText(graphId: string | undefined, text: string, options: IngestTextOptions): Promise<IngestResultDto>;
   ingestUrl(graphId: string | undefined, url: string, options: IngestUrlOptions): Promise<IngestResultDto>;
   ingestWikidata(graphId: string | undefined, options: IngestWikidataOptions): Promise<IngestResultDto>;
-  generateTimeline(options: GenerateTimelineOptions): Promise<GenerationResultDto>;
-  generateBranch(options: GenerateBranchOptions): Promise<GenerationResultDto>;
-  generateExpand(options: GenerateExpandOptions): Promise<GenerationResultDto>;
+  generateTimeline(options: GenerateTimelineOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto>;
+  generateBranch(options: GenerateBranchOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto>;
+  generateExpand(options: GenerateExpandOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto>;
   generateSimulate(options: GenerateSimulateOptions): Promise<GenerationResultDto>;
 
   // Validation & Export
