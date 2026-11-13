@@ -159,7 +159,7 @@ describe('Deep time through the API', () => {
     expect(fetched.body.data.timestamp_ms).toBe(event.timestamp_ms);
   });
 
-  it('lists in the order of time, filters by a range given as text, and by one given as milliseconds', async () => {
+  it('lists in the order of time, filters by a range given as text, including beyond a Date\'s range', async () => {
     for (const [description, timestamp] of stamps) await post(description, timestamp);
     const all = await request(app).get('/api/events').expect(200);
     expect(all.body.data.map((e: { description: string }) => e.description)).toEqual(['first hearths', 'Hastings', 'the last city']);
@@ -182,8 +182,10 @@ describe('Deep time through the API', () => {
       .expect(201);
     expect(response.body.data.start_time).toBe('-499999-01-01T00:00:00.000Z');
     expect(response.body.data.end_time_ms).toBe(String(toAxisTime('+300000-12-31T23:59:59.999Z')));
-    const found = await request(app).get('/api/arcs').query({ startTime: '+299999-01-01T00:00:00Z', endTime: '+300001-01-01T00:00:00Z' });
-    expect(found.status).toBe(200);
+    const found = await request(app).get('/api/arcs').query({ startTime: '+299999-01-01T00:00:00Z', endTime: '+300001-01-01T00:00:00Z' }).expect(200);
+    expect(found.body.data.map((a: { id: string }) => a.id)).toContain(response.body.data.id);
+    const elsewhere = await request(app).get('/api/arcs').query({ startTime: '+400000-01-01T00:00:00Z', endTime: '+500000-01-01T00:00:00Z' }).expect(200);
+    expect(elsewhere.body.data.map((a: { id: string }) => a.id)).not.toContain(response.body.data.id);
   });
 
   it('never lets a bigint reach res.json', async () => {

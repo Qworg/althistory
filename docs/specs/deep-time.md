@@ -72,7 +72,9 @@ position the first position of its second reads back the same date
 with a day of 1 second, 30 hours or 1,000,000 seconds.
 
 **Req 9. A chronicle of a million years.** A calendar's epoch is any axis day
-the bound allows. A world whose year is 40 or 3 days long reaches a million
+the bound allows, except that the days from it to the axis's edge must stay
+exact (under 2^53), which only a day of a few seconds can break: it is refused
+there, with a message, rather than naming a wrong date. A world whose year is 40 or 3 days long reaches a million
 years from its epoch and further, and its dates read back from the text they
 were written in (Req 10).
 
@@ -103,7 +105,9 @@ migration is needed.
 
 **Req 14. The wire.** Every date in an API, CLI or MCP response is its ISO
 text, plus, additively, a decimal string of the `AxisTime`: `timestamp_ms`,
-`start_time_ms`, `end_time_ms`. A request may give either. A string, because
+`start_time_ms`, `end_time_ms`. A request gives a date as text only (the ISO
+spelling, or the text a person writes); the milliseconds are for reading a
+response, and a request field named `*_ms` is ignored. A string, because
 JSON has no `bigint`, and a test checks that no response ever holds one.
 
 **Req 15. Export.** An export whose dates are all inside a `Date`'s range is
