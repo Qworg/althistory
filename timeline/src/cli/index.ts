@@ -913,7 +913,7 @@ export function createProgram(): Command {
     .description('Interpolate granular sub-events within an arc or time window')
     .requiredOption('-g, --graph-id <id>', 'Target graph ID')
     .option('-a, --arc <id>', 'Arc ID to expand')
-    .option('-w, --time-window <window>', 'Time window ISO range (start/end)')
+    .option('-w, --time-window <window>', 'Time window: two dates, start/end (ISO 8601, a year first, or the world\'s notation)')
     .option('-n, --event-count <count>', 'Number of sub-events to generate', '3')
     .option('--provider <provider>', 'LLM provider')
     .option('--model <model>', 'LLM model name')

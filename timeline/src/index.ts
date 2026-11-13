@@ -343,6 +343,8 @@ class Application {
             // The stream charges the same per-key budget as the HTTP routes, so
             // it is the same service instance they use.
             rateLimitService: container.rateLimitService,
+            // A message's dates are read with the graph's world calendars, as the routes read them.
+            graphCalendar: async (graphId) => (await container.graphRepository.findById(graphId))?.calendar,
           },
         });
         streamHandler.attach(server);

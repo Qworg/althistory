@@ -66,6 +66,9 @@ export function ImportWizard({
   })
 
   const [executeProgress, setExecuteProgress] = useState(0)
+  // Each check of the file (on upload, on a change of mode) is numbered; an
+  // answer to one that a later check has replaced is dropped.
+  const checkSeq = useRef(0)
   // FIX #17: Track current async job for cancellation
   const [currentJobId, setCurrentJobId] = useState<string | null>(null)
   const [isCancelling, setIsCancelling] = useState(false)
@@ -126,13 +129,12 @@ export function ImportWizard({
       dispatch({ type: 'SET_ERROR', payload: null })
 
       try {
-        // Its dates are read as an import into the target will read them, with
-        // the target's calendars; a change of mode checks them again.
-        const validation = await validateMutation.mutateAsync({
-          data,
-          targetGraphId: state.targetGraphId,
-          mode: state.targetGraphId && state.mode === 'create-new' ? 'merge' : state.mode,
-        })
+        // Its dates are read as the mode it will be imported in reads them (a
+        // new graph's own calendars, or the target's); a change of mode checks
+        // them again.
+        const seq = ++checkSeq.current
+        const validation = await validateMutation.mutateAsync({ data, targetGraphId: state.targetGraphId, mode: state.mode })
+        if (seq !== checkSeq.current) return
         dispatch({ type: 'SET_VALIDATION', payload: validation })
         dispatch({ type: 'SET_STEP', payload: 'validate' })
       } catch (error) {
@@ -165,19 +167,24 @@ export function ImportWizard({
     }
   }, [state.data, state.targetGraphId, state.mode, previewMutation])
 
-  // Handle mode change (re-fetch preview)
+  // Handle mode change: check the dates in that mode, then (from the preview
+  // step) preview it. Only the latest change's answers are used: a slower
+  // answer for a mode since left is dropped.
   const handleModeChange = useCallback(
-    async (mode: ImportMode) => {
+    async (mode: ImportMode, then: 'preview' | 'validate' = 'preview') => {
       dispatch({ type: 'SET_MODE', payload: mode })
+      dispatch({ type: 'SET_ERROR', payload: null })
 
       if (!state.data) return
+      const seq = ++checkSeq.current
 
       try {
         // Its dates read with the calendars this mode reads them with: a new
         // graph's own, or the target's. If they no longer read, say so.
         const validation = await validateMutation.mutateAsync({ data: state.data, targetGraphId: state.targetGraphId, mode })
+        if (seq !== checkSeq.current) return
         dispatch({ type: 'SET_VALIDATION', payload: validation })
-        if (!validation.valid) {
+        if (!validation.valid || then === 'validate') {
           dispatch({ type: 'SET_STEP', payload: 'validate' })
           return
         }
@@ -186,16 +193,19 @@ export function ImportWizard({
           targetGraphId: state.targetGraphId,
           mode,
         })
+        if (seq !== checkSeq.current) return
         dispatch({ type: 'SET_PREVIEW', payload: preview })
       } catch (error) {
+        if (seq !== checkSeq.current) return
         dispatch({
           type: 'SET_ERROR',
-          payload: error instanceof Error ? error.message : 'Preview failed',
+          payload: error instanceof Error ? error.message : 'Checking the import failed',
         })
       }
     },
     [state.data, state.targetGraphId, previewMutation, validateMutation]
   )
+  const handleValidationModeChange = useCallback((mode: ImportMode) => handleModeChange(mode, 'validate'), [handleModeChange])
 
   // Handle preview continue
   const handlePreviewContinue = useCallback(() => {
@@ -487,7 +497,8 @@ export function ImportWizard({
               calendar={storedCalendarSet(state.data?.metadata?.calendar)}
               onContinue={handleValidationContinue}
               onBack={handleBack}
-              isLoading={previewMutation.isPending}
+              isLoading={previewMutation.isPending || validateMutation.isPending}
+              {...(state.targetGraphId ? { mode: state.mode, onModeChange: handleValidationModeChange } : {})}
             />
           )}
 
@@ -499,7 +510,7 @@ export function ImportWizard({
               onContinue={handlePreviewContinue}
               onBack={handleBack}
               hasConflicts={hasConflicts}
-              isLoading={previewMutation.isPending}
+              isLoading={previewMutation.isPending || validateMutation.isPending}
             />
           )}
 

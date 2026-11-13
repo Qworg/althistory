@@ -31,6 +31,7 @@ import type { HeadReplacedHook } from '../../services/LiveStoreSyncService';
 import { AlthistoryExport } from '../../services/ExportService';
 import { ValidationError } from '../../utils/errors';
 import { createLogger } from '../../utils/logger';
+import { assertSafeGraphId } from '../../utils/GraphContextStore';
 
 const logger = createLogger('ImportRoutes');
 
@@ -732,6 +733,7 @@ export function createImportRouter(config: ImportRouterConfig): Router {
       // the graph it goes into (`?targetGraphId=…&mode=merge|replace`), or for
       // a new graph its own.
       const targetGraphId = typeof req.query.targetGraphId === 'string' ? req.query.targetGraphId : undefined;
+      if (targetGraphId !== undefined) assertSafeGraphId(targetGraphId);
       const mode = req.query.mode === 'merge' || req.query.mode === 'replace' ? req.query.mode : 'create-new';
       logger.info('Validating import data', { targetGraphId, mode });
       const calendar = targetGraphId && mode !== 'create-new'

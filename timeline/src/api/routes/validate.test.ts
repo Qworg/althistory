@@ -78,6 +78,21 @@ describe('Validate Routes', () => {
         eventRepository: mockEventRepository,
         arcRepository: mockArcRepository,
         graphScopedRepositories: mockGraphScopedRepositories,
+        // One graph keeps a world calendar: its dates are read with it.
+        graphRepository: {
+          findById: async (id: string) =>
+            id === 'vael'
+              ? {
+                  id,
+                  calendar: {
+                    version: 2,
+                    dayLength: 86_400,
+                    primary: 'reckoning',
+                    calendars: [{ id: 'reckoning', name: 'the Reckoning', parts: [{ name: 'Thaw', days: 30 }], epoch: 0, eras: [{ label: 'AR', from: 1 }] }],
+                  },
+                }
+              : { id },
+        },
       } as any;
       next();
     });
@@ -289,6 +304,24 @@ describe('Validate Routes', () => {
 
       expect(mockGraphScopedRepositories).toHaveBeenCalledWith('scoped-graph');
       expect(response.body.valid).toBe(true);
+    });
+
+    it("reads an addition's date as the event routes do, with the graph's calendars", async () => {
+      const check = (graph: string, timestamp: string) =>
+        request(app)
+          .post('/api/validate/incremental')
+          .set('X-API-Key', 'valid-read-key')
+          .set('X-Graph-Id', graph)
+          .send({ additions: { events: [{ description: 'x', actor: 'a', target: 'b', timestamp }] } })
+          .expect(200);
+      expect((await check('vael', 'Thaw 4, 312 AR')).body.conflicts).toEqual([]);
+      for (const refused of ['1871', '1871-03', 'March 4, 1871']) {
+        const response = await check('vael', refused);
+        expect(response.body.conflicts.map((c: { type: string }) => c.type), refused).toContain('invalid_data');
+      }
+      // Without a world, year-first text is a date and "0" is none.
+      expect((await check('plain', '312-03-04 14:30')).body.conflicts).toEqual([]);
+      expect((await check('plain', '0')).body.conflicts.map((c: { type: string }) => c.type)).toContain('invalid_data');
     });
 
     it('should validate empty additions', async () => {

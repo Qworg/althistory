@@ -2,7 +2,7 @@
  * Validation API routes for checking data integrity
  */
 
-import { queryInstant, requestCalendar, withReadDates } from '../worldDates';
+import { bodyInstant, queryInstant, requestCalendar, withReadDates } from '../worldDates';
 import { Router, Response, RequestHandler } from 'express';
 import {
   AuthenticatedRequest,
@@ -14,6 +14,7 @@ import {
   authorizeGraphAccess,
   authorizeAny,
   asyncHandler,
+  scopeToGraphWhenNamed,
 } from '../middleware';
 import { IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
@@ -145,6 +146,8 @@ validateRoutes.post(
   requireAuth as RequestHandler,
   authorizeAny('read:events', 'read:arcs', 'read:relationships') as RequestHandler,
   rateLimit() as RequestHandler,
+  // Its dates are read with the calendars of the graph an X-Graph-Id names.
+  ...scopeToGraphWhenNamed(),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const request = req.body as ValidationRequest;
@@ -189,7 +192,7 @@ validateRoutes.post(
             continue;
           }
 
-          const timestamp = queryInstant(event.timestamp);
+          const timestamp = bodyInstant(event.timestamp, calendar);
           if (isNaN(timestamp.getTime())) {
             response.errors.temporal.push({
               type: 'temporal',
@@ -202,8 +205,8 @@ validateRoutes.post(
 
         // Validate arc time ranges
         for (const arc of arcs) {
-          const startTime = queryInstant(arc.start_time);
-          const endTime = queryInstant(arc.end_time);
+          const startTime = bodyInstant(arc.start_time, calendar);
+          const endTime = bodyInstant(arc.end_time, calendar, 'end');
 
           if (isNaN(startTime.getTime())) {
             response.errors.temporal.push({
@@ -237,8 +240,8 @@ validateRoutes.post(
           if (arc.parent_arc_id) {
             const parentArc = arcMap.get(arc.parent_arc_id);
             if (parentArc) {
-              const parentStart = queryInstant(parentArc.start_time);
-              const parentEnd = queryInstant(parentArc.end_time);
+              const parentStart = bodyInstant(parentArc.start_time, calendar);
+              const parentEnd = bodyInstant(parentArc.end_time, calendar, 'end');
 
               if (startTime < parentStart || endTime > parentEnd) {
                 response.errors.temporal.push({
@@ -277,8 +280,8 @@ validateRoutes.post(
 
           // Temporal causality check (the cause may not follow the effect)
           if (causeEvent && effectEvent) {
-            const causeTime = queryInstant(causeEvent.timestamp);
-            const effectTime = queryInstant(effectEvent.timestamp);
+            const causeTime = bodyInstant(causeEvent.timestamp, calendar);
+            const effectTime = bodyInstant(effectEvent.timestamp, calendar);
 
             if (isTemporalInversion(causeTime, effectTime)) {
               response.errors.causal.push({
@@ -458,7 +461,7 @@ validateRoutes.post(
 
           // Check timestamp validity
           if (event.timestamp) {
-            const timestamp = queryInstant(event.timestamp);
+            const timestamp = bodyInstant(event.timestamp, calendar);
             if (isNaN(timestamp.getTime())) {
               response.conflicts.push({
                 type: 'invalid_data',

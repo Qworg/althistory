@@ -148,6 +148,8 @@ export function queryInstant(value: unknown): Date {
  */
 export function bodyInstant(value: unknown, calendar: WorldCalendarSet | undefined, edge: 'start' | 'end' = 'start'): Date {
   if (value instanceof Date) return value;
+  // Milliseconds since 1970, as the API has always taken them.
+  if (typeof value === 'number') return toInstant(value);
   if (typeof value !== 'string') return new Date(NaN);
   const read = readWorldTimestamp(calendar, value, edge);
   if (read) return new Date(read.iso);

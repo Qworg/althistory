@@ -83,8 +83,10 @@ read as a stream and the page is refused once it grows past five megabytes.
 at depth one the arcs are the periods, and every further level wraps them in
 an enclosing arc. `--style` (`academic`, `narrative`, `concise`) is how the
 timeline is written. `generate expand --time-window` is the window to
-interpolate into, as two ISO-8601 instants separated by a slash
-(`2020-01-01T00:00:00Z/2020-12-31T00:00:00Z`); the expansion is recorded as
+interpolate into, as two dates separated by a slash (`1871-03/1871-09`,
+`2020-01-01T00:00:00Z/2020-12-31T00:00:00Z`, or in a world graph
+`Thaw 310 AR/Gale 320 AR`), read as every date is, its end without a time the
+last moment it names; the expansion is recorded as
 an arc, a child of the arc it expands when there is one.
 
 ## Invented worlds

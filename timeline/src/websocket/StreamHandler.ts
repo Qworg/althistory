@@ -81,7 +81,8 @@
  *     reading.
  */
 
-import { toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, storedCalendarSet, toInstant } from '@althistory/calendar';
+import { type RequestTime, newDateMetadata, readRequestTime } from '../api/worldDates';
 import type { IncomingMessage, Server as HttpServer } from 'http';
 import type { Duplex } from 'stream';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -184,6 +185,12 @@ export interface StreamWriteDeps {
    * hole in the same limit the HTTP routes enforce.
    */
   rateLimitService?: StreamRateLimiter;
+  /**
+   * The world calendars of a graph, so a date a message gives is read as the
+   * HTTP routes read it (docs/specs/world-calendars.md, Req 16). Without it,
+   * dates are read as in a graph without a world.
+   */
+  graphCalendar?(graphId: string): Promise<unknown>;
 }
 
 export interface StreamHandlerOptions {
@@ -975,13 +982,23 @@ export class StreamHandler {
     await this.writeRelationship(ws, context, data, requestId);
   }
 
+  /** The graph's world calendars, or none (a graph without, or one that cannot be read). */
+  private async calendarOf(graphId: string): Promise<WorldCalendarSet | undefined> {
+    if (!this.deps.graphCalendar) return undefined;
+    try {
+      return storedCalendarSet(await this.deps.graphCalendar(graphId)) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private async writeEvent(
     ws: WebSocket,
     context: ConnectionContext,
     data: Record<string, unknown>,
     requestId: string | undefined
   ): Promise<void> {
-    const converted = toCreateEventRequest(data);
+    const converted = await toCreateEventRequest(data, () => this.calendarOf(context.graphId));
     if (!converted.ok) {
       this.send(ws, {
         type: 'ack',
@@ -1022,7 +1039,7 @@ export class StreamHandler {
     data: Record<string, unknown>,
     requestId: string | undefined
   ): Promise<void> {
-    const converted = toCreateArcRequest(data);
+    const converted = await toCreateArcRequest(data, () => this.calendarOf(context.graphId));
     if (!converted.ok) {
       this.send(ws, {
         type: 'ack',
@@ -1475,7 +1492,10 @@ function rawDataToString(raw: RawData): string {
 
 type Converted<T> = { ok: true; value: T } | { ok: false; error: string };
 
-function toCreateEventRequest(data: Record<string, unknown>): Converted<CreateEventRequest> {
+async function toCreateEventRequest(
+  data: Record<string, unknown>,
+  calendarOf: () => Promise<WorldCalendarSet | undefined>
+): Promise<Converted<CreateEventRequest>> {
   const description = readNonEmptyString(data, 'description');
   const actor = readNonEmptyString(data, 'actor');
   const target = readNonEmptyString(data, 'target');
@@ -1490,19 +1510,28 @@ function toCreateEventRequest(data: Record<string, unknown>): Converted<CreateEv
     return { ok: false, error: `Missing required fields: ${missing.join(', ')}` };
   }
 
-  const timestamp = toDate(data.timestamp);
-  if (!timestamp) {
-    return { ok: false, error: 'Invalid timestamp' };
+  // Read as POST /api/events reads it: the world's notation, ISO 8601, a year
+  // first without a world; a month's or a year's precision recorded.
+  const time = await readMessageTime(data.timestamp, 'timestamp', calendarOf, 'start');
+  if (!time.ok) {
+    return { ok: false, error: time.error };
   }
 
-  const value: CreateEventRequest = { description, actor, target, timestamp };
-  if (isRecord(data.metadata)) {
-    value.metadata = data.metadata;
+  const value: CreateEventRequest = { description, actor, target, timestamp: time.value.date };
+  const metadata = newDateMetadata(isRecord(data.metadata) ? data.metadata : undefined, undefined, {
+    precision: time.value.precision ?? 'day',
+    calendar: time.value.calendar,
+  });
+  if (Object.keys(metadata).length > 0 || isRecord(data.metadata)) {
+    value.metadata = metadata;
   }
   return { ok: true, value };
 }
 
-function toCreateArcRequest(data: Record<string, unknown>): Converted<CreateArcRequest> {
+async function toCreateArcRequest(
+  data: Record<string, unknown>,
+  calendarOf: () => Promise<WorldCalendarSet | undefined>
+): Promise<Converted<CreateArcRequest>> {
   const name = readNonEmptyString(data, 'name');
   const level = data.level;
 
@@ -1522,16 +1551,17 @@ function toCreateArcRequest(data: Record<string, unknown>): Converted<CreateArcR
     return { ok: false, error: `Missing required fields: ${missing.join(', ')}` };
   }
 
-  const startTime = toDate(data.start_time);
-  const endTime = toDate(data.end_time);
-  if (!startTime || !endTime) {
-    return { ok: false, error: 'Invalid start_time or end_time' };
+  // As POST /api/arcs reads them: an end without a time is the last moment it names.
+  const start = await readMessageTime(data.start_time, 'start_time', calendarOf, 'start');
+  const end = await readMessageTime(data.end_time, 'end_time', calendarOf, 'end');
+  if (!start.ok || !end.ok) {
+    return { ok: false, error: !start.ok ? start.error : (end as { error: string }).error };
   }
 
   const value: CreateArcRequest = {
     name,
-    start_time: startTime,
-    end_time: endTime,
+    start_time: start.value.date,
+    end_time: end.value.date,
     level,
   };
   if (typeof data.description === 'string') {
@@ -1590,14 +1620,26 @@ function toCreateCausalRelationshipInput(
   };
 }
 
-/** Parse a Date, an ISO string or an epoch-milliseconds number; else null. */
-function toDate(value: unknown): Date | null {
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
+/**
+ * A date a message gives, read as the HTTP routes read it (`readRequestTime`):
+ * a Date, epoch milliseconds, the world's notation, ISO 8601, or year-first
+ * text without a world. What names no instant is refused, saying why.
+ */
+async function readMessageTime(
+  value: unknown,
+  field: string,
+  calendarOf: () => Promise<WorldCalendarSet | undefined>,
+  edge: 'start' | 'end'
+): Promise<Converted<RequestTime>> {
+  if (value instanceof Date || typeof value === 'number') {
+    const date = toInstant(value as Date | number);
+    return Number.isNaN(date.getTime()) ? { ok: false, error: `Invalid ${field}` } : { ok: true, value: { date } };
   }
-  if (typeof value === 'string' || typeof value === 'number') {
-    const date = toInstant(value);
-    return Number.isNaN(date.getTime()) ? null : date;
+  if (typeof value !== 'string' && !isRecord(value)) return { ok: false, error: `Invalid ${field}` };
+  try {
+    const read = await readRequestTime(value, field, calendarOf, edge);
+    return Number.isNaN(read.date.getTime()) ? { ok: false, error: `Invalid ${field}` } : { ok: true, value: read };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : `Invalid ${field}` };
   }
-  return null;
 }

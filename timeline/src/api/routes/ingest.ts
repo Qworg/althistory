@@ -89,17 +89,12 @@ export interface IngestRouterConfig {
   graphCalendar?: (graphId: string) => Promise<WorldCalendarSet | GraphCalendar | undefined>;
 }
 
-async function repositoryCalendar(graphId: string): Promise<WorldCalendarSet | undefined> {
-  const graph = await getContainer().graphRepository.findById(graphId);
-  return graph?.calendar;
-}
-
 /**
  * Scope a request to the graph its `X-Graph-Id` names, and check the key may
  * read it, but only when it names one: extraction writes nothing, so a request
  * without the header stays unscoped, as it always was.
  */
-function graphScopeWhenNamed(): RequestHandler[] {
+function scopeToGraphWhenNamed(): RequestHandler[] {
   const resolve = resolveGraphContext();
   const authorizeAccess = authorizeGraphAccess((req) => req.graphId);
   const whenNamed =
@@ -113,6 +108,12 @@ function graphScopeWhenNamed(): RequestHandler[] {
     };
   return [whenNamed(resolve), whenNamed(authorizeAccess as RequestHandler)];
 }
+
+async function repositoryCalendar(graphId: string): Promise<WorldCalendarSet | undefined> {
+  const graph = await getContainer().graphRepository.findById(graphId);
+  return graph?.calendar;
+}
+
 
 /**
  * The extraction context for text bound for a graph: the caller's, plus the
@@ -321,7 +322,7 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
    */
   router.post(
     '/text',
-    ...graphScopeWhenNamed(),
+    ...scopeToGraphWhenNamed(),
     asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       const body = isRecord(req.body) ? req.body : {};
       if (typeof body.text !== 'string' || body.text.trim().length === 0) {

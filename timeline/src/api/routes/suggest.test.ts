@@ -480,5 +480,24 @@ describe('Suggest Routes', () => {
       expect(response.body.pressures.length).toBe(1);
       expect(response.body.pressures[0].pressure_type).toBe('economic');
     });
+
+    it('reads event dates as every door does: milliseconds still, and a date it cannot read refused with a 400', async () => {
+      mockInferenceService.analyzeEventClusters.mockReturnValue([]);
+      const send = (timestamp: unknown) =>
+        request(app)
+          .post('/api/suggest/pressures')
+          .set('X-API-Key', 'valid-read-key')
+          .send({
+            events: [
+              { id: 'e1', description: 'A', actor: 'A', target: 'B', timestamp },
+              { id: 'e2', description: 'B', actor: 'A', target: 'B', timestamp: '1914-06-15T00:00:00.000Z' },
+            ],
+          });
+      await send(189000000000).expect(200);
+      await send('312-03-04 14:30').expect(200);
+      const refused = await send('Thaw 4, 312 AR').expect(400);
+      expect(JSON.stringify(refused.body)).toMatch(/timestamp/);
+      await send('0').expect(400);
+    });
   });
 });

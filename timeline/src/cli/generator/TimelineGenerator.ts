@@ -42,8 +42,10 @@ import {
   parseIsoInstant,
   positionOf,
   readWorldTimestamp,
+  storedCalendarSet,
   toInstant,
 } from '@althistory/calendar';
+import { formatHistoricalDate } from '@/utils/historicalDate';
 import { ValidationErrorCLI } from '../utils/exitCodes';
 
 export interface TimelineGeneratorConfig {
@@ -195,26 +197,31 @@ function lowerFirst(text: string): string {
 /**
  * Read a `start/end` time window.
  *
- * The window is two ISO-8601 instants separated by a slash (`2020-01-01T00:00:00Z/2020-12-31T00:00:00Z`).
+ * The window is two dates separated by a slash (`1871-03/1871-09`,
+ * `2020-01-01T00:00:00Z/2020-12-31T00:00:00Z`, or in a world graph
+ * `Thaw 312 AR/Gale 312 AR`), each read by the rule every door applies, with
+ * the graph's calendars: its end, without a time, is the last moment it names.
  * A window that cannot be read is a mistake the caller has to hear about, so
  * it raises rather than falling back to the graph's own span.
  */
-export function parseTimeWindow(value: string): { start: number; end: number } {
+export function parseTimeWindow(value: string, calendar?: WorldCalendarSet): { start: number; end: number } {
   const separator = value.includes('/') ? '/' : value.includes('..') ? '..' : null;
   if (!separator) {
     throw new Error(
-      `Invalid time window "${value}": expected two ISO-8601 instants separated by a slash, for example ` +
-        '"2020-01-01T00:00:00Z/2020-12-31T00:00:00Z"'
+      `Invalid time window "${value}": expected two dates separated by a slash, for example ` +
+        '"1871-03/1871-09" or "2020-01-01T00:00:00Z/2020-12-31T00:00:00Z"'
     );
   }
 
-  const [rawStart, rawEnd] = value.split(separator);
-  const start = parseInstant(rawStart);
-  const end = parseInstant(rawEnd);
+  const [rawStart, rawEnd = ''] = value.split(separator);
+  const read = (text: string, edge: 'start' | 'end') => {
+    const at = readWorldTimestamp(calendar, text.trim(), edge);
+    if (!at) throw new Error(`Invalid time window "${value}": ${unreadDateReason(calendar, text.trim())}`);
+    return Date.parse(at.iso);
+  };
+  const start = read(rawStart, 'start');
+  const end = read(rawEnd, 'end');
 
-  if (Number.isNaN(start) || Number.isNaN(end)) {
-    throw new Error(`Invalid time window "${value}": both instants must be ISO-8601 dates`);
-  }
   if (start >= end) {
     throw new Error(`Invalid time window "${value}": the start must be before the end`);
   }
@@ -952,8 +959,11 @@ export class TimelineGenerator {
       }
     }
 
+    // The graph's world calendars: the window is read, and the arc named, in them.
+    const calendar = storedCalendarSet((await container.graphRepository.findById(options.graphId).catch(() => null))?.calendar) ?? undefined;
+
     if (options.timeWindow) {
-      const parsed = parseTimeWindow(options.timeWindow);
+      const parsed = parseTimeWindow(options.timeWindow, calendar);
       if (parentArc) {
         // The expansion has to stay inside the arc it expands, or the graph
         // would hold an arc that is not contained by its parent.
@@ -991,7 +1001,7 @@ export class TimelineGenerator {
 
     const expansionArcName = parentArc
       ? `Expansion within ${parentArc.name}`
-      : `Expansion ${new Date(windowStart).toISOString().slice(0, 10)} to ${new Date(windowEnd).toISOString().slice(0, 10)}`;
+      : `Expansion ${formatHistoricalDate(new Date(windowStart), calendar)} to ${formatHistoricalDate(new Date(windowEnd), calendar)}`;
 
     if (options.dryRun) {
       return {

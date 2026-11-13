@@ -5,7 +5,7 @@
  */
 
 // React import not needed with new JSX transform
-import { ImportValidationResult, ImportError, ImportWarning, GraphCalendar } from '@/types'
+import { ImportValidationResult, ImportError, ImportWarning, GraphCalendar, ImportMode } from '@/types'
 import { formatHistoricalDate } from '@/utils/historicalTime'
 
 export interface ImportValidationStepProps {
@@ -18,6 +18,19 @@ export interface ImportValidationStepProps {
    * none: the file's dates are shown in its own years, not the open graph's.
    */
   calendar?: GraphCalendar | null
+  /**
+   * With a graph to import into: how it is imported, and a change of it. The
+   * dates are checked as that mode reads them (a new graph's own calendars,
+   * or the target's), so the choice is offered here as well as at preview.
+   */
+  mode?: ImportMode
+  onModeChange?: (mode: ImportMode) => void
+}
+
+const MODE_LABELS: Record<ImportMode, string> = {
+  'create-new': 'As a new graph',
+  merge: 'Merged into this graph',
+  replace: 'Replacing this graph',
 }
 
 function ErrorItem({ error }: { error: ImportError }) {
@@ -64,11 +77,34 @@ export function ImportValidationStep({
   onBack,
   isLoading = false,
   calendar,
+  mode,
+  onModeChange,
 }: ImportValidationStepProps) {
   const { valid, errors, warnings, summary } = validation
 
   return (
     <div className="space-y-6">
+      {mode && onModeChange && (
+        <fieldset className="rounded-md border border-line p-3">
+          <legend className="px-1 text-sm font-medium text-ink-secondary">Import</legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {(Object.keys(MODE_LABELS) as ImportMode[]).map((option) => (
+              <label key={option} className="flex items-center gap-2 text-sm text-ink">
+                <input
+                  type="radio"
+                  name="validation-mode"
+                  value={option}
+                  checked={mode === option}
+                  onChange={() => onModeChange(option)}
+                  disabled={isLoading}
+                  className="h-4 w-4 text-baseline border-line focus:ring-selected"
+                />
+                {MODE_LABELS[option]}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
       <div className="text-center">
         <h3 className="text-lg font-medium text-ink">Validation Results</h3>
         <p className="mt-1 text-sm text-ink-muted">

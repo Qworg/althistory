@@ -680,6 +680,18 @@ describe('invented worlds', () => {
       expect(formatInWorld(graph.calendar!, Date.parse(event!.timestamp), event!.metadata?.datePrecision as never)).toBe('Thaw 312 AR');
     });
 
+    it("expands a window written in the world's calendar, naming the expansion in it", async () => {
+      const world = await engine.generateTimeline({ world: 'Vael', calendar: VAEL as never, startDate: 'Lowtide 1, 300 AR', eventCount: 4 });
+      created.push(world.graphId);
+      const expanded = await engine.generateExpand({ graphId: world.graphId, timeWindow: 'Thaw 310 AR/Gale 320 AR', eventCount: 2, dryRun: false });
+      const arc = (await engine.listArcs(world.graphId)).find((candidate) => candidate.id === expanded.arcs[0]!.id)!;
+      expect(arc.name).toMatch(/^Expansion Thaw 1, 310 AR to Gale 30, 320 AR/);
+      expect(formatInWorld(world.calendar!, Date.parse(arc.endTime), 'day')).toMatch(/^Gale 30, 320 AR/);
+      await expect(engine.generateExpand({ graphId: world.graphId, timeWindow: '1310/1320', eventCount: 2, dryRun: true })).rejects.toThrow(
+        /Invalid time window .*Gregorian year/
+      );
+    });
+
     it("dates a chronicle without a model on the world's days, not at an hour of them", async () => {
       const result = await engine.generateTimeline({ world: 'Vael', calendar: VAEL as never, startDate: 'Lowtide 1, 300 AR', eventCount: 7, dryRun: true });
       for (const event of result.events) {

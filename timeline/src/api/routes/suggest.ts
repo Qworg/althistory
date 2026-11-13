@@ -23,6 +23,18 @@ import type {
   CompletenessResponse,
 } from '@/services/InferenceService';
 import { bodyInstant, requestCalendar } from '../worldDates';
+import { type WorldCalendarSet, unreadDateReason } from '@althistory/calendar';
+import { ValidationError } from '@/utils/errors';
+
+/** An event's date, read with the graph's calendars as every door reads it; refused (400) when it names none. */
+function eventTime(value: unknown, calendar: WorldCalendarSet | undefined): Date {
+  const at = bodyInstant(value, calendar);
+  if (Number.isNaN(at.getTime())) {
+    const reason = typeof value === 'string' ? unreadDateReason(calendar, value) : 'a date is text or milliseconds since 1970.';
+    throw new ValidationError(`An event's timestamp: ${reason}`, 'timestamp', value);
+  }
+  return at;
+}
 
 export const suggestRoutes = Router();
 
@@ -86,7 +98,7 @@ suggestRoutes.post(
               description: e.description,
               actor: e.actor,
               target: e.target,
-              timestamp: bodyInstant(e.timestamp, calendar),
+              timestamp: eventTime(e.timestamp, calendar),
             })
         );
       } else {
@@ -99,7 +111,7 @@ suggestRoutes.post(
               description: e.description,
               actor: e.actor,
               target: e.target,
-              timestamp: bodyInstant(e.timestamp, calendar),
+              timestamp: eventTime(e.timestamp, calendar),
             })
         );
       }
@@ -114,6 +126,8 @@ suggestRoutes.post(
 
       res.json({ suggestions });
     } catch (error) {
+      // A date that names no instant is the caller's to fix (400), not a failure here.
+      if (error instanceof ValidationError) throw error;
       console.error('[Suggest] Error getting relationship suggestions:', error);
       res.status(500).json({
         error: { message: 'Failed to get relationship suggestions' },
@@ -153,7 +167,7 @@ suggestRoutes.post(
           description: e.description,
           actor: e.actor,
           target: e.target,
-          timestamp: bodyInstant(e.timestamp, calendar),
+          timestamp: eventTime(e.timestamp, calendar),
         }));
       } else {
         const { eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
@@ -163,7 +177,7 @@ suggestRoutes.post(
           description: e.description,
           actor: e.actor,
           target: e.target,
-          timestamp: bodyInstant(e.timestamp, calendar),
+          timestamp: eventTime(e.timestamp, calendar),
         }));
       }
 
@@ -182,6 +196,8 @@ suggestRoutes.post(
 
       res.json({ suggestions });
     } catch (error) {
+      // A date that names no instant is the caller's to fix (400), not a failure here.
+      if (error instanceof ValidationError) throw error;
       console.error('[Suggest] Error getting arc suggestions:', error);
       res.status(500).json({
         error: { message: 'Failed to get arc suggestions' },
@@ -223,7 +239,7 @@ suggestRoutes.post(
         description: e.description,
         actor: e.actor,
         target: e.target,
-        timestamp: bodyInstant(e.timestamp, calendar),
+        timestamp: eventTime(e.timestamp, calendar),
       }));
       
       for (const event of eventEntities) {
@@ -249,7 +265,7 @@ suggestRoutes.post(
         description: e.description,
         actor: e.actor,
         target: e.target,
-        timestamp: bodyInstant(e.timestamp, calendar).toISOString(),
+        timestamp: eventTime(e.timestamp, calendar).toISOString(),
       }));
 
       const response: CompletenessResponse = req.container.inferenceService.analyzeCompleteness(
@@ -259,6 +275,8 @@ suggestRoutes.post(
 
       res.json(response);
     } catch (error) {
+      // A date that names no instant is the caller's to fix (400), not a failure here.
+      if (error instanceof ValidationError) throw error;
       console.error('[Suggest] Error analyzing completeness:', error);
       res.status(500).json({
         error: { message: 'Failed to analyze completeness' },
@@ -303,7 +321,7 @@ suggestRoutes.post(
               description: e.description,
               actor: e.actor,
               target: e.target,
-              timestamp: bodyInstant(e.timestamp, calendar),
+              timestamp: eventTime(e.timestamp, calendar),
             })
         );
       } else {
@@ -316,7 +334,7 @@ suggestRoutes.post(
               description: e.description,
               actor: e.actor,
               target: e.target,
-              timestamp: bodyInstant(e.timestamp, calendar),
+              timestamp: eventTime(e.timestamp, calendar),
             })
         );
       }
@@ -338,6 +356,8 @@ suggestRoutes.post(
         })),
       });
     } catch (error) {
+      // A date that names no instant is the caller's to fix (400), not a failure here.
+      if (error instanceof ValidationError) throw error;
       console.error('[Suggest] Error analyzing pressures:', error);
       res.status(500).json({
         error: { message: 'Failed to analyze pressures' },

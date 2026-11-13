@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { UseMutationResult } from '@tanstack/react-query'
 import { ImportWizard } from './ImportWizard'
@@ -348,6 +348,47 @@ describe('ImportWizard', () => {
       
       // Component should render without errors
       expect(screen.getByText('Import an export file')).toBeInTheDocument()
+    })
+  })
+  describe('the mode a file is checked in', () => {
+    const paste = async () => {
+      fireEvent.change(screen.getByLabelText('Export file contents'), { target: { value: JSON.stringify(validExportData) } })
+      await user.click(screen.getByRole('button', { name: 'Check pasted file' }))
+    }
+
+    it('is the mode it will be imported in, which can be changed on the validation step', async () => {
+      renderComponent({ targetGraphId: 'vael' })
+      await paste()
+      expect(mockValidateMutation.mutateAsync).toHaveBeenLastCalledWith({ data: validExportData, targetGraphId: 'vael', mode: 'create-new' })
+
+      await user.click(await screen.findByRole('radio', { name: 'Merged into this graph' }))
+      await waitFor(() =>
+        expect(mockValidateMutation.mutateAsync).toHaveBeenLastCalledWith({ data: validExportData, targetGraphId: 'vael', mode: 'merge' })
+      )
+      // Checked, not yet previewed: the user continues when ready.
+      expect(mockPreviewMutation.mutateAsync).not.toHaveBeenCalled()
+      expect(screen.getByRole('radio', { name: 'Merged into this graph' })).toBeChecked()
+    })
+
+    it('drops the answer to a check that a later change of mode has replaced', async () => {
+      renderComponent({ targetGraphId: 'vael' })
+      await paste()
+      const answers: Array<(result: ImportValidationResult) => void> = []
+      vi.mocked(mockValidateMutation.mutateAsync).mockImplementation(() => new Promise((resolve) => answers.push(resolve)))
+      await user.click(await screen.findByRole('radio', { name: 'Merged into this graph' }))
+      await user.click(screen.getByRole('radio', { name: 'Replacing this graph' }))
+      // The later check answers first, valid; the earlier one last, refused.
+      await act(async () => answers[1]!(validValidationResult))
+      await act(async () => answers[0]!({ ...validValidationResult, valid: false, errors: [{ path: '$', message: 'stale', code: 'INVALID_VALUE' }] }))
+      expect(screen.queryByText(/stale/)).toBeNull()
+      expect(screen.getByRole('radio', { name: 'Replacing this graph' })).toBeChecked()
+    })
+
+    it('offers no choice without a graph to import into', async () => {
+      renderComponent()
+      await paste()
+      await screen.findByText('Validation Results')
+      expect(screen.queryByRole('radio', { name: 'Merged into this graph' })).toBeNull()
     })
   })
 })
