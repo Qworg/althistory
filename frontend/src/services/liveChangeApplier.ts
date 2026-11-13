@@ -18,15 +18,33 @@ export interface LiveChangeSink {
 export const GRAPH_COUNTS_REFRESH_MS = 10_000
 
 /**
- * The least time between refetches of one data root (events, arcs, links,
- * pressures). Every refetch is a request against the browser key's rate limit
- * (60 a minute by default when the entity routes need a key), and one flush
- * refetches several roots, so a stream of writes must not refetch at every
- * flush. The first change refreshes at once; changes inside the interval are
- * covered by one trailing refresh when it ends, so a view is at most this far
- * behind the last change.
+ * The least time between refetches of one data root (events, arcs, links).
+ * Every refetch is a request against the browser key's rate limit (60 a minute
+ * by default when the entity routes need a key), and one flush refetches
+ * several roots. The first change refreshes at once; changes inside the
+ * interval are covered by one trailing refresh when it ends, so a view is at
+ * most this far behind the last change.
  */
-export const DATA_REFRESH_MS = 1_000
+export const DATA_REFRESH_MS = 5_000
+
+/**
+ * The same for the pressures, which are derived from everything else and
+ * invalidated by every write: they follow the entities at a slower pace.
+ */
+export const DERIVED_REFRESH_MS = 15_000
+
+/** The roots that are derived from the others and refresh at `DERIVED_REFRESH_MS`. */
+const DERIVED_ROOTS: ReadonlySet<string> = new Set(['inference'])
+
+/**
+ * The most data-root invalidations in any minute, across all roots. The
+ * per-root intervals bound each root; this bounds their sum, so a steady
+ * stream (an agent writing an event and a link every two seconds, for an
+ * hour) leaves the key most of its 60 requests a minute for the person using
+ * the page. What the cap holds back is not lost: it is refreshed as soon as
+ * the minute makes room.
+ */
+export const DATA_REFRESHES_PER_MINUTE = 30
 
 export interface LiveChangeApplierOptions {
   queryClient: QueryClient
@@ -52,8 +70,9 @@ export interface LiveChangeApplierOptions {
  * announcing your own edit back to you is noise. It still refreshes the data,
  * because the tag that says it is this tab's is one any writer can send.
  *
- * Data refetches are throttled per root (`DATA_REFRESH_MS`), because every
- * refetch is a request against a rate-limited key.
+ * Data refetches are throttled per root (`DATA_REFRESH_MS`, slower for the
+ * derived pressures) and across roots (`DATA_REFRESHES_PER_MINUTE`), because
+ * every refetch is a request against a rate-limited key.
  */
 export class LiveChangeApplier {
   private readonly options: LiveChangeApplierOptions
@@ -64,6 +83,8 @@ export class LiveChangeApplier {
   private graphsTimer: ReturnType<typeof setTimeout> | undefined
   /** The same for each data root: when it was last invalidated, and its pending trailing refresh. */
   private readonly roots = new Map<string, { at: number; timer: ReturnType<typeof setTimeout> | undefined }>()
+  /** When each data-root invalidation of the last minute happened. */
+  private spent: number[] = []
   /** Changes this tab made itself: they still refresh the data, but are not announced or highlighted. */
   private readonly own = new WeakSet<LiveChange>()
 
@@ -122,19 +143,27 @@ export class LiveChangeApplier {
     if (notices.length > 0) this.options.sink.addNotices(notices)
   }
 
-  /** Refetch a data root now if it has been a while, else once the interval is over. */
+  /** Refetch a data root now if the root's interval and the minute's budget allow, else when they do. */
   private invalidateData(root: string): void {
     const held = this.roots.get(root) ?? { at: Number.NEGATIVE_INFINITY, timer: undefined }
     this.roots.set(root, held)
     if (held.timer !== undefined) return
-    const run = (): void => {
+    const interval = DERIVED_ROOTS.has(root) ? DERIVED_REFRESH_MS : DATA_REFRESH_MS
+    const attempt = (): void => {
       held.timer = undefined
-      held.at = Date.now()
+      const now = Date.now()
+      this.spent = this.spent.filter((at) => now - at < 60_000)
+      const budgetWait = this.spent.length >= DATA_REFRESHES_PER_MINUTE ? this.spent[0] + 60_000 - now : 0
+      const wait = Math.max(held.at + interval - now, budgetWait)
+      if (wait > 0) {
+        held.timer = setTimeout(attempt, wait)
+        return
+      }
+      held.at = now
+      this.spent.push(now)
       void this.options.queryClient.invalidateQueries({ queryKey: [root] })
     }
-    const wait = held.at + DATA_REFRESH_MS - Date.now()
-    if (wait <= 0) run()
-    else held.timer = setTimeout(run, wait)
+    attempt()
   }
 
   /** Refetch the graph queries now, and count it against the throttle. */

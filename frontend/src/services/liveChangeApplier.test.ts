@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
 import type { ChangeActor, LiveChange } from '@/types'
-import { DATA_REFRESH_MS, GRAPH_COUNTS_REFRESH_MS, LiveChangeApplier } from './liveChangeApplier'
+import {
+  DATA_REFRESH_MS,
+  DATA_REFRESHES_PER_MINUTE,
+  DERIVED_REFRESH_MS,
+  GRAPH_COUNTS_REFRESH_MS,
+  LiveChangeApplier,
+} from './liveChangeApplier'
 
 let seq = 0
 function added(graphId: string, type: 'event' | 'arc' | 'relationship', id: string, extra: Partial<LiveChange> = {}): LiveChange {
@@ -58,7 +64,9 @@ describe('LiveChangeApplier', () => {
     }
     vi.advanceTimersByTime(20_000)
     const graphs = invalidated.filter((root) => root === 'graphs').length
-    expect(invalidated.filter((root) => root === 'events').length).toBeGreaterThan(30)
+    const events = invalidated.filter((root) => root === 'events').length
+    expect(events).toBeGreaterThan(8)
+    expect(events).toBeLessThanOrEqual(Math.ceil(80_000 / DATA_REFRESH_MS) + 1)
     // Once to start, then at most one every GRAPH_COUNTS_REFRESH_MS, then the trailing one.
     expect(graphs).toBeLessThanOrEqual(1 + Math.ceil(60_000 / GRAPH_COUNTS_REFRESH_MS) + 1)
     expect(graphs).toBeGreaterThanOrEqual(2)
@@ -98,6 +106,49 @@ describe('LiveChangeApplier', () => {
     expect(events).toBeLessThanOrEqual(Math.ceil(2000 / DATA_REFRESH_MS) + 2)
   })
 
+  it('keeps a steady agent stream well inside the key\'s 60 requests a minute', () => {
+    // An event, then a link, every two seconds for five minutes: the shape of an MCP agent.
+    for (let t = 0; t < 300_000; t += 2000) {
+      applier.push(added('g1', 'event', `e${t}`))
+      vi.advanceTimersByTime(1000)
+      applier.push(added('g1', 'relationship', `r${t}`))
+      vi.advanceTimersByTime(1000)
+    }
+    vi.advanceTimersByTime(60_000)
+    const refetches = invalidated.filter((root) => root !== 'graphs')
+    // Over the five minutes, and in no minute of them, more than a half of the budget.
+    expect(refetches.length).toBeLessThanOrEqual(5 * 40)
+    // The slow derived root is slower than the entities.
+    const inference = invalidated.filter((root) => root === 'inference').length
+    expect(inference).toBeLessThanOrEqual(Math.ceil(360_000 / DERIVED_REFRESH_MS) + 1)
+  })
+
+  it('never invalidates more than the per-minute cap in any minute, but catches up when the minute allows', () => {
+    const times: number[] = []
+    ;(queryClient.invalidateQueries as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      ((filters: { queryKey?: readonly unknown[] }) => {
+        if (filters?.queryKey?.[0] !== 'graphs') times.push(Date.now())
+        return Promise.resolve()
+      }) as unknown as QueryClient['invalidateQueries']
+    )
+    // Many roots changing at every possible moment.
+    for (let t = 0; t < 180_000; t += 500) {
+      applier.push(added('g1', 'event', `e${t}`))
+      applier.push(added('g1', 'arc', `a${t}`))
+      applier.push(added('g1', 'relationship', `r${t}`))
+      vi.advanceTimersByTime(500)
+    }
+    for (let i = 0; i < times.length; i += 1) {
+      const inMinute = times.filter((at) => at >= times[i] && at < times[i] + 60_000).length
+      expect(inMinute).toBeLessThanOrEqual(DATA_REFRESHES_PER_MINUTE)
+    }
+    // And a change is never lost: the roots still refresh once the minute makes room.
+    const before = times.length
+    vi.advanceTimersByTime(120_000)
+    expect(times.length).toBeGreaterThanOrEqual(before)
+    expect(times.length).toBeGreaterThan(30)
+  })
+
   it('refreshes the data once more when the interval ends, so the view is never left behind the last change', () => {
     applier.push(added('g1', 'event', 'e1'))
     vi.advanceTimersByTime(150)
@@ -123,11 +174,11 @@ describe('LiveChangeApplier', () => {
   })
 
   it('applies a steady stream within the window, not only when it stops', () => {
-    for (let i = 0; i < 100; i += 1) {
+    for (let i = 0; i < 300; i += 1) {
       applier.push(added('g1', 'event', `e${i}`))
       vi.advanceTimersByTime(20)
     }
-    // 2 seconds of messages arriving every 20ms: applied about every 150ms
+    // 6 seconds of messages arriving every 20ms: applied about every 150ms
     // (highlighted and announced), while the refetch is held to DATA_REFRESH_MS.
     expect(sink.markFresh.mock.calls.length).toBeGreaterThanOrEqual(10)
     expect(invalidated.filter((root) => root === 'events').length).toBeGreaterThanOrEqual(2)
