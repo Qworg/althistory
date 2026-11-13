@@ -15,7 +15,9 @@
  */
 
 import * as d3 from 'd3'
-import { type AxisTime, AxisDate, axisOf, gregorianTicks, instantOfAxisTime } from '@althistory/calendar'
+import { type AxisTime, AxisDate, axisOf, gregorianTicks, instantOfAxisTime, instantOfMs } from '@althistory/calendar'
+
+export { instantOfMs }
 
 /** What a position on the axis needs of a scale: a Date to a pixel, and back (a d3 time scale is one, and so is an {@link InstantScale}). */
 export interface PositionScale {
@@ -41,11 +43,6 @@ export interface InstantScale extends PositionScale {
 /** Whether a moment is beyond what a Date holds. */
 export function isDeepInstant(value: Date): boolean {
   return value instanceof AxisDate
-}
-
-/** The moment `ms` milliseconds from 1970 names: a Date, or an `AxisDate` beyond a Date's range; invalid when it names none. */
-export function instantOfMs(ms: number): Date {
-  return Number.isFinite(ms) ? (instantOfAxisTime(BigInt(Math.trunc(ms))) ?? new Date(NaN)) : new Date(NaN)
 }
 
 function toDate(value: Date | number): Date {

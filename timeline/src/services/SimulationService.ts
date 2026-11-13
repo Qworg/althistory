@@ -1,3 +1,4 @@
+import { instantOfMs } from '@althistory/calendar';
 import { Event, InferredPressure, PressureType } from '@/models';
 import { CausalRelationship } from '@/models/relationships';
 import { NotFoundError, ValidationError } from '@/utils/errors';
@@ -243,7 +244,7 @@ export class SimulationService {
       const event = this.buildCandidateEvent({
         domain: stepDomain,
         pressure,
-        timestamp: new Date(cursorTime + stepDurationMs),
+        timestamp: instantOfMs(cursorTime + stepDurationMs),
         window,
         anchor,
         aggressiveness,

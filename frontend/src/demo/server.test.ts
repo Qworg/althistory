@@ -46,6 +46,23 @@ describe('demo server', () => {
     expect(graph.data.data.metadata.eventCount).toBe(20)
   })
 
+  it('keeps a history of a million years in the order of time, and draws no NaN', async () => {
+    const { respond } = await load()
+    for (const [description, timestamp] of [
+      ['The last city', '+300000-01-01T00:00:00.000Z'],
+      ['The first hearths', '-499999-06-15T00:00:00.000Z'],
+      ['Toba', '-070000-01-01T00:00:00.000Z'],
+    ] as const) {
+      const made = await respond(request('post', '/events', { description, actor: 'People', target: 'World', timestamp }))
+      expect(made.status).toBe(201)
+    }
+    const events = (await respond(request('get', '/events'))).data.data as Array<{ description: string; timestamp: string }>
+    const order = events.map((e) => e.description)
+    expect(order[0]).toBe('The first hearths')
+    expect(order[1]).toBe('Toba')
+    expect(order[order.length - 1]).toBe('The last city')
+  })
+
   it('follows causes forward from an event', async () => {
     const { respond } = await load()
     const chain = await respond(request('get', '/causal/chain/event_noteg?maxDepth=2'))

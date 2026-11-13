@@ -422,7 +422,7 @@ export class TimelineGenerator {
     for (const a of orderedArcs) {
       const startTime = toInstant(a.start_time);
       let endTime = toInstant(a.end_time);
-      endTime = new Date(widenedEnd(startTime.getTime(), endTime.getTime()));
+      endTime = instantOf(widenedEnd(startTime.getTime(), endTime.getTime()));
       const created = await scoped.arcRepository.create({
         name: a.name,
         description: a.description || '',

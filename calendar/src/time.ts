@@ -221,6 +221,15 @@ export function instantOfAxisTime(time: AxisTime): Date | null {
   return inDateRange(time) ? new Date(Number(time)) : new AxisDate(time)
 }
 
+/**
+ * The Date `ms` milliseconds from 1970 names: a plain one within a Date's range,
+ * an {@link AxisDate} beyond it; an invalid Date for a number that is not whole
+ * or lies past the bound. For app code that works in milliseconds as numbers.
+ */
+export function instantOfMs(ms: number): Date {
+  return Number.isFinite(ms) ? (instantOfAxisTime(BigInt(Math.trunc(ms))) ?? new Date(NaN)) : new Date(NaN)
+}
+
 /** The plain Date of an axis time, or null beyond a Date's range. */
 export function dateOfAxisTime(time: AxisTime): Date | null {
   return inDateRange(time) ? new Date(Number(time)) : null

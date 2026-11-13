@@ -24,6 +24,7 @@
 import { AxiosError, AxiosHeaders, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
 import recordingText from './recording.json?raw'
 import { DEMO_STATE_KEY, REPO_URL } from './flag'
+import { compareInstants, toInstant } from '@althistory/calendar'
 
 type Json = Record<string, unknown>
 
@@ -339,7 +340,8 @@ function list<T>(items: T[], params: URLSearchParams, extra: Json = {}): Reply {
   }
 }
 
-const byTime = (a: DemoEvent, b: DemoEvent) => a.timestamp.localeCompare(b.timestamp)
+// By the moment, not the text: "-000100…" is before "-000043…", and "+300000…" after "2000…".
+const byTime = (a: DemoEvent, b: DemoEvent) => compareInstants(toInstant(a.timestamp), toInstant(b.timestamp))
 
 function events(method: string, path: string, params: URLSearchParams, body: Json, graph: GraphState): Reply | undefined {
   if (path === '/events' && method === 'GET') {
@@ -392,7 +394,7 @@ function events(method: string, path: string, params: URLSearchParams, body: Jso
 }
 
 function arcs(method: string, path: string, params: URLSearchParams, body: Json, graph: GraphState): Reply | undefined {
-  const sorted = () => [...graph.arcs].sort((a, b) => a.level - b.level || a.start_time.localeCompare(b.start_time))
+  const sorted = () => [...graph.arcs].sort((a, b) => a.level - b.level || compareInstants(toInstant(a.start_time), toInstant(b.start_time)))
   if (path === '/arcs' && method === 'GET') return list(sorted(), params, { filters: { level: null, timeRange: null } })
   if (path === '/arcs/hierarchy' && method === 'GET') return ok(sorted())
   if (path === '/arcs' && method === 'POST') {

@@ -37,7 +37,8 @@ export function isOutsideSpan(timestamp: string, span: HistorySpan | null, calen
   // notation), never as `new Date` would guess.
   const read = readWorldTimestamp(calendar, timestamp)
   if (!read) return false
-  const time = Date.parse(read.iso)
+  // Milliseconds, as a number: good to a second even at a million years.
+  const time = Number(read.time)
   const margin = Math.max(10 * YEAR_MS, (span.end - span.start) * 0.2)
   return time < span.start - margin || time > span.end + margin
 }

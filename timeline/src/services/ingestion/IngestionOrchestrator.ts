@@ -433,7 +433,7 @@ function typedTimestamp(
 function strictTime(text: string, calendar?: WorldCalendarSet): number {
   if (!parseIsoInstant(String(text).trim())) return NaN;
   const read = readWorldTimestamp(calendar, String(text));
-  return read ? Date.parse(read.iso) : NaN;
+  return read ? Number(read.time) : NaN;
 }
 
 function mergeEvent(event: ExtractedEvent, edit: ExtractedEdit | undefined, calendar?: WorldCalendarSet): ExtractedEvent {
