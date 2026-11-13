@@ -89,6 +89,13 @@ function describeWrittenSoFar(job: GenerationJobPayload): string {
   return `; ${part(written.events, 'event')}, ${part(written.arcs, 'arc')} and ${part(written.relationships, 'link')} stay${where}`;
 }
 
+/** `ALTHISTORY_GENERATION_TIMEOUT_MS`, when it is a positive whole number of milliseconds. */
+function generationTimeoutFromEnv(): number {
+  const raw = process.env.ALTHISTORY_GENERATION_TIMEOUT_MS;
+  const parsed = raw !== undefined && /^\d+$/.test(raw.trim()) ? Number.parseInt(raw.trim(), 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_GENERATION_TIMEOUT_MS;
+}
+
 export interface RemoteEngineOptions {
   /** What kind of client this is, for the app's live change feed. Defaults to `cli`. */
   client?: 'cli' | 'mcp';
@@ -156,7 +163,7 @@ export class RemoteEngine implements IEngine {
   constructor(baseUrl: string = 'http://localhost:3000', apiKey?: string, options: RemoteEngineOptions = {}) {
     this.sentApiKey = Boolean(apiKey);
     this.baseUrl = baseUrl.replace(/\/+$/, '');
-    this.generationTimeoutMs = options.generationTimeoutMs ?? DEFAULT_GENERATION_TIMEOUT_MS;
+    this.generationTimeoutMs = options.generationTimeoutMs ?? generationTimeoutFromEnv();
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

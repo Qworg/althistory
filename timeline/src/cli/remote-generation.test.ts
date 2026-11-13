@@ -217,6 +217,22 @@ describe('RemoteEngine generation against a stand-in daemon', () => {
     expect(requests.some((request) => request.path.endsWith('/cancel'))).toBe(true);
   });
 
+  it('takes its time limit from the environment, when it is a positive number of milliseconds', async () => {
+    script = [{ status: 'running', progress: 10, phase: 'events', message: 'x' }];
+    process.env.ALTHISTORY_GENERATION_TIMEOUT_MS = '1';
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await expect(
+        new RemoteEngine(baseUrl, 'key', { sleep: async () => new Promise((resolve) => setTimeout(resolve, 5)) }).generateTimeline({
+          premise: 'p',
+          divergencePoint: 'd',
+        })
+      ).rejects.toMatchObject({ code: 'GENERATION_TIMEOUT' });
+    } finally {
+      delete process.env.ALTHISTORY_GENERATION_TIMEOUT_MS;
+    }
+  });
+
   it('turns a refused start into the daemon\'s own message', async () => {
     startStatus = 429;
     await expect(engineWith().generateTimeline({ premise: 'p', divergencePoint: 'd' })).rejects.toThrow(/429.*at the limit/);
