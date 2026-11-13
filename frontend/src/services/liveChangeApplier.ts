@@ -1,12 +1,14 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { LiveChange } from '@/types'
-import { changesGraphCounts, describeChanges, freshIdsOf, queryRootsFor } from './liveChanges'
+import { changesGraphCounts, describeChanges, freshIdsOf, generationNotice, queryRootsFor } from './liveChanges'
 import { GRAPH_LIST_CHANNEL } from './liveFeedClient'
 
 /** What the applier writes to the screen's state; the live store satisfies it. */
 export interface LiveChangeSink {
-  markFresh(items: Array<{ type: 'event' | 'arc' | 'relationship' | 'pressure'; id: string }>): void
+  markFresh(items: Array<FreshItem>): void
   addNotices(messages: string[]): void
+  /** Say something under a key: a later notice with the same key replaces the earlier one. */
+  setNotice(key: string, message: string): void
 }
 
 /**
@@ -19,19 +21,36 @@ export const GRAPH_COUNTS_REFRESH_MS = 10_000
 
 /**
  * The least time between refetches of one data root (events, arcs, links).
- * Every refetch is a request against the browser key's rate limit (60 a minute
- * by default when the entity routes need a key), and one flush refetches
- * several roots. The first change refreshes at once; changes inside the
- * interval are covered by one trailing refresh when it ends, so a view is at
- * most this far behind the last change.
+ * Short, so an agent writing a call every second or two appears about as it
+ * writes (the issue asks for within about a second); the sustained rate is
+ * bounded by `DATA_REFRESHES_PER_MINUTE`, not by this. The first change after
+ * a quiet spell refreshes at once; changes inside the interval are covered by
+ * one trailing refresh when it ends, so a view is at most this far behind the
+ * last change while the minute's budget lasts.
  */
-export const DATA_REFRESH_MS = 5_000
+export const DATA_REFRESH_MS = 1_000
 
 /**
  * The same for the pressures, which are derived from everything else and
  * invalidated by every write: they follow the entities at a slower pace.
  */
 export const DERIVED_REFRESH_MS = 15_000
+
+/** The query root whose refetch delivers an entity of each type. */
+const ROOT_OF_TYPE: Readonly<Record<string, string>> = {
+  event: 'events',
+  arc: 'arcs',
+  relationship: 'causal',
+  pressure: 'inference',
+}
+
+type FreshItem = { type: 'event' | 'arc' | 'relationship' | 'pressure'; id: string }
+
+/** Items waiting for the refetch that will bring them, and the graph they belong to. */
+interface PendingFresh {
+  graphId: string
+  items: FreshItem[]
+}
 
 /** The roots that are derived from the others and refresh at `DERIVED_REFRESH_MS`. */
 const DERIVED_ROOTS: ReadonlySet<string> = new Set(['inference'])
@@ -66,6 +85,11 @@ export interface LiveChangeApplierOptions {
  * window is fixed from the first change, so a steady stream is still applied
  * several times a second.
  *
+ * An item is highlighted when the refetch that carries it finishes, not when
+ * the change arrives: a refetch held back by the throttle or the minute's
+ * budget would otherwise leave the highlight to run out before the item is on
+ * screen.
+ *
  * A change this tab made itself is applied but not announced or highlighted:
  * announcing your own edit back to you is noise. It still refreshes the data,
  * because the tag that says it is this tab's is one any writer can send.
@@ -82,7 +106,11 @@ export class LiveChangeApplier {
   private graphsAt = Number.NEGATIVE_INFINITY
   private graphsTimer: ReturnType<typeof setTimeout> | undefined
   /** The same for each data root: when it was last invalidated, and its pending trailing refresh. */
-  private readonly roots = new Map<string, { at: number; timer: ReturnType<typeof setTimeout> | undefined }>()
+  private readonly roots = new Map<
+    string,
+    { at: number; timer: ReturnType<typeof setTimeout> | undefined; pending: PendingFresh[] }
+  >()
+  private disposed = false
   /** When each data-root invalidation of the last minute happened. */
   private spent: number[] = []
   /** Changes this tab made itself: they still refresh the data, but are not announced or highlighted. */
@@ -129,24 +157,50 @@ export class LiveChangeApplier {
     if (batch.length === 0) return
 
     const active = this.options.activeGraphId()
-    for (const queryKey of queryRootsFor(batch, active)) {
-      if (queryKey[0] === 'graphs') this.invalidateGraphs()
-      else this.invalidateData(queryKey[0])
+    const announced = batch.filter((change) => !this.own.has(change))
+    // What to highlight, by the root whose refetch brings it.
+    const freshByRoot = new Map<string, PendingFresh>()
+    if (active !== null) {
+      for (const change of announced) {
+        if (change.graphId !== active) continue
+        for (const item of freshIdsOf(change)) {
+          const root = ROOT_OF_TYPE[item.type]
+          if (root === undefined) continue
+          const group = freshByRoot.get(root) ?? { graphId: active, items: [] }
+          group.items.push(item)
+          freshByRoot.set(root, group)
+        }
+      }
+    }
+
+    const roots = queryRootsFor(batch, active).map((queryKey) => queryKey[0])
+    // A root with items to highlight is refetched even if no rule named it.
+    for (const root of freshByRoot.keys()) if (!roots.includes(root)) roots.push(root)
+    for (const root of roots) {
+      if (root === 'graphs') this.invalidateGraphs()
+      else this.invalidateData(root, freshByRoot.get(root))
     }
     if (changesGraphCounts(batch)) this.scheduleGraphCounts()
 
-    const announced = batch.filter((change) => !this.own.has(change))
-    const fresh = announced.filter((change) => change.graphId === active).flatMap(freshIdsOf)
-    if (fresh.length > 0) this.options.sink.markFresh(fresh)
-
-    const notices = describeChanges(announced, (graphId) => this.graphName(graphId, active))
+    const notices = describeChanges(
+      announced.filter((change) => change.kind !== 'generation'),
+      (graphId) => this.graphName(graphId, active)
+    )
     if (notices.length > 0) this.options.sink.addNotices(notices)
+    // A run's end is announced once per job: a cancel is published, then
+    // corrected when the exact count is known, and the correction replaces the
+    // first notice instead of adding a second.
+    for (const change of announced) {
+      const notice = generationNotice(change)
+      if (notice !== null && change.kind === 'generation') this.options.sink.setNotice(`generation:${change.jobId}`, notice)
+    }
   }
 
   /** Refetch a data root now if the root's interval and the minute's budget allow, else when they do. */
-  private invalidateData(root: string): void {
-    const held = this.roots.get(root) ?? { at: Number.NEGATIVE_INFINITY, timer: undefined }
+  private invalidateData(root: string, fresh?: PendingFresh): void {
+    const held = this.roots.get(root) ?? { at: Number.NEGATIVE_INFINITY, timer: undefined, pending: [] }
     this.roots.set(root, held)
+    if (fresh) held.pending.push(fresh)
     if (held.timer !== undefined) return
     const interval = DERIVED_ROOTS.has(root) ? DERIVED_REFRESH_MS : DATA_REFRESH_MS
     const attempt = (): void => {
@@ -161,9 +215,20 @@ export class LiveChangeApplier {
       }
       held.at = now
       this.spent.push(now)
-      void this.options.queryClient.invalidateQueries({ queryKey: [root] })
+      const delivering = held.pending
+      held.pending = []
+      const delivered = (): void => this.highlight(delivering)
+      void this.options.queryClient.invalidateQueries({ queryKey: [root] }).then(delivered, delivered)
     }
     attempt()
+  }
+
+  /** The refetch that carries these items has finished: highlight those on the graph still on screen. */
+  private highlight(groups: PendingFresh[]): void {
+    if (this.disposed || groups.length === 0) return
+    const active = this.options.activeGraphId()
+    const items = groups.filter((group) => group.graphId === active).flatMap((group) => group.items)
+    if (items.length > 0) this.options.sink.markFresh(items)
   }
 
   /** Refetch the graph queries now, and count it against the throttle. */
@@ -183,6 +248,7 @@ export class LiveChangeApplier {
   }
 
   dispose(): void {
+    this.disposed = true
     if (this.timer !== undefined) clearTimeout(this.timer)
     this.timer = undefined
     if (this.graphsTimer !== undefined) clearTimeout(this.graphsTimer)

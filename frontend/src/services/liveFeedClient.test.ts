@@ -468,6 +468,29 @@ describe('LiveFeedClient', () => {
     })
   })
 
+  describe('access revoked', () => {
+    it('stops saying live when the open graph is revoked, and says live again for a graph that is watched', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 1, replayed: 0 })
+      expect(h.client.currentStatus).toBe('live')
+      socket.say({ type: 'unsubscribed', graphId: 'g1', reason: 'access_revoked' })
+      expect(h.client.currentStatus).toBe('error')
+      h.client.setGraph('g2')
+      socket.say({ type: 'subscribed', graphId: 'g2', epoch: 'E1', seq: 1, replayed: 0 })
+      expect(h.client.currentStatus).toBe('live')
+    })
+
+    it('keeps saying live when only the graph list is revoked', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 1, replayed: 0 })
+      socket.say({ type: 'unsubscribed', graphId: '*', reason: 'access_revoked' })
+      expect(h.revoked).toEqual(['*'])
+      expect(h.client.currentStatus).toBe('live')
+    })
+  })
+
   describe('a subscribe the server refuses', () => {
     it('says the feed is not whole, asks again after the delay the server named, and is live once it is confirmed', async () => {
       const h = harness()

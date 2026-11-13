@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/services/api'
 import { DEMO_MODE } from '@/demo/flag'
 import { CLIENT_ID } from '@/services/clientIdentity'
-import { LiveFeedClient } from '@/services/liveFeedClient'
+import { GRAPH_LIST_CHANNEL, LiveFeedClient } from '@/services/liveFeedClient'
 import { LiveChangeApplier } from '@/services/liveChangeApplier'
 import { useLiveChangesStore } from '@/stores/liveChangesStore'
 import { getWebSocketStreamUrl } from '@/hooks/useStreamingWrite'
@@ -40,7 +40,7 @@ export function useLiveChanges(): void {
     const store = useLiveChangesStore.getState()
     const applier = new LiveChangeApplier({
       queryClient,
-      sink: { markFresh: store.markFresh, addNotices: store.addNotices },
+      sink: { markFresh: store.markFresh, addNotices: store.addNotices, setNotice: store.setNotice },
       activeGraphId: () => activeRef.current,
       clientId: CLIENT_ID,
     })
@@ -50,10 +50,14 @@ export function useLiveChanges(): void {
       onChange: (change) => applier.push(change),
       onResync: (graphId) => applier.resync(graphId),
       onStatus: (status, detail) => useLiveChangesStore.getState().setStatus(status, detail ?? null),
-      onAccessRevoked: () =>
+      onAccessRevoked: (channel) =>
         useLiveChangesStore
           .getState()
-          .addNotices(['Live sync stopped for this graph: this key may no longer read it.']),
+          .addNotices([
+            channel === GRAPH_LIST_CHANNEL
+              ? 'Live sync stopped for the graph list: this key may no longer read graphs.'
+              : 'Live sync stopped for this graph: this key may no longer read it.',
+          ]),
     })
     clientRef.current = client
     client.setGraph(activeRef.current)

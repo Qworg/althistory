@@ -196,16 +196,28 @@ export function describeChanges(
     if (phrases.length > 0) out.push(`${line.actor} ${listOf(phrases)}`)
   }
 
-  // A finished generation run is announced once, in its own words.
+  // A finished generation run is announced once, in its own words. A run can
+  // end with several records (a cancel is corrected when the exact count is
+  // known), so within a batch the last record of each job speaks for it.
+  const last = new Map<string, LiveChange>()
   for (const change of changes) {
-    if (change.kind === 'generation' && change.status !== 'running') {
-      const name = change.actor.name ?? 'Generation'
-      out.push(
-        change.status === 'completed'
-          ? `${name}: ${change.message}${change.source === 'template' ? ' (a template draft: rewrite it)' : ''}`
-          : `${name} ${change.status === 'cancelled' ? 'was cancelled' : 'failed'}: ${change.message}`
-      )
-    }
+    if (change.kind === 'generation' && change.status !== 'running') last.set(change.jobId, change)
+  }
+  for (const change of last.values()) {
+    const notice = generationNotice(change)
+    if (notice) out.push(notice)
   }
   return out
+}
+
+/**
+ * The line that announces how a generation run ended, or null while it runs
+ * (or for any other kind of change).
+ */
+export function generationNotice(change: LiveChange): string | null {
+  if (change.kind !== 'generation' || change.status === 'running') return null
+  const name = change.actor.name ?? 'Generation'
+  return change.status === 'completed'
+    ? `${name}: ${change.message}${change.source === 'template' ? ' (a template draft: rewrite it)' : ''}`
+    : `${name} ${change.status === 'cancelled' ? 'was cancelled' : 'failed'}: ${change.message}`
 }

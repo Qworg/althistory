@@ -111,6 +111,8 @@ export class LiveFeedClient {
    * that never arrived.
    */
   private readonly replaying = new Map<string, { remaining: number; seq: number }>()
+  /** The open graph's channel was revoked, so the status says `error` although the socket is up. */
+  private activeRevoked = false
   /** Channels whose subscribe was refused for a passing reason, and the timer that tries again. */
   private readonly refused = new Map<string, { attempts: number; timer: ReturnType<typeof setTimeout> | undefined }>()
 
@@ -157,6 +159,11 @@ export class LiveFeedClient {
     if (graphId === this.graphId) return
     const previous = this.graphId
     this.graphId = graphId
+    if (this.activeRevoked) {
+      // The graph that lost access is no longer the one watched.
+      this.activeRevoked = false
+      if (!graphId && this.socket) this.setStatus('live')
+    }
     if (!this.running) return
     if (this.socket && this.socket.readyState === OPEN) {
       if (previous) this.unsubscribe(previous)
@@ -233,6 +240,7 @@ export class LiveFeedClient {
     if (this.socket !== socket) return
     this.socket = undefined
     this.connecting = false
+    this.activeRevoked = false
     this.confirmed.clear()
     this.replaying.clear()
     this.clearRefused()
@@ -285,7 +293,14 @@ export class LiveFeedClient {
       case 'unsubscribed':
         this.confirmed.delete(message.graphId)
         this.replaying.delete(message.graphId)
-        if (message.reason === 'access_revoked') this.options.onAccessRevoked?.(message.graphId)
+        if (message.reason === 'access_revoked') {
+          // Nothing more arrives for the open graph: the badge must not say 'live'.
+          if (message.graphId === this.graphId) {
+            this.activeRevoked = true
+            this.setStatus('error', 'This key may no longer read this graph, so nothing more arrives for it')
+          }
+          this.options.onAccessRevoked?.(message.graphId)
+        }
         return
       case 'change':
         // A position is kept only for a channel watched directly. The graph
@@ -340,6 +355,11 @@ export class LiveFeedClient {
       this.cursors.set(channel, Math.max(this.cursors.get(channel) ?? 0, seq))
     }
     this.confirmed.add(channel)
+    if (this.status === 'error' && channel === this.graphId && this.socket) {
+      // A graph watched again after the one that lost access (or access came back).
+      this.activeRevoked = false
+      this.setStatus('live')
+    }
     this.clearRefusal(channel)
     const resumedChannel = this.resuming.delete(channel)
     if (resync) {

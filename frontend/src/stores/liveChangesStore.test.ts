@@ -73,6 +73,14 @@ describe('live changes store', () => {
       expect(store.getState().notices).toEqual([])
     })
 
+    it('with one key replace each other instead of piling up', () => {
+      const store = useLiveChangesStore
+      store.getState().setNotice('generation:j1', 'was cancelled; 3 events stay')
+      store.getState().addNotices(['other'])
+      store.getState().setNotice('generation:j1', 'was cancelled; 4 events stay')
+      expect(store.getState().notices.map((notice) => notice.message)).toEqual(['was cancelled; 4 events stay', 'other'])
+    })
+
     it('can be dismissed', () => {
       const store = useLiveChangesStore
       store.getState().addNotices(['one', 'two'])

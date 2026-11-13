@@ -117,6 +117,21 @@ describe('useLiveChanges', () => {
     expect(useLiveChangesStore.getState().status).toBe('live')
   })
 
+  it('words a revoked graph list for the list, and stops saying live for a revoked open graph', async () => {
+    renderHook(() => useLiveChanges(), { wrapper })
+    const socket = await live()
+    socket.say({ type: 'unsubscribed', graphId: '*', reason: 'access_revoked' })
+    expect(useLiveChangesStore.getState().status).toBe('live')
+    expect(useLiveChangesStore.getState().notices.map((notice) => notice.message)).toEqual([
+      'Live sync stopped for the graph list: this key may no longer read graphs.',
+    ])
+    socket.say({ type: 'unsubscribed', graphId: 'g1', reason: 'access_revoked' })
+    expect(useLiveChangesStore.getState().status).toBe('error')
+    expect(useLiveChangesStore.getState().notices.map((notice) => notice.message)).toContain(
+      'Live sync stopped for this graph: this key may no longer read it.'
+    )
+  })
+
   it('does not connect when the person turned it off', async () => {
     localStorage.setItem('althistory.liveSync', 'off')
     resetLiveChangesStore()

@@ -27,7 +27,7 @@ function added(graphId: string, type: 'event' | 'arc' | 'relationship', id: stri
 describe('LiveChangeApplier', () => {
   let queryClient: QueryClient
   let invalidated: string[]
-  let sink: { markFresh: ReturnType<typeof vi.fn>; addNotices: ReturnType<typeof vi.fn> }
+  let sink: { markFresh: ReturnType<typeof vi.fn>; addNotices: ReturnType<typeof vi.fn>; setNotice: ReturnType<typeof vi.fn> }
   let applier: LiveChangeApplier
   let active: string | null
 
@@ -39,7 +39,7 @@ describe('LiveChangeApplier', () => {
       invalidated.push(String(filters?.queryKey?.[0]))
       return Promise.resolve()
     }) as unknown as QueryClient['invalidateQueries'])
-    sink = { markFresh: vi.fn(), addNotices: vi.fn() }
+    sink = { markFresh: vi.fn(), addNotices: vi.fn(), setNotice: vi.fn() }
     active = 'g1'
     applier = new LiveChangeApplier({ queryClient, sink, activeGraphId: () => active, clientId: 'tab-1', windowMs: 150 })
   })
@@ -173,26 +173,96 @@ describe('LiveChangeApplier', () => {
     expect(sink.addNotices).toHaveBeenCalledWith(['An agent (Claude) added 30 events to this graph'])
   })
 
-  it('applies a steady stream within the window, not only when it stops', () => {
+  it('applies a steady stream within the window, not only when it stops', async () => {
     for (let i = 0; i < 300; i += 1) {
       applier.push(added('g1', 'event', `e${i}`))
-      vi.advanceTimersByTime(20)
+      await vi.advanceTimersByTimeAsync(20)
     }
-    // 6 seconds of messages arriving every 20ms: applied about every 150ms
-    // (highlighted and announced), while the refetch is held to DATA_REFRESH_MS.
-    expect(sink.markFresh.mock.calls.length).toBeGreaterThanOrEqual(10)
-    expect(invalidated.filter((root) => root === 'events').length).toBeGreaterThanOrEqual(2)
+    // 6 seconds of messages arriving every 20ms: announced about every 150ms,
+    // refetched (and highlighted) every DATA_REFRESH_MS.
+    expect(invalidated.filter((root) => root === 'events').length).toBeGreaterThanOrEqual(5)
+    expect(sink.markFresh.mock.calls.length).toBeGreaterThanOrEqual(5)
   })
 
-  it('highlights what arrived on the open graph, and says who changed what', () => {
+  it('highlights what arrived on the open graph, and says who changed what', async () => {
     applier.push(added('g1', 'event', 'e1'))
     applier.push(added('g1', 'arc', 'a1'))
-    vi.advanceTimersByTime(150)
-    expect(sink.markFresh).toHaveBeenCalledWith([
+    await vi.advanceTimersByTimeAsync(150)
+    // One refetch brings each kind, so each kind is highlighted as its data arrives.
+    const marked = sink.markFresh.mock.calls.flatMap((call) => call[0] as unknown[])
+    expect(marked).toEqual(expect.arrayContaining([
       { type: 'event', id: 'e1' },
       { type: 'arc', id: 'a1' },
-    ])
+    ]))
     expect(sink.addNotices).toHaveBeenCalledWith(['An agent (Claude) added 1 event and 1 arc to this graph'])
+  })
+
+  it('shows a change landing two seconds after another within about a second, highlighted', async () => {
+    // An agent's cadence: one call every 2 seconds.
+    applier.push(added('g1', 'event', 'e1'))
+    await vi.advanceTimersByTimeAsync(2000)
+    invalidated.length = 0
+    sink.markFresh.mockClear()
+    applier.push(added('g1', 'event', 'e2'))
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(invalidated).toContain('events')
+    expect(sink.markFresh.mock.calls.flatMap((call) => call[0] as unknown[])).toContainEqual({ type: 'event', id: 'e2' })
+  })
+
+  it('shows a change landing half a second after another within the interval, and highlights it then', async () => {
+    applier.push(added('g1', 'event', 'e1'))
+    await vi.advanceTimersByTimeAsync(500)
+    sink.markFresh.mockClear()
+    invalidated.length = 0
+    applier.push(added('g1', 'event', 'e2'))
+    await vi.advanceTimersByTimeAsync(150)
+    // Held for the interval, not yet shown or highlighted...
+    expect(invalidated).not.toContain('events')
+    expect(sink.markFresh).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(DATA_REFRESH_MS)
+    // ...and highlighted when the refetch that carries it finishes.
+    expect(invalidated).toContain('events')
+    expect(sink.markFresh.mock.calls.flatMap((call) => call[0] as unknown[])).toContainEqual({ type: 'event', id: 'e2' })
+  })
+
+  it('starts the highlight when the refetch finishes, not when the change arrives', async () => {
+    let finish: () => void = () => undefined
+    ;(queryClient.invalidateQueries as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      ((filters: { queryKey?: readonly unknown[] }) => {
+        invalidated.push(String(filters?.queryKey?.[0]))
+        return filters?.queryKey?.[0] === 'events' ? new Promise<void>((resolve) => (finish = resolve)) : Promise.resolve()
+      }) as unknown as QueryClient['invalidateQueries']
+    )
+    applier.push(added('g1', 'event', 'e1'))
+    await vi.advanceTimersByTimeAsync(150)
+    expect(invalidated).toContain('events')
+    expect(sink.markFresh).not.toHaveBeenCalled()
+    finish()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sink.markFresh).toHaveBeenCalledWith([{ type: 'event', id: 'e1' }])
+  })
+
+  it('highlights an item the minute\'s budget held back once it is finally delivered', async () => {
+    // Spend the whole budget, across roots, within the minute.
+    for (let i = 0; i < DATA_REFRESHES_PER_MINUTE; i += 1) {
+      applier.push(added('g1', 'event', `warm${i}`))
+      await vi.advanceTimersByTimeAsync(DATA_REFRESH_MS + 200)
+    }
+    sink.markFresh.mockClear()
+    applier.push(added('g1', 'event', 'late'))
+    await vi.advanceTimersByTimeAsync(300)
+    // Held by the budget: not delivered, so not highlighted yet.
+    expect(sink.markFresh.mock.calls.flatMap((call) => call[0] as unknown[])).not.toContainEqual({ type: 'event', id: 'late' })
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(sink.markFresh.mock.calls.flatMap((call) => call[0] as unknown[])).toContainEqual({ type: 'event', id: 'late' })
+  })
+
+  it('does not highlight on a graph that is no longer open when the refetch finishes', async () => {
+    applier.push(added('g1', 'event', 'e1'))
+    await vi.advanceTimersByTimeAsync(0)
+    active = 'g2'
+    await vi.advanceTimersByTimeAsync(150)
+    expect(sink.markFresh).not.toHaveBeenCalled()
   })
 
   it('names the graph when the cache knows it', () => {
@@ -209,16 +279,16 @@ describe('LiveChangeApplier', () => {
     expect(invalidated).toEqual(['graphs'])
   })
 
-  it('does not announce or highlight the tab\'s own edits, but still refetches for them', () => {
+  it('does not announce or highlight the tab\'s own edits, but still refetches for them', async () => {
     // The origin is a tag any writer can send: it must not hide a change from the screen.
     applier.push(added('g1', 'event', 'e1', { origin: 'tab-1' }))
-    vi.advanceTimersByTime(500)
+    await vi.advanceTimersByTimeAsync(500)
     expect(invalidated).toContain('events')
     expect(sink.markFresh).not.toHaveBeenCalled()
     expect(sink.addNotices).not.toHaveBeenCalled()
     // Another tab's edits are another writer's.
     applier.push(added('g1', 'event', 'e2', { origin: 'tab-2' }))
-    vi.advanceTimersByTime(150)
+    await vi.advanceTimersByTimeAsync(DATA_REFRESH_MS + 150)
     expect(sink.markFresh).toHaveBeenCalled()
   })
 
@@ -253,6 +323,30 @@ describe('LiveChangeApplier', () => {
       vi.advanceTimersByTime(150)
       expect(invalidated).not.toContain('graphs')
     })
+  })
+
+  it('announces a generation run\'s end once per job, the later record replacing the earlier', () => {
+    const ended = (message: string): LiveChange => ({
+      kind: 'generation',
+      graphId: 'g1',
+      seq: ++seq,
+      at: 'x',
+      actor: { kind: 'generation', name: 'Timeline generation by Claude' },
+      jobId: 'job-1',
+      status: 'cancelled',
+      progress: 40,
+      message,
+      summary: 'x',
+    })
+    applier.push(ended('Cancelled; 3 events stay'))
+    vi.advanceTimersByTime(150)
+    applier.push(ended('Cancelled; 4 events stay'))
+    vi.advanceTimersByTime(150)
+    expect(sink.addNotices).not.toHaveBeenCalled()
+    expect(sink.setNotice.mock.calls).toEqual([
+      ['generation:job-1', 'Timeline generation by Claude was cancelled: Cancelled; 3 events stay'],
+      ['generation:job-1', 'Timeline generation by Claude was cancelled: Cancelled; 4 events stay'],
+    ])
   })
 
   it('drops what is gathered when disposed', () => {

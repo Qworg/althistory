@@ -185,5 +185,9 @@ describe('describeChanges', () => {
     ])
     expect(describeChanges([run('failed')], names)).toEqual(['Timeline generation by Claude failed: Boom'])
     expect(describeChanges([run('cancelled')], names)).toEqual(['Timeline generation by Claude was cancelled: Boom'])
+    // Several records of one run's end are one notice, the last.
+    const first = run('cancelled')
+    const second = { ...run('cancelled'), message: 'Cancelled; 4 events stay' } as LiveChange
+    expect(describeChanges([first, second], names)).toEqual(['Timeline generation by Claude was cancelled: Cancelled; 4 events stay'])
   })
 })

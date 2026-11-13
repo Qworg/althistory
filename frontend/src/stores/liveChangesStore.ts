@@ -37,6 +37,8 @@ export interface LiveNotice {
   id: string
   message: string
   at: number
+  /** Notices with one key stand for one thing, so a later one replaces the earlier. */
+  key?: string
 }
 
 type FreshKind = 'event' | 'arc' | 'relationship'
@@ -65,6 +67,8 @@ interface LiveChangesState {
   /** Highlight items for `FRESH_MS`. */
   markFresh: (items: Array<{ type: ChangedEntityType; id: string }>, now?: number) => void
   addNotices: (messages: string[], now?: number) => void
+  /** Say something under a key: it replaces the notice with that key, if one is still showing. */
+  setNotice: (key: string, message: string, now?: number) => void
   dismissNotice: (id: string) => void
 }
 
@@ -148,6 +152,17 @@ export const useLiveChangesStore = create<LiveChangesState>((set, get) => {
       if (messages.length === 0) return
       const added = messages.map((message) => ({ id: `live-${++noticeCounter}`, message, at: now }))
       set({ notices: [...get().notices, ...added].slice(-MAX_NOTICES) })
+      schedulePrune()
+    },
+
+    setNotice: (key, message, now = Date.now()) => {
+      const notices = get().notices
+      const existing = notices.find((notice) => notice.key === key)
+      set({
+        notices: existing
+          ? notices.map((notice) => (notice === existing ? { ...notice, message, at: now } : notice))
+          : [...notices, { id: `live-${++noticeCounter}`, message, at: now, key }].slice(-MAX_NOTICES),
+      })
       schedulePrune()
     },
 
