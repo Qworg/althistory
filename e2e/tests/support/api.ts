@@ -471,6 +471,12 @@ export async function installApiStub(
       state.deletedJobs.push(deleteJobMatch[1])
       return json(route, 200, { success: true })
     }
+    // Live sync is on by default, so every page asks for a feed token. The stub
+    // has no socket behind it: answer as an app whose feed is unavailable, which
+    // the page must survive (the badge reports it; nothing else depends on it).
+    if (path === '/stream/token' && method === 'POST') {
+      return json(route, 503, { success: false, message: 'live feed unavailable in the stubbed API' })
+    }
 
     state.unhandled.push(`${method} ${path}`)
     return json(route, 404, { success: false, message: `unstubbed endpoint: ${method} ${path}` })
