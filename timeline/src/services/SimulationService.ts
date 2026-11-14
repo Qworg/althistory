@@ -1,3 +1,4 @@
+import { addInstantMs, compareInstants } from '@althistory/calendar';
 import { Event, InferredPressure, PressureType } from '@/models';
 import { CausalRelationship } from '@/models/relationships';
 import { NotFoundError, ValidationError } from '@/utils/errors';
@@ -249,7 +250,7 @@ export class SimulationService {
     const stepResults: SimulationStep[] = [];
 
     let cursorEvent = anchor;
-    let cursorTime = anchor.timestamp.getTime();
+    let cursorTime: Date = anchor.timestamp;
     let previousEvent: Event | null = null;
 
     for (let index = 0; index < steps; index += 1) {
@@ -263,7 +264,7 @@ export class SimulationService {
       const event = this.buildCandidateEvent({
         domain: stepDomain,
         pressure,
-        timestamp: new Date(cursorTime + stepDurationMs),
+        timestamp: addInstantMs(cursorTime, stepDurationMs),
         window,
         anchor,
         aggressiveness,
@@ -326,7 +327,7 @@ export class SimulationService {
         cursorEvent = event;
       }
 
-      cursorTime = event.timestamp.getTime();
+      cursorTime = event.timestamp;
       stepResults.push(step);
       if (!dryRun && onStep) {
         await onStep(step);
@@ -442,7 +443,7 @@ export class SimulationService {
     }
 
     return events.reduce((latest, candidate) =>
-      candidate.timestamp.getTime() > latest.timestamp.getTime() ? candidate : latest
+      compareInstants(candidate.timestamp, latest.timestamp) > 0 ? candidate : latest
     );
   }
 
@@ -453,11 +454,11 @@ export class SimulationService {
   private recentWindow(
     history: Event[],
     generated: Event[],
-    cursorTime: number
+    cursorTime: Date
   ): Event[] {
     const combined = [...history, ...generated];
     const upToCursor = combined.filter(
-      (event) => event.timestamp.getTime() <= cursorTime
+      (event) => compareInstants(event.timestamp, cursorTime) <= 0
     );
     return upToCursor.length > 0 ? upToCursor : combined;
   }

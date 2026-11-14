@@ -6,7 +6,10 @@ export interface Event {
   description: string
   actor: string
   target: string
+  /** ISO 8601; beyond 0000-9999 the year is signed and has six digits or more (docs/specs/deep-time.md). Read it with `toInstant`, never `new Date`. */
   timestamp: string
+  /** The same moment as exact milliseconds on the axis, a decimal string (what the API sends beside `timestamp`). */
+  timestamp_ms?: string
   created_at: string
   updated_at: string
   /**
@@ -24,6 +27,9 @@ export interface Arc {
   description: string
   start_time: string
   end_time: string
+  /** The start and end as exact milliseconds on the axis, decimal strings. */
+  start_time_ms?: string
+  end_time_ms?: string
   level: number
   parent_arc_id: string | null
   created_at: string
@@ -503,8 +509,14 @@ export interface CreateExportJobRequest {
   webhook?: string
 }
 
+/**
+ * "1.0" is an export whose dates all lie within a Date's range; "1.1" holds a
+ * date beyond it (expanded ISO years). Both are read (docs/export-format.md).
+ */
+export type AlthistoryExportVersion = '1.0' | '1.1'
+
 export interface AlthistoryExport {
-  version: '1.0'
+  version: AlthistoryExportVersion
   metadata: {
     graphId: string
     graphName: string

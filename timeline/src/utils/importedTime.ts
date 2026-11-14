@@ -7,10 +7,12 @@
  * that starts with a digit and is not such a date is refused.
  */
 
-import { type WorldCalendarSet, readWorldTimestamp, toInstant, withDatePrecision } from '@althistory/calendar';
+import { type WorldCalendarSet, type AxisTime, isoOfAxisTime, readWorldTimestamp, toAxisTime, withDatePrecision, toInstant } from '@althistory/calendar';
 
 export interface ImportedTime {
   iso: string;
+  /** The same moment on the axis. */
+  time: AxisTime;
   precision: 'day' | 'month' | 'year';
   calendar?: string;
 }
@@ -26,8 +28,8 @@ export function readImportedTime(
   // Text that starts as a year does and is no date ("0") is refused, as the
   // API refuses it, never read in the server's zone.
   if (/^[+-]?\d/.test(text.trim())) return null;
-  const stored = toInstant(text);
-  return Number.isFinite(stored.getTime()) ? { iso: stored.toISOString(), precision: 'day' } : null;
+  const stored = toAxisTime(toInstant(text));
+  return stored === null ? null : { iso: isoOfAxisTime(stored), time: stored, precision: 'day' };
 }
 
 /**

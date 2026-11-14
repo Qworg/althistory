@@ -80,7 +80,7 @@ const GRAPH_CALENDAR_SCHEMA = {
     "An invented world's calendar. Timestamps stay Gregorian; the calendar relabels the year (and, with " +
     '`monthNames`, the month) when a date is shown: the stored year `epochYear` is year 1 of the world.',
   properties: {
-    epochYear: { type: 'integer', minimum: 1, maximum: 9999, description: 'The stored year that is year 1.' },
+    epochYear: { type: 'integer', description: 'The stored year that is year 1: any year the timeline holds (about 285 million either way; 0 and below are 1 BCE and before).' },
     eraLabel: { type: 'string', maxLength: 16, description: 'Written after the year ("312 AR"). Without one, "Year 312".' },
     name: { type: 'string', maxLength: 80, description: 'What the calendar is called.' },
     monthNames: {
@@ -309,7 +309,16 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       description: { type: 'string' },
       actor: { type: 'string' },
       target: { type: 'string' },
-      timestamp: { type: 'string', format: 'date-time' },
+      timestamp: {
+        type: 'string',
+        format: 'date-time',
+        description: 'ISO 8601; a year beyond 0000-9999 is signed with six digits or more ("+300000-01-01T00:00:00.000Z").',
+      },
+      timestamp_ms: {
+        type: 'string',
+        pattern: '^-?[0-9]+$',
+        description: 'The same moment as exact milliseconds on the timeline (1970 is 0), a decimal string: JSON numbers round past 2^53.',
+      },
       metadata: { type: 'object' },
     },
     required: ['id', 'description', 'actor', 'target', 'timestamp'],
@@ -367,8 +376,10 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       id: { type: 'string' },
       name: { type: 'string' },
       description: { type: 'string' },
-      start_time: { type: 'string', format: 'date-time' },
+      start_time: { type: 'string', format: 'date-time', description: 'ISO 8601, expanded beyond 0000-9999 (see Event.timestamp).' },
       end_time: { type: 'string', format: 'date-time' },
+      start_time_ms: { type: 'string', pattern: '^-?[0-9]+$', description: 'The start as exact milliseconds on the timeline, a decimal string.' },
+      end_time_ms: { type: 'string', pattern: '^-?[0-9]+$', description: 'The end as exact milliseconds on the timeline, a decimal string.' },
       level: { type: 'integer' },
     },
     required: ['id', 'name', 'start_time', 'end_time', 'level'],

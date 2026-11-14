@@ -12,11 +12,11 @@ import {
   type CalendarDefinition,
   type CalendarTime,
   DEFAULT_TIME,
-  MAX_TIME,
   type WorldCalendarSet,
   cycleYears,
   partLengthsIn,
 } from './definition'
+import { type AxisTime, floorDivMod, inAxisRange } from '../time'
 
 export interface CompiledCalendar {
   readonly definition: CalendarDefinition
@@ -116,10 +116,28 @@ export function partLengths(calendar: CompiledCalendar, year: number): number[] 
   return partLengthsIn(year, calendar.definition.parts, calendar.definition.leapRules)
 }
 
-/** The date of a position (Req 13). */
-export function dateAt(calendar: CompiledCalendar, position: number): WorldDate {
-  const axisDay = Math.floor(position / calendar.dayMs)
-  const msInDay = position - axisDay * calendar.dayMs
+/**
+ * A position split into its axis day and the milliseconds into it. The day is
+ * a number (the axis bound keeps it under 2^53 even for a one-second day), the
+ * split exact however far the position is from 1970.
+ */
+export function splitPosition(calendar: CompiledCalendar, position: AxisTime | number): { axisDay: number; msInDay: number } {
+  if (typeof position === 'number') {
+    const axisDay = Math.floor(position / calendar.dayMs)
+    return { axisDay, msInDay: position - axisDay * calendar.dayMs }
+  }
+  const { quotient, remainder } = floorDivMod(position, BigInt(calendar.dayMs))
+  return { axisDay: Number(quotient), msInDay: Number(remainder) }
+}
+
+/** The position of an axis day and the milliseconds into it. */
+export function joinPosition(calendar: CompiledCalendar, axisDay: number, msInDay = 0): AxisTime {
+  return BigInt(axisDay) * BigInt(calendar.dayMs) + BigInt(msInDay)
+}
+
+/** The date of a position (Req 13): an axis time, or milliseconds as a number (exact within ±2^53). */
+export function dateAt(calendar: CompiledCalendar, position: AxisTime | number): WorldDate {
+  const { axisDay, msInDay } = splitPosition(calendar, position)
   const fromEpoch = axisDay - calendar.definition.epoch
   const { year, dayOfYear, cycleIndex, cycles } = yearOfDay(calendar, fromEpoch)
   const lengths = partLengths(calendar, year)
@@ -174,15 +192,19 @@ export function axisDayOf(calendar: CompiledCalendar, fields: Pick<WorldDateFiel
 
 /**
  * The first position of a date's second (Req 13), or null when the fields
- * name no date or one beyond what a Date holds.
+ * name no date or one beyond the axis's bound.
  */
-export function positionOf(calendar: CompiledCalendar, fields: WorldDateFields): number | null {
+export function positionOf(calendar: CompiledCalendar, fields: WorldDateFields): AxisTime | null {
   if (fieldsProblem(calendar, fields)) return null
   const { minutesPerHour, secondsPerMinute } = calendar.time
   const secondIndex = (fields.hour * minutesPerHour + fields.minute) * secondsPerMinute + fields.second
+  const axisDay = axisDayOf(calendar, fields)
   // The first millisecond whose second is this one: dateAt reads it back unchanged.
-  const position = axisDayOf(calendar, fields) * calendar.dayMs + Math.ceil((secondIndex * calendar.dayMs) / calendar.secondsPerDay)
-  return Math.abs(position) <= MAX_TIME ? position : null
+  // A day is at most 1e9 ms and a second index at most 1e6 per day, so the product is exact.
+  const msInDay = Math.ceil((secondIndex * calendar.dayMs) / calendar.secondsPerDay)
+  if (!Number.isSafeInteger(axisDay)) return null
+  const position = joinPosition(calendar, axisDay, msInDay)
+  return inAxisRange(position) ? position : null
 }
 
 /** The line year an era names `count` in (a count back when `before`). */

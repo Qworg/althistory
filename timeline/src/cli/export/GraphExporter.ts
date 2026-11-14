@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Event, Arc } from '@/models';
 import { ExportFormat, ExportResultDto } from '../types';
-import { type DatePrecision, type WorldCalendarSet, dateCalendarOf, datePrecisionOf, describeCalendarSet, formatDateEntry } from '@althistory/calendar';
+import { type DatePrecision, type WorldCalendarSet, compareInstants, dateCalendarOf, datePrecisionOf, describeCalendarSet, formatDateEntry } from '@althistory/calendar';
+import { exportVersionOf } from '@/utils/exportVersion';
 
 /** The formats an export can be rendered in. */
 export type { ExportFormat };
@@ -57,10 +58,10 @@ export class GraphExporter {
         content = this.generateMarkdown(graphId, graphName, description, events, arcs, relationships, calendar);
         break;
       case 'dot':
-        content = this.generateDot(graphId, graphName, events, arcs, relationships);
+        content = this.generateDot(graphId, graphName, events, arcs, relationships, calendar);
         break;
       case 'graphml':
-        content = this.generateGraphML(graphId, graphName, events, arcs, relationships);
+        content = this.generateGraphML(graphId, graphName, events, arcs, relationships, calendar);
         break;
       default:
         content = this.generateJson(graphId, graphName, description, events, arcs, relationships, calendar);
@@ -131,7 +132,7 @@ export class GraphExporter {
       .digest('hex');
 
     const exportPayload = {
-      version: '1.0',
+      version: exportVersionOf({ events: dataSection.events, arcs: dataSection.arcs }),
       metadata: {
         graphId,
         graphName: graphName || graphId,
@@ -162,8 +163,8 @@ export class GraphExporter {
     relationships: ExportRelationship[],
     calendar?: WorldCalendarSet
   ): string {
-    const sortedEvents = [...events].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-    const sortedArcs = [...arcs].sort((a, b) => a.start_time.getTime() - b.start_time.getTime());
+    const sortedEvents = [...events].sort((a, b) => compareInstants(a.timestamp, b.timestamp));
+    const sortedArcs = [...arcs].sort((a, b) => compareInstants(a.start_time, b.start_time));
     const eventMap = new Map<string, Event>(events.map((e) => [e.id, e]));
 
     let md = `# Timeline Context: ${graphName || graphId}\n\n`;
@@ -239,7 +240,8 @@ export class GraphExporter {
     graphName: string,
     events: Event[],
     arcs: Arc[],
-    relationships: ExportRelationship[]
+    relationships: ExportRelationship[],
+    calendar?: WorldCalendarSet
   ): string {
     // XML 1.0 does not allow the C0 controls other than tab, newline and
     // carriage return, nor the two non-characters below -- not even as
@@ -296,6 +298,8 @@ export class GraphExporter {
     lines.push('  <key id="d_timestamp" for="node" attr.name="timestamp" attr.type="string"/>');
     lines.push('  <key id="d_start" for="node" attr.name="start_time" attr.type="string"/>');
     lines.push('  <key id="d_end" for="node" attr.name="end_time" attr.type="string"/>');
+    // In a world, each date also as the world writes it (the ISO text is the date's place on the timeline).
+    if (calendar) lines.push('  <key id="d_world_date" for="node" attr.name="world_date" attr.type="string"/>');
     lines.push('  <key id="d_weight" for="edge" attr.name="weight" attr.type="double"/>');
     lines.push('  <key id="d_type" for="edge" attr.name="relationship_type" attr.type="string"/>');
     lines.push('  <key id="d_reasoning" for="edge" attr.name="reasoning" attr.type="string"/>');
@@ -309,6 +313,11 @@ export class GraphExporter {
       lines.push(`      <data key="d_description">${escapeXml(arc.name)}</data>`);
       lines.push(`      <data key="d_start">${escapeXml(arc.start_time.toISOString())}</data>`);
       lines.push(`      <data key="d_end">${escapeXml(arc.end_time.toISOString())}</data>`);
+      if (calendar) {
+        lines.push(
+          `      <data key="d_world_date">${escapeXml(`${formatDateEntry(arc.start_time, 'day', calendar, 'start')} to ${formatDateEntry(arc.end_time, 'day', calendar, 'end')}`)}</data>`
+        );
+      }
       lines.push('    </node>');
     }
 
@@ -319,6 +328,11 @@ export class GraphExporter {
       lines.push(`      <data key="d_actor">${escapeXml(e.actor)}</data>`);
       lines.push(`      <data key="d_target">${escapeXml(e.target)}</data>`);
       lines.push(`      <data key="d_timestamp">${escapeXml(e.timestamp.toISOString())}</data>`);
+      if (calendar) {
+        lines.push(
+          `      <data key="d_world_date">${escapeXml(formatDateEntry(e.timestamp, datePrecisionOf(e.metadata), calendar, 'start', dateCalendarOf(e.metadata)))}</data>`
+        );
+      }
       lines.push('    </node>');
     }
 
@@ -363,8 +377,14 @@ export class GraphExporter {
     graphName: string,
     events: Event[],
     arcs: Arc[],
-    relationships: ExportRelationship[]
+    relationships: ExportRelationship[],
+    calendar?: WorldCalendarSet
   ): string {
+    // An event's date as the graph writes it: the world's, at the precision its source gave; else the ISO date.
+    const labelDate = (e: Event): string =>
+      calendar
+        ? formatDateEntry(e.timestamp, datePrecisionOf(e.metadata), calendar, 'start', dateCalendarOf(e.metadata))
+        : e.timestamp.toISOString().split('T')[0]!;
     const sanitizeLabel = (str: string): string =>
       str.replace(/"/g, '\\"').replace(/\n/g, ' ');
 
@@ -397,14 +417,14 @@ export class GraphExporter {
       dot += `    fillcolor="#e9ecef";\n`;
       dot += `    color="#adb5bd";\n`;
       for (const e of clustered) {
-        const dateStr = e.timestamp.toISOString().split('T')[0];
+        const dateStr = labelDate(e);
         dot += `    "${e.id}" [label="${dateStr}\\n${sanitizeLabel(e.description)}\\n[${sanitizeLabel(e.actor)}]"];\n`;
       }
       dot += `  }\n\n`;
     }
 
     for (const e of unclusteredEvents) {
-      const dateStr = e.timestamp.toISOString().split('T')[0];
+      const dateStr = labelDate(e);
       dot += `  "${e.id}" [label="${dateStr}\\n${sanitizeLabel(e.description)}\\n[${sanitizeLabel(e.actor)}]"];\n`;
     }
 

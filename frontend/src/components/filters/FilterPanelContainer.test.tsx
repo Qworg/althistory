@@ -157,4 +157,20 @@ describe('FilterPanelContainer', () => {
       expect(useGlobalStore.getState().activeFilters).toEqual(defaultFilters)
     })
   })
+
+  it('opens on a graph with a date beyond a Date\'s range', () => {
+    const deep: Event = {
+      id: 'deep',
+      description: 'The last city falls',
+      actor: 'Ash',
+      target: 'City',
+      created_at: '2024-01-01T00:00:00.000Z',
+      updated_at: '2024-01-01T00:00:00.000Z',
+      timestamp: '+300000-01-01T00:00:00.000Z'
+    }
+    vi.mocked(useEvents).mockReturnValue(eventsResult({ data: [...events, deep], isLoading: false, error: null }))
+
+    expect(() => renderHarness()).not.toThrow()
+    expect(screen.getByRole('heading', { name: 'Filters' })).toBeInTheDocument()
+  })
 })

@@ -16,9 +16,10 @@
  */
 
 import { FORBIDDEN_IN_LABEL, FORBIDDEN_IN_MONTH_NAME, bidiClosed, hasVisible, sameNameKey } from './text'
+import { MAX_AXIS_MS, MIN_AXIS_MS, civilOfAxisTime } from './time'
 
 export interface GraphCalendar {
-  /** The stored (Gregorian) year that is year 1 of this world: an integer 1..9999. */
+  /** The stored (Gregorian) year that is year 1 of this world: an integer within what the axis holds ({@link MIN_EPOCH_YEAR}..{@link MAX_EPOCH_YEAR}), 0 and negative years being 1 BCE and before. */
   epochYear: number
   /** Written after the year: "AR" shows the year as "312 AR". Absent or empty shows "Year 312". */
   eraLabel?: string
@@ -33,9 +34,14 @@ export interface GraphCalendar {
   monthNames?: string[]
 }
 
-/** The years a timestamp can hold without an expanded (six-digit) year. */
-export const MIN_EPOCH_YEAR = 1
-export const MAX_EPOCH_YEAR = 9999
+/**
+ * The years a world's year 1 can be: any whose 1 January the axis holds
+ * (time.ts, about ±285 million years), computed from the bound, not written
+ * down. A year outside 0000-9999 is written as an expanded ISO year.
+ */
+export const MAX_EPOCH_YEAR = civilOfAxisTime(MAX_AXIS_MS).year - 1
+// The axis is symmetric about 1970, not about year 0, so its lower year is not the negative of its upper one.
+export const MIN_EPOCH_YEAR = civilOfAxisTime(MIN_AXIS_MS).year + 1
 export const MAX_ERA_LABEL_LENGTH = 16
 export const MAX_CALENDAR_NAME_LENGTH = 80
 export const MONTH_COUNT = 12

@@ -41,5 +41,5 @@ export const VAEL_ONE: WorldCalendarSet = { ...VAEL, calendars: [RECKONING] }
 
 /** The timeline position of a date in Vael's Reckoning (part is the 0-based month or festival). */
 export function vael(year: number, part: number, day: number, hour = 0, minute = 0): Date {
-  return new Date(positionOf(calendarIn(VAEL), { year, part, day, hour, minute, second: 0 })!)
+  return new Date(Number(positionOf(calendarIn(VAEL), { year, part, day, hour, minute, second: 0 })!))
 }

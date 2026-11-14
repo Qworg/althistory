@@ -81,7 +81,7 @@ describe("Vael's calendar", () => {
   it('names a month as a period, from its first moment to the last millisecond before the next', () => {
     const thaw = worldPeriod(calendar, dateAt(calendar, at(312, 2, 17)), 'month')!
     expect(thaw.start).toBe(at(312, 2, 1))
-    expect(thaw.end).toBe(at(312, 3, 1) - 1)
+    expect(thaw.end).toBe(at(312, 3, 1) - 1n)
   })
 })
 
@@ -89,7 +89,7 @@ describe('a world with two calendars', () => {
   it('reads text in either, and the same moment names the same position in both', () => {
     const inTide = parseWorldText(world, 'Flooding 20, 5 TC')
     expect(inTide.ok && inTide.calendar).toBe('tide')
-    const position = inTide.ok ? inTide.position : NaN
+    const position = inTide.ok ? inTide.position : 0n
     expect(formatWorldPosition(calendarIn(world, 'tide'), position)).toBe('Flooding 20, 5 TC')
     // Read in the Reckoning, the same position is a Reckoning date.
     const asReckoning = formatWorldPosition(calendar, position)

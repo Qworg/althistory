@@ -1,7 +1,7 @@
 import { useId, useState, type InputHTMLAttributes } from 'react'
 import type { DateBoundEdge } from '@althistory/calendar'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { type DateFieldKind, readDateFieldValue } from '@/utils/dateField'
+import { type DateFieldKind, isNativeDateValue, readDateFieldValue } from '@/utils/dateField'
 
 type NativeProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange'>
 
@@ -25,17 +25,32 @@ export function DateField({ value, onChange, kind, edge = 'start', className, on
   const calendar = useWorldCalendar()
   const errorId = useId()
   const [touched, setTouched] = useState(false)
+  const [typed, setTyped] = useState(false)
 
-  if (!calendar) {
+  // Without a world, the native picker holds the years 0001 to 9999. A date
+  // outside them (44 BCE is not one; nor is 300000 CE) is typed, year first, and
+  // read as every other typed date is; the field is text while it holds one.
+  const nativeValue = value === '' || isNativeDateValue(value)
+  const text = !calendar && (typed || !nativeValue)
+  if (!calendar && !text) {
     return (
-      <input
-        {...rest}
-        type={kind === 'date' ? 'date' : 'datetime-local'}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={onBlur}
-        className={className}
-      />
+      <>
+        <input
+          {...rest}
+          type={kind === 'date' ? 'date' : 'datetime-local'}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onBlur={onBlur}
+          className={className}
+        />
+        <button
+          type="button"
+          className="mt-1 block text-xs text-ink-muted underline"
+          onClick={() => setTyped(true)}
+        >
+          Type a year before 1 CE or after 9999
+        </button>
+      </>
     )
   }
 
@@ -60,6 +75,7 @@ export function DateField({ value, onChange, kind, edge = 'start', className, on
         }}
         aria-invalid={error ? true : rest['aria-invalid']}
         aria-describedby={described}
+        placeholder={calendar ? undefined : '300000 BCE, 1843-11-20, 44-03-15 BCE'}
         className={className}
       />
       {error && (

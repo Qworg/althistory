@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { type WorldCalendarSet, adoptableCalendarSet, sameCalendarSet, storedCalendarSet, unreadDateReason } from '@althistory/calendar';
+import { type WorldCalendarSet, adoptableCalendarSet, instantOfAxisTime, sameCalendarSet, storedCalendarSet, unreadDateReason } from '@althistory/calendar';
 import { type ImportedTime, importedMetadata, readImportedTime } from '@/utils/importedTime';
 import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
@@ -66,7 +66,7 @@ export class GraphImporter {
     const readTime = (value: unknown, edge: 'start' | 'end', where: string): ImportedTime => {
       const read = typeof value === 'string' ? readImportedTime(value, calendar, edge) : null;
       if (!read) problems.push(`${where}: ${unreadDateReason(calendar, String(value ?? ''))}`);
-      return read ?? { iso: '', precision: 'day' };
+      return read ?? { iso: '', time: BigInt(0), precision: 'day' };
     };
     // (An entity without an id is skipped below, so its dates are not read.)
     const arcTimes = new Map(
@@ -129,8 +129,8 @@ export class GraphImporter {
           await scoped.arcRepository.update(origId, {
             name: String(arcData.name || ''),
             description: arcData.description ? String(arcData.description) : undefined,
-            start_time: new Date(arcTimes.get(arcData)!.start.iso),
-            end_time: new Date(arcTimes.get(arcData)!.end.iso),
+            start_time: instantOfAxisTime(arcTimes.get(arcData)!.start.time) ?? new Date(NaN),
+            end_time: instantOfAxisTime(arcTimes.get(arcData)!.end.time) ?? new Date(NaN),
             level: typeof arcData.level === 'number' ? arcData.level : 0,
             metadata: (arcData.metadata as Record<string, unknown>) || {},
           });
@@ -143,8 +143,8 @@ export class GraphImporter {
             id: newId,
             name: String(arcData.name || ''),
             description: arcData.description ? String(arcData.description) : undefined,
-            start_time: new Date(arcTimes.get(arcData)!.start.iso),
-            end_time: new Date(arcTimes.get(arcData)!.end.iso),
+            start_time: instantOfAxisTime(arcTimes.get(arcData)!.start.time) ?? new Date(NaN),
+            end_time: instantOfAxisTime(arcTimes.get(arcData)!.end.time) ?? new Date(NaN),
             level: typeof arcData.level === 'number' ? arcData.level : 0,
             metadata: (arcData.metadata as Record<string, unknown>) || {},
           });
@@ -156,8 +156,8 @@ export class GraphImporter {
           id: origId,
           name: String(arcData.name || ''),
           description: arcData.description ? String(arcData.description) : undefined,
-          start_time: new Date(arcTimes.get(arcData)!.start.iso),
-          end_time: new Date(arcTimes.get(arcData)!.end.iso),
+          start_time: instantOfAxisTime(arcTimes.get(arcData)!.start.time) ?? new Date(NaN),
+          end_time: instantOfAxisTime(arcTimes.get(arcData)!.end.time) ?? new Date(NaN),
           level: typeof arcData.level === 'number' ? arcData.level : 0,
           metadata: (arcData.metadata as Record<string, unknown>) || {},
         });
@@ -186,7 +186,7 @@ export class GraphImporter {
         } else if (strategy === 'overwrite') {
           await scoped.eventRepository.update(origId, {
             description: String(evtData.description || ''),
-            timestamp: new Date(time.iso),
+            timestamp: (instantOfAxisTime(time.time) ?? new Date(NaN)),
             actor: String(evtData.actor || 'Unknown'),
             target: String(evtData.target || 'None'),
             metadata: meta,
@@ -199,7 +199,7 @@ export class GraphImporter {
           await scoped.eventRepository.create({
             id: newId,
             description: String(evtData.description || ''),
-            timestamp: new Date(time.iso),
+            timestamp: (instantOfAxisTime(time.time) ?? new Date(NaN)),
             actor: String(evtData.actor || 'Unknown'),
             target: String(evtData.target || 'None'),
             metadata: meta,
@@ -211,7 +211,7 @@ export class GraphImporter {
         await scoped.eventRepository.create({
           id: origId,
           description: String(evtData.description || ''),
-          timestamp: new Date(time.iso),
+          timestamp: (instantOfAxisTime(time.time) ?? new Date(NaN)),
           actor: String(evtData.actor || 'Unknown'),
           target: String(evtData.target || 'None'),
           metadata: meta,

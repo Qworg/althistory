@@ -6,7 +6,8 @@
 
 import type { DatePrecision } from '../describe'
 import { sameNameKey } from '../text'
-import { type CalendarDefinition, DEFAULT_NOTATION, MAX_TIME, type WorldCalendarSet } from './definition'
+import { type CalendarDefinition, DEFAULT_NOTATION, type WorldCalendarSet } from './definition'
+import { type AxisTime, inAxisRange } from '../time'
 import {
   type CompiledCalendar,
   type WorldDateFields,
@@ -84,8 +85,8 @@ export function formatWorldFields(
  * A position in the calendar's notation, at a precision. At day precision a
  * time other than the day's start is written after the date.
  */
-export function formatWorldPosition(calendar: CompiledCalendar, position: number, precision: WorldPrecision = 'day'): string {
-  if (!Number.isFinite(position)) return 'Invalid date'
+export function formatWorldPosition(calendar: CompiledCalendar, position: AxisTime | number, precision: WorldPrecision = 'day'): string {
+  if (typeof position === 'number' ? !Number.isFinite(position) : !inAxisRange(position)) return 'Invalid date'
   const date = dateAt(calendar, position)
   // A time is written when it reads as other than the day's start (a few
   // seconds past midnight, in a notation without seconds, says nothing).
@@ -176,7 +177,8 @@ export type WorldParse =
       calendar: string
       fields: WorldDateFields
       precision: WorldPrecision
-      position: number
+      /** Where it is on the axis (time.ts): exact at any distance from 1970. */
+      position: AxisTime
       /** Whether a time of day was given ("…, 00:00" names midnight, not the whole day). */
       timed: boolean
     }
@@ -292,7 +294,7 @@ export function parseWorldDate(calendar: CompiledCalendar, input: string): World
     }
     const position = positionOf(calendar, fields)
     if (position === null) {
-      reason = 'that date is beyond the range a date can hold'
+      reason = 'that date is beyond the range the timeline holds'
       continue
     }
     return { ok: true, calendar: definition.id, fields, precision: form.precision, position, timed: timeValues.hour !== undefined }
@@ -385,20 +387,20 @@ export function readWorldInput(set: WorldCalendarSet, input: unknown): WorldPars
   const problem = fieldsProblem(calendar, fields)
   if (problem) return { ok: false, error: problem }
   const position = positionOf(calendar, fields)
-  if (position === null) return { ok: false, error: 'that date is beyond the range a date can hold' }
+  if (position === null) return { ok: false, error: 'that date is beyond the range the timeline holds' }
   return { ok: true, calendar: definition.id, fields, precision, position, timed }
 }
 
 /**
  * The period a date names (Req 15): from its first position to the last
  * millisecond before the next day, month or year. Null when it is beyond
- * the range a date can hold.
+ * the range the timeline holds.
  */
 export function worldPeriod(
   calendar: CompiledCalendar,
   fields: WorldDateFields,
   precision: WorldPrecision
-): { start: number; end: number } | null {
+): { start: AxisTime; end: AxisTime } | null {
   const startFields = {
     year: fields.year,
     part: precision === 'year' ? 0 : fields.part,
@@ -414,6 +416,7 @@ export function worldPeriod(
   else if (precision === 'month' && fields.part + 1 < calendar.definition.parts.length) {
     nextDay = axisDayOf(calendar, { year: fields.year, part: fields.part + 1, day: 1 })
   } else nextDay = axisDayOf(calendar, { year: fields.year + 1, part: 0, day: 1 })
-  const end = nextDay * calendar.dayMs - 1
-  return Math.abs(end) <= MAX_TIME ? { start, end } : null
+  if (!Number.isSafeInteger(nextDay)) return null
+  const end = BigInt(nextDay) * BigInt(calendar.dayMs) - 1n
+  return inAxisRange(end) ? { start, end } : null
 }

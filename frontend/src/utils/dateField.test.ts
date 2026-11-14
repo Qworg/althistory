@@ -10,9 +10,23 @@ describe('a date field without a world calendar', () => {
     expect(dateFieldValue('1843-11-20T14:30:00Z', 'datetime', { calendar: null })).toBe('1843-11-20T14:30')
     expect(dateFieldValue('1843-11-20T14:30:00Z', 'date', { calendar: null })).toBe('1843-11-20')
     expect(dateFieldIso('1843-11-20T14:30', { calendar: null })).toBe('1843-11-20T14:30:00.000Z')
-    // A year a picker cannot hold, or a date that does not exist, is none.
-    expect(dateFieldValue('-000043-03-15T00:00:00Z', 'date', { calendar: null })).toBe('')
+    // A date that does not exist is none.
     expect(dateFieldIso('2019-02-31', { calendar: null })).toBe('')
+  })
+
+  it('holds a year the picker cannot hold as year-first text, and reads that back to the millisecond', () => {
+    expect(dateFieldValue('-000043-03-15T00:00:00Z', 'date', { calendar: null })).toBe('44-03-15 BCE')
+    expect(dateFieldValue('+300000-06-15T00:00:00Z', 'date', { calendar: null })).toBe('300000-06-15')
+    expect(dateFieldValue('-299999-06-15T00:00:00Z', 'date', { calendar: null })).toBe('300000-06-15 BCE')
+    for (const iso of ['-000043-03-15T00:00:00.000Z', '+300000-06-15T00:00:00.000Z', '-299999-06-15T00:00:00.000Z', '+999999-01-01T00:00:00.000Z']) {
+      expect(dateFieldIso(dateFieldValue(iso, 'date', { calendar: null }), { calendar: null }), iso).toBe(iso)
+    }
+    // As the field reads them, typed.
+    expect(dateFieldIso('300000 BCE', { calendar: null })).toBe('-299999-01-01T00:00:00.000Z')
+    expect(dateFieldIso('300000 BCE', { calendar: null, edge: 'end' })).toBe('-299999-12-31T23:59:59.999Z')
+    expect(dateFieldIso('500000-06-15 14:30', { calendar: null })).toBe('+500000-06-15T14:30:00.000Z')
+    // A free-text field part-way through a native date is still no date.
+    expect(dateFieldIso('1066', { calendar: null })).toBe('')
   })
 })
 
@@ -25,7 +39,7 @@ describe('a date field in a world calendar', () => {
   })
 
   it('reads a month or a year as the start of it, or as an end its last moment, with its precision', () => {
-    expect(readDateFieldValue('Thaw 312 AR', { calendar: VAEL })).toEqual({ ok: true, iso: vael(312, 2, 1).toISOString(), precision: 'month', calendar: 'reckoning' })
+    expect(readDateFieldValue('Thaw 312 AR', { calendar: VAEL })).toMatchObject({ ok: true, iso: vael(312, 2, 1).toISOString(), precision: 'month', calendar: 'reckoning' })
     expect(dateFieldIso('Thaw 312 AR', { calendar: VAEL, edge: 'end' })).toBe(new Date(vael(312, 3, 1).getTime() - 1).toISOString())
     // An end on a day's last moment is shown as the day.
     expect(dateFieldValue(new Date(vael(312, 2, 5).getTime() - 1), 'datetime', { calendar: VAEL, edge: 'end' })).toBe('Thaw 4, 312 AR')

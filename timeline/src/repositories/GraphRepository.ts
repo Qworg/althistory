@@ -2,7 +2,7 @@
  * Graph Repository for managing multiple graphs with versioning
  */
 
-import { storedCalendarSet } from '@althistory/calendar';
+import { isoOfAxisTime, storedCalendarSet, toAxisTime } from '@althistory/calendar';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -479,14 +479,14 @@ export class GraphRepository {
       const timestamps = events
         .map(e => (e as Record<string, unknown>).timestamp as string)
         .filter(t => t)
-        .map(t => new Date(t).getTime())
-        .filter(t => !isNaN(t));
+        // Exactly, on the axis: moments beyond a Date's range are read as they are written.
+        .map(t => toAxisTime(t))
+        .filter((t): t is bigint => t !== null);
 
       if (timestamps.length > 0) {
-        temporalRange = {
-          start: new Date(Math.min(...timestamps)).toISOString(),
-          end: new Date(Math.max(...timestamps)).toISOString(),
-        };
+        const earliest = timestamps.reduce((a, b) => (b < a ? b : a));
+        const latest = timestamps.reduce((a, b) => (b > a ? b : a));
+        temporalRange = { start: isoOfAxisTime(earliest), end: isoOfAxisTime(latest) };
       }
     }
 

@@ -6,31 +6,33 @@
  */
 
 import { readHistoricalText } from '../bounds'
-import { parseIsoInstant } from '../instant'
-import { type CalendarDefinition, MAX_TIME, type WorldCalendarSet } from './definition'
+import { isoBeyondRange, parseIsoInstant } from '../instant'
+import { type AxisTime, axisTimeOfCivil, civilOfAxisTime, inAxisRange, isoOfAxisTime } from '../time'
+import { type CalendarDefinition, type WorldCalendarSet } from './definition'
 import { calendarIn, dateAt } from './engine'
 import { type WorldPrecision, formatWorldFields, formatWorldPosition, parseWorldText, worldPeriod } from './notation'
 
 /** A position in a world's calendar (its primary unless another is named), at a precision. */
-export function formatInWorld(set: WorldCalendarSet, position: number, precision: WorldPrecision = 'day', calendarId?: string): string {
+export function formatInWorld(set: WorldCalendarSet, position: AxisTime | number, precision: WorldPrecision = 'day', calendarId?: string): string {
   return formatWorldPosition(calendarIn(set, calendarId), position, precision)
 }
 
 /** What a date read where it enters names: its instant, how much of it is known, and (a world's) the calendar it was given in. */
 export interface ReadTimestamp {
   iso: string
+  /** The same instant on the axis (time.ts). */
+  time: AxisTime
   precision: WorldPrecision
   /** The world calendar the text was written in; absent for ISO 8601. */
   calendar?: string
 }
 
-/** The last millisecond of the UTC day, month or year an ISO date names. */
-function isoPeriodEnd(start: Date, precision: WorldPrecision): number {
-  const next = new Date(start.getTime())
-  if (precision === 'year') next.setUTCFullYear(next.getUTCFullYear() + 1)
-  else if (precision === 'month') next.setUTCMonth(next.getUTCMonth() + 1)
-  else next.setUTCDate(next.getUTCDate() + 1)
-  return next.getTime() - 1
+/** The last millisecond of the UTC day, month or year an ISO date names, by arithmetic: exact for any year. */
+function isoPeriodEnd(start: AxisTime, precision: WorldPrecision): AxisTime {
+  const { year, month, day } = civilOfAxisTime(start)
+  const next =
+    precision === 'year' ? axisTimeOfCivil(year + 1, month, day) : precision === 'month' ? axisTimeOfCivil(year, month + 1, day) : axisTimeOfCivil(year, month, day + 1)
+  return next - 1n
 }
 
 /**
@@ -61,7 +63,7 @@ export function readWorldTimestamp(
     if (world.ok) {
       const at = edge === 'end' && !world.timed ? worldPeriod(calendarIn(set, world.calendar), world.fields, world.precision)?.end : world.position
       if (at === undefined) return null
-      return { iso: new Date(at).toISOString(), precision: world.precision, calendar: world.calendar }
+      return { iso: isoOfAxisTime(at), time: at, precision: world.precision, calendar: world.calendar }
     }
   }
   const iso = parseIsoInstant(String(text).trim())
@@ -71,21 +73,21 @@ export function readWorldTimestamp(
     // time after a whole date ("1843-11-20 9:30").
     if (set) return null
     const historical = readHistoricalText(String(text), edge)
-    return historical.ok ? { iso: historical.iso, precision: historical.precision } : null
+    return historical.ok ? { iso: historical.iso, time: historical.time, precision: historical.precision } : null
   }
   const precision: WorldPrecision = iso.precision === 'year' || iso.precision === 'month' ? iso.precision : 'day'
   if (set && precision !== 'day') return null
-  const at = edge === 'end' && iso.dateOnly ? isoPeriodEnd(iso.date, precision) : iso.date.getTime()
-  if (!Number.isFinite(at) || Math.abs(at) > MAX_TIME) return null
-  return { iso: new Date(at).toISOString(), precision }
+  const at = edge === 'end' && iso.dateOnly ? isoPeriodEnd(iso.time, precision) : iso.time
+  if (!inAxisRange(at)) return null
+  return { iso: isoOfAxisTime(at), time: at, precision }
 }
 
 /** Why {@link readWorldTimestamp} read nothing from the text, as a sentence. */
 export function unreadDateReason(set: WorldCalendarSet | null | undefined, text: string): string {
   const trimmed = String(text).trim()
   const asIso = parseIsoInstant(trimmed)
-  if (asIso && (!set || (asIso.precision !== 'year' && asIso.precision !== 'month'))) {
-    return `"${trimmed}" reaches beyond the range a date can hold.`
+  if (isoBeyondRange(trimmed) || (asIso && (!set || (asIso.precision !== 'year' && asIso.precision !== 'month')))) {
+    return `"${trimmed}" reaches beyond the range the timeline holds (about 285 million years).`
   }
   if (set) {
     const iso = asIso

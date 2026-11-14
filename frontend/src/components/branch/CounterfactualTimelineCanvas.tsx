@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, useCallback, useRef, useLayoutEffect, useEffect } from 'react'
 import type React from 'react'
-import * as d3 from 'd3'
+import { clampedInstantOfMs, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
 import { axisTicks } from '@/utils/d3Calculations'
@@ -13,6 +13,7 @@ import {
   EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
 import { layoutEventLabels, truncateLabel, LABEL_ROW_OFFSETS, type EventLabelPlacement, type LabelLayoutConfig } from '@/components/timeline/eventLabelLayout'
+import { toInstant } from '@althistory/calendar'
 
 export interface CounterfactualTimelineCanvasProps {
   readonly baselineName: string
@@ -337,9 +338,10 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
   // 2. Compute unified time domain across both timelines
   const baseDomain = useMemo<[Date, Date]>(() => {
     const allTimestamps: number[] = [
-      ...baselineEvents.map(e => new Date(e.timestamp).getTime()),
-      ...counterfactualEvents.map(e => new Date(e.timestamp).getTime()),
+      ...baselineEvents.map(e => toInstant(e.timestamp).getTime()),
+      ...counterfactualEvents.map(e => toInstant(e.timestamp).getTime()),
     ].filter(t => !isNaN(t))
+    // Past a Date's range these are the nearest doubles, which place a mark to the pixel.
 
     if (allTimestamps.length === 0) {
       const now = Date.now()
@@ -352,7 +354,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
     // Add padding to domain edges so boundary events aren't clipped
     const span = Math.max(86400000, max - min)
     const pad = span * 0.06
-    return [new Date(min - pad), new Date(max + pad)]
+    return [clampedInstantOfMs(min - pad), clampedInstantOfMs(max + pad)]
   }, [baselineEvents, counterfactualEvents])
 
   // 3. Compute scaled domain accounting for zoom and pan
@@ -363,20 +365,21 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
 
     const currentStartMs = start.getTime() + panOffset
     const currentEndMs = currentStartMs + zoomedDuration
-    return [new Date(currentStartMs), new Date(currentEndMs)]
+    return [clampedInstantOfMs(currentStartMs), clampedInstantOfMs(currentEndMs)]
   }, [baseDomain, zoomFactor, panOffset])
 
   // 4. D3 Scale calculation. UTC, so ticks fall on UTC day boundaries and
   // the labels match the stored (UTC) historical dates.
   const xScale = useMemo(() => {
-    return d3.scaleUtc().domain(currentDomain).range([0, innerWidth])
+    return instantScale(true).domain(currentDomain).range([0, innerWidth])
   }, [currentDomain, innerWidth])
 
   // 5. Ticks for time axis
   const timeTicks = useMemo(() => {
     const count = Math.max(2, Math.min(6, Math.floor(innerWidth / 110)))
     // In a world calendar, its own years, months and days, in its notation.
-    const ticks = worldCalendar
+    // Beyond what a Date holds, d3's ticks cannot reach: the calendar package's.
+    const ticks = worldCalendar || usesArithmeticTicks(...xScale.domain())
       ? axisTicks(xScale.domain(), count, worldCalendar)
       : (() => {
           const dates = xScale.ticks(count)
@@ -417,7 +420,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
     if (!focusDivergence || !pod) return null
     const [start, end] = baseDomain
     const total = end.getTime() - start.getTime()
-    const podMs = new Date(pod.timestamp).getTime()
+    const podMs = toInstant(pod.timestamp).getTime()
     if (!(total > 0) || (podMs - start.getTime()) / total < 0.35) return null
     const from = Math.max(start.getTime(), podMs - (end.getTime() - podMs) * 0.25)
     return { zoom: total / (end.getTime() - from), pan: from - start.getTime(), key: `${podMs}:${total}` }
@@ -450,7 +453,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
   // Point of Divergence coordinate
   const podCoordinate = useMemo(() => {
     if (!metrics.pointOfDivergence) return null
-    const podTime = new Date(metrics.pointOfDivergence.timestamp)
+    const podTime = toInstant(metrics.pointOfDivergence.timestamp)
     const x = xScale(podTime)
     return {
       x,
@@ -474,7 +477,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
     baselineEvents.forEach(bEvent => {
       const item = itemMap.get(bEvent.id)
       if (item && item.status === 'shared') {
-        const x = xScale(new Date(bEvent.timestamp))
+        const x = xScale(toInstant(bEvent.timestamp))
         if (x >= 0 && x <= innerWidth) {
           pairs.push({ id: bEvent.id, x })
         }
@@ -492,7 +495,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
       layoutEventLabels(
         baselineEvents.map(event => ({
           id: event.id,
-          x: xScale(new Date(event.timestamp)),
+          x: xScale(toInstant(event.timestamp)),
           description: event.description,
           priority: event.id === podEventId,
         })),
@@ -506,7 +509,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
       layoutEventLabels(
         counterfactualEvents.map(event => ({
           id: event.id,
-          x: xScale(new Date(event.timestamp)),
+          x: xScale(toInstant(event.timestamp)),
           description: event.description,
           priority: event.id === podEventId,
         })),
@@ -554,7 +557,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
         <text
           key={`${lane}-label-${event.id}`}
           data-testid={`${lane === 'baseline' ? 'event' : 'cf-event'}-label-${event.id}`}
-          x={xScale(new Date(event.timestamp))}
+          x={xScale(toInstant(event.timestamp))}
           y={laneY + placement.offset}
           textAnchor={placement.anchor}
           fontSize={LABEL_FONT_PX}
@@ -770,7 +773,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
 
               {/* Baseline Lane Events */}
               {baselineEvents.map(event => {
-                const x = xScale(new Date(event.timestamp))
+                const x = xScale(toInstant(event.timestamp))
                 if (x < -20 || x > innerWidth + 20) return null
 
                 const item = itemMap.get(event.id)
@@ -810,7 +813,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
 
               {/* Counterfactual Lane Events */}
               {counterfactualEvents.map(event => {
-                const x = xScale(new Date(event.timestamp))
+                const x = xScale(toInstant(event.timestamp))
                 if (x < -20 || x > innerWidth + 20) return null
 
                 const item = itemMap.get(event.id)

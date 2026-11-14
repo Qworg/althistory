@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { toAxisTime } from '@althistory/calendar';
 import { Arc, IArc, CreateArcRequest } from './Arc';
 
 /**
@@ -382,9 +383,22 @@ describe('Arc Model', () => {
         description: 'Series of conflicts involving Napoleon Bonaparte',
         start_time: new Date('1803-05-18'),
         end_time: new Date('1815-11-20'),
+        start_time_ms: String(Date.parse('1803-05-18')),
+        end_time_ms: String(Date.parse('1815-11-20')),
         level: 0,
         metadata: { region: 'Europe' }
       });
+    });
+
+    it('holds an arc across a million years exactly, ordering to the millisecond past a Date', () => {
+      const arc = new Arc({ ...validArcData, start_time: '-400000-01-01T00:00:00.000Z' as unknown as Date, end_time: '+600000-01-01T00:00:00.000Z' as unknown as Date });
+      expect(arc.toJSON().start_time_ms).toBe(String(toAxisTime('-400000-01-01T00:00:00.000Z')));
+      expect(arc.containsTimestamp(new Arc({ ...validArcData, start_time: '+500000-01-01T00:00:00.000Z' as unknown as Date, end_time: '+500001-01-01T00:00:00.000Z' as unknown as Date }).start_time)).toBe(true);
+      // Two moments one millisecond apart, far past where a double can tell them apart: the arc is still one.
+      const start = '+200000000-01-01T00:00:00.000Z' as unknown as Date;
+      const end = '+200000000-01-01T00:00:00.001Z' as unknown as Date;
+      expect(() => new Arc({ ...validArcData, start_time: start, end_time: end })).not.toThrow();
+      expect(() => new Arc({ ...validArcData, start_time: end, end_time: start })).toThrow(/before end time/);
     });
 
     it('should convert arc without optional fields to JSON', () => {

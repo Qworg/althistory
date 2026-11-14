@@ -1,6 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { parseIsoInstant, readDateField, readTimestamp, toInstant } from './index'
+import { MAX_AXIS_MS, MIN_AXIS_MS, axisOf, parseIsoInstant, readDateField, readTimestamp, toInstant } from './index'
 import * as arb from './test/arbitraries'
 
 // An oracle that does not use Date: Hinnant's days_from_civil, written out
@@ -22,7 +22,7 @@ describe('an ISO 8601 timestamp, in every time zone', () => {
   it('reads back every instant a Date holds, as toISOString writes it', () => {
     fc.assert(
       fc.property(arb.instant, (date) => {
-        expect(parseIsoInstant(date.toISOString())).toEqual({ date, dateOnly: false, precision: 'time' })
+        expect(parseIsoInstant(date.toISOString())).toEqual({ time: BigInt(date.getTime()), date, dateOnly: false, precision: 'time' })
         expect(toInstant(date.toISOString())).toEqual(date)
       }),
       arb.runs(3000)
@@ -31,7 +31,7 @@ describe('an ISO 8601 timestamp, in every time zone', () => {
 
   it('is the instant its fields name, in every spelling, or nothing when one of them does not exist', () => {
     const fields = fc.record({
-      year: fc.oneof(fc.integer({ min: -280000, max: 280000 }), fc.integer({ min: -5, max: 2100 })),
+      year: fc.oneof(fc.integer({ min: -999999, max: 999999 }), fc.integer({ min: -5, max: 2100 })),
       yearSpelling: fc.constantFrom('plain', 'expanded', 'minus-zero'),
       precision: fc.constantFrom('year', 'month', 'day', 'day', 'time', 'time', 'time'),
       month: fc.integer({ min: 0, max: 13 }),
@@ -61,7 +61,7 @@ describe('an ISO 8601 timestamp, in every time zone', () => {
         if (precision !== 'year') text += `-${pad(f.month)}`
         if (precision === 'day' || precision === 'time') text += `-${pad(f.day)}`
         exists &&= month >= 1 && month <= 12 && day >= 1 && day <= daysIn(year, month)
-        let ms = daysFromCivil(year, month, day) * DAY
+        let ms = BigInt(daysFromCivil(year, month, day)) * BigInt(DAY)
         if (precision === 'time') {
           text += `${f.separator}${pad(f.hour)}:${pad(f.minute)}`
           exists &&= f.hour <= 23 && f.minute <= 59
@@ -85,17 +85,18 @@ describe('an ISO 8601 timestamp, in every time zone', () => {
             exists &&= hours <= 23
           }
           const fractionMs = f.second !== undefined && f.fraction !== undefined ? Number(f.fraction.slice(0, 3).padEnd(3, '0')) : 0
-          ms += ((f.hour * 60 + f.minute - offset) * 60 + (f.second ?? 0)) * 1000 + fractionMs
+          ms += BigInt(((f.hour * 60 + f.minute - offset) * 60 + (f.second ?? 0)) * 1000 + fractionMs)
         }
         const parsed = parseIsoInstant(text)
-        if (!exists || Math.abs(ms) > arb.MAX_TIME) {
+        if (!exists || ms > MAX_AXIS_MS || ms < MIN_AXIS_MS) {
           expect(parsed, text).toBeNull()
           // Text that starts like an ISO date and is not one is no date: never
           // the day V8 rolls it into, nor a time read in the host's zone.
           expect(Number.isNaN(toInstant(text).getTime()), text).toBe(true)
         } else {
-          expect(parsed, text).toEqual({ date: new Date(ms), dateOnly: precision !== 'time', precision })
-          expect(toInstant(` ${text} `)).toEqual(new Date(ms))
+          expect(parsed, text).toMatchObject({ time: ms, dateOnly: precision !== 'time', precision })
+          expect(axisOf(parsed!.date), text).toBe(ms)
+          expect(axisOf(toInstant(` ${text} `)), text).toBe(ms)
         }
       }),
       arb.runs(8000)

@@ -5,7 +5,8 @@ import { TimeRangeSelector } from './TimeRangeSelector'
 import type { TimeRange } from '@/types'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import { VAEL } from '@/test/fixtures/worldCalendars'
-import { readWorldTimestamp } from '@althistory/calendar'
+import { readWorldTimestamp, toAxisTime, toInstant } from '@althistory/calendar'
+import { useGlobalStore } from '@/stores/globalStore'
 
 afterEach(() => useWorldCalendarStore.getState().setCalendar(null))
 
@@ -58,5 +59,24 @@ describe('the time range picker', () => {
     expect(screen.queryByRole('alert')).toBeNull()
     expect(sent).toHaveBeenCalledTimes(1)
     expect(screen.getByLabelText(/End Date/)).toHaveValue('Thaw 12, 313 AR')
+  })
+})
+
+describe('the time range picker past what a double holds', () => {
+  afterEach(() => useGlobalStore.setState({ events: [] }))
+
+  it('"all events" spans the first and last event exactly, odd milliseconds included', () => {
+    const first = '+300001-01-01T00:00:00.001Z'
+    const last = '+300003-01-01T00:00:00.003Z'
+    const event = (id: string, timestamp: string) =>
+      ({ id, description: id, actor: 'A', target: 'B', timestamp, created_at: first, updated_at: first }) as never
+    // The last one first, so the order of the list is not what makes it the maximum.
+    useGlobalStore.setState({ events: [event('b', last), event('a', first)] })
+    const sent = vi.fn()
+    render(<TimeRangeSelector value={null} onChange={sent} />)
+    fireEvent.click(screen.getByRole('button', { name: /all events/i }))
+    const { start, end } = sent.mock.lastCall![0] as TimeRange
+    expect(toAxisTime(start)).toBe(toAxisTime(toInstant(first)))
+    expect(toAxisTime(end)).toBe(toAxisTime(toInstant(last)))
   })
 })

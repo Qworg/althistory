@@ -22,9 +22,11 @@ import {
   sameCalendarSet,
   storedCalendarSet,
   toInstant,
+  compareInstants,
   unreadDateReason,
 } from '@althistory/calendar';
 import { importedMetadata, readImportedTime } from '@/utils/importedTime';
+import { READABLE_EXPORT_VERSIONS } from '@/utils/exportVersion';
 import { JobRepository } from '../repositories/JobRepository';
 import { ResolvedGraphData, EntityChanges } from '../repositories/VersionRepository';
 import {
@@ -539,10 +541,10 @@ export class ImportService {
     const importData = data as Record<string, unknown>;
 
     // Validate version
-    if (importData.version !== '1.0') {
+    if (typeof importData.version !== 'string' || !READABLE_EXPORT_VERSIONS.includes(importData.version)) {
       errors.push({
         path: '$.version',
-        message: `Unsupported version: ${importData.version}. Expected '1.0'`,
+        message: `Unsupported version: ${importData.version}. Expected '1.0' or '1.1'`,
         code: 'VERSION_MISMATCH',
       });
     }
@@ -900,7 +902,7 @@ export class ImportService {
           code: 'INVALID_VALUE',
         });
       } else {
-        const date = new Date(readImportedTime(e.timestamp, world, 'start')!.iso);
+        const date = toInstant(readImportedTime(e.timestamp, world, 'start')!.iso);
         if (!world && date > new Date()) {
           warnings.push({
             path: `${path}.timestamp`,
@@ -1056,9 +1058,9 @@ export class ImportService {
 
       // Validate temporal consistency
       if (a.start_time && a.end_time) {
-        const start = new Date(readImportedTime(a.start_time, world, 'start')?.iso ?? NaN);
-        const end = new Date(readImportedTime(a.end_time, world, 'end')?.iso ?? NaN);
-        if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start > end) {
+        const start = toInstant(readImportedTime(a.start_time, world, 'start')?.iso ?? NaN);
+        const end = toInstant(readImportedTime(a.end_time, world, 'end')?.iso ?? NaN);
+        if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && compareInstants(start, end) > 0) {
           errors.push({
             path: `${path}`,
             message: `Arc start_time (${a.start_time}) is after end_time (${a.end_time})`,
@@ -1410,8 +1412,8 @@ export class ImportService {
       if (e.timestamp) {
         const date = toInstant(e.timestamp);
         if (!isNaN(date.getTime())) {
-          if (!minDate || date < minDate) minDate = date;
-          if (!maxDate || date > maxDate) maxDate = date;
+          if (!minDate || compareInstants(date, minDate) < 0) minDate = date;
+          if (!maxDate || compareInstants(date, maxDate) > 0) maxDate = date;
         }
       }
       if (e.actor) actors.add(e.actor);
@@ -1421,13 +1423,13 @@ export class ImportService {
       if (a.start_time) {
         const date = toInstant(a.start_time);
         if (!isNaN(date.getTime())) {
-          if (!minDate || date < minDate) minDate = date;
+          if (!minDate || compareInstants(date, minDate) < 0) minDate = date;
         }
       }
       if (a.end_time) {
         const date = toInstant(a.end_time);
         if (!isNaN(date.getTime())) {
-          if (!maxDate || date > maxDate) maxDate = date;
+          if (!maxDate || compareInstants(date, maxDate) > 0) maxDate = date;
         }
       }
     }
@@ -1521,7 +1523,7 @@ export class ImportService {
       for (const arcId of assignedArcs) {
         const arcBounds = arcDates.get(arcId);
         if (arcBounds) {
-          if (eventTime < arcBounds.start || eventTime > arcBounds.end) {
+          if (compareInstants(eventTime, arcBounds.start) < 0 || compareInstants(eventTime, arcBounds.end) > 0) {
             const arc = arcMap.get(arcId);
             errors.push({
               path: `$.data.events[${index}]`,
@@ -1558,7 +1560,7 @@ export class ImportService {
             return;
           }
 
-          if (childStart < parentStart || childEnd > parentEnd) {
+          if (compareInstants(childStart, parentStart) < 0 || compareInstants(childEnd, parentEnd) > 0) {
             errors.push({
               path: `$.data.arcs[${index}]`,
               message: `Arc "${arc.name}" extends outside parent arc "${parent.name}" boundaries`,
@@ -1857,7 +1859,7 @@ export class ImportService {
           const existingArc = existingArcsMap.get(arcId);
           if (
             existingArc &&
-            (eventTime < existingArc.startTime || eventTime > existingArc.endTime)
+            (compareInstants(eventTime, existingArc.startTime) < 0 || compareInstants(eventTime, existingArc.endTime) > 0)
           ) {
             addConflict({
               id: `conflict-temporal-event-${event.id}`,
@@ -1885,13 +1887,13 @@ export class ImportService {
           if (existingId === arc.id) continue;
 
           const overlaps =
-            incomingStart < existingArc.endTime && incomingEnd > existingArc.startTime;
+            compareInstants(incomingStart, existingArc.endTime) < 0 && compareInstants(incomingEnd, existingArc.startTime) > 0;
           if (!overlaps) continue;
 
           const incomingContainedInExisting =
-            incomingStart >= existingArc.startTime && incomingEnd <= existingArc.endTime;
+            compareInstants(incomingStart, existingArc.startTime) >= 0 && compareInstants(incomingEnd, existingArc.endTime) <= 0;
           const existingContainedInIncoming =
-            existingArc.startTime >= incomingStart && existingArc.endTime <= incomingEnd;
+            compareInstants(existingArc.startTime, incomingStart) >= 0 && compareInstants(existingArc.endTime, incomingEnd) <= 0;
 
           if (
             (arc.level > existingArc.level && !incomingContainedInExisting) ||

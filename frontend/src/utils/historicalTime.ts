@@ -88,5 +88,12 @@ export function historicalYear(value: DateInput, calendar?: CalendarArg): string
   const date = calendarLib.toDate(value)
   if (Number.isNaN(date.getTime())) return '?'
   const world = resolveCalendar(calendar)
-  return world ? calendarLib.formatHistoricalDateAt(date, 'year', undefined, world) : String(date.getUTCFullYear())
+  if (world) return calendarLib.formatHistoricalDateAt(date, 'year', undefined, world)
+  const year = date.getUTCFullYear()
+  // A real history's years stay as they always were (-43 for 44 BCE). Below
+  // year -9999 only deep time lies, where the astronomical "-499999" would
+  // read as a typo: write it as the era's own "500000 BC" (deep-time Req 16).
+  return year < DEEP_TIME_LABEL_BELOW ? calendarLib.formatHistoricalDateAt(date, 'year', 'en', null) : String(year)
 }
+
+const DEEP_TIME_LABEL_BELOW = -9999
