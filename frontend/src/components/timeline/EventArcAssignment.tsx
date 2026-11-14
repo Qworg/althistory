@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { Event, Arc } from '@/types'
 import { formatHistoricalDate, formatEventDate } from '@/utils/historicalTime'
+import { toAxisTime } from '@althistory/calendar'
 
 export interface EventArcAssignmentProps {
   event: Event
@@ -25,18 +26,20 @@ export const EventArcAssignment: React.FC<EventArcAssignmentProps> = ({
 
   // Filter arcs that can contain this event (temporal containment)
   const compatibleArcs = availableArcs.filter(arc => {
-    const eventTime = new Date(event.timestamp).getTime()
-    const arcStart = new Date(arc.start_time).getTime()
-    const arcEnd = new Date(arc.end_time).getTime()
-    
+    const eventTime = toAxisTime(event.timestamp)
+    const arcStart = toAxisTime(arc.start_time)
+    const arcEnd = toAxisTime(arc.end_time)
+    if (eventTime === null || arcStart === null || arcEnd === null) return false
+
     return eventTime >= arcStart && eventTime <= arcEnd
   })
 
   const incompatibleArcs = availableArcs.filter(arc => {
-    const eventTime = new Date(event.timestamp).getTime()
-    const arcStart = new Date(arc.start_time).getTime()
-    const arcEnd = new Date(arc.end_time).getTime()
-    
+    const eventTime = toAxisTime(event.timestamp)
+    const arcStart = toAxisTime(arc.start_time)
+    const arcEnd = toAxisTime(arc.end_time)
+    if (eventTime === null || arcStart === null || arcEnd === null) return false
+
     return eventTime < arcStart || eventTime > arcEnd
   })
 

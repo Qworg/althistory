@@ -12,7 +12,8 @@ import {
   getTimeAxisFormat,
   formatTimeAxisTick,
   formatTimeAxisTicks,
-  getTimeAxisInterval
+  getTimeAxisInterval,
+  axisTicks
 } from './d3Calculations'
 import { Event, Arc } from '@/types'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
@@ -547,5 +548,24 @@ describe('formatTimeAxisTicks', () => {
     const ticks = scale.ticks(10)
     const labels = formatTimeAxisTicks(ticks, 6 * 60 * 60 * 1000)
     expect(new Set(labels).size).toBe(labels.length)
+  })
+})
+
+describe('axisTicks near a Date\'s lower bound', () => {
+  it.each([
+    ['-250000-01-01T00:00:00.000Z', '+050000-01-01T00:00:00.000Z'],
+    ['-260000-01-01T00:00:00.000Z', '+040000-01-01T00:00:00.000Z'],
+    ['-270000-01-01T00:00:00.000Z', '+000001-01-01T00:00:00.000Z'],
+    ['-200000-01-01T00:00:00.000Z', '+100000-01-01T00:00:00.000Z'],
+  ])('ticks %s to %s in BCE years, though a Date holds both', (from, to) => {
+    const ticks = axisTicks([new Date(from), new Date(to)], 8, null)
+    expect(ticks.length).toBeGreaterThan(2)
+    expect(ticks.some((tick) => /BCE/.test(tick.label))).toBe(true)
+    expect(ticks.every((tick) => !/^-|s$/.test(tick.label))).toBe(true)
+  })
+
+  it('leaves a real history\'s CE ticks to d3', () => {
+    const ticks = axisTicks([new Date('1843-01-01T00:00:00.000Z'), new Date('1871-06-01T00:00:00.000Z')], 8, null)
+    expect(ticks.every((tick) => !/CE/.test(tick.label))).toBe(true)
   })
 })

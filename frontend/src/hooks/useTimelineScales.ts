@@ -2,9 +2,10 @@
 // See: docs/adr-001-d3-react-integration.md
 
 import { useMemo } from 'react'
-import * as d3 from 'd3'
+import { clampedInstantOfMs, instantScale } from '@/utils/timeScale'
 import { Event, Arc } from '@/types'
 import { TimelineMargin, UseTimelineScalesResult } from '@/types/timeline'
+import { toInstant } from '@althistory/calendar'
 
 /**
  * Custom hook for memoized timeline scale calculations.
@@ -46,14 +47,14 @@ export function useTimelineScales(
 
     // Collect timestamps from events
     for (const e of events) {
-      const t = new Date(e.timestamp).getTime()
+      const t = toInstant(e.timestamp).getTime()
       if (!Number.isNaN(t)) times.push(t)
     }
 
     // Collect start/end times from arcs
     for (const a of arcs) {
-      const s = new Date(a.start_time).getTime()
-      const e = new Date(a.end_time).getTime()
+      const s = toInstant(a.start_time).getTime()
+      const e = toInstant(a.end_time).getTime()
       if (!Number.isNaN(s)) times.push(s)
       if (!Number.isNaN(e)) times.push(e)
     }
@@ -76,7 +77,7 @@ export function useTimelineScales(
     // Minimum padding is 10 seconds to avoid events touching the edge
     const padding = Math.max(range * 0.02, 1000 * 10) // At least 10 seconds padding
 
-    return [new Date(minTime - padding), new Date(maxTime + padding)]
+    return [clampedInstantOfMs(minTime - padding), clampedInstantOfMs(maxTime + padding)]
   }, [events, arcs])
 
   // Calculate zoomed width - when zoomLevel > 1, content is wider than container
@@ -89,7 +90,7 @@ export function useTimelineScales(
   // When zoomLevel = 1, all events fit in innerWidth
   // When zoomLevel > 1, events spread out more (zoomed in)
   const xScale = useMemo(() =>
-    d3.scaleTime()
+    instantScale()
       .domain(xDomain)
       .range([0, zoomedWidth]),
     [xDomain, zoomedWidth]

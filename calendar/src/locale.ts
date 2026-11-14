@@ -16,7 +16,8 @@
  * order. Every formatter takes the set explicitly; `null` means none.
  */
 
-import { toInstant } from './instant'
+import { toAxisTime, toInstant } from './instant'
+import { AxisDate, civilOfAxisTime } from './time'
 import type { DatePrecision } from './describe'
 import type { WorldCalendarSet } from './world/definition'
 import { calendarIn, dateAt } from './world/engine'
@@ -59,6 +60,36 @@ const DATE_OPTIONS: Intl.DateTimeFormatOptions = {
  * its era: a formatter writes the year of its era, so 44 BCE is "44" and,
  * without "BC", reads as 44 CE.
  */
+/**
+ * A date written as Intl writes it, for a date a Date cannot hold. Within a
+ * Date's range this is `toLocaleDateString` itself, so real history reads as it
+ * always did. Beyond it the month, day and time are formatted on a stand-in
+ * date in a leap year of the same era (2000 CE, or 401 BCE), and the year
+ * the locale put there is replaced by the real one, in the locale's digits.
+ */
+function intlDate(date: Date, locale: string | undefined, options: Intl.DateTimeFormatOptions): string {
+  if (!(date instanceof AxisDate)) return date.toLocaleDateString(locale, options)
+  return formatBeyondRange(date, locale, options)
+}
+
+function intlTime(date: Date, locale: string | undefined, options: Intl.DateTimeFormatOptions): string {
+  if (!(date instanceof AxisDate)) return date.toLocaleTimeString(locale, options)
+  return formatBeyondRange(date, locale, options)
+}
+
+function formatBeyondRange(date: AxisDate, locale: string | undefined, options: Intl.DateTimeFormatOptions): string {
+  const civil = civilOfAxisTime(date.axis)
+  const stand = new Date(0)
+  stand.setUTCFullYear(civil.year >= 1 ? 2000 : -400, civil.month - 1, civil.day)
+  stand.setUTCHours(civil.hour, civil.minute, civil.second, civil.millisecond)
+  const yearOfEra = civil.year >= 1 ? civil.year : 1 - civil.year
+  const digits = new Intl.NumberFormat(locale, { useGrouping: false })
+  return new Intl.DateTimeFormat(locale, options)
+    .formatToParts(stand)
+    .map((part) => (part.type === 'year' ? digits.format(yearOfEra) : part.value))
+    .join('')
+}
+
 function plainOptions(date: Date, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormatOptions {
   return date.getUTCFullYear() <= 0 ? { ...options, era: 'short' } : options
 }
@@ -73,9 +104,9 @@ export function formatHistoricalDate(value: DateInput, locale: string | undefine
   if (Number.isNaN(date.getTime())) return 'Invalid date'
   if (calendar) {
     const primary = calendarIn(calendar)
-    return formatWorldFields(primary, dateAt(primary, date.getTime()), 'day')
+    return formatWorldFields(primary, dateAt(primary, toAxisTime(date)!), 'day')
   }
-  return date.toLocaleDateString(locale, plainOptions(date, DATE_OPTIONS))
+  return intlDate(date, locale, plainOptions(date, DATE_OPTIONS))
 }
 
 /**
@@ -87,9 +118,9 @@ export function formatHistoricalTimestamp(value: DateInput, locale: string | und
   const date = toDate(value)
   if (Number.isNaN(date.getTime())) return 'Invalid date'
   // A world's time is its own hours: "Greywater 4, 312 AR, 13:50".
-  if (calendar) return formatWorldPosition(calendarIn(calendar), date.getTime())
+  if (calendar) return formatWorldPosition(calendarIn(calendar), toAxisTime(date)!)
   if (isUtcMidnight(date)) return formatHistoricalDate(date, locale, calendar)
-  const time = date.toLocaleTimeString(locale, {
+  const time = intlTime(date, locale, {
     timeZone: 'UTC',
     hour: '2-digit',
     minute: '2-digit',
@@ -148,7 +179,7 @@ export function formatHistoricalDateAt(
   if (calendar) {
     const own = calendarId && calendar.calendars.some((definition) => definition.id === calendarId) ? calendarId : undefined
     const primary = calendarIn(calendar, own)
-    return formatWorldFields(primary, dateAt(primary, date.getTime()), precision)
+    return formatWorldFields(primary, dateAt(primary, toAxisTime(date)!), precision)
   }
   // On the Gregorian calendar whatever the locale's own: a day is a day in any
   // calendar, but a Gregorian month or year is not one month or year of
@@ -158,7 +189,7 @@ export function formatHistoricalDateAt(
     precision === 'month'
       ? { timeZone: 'UTC', year: 'numeric', month: 'short', calendar: 'gregory' }
       : { timeZone: 'UTC', year: 'numeric', calendar: 'gregory' }
-  return date.toLocaleDateString(locale, plainOptions(date, options))
+  return intlDate(date, locale, plainOptions(date, options))
 }
 
 /** An event's date, at the precision its source gave. */

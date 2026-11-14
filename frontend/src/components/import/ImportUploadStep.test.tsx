@@ -148,6 +148,24 @@ describe('ImportUploadStep', () => {
       expect(mockOnError).not.toHaveBeenCalled()
     })
 
+    it('should accept a version 1.1 export holding a date beyond a Date\'s range', async () => {
+      renderComponent()
+
+      const deep = {
+        ...validExportData,
+        version: '1.1',
+        data: {
+          ...validExportData.data,
+          events: [{ id: 'e1', timestamp: '-499999-03-15T00:00:00.000Z' }, { id: 'e2', timestamp: '+300000-01-01T00:00:00.000Z' }],
+        },
+      }
+      fireEvent.change(screen.getByLabelText('Export file contents'), { target: { value: JSON.stringify(deep) } })
+      await user.click(screen.getByRole('button', { name: 'Check pasted file' }))
+
+      expect(mockOnError).not.toHaveBeenCalled()
+      expect(mockOnUpload).toHaveBeenCalledWith(deep)
+    })
+
     it('should call onError with invalid JSON syntax', async () => {
       renderComponent()
       
@@ -183,7 +201,7 @@ describe('ImportUploadStep', () => {
       const parseButton = screen.getByRole('button', { name: 'Check pasted file' })
       await user.click(parseButton)
       
-      expect(mockOnError).toHaveBeenCalledWith('This export is format version 2.0; this version of althistory reads version 1.0.')
+      expect(mockOnError).toHaveBeenCalledWith('This export is format version 2.0; this version of althistory reads versions 1.0 and 1.1.')
     })
 
     it('should call onError when metadata is missing', async () => {

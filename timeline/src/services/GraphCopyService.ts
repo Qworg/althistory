@@ -1,6 +1,7 @@
 import { Session, Integer } from 'neo4j-driver';
 import { TimeRange } from '../models/Event';
 import { getDatabaseManager } from '../utils/database';
+import { runTemporal } from '../utils/temporal';
 
 /**
  * Result of a graph copy operation
@@ -526,7 +527,7 @@ export class GraphCopyService {
     };
 
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await runTemporal(this.session, query, parameters);
       const copiedCount = toNumericCount(result.records[0]?.get('totalCreated'));
       return { copiedCount, errors: [] };
     } catch (error) {
@@ -580,7 +581,7 @@ export class GraphCopyService {
     };
 
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await runTemporal(this.session, query, parameters);
       const copiedCount = toNumericCount(result.records[0]?.get('totalCreated'));
       return { copiedCount, errors: [] };
     } catch (error) {
@@ -691,7 +692,7 @@ export class GraphCopyService {
     };
 
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await runTemporal(this.session, query, parameters);
       return result.records.map(record => record.get('nodeId'));
     } catch (error) {
       throw new Error(`Failed to get nodes in time range: ${error}`);
@@ -734,7 +735,7 @@ export class GraphCopyService {
     `;
 
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await runTemporal(this.session, query, parameters);
       return result.records.map(record => record.get('nodeId'));
     } catch (error) {
       throw new Error(`Failed to get nodes matching filter: ${error}`);
@@ -894,7 +895,7 @@ export class GraphCopyService {
     };
 
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await runTemporal(this.session, query, parameters);
       const copiedCount = toNumericCount(result.records[0]?.get('totalCreated'));
       return { copiedCount, errors: [] };
     } catch (error) {
@@ -962,7 +963,7 @@ export class GraphCopyService {
     };
 
     try {
-      const result = await this.session.run(query, parameters);
+      const result = await runTemporal(this.session, query, parameters);
       const copiedCount = toNumericCount(result.records[0]?.get('totalCreated'));
       return { copiedCount, errors: [] };
     } catch (error) {

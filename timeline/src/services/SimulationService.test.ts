@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Mock } from 'vitest';
+import { toAxisTime, toInstant } from '@althistory/calendar';
 import { Event } from '@/models';
 import { NotFoundError, ValidationError } from '@/utils/errors';
 import { InferenceService } from './InferenceService';
@@ -159,6 +160,16 @@ describe('SimulationService', () => {
     const result = await service.simulate({ graphId: 'g1', steps: 1, stepDurationMs: 1000 });
     expect(result.anchorEventId).toBe('new');
     expect(result.events[0].timestamp.getTime()).toBe(newer.timestamp.getTime() + 1000);
+  });
+
+  it('tells the latest event from the one a millisecond before it, past what a double holds', async () => {
+    const older = makeEvent({ id: 'old', timestamp: toInstant('+300001-01-01T00:00:00.000Z') });
+    const newer = makeEvent({ id: 'new', timestamp: toInstant('+300001-01-01T00:00:00.001Z') });
+    const { service } = makeHarness([older, newer]);
+
+    const result = await service.simulate({ graphId: 'g1', steps: 1, stepDurationMs: 1000 });
+    expect(result.anchorEventId).toBe('new');
+    expect(toAxisTime(result.events[0].timestamp)).toBe(toAxisTime(newer.timestamp)! + 1000n);
   });
 
   it('never writes during a preview', async () => {

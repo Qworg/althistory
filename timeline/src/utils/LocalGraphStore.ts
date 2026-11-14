@@ -1,4 +1,4 @@
-import { toInstant } from '@althistory/calendar';
+import { inDateRange, isoOfAxisTime, toAxisTime } from '@althistory/calendar';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { loadConfig } from './config';
@@ -109,6 +109,26 @@ export interface LocalQueryResult {
 /**
  * Basic Cypher query parser for local execution
  */
+/** An ISO 8601 timestamp as the stores hold one: a four-digit year, or an expanded signed one. */
+const ISO_TIMESTAMP = /^(?:[+-]\d{6,9}|\d{4})-\d{2}-\d{2}T/;
+
+/**
+ * Queries reach the local store as they reach Neo4j. A moment beyond a Date's
+ * range is sent there as `datetime({epochMillis: $p})` (utils/temporal.ts);
+ * here it is the ISO text the store keeps, so the form is turned back into
+ * `datetime($p__iso)` with the text.
+ */
+export function readEpochMillis(query: string, parameters: GraphParameters): { query: string; parameters: GraphParameters } {
+  if (!query.includes('epochMillis')) return { query, parameters };
+  const read: GraphParameters = { ...parameters };
+  const text = query.replace(/datetime\(\{\s*epochMillis:\s*\$(\w+)\s*\}\)/g, (_whole, name: string) => {
+    const iso = isoOfAxisTime(BigInt(String(parameters[name])));
+    read[name + '__iso'] = iso;
+    return 'datetime($' + name + '__iso)';
+  });
+  return { query: text, parameters: read };
+}
+
 export class CypherQueryParser {
   /**
    * Parse and execute a simple Cypher query
@@ -1071,17 +1091,26 @@ export class CypherQueryParser {
     return rawValue;
   }
 
+  /**
+   * A moment as a number of milliseconds to compare, or, beyond a Date's range
+   * (where a double no longer tells two moments a second apart), as the exact
+   * bigint. JavaScript orders a number against a bigint exactly.
+   */
+  private static momentValue(time: bigint | null): GraphPropertyValue {
+    if (time === null) return Number.NaN;
+    return inDateRange(time) ? Number(time) : (time as unknown as GraphPropertyValue);
+  }
+
   private static normalizePropertyValue(value: GraphPropertyValue): GraphPropertyValue {
-    // Convert date strings to Date objects for comparison
+    // Convert date strings to moments for comparison
     if (typeof value === 'string') {
-      // Check if it's an ISO date string
-      const dateMatch = value.match(/^\d{4}-\d{2}-\d{2}T/);
-      if (dateMatch) {
-        return toInstant(value).getTime();
+      // An ISO timestamp, its year four digits or expanded ("+300000-…")
+      if (ISO_TIMESTAMP.test(value)) {
+        return this.momentValue(toAxisTime(value));
       }
     }
     if (value instanceof Date) {
-      return value.getTime();
+      return this.momentValue(toAxisTime(value));
     }
     return value;
   }
@@ -1094,9 +1123,23 @@ export class CypherQueryParser {
    */
   private static compareOrder(left: GraphPropertyValue, right: GraphPropertyValue): number | null {
     if (typeof left === 'string' && typeof right === 'string') {
+      // Two timestamps order as moments do, not as their text: "-000100-…" is
+      // before "-000043-…", and "+300000-…" is after "2000-…".
+      if (ISO_TIMESTAMP.test(left) && ISO_TIMESTAMP.test(right)) {
+        const a = toAxisTime(left);
+        const b = toAxisTime(right);
+        if (a !== null && b !== null) return a < b ? -1 : a > b ? 1 : 0;
+      }
       if (left < right) return -1;
       if (left > right) return 1;
       return 0;
+    }
+    if (typeof left === 'bigint' || typeof right === 'bigint') {
+      const a = left as unknown as bigint | number;
+      const b = right as unknown as bigint | number;
+      if (typeof a === 'number' && Number.isNaN(a)) return null;
+      if (typeof b === 'number' && Number.isNaN(b)) return null;
+      return a < b ? -1 : a > b ? 1 : 0;
     }
     const leftNumber = Number(left);
     const rightNumber = Number(right);
@@ -1395,7 +1438,8 @@ export class LocalGraphStore {
    */
   async executeQuery(query: string, parameters: GraphParameters = {}): Promise<LocalQueryResult> {
     try {
-      return CypherQueryParser.execute(query, parameters, this.graphData);
+      const read = readEpochMillis(query, parameters);
+      return CypherQueryParser.execute(read.query, read.parameters, this.graphData);
     } catch (error) {
       throw new Error(`Query execution failed: ${error}`);
     }

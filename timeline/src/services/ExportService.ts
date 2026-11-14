@@ -2,7 +2,7 @@
  * Export Service for generating Althistory export files
  */
 
-import { toInstant } from '@althistory/calendar';
+import { toAxisTime } from '@althistory/calendar';
 import type { WorldCalendarSet } from '@althistory/calendar';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -15,12 +15,14 @@ import { ExportFilters } from '../models/AsyncJob';
 import { NotFoundError } from '../utils/errors';
 import { createLogger, ILogger } from '../utils/logger';
 import { assertSafeGraphId } from '../utils/GraphContextStore';
+import { type ExportVersion, READABLE_EXPORT_VERSIONS, exportVersionOf } from '../utils/exportVersion';
 
 /**
- * Althistory Export Format v1.0
+ * Althistory Export Format v1.0, or v1.1 when a date lies beyond what a
+ * JavaScript Date holds (see utils/exportVersion.ts).
  */
 export interface AlthistoryExport {
-  version: '1.0';
+  version: ExportVersion;
   metadata: ExportMetadata;
   data: ExportData;
   provenance?: ExportProvenance;
@@ -353,7 +355,7 @@ export class ExportService {
 
     // Build export object (without checksum first)
     const exportObj: AlthistoryExport = {
-      version: '1.0',
+      version: exportVersionOf({ events: Object.values(scoped.events), arcs: Object.values(scoped.arcs) }),
       metadata: {
         graphId: graph.id,
         graphName: graph.name,
@@ -546,8 +548,9 @@ export class ExportService {
       ? await this.getProvenance(options.graphId)
       : undefined;
 
+    const version = exportVersionOf({ events: Object.values(scoped.events), arcs: Object.values(scoped.arcs) });
     const head =
-      `{"version":"1.0","metadata":${JSON.stringify(metadata)},"data":`;
+      `{"version":"${version}","metadata":${JSON.stringify(metadata)},"data":`;
     const tail = (provenance ? `,"provenance":${JSON.stringify(provenance)}` : '') + '}';
 
     hooks.onPhase?.('writing');
@@ -759,7 +762,7 @@ export class ExportService {
     const warnings: string[] = [];
 
     // Check version
-    if (exportData.version !== '1.0') {
+    if (!READABLE_EXPORT_VERSIONS.includes(exportData.version)) {
       warnings.push(`Unknown version: ${exportData.version}`);
     }
 
@@ -875,11 +878,12 @@ export class ExportService {
 
     // Check time range
     if (filters.timeRange) {
-      const timestamp = toInstant(event.timestamp).getTime();
-      const start = toInstant(filters.timeRange.start).getTime();
-      const end = toInstant(filters.timeRange.end).getTime();
-      
-      if (timestamp < start || timestamp > end) {
+      // Exactly, on the axis: a double cannot order moments a second apart past ±285,000 years.
+      const timestamp = toAxisTime(event.timestamp);
+      const start = toAxisTime(filters.timeRange.start);
+      const end = toAxisTime(filters.timeRange.end);
+
+      if (timestamp === null || start === null || end === null || timestamp < start || timestamp > end) {
         return false;
       }
     }
@@ -911,11 +915,12 @@ export class ExportService {
 
     // Check time range (arc must overlap with filter range)
     if (filters.timeRange) {
-      const arcStart = toInstant(arc.start_time).getTime();
-      const arcEnd = toInstant(arc.end_time).getTime();
-      const filterStart = toInstant(filters.timeRange.start).getTime();
-      const filterEnd = toInstant(filters.timeRange.end).getTime();
-      
+      const arcStart = toAxisTime(arc.start_time);
+      const arcEnd = toAxisTime(arc.end_time);
+      const filterStart = toAxisTime(filters.timeRange.start);
+      const filterEnd = toAxisTime(filters.timeRange.end);
+      if (arcStart === null || arcEnd === null || filterStart === null || filterEnd === null) return false;
+
       // Arc overlaps if it starts before filter ends and ends after filter starts
       if (arcEnd < filterStart || arcStart > filterEnd) {
         return false;

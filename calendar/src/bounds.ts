@@ -11,7 +11,8 @@
 import type { WorldCalendarSet } from './world/definition'
 import type { DatePrecision } from './describe'
 import { daysInMonth } from './gregorian'
-import { parseIsoInstant, toInstant } from './instant'
+import { parseIsoInstant, toAxisTime, toInstant } from './instant'
+import { type AxisTime, axisOf, axisTimeOfCivil, inAxisRange, instantOfAxisTime, isoOfAxisTime } from './time'
 import { formatWorldBound, worldBound } from './world/axis'
 import { calendarIn, dateAt } from './world/engine'
 import { formatWorldFields } from './world/notation'
@@ -29,15 +30,14 @@ import { formatWorldFields } from './world/notation'
 
 export type DateBoundEdge = 'start' | 'end'
 
-export type HistoricalDateParse = { ok: true; date: Date; text: string } | { ok: false; error: string }
+/** A typed bound: the instant as an axis time and as a Date (an `AxisDate` beyond a Date's range), and its canonical spelling. */
+export type HistoricalDateParse = { ok: true; date: Date; time: AxisTime; text: string } | { ok: false; error: string }
 
-const HISTORICAL_DATE_PATTERN = /^(-)?(\d{1,6})(?:-(\d{1,2})(?:-(\d{1,2}))?)?(?:\s*(BCE|BC|CE|AD))?$/i
+const HISTORICAL_DATE_PATTERN = /^(-)?(\d{1,9})(?:-(\d{1,2})(?:-(\d{1,2}))?)?(?:\s*(BCE|BC|CE|AD))?$/i
 
-/** A UTC instant from an astronomical year (1 BCE = 0); safe for years 0-99. */
-function utcDate(astronomicalYear: number, monthIndex: number, day: number): Date {
-  const date = new Date(Date.UTC(2000, 0, 1))
-  date.setUTCFullYear(astronomicalYear, monthIndex, day)
-  return date
+/** A UTC axis time from an astronomical year (1 BCE = 0), by arithmetic: exact for every year, 0-99 and beyond a Date's range included. */
+function utcTime(astronomicalYear: number, monthIndex: number, day: number): AxisTime {
+  return axisTimeOfCivil(astronomicalYear, monthIndex + 1, day)
 }
 
 function pad2(value: number): string {
@@ -64,7 +64,7 @@ export function parseHistoricalDate(input: string, edge: DateBoundEdge): Histori
   // ISO 8601's own spelling of a year outside 1-9999 (a signed six-digit
   // year, or 0000) counts astronomically, as toISOString writes it and every
   // other reader reads it: "-000043" is 44 BCE, "0000" is 1 BCE.
-  const iso = /^(?:([+-]\d{6})|(0000))(?:-(\d{1,2})(?:-(\d{1,2}))?)?$/.exec(trimmed)
+  const iso = /^(?:([+-]\d{6,9})|(0000))(?:-(\d{1,2})(?:-(\d{1,2}))?)?$/.exec(trimmed)
   let astronomicalYear: number
   let monthText: string | undefined
   let dayText: string | undefined
@@ -102,23 +102,24 @@ export function parseHistoricalDate(input: string, edge: DateBoundEdge): Histori
     return { ok: false, error: `That month has no day ${day}.` }
   }
 
-  let date: Date
+  let time: AxisTime
   if (edge === 'start') {
-    date = utcDate(astronomicalYear, (month ?? 1) - 1, day ?? 1)
+    time = utcTime(astronomicalYear, (month ?? 1) - 1, day ?? 1)
   } else {
     // The last millisecond of the period: the start of the next one, less 1ms.
     const next =
       day !== undefined
-        ? utcDate(astronomicalYear, month! - 1, day + 1)
+        ? utcTime(astronomicalYear, month! - 1, day + 1)
         : month !== undefined
-          ? utcDate(astronomicalYear, month, 1)
-          : utcDate(astronomicalYear + 1, 0, 1)
-    date = new Date(next.getTime() - 1)
+          ? utcTime(astronomicalYear, month, 1)
+          : utcTime(astronomicalYear + 1, 0, 1)
+    time = next - 1n
   }
-  if (Number.isNaN(date.getTime())) {
+  const date = instantOfAxisTime(time)
+  if (!date) {
     return { ok: false, error: 'That date is out of range.' }
   }
-  return { ok: true, date, text: formatBound(astronomicalYear, month, day) }
+  return { ok: true, date, time, text: formatBound(astronomicalYear, month, day) }
 }
 
 /**
@@ -138,7 +139,7 @@ export function formatHistoricalDateBound(value: Date | string | null | undefine
   const date = toInstant(value)
   if (Number.isNaN(date.getTime())) return ''
   if (edge === 'end') {
-    const next = new Date(date.getTime() + 1)
+    const next = instantOfAxisTime((axisOf(date) ?? 0n) + 1n) ?? date
     const isMidnight = (d: Date) =>
       d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0
     if (isMidnight(next)) {
@@ -186,21 +187,20 @@ const TIME_SUFFIX = /^(.+?)(?:[ T](\d{1,2}):(\d{2}))$/
 export function readHistoricalText(
   text: string,
   edge: DateBoundEdge
-): { ok: true; iso: string; precision: DatePrecision } | { ok: false; error: string } {
+): { ok: true; iso: string; time: AxisTime; precision: DatePrecision } | { ok: false; error: string } {
   const trimmed = String(text).trim()
   const timed = TIME_SUFFIX.exec(trimmed)
   const parsed = parseHistoricalDate(timed ? timed[1]! : trimmed, timed ? 'start' : edge)
   if (!parsed.ok) return { ok: false, error: parsed.error }
-  if (!timed) return { ok: true, iso: parsed.date.toISOString(), precision: boundPrecision(parsed.text) }
+  if (!timed) return { ok: true, iso: isoOfAxisTime(parsed.time), time: parsed.time, precision: boundPrecision(parsed.text) }
   if (boundPrecision(parsed.text) !== 'day') return { ok: false, error: 'A time needs a whole date: 1843-11-20 14:30.' }
   const hours = Number(timed[2])
   const minutes = Number(timed[3])
   if (hours > 23 || minutes > 59) return { ok: false, error: 'The time must be 00:00 to 23:59, in UTC.' }
-  const date = new Date(parsed.date.getTime())
-  date.setUTCHours(hours, minutes, 0, 0)
-  // The last day a date can hold ends before some of its times.
-  if (Number.isNaN(date.getTime())) return { ok: false, error: 'That date is beyond the range a date can hold.' }
-  return { ok: true, iso: date.toISOString(), precision: 'day' }
+  const time = parsed.time + BigInt((hours * 60 + minutes) * 60_000)
+  // The last day the axis holds ends before some of its times.
+  if (!inAxisRange(time)) return { ok: false, error: 'That date is beyond the range the timeline holds (about 285 million years).' }
+  return { ok: true, iso: isoOfAxisTime(time), time, precision: 'day' }
 }
 
 export function boundPrecision(text: string): DatePrecision {
@@ -222,7 +222,7 @@ export function readDateBound(input: string, edge: DateBoundEdge, calendar: Worl
     if (historical.ok) return historical
     // A date and time (a link's, or pasted): the instant it names.
     const instant = parseIsoInstant(input.trim())
-    if (instant && !instant.dateOnly) return { ok: true, date: instant.date, text: formatHistoricalDateBound(instant.date, edge) }
+    if (instant && !instant.dateOnly) return { ok: true, date: instant.date, time: instant.time, text: formatHistoricalDateBound(instant.date, edge) }
     return historical
   }
   const world = worldBound(calendar, input, edge)
@@ -235,7 +235,7 @@ export function readDateBound(input: string, edge: DateBoundEdge, calendar: Worl
       world.calendar === shown.definition.id
         ? formatWorldFields(shown, dateAt(shown, world.position), world.precision)
         : formatWorldBound(calendar, world.position, edge)
-    return { ok: true, date: new Date(world.position), text }
+    return { ok: true, date: instantOfAxisTime(world.position) ?? new Date(NaN), time: world.position, text }
   }
   // ISO 8601, as every door reads it: a date and time (a link's) is that
   // instant, a date its UTC day (as an end, the day's last moment). A
@@ -245,8 +245,9 @@ export function readDateBound(input: string, edge: DateBoundEdge, calendar: Worl
     return { ok: false, error: `"${input.trim()}" is a Gregorian ${instant.precision}, which is no ${instant.precision} of this world: give it in the world's calendar, or give a day.` }
   }
   if (instant) {
-    const at = instant.dateOnly && edge === 'end' ? instant.date.getTime() + 86_400_000 - 1 : instant.date.getTime()
-    if (Math.abs(at) <= 8.64e15) return { ok: true, date: new Date(at), text: formatWorldBound(calendar, at, edge) }
+    const at = instant.dateOnly && edge === 'end' ? instant.time + 86_400_000n - 1n : instant.time
+    const date = instantOfAxisTime(at)
+    if (date) return { ok: true, date, time: at, text: formatWorldBound(calendar, at, edge) }
   }
   return world
 }
@@ -267,7 +268,8 @@ export function formatDateBound(
     const read = readDateBound(value, edge, calendar)
     if (read.ok) return read.text
   }
-  return formatWorldBound(calendar, toInstant(value).getTime(), edge)
+  const time = toAxisTime(value)
+  return time === null ? '' : formatWorldBound(calendar, time, edge)
 }
 
 // ── Date fields ──────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
  * Prompt builders and JSON schema for LLM-assisted extraction (spec Req 10.2).
  */
 
-import { type WorldCalendarSet, formatInWorld, readWorldTimestamp } from '@althistory/calendar';
+import { type WorldCalendarSet, formatInWorld, readWorldTimestamp, toAxisTime } from '@althistory/calendar';
 import { ExtractedEvent, ExtractionContext } from '../ingestion/types';
 
 export interface LLMExtractionPrompt {
@@ -66,7 +66,7 @@ function contextLines(context?: ExtractionContext): string {
     const shown = (value: string, edge: 'start' | 'end') => {
       if (!context.calendar) return value;
       const read = readWorldTimestamp(context.calendar, String(value), edge);
-      return read ? formatInWorld(context.calendar, Date.parse(read.iso), read.precision, read.calendar) : value;
+      return read ? formatInWorld(context.calendar, read.time, read.precision, read.calendar) : value;
     };
     lines.push(`Default time range: ${shown(start, 'start')} to ${shown(end, 'end')}`);
   }
@@ -91,10 +91,12 @@ function contextLines(context?: ExtractionContext): string {
  * world-calendars.md, Req 16, 18). Never both: an ISO date given for a world
  * date would be read as a Gregorian day thousands of years away.
  */
-function timestampRule(calendar: WorldCalendarSet | undefined): string {
+export function timestampRule(calendar: WorldCalendarSet | undefined): string {
   return calendar
     ? "a timestamp written as the world writes a date (the calendar is described in the context), never converted to an ISO date"
-    : 'an ISO-8601 timestamp';
+    : 'an ISO-8601 timestamp (a year before 0000 or after 9999 is written with a sign and six digits, as +300000-01-01 or -499999-03-15, ' +
+      'and a history may run for hundreds of thousands of years; ISO years are astronomical, so 0000 is 1 BCE, -000043 is 44 BCE and ' +
+      '-499999 is 500,000 BCE: for a source that says "500,000 BCE" write -499999)';
 }
 
 /** The extraction schema, its timestamp described as `timestampRule` says. */
@@ -144,7 +146,7 @@ export function buildRelationshipPrompt(
   const calendar = context?.calendar;
   const when = (event: ExtractedEvent) =>
     calendar
-      ? formatInWorld(calendar, Date.parse(event.timestamp), event.datePrecision ?? 'day', event.dateCalendar)
+      ? formatInWorld(calendar, toAxisTime(event.timestamp) ?? 0n, event.datePrecision ?? 'day', event.dateCalendar)
       : event.timestamp;
   const indexed = events.map((event, index) => `${index}: ${event.description} (${when(event)})`).join('\n');
   const contextSection = contextLines(context);

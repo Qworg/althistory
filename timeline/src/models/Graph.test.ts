@@ -877,7 +877,7 @@ describe('Graph Model', () => {
         epochYear: 1000,
         eraLabel: 'AR',
       }));
-      const stored = { name: 'Hand-edited', calendar: { epochYear: 0 } } as unknown as ConstructorParameters<typeof Graph>[0];
+      const stored = { name: 'Hand-edited', calendar: { epochYear: 'zero' } } as unknown as ConstructorParameters<typeof Graph>[0];
       expect(new Graph(stored).calendar).toBeUndefined();
     });
 

@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DirectEngine } from './engine/DirectEngine';
-import { TimelineGenerator, parseTimeWindow } from './generator/TimelineGenerator';
+import { TimelineGenerator, eraYearLabel, parseTimeWindow } from './generator/TimelineGenerator';
 import { LLMClient } from '../services/llm/LLMClient';
 import { ExtractedEvent } from '../services/ingestion/types';
 
@@ -376,5 +376,19 @@ describe('a time window', () => {
     expect(window.end).toBeGreaterThan(window.start);
     expect(parseTimeWindow('1871-03/1871-09')).toEqual({ start: Date.parse('1871-03-01T00:00:00.000Z'), end: Date.parse('1871-09-30T23:59:59.999Z') });
     expect(() => parseTimeWindow('1871/1872/1873')).toThrow(/Invalid time window/);
+  });
+});
+
+describe('the year an era is named for', () => {
+  it('is the whole year, however many digits, not the first four characters of the text', () => {
+    expect(eraYearLabel('1843-01-01T00:00:00.000Z')).toBe('1843');
+    expect(eraYearLabel('+300000-01-01T00:00:00.000Z')).toBe('300000');
+    expect(eraYearLabel('+300030-12-31T00:00:00.000Z')).toBe('300030');
+    expect(eraYearLabel('0005-01-01T00:00:00.000Z')).toBe('5');
+  });
+
+  it('writes a BCE year as the rest of the app does, not as its sign and zeros', () => {
+    expect(eraYearLabel('-000043-03-15T00:00:00.000Z')).toBe('44 BC');
+    expect(eraYearLabel('-200000-01-01T00:00:00.000Z')).toBe('200001 BC');
   });
 });

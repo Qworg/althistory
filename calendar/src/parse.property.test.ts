@@ -1,6 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { calendarProblems, parseEpochYear, parseMonthNames } from './index'
+import { MAX_EPOCH_YEAR, MIN_EPOCH_YEAR, calendarProblems, parseEpochYear, parseMonthNames } from './index'
 import * as arb from './test/arbitraries'
 
 /** Every way the docs say a list of month names can be written. */
@@ -67,7 +67,7 @@ describe('the epoch year as typed or sent', () => {
       fc.property(fc.integer({ min: 16, max: 400 }), fc.constantFrom('', '+', '-'), (length, sign) => {
         const year = parseEpochYear(`${sign}${'9'.repeat(length)}`)
         expect(Number.isInteger(year)).toBe(true)
-        expect(calendarProblems({ epochYear: year })).toEqual(['calendar.epochYear must be between 1 and 9999'])
+        expect(calendarProblems({ epochYear: year })).toEqual([`calendar.epochYear must be between ${MIN_EPOCH_YEAR} and ${MAX_EPOCH_YEAR}`])
       })
     )
     for (const value of ['', ' ', '+', '-', NaN, Infinity, -Infinity, null, undefined, {}, [1000], true]) {

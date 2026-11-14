@@ -83,7 +83,7 @@ export const definition: fc.Arbitrary<CalendarDefinition> = fc
   .filter((candidate) => calendarDefinitionIssues(candidate, 'calendar', 86_400).length === 0)
 
 /** A world's day in seconds: Earth's, and longer and shorter ones. */
-export const dayLength = fc.constantFrom(86_400, 30 * 3600, 1000, 100_000, 7)
+export const dayLength = fc.constantFrom(86_400, 30 * 3600, 1000, 100_000, 7, 1, 1_000_000)
 
 const IDS = ['world', 'second', 'third']
 const CALENDAR_NAMES = ['The Reckoning', 'The Tide Count', 'The Old Count']

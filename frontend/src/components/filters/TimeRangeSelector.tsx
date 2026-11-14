@@ -5,6 +5,14 @@ import { formatHistoricalTimestamp } from '@/utils/historicalTime'
 import { DateField } from '@/components/ui/DateField'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { dateFieldIso, dateFieldValue } from '@/utils/dateField'
+import { compareInstants, instantOfAxisTime, toAxisTime, toInstant } from '@althistory/calendar'
+
+/** The moment halfway between two, in exact milliseconds (a double's midpoint of deep moments is off by more than one). */
+function midpointOf(a: Date, b: Date): Date {
+  const from = toAxisTime(a)
+  const to = toAxisTime(b)
+  return (from !== null && to !== null ? instantOfAxisTime(from + (to - from) / 2n) : null) ?? a
+}
 
 interface TimeRangeSelectorProps {
   value: TimeRange | null
@@ -54,9 +62,11 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
   const eventDateRange = React.useMemo(() => {
     if (events.length === 0) return null
     
-    const dates = events.map(e => new Date(e.timestamp))
-    const minDate = new Date(Math.min(...dates.map(d => d.getTime())))
-    const maxDate = new Date(Math.max(...dates.map(d => d.getTime())))
+    // Compared exactly: past 2^53 ms a double cannot hold an odd millisecond, so
+    // a min/max through getTime() could round the range inward and drop an event.
+    const dates = events.map(e => toInstant(e.timestamp))
+    const minDate = dates.reduce((least, d) => (compareInstants(d, least) < 0 ? d : least))
+    const maxDate = dates.reduce((most, d) => (compareInstants(d, most) > 0 ? d : most))
     
     return { min: minDate, max: maxDate }
   }, [events])
@@ -79,12 +89,12 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
       const startIso = dateFieldIso(startText, { calendar: worldCalendar, edge: 'start' })
       const endIso = dateFieldIso(endText, { calendar: worldCalendar, edge: 'end' })
       if (!startIso || !endIso) return
-      const start = new Date(startIso)
-      const end = new Date(endIso)
+      const start = toInstant(startIso)
+      const end = toInstant(endIso)
       // Each field names its own edge (a start's first moment, an end's
       // last), so a reversed range is said, not swapped: the user may be
       // part-way through typing the end.
-      if (start > end) {
+      if (compareInstants(start, end) > 0) {
         setRangeError('The end is before the start.')
         return
       }
@@ -118,14 +128,12 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
       case 'first_half':
         start = eventDateRange.min
         {
-          const midpoint = new Date((eventDateRange.min.getTime() + eventDateRange.max.getTime()) / 2)
-          end = midpoint
+          end = midpointOf(eventDateRange.min, eventDateRange.max)
         }
         break
       case 'second_half':
         {
-          const midpoint2 = new Date((eventDateRange.min.getTime() + eventDateRange.max.getTime()) / 2)
-          start = midpoint2
+          start = midpointOf(eventDateRange.min, eventDateRange.max)
         }
         end = eventDateRange.max
         break

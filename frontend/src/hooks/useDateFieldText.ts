@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react'
-import { type DateBoundEdge, toInstant } from '@althistory/calendar'
+import { type DateBoundEdge, isoOfAxisTime, toAxisTime } from '@althistory/calendar'
 import type { GraphCalendar } from '@/types'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { type DateFieldKind, dateFieldIso, dateFieldValue } from '@/utils/dateField'
@@ -25,8 +25,8 @@ export function useDateFieldText(kind: DateFieldKind) {
   const fill = useCallback(
     (iso: string | Date | null | undefined, edge: DateBoundEdge): string => {
       const text = dateFieldValue(iso, kind, { calendar: fieldCalendar.current, edge })
-      const time = iso === null || iso === undefined || iso === '' ? NaN : toInstant(iso).getTime()
-      shown.current[edge] = text && Number.isFinite(time) ? { text, iso: new Date(time).toISOString() } : null
+      const time = iso === null || iso === undefined || iso === '' ? null : toAxisTime(iso)
+      shown.current[edge] = text && time !== null ? { text, iso: isoOfAxisTime(time) } : null
       return text
     },
     [kind]

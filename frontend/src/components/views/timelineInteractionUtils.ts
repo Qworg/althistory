@@ -1,4 +1,5 @@
 import type { Arc, Event } from '@/types'
+import { toInstant } from '@althistory/calendar'
 
 /**
  * Temporal-constraint helpers for direct-manipulation on the timeline.
@@ -10,7 +11,7 @@ import type { Arc, Event } from '@/types'
  */
 
 function toMs(value: string | Date): number {
-  return new Date(value).getTime()
+  return toInstant(value).getTime()
 }
 
 /** True when `value` lies inside the inclusive `[start, end]` window. */

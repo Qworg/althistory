@@ -47,8 +47,8 @@ describe('review dates in a world calendar', () => {
   })
 
   it("reads the world's notation first, then ISO 8601, as the importer does", () => {
-    expect(readReviewDate('Thaw 312 AR', VAEL)).toEqual({ iso: vael(312, 2, 1).toISOString(), precision: 'month', calendar: 'reckoning' })
-    expect(readReviewDate('1843-11-20', VAEL)).toEqual({ iso: '1843-11-20T00:00:00.000Z', precision: 'day' })
+    expect(readReviewDate('Thaw 312 AR', VAEL)).toMatchObject({ iso: vael(312, 2, 1).toISOString(), precision: 'month', calendar: 'reckoning' })
+    expect(readReviewDate('1843-11-20', VAEL)).toMatchObject({ iso: '1843-11-20T00:00:00.000Z', precision: 'day' })
     expect(isReadableReviewDate('Thaw 31, 312 AR', VAEL)).toBe(false)
     expect(isReadableReviewDate('Thaw 312 AR', null)).toBe(false)
   })

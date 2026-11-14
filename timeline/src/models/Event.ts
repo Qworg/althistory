@@ -1,4 +1,4 @@
-import { toInstant } from '@althistory/calendar';
+import { compareInstants, toAxisTime, toInstant } from '@althistory/calendar';
 
 /**
  * Event represents a specific historical occurrence with precise temporal information
@@ -18,6 +18,12 @@ export interface IEvent {
   
   /** Exact timestamp when the event occurred */
   timestamp: Date;
+
+  /**
+   * The same moment as a decimal string of milliseconds on the axis (an
+   * `AxisTime`; JSON has no bigint). Exact at any distance from 1970.
+   */
+  timestamp_ms?: string;
   
   /** Additional metadata for the event */
   metadata?: Record<string, unknown>;
@@ -95,7 +101,7 @@ export class Event implements IEvent {
    * Validates if this event's timestamp falls within the given time range
    */
   isWithinTimeRange(timeRange: TimeRange): boolean {
-    return this.timestamp >= timeRange.start && this.timestamp <= timeRange.end;
+    return compareInstants(this.timestamp, timeRange.start) >= 0 && compareInstants(this.timestamp, timeRange.end) <= 0;
   }
 
   /**
@@ -113,6 +119,15 @@ export class Event implements IEvent {
   }
 
   /**
+   * The event's moment on the axis, in milliseconds as a decimal string: exact
+   * at any distance from 1970 (what the API, the CLI and the tools send as
+   * `timestamp_ms`; JSON has no bigint).
+   */
+  get timestampMs(): string {
+    return String(toAxisTime(this.timestamp));
+  }
+
+  /**
    * Converts the event to a plain object
    */
   toJSON(): IEvent {
@@ -122,6 +137,7 @@ export class Event implements IEvent {
       actor: this.actor,
       target: this.target,
       timestamp: this.timestamp,
+      timestamp_ms: this.timestampMs,
       metadata: this.metadata
     };
   }

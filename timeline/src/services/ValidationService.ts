@@ -1,3 +1,4 @@
+import { compareInstants } from '@althistory/calendar';
 import { 
   Event, 
   Arc, 
@@ -94,7 +95,7 @@ export class ValidationService {
     if (request.start_time && request.end_time && 
         request.start_time instanceof Date && request.end_time instanceof Date &&
         !isNaN(request.start_time.getTime()) && !isNaN(request.end_time.getTime())) {
-      if (request.start_time.getTime() >= request.end_time.getTime()) {
+      if (compareInstants(request.start_time, request.end_time) >= 0) {
         errors.push('Start time must be before end time');
       }
     }

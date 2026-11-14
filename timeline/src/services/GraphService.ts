@@ -31,7 +31,7 @@ import {
 } from './mergedEntityValidation';
 import { createLogger, ILogger } from '../utils/logger';
 import { isTemporalInversion } from '@/utils/causalOrder';
-import { type WorldCalendarSet, calendarSetFromInput } from '@althistory/calendar';
+import { type WorldCalendarSet, calendarSetFromInput, toAxisTime } from '@althistory/calendar';
 import type { HeadReplacedHook } from './LiveStoreSyncService';
 
 /**
@@ -909,11 +909,13 @@ export class GraphService {
       }
 
       if (cause && effect) {
-        const causeTime = new Date((cause.timestamp || cause.time) as string | number | Date).getTime();
-        const effectTime = new Date((effect.timestamp || effect.time) as string | number | Date).getTime();
+        // Read as every stored time is, exactly (a deep-time graph's dates
+        // are not a Date's).
+        const causeTime = toAxisTime(cause.timestamp || cause.time);
+        const effectTime = toAxisTime(effect.timestamp || effect.time);
         // The rule lives in `@/utils/causalOrder`, which every other path
         // uses too, so a graph the importer accepts cannot be refused here.
-        if (!isNaN(causeTime) && !isNaN(effectTime) && isTemporalInversion(causeTime, effectTime)) {
+        if (causeTime !== null && effectTime !== null && isTemporalInversion(causeTime, effectTime)) {
           const causeDesc = (cause.description || cause.id || causeId) as string;
           const effectDesc = (effect.description || effect.id || effectId) as string;
           anomalies.push({

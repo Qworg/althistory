@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type WorldCalendarSet, calendarIn, positionOf } from '@althistory/calendar';
+import { type WorldCalendarSet, calendarIn, isoOfAxisTime, positionOf } from '@althistory/calendar';
 import { readAgentTimestamp } from './timestamps';
 
 /** Vael's Reckoning: twelve months of thirty days and the Drowned Days, a day of 30 Earth hours divided into 20. */
@@ -22,7 +22,7 @@ const VAEL: WorldCalendarSet = {
   ],
 };
 const at = (year: number, part: number, day: number, hour = 0) =>
-  new Date(positionOf(calendarIn(VAEL), { year, part, day, hour, minute: 0, second: 0 })!).toISOString();
+  isoOfAxisTime(positionOf(calendarIn(VAEL), { year, part, day, hour, minute: 0, second: 0 })!);
 const before = (iso: string) => new Date(Date.parse(iso) - 1).toISOString();
 
 describe('a date an agent gives', () => {

@@ -1,4 +1,4 @@
-import { toInstant } from '@althistory/calendar';
+import { compareInstants, msApart, toInstant } from '@althistory/calendar';
 import { Event, InferredPressure, PressureType } from '@/models';
 import { CausalSuggestion, CausalRelationshipType, DrivenByRelationship } from '@/models/relationships';
 import { isTemporalInversion } from '@/utils/causalOrder';
@@ -146,7 +146,28 @@ export interface CompletenessResponse {
  * Service for pattern detection and pressure inference
  */
 export class InferenceService {
-  private readonly TEMPORAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+  /**
+   * The length of the day this analysis counts in, in milliseconds: Earth's, or
+   * the world's own (a world of 30-hour days has a 30-day window of 30 of
+   * them). Set for the length of a call by {@link inDay}.
+   */
+  private dayMs = 24 * 60 * 60 * 1000;
+
+  /** The window within which events are related: 30 days of the analysis's own. */
+  private get temporalWindowMs(): number {
+    return 30 * this.dayMs;
+  }
+
+  private inDay<T>(calendar: WorldCalendarSet | undefined, run: () => T): T {
+    const previous = this.dayMs;
+    this.dayMs = calendar ? calendar.dayLength * 1000 : 24 * 60 * 60 * 1000;
+    try {
+      return run();
+    } finally {
+      this.dayMs = previous;
+    }
+  }
+
   private readonly MIN_CLUSTER_SIZE = 2; // Reduced from 3 to 2
   private readonly MIN_DENSITY_THRESHOLD = 0.1; // Reduced from 0.3 to 0.1
   private readonly HIGH_CONFIDENCE_THRESHOLD = 0.8;
@@ -165,7 +186,7 @@ export class InferenceService {
   analyzeEventClusters(events: Event[], calendar?: WorldCalendarSet): InferredPressure[] {
     this.describeIn = calendar;
     try {
-      return this.analyzeClusters(events);
+      return this.inDay(calendar, () => this.analyzeClusters(events));
     } finally {
       this.describeIn = undefined;
     }
@@ -177,7 +198,7 @@ export class InferenceService {
     }
 
     // Sort events by timestamp for temporal analysis
-    const sortedEvents = [...events].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    const sortedEvents = [...events].sort((a, b) => compareInstants(a.timestamp, b.timestamp));
     
     // Perform temporal clustering
     const clusters = this.performTemporalClustering(sortedEvents);
@@ -202,7 +223,8 @@ export class InferenceService {
    */
   suggestRelationships(
     events: Event[],
-    options: RelationshipSuggestionOptions = {}
+    options: RelationshipSuggestionOptions = {},
+    calendar?: WorldCalendarSet
   ): RelationshipSuggestion[] {
     const minConfidence = options.minConfidence ?? 0.3;
     const maxSuggestions = Math.min(options.maxSuggestions ?? 10, 50);
@@ -212,7 +234,7 @@ export class InferenceService {
       return [];
     }
 
-    return this.suggestCausalLinks(events)
+    return this.suggestCausalLinks(events, calendar)
       .filter((suggestion) => {
         if (suggestion.suggested_relationship.confidence < minConfidence) return false;
         if (
@@ -236,13 +258,17 @@ export class InferenceService {
   /**
    * Suggest potential causal links based on temporal and actor patterns
    */
-  suggestCausalLinks(events: Event[]): CausalSuggestion[] {
+  suggestCausalLinks(events: Event[], calendar?: WorldCalendarSet): CausalSuggestion[] {
+    return this.inDay(calendar, () => this.suggestLinks(events));
+  }
+
+  private suggestLinks(events: Event[]): CausalSuggestion[] {
     if (events.length < 2) {
       return [];
     }
 
     const suggestions: CausalSuggestion[] = [];
-    const sortedEvents = [...events].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    const sortedEvents = [...events].sort((a, b) => compareInstants(a.timestamp, b.timestamp));
 
     for (let i = 0; i < sortedEvents.length - 1; i++) {
       for (let j = i + 1; j < sortedEvents.length; j++) {
@@ -281,18 +307,23 @@ export class InferenceService {
   clusterEventsIntoArcs(
     events: ArcClusterEvent[],
     temporalWindowDays: number,
-    minClusterSize: number
+    minClusterSize: number,
+    calendar?: WorldCalendarSet
   ): ArcSuggestion[] {
+    return this.inDay(calendar, () => this.clusterArcs(events, temporalWindowDays, minClusterSize));
+  }
+
+  private clusterArcs(events: ArcClusterEvent[], temporalWindowDays: number, minClusterSize: number): ArcSuggestion[] {
     if (events.length === 0) {
       return [];
     }
 
     const suggestions: ArcSuggestion[] = [];
-    const windowMs = temporalWindowDays * 24 * 60 * 60 * 1000;
+    const windowMs = temporalWindowDays * this.dayMs;
 
     // Sort events by timestamp
     const sortedEvents = [...events].sort(
-      (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
+      (a, b) => compareInstants(a.timestamp, b.timestamp)
     );
 
     // Cluster by temporal proximity
@@ -300,10 +331,7 @@ export class InferenceService {
     let currentCluster: ArcClusterEvent[] = [sortedEvents[0]];
 
     for (let i = 1; i < sortedEvents.length; i++) {
-      const prevTime = sortedEvents[i - 1].timestamp.getTime();
-      const currTime = sortedEvents[i].timestamp.getTime();
-
-      if (currTime - prevTime <= windowMs) {
+      if (msApart(sortedEvents[i - 1].timestamp, sortedEvents[i].timestamp) <= windowMs) {
         currentCluster.push(sortedEvents[i]);
       } else {
         if (currentCluster.length >= minClusterSize) {
@@ -322,9 +350,7 @@ export class InferenceService {
       const startTime = cluster[0].timestamp;
       const endTime = cluster[cluster.length - 1].timestamp;
       const actors = [...new Set(cluster.map((e) => e.actor))];
-      const durationDays = Math.ceil(
-        (endTime.getTime() - startTime.getTime()) / (24 * 60 * 60 * 1000)
-      );
+      const durationDays = Math.ceil(msApart(startTime, endTime) / this.dayMs);
 
       // Generate a descriptive name based on actors and time
       const actorStr = actors.length <= 2 ? actors.join(' & ') : `${actors.length} actors`;
@@ -361,8 +387,13 @@ export class InferenceService {
    */
   analyzeCompleteness(
     events: CompletenessEvent[],
-    relationships: CausalRelationshipRef[]
+    relationships: CausalRelationshipRef[],
+    calendar?: WorldCalendarSet
   ): CompletenessResponse {
+    return this.inDay(calendar, () => this.completenessOf(events, relationships));
+  }
+
+  private completenessOf(events: CompletenessEvent[], relationships: CausalRelationshipRef[]): CompletenessResponse {
     const response: CompletenessResponse = {
       gaps: {
         temporalGaps: [],
@@ -380,18 +411,16 @@ export class InferenceService {
 
     // Sort events by timestamp
     const sortedEvents = [...events].sort(
-      (a, b) => toInstant(a.timestamp).getTime() - toInstant(b.timestamp).getTime()
+      (a, b) => compareInstants(toInstant(a.timestamp), toInstant(b.timestamp))
     );
 
     // Find temporal gaps (periods > TEMPORAL_GAP_THRESHOLD_DAYS with no events)
     const temporalGapThreshold = this.daysToMs(this.TEMPORAL_GAP_THRESHOLD_DAYS);
     for (let i = 1; i < sortedEvents.length; i++) {
-      const prevTime = new Date(sortedEvents[i - 1].timestamp).getTime();
-      const currTime = new Date(sortedEvents[i].timestamp).getTime();
-      const gap = currTime - prevTime;
+      const gap = msApart(toInstant(sortedEvents[i - 1].timestamp), toInstant(sortedEvents[i].timestamp));
 
       if (gap > temporalGapThreshold) {
-        const durationDays = Math.round(gap / (24 * 60 * 60 * 1000));
+        const durationDays = Math.round(gap / this.dayMs);
         response.gaps.temporalGaps.push({
           start: sortedEvents[i - 1].timestamp,
           end: sortedEvents[i].timestamp,
@@ -407,15 +436,14 @@ export class InferenceService {
       actorLastSeen.set(event.actor, event.timestamp);
     }
 
-    const latestEventTime = new Date(sortedEvents[sortedEvents.length - 1].timestamp).getTime();
+    const latestEvent = toInstant(sortedEvents[sortedEvents.length - 1].timestamp);
     const actorGapThreshold = this.daysToMs(this.ACTOR_GAP_THRESHOLD_DAYS);
 
     for (const [actor, lastSeen] of actorLastSeen) {
-      const lastSeenTime = new Date(lastSeen).getTime();
-      const gap = latestEventTime - lastSeenTime;
+      const gap = msApart(toInstant(lastSeen), latestEvent);
 
       if (gap > actorGapThreshold) {
-        const daysSince = Math.round(gap / (24 * 60 * 60 * 1000));
+        const daysSince = Math.round(gap / this.dayMs);
         response.gaps.actorGaps.push({
           actor,
           lastSeen,
@@ -507,7 +535,7 @@ export class InferenceService {
    * Convert days to milliseconds
    */
   private daysToMs(days: number): number {
-    return days * 24 * 60 * 60 * 1000;
+    return days * this.dayMs;
   }
 
   /**
@@ -519,9 +547,9 @@ export class InferenceService {
     let windowStart = sortedEvents[0].timestamp;
 
     for (const event of sortedEvents) {
-      const timeDiff = event.timestamp.getTime() - windowStart.getTime();
+      const timeDiff = msApart(windowStart, event.timestamp);
       
-      if (timeDiff <= this.TEMPORAL_WINDOW_MS) {
+      if (timeDiff <= this.temporalWindowMs) {
         // Event fits in current window
         currentCluster.push(event);
       } else {
@@ -554,23 +582,23 @@ export class InferenceService {
    * Create an EventCluster from a group of events
    */
   private createEventCluster(events: Event[]): EventCluster {
-    const timestamps = events.map(e => e.timestamp.getTime());
-    const start = new Date(Math.min(...timestamps));
-    const end = new Date(Math.max(...timestamps));
+    // Exactly, on the axis: the earliest, the latest and the median moment.
+    const ordered = [...events].map((e) => e.timestamp).sort(compareInstants);
+    const start = ordered[0]!;
+    const end = ordered[ordered.length - 1]!;
     
     const actors = new Set(events.map(e => e.actor));
     const targets = new Set(events.map(e => e.target));
     
     // Calculate density based on event frequency and actor/target overlap
-    const timeSpan = end.getTime() - start.getTime();
-    const temporalDensity = timeSpan > 0 ? Math.min(1.0, events.length / (timeSpan / (24 * 60 * 60 * 1000))) : 1; // events per day, capped at 1
+    const timeSpan = msApart(start, end);
+    const temporalDensity = timeSpan > 0 ? Math.min(1.0, events.length / (timeSpan / this.dayMs)) : 1; // events per day, capped at 1
     const actorOverlap = this.calculateOverlapRatio(actors, targets);
     const density = Math.min(1.0, Math.max(0.1, (temporalDensity * 0.7) + (actorOverlap * 0.3))); // Ensure minimum density of 0.1
     
     // Calculate centroid (median timestamp)
-    const sortedTimestamps = timestamps.sort((a, b) => a - b);
-    const medianIndex = Math.floor(sortedTimestamps.length / 2);
-    const centroid = new Date(sortedTimestamps[medianIndex]);
+    const medianIndex = Math.floor(ordered.length / 2);
+    const centroid = ordered[medianIndex]!;
 
     return {
       events,
@@ -777,8 +805,8 @@ export class InferenceService {
     }
 
     // Check temporal proximity (events should be reasonably close in time)
-    const timeDiff = effectEvent.timestamp.getTime() - causeEvent.timestamp.getTime();
-    if (timeDiff > this.TEMPORAL_WINDOW_MS) {
+    const timeDiff = msApart(causeEvent.timestamp, effectEvent.timestamp);
+    if (timeDiff > this.temporalWindowMs) {
       return null;
     }
 
@@ -810,7 +838,7 @@ export class InferenceService {
         confidence,
         relationship_type: relationshipType
       },
-      reasoning: `Events show ${relationshipType} causal relationship based on temporal proximity (${Math.round(timeDiff / (24 * 60 * 60 * 1000))} days apart) and actor-target similarity (${Math.round(actorTargetMatch * 100)}% match)`
+      reasoning: `Events show ${relationshipType} causal relationship based on temporal proximity (${Math.round(timeDiff / this.dayMs)} days apart) and actor-target similarity (${Math.round(actorTargetMatch * 100)}% match)`
     };
   }
 
@@ -833,7 +861,7 @@ export class InferenceService {
    * Calculate temporal proximity score (closer events have higher scores)
    */
   private calculateTemporalProximity(timeDiffMs: number): number {
-    const maxTime = this.TEMPORAL_WINDOW_MS;
+    const maxTime = this.temporalWindowMs;
     return Math.max(0, 1 - (timeDiffMs / maxTime));
   }
 

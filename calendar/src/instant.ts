@@ -9,7 +9,8 @@
  * fields are checked and the instant built by arithmetic, in UTC.
  */
 
-import { daysFromCivil, daysInMonth } from './gregorian'
+import { daysInMonth } from './gregorian'
+import { type AxisTime, axisOf, axisTimeOfCivil, inAxisRange, instantOfAxisTime, isoOfAxisTime } from './time'
 
 /**
  * The calendar date, then optionally a time and a zone, in the forms of ISO
@@ -22,16 +23,15 @@ import { daysFromCivil, daysInMonth } from './gregorian'
  * read the same way on every machine: no zone is UTC.
  */
 const ISO_INSTANT =
-  /^([+-]\d{6}|\d{4,6})(?:-(\d{1,2})(?:-(\d{1,2})(?:[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?)?(?: ?(?:([Zz])|(UTC|GMT)|([+-])(\d{2})(?::?(\d{2}))?(?: (?:UTC|GMT))?))?)?)?$/
-
-/** A Date can hold ±8.64e15 ms from 1970. */
-const MAX_TIME = 8.64e15
+  /^([+-]\d{6,9}|\d{4,6})(?:-(\d{1,2})(?:-(\d{1,2})(?:[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?)?(?: ?(?:([Zz])|(UTC|GMT)|([+-])(\d{2})(?::?(\d{2}))?(?: (?:UTC|GMT))?))?)?)?$/
 
 /** How much of an instant the text named: a year, a month, a day, or a time of day. */
 export type InstantPrecision = 'year' | 'month' | 'day' | 'time'
 
 export interface ParsedInstant {
-  /** The first instant of what the text names. */
+  /** The first instant of what the text names, on the axis (time.ts). */
+  time: AxisTime
+  /** The same as a Date: a plain one within a Date's range, an `AxisDate` beyond it. */
   date: Date
   /** True when the text has no time of day (a year, a month or a day). */
   dateOnly: boolean
@@ -46,11 +46,22 @@ export interface ParsedInstant {
  *   time, as every historical date is read;
  * - one with a zone ("…Z", "…+05:45") is that instant;
  * - a year may be written with four to six digits, or expanded with a sign
- *   ("-000043" is 44 BCE, as `toISOString` writes it).
+ *   and six to nine digits ("-000043" is 44 BCE, as `toISOString` writes it;
+ *   "+300000" is the year 300,000, which no Date holds).
  * A month, day, hour, minute, second or offset that does not exist, and an
- * instant beyond what a Date holds, are null.
+ * instant beyond the axis's bound (`MAX_AXIS_MS`), are null.
  */
 export function parseIsoInstant(text: string): ParsedInstant | null {
+  const scanned = scanIsoInstant(text)
+  return scanned === 'beyond' ? null : scanned
+}
+
+/** Whether text is a well-formed ISO 8601 timestamp that names an instant past the axis's bound (and so is refused for that). */
+export function isoBeyondRange(text: string): boolean {
+  return scanIsoInstant(text) === 'beyond'
+}
+
+function scanIsoInstant(text: string): ParsedInstant | 'beyond' | null {
   const match = ISO_INSTANT.exec(text)
   if (!match) return null
   // Groups 8 and 9 are "Z" and "UTC"/"GMT": an offset of 0, as no offset is.
@@ -72,10 +83,11 @@ export function parseIsoInstant(text: string): ParsedInstant | null {
 
   // By arithmetic: a Date built field by field goes invalid at the edge of
   // its range before the offset can bring the instant back inside it.
-  const time = daysFromCivil(year, month, day) * 86_400_000 + ((hour * 60 + minute - offset) * 60 + second) * 1000 + millisecond
-  if (Math.abs(time) > MAX_TIME) return null
+  const time = axisTimeOfCivil(year, month, day, ((hour * 60 + minute - offset) * 60 + second) * 1000 + millisecond)
+  const instant = instantOfAxisTime(time)
+  if (!instant) return 'beyond'
   const precision: InstantPrecision = hourText !== undefined ? 'time' : dayText !== undefined ? 'day' : monthText !== undefined ? 'month' : 'year'
-  return { date: new Date(time), dateOnly: precision !== 'time', precision }
+  return { time, date: instant, dateOnly: precision !== 'time', precision }
 }
 
 /**
@@ -93,6 +105,7 @@ export function parseIsoInstant(text: string): ParsedInstant | null {
 export function toInstant(value: unknown): Date {
   if (value instanceof Date) return value
   if (typeof value === 'number') return new Date(value)
+  if (typeof value === 'bigint') return instantOfAxisTime(value) ?? new Date(NaN)
   if (typeof value !== 'string') return new Date(NaN)
   const text = value.trim()
   const parsed = parseIsoInstant(text)
@@ -109,15 +122,30 @@ export function toInstant(value: unknown): Date {
 const STARTS_LIKE_ISO = /^[+-]?\d{4,6}-\d/
 
 /**
+ * A stored or sent timestamp as the axis time it names (time.ts), read the
+ * one way everything reads one: exactly as {@link toInstant} reads it for
+ * every value a Date holds (`toAxisTime(x) === BigInt(toInstant(x).getTime())`),
+ * and beyond a Date's range for ISO 8601 text with an expanded year, a bigint,
+ * and an `AxisDate`. Null when it names no instant or one past the bound.
+ */
+export function toAxisTime(value: unknown): AxisTime | null {
+  if (typeof value === 'bigint') return inAxisRange(value) ? value : null
+  if (value instanceof Date) return axisOf(value)
+  return axisOf(toInstant(value))
+}
+
+/**
  * A timestamp written by a person or a model, as the one spelling everything
  * downstream reads alike: `toISOString`'s ("1870-02-14T09:30:00.000Z"), which
- * every engine reads as the same instant in every zone. With it, how much the
- * text stated: "1871-03" is the month (stored as its first day), "1066" the
- * year, anything with a day the day. Null when the text is not a timestamp.
+ * every engine reads as the same instant in every zone; beyond a Date's
+ * range, the same with an expanded year ("+300000-01-01T00:00:00.000Z"). With
+ * it, how much the text stated: "1871-03" is the month (stored as its first
+ * day), "1066" the year, anything with a day the day. Null when the text is
+ * not a timestamp.
  */
-export function readTimestamp(text: string): { iso: string; precision: 'day' | 'month' | 'year' } | null {
+export function readTimestamp(text: string): { iso: string; time: AxisTime; precision: 'day' | 'month' | 'year' } | null {
   const parsed = parseIsoInstant(text.trim())
   if (!parsed) return null
   const precision = parsed.precision === 'year' || parsed.precision === 'month' ? parsed.precision : 'day'
-  return { iso: parsed.date.toISOString(), precision }
+  return { iso: isoOfAxisTime(parsed.time), time: parsed.time, precision }
 }

@@ -36,6 +36,7 @@ import {
   dateAt,
   datePrecisionMetadata,
   formatInWorld,
+  formatHistoricalDateAt,
   formatWorldYearOf,
   unreadDateReason,
   isCalendarSet,
@@ -44,9 +45,27 @@ import {
   readWorldTimestamp,
   storedCalendarSet,
   toInstant,
+  toAxisTime,
+  compareInstants,
+  addInstantMs,
+  type AxisTime,
+  MAX_AXIS_MS,
+  instantOfAxisTime,
+  isoOfAxisTime,
 } from '@althistory/calendar';
 import { formatHistoricalDate } from '@/utils/historicalDate';
 import { ValidationErrorCLI } from '../utils/exitCodes';
+
+/**
+ * The year a generated era's name carries: the world's own year in a world, and
+ * otherwise the year as the rest of the app writes it (a year of any size, BCE
+ * years with their era), never the first four characters of the stored text.
+ */
+export function eraYearLabel(timestamp: string, calendar?: WorldCalendarSet): string {
+  if (!calendar) return formatHistoricalDateAt(timestamp, 'year', 'en', null);
+  const primary = calendarIn(calendar);
+  return formatWorldYearOf(primary.definition, dateAt(primary, toAxisTime(toInstant(timestamp)) ?? 0n).year);
+}
 
 export interface TimelineGeneratorConfig {
   readonly llmClient?: LLMClient | null;
@@ -115,13 +134,35 @@ const MS_PER_YEAR = 365.25 * MS_PER_DAY;
 /** How long an invented world's chronicle runs when no end date is given. */
 const WORLD_DEFAULT_SPAN_YEARS = 300;
 
-/** An arc that ends where it starts (or before) is given a day, so it has a width. */
-function widenedEnd(startMs: number, endMs: number): number {
-  return startMs >= endMs ? startMs + MS_PER_DAY : endMs;
+/**
+ * An ISO-8601 instant as an exact axis time, null when absent or not ISO 8601.
+ * Arc bounds and what is compared with them are read this way: a double moves
+ * an odd millisecond of a deep moment into the next year.
+ */
+function parseAxis(value: string | undefined): AxisTime | null {
+  return value ? (parseIsoInstant(value.trim())?.time ?? null) : null;
 }
 
-/** The last instant a four-digit stored year can hold. */
-const LAST_STORED_INSTANT = Date.parse('9999-12-31T23:59:59.999Z');
+/** An arc that ends where it starts (or before) is given a day, exactly, and never past the axis's bound. */
+function widenedEndAxis(start: AxisTime, end: AxisTime): AxisTime {
+  if (start < end) return end;
+  const widened = start + BigInt(MS_PER_DAY);
+  return widened > MAX_AXIS_MS ? MAX_AXIS_MS : widened;
+}
+
+/**
+ * The generator plans in milliseconds as numbers: the spacing of generated
+ * events never needs a moment more exact than a double holds, even at a
+ * million years. What it writes is an exact axis time (`isoOf`, `instantOf`),
+ * and the farthest it reaches is the axis's bound.
+ */
+const LAST_MS = Number(MAX_AXIS_MS);
+
+/** The ISO text of a moment in milliseconds, any year the axis holds. */
+const isoOf = (ms: number): string => isoOfAxisTime(BigInt(Math.trunc(ms)));
+
+/** The Date (an AxisDate beyond a Date's range) of a moment in milliseconds. */
+const instantOf = (ms: number): Date => instantOfAxisTime(BigInt(Math.trunc(ms))) ?? new Date(NaN);
 
 /**
  * An ISO-8601 instant in milliseconds, NaN when absent or not ISO 8601. What
@@ -132,7 +173,8 @@ const LAST_STORED_INSTANT = Date.parse('9999-12-31T23:59:59.999Z');
  * and prose is refused rather than guessed at.
  */
 function parseInstant(value: string | undefined): number {
-  return value ? (parseIsoInstant(value.trim())?.date.getTime() ?? NaN) : NaN;
+  const time = value ? parseIsoInstant(value.trim())?.time : undefined;
+  return time === undefined ? NaN : Number(time);
 }
 
 /** The stored year an invented world's year 1 falls on when nothing says otherwise. */
@@ -205,6 +247,16 @@ function lowerFirst(text: string): string {
  * it raises rather than falling back to the graph's own span.
  */
 export function parseTimeWindow(value: string, calendar?: WorldCalendarSet): { start: number; end: number } {
+  const { start, end } = parseTimeWindowExact(value, calendar);
+  return { start: Number(start), end: Number(end) };
+}
+
+/**
+ * {@link parseTimeWindow} with exact axis times: past about 287,000 CE a double
+ * has no whole milliseconds, and a window's end (the last millisecond of a
+ * year, month or day) would round up into the next one.
+ */
+export function parseTimeWindowExact(value: string, calendar?: WorldCalendarSet): { start: AxisTime; end: AxisTime } {
   // Every place the window could split ("..", or "/" — which a world's dates
   // may contain, as "4/Thaw/312 AR" does): the one split whose halves both
   // read as dates is the window.
@@ -239,8 +291,8 @@ export function parseTimeWindow(value: string, calendar?: WorldCalendarSet): { s
     const bad = readWorldTimestamp(calendar, rawStart, 'start') ? rawEnd : rawStart;
     throw new Error(`Invalid time window "${value}": ${unreadDateReason(calendar, bad)}`);
   }
-  const start = Date.parse(readable[0]!.start!.iso);
-  const end = Date.parse(readable[0]!.end!.iso);
+  const start = readable[0]!.start!.time;
+  const end = readable[0]!.end!.time;
 
   if (start >= end) {
     throw new Error(`Invalid time window "${value}": the start must be before the end`);
@@ -326,13 +378,19 @@ export class TimelineGenerator {
       // The preview places each event as the write would: in the innermost
       // arc that holds it (an arc that ends where it starts is widened to a
       // day, as there).
+      const dryArcEndOf = (startText: string, endText: string): string => {
+        const start = parseAxis(startText);
+        const end = parseAxis(endText);
+        return start === null || end === null ? endText : isoOfAxisTime(widenedEndAxis(start, end));
+      };
       const dryArcIdOf = (timestamp: string): string | undefined => {
-        const time = parseInstant(timestamp);
+        const time = parseAxis(timestamp);
         const holding = structuredArcs
           .filter((arc) => {
-            const start = parseInstant(arc.start_time);
-            const end = widenedEnd(start, parseInstant(arc.end_time));
-            return start <= time && time <= end;
+            const start = parseAxis(arc.start_time);
+            const end = parseAxis(arc.end_time);
+            if (time === null || start === null || end === null) return false;
+            return start <= time && time <= widenedEndAxis(start, end);
           })
           .sort((a, b) => b.level - a.level);
         return holding[0] ? dryArcIdByTempId.get(holding[0].tempId) : undefined;
@@ -356,7 +414,7 @@ export class TimelineGenerator {
         name: a.name,
         description: a.description,
         startTime: a.start_time,
-        endTime: new Date(widenedEnd(parseInstant(a.start_time), parseInstant(a.end_time))).toISOString(),
+        endTime: dryArcEndOf(a.start_time, a.end_time),
         level: a.level,
         parentArcId: a.parentArcId ? dryArcIdByTempId.get(a.parentArcId) : undefined,
       }));
@@ -407,7 +465,9 @@ export class TimelineGenerator {
     for (const a of orderedArcs) {
       const startTime = toInstant(a.start_time);
       let endTime = toInstant(a.end_time);
-      endTime = new Date(widenedEnd(startTime.getTime(), endTime.getTime()));
+      // Exactly, as the engine does: through a double an odd millisecond of a
+      // deep end moves into the next year.
+      if (compareInstants(startTime, endTime) >= 0) endTime = addInstantMs(startTime, MS_PER_DAY);
       const created = await scoped.arcRepository.create({
         name: a.name,
         description: a.description || '',
@@ -437,9 +497,13 @@ export class TimelineGenerator {
     // and the exports read (`metadata.arcId`); otherwise every event was left
     // outside the arcs that were drawn around it.
     const arcIdOf = (timestamp: string): string | undefined => {
-      const time = parseInstant(timestamp);
+      const time = parseAxis(timestamp);
       const holding = persistedArcs
-        .filter((arc) => parseInstant(arc.startTime) <= time && time <= parseInstant(arc.endTime))
+        .filter((arc) => {
+          const start = parseAxis(arc.startTime);
+          const end = parseAxis(arc.endTime);
+          return time !== null && start !== null && end !== null && start <= time && time <= end;
+        })
         .sort((a, b) => (b.level ?? 0) - (a.level ?? 0));
       return holding[0]?.id;
     };
@@ -531,11 +595,7 @@ export class TimelineGenerator {
    * and never above it.
    */
   private buildArcHierarchy(baseArcs: ExtractedArc[], depth: number, calendar?: WorldCalendarSet): StructuredArc[] {
-    const yearOf = (timestamp: string): string => {
-      if (!calendar) return timestamp.slice(0, 4);
-      const primary = calendarIn(calendar);
-      return formatWorldYearOf(primary.definition, dateAt(primary, toInstant(timestamp).getTime()).year);
-    };
+    const yearOf = (timestamp: string): string => eraYearLabel(timestamp, calendar);
     const maxDepth = Math.max(1, Math.min(Math.trunc(depth) || 1, 4));
 
     let current: StructuredArc[] = baseArcs.map((arc) => ({
@@ -657,8 +717,8 @@ export class TimelineGenerator {
     const divergentTimelineOptions: GenerateTimelineOptions = {
       premise: options.counterfactualPrompt,
       divergencePoint: pivotEvent.description,
-      startDate: new Date(pivotTimeMs + 24 * 60 * 60 * 1000).toISOString(),
-      endDate: new Date(pivotTimeMs + stepMs * eventCount).toISOString(),
+      startDate: isoOf(pivotTimeMs + 24 * 60 * 60 * 1000),
+      endDate: isoOf(pivotTimeMs + stepMs * eventCount),
       eventCount,
       graphName: options.branchName,
       dryRun: options.dryRun,
@@ -740,7 +800,7 @@ export class TimelineGenerator {
           confidence: 0.9,
         })),
       ];
-      const arcPreview = { start_time: new Date(arcStart).toISOString(), end_time: new Date(arcEnd).toISOString() };
+      const arcPreview = { start_time: isoOf(arcStart), end_time: isoOf(arcEnd) };
       return {
         graphId: dryGraphId,
         graphName: options.branchName,
@@ -777,8 +837,9 @@ export class TimelineGenerator {
 
     // Copy ancestor events up to pivot into target graph store if not already present
     const sourceEvents = await sourceScoped.eventRepository.findAll();
-    const pivotTime = pivotEvent.timestamp.getTime();
-    const ancestorEvents = sourceEvents.filter((e) => e.timestamp.getTime() <= pivotTime);
+    const ancestorEvents = sourceEvents.filter(
+      (e) => compareInstants(e.timestamp, pivotEvent.timestamp) <= 0
+    );
 
     let branchPivotEvent = await targetScoped.eventRepository.findById(pivotEvent.id);
     for (const ancestor of ancestorEvents) {
@@ -809,8 +870,8 @@ export class TimelineGenerator {
     const arc = await targetScoped.arcRepository.create({
       name: branchArcName,
       description: branchArcDescription,
-      start_time: new Date(arcStart),
-      end_time: new Date(arcEnd),
+      start_time: instantOf(arcStart),
+      end_time: instantOf(arcEnd),
       level: 0,
     });
     try {
@@ -962,20 +1023,20 @@ export class TimelineGenerator {
     }
 
     const count = Math.max(2, Math.min(options.eventCount || 3, 10));
-    const sorted = [...existingEvents].sort(
-      (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
-    );
+    const sorted = [...existingEvents].sort((a, b) => compareInstants(a.timestamp, b.timestamp));
 
-    let windowStart = sorted[0].timestamp.getTime();
-    let windowEnd = sorted[sorted.length - 1].timestamp.getTime();
+    // Exact axis times: past about 287,000 CE a double has no whole milliseconds, and an
+    // arc that ends on a year's last millisecond would round up out of its parent.
+    let windowStart: AxisTime = toAxisTime(sorted[0].timestamp) ?? 0n;
+    let windowEnd: AxisTime = toAxisTime(sorted[sorted.length - 1].timestamp) ?? 0n;
     let parentArc: Arc | null = null;
 
     if (options.arcId) {
       const arc = await scoped.arcRepository.findById(options.arcId);
       if (arc) {
         parentArc = arc;
-        windowStart = arc.start_time.getTime();
-        windowEnd = arc.end_time.getTime();
+        windowStart = toAxisTime(arc.start_time) ?? windowStart;
+        windowEnd = toAxisTime(arc.end_time) ?? windowEnd;
       }
     }
 
@@ -983,12 +1044,12 @@ export class TimelineGenerator {
     const calendar = storedCalendarSet((await container.graphRepository.findById(options.graphId).catch(() => null))?.calendar) ?? undefined;
 
     if (options.timeWindow) {
-      const parsed = parseTimeWindow(options.timeWindow, calendar);
+      const parsed = parseTimeWindowExact(options.timeWindow, calendar);
       if (parentArc) {
         // The expansion has to stay inside the arc it expands, or the graph
         // would hold an arc that is not contained by its parent.
-        const start = Math.max(parsed.start, windowStart);
-        const end = Math.min(parsed.end, windowEnd);
+        const start = parsed.start > windowStart ? parsed.start : windowStart;
+        const end = parsed.end < windowEnd ? parsed.end : windowEnd;
         if (start >= end) {
           throw new Error(
             `The time window ${options.timeWindow} does not overlap the arc ${parentArc.id} ` +
@@ -1003,16 +1064,18 @@ export class TimelineGenerator {
       }
     }
 
-    const interval = (windowEnd - windowStart) / (count + 1);
+    // Whole milliseconds, exactly, so that no event is placed outside the window.
+    const slots = BigInt(count + 1);
     const intermediateEvents: IntermediateEvent[] = [];
 
     for (let i = 1; i <= count; i++) {
-      const timeMs = windowStart + interval * i;
-      const before = [...sorted].reverse().find((e) => e.timestamp.getTime() <= timeMs);
-      const after = sorted.find((e) => e.timestamp.getTime() >= timeMs);
+      const time = windowStart + ((windowEnd - windowStart) * BigInt(i)) / slots;
+      const at = instantOfAxisTime(time) ?? new Date(NaN);
+      const before = [...sorted].reverse().find((e) => compareInstants(e.timestamp, at) <= 0);
+      const after = sorted.find((e) => compareInstants(e.timestamp, at) >= 0);
       intermediateEvents.push({
         description: this.describeExpansion(before, after, i, count),
-        timestamp: new Date(timeMs).toISOString(),
+        timestamp: isoOfAxisTime(time),
         actor: before?.actor || existingEvents[0]?.actor || 'Regional Faction',
         target: before?.target || existingEvents[0]?.target || 'Opposing Coalition',
         importance: 0.6,
@@ -1021,7 +1084,7 @@ export class TimelineGenerator {
 
     const expansionArcName = parentArc
       ? `Expansion within ${parentArc.name}`
-      : `Expansion ${formatHistoricalDate(new Date(windowStart), calendar)} to ${formatHistoricalDate(new Date(windowEnd), calendar)}`;
+      : `Expansion ${formatHistoricalDate(instantOfAxisTime(windowStart) ?? new Date(NaN), calendar)} to ${formatHistoricalDate(instantOfAxisTime(windowEnd) ?? new Date(NaN), calendar)}`;
 
     if (options.dryRun) {
       return {
@@ -1047,8 +1110,8 @@ export class TimelineGenerator {
             graphId: options.graphId,
             name: expansionArcName,
             description: 'Arc covering the expanded window',
-            startTime: new Date(windowStart).toISOString(),
-            endTime: new Date(windowEnd).toISOString(),
+            startTime: isoOfAxisTime(windowStart),
+            endTime: isoOfAxisTime(windowEnd),
             parentArcId: parentArc?.id,
           },
         ],
@@ -1070,8 +1133,8 @@ export class TimelineGenerator {
       description: parentArc
         ? `Sub-arc of ${parentArc.name} holding ${count} interpolated events`
         : `Arc holding ${count} interpolated events`,
-      start_time: new Date(windowStart),
-      end_time: new Date(windowEnd),
+      start_time: (instantOfAxisTime(windowStart) ?? new Date(NaN)),
+      end_time: (instantOfAxisTime(windowEnd) ?? new Date(NaN)),
       level: parentArc ? parentArc.level + 1 : 0,
       metadata: parentArc ? { parentArcId: parentArc.id } : {},
     });
@@ -1172,9 +1235,7 @@ export class TimelineGenerator {
       throw new Error(`Cannot simulate advancement on empty graph: ${options.graphId}`);
     }
 
-    const sorted = [...existingEvents].sort(
-      (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
-    );
+    const sorted = [...existingEvents].sort((a, b) => compareInstants(a.timestamp, b.timestamp));
     const lastEvent = sorted[sorted.length - 1];
     const steps = Math.max(1, Math.min(options.steps || 3, 10));
     const advanceMs = (options.timeAdvanceMonths || 12) * 30.4 * 24 * 60 * 60 * 1000;
@@ -1184,7 +1245,7 @@ export class TimelineGenerator {
       const timeMs = lastEvent.timestamp.getTime() + advanceMs * i;
       simulatedEvents.push({
         description: `Simulated causal progression ${i}: long-term consequences unfold following ${lastEvent.description}`,
-        timestamp: new Date(timeMs).toISOString(),
+        timestamp: isoOf(timeMs),
         actor: lastEvent.actor || 'Consolidated State',
         target: lastEvent.target || 'Allied Sphere',
         importance: 0.75,
@@ -1312,7 +1373,7 @@ export class TimelineGenerator {
         if (!text) return NaN;
         const read = readWorldTimestamp(null, text, edge);
         if (!read) throw new ValidationErrorCLI(`Invalid ${edge} date: ${unreadDateReason(null, text)}`);
-        return Date.parse(read.iso);
+        return Number(read.time);
       };
       startParsed = plainDate(options.startDate, 'start');
       endParsed = plainDate(options.endDate, 'end');
@@ -1324,7 +1385,7 @@ export class TimelineGenerator {
           'Give either a world to invent, or a premise and a point of divergence, not both'
         );
       }
-      const startYear = Number.isNaN(startParsed) ? undefined : new Date(startParsed).getUTCFullYear();
+      const startYear = Number.isNaN(startParsed) ? undefined : instantOf(startParsed).getUTCFullYear();
       // A calendar set given whole (any shape), or the simple form: the
       // Gregorian calendar with its years counted from an epoch.
       let calendar: WorldCalendarSet;
@@ -1346,23 +1407,16 @@ export class TimelineGenerator {
         if (!read) {
           throw new ValidationErrorCLI(`Invalid ${what} date: ${unreadDateReason(calendar, text)}`);
         }
-        return Date.parse(read.iso);
+        return Number(read.time);
       };
       startParsed = readDate(options.startDate, 'start');
       endParsed = readDate(options.endDate, 'end');
       // The world's year 1, unless a start is given.
-      const yearOne = positionOf(calendarIn(calendar), { year: 1, part: 0, day: 1, hour: 0, minute: 0, second: 0 }) ?? 0;
+      const yearOne = Number(positionOf(calendarIn(calendar), { year: 1, part: 0, day: 1, hour: 0, minute: 0, second: 0 }) ?? 0n);
       const startMs = Number.isNaN(startParsed) ? yearOne : startParsed;
-      // A stored year has four digits; past 9999 a timestamp needs an expanded
-      // year, which the rest of the system does not read. The default span
-      // stops there, and an end date past it is refused.
-      if (!Number.isNaN(endParsed) && endParsed > LAST_STORED_INSTANT) {
-        // Named as the world names it: its own years mean nothing of 9999.
-        throw new ValidationErrorCLI(`The end date must be no later than ${formatInWorld(calendar, LAST_STORED_INSTANT, 'day')}, where the timeline's four-digit years end`);
-      }
-      const endMs = Number.isNaN(endParsed)
-        ? Math.min(startMs + WORLD_DEFAULT_SPAN_YEARS * MS_PER_YEAR, LAST_STORED_INSTANT)
-        : endParsed;
+      // The default span stops where the axis does; an end date past it was
+      // already refused by the reader above, in the world's own words.
+      const endMs = Number.isNaN(endParsed) ? Math.min(startMs + WORLD_DEFAULT_SPAN_YEARS * MS_PER_YEAR, LAST_MS) : endParsed;
       if (endMs <= startMs) {
         throw new ValidationErrorCLI('The end date must be after the start date');
       }
@@ -1427,8 +1481,8 @@ Style: ${style} (${STYLE_GUIDANCE[style]})
 Generate ${eventCount} chronological historical events demonstrating this counterfactual reality.`;
         const extracted = await this.llmClient.extractEvents(prompt, {
           defaultTimeRange: {
-            start: new Date(plan.startMs).toISOString(),
-            end: new Date(plan.endMs).toISOString(),
+            start: isoOf(plan.startMs),
+            end: isoOf(plan.endMs),
           },
           // A world's dates come back in its notation, read with its calendars.
           ...(plan.calendar ? { calendar: plan.calendar } : {}),
@@ -1496,7 +1550,7 @@ Generate ${eventCount} chronological historical events demonstrating this counte
           : STYLE_RENDERERS[style](milestone, premise.slice(0, 50));
       events.push({
         description: desc,
-        timestamp: new Date(timeMs).toISOString(),
+        timestamp: isoOf(timeMs),
         actor: i % 2 === 0 ? actor : target,
         target: i % 2 === 0 ? target : actor,
         importance: i === 0 ? 1.0 : Math.max(0.5, 0.9 - i * 0.05),
@@ -1557,7 +1611,7 @@ Generate ${eventCount} chronological events of this world's history, from its fo
               : `The founding of the world: ${plan.subject}`
             : WORLD_STYLE_RENDERERS[style](milestone, world),
         // At the start of a day (the world's): a template date is a day, and an hour would show as one.
-        timestamp: new Date(Math.floor((startMs + stepMs * i) / dayMs) * dayMs).toISOString(),
+        timestamp: isoOf(Math.floor((startMs + stepMs * i) / dayMs) * dayMs),
         actor: i % 2 === 0 ? 'Founding People' : 'Rival Realm',
         target: i % 2 === 0 ? 'Rival Realm' : 'Founding People',
         importance: i === 0 ? 1.0 : Math.max(0.5, 0.9 - i * 0.05),
@@ -1603,9 +1657,9 @@ Generate ${eventCount} chronological events of this world's history, from its fo
 
     // Temporal order
     for (let i = 1; i < events.length; i++) {
-      const prev = toInstant(events[i - 1].timestamp).getTime();
-      const curr = toInstant(events[i].timestamp).getTime();
-      if (prev >= curr) {
+      const prev = toAxisTime(events[i - 1].timestamp);
+      const curr = toAxisTime(events[i].timestamp);
+      if (prev !== null && curr !== null && prev >= curr) {
         issues.push({
           type: 'temporal',
           severity: 'error',
@@ -1616,9 +1670,9 @@ Generate ${eventCount} chronological events of this world's history, from its fo
 
     // Arc bounds
     for (let idx = 0; idx < arcs.length; idx++) {
-      const start = toInstant(arcs[idx].start_time).getTime();
-      const end = toInstant(arcs[idx].end_time).getTime();
-      if (start >= end) {
+      const start = toAxisTime(arcs[idx].start_time);
+      const end = toAxisTime(arcs[idx].end_time);
+      if (start !== null && end !== null && start >= end) {
         issues.push({
           type: 'temporal',
           severity: 'error',
@@ -1629,8 +1683,8 @@ Generate ${eventCount} chronological events of this world's history, from its fo
 
     // Causal direction (the cause may not follow the effect)
     for (const link of links) {
-      const causeTime = toInstant(events[link.causeIndex].timestamp).getTime();
-      const effectTime = toInstant(events[link.effectIndex].timestamp).getTime();
+      const causeTime = toInstant(events[link.causeIndex].timestamp);
+      const effectTime = toInstant(events[link.effectIndex].timestamp);
       if (isTemporalInversion(causeTime, effectTime)) {
         issues.push({
           type: 'causal_direction',
