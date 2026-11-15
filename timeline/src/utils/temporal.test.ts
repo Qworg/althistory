@@ -93,6 +93,10 @@ describe('the version of an export', () => {
     expect(exportVersionOf(inside)).toBe('1.0');
     expect(exportVersionOf({ ...inside, events: [...inside.events, { timestamp: '+275760-09-13T00:00:00.001Z' }] })).toBe('1.1');
     expect(exportVersionOf({ events: [], arcs: [{ start_time: '-271822-01-01T00:00:00.000Z', end_time: '1066-01-01T00:00:00.000Z' }] })).toBe('1.1');
+    // An entity of another graph embedded in crossGraphRefs is a date in the document too.
+    expect(exportVersionOf({ ...inside, embedded: [undefined, { timestamp: '1805-12-02T00:00:00.000Z' }] })).toBe('1.0');
+    expect(exportVersionOf({ ...inside, embedded: [{ timestamp: '+300000-01-01T00:00:00.000Z' }] })).toBe('1.1');
+    expect(exportVersionOf({ ...inside, embedded: [{ start_time: '1066-01-01T00:00:00.000Z', end_time: '+300000-01-01T00:00:00.000Z' }] })).toBe('1.1');
     expect(isDeepTimestamp('not a date')).toBe(false);
     expect(isDeepTimestamp(isoOfAxisTime(9_000_000_000_000_000n))).toBe(true);
   });

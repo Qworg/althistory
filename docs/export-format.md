@@ -25,7 +25,7 @@ and worth an issue.
 
 | Field | Type | Always present | Meaning |
 | --- | --- | --- | --- |
-| `version` | `"1.0"` or `"1.1"` | yes | The **format** version. `"1.0"` when every date in `data` is inside what a JavaScript `Date` holds (about ±275,760 years), exactly as it was before deep time, with the same checksum; `"1.1"` when any date lies beyond it. Import accepts both and nothing else; any other value is rejected with the error code `VERSION_MISMATCH`. |
+| `version` | `"1.0"` or `"1.1"` | yes | The **format** version. `"1.0"` when every date in `data` (an entity embedded in `crossGraphRefs` included) is inside what a JavaScript `Date` holds (about ±275,760 years), exactly as it was before deep time, with the same checksum; `"1.1"` when any date lies beyond it. Import accepts both and nothing else; any other value is rejected with the error code `VERSION_MISMATCH`. |
 | `metadata` | object | yes | Provenance and integrity information about the export itself. |
 | `data` | object | yes | The graph's entities. This is the section the checksum covers. |
 | `provenance` | object | only with `includeProvenance` | How the graph was built. |
