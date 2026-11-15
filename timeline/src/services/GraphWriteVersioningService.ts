@@ -265,24 +265,26 @@ function sameData(head: Record<string, unknown>, written: Record<string, unknown
   return canonical(head) === canonical(written);
 }
 
-/** Whether an arc is gone once the whole write is made (a batch that deleted it). */
-type ArcGone = (id: string) => boolean;
-
 /**
- * An arc's head-only parent, kept unless the arc is now top level (level 0)
- * or, in a batch, the parent is gone once every step has landed. A promoted
- * arc that kept its parent made the export unimportable
- * (ARC_HIERARCHY_VIOLATION).
+ * An arc's head-only `parent_arc_id`, as the edit leaves it:
  *
- * A level that does not fit under the parent is not repaired here: it is
+ *   - the parent the edit names in `metadata.parentArcId` (how the CLI, MCP
+ *     and the generator record one, and how a PUT moves an arc) wins over a
+ *     different one the head still holds, which the export would prefer;
+ *   - none (null) once the arc is top level (level 0): a promoted arc that
+ *     kept its parent made the export unimportable (ARC_HIERARCHY_VIOLATION).
+ *
+ * Nothing else is repaired. A level that does not fit under the parent is
  * judged before the rest of a subtree's moves land (a batch or two PUTs that
  * move the child first), and clearing the parent of an arc above level 0
- * never makes it valid, so it would only lose the parent.
+ * never makes it valid, so it would only lose the parent. A parent deleted
+ * from under the arc stays named too: the export reports it as an orphan,
+ * and nothing here can make that valid either.
  */
-function consistentParent(parent: unknown, level: unknown, gone: ArcGone | undefined): unknown {
-  if (typeof parent !== 'string' || parent === '') return parent;
-  if (level === 0) return null;
-  return gone?.(parent) ? null : parent;
+function consistentParent(parent: unknown, level: unknown, named: unknown): unknown {
+  const current = typeof named === 'string' && named !== '' ? named : parent;
+  if (typeof current !== 'string' || current === '') return current;
+  return level === 0 ? null : current;
 }
 
 /**
@@ -301,13 +303,14 @@ function consistentParent(parent: unknown, level: unknown, gone: ArcGone | undef
 function overlay(
   type: EntityType,
   head: Record<string, unknown> | undefined,
-  projection: Record<string, unknown>,
-  arcGone?: ArcGone
+  projection: Record<string, unknown>
 ): Record<string, unknown> {
   if (!head) return projection;
   const data: Record<string, unknown> = { ...head, ...projection };
   if (type === 'arc' && 'parent_arc_id' in head && !('parent_arc_id' in projection)) {
-    data.parent_arc_id = consistentParent(head.parent_arc_id, data.level, arcGone);
+    const metadata = projection.metadata;
+    const named = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).parentArcId : undefined;
+    data.parent_arc_id = consistentParent(head.parent_arc_id, data.level, named);
   }
   if (type === 'relationship') {
     for (const [graphField, eventField] of [['causeGraphId', 'cause_event_id'], ['effectGraphId', 'effect_event_id']] as const) {
@@ -503,9 +506,19 @@ export class GraphWriteVersioningService {
 
   /** The difference a batch made from the head, committed as one version (nothing when it made none). */
   private async commitBatch(graphId: string, state: BatchLiveState): Promise<void> {
-    // Strict: a tree entry whose object is missing would read as an entity the
-    // head never had, and the batch would version the bare projection.
-    const head = await this.graphRepository.checkout(graphId, undefined, { strict: true });
+    // Strict where leaving an unreadable object out would lose data: an entity
+    // the batch touched (it would read as one the head never had, and be
+    // versioned as the bare projection), and the links, when the batch deletes
+    // an event or touches a link (the scans below would miss one that joins
+    // it, and leave an orphan). Anything else stays lenient: one lost object
+    // elsewhere in the graph must not fail every batch on it.
+    const scansLinks = (state.links?.length ?? 0) > 0 || [...(state.events?.values() ?? [])].some((event) => event === null);
+    const mustResolve = (type: EntityType, id: string): boolean =>
+      type === 'event' ? state.events?.has(id) === true
+        : type === 'arc' ? state.arcs?.has(id) === true
+          : type === 'relationship' ? scansLinks
+            : false;
+    const head = await this.graphRepository.checkout(graphId, undefined, { strict: mustResolve });
     const changes: EntityChanges = { added: [], modified: [], deleted: [] };
     const deleted = new Set<string>();
     const remove = (type: EntityType, id: string): void => {
@@ -513,10 +526,8 @@ export class GraphWriteVersioningService {
       deleted.add(`${type}:${id}`);
       changes.deleted.push({ type, id });
     };
-    // An arc the batch deleted, judged once every step has landed.
-    const arcGone: ArcGone = (arcId) => state.arcs?.has(arcId) === true && state.arcs.get(arcId) === null;
     const write = (type: EntityType, id: string, projection: Record<string, unknown>, current: Record<string, unknown> | undefined): void => {
-      const data = overlay(type, current, projection, arcGone);
+      const data = overlay(type, current, projection);
       if (!current) changes.added.push({ type, id, data });
       else if (!sameData(current, data)) changes.modified.push({ type, id, data });
     };

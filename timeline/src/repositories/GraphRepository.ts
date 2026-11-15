@@ -17,7 +17,7 @@ import {
   MergeParent,
   EntityType,
 } from '../models/Graph';
-import { VersionRepository, EntityChanges, ResolvedGraphData } from './VersionRepository';
+import { VersionRepository, EntityChanges, ResolvedGraphData, ResolveOptions } from './VersionRepository';
 
 export interface GraphRepositoryConfig {
   dataDir: string;
@@ -366,8 +366,8 @@ export class GraphRepository {
   async checkout(
     graphId: string,
     version?: number,
-    /** `strict`: a tree entry whose object cannot be read throws, rather than being left out. */
-    options: { strict?: boolean } = {}
+    /** `strict`: a tree entry whose object cannot be read (any, or those a predicate names) throws, rather than being left out. */
+    options: ResolveOptions = {}
   ): Promise<ResolvedGraphData> {
     // Options are forwarded only when given, so a plain checkout keeps its two-argument call.
     const read = (at: number): Promise<ResolvedGraphData> =>

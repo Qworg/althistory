@@ -36,6 +36,16 @@ export interface EntityChanges {
 }
 
 /**
+ * How a tree is resolved. By default an entry whose object cannot be read is
+ * left out. `strict` makes it throw instead: for every entry (`true`), or for
+ * the entries a predicate names -- those a caller would otherwise mistake for
+ * entities the tree does not hold.
+ */
+export interface ResolveOptions {
+  strict?: boolean | ((type: EntityType, id: string) => boolean);
+}
+
+/**
  * Full graph data resolved from a tree
  */
 export interface ResolvedGraphData {
@@ -284,7 +294,7 @@ export class VersionRepository {
   /**
    * Checkout a specific version
    */
-  async checkout(graphId: string, version: number, options: { strict?: boolean } = {}): Promise<ResolvedGraphData> {
+  async checkout(graphId: string, version: number, options: ResolveOptions = {}): Promise<ResolvedGraphData> {
     const versionRef = await this.getVersionRef(graphId, version);
     if (!versionRef) {
       throw new Error(`Version ${version} not found for graph ${graphId}`);
@@ -507,12 +517,7 @@ export class VersionRepository {
   /**
    * Resolve a tree to full graph data
    */
-  async resolveTree(
-    graphId: string,
-    tree: TreeObject,
-    /** `strict`: an entry whose object cannot be read throws, rather than being left out. */
-    { strict = false }: { strict?: boolean } = {}
-  ): Promise<ResolvedGraphData> {
+  async resolveTree(graphId: string, tree: TreeObject, { strict = false }: ResolveOptions = {}): Promise<ResolvedGraphData> {
     const result: ResolvedGraphData = {
       events: {},
       arcs: {},
@@ -531,7 +536,9 @@ export class VersionRepository {
       for (const [id, hash] of Object.entries(tree[key]) as [string, string][]) {
         const obj = await this.getObject(graphId, hash);
         if (obj) result[key][id] = obj.data;
-        else if (strict) throw new Error(`The tree of graph ${graphId} names ${type} ${id}, whose object ${hash} cannot be read`);
+        else if (strict === true || (typeof strict === 'function' && strict(type, id))) {
+          throw new Error(`The tree of graph ${graphId} names ${type} ${id}, whose object ${hash} cannot be read`);
+        }
       }
     }
 
