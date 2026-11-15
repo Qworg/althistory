@@ -10,6 +10,8 @@ import {
   partLengths,
   positionOf,
   readWorldInput,
+  unreadDateReason,
+  worldDateProblem,
   worldPeriod,
 } from './index'
 
@@ -54,7 +56,7 @@ describe("Vael's calendar", () => {
   it('has a fifth Drowned Day every sixth year', () => {
     expect(partLengths(calendar, 312)[13]).toBe(5)
     expect(partLengths(calendar, 313)[13]).toBe(4)
-    expect(parseWorldDate(calendar, 'The Drowned Days 5, 313 AR')).toEqual({ ok: false, error: 'The Drowned Days has 4 days that year, so no day 5' })
+    expect(parseWorldDate(calendar, 'The Drowned Days 5, 313 AR')).toEqual({ ok: false, error: 'The Drowned Days has 4 days that year, so no day 5', read: 'fields' })
     expect(parseWorldDate(calendar, 'The Drowned Days 5, 312 AR').ok).toBe(true)
   })
 
@@ -65,8 +67,8 @@ describe("Vael's calendar", () => {
     expect(month.ok && month.precision).toBe('month')
     const time = parseWorldDate(calendar, 'Thaw 4, 312 AR, 19:99')
     expect(time.ok && time.position).toBe(at(312, 2, 4, 19, 99))
-    expect(parseWorldDate(calendar, 'Thaw 4, 312 AR, 20:00')).toEqual({ ok: false, error: 'a day has hours 0 to 19' })
-    expect(parseWorldDate(calendar, 'Thaw 31, 312 AR')).toEqual({ ok: false, error: 'Thaw has 30 days that year, so no day 31' })
+    expect(parseWorldDate(calendar, 'Thaw 4, 312 AR, 20:00')).toEqual({ ok: false, error: 'a day has hours 0 to 19', read: 'fields' })
+    expect(parseWorldDate(calendar, 'Thaw 31, 312 AR')).toEqual({ ok: false, error: 'Thaw has 30 days that year, so no day 31', read: 'fields' })
     expect(parseWorldDate(calendar, 'March 4, 312 AR').ok).toBe(false)
   })
 
@@ -106,6 +108,24 @@ describe('a world with two calendars', () => {
   })
 })
 
+describe('a date the calendar does not have', () => {
+  it('says why: the day its month lacks, in whichever calendar the text is written in', () => {
+    expect(parseWorldText(world, 'Greywater 31, 312 AR')).toEqual({ ok: false, error: 'Greywater has 30 days that year, so no day 31', read: 'fields' })
+    expect(worldDateProblem(world, 'Greywater 31, 312 AR')).toBe('Greywater has 30 days that year, so no day 31')
+    expect(unreadDateReason(world, 'Greywater 31, 312 AR')).toBe('Greywater has 30 days that year, so no day 31.')
+    // Written in the Tide-count, the Tide-count's reason, not the Reckoning's "not a date".
+    expect(worldDateProblem(world, 'Ebbing 200, 5 TC')).toBe('Ebbing has 183 days that year, so no day 200')
+    expect(worldDateProblem(world, 'Greywater 12, 312 AR, 25:00')).toBe('a day has hours 0 to 19')
+  })
+
+  it('has nothing to add for text in none of its notations, or a date it reads', () => {
+    expect(worldDateProblem(world, 'next Tuesday')).toBeNull()
+    expect(worldDateProblem(world, 'Greywater 30, 312 AR')).toBeNull()
+    expect(parseWorldText(world, 'next Tuesday')).toMatchObject({ ok: false, error: expect.stringContaining('is not a date in the Reckoning of the Rising') })
+    expect(parseWorldText(world, 'next Tuesday')).not.toHaveProperty('read')
+  })
+})
+
 describe('a year counted past the next era', () => {
   const ages: WorldCalendarSet = {
     version: 2,
@@ -118,8 +138,10 @@ describe('a year counted past the next era', () => {
     const text = parseWorldText(ages, 'Thaw 1, 1200 FA')
     const fields = readWorldInput(ages, { era: 'FA', year: 1200, month: 'Thaw', day: 1 })
     expect(text.ok).toBe(false)
-    expect(fields).toEqual(text)
+    expect(fields).toEqual({ ok: false, error: text.ok ? '' : text.error })
     expect(fields).toMatchObject({ error: 'the Count of Ages counts FA only to 899; later years are SA' })
+    // Text read as far as its year says so as the reason.
+    expect(worldDateProblem(ages, 'Thaw 1, 1200 FA')).toBe('the Count of Ages counts FA only to 899; later years are SA')
     // The last year of the First Age, and the same year given in the Second.
     expect(readWorldInput(ages, { era: 'FA', year: 899 })).toMatchObject({ ok: true })
     expect(readWorldInput(ages, { era: 'SA', year: 301, month: 'Thaw', day: 1 })).toMatchObject({ ok: true })

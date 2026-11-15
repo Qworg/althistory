@@ -182,7 +182,27 @@ export type WorldParse =
       /** Whether a time of day was given ("…, 00:00" names midnight, not the whole day). */
       timed: boolean
     }
-  | { ok: false; error: string }
+  | {
+      ok: false
+      error: string
+      /**
+       * How far text in a calendar's notation was read before it named no
+       * date: its year (an era it lacks), its month (a name it lacks), or its
+       * fields (a day the month lacks, an hour past the day's). Absent when
+       * the text is not in the notation at all, so `error` says only that.
+       */
+      read?: WorldParseDepth
+    }
+
+/** How far {@link parseWorldDate} read text in its notation; later is deeper. */
+export type WorldParseDepth = 'year' | 'month' | 'fields'
+
+const DEPTH: Record<WorldParseDepth, number> = { year: 1, month: 2, fields: 3 }
+
+/** Whether a refusal read further into its text than another (none reads least). */
+function deeper(a: WorldParseDepth | undefined, b: WorldParseDepth | undefined): boolean {
+  return (a ? DEPTH[a] : 0) > (b ? DEPTH[b] : 0)
+}
 
 interface CompiledForm {
   pattern: RegExp
@@ -251,7 +271,12 @@ export function matchesNotation(calendar: CompiledCalendar, input: string): bool
 export function parseWorldDate(calendar: CompiledCalendar, input: string): WorldParse {
   const definition = calendar.definition
   const text = input.trim().replace(/\s+/g, ' ')
-  let reason: string | null = null
+  // The refusal of the form that read furthest: a day the month lacks says
+  // more than a year another form could not place.
+  const best: { reason?: { error: string; read: WorldParseDepth } } = {}
+  const refuse = (error: string, read: WorldParseDepth): void => {
+    if (!best.reason || deeper(read, best.reason.read)) best.reason = { error, read }
+  }
   for (const form of formsOf(calendar)) {
     const match = form.pattern.exec(text)
     if (!match) continue
@@ -262,19 +287,19 @@ export function parseWorldDate(calendar: CompiledCalendar, input: string): World
 
     const lineYearOrError = readYearPhrase(definition, values.year!)
     if (typeof lineYearOrError === 'string') {
-      reason = lineYearOrError
+      refuse(lineYearOrError, 'year')
       continue
     }
     const part = values.month === undefined ? 0 : partNamed(calendar, values.month, form.festival)
     if (part < 0) {
-      reason = `${definition.name} has no month "${values.month}"`
+      refuse(`${definition.name} has no month "${values.month}"`, 'month')
       continue
     }
     let day = values.day === undefined ? 1 : Number(values.day)
     if (form.festival) {
       const length = partLengths(calendar, lineYearOrError)[part]!
       if (length !== 1) {
-        reason = `${definition.parts[part]!.name} has ${length} days that year: say which`
+        refuse(`${definition.parts[part]!.name} has ${length} days that year: say which`, 'fields')
         continue
       }
       day = 1
@@ -289,30 +314,36 @@ export function parseWorldDate(calendar: CompiledCalendar, input: string): World
     }
     const problem = fieldsProblem(calendar, fields)
     if (problem) {
-      reason = problem
+      refuse(problem, 'fields')
       continue
     }
     const position = positionOf(calendar, fields)
     if (position === null) {
-      reason = 'that date is beyond the range the timeline holds'
+      refuse('that date is beyond the range the timeline holds', 'fields')
       continue
     }
     return { ok: true, calendar: definition.id, fields, precision: form.precision, position, timed: timeValues.hour !== undefined }
   }
+  if (best.reason) return { ok: false, ...best.reason }
   const example = formatWorldFields(calendar, { year: 312, part: 0, day: 4, hour: 0, minute: 0, second: 0 })
-  return { ok: false, error: reason ?? `"${input.trim()}" is not a date in ${definition.name}: write one as "${example}"` }
+  return { ok: false, error: `"${input.trim()}" is not a date in ${definition.name}: write one as "${example}"` }
 }
 
 /**
  * A date written in a world's notation, in any of its calendars (the primary
  * first). Text that two calendars both read, as different dates, is refused:
- * give it structured, with its calendar.
+ * give it structured, with its calendar. Text none reads is refused with the
+ * reason of the calendar that read furthest into it ("Ebbing has 183 days
+ * that year, so no day 200" for the Tide-count's notation, not the primary's
+ * "is not a date"), the primary's on a tie.
  */
 export function parseWorldText(set: WorldCalendarSet, input: string): WorldParse {
   const order = [set.primary, ...set.calendars.map((definition) => definition.id).filter((id) => id !== set.primary)]
   const read = order.map((id) => parseWorldDate(calendarIn(set, id), input))
   const found = read.filter((result): result is Extract<WorldParse, { ok: true }> => result.ok)
-  if (found.length === 0) return read[0]!
+  if (found.length === 0) {
+    return read.reduce((best, result) => (!result.ok && !best.ok && deeper(result.read, best.read) ? result : best))
+  }
   const distinct = new Set(found.map((result) => result.position))
   if (distinct.size > 1) {
     const names = found.map((result) => set.calendars.find((definition) => definition.id === result.calendar)!.name)

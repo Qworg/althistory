@@ -51,4 +51,22 @@ describe('a review date typed over an extracted month', () => {
     await user.type(field, 'Thaw 4, 312 AR')
     expect(reading(field)).toBe('Thaw 4, 312 AR')
   })
+
+  it('in a world, says why a day the month lacks is not a date, in the calendar it was written in', async () => {
+    useWorldCalendarStore.getState().setCalendar(VAEL)
+    const user = userEvent.setup()
+    render(<Harness initial={[{ tempId: 't1', description: 'd', actor: 'a', target: 'b', timestamp: vael(312, 1, 4).toISOString(), confidence: 0.9, source, selected: true, edited: false }]} />)
+    const field = screen.getByLabelText(/^Date for event t1/)
+    await user.clear(field)
+    await user.type(field, 'Greywater 31, 312 AR')
+    expect(field).toHaveAttribute('aria-invalid', 'true')
+    expect(reading(field)).toBe('Not a date: Greywater has 30 days that year, so no day 31')
+    await user.clear(field)
+    await user.type(field, 'Ebbing 200, 5 TC')
+    expect(reading(field)).toBe('Not a date: Ebbing has 183 days that year, so no day 200')
+    // Text in none of its notations is shown how to write one.
+    await user.clear(field)
+    await user.type(field, 'next spring')
+    expect(reading(field)).toMatch(/^Not a date: write one as /)
+  })
 })

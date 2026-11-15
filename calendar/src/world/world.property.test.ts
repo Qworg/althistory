@@ -20,6 +20,7 @@ import {
   parseWorldText,
   partLengths,
   positionOf,
+  worldDateProblem,
   worldPeriod,
 } from './index'
 
@@ -259,6 +260,26 @@ describe('any world calendar', () => {
         expect(parsed.ok).toBe(true)
       }),
       arb.runs(1000)
+    )
+  })
+})
+
+describe('a day a month does not have, in a world of one calendar or several (Req 14)', () => {
+  it('is refused with the reason: how many days the month has that year', () => {
+    fc.assert(
+      fc.property(warb.calendarSet, fc.integer({ min: -3000, max: 3000 }), fc.nat(), fc.nat(), (set, year, which, seed) => {
+        const definition = set.calendars[which % set.calendars.length]!
+        const calendar = calendarIn(set, definition.id)
+        const part = seed % definition.parts.length
+        fc.pre(!definition.parts[part]!.intercalary)
+        const length = partLengths(calendar, year)[part]!
+        const text = formatWorldFields(calendar, { year, part, day: length + 1, hour: 0, minute: 0, second: 0 })
+        const reason = `${definition.parts[part]!.name} has ${length} day${length === 1 ? '' : 's'} that year, so no day ${length + 1}`
+        const read = parseWorldText(set, text)
+        expect(read, text).toEqual({ ok: false, error: reason, read: 'fields' })
+        expect(worldDateProblem(set, text)).toBe(reason)
+      }),
+      arb.runs(2000)
     )
   })
 })
