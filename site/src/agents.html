@@ -69,7 +69,7 @@
           <h2 id="mcp-h">Connect an agent over MCP</h2>
           <p><code>althistory mcp</code> is a stdio MCP server. Add it to Claude Desktop, Cursor or Claude Code, and the agent can create graphs, write events, ages and causal links, check them, and branch them for you. If the app is running, the server works through it, so what the agent writes appears as it goes; otherwise it works on the files directly.</p>
           <p>The server also offers three prompts, one for each way of working described below. In Claude Code they appear as <code>/althistory:worldbuild</code> and so on: run one on its own, then describe your world or premise in your next message.</p>
-          <p><strong>No extra API key needed.</strong> Claude writes the history itself through the tools. Only the drafting tools, <code>generate_timeline</code> and <code>branch_timeline</code>, call a model of their own, and only if the server has <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> in its environment (<code>env</code> in the config, or <code>-e</code> on the command). Without one they return a generic skeleton marked <code>"source": "template"</code> for the agent to rewrite. They also need the app stopped.</p>
+          <p><strong>No extra API key needed.</strong> Claude writes the history itself through the tools. Only the drafting tools, <code>generate_timeline</code> and <code>branch_timeline</code>, call a model of their own, and only if the server has <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> in its environment (<code>env</code> in the config, or <code>-e</code> on the command). Without one they return a generic skeleton marked <code>"source": "template"</code> for the agent to rewrite. With the app running they run inside it, as jobs you can watch fill in.</p>
           <p class="note">You never start <code>althistory mcp</code> yourself: your client runs it, and talks to it over stdin and stdout. If your client cannot find <code>althistory</code>, give the full path to <code>bin/althistory</code> in the clone; it needs <code>node</code> on the client’s PATH.</p>
         </div>
         <div class="code-stack">
@@ -205,7 +205,7 @@
         <div>
           <h2 id="cli-h">Use the CLI</h2>
           <p>Every command prints JSON on stdout and its progress on stderr, so its output can go straight into a script or an agent. <code>althistory schema</code> prints the JSON Schema of every command, with the required options marked, so an agent can learn the tool by reading it.</p>
-          <p>Generating a history from a premise, or a world from a description, uses a model when <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> is set; without one you get a template to fill in. Drafting runs in process, so stop the app first; every other command works with it running. Ingestion reads text with patterns offline and adds a model when it has a key.</p>
+          <p>Generating a history from a premise, or a world from a description, uses a model when <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> is set; without one you get a template to fill in. With the app running, drafting runs inside it, as a job that writes as it goes and that Ctrl-C cancels. Ingestion reads text with patterns offline and adds a model when it has a key.</p>
           <table class="exit-codes">
             <caption>Exit codes</caption>
             <tbody>

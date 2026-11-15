@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { AxiosInstance, AxiosResponse, AxiosError } from 'axios'
 import { toGraphVersion, type ServerVersionRef } from './graphVersions'
+import { CLIENT_ID, CLIENT_ID_HEADER, CLIENT_KIND_HEADER } from './clientIdentity'
 
 /** One entity a version added, changed or deleted, by kind and id. */
 export interface VersionEntityRef {
@@ -238,6 +239,10 @@ class APIClient {
                     config.headers.Authorization = `Bearer ${token}`
                     config.headers['X-API-Key'] = token
                 }
+                // Says who is writing, so the app's live change feed can tell
+                // other writers' changes from this tab's own.
+                config.headers[CLIENT_KIND_HEADER] = 'web'
+                config.headers[CLIENT_ID_HEADER] = CLIENT_ID
                 return config
             },
             (error) => Promise.reject(error)
@@ -1223,12 +1228,17 @@ class APIClient {
 
     // WebSocket streaming operations (Requirement 16)
     stream = {
-        getToken: async (graphId?: string): Promise<StreamTokenResponse> => {
+        /**
+         * A short-lived token for a socket. `feed` asks for the read-only socket
+         * that carries the live change feed (it needs only `read:events`); the
+         * default is the write socket.
+         */
+        getToken: async (graphId?: string, mode: 'write' | 'feed' = 'write'): Promise<StreamTokenResponse> => {
             try {
                 const response: AxiosResponse<StreamTokenResponse> =
                     await this.client.post(
                         '/stream/token',
-                        {},
+                        mode === 'feed' ? { mode } : {},
                         graphId ? { headers: { 'X-Graph-Id': graphId } } : undefined
                     )
                 return response.data

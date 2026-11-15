@@ -63,6 +63,16 @@
  *     refused BEFORE it reaches the repository, so the server does not persist
  *     work whose acknowledgement it cannot deliver.
  *
+ * The live change feed (issue 23). A socket can also WATCH graphs: after the
+ * handshake the client sends `subscribe` for each graph it shows, the server
+ * checks the key may read that graph (again at every `sweepIntervalMs`, so a
+ * key that is revoked or loses the graph stops receiving), and every committed
+ * change to the graph, whoever made it, is pushed as a `change` message. A
+ * token minted with `mode: "feed"` makes a read-only socket that needs only
+ * `read:events`. A client that reconnects passes the last `seq` it saw and the
+ * server replays what it missed or says to refetch (`ChangeFeedService`). The
+ * wire shapes are in `StreamProtocol`.
+ *
  * Every `event`/`arc` message is answered with an `ack` carrying `success: true`
  * and the created id, or `success: false`, the error and a machine-readable
  * `code`.
@@ -104,12 +114,65 @@ import {
   readNonEmptyString,
 } from './StreamProtocol';
 import type { ServerMessage, StreamErrorCode } from './StreamProtocol';
+import type { ChangeFeedService, ChangeRecord, ChangedEntity } from '@/services/ChangeFeedService';
+import { runWithChangeContext } from '@/utils/ChangeContext';
 
 /** The single WebSocket endpoint this handler serves. */
 export const STREAM_PATH = '/api/ws/stream';
 
 /** Permission required to open a stream and to write events over it. */
 export const STREAM_REQUIRED_PERMISSION: Permission = 'write:events';
+
+/** Permission required to open a read-only (`feed`) stream and to watch a graph. */
+export const STREAM_FEED_PERMISSION: Permission = 'read:events';
+
+/** What reading each kind of entity needs, as the entity routes ask for it (pressures are inferred from events). */
+const ENTITY_READ_PERMISSION: Record<ChangedEntity['type'], Permission> = {
+  event: 'read:events',
+  arc: 'read:arcs',
+  relationship: 'read:relationships',
+  pressure: 'read:events',
+};
+
+/**
+ * What a key may be told of a change. Watching a graph needs only `read:events`,
+ * but a change to arcs or links carries their ids and a line naming them, which
+ * the entity routes would refuse a key without `read:arcs` or `read:relationships`.
+ * Entities the key cannot read are dropped from the record; when any were, the
+ * line (which may name them) becomes a count, and a record with nothing left to
+ * show is not sent.
+ */
+export function visibleTo(apiKey: Pick<ApiKey, 'hasPermission' | 'id'>, record: ChangeRecord): ChangeRecord | null {
+  const shown = readableBy(apiKey, record);
+  if (!shown || shown.origin === undefined) return shown;
+  // A tab's id is told only to the key that made the change. Any other key
+  // that learned it could send it on its own writes and have the tab treat
+  // them as its own, hiding them from the person's notices and highlights.
+  // In local mode every client shares the admin key, so there the tag stays
+  // advisory: it labels, it never authorises.
+  if (record.actor.keyId !== undefined && record.actor.keyId === apiKey.id) return shown;
+  const { origin: _origin, ...rest } = shown;
+  void _origin;
+  return rest as ChangeRecord;
+}
+
+function readableBy(apiKey: Pick<ApiKey, 'hasPermission'>, record: ChangeRecord): ChangeRecord | null {
+  if (record.kind !== 'entities') return record;
+  const entities = record.entities.filter((entity) => apiKey.hasPermission(ENTITY_READ_PERMISSION[entity.type]));
+  if (entities.length === record.entities.length) return record;
+  if (entities.length === 0) return null;
+  const verb = record.operation === 'create' ? 'Added' : record.operation === 'delete' ? 'Removed' : 'Changed';
+  return { ...record, entities, summary: `${verb} ${entities.length} ${entities.length === 1 ? 'item' : 'items'}` };
+}
+
+/** Permission required to watch the graph list (the `*` channel). */
+export const STREAM_GRAPH_LIST_PERMISSION: Permission = 'read:graphs';
+
+/** The channel name for changes to the graph list. */
+export const GRAPH_LIST_CHANNEL = '*';
+
+/** How many graphs one socket may watch at once. */
+export const DEFAULT_MAX_SUBSCRIPTIONS = 10;
 
 /**
  * Largest single WebSocket frame accepted. `ws` defaults to 100 MiB, which
@@ -191,7 +254,12 @@ export interface StreamWriteDeps {
    * dates are read as in a graph without a world.
    */
   graphCalendar?(graphId: string): Promise<unknown>;
+  /** Whether a graph exists (and is not deleted), for `subscribe`. Without it any safe id may be watched. */
+  graphExists?(graphId: string): Promise<boolean>;
 }
+
+/** What the handler needs of the change feed; `ChangeFeedService` satisfies it. */
+export type StreamFeed = Pick<ChangeFeedService, 'epoch' | 'cursor' | 'subscribe' | 'replay'>;
 
 export interface StreamHandlerOptions {
   tokenStore: StreamTokenStore;
@@ -211,12 +279,28 @@ export interface StreamHandlerOptions {
    * Defaults to `STREAM_MAX_BUFFERED_BYTES` (1 MiB).
    */
   maxBufferedBytes?: number;
+  /** The live change feed. Without it a socket accepts writes but `subscribe` is refused. */
+  feed?: StreamFeed;
+  /** How many graphs one socket may watch. Defaults to 10. */
+  maxSubscriptions?: number;
 }
 
 interface ConnectionContext {
   session: StreamSession;
   apiKey: ApiKey;
   graphId: string;
+  /** `feed` sockets are read-only. */
+  mode: 'write' | 'feed';
+  /** The graphs (and `*`) this socket watches. */
+  subscriptions: Set<string>;
+  /**
+   * Subscribe and unsubscribe messages run one after another, in the order they
+   * arrived. A subscribe awaits the key and the graph before it registers, so
+   * without this a quick A -> B -> A switch (subscribe B, unsubscribe B) lets
+   * the unsubscribe run first and the subscribe then register a channel the
+   * client has already dropped.
+   */
+  feedQueue: Promise<void>;
 }
 
 interface Rejection {
@@ -227,7 +311,7 @@ interface Rejection {
 }
 
 type AuthorizeResult =
-  | { ok: true; apiKey: ApiKey; graphId: string }
+  | { ok: true; apiKey: ApiKey; graphId: string; mode: 'write' | 'feed' }
   | { ok: false; rejection: Rejection };
 
 type KeyResolution =
@@ -281,6 +365,12 @@ export class StreamHandler {
   /** Largest unsent outbound backlog allowed on one socket. */
   readonly maxBufferedBytes: number;
   private readonly sockets = new Map<string, WebSocket>();
+  private readonly feed: StreamFeed | undefined;
+  private readonly maxSubscriptions: number;
+  /** Sockets that may be watching a graph, by session id. */
+  private readonly feedSessions = new Map<string, { ws: WebSocket; context: ConnectionContext }>();
+  private stopFeed: (() => void) | undefined;
+  private revalidating = false;
   private readonly inFlightWrites = new Map<string, number>();
   /**
    * Sockets already closed for being over `maxBufferedBytes`, so every later
@@ -306,6 +396,9 @@ export class StreamHandler {
     this.reservationTimeoutMs = options.reservationTimeoutMs ?? STREAM_RESERVATION_TIMEOUT_MS;
     this.sweepIntervalMs = options.sweepIntervalMs ?? DEFAULT_SESSION_SWEEP_INTERVAL_MS;
     this.maxBufferedBytes = options.maxBufferedBytes ?? STREAM_MAX_BUFFERED_BYTES;
+    this.feed = options.feed;
+    this.maxSubscriptions = Math.max(1, Math.floor(options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS));
+    this.stopFeed = this.feed?.subscribe((record) => this.deliver(record));
     this.wss = new WebSocketServer({
       noServer: true,
       maxPayload: this.maxPayloadBytes,
@@ -488,6 +581,9 @@ export class StreamHandler {
       session: opened.session,
       apiKey: result.apiKey,
       graphId: result.graphId,
+      mode: result.mode,
+      subscriptions: new Set(),
+      feedQueue: Promise.resolve(),
     };
 
     if (socketFailed || socket.destroyed) {
@@ -566,12 +662,17 @@ export class StreamHandler {
 
     // The token's `permissions` snapshot is deliberately NOT consulted: the
     // token proves which key asked, the repository says what that key may do.
-    const resolved = await this.resolveKey(record.apiKeyId, graphId);
+    const mode = record.mode === 'feed' ? 'feed' : 'write';
+    const resolved = await this.resolveKey(
+      record.apiKeyId,
+      graphId,
+      mode === 'feed' ? STREAM_FEED_PERMISSION : STREAM_REQUIRED_PERMISSION
+    );
     if (!resolved.ok) {
       return { ok: false, rejection: resolved.rejection };
     }
 
-    return { ok: true, apiKey: resolved.apiKey, graphId };
+    return { ok: true, apiKey: resolved.apiKey, graphId, mode };
   }
 
   /**
@@ -582,7 +683,11 @@ export class StreamHandler {
    * permission removal and graph-access removal are all answered from the
    * repository, never from the token's snapshot or the connect-time answer.
    */
-  private async resolveKey(apiKeyId: string, graphId: string): Promise<KeyResolution> {
+  private async resolveKey(
+    apiKeyId: string,
+    graphId: string,
+    permission: Permission = STREAM_REQUIRED_PERMISSION
+  ): Promise<KeyResolution> {
     const apiKey = await this.deps.authService.getApiKey(apiKeyId);
     if (!apiKey || !apiKey.isValid()) {
       return {
@@ -596,14 +701,14 @@ export class StreamHandler {
       };
     }
 
-    if (!apiKey.hasPermission(STREAM_REQUIRED_PERMISSION)) {
+    if (!apiKey.hasPermission(permission)) {
       return {
         ok: false,
         rejection: {
           status: 403,
           statusText: 'Forbidden',
           code: 'PERMISSION_DENIED',
-          message: `The API key no longer has the '${STREAM_REQUIRED_PERMISSION}' permission`,
+          message: `The API key no longer has the '${permission}' permission`,
         },
       };
     }
@@ -628,6 +733,7 @@ export class StreamHandler {
     const { session, apiKey, graphId } = context;
 
     this.sockets.set(session.id, ws);
+    this.feedSessions.set(session.id, { ws, context });
 
     // Every handler is installed before anything is sent, so no synchronous
     // failure below can leave the session without a close/error path.
@@ -656,6 +762,7 @@ export class StreamHandler {
       apiKeyId: apiKey.id,
       graphId,
       concurrentStreams: apiKey.rateLimit.concurrentStreams,
+      mode: context.mode,
     });
 
     this.logger.info('Stream session established', {
@@ -674,6 +781,7 @@ export class StreamHandler {
    */
   private releaseSession(sessionId: string, source: string): void {
     this.sockets.delete(sessionId);
+    this.feedSessions.delete(sessionId);
     const closed = this.sessionManager.close(sessionId);
     if (!closed) {
       return;
@@ -688,6 +796,7 @@ export class StreamHandler {
 
   /** Close sessions that crossed their lifetime/idle limit. */
   private sweepSessions(): void {
+    void this.revalidateFeedSessions();
     for (const expired of this.sessionManager.sweep()) {
       const ws = this.sockets.get(expired.session.id);
       if (!ws) {
@@ -781,14 +890,28 @@ export class StreamHandler {
         this.releaseSession(context.session.id, 'client_requested');
         ws.close(1000, 'client_requested');
         return;
+      case 'ping':
+        this.send(ws, { type: 'pong' });
+        return;
+      case 'subscribe':
+        await this.enqueueFeed(context, () => this.handleSubscribe(ws, context, parsed, requestId));
+        return;
+      case 'unsubscribe':
+        await this.enqueueFeed(context, () => this.handleUnsubscribe(ws, context, parsed, requestId));
+        return;
       case 'event':
-        await this.handleWrite(ws, context, 'event', parsed.data, requestId);
-        return;
       case 'arc':
-        await this.handleWrite(ws, context, 'arc', parsed.data, requestId);
-        return;
       case 'relationship':
-        await this.handleWrite(ws, context, 'relationship', parsed.data, requestId);
+        if (context.mode === 'feed') {
+          // A feed socket was authorised to read, and its token to nothing else.
+          this.send(ws, {
+            type: 'error',
+            code: 'READ_ONLY_STREAM',
+            message: 'This stream was opened read-only (mode "feed") and cannot write; request a write token',
+          });
+          return;
+        }
+        await this.handleWrite(ws, context, parsed.type, parsed.data, requestId);
         return;
       default:
         this.send(ws, {
@@ -846,7 +969,12 @@ export class StreamHandler {
 
     this.inFlightWrites.set(context.session.id, inFlight + 1);
     try {
-      await this.handleEntity(ws, context, entityType, data, requestId);
+      // A socket is no Express request, so the router's attribution never ran:
+      // say whose key this write is by, or the live feed credits it to "the app".
+      await runWithChangeContext(
+        { actor: { kind: 'api', name: context.apiKey.name, keyId: context.apiKey.id } },
+        () => this.handleEntity(ws, context, entityType, data, requestId)
+      );
     } finally {
       const remaining = (this.inFlightWrites.get(context.session.id) ?? 1) - 1;
       if (remaining > 0) {
@@ -980,6 +1108,235 @@ export class StreamHandler {
       return;
     }
     await this.writeRelationship(ws, context, data, requestId);
+  }
+
+  // --- The live change feed -------------------------------------------------
+
+  /**
+   * Watch a graph. The key is re-resolved for THIS subscription (so a key that
+   * lost `read:events`, or the graph, is refused now rather than at its next
+   * connect), the graph must exist, and the rate limit is charged. What the
+   * client missed is replayed after `subscribed`, in the same synchronous turn
+   * the subscription is registered in, so no change can fall between the
+   * replay and the live feed.
+   */
+  private enqueueFeed(context: ConnectionContext, task: () => void | Promise<void>): Promise<void> {
+    const run = context.feedQueue.then(task);
+    // The next message waits for this one whether it succeeded or not.
+    context.feedQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async handleSubscribe(
+    ws: WebSocket,
+    context: ConnectionContext,
+    parsed: Record<string, unknown>,
+    requestId: string | undefined
+  ): Promise<void> {
+    // A refusal names the channel, so the client can tell which subscribe it
+    // was and, for a rate limit, when to try again.
+    const fail = (code: StreamErrorCode, message: string, retryAfter?: number): void => {
+      const named = typeof parsed.graphId === 'string' ? parsed.graphId : undefined;
+      this.send(ws, {
+        type: 'error',
+        code,
+        message,
+        requestId,
+        ...(named !== undefined ? { graphId: named } : {}),
+        ...(retryAfter !== undefined ? { retryAfter } : {}),
+      });
+    };
+    if (!this.feed) {
+      fail('INVALID_MESSAGE', 'This server does not offer the live change feed');
+      return;
+    }
+    const channel = readNonEmptyString(parsed, 'graphId');
+    if (!channel) {
+      fail('INVALID_MESSAGE', 'subscribe needs a graphId (or "*" for the graph list)');
+      return;
+    }
+    const isList = channel === GRAPH_LIST_CHANNEL;
+    if (!isList) {
+      try {
+        assertSafeGraphId(channel);
+      } catch {
+        fail('INVALID_MESSAGE', 'subscribe was given a graphId that is not a graph id');
+        return;
+      }
+    }
+    const epoch = typeof parsed.epoch === 'string' ? parsed.epoch : undefined;
+    const since = parsed.since;
+    if (since !== undefined && (typeof since !== 'number' || !Number.isInteger(since))) {
+      fail('INVALID_MESSAGE', 'since must be the integer seq of the last change seen');
+      return;
+    }
+    if (!context.subscriptions.has(channel) && context.subscriptions.size >= this.maxSubscriptions) {
+      fail('SUBSCRIPTION_LIMIT', `A stream may watch at most ${this.maxSubscriptions} graphs; unsubscribe from one first`);
+      return;
+    }
+
+    let apiKey: ApiKey;
+    try {
+      const resolved = await this.resolveKey(
+        context.apiKey.id,
+        isList ? context.graphId : channel,
+        isList ? STREAM_GRAPH_LIST_PERMISSION : STREAM_FEED_PERMISSION
+      );
+      if (!resolved.ok) {
+        fail(resolved.rejection.code, resolved.rejection.message);
+        return;
+      }
+      apiKey = resolved.apiKey;
+      if (!isList && this.deps.graphExists && !(await this.deps.graphExists(channel))) {
+        fail('GRAPH_NOT_FOUND', `Graph '${channel}' not found`);
+        return;
+      }
+    } catch (error) {
+      this.logger.warn('Stream subscribe could not be authorised', {
+        sessionId: context.session.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      fail('KEY_INVALID', 'Failed to authorise the subscription');
+      return;
+    }
+
+    const limiter = this.deps.rateLimitService;
+    if (limiter) {
+      const charged = limiter.recordRequest(apiKey.id, apiKey.rateLimit);
+      if (!charged.allowed) {
+        fail('RATE_LIMITED', `Rate limit exceeded: ${charged.limit}`, charged.retryAfter);
+        return;
+      }
+    }
+
+    // The session may have ended while the key was being resolved.
+    const refusal = this.sessionManager.refusalReason(context.session.id);
+    if (refusal || ws.readyState !== WebSocket.OPEN) {
+      if (refusal) this.refuseSession(ws, context.session, refusal);
+      return;
+    }
+
+    context.apiKey = apiKey;
+    // Everything from here to the registration is synchronous.
+    let replay: ReturnType<StreamFeed['replay']> | undefined;
+    if (!isList && since !== undefined) replay = this.feed.replay(channel, epoch, since);
+    const resync = replay && !replay.ok ? replay.reason : undefined;
+    const records = (replay && replay.ok ? replay.records : []).flatMap((record) => {
+      const visible = visibleTo(apiKey, record);
+      return visible ? [visible] : [];
+    });
+    this.send(ws, {
+      type: 'subscribed',
+      requestId,
+      graphId: channel,
+      epoch: this.feed.epoch,
+      seq: this.feed.cursor,
+      replayed: records.length,
+      ...(resync ? { resync } : {}),
+    });
+    for (const record of records) {
+      this.send(ws, { type: 'change', ...record });
+    }
+    context.subscriptions.add(channel);
+  }
+
+  private handleUnsubscribe(
+    ws: WebSocket,
+    context: ConnectionContext,
+    parsed: Record<string, unknown>,
+    requestId: string | undefined
+  ): void {
+    const channel = readNonEmptyString(parsed, 'graphId');
+    if (!channel) {
+      this.send(ws, { type: 'error', code: 'INVALID_MESSAGE', message: 'unsubscribe needs a graphId' });
+      return;
+    }
+    context.subscriptions.delete(channel);
+    this.send(ws, { type: 'unsubscribed', requestId, graphId: channel, reason: 'requested' });
+  }
+
+  /**
+   * Push one committed change to the sockets watching its graph. A socket
+   * watching the graph list (`*`) also hears the changes to a graph as a whole
+   * (made, renamed, deleted, replaced) for the graphs its key may access.
+   * Each socket is sent a change at most once.
+   */
+  private deliver(record: ChangeRecord): void {
+    for (const { ws, context } of this.feedSessions.values()) {
+      const subscriptions = context.subscriptions;
+      const direct = subscriptions.has(record.graphId);
+      const listed =
+        subscriptions.has(GRAPH_LIST_CHANNEL) &&
+        (record.kind === 'graph' || record.kind === 'replaced') &&
+        context.apiKey.canAccessGraph(record.graphId);
+      if (!direct && !listed) continue;
+      if (direct && !context.apiKey.canAccessGraph(record.graphId)) continue;
+      const visible = visibleTo(context.apiKey, record);
+      if (visible) this.send(ws, { type: 'change', ...visible });
+    }
+  }
+
+  /**
+   * Check, again, that every watching socket's key may still watch what it
+   * watches. A key that was revoked, expired or lost `read:events` ends the
+   * socket; one that lost a graph stops hearing it. This bounds how long a
+   * subscription outlives the authority it was granted under to one sweep.
+   */
+  async revalidateFeedSessions(): Promise<void> {
+    if (this.revalidating) return;
+    this.revalidating = true;
+    try {
+      for (const { ws, context } of Array.from(this.feedSessions.values())) {
+        if (context.subscriptions.size === 0) continue;
+        try {
+          for (const channel of Array.from(context.subscriptions)) {
+            const isList = channel === GRAPH_LIST_CHANNEL;
+            const resolved = await this.resolveKey(
+              context.apiKey.id,
+              isList ? context.graphId : channel,
+              isList ? STREAM_GRAPH_LIST_PERMISSION : STREAM_FEED_PERMISSION
+            );
+            if (!resolved.ok) {
+              const { code, message } = resolved.rejection;
+              if (isList) {
+                // The graph list is checked against the graph the token was minted for, which is
+                // usually not the one watched now: losing *that* graph says nothing about the
+                // list, which is filtered per graph as it is delivered. Only a key that is gone
+                // ends the socket; losing read:graphs ends the list alone.
+                if (code === 'GRAPH_ACCESS_DENIED') {
+                  const current = await this.deps.authService.getApiKey(context.apiKey.id);
+                  if (current && current.isValid() && current.hasPermission(STREAM_GRAPH_LIST_PERMISSION)) {
+                    context.apiKey = current;
+                    continue;
+                  }
+                }
+                if (code !== 'KEY_INVALID') {
+                  context.subscriptions.delete(channel);
+                  this.send(ws, { type: 'unsubscribed', graphId: channel, reason: 'access_revoked' });
+                  continue;
+                }
+              } else if (code === 'GRAPH_ACCESS_DENIED') {
+                context.subscriptions.delete(channel);
+                this.send(ws, { type: 'unsubscribed', graphId: channel, reason: 'access_revoked' });
+                continue;
+              }
+              // The key itself is gone, or lost the permission: nothing it watches is allowed.
+              context.subscriptions.clear();
+              this.sendThenClose(ws, { type: 'error', code, message }, 'key_invalid');
+              break;
+            }
+            context.apiKey = resolved.apiKey;
+          }
+        } catch (error) {
+          this.logger.warn('Could not re-check a watching stream', {
+            sessionId: context.session.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    } finally {
+      this.revalidating = false;
+    }
   }
 
   /** The graph's world calendars, or none (a graph without, or one that cannot be read). */
@@ -1353,6 +1710,9 @@ export class StreamHandler {
         // Already gone; nothing to do.
       }
     }
+    this.stopFeed?.();
+    this.stopFeed = undefined;
+    this.feedSessions.clear();
     this.sessionManager.closeAll();
     this.sockets.clear();
     this.inFlightWrites.clear();

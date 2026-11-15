@@ -17,6 +17,8 @@ export interface TimelineArcProps {
    * with the arrow keys; standalone, the arc is tabbable on its own.
    */
   isTabStop?: boolean
+  /** Whether the arc just arrived from another writer (the live change feed): an outline pulses around it. */
+  isFresh?: boolean
   onClick?: (arc: ArcWithUIState) => void
   onContextMenu?: (e: React.MouseEvent, arc: ArcWithUIState) => void
   /** Toggles whether the arc's child arcs are shown. */
@@ -70,6 +72,7 @@ export const TimelineArc = memo(function TimelineArc({
   y,
   width,
   isTabStop = true,
+  isFresh = false,
   onClick,
   onContextMenu,
   onToggleExpand,
@@ -162,6 +165,7 @@ export const TimelineArc = memo(function TimelineArc({
       className="arc"
       data-arc-id={arc.id}
       data-timeline-mark="arc"
+      data-fresh={isFresh ? 'true' : undefined}
       onMouseEnter={handleHoverEnter}
       onMouseLeave={handleHoverLeave}
     >
@@ -170,7 +174,7 @@ export const TimelineArc = memo(function TimelineArc({
         data-mark-key={`arc:${arc.id}`}
         role="button"
         tabIndex={isTabStop ? 0 : -1}
-        aria-label={arcAccessibleName(arc)}
+        aria-label={`${arcAccessibleName(arc)}${isFresh ? ', new' : ''}`}
         aria-keyshortcuts={hasChildren ? 'Enter Shift+Enter' : undefined}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
@@ -192,6 +196,22 @@ export const TimelineArc = memo(function TimelineArc({
           strokeWidth={2}
           pointerEvents="none"
         />
+        {/* A change another writer just made: an outline that pulses, in the
+            success colour, until the highlight ends. */}
+        {isFresh && (
+          <rect
+            className="arc-fresh-ring live-fresh-ring"
+            x={x - 4}
+            y={y - 4}
+            width={width + 8}
+            height={height + 8}
+            rx={6}
+            fill="none"
+            stroke="var(--status-success)"
+            strokeWidth={2.5}
+            pointerEvents="none"
+          />
+        )}
         <rect
           className="arc-main"
           x={x}

@@ -7,6 +7,8 @@
  * `isRecord` before use.
  */
 
+import type { ChangeRecord } from '@/services/ChangeFeedService';
+
 /** Why a connection or message was rejected. Sent to the client verbatim. */
 export type StreamErrorCode =
   | 'MALFORMED_TOKEN'
@@ -22,7 +24,10 @@ export type StreamErrorCode =
   | 'RATE_LIMITED'
   | 'CONCURRENT_WRITE_LIMIT'
   | 'SESSION_EXPIRED'
-  | 'WRITE_FAILED';
+  | 'WRITE_FAILED'
+  | 'GRAPH_NOT_FOUND'
+  | 'SUBSCRIPTION_LIMIT'
+  | 'READ_ONLY_STREAM';
 
 /** Client -> server: write one event. */
 export interface ClientEventMessage {
@@ -50,11 +55,43 @@ export interface ClientCloseMessage {
   type: 'close';
 }
 
+/**
+ * Client -> server: watch a graph's changes (the live change feed).
+ *
+ * `graphId` is a graph the key may read, or `*` for changes to the graph list
+ * (a graph made, renamed, deleted or replaced), filtered to the graphs the key
+ * may access. A client that is reconnecting passes the `epoch` and the `seq` of
+ * the last change it saw for the graph, and the server replays what it missed
+ * or says it cannot (`resync`).
+ */
+export interface ClientSubscribeMessage {
+  type: 'subscribe';
+  requestId?: string;
+  graphId: string;
+  epoch?: string;
+  since?: number;
+}
+
+/** Client -> server: stop watching a graph. */
+export interface ClientUnsubscribeMessage {
+  type: 'unsubscribe';
+  requestId?: string;
+  graphId: string;
+}
+
+/** Client -> server: keep the session from idling out; answered with `pong`. */
+export interface ClientPingMessage {
+  type: 'ping';
+}
+
 export type ClientMessage =
   | ClientEventMessage
   | ClientArcMessage
   | ClientRelationshipMessage
-  | ClientCloseMessage;
+  | ClientCloseMessage
+  | ClientSubscribeMessage
+  | ClientUnsubscribeMessage
+  | ClientPingMessage;
 
 /**
  * Server -> client: result of the connection-time token validation.
@@ -72,9 +109,51 @@ export interface ServerAuthResultMessage {
   apiKeyId?: string;
   graphId?: string;
   concurrentStreams?: number;
+  /** `write` or `feed`; see `StreamToken.mode`. */
+  mode?: 'write' | 'feed';
   error?: string;
   code?: StreamErrorCode;
 }
+
+/**
+ * Server -> client: the subscription is in place.
+ *
+ * `epoch` names this server process and `seq` is where its feed was when the
+ * subscription began: a client that keeps both can resume later. After it come
+ * the `replayed` changes the client missed, in order. `resync` is set when the
+ * client asked to resume and the server cannot replay what it missed (`gap`:
+ * too much happened, `epoch`: the server restarted): the client must refetch
+ * the graph instead.
+ */
+export interface ServerSubscribedMessage {
+  type: 'subscribed';
+  requestId?: string;
+  graphId: string;
+  epoch: string;
+  seq: number;
+  replayed: number;
+  resync?: 'gap' | 'epoch';
+}
+
+/** Server -> client: the subscription ended (asked for, or the key lost access). */
+export interface ServerUnsubscribedMessage {
+  type: 'unsubscribed';
+  requestId?: string;
+  graphId: string;
+  reason: 'requested' | 'access_revoked';
+}
+
+/** Server -> client: answer to `ping`. */
+export interface ServerPongMessage {
+  type: 'pong';
+}
+
+/**
+ * Server -> client: a committed change to a graph the client watches, whoever
+ * made it. See `ChangeRecord` for the fields: `kind` is `entities`,
+ * `replaced`, `graph` or `generation`.
+ */
+export type ServerChangeMessage = { type: 'change' } & ChangeRecord;
 
 /** Server -> client: per-event acknowledgment (requirement 16.3). */
 export interface ServerAckMessage {
@@ -104,6 +183,12 @@ export interface ServerErrorMessage {
   type: 'error';
   code: StreamErrorCode;
   message: string;
+  /** Set when the error answers a request that carried one. */
+  requestId?: string;
+  /** The channel a refused `subscribe` named. */
+  graphId?: string;
+  /** Seconds until a rate-limited request may be repeated. */
+  retryAfter?: number;
 }
 
 /** Server -> client: the session is closing. */
@@ -114,6 +199,10 @@ export interface ServerClosedMessage {
 
 export type ServerMessage =
   | ServerAuthResultMessage
+  | ServerSubscribedMessage
+  | ServerUnsubscribedMessage
+  | ServerPongMessage
+  | ServerChangeMessage
   | ServerAckMessage
   | ServerWarningMessage
   | ServerErrorMessage

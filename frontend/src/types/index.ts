@@ -716,6 +716,7 @@ export type Permission =
   | 'export'
   | 'import'
   | 'ingest'
+  | 'generate'
   | 'admin'
 
 export interface RateLimitConfig {

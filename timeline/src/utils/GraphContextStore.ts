@@ -336,6 +336,34 @@ export class GraphContextStore {
     ]);
   }
 
+  /**
+   * Save every store this registry can reach, resident or retired, without
+   * retiring or shutting any of them down. For a process that works on the
+   * files while another reader (the app) may load them at any moment: it keeps
+   * the files as current as the memory without disturbing a lease. A save that
+   * fails is logged, not thrown: the store keeps its data and the next flush
+   * tries again.
+   */
+  async saveAll(): Promise<void> {
+    const stores = new Set<LocalGraphStore>();
+    for (const entry of this.stores.values()) {
+      if (entry.settled && entry.store) stores.add(entry.store);
+    }
+    for (const retired of this.retired.values()) {
+      const store = retired.ref.deref();
+      if (store) stores.add(store);
+    }
+    await Promise.all(
+      [...stores].map(async (store) => {
+        try {
+          await store.save();
+        } catch (error) {
+          console.error('Failed to save a live store:', error);
+        }
+      })
+    );
+  }
+
   /** Whether a graph is currently resident in the cache. */
   has(graphId: string): boolean {
     assertSafeGraphId(graphId);

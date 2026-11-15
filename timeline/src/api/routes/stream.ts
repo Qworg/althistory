@@ -15,6 +15,13 @@
  * (`resolveGraphContext`), which is how every other graph-scoped route selects
  * a graph. That is a deliberate deviation from the design's body field.
  *
+ * A token is for one of two kinds of socket, chosen by `mode` in the body:
+ *
+ *   - `write` (the default): a session that may write events, arcs and links,
+ *     and needs `write:events`;
+ *   - `feed`: a read-only session for the live change feed, and needs
+ *     `read:events`. A key that may only read can watch.
+ *
  * This route is protected exactly like the other write routes: authenticate ->
  * requireAuth -> authorize -> rateLimit -> resolveGraphContext ->
  * authorizeGraphAccess. It does NOT follow the historical pattern of a route
@@ -22,6 +29,8 @@
  */
 
 import { Router, Response, RequestHandler } from 'express';
+import type { Permission } from '@/models/ApiKey';
+import { ValidationError } from '@/utils/errors';
 import {
   AuthenticatedRequest,
   authenticate,
@@ -34,6 +43,7 @@ import {
   asyncHandler,
 } from '@/api/middleware';
 import {
+  STREAM_FEED_PERMISSION,
   STREAM_REQUIRED_PERMISSION,
   STREAM_TOKEN_TTL_MS,
   getStreamTokenStore,
@@ -41,11 +51,35 @@ import {
 
 export const streamRoutes = Router();
 
+/** The permission a socket of each mode needs. */
+const MODE_PERMISSION: Record<'write' | 'feed', Permission> = {
+  write: STREAM_REQUIRED_PERMISSION,
+  feed: STREAM_FEED_PERMISSION,
+};
+
+/** The mode a request asks for; anything but `write` or `feed` is a 400. */
+function readMode(req: AuthenticatedRequest): 'write' | 'feed' {
+  const body: unknown = req.body;
+  const mode = typeof body === 'object' && body !== null ? (body as { mode?: unknown }).mode : undefined;
+  if (mode === undefined || mode === null || mode === 'write') return 'write';
+  if (mode === 'feed') return 'feed';
+  throw new ValidationError('mode must be "write" or "feed"', 'mode');
+}
+
+/** `authorize` for the permission the requested mode needs. */
+function authorizeMode(req: AuthenticatedRequest, res: Response, next: (error?: unknown) => void): void {
+  try {
+    authorize(MODE_PERMISSION[readMode(req)])(req, res, next);
+  } catch (error) {
+    next(error);
+  }
+}
+
 streamRoutes.post(
   '/token',
   authenticate as RequestHandler,
   requireAuth as RequestHandler,
-  authorize(STREAM_REQUIRED_PERMISSION) as RequestHandler,
+  authorizeMode as RequestHandler,
   rateLimit() as RequestHandler,
   resolveGraphContext() as RequestHandler,
   authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
@@ -62,6 +96,7 @@ streamRoutes.post(
       apiKeyId: req.apiKey.id,
       graphId,
       permissions: req.apiKey.permissions,
+      mode: readMode(req),
     });
 
     res.status(201).json({
@@ -69,6 +104,7 @@ streamRoutes.post(
       expiresIn: Math.floor(STREAM_TOKEN_TTL_MS / 1000),
       graphId,
       permissions: record.permissions,
+      mode: record.mode,
       concurrentStreams: req.apiKey.rateLimit.concurrentStreams,
     });
   })
