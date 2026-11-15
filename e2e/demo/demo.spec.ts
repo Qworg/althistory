@@ -272,7 +272,8 @@ test('a link opens on deep time, 252 million years on one axis', async ({ page }
 
   // An arc's span, and an event's details, in the same years.
   await expect(page.getByRole('button', { name: /^Arc: The Mesozoic, Jan 1, 251900000 BC – Dec 31, 66000000 BC/ })).toBeVisible()
-  await page.locator('g[data-timeline-mark="event"][aria-label*="Homo sapiens"] .event-marker').click({ force: true })
+  // Homo sapiens and Toba overlap at this zoom, so the click goes to the mark itself.
+  await page.locator('g[data-timeline-mark="event"][aria-label*="Homo sapiens"] .event-marker').dispatchEvent('click')
   await expect(page.getByRole('region', { name: 'Selection inspector' })).toContainText('300000 BC')
 
   // The other views open on it too.
