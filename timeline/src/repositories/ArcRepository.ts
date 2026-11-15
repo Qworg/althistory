@@ -502,21 +502,22 @@ export class ArcRepository {
     // Create updated arc to validate
     let updatedArc = existingArc.update(updates);
 
-    // A level change can leave the arc where its recorded parent no longer
-    // holds it: at the top (level 0), or not one below the parent. The CLI,
-    // MCP and the generator record the parent in `metadata.parentArcId`, and
-    // the export reads it as `parent_arc_id`, so a stale one made the export
-    // fail the importer's hierarchy check. It is cleared here, where the
-    // update is applied, so the live arc and its version agree. (An unchanged
-    // level keeps whatever parent the update gives it.)
-    if (updatedArc.level !== existingArc.level) {
+    // An arc moved to the top level (0) has no parent. The CLI, MCP and the
+    // generator record the parent in `metadata.parentArcId`, which the export
+    // reads as `parent_arc_id`, so a promoted arc that kept it failed the
+    // importer's hierarchy check. It is cleared here, where the update is
+    // applied, so the live arc and its version agree.
+    //
+    // Only then: a parent is not judged against the parent's level as the
+    // store holds it now. A subtree moved child first (a batch, two PUTs, an
+    // import) passes through levels that do not fit yet, and clearing the
+    // parent of an arc above level 0 never makes it valid (a root arc must be
+    // level 0), so it would only lose the parent.
+    if (updatedArc.level === 0 && existingArc.level !== 0) {
       const parentId = updatedArc.metadata?.parentArcId;
-      if (typeof parentId === 'string' && parentId !== '') {
-        const parent = updatedArc.level > 0 ? await this.findById(parentId) : null;
-        if (!parent || updatedArc.level !== parent.level + 1) {
-          const { parentArcId: _stale, ...metadata } = updatedArc.metadata ?? {};
-          updatedArc = updatedArc.update({ metadata });
-        }
+      if (parentId !== undefined) {
+        const { parentArcId: _promoted, ...metadata } = updatedArc.metadata ?? {};
+        updatedArc = updatedArc.update({ metadata });
       }
     }
 

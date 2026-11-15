@@ -201,5 +201,41 @@ describe('ArcRepository Unit Tests', () => {
         })
       ).rejects.toThrow(/Temporal boundary violation.*Contained Child/);
     });
+
+    // The parent the CLI, MCP and the generator record in `metadata.parentArcId`
+    // (issue 26, third review): cleared when an arc becomes top level, and
+    // never because its new level does not fit the parent as the store holds
+    // it now, which is only how a subtree moved child first passes through.
+    describe('the recorded parent (metadata.parentArcId)', () => {
+      async function parentAndChild(): Promise<{ parentId: string; childId: string }> {
+        const parent = await repository.create({ name: 'Age', start_time: new Date('2020-01-01T00:00:00Z'), end_time: new Date('2020-12-31T00:00:00Z'), level: 0 });
+        const child = await repository.create({ name: 'Reign', start_time: new Date('2021-02-01T00:00:00Z'), end_time: new Date('2021-03-01T00:00:00Z'), level: 1, metadata: { parentArcId: parent.id, note: 'kept' } });
+        return { parentId: parent.id, childId: child.id };
+      }
+
+      it('is cleared when an edit moves the arc to level 0, and the rest of the metadata stays', async () => {
+        const { childId } = await parentAndChild();
+        const promoted = await repository.update(childId, { level: 0 });
+        expect(promoted?.metadata).toEqual({ note: 'kept' });
+        expect((await repository.findById(childId))?.metadata).toEqual({ note: 'kept' });
+      });
+
+      it('is kept when the new level does not fit the parent as it stands now', async () => {
+        const { parentId, childId } = await parentAndChild();
+        // Level 2 under a level-0 parent: the parent's own move may come next.
+        expect((await repository.update(childId, { level: 2 }))?.metadata).toEqual({ parentArcId: parentId, note: 'kept' });
+      });
+
+      it('is kept when the parent is not in the store (yet)', async () => {
+        const { parentId, childId } = await parentAndChild();
+        await repository.delete(parentId);
+        expect((await repository.update(childId, { level: 3 }))?.metadata).toEqual({ parentArcId: parentId, note: 'kept' });
+      });
+
+      it('is left alone by an edit that does not change the level', async () => {
+        const { parentId, childId } = await parentAndChild();
+        expect((await repository.update(childId, { name: 'Reign, renamed' }))?.metadata).toEqual({ parentArcId: parentId, note: 'kept' });
+      });
+    });
   });
 });

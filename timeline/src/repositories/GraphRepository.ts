@@ -363,9 +363,17 @@ export class GraphRepository {
   /**
    * Get the full data for a graph at a specific version
    */
-  async checkout(graphId: string, version?: number): Promise<ResolvedGraphData> {
+  async checkout(
+    graphId: string,
+    version?: number,
+    /** `strict`: a tree entry whose object cannot be read throws, rather than being left out. */
+    options: { strict?: boolean } = {}
+  ): Promise<ResolvedGraphData> {
+    // Options are forwarded only when given, so a plain checkout keeps its two-argument call.
+    const read = (at: number): Promise<ResolvedGraphData> =>
+      options.strict ? this.versionRepository.checkout(graphId, at, options) : this.versionRepository.checkout(graphId, at);
     if (version !== undefined) {
-      return this.versionRepository.checkout(graphId, version);
+      return read(version);
     }
 
     // Get latest version
@@ -379,7 +387,7 @@ export class GraphRepository {
       };
     }
 
-    return this.versionRepository.checkout(graphId, latest.version);
+    return read(latest.version);
   }
 
   /**

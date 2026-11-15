@@ -266,17 +266,8 @@ describe('batch writes after the first review', () => {
       expect(await exportValidates(graphId)).toEqual({ valid: true, codes: [] });
     });
 
-    it("keeps an arc's parent while its level still fits under it, in the same batch as the parent's own edit", async () => {
-      const { graphId } = await importedGraph('Parent and child edited together');
-      await batch(graphId, 'transaction', {
-        operations: [
-          { type: 'update_arc', data: { id: 'arc-parent', name: 'Parent, renamed' } },
-          { type: 'update_arc', data: { id: 'arc-child', name: 'Child, renamed' } },
-        ],
-      }).expect(200);
-      expect((await container.graphRepository.checkout(graphId)).arcs['arc-child']).toMatchObject({ level: 1, parent_arc_id: 'arc-parent' });
-      expect(await exportValidates(graphId)).toEqual({ valid: true, codes: [] });
-    });
+    // How a parent survives a subtree's moves in any order, child first
+    // included, is in arc-parent-order.test.ts.
 
     // Second review: the head read for the overlay swallowed its errors, so
     // the edit was versioned as the bare live projection (parent and source
@@ -348,7 +339,7 @@ describe('batch writes after the first review', () => {
       expect(await parentRecords(graphId, childId)).toEqual({ live: undefined, head: undefined, note: 'kept' });
     });
 
-    it("clears a CLI arc's recorded parent when a batch moves it to a level that no longer fits, and the export validates", async () => {
+    it("clears a CLI arc's recorded parent when a batch promotes it to the top, and the export validates", async () => {
       const { graphId, childId } = await cliGraph('CLI arc moved by a batch');
       await batch(graphId, 'transaction', {
         operations: [{ type: 'update_arc', data: { id: childId, level: 0 } }],

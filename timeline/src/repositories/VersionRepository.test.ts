@@ -343,6 +343,17 @@ describe('VersionRepository Unit Tests', () => {
       // An id the tree does not name is simply absent, strict or not.
       expect(await repository.getHeadEntities('graph-1', 'arc', ['a1', 'a3'], { strict: true })).toEqual({ a1: { id: 'a1', level: 0 } });
     });
+
+    it('resolves a tree leniently by default, and throws for an unreadable entry when strict (a batch reads its head so)', async () => {
+      const spied = repository as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
+      vi.spyOn(spied, 'getObject').mockImplementation(async (_graphId: unknown, hash: unknown) =>
+        hash === 'hash-a1' ? { type: 'arc', data: { id: 'a1' } } : null
+      );
+      const tree = { events: {}, arcs: { a1: 'hash-a1', a2: 'hash-a2' }, relationships: {}, pressures: {} };
+
+      expect((await repository.resolveTree('graph-1', tree)).arcs).toEqual({ a1: { id: 'a1' } });
+      await expect(repository.resolveTree('graph-1', tree, { strict: true })).rejects.toThrow('arc a2');
+    });
   });
 
   describe('checkout()', () => {

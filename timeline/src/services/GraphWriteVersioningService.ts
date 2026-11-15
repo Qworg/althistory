@@ -265,22 +265,24 @@ function sameData(head: Record<string, unknown>, written: Record<string, unknown
   return canonical(head) === canonical(written);
 }
 
-/** An arc's level as it stands once the write is made, or undefined when the head will not hold the arc. */
-type ArcLevelOf = (id: string) => number | undefined;
+/** Whether an arc is gone once the whole write is made (a batch that deleted it). */
+type ArcGone = (id: string) => boolean;
 
 /**
- * An arc's head-only parent, kept only while the arc still fits under it:
- * its level above 0 and exactly one below the parent's. An edit that promotes
- * the arc to the top, or moves it to a level that no longer fits, leaves it
- * with no parent (null), which is what the importer's hierarchy check reads
- * a root arc as; carrying the old parent made the export unimportable
+ * An arc's head-only parent, kept unless the arc is now top level (level 0)
+ * or, in a batch, the parent is gone once every step has landed. A promoted
+ * arc that kept its parent made the export unimportable
  * (ARC_HIERARCHY_VIOLATION).
+ *
+ * A level that does not fit under the parent is not repaired here: it is
+ * judged before the rest of a subtree's moves land (a batch or two PUTs that
+ * move the child first), and clearing the parent of an arc above level 0
+ * never makes it valid, so it would only lose the parent.
  */
-function consistentParent(parent: unknown, level: unknown, levelOf: ArcLevelOf | undefined): unknown {
+function consistentParent(parent: unknown, level: unknown, gone: ArcGone | undefined): unknown {
   if (typeof parent !== 'string' || parent === '') return parent;
-  if (typeof level !== 'number' || level <= 0) return null;
-  const parentLevel = levelOf?.(parent);
-  return parentLevel !== undefined && level === parentLevel + 1 ? parent : null;
+  if (level === 0) return null;
+  return gone?.(parent) ? null : parent;
 }
 
 /**
@@ -300,12 +302,12 @@ function overlay(
   type: EntityType,
   head: Record<string, unknown> | undefined,
   projection: Record<string, unknown>,
-  arcLevelOf?: ArcLevelOf
+  arcGone?: ArcGone
 ): Record<string, unknown> {
   if (!head) return projection;
   const data: Record<string, unknown> = { ...head, ...projection };
   if (type === 'arc' && 'parent_arc_id' in head && !('parent_arc_id' in projection)) {
-    data.parent_arc_id = consistentParent(head.parent_arc_id, data.level, arcLevelOf);
+    data.parent_arc_id = consistentParent(head.parent_arc_id, data.level, arcGone);
   }
   if (type === 'relationship') {
     for (const [graphField, eventField] of [['causeGraphId', 'cause_event_id'], ['effectGraphId', 'effect_event_id']] as const) {
@@ -501,7 +503,9 @@ export class GraphWriteVersioningService {
 
   /** The difference a batch made from the head, committed as one version (nothing when it made none). */
   private async commitBatch(graphId: string, state: BatchLiveState): Promise<void> {
-    const head = await this.graphRepository.checkout(graphId);
+    // Strict: a tree entry whose object is missing would read as an entity the
+    // head never had, and the batch would version the bare projection.
+    const head = await this.graphRepository.checkout(graphId, undefined, { strict: true });
     const changes: EntityChanges = { added: [], modified: [], deleted: [] };
     const deleted = new Set<string>();
     const remove = (type: EntityType, id: string): void => {
@@ -509,15 +513,10 @@ export class GraphWriteVersioningService {
       deleted.add(`${type}:${id}`);
       changes.deleted.push({ type, id });
     };
-    // An arc's level once the batch is done: as the live store holds it when
-    // the batch touched it, as the head holds it otherwise.
-    const arcLevelOf: ArcLevelOf = (arcId) => {
-      if (state.arcs?.has(arcId)) return state.arcs.get(arcId)?.level;
-      const level = head.arcs[arcId]?.level;
-      return typeof level === 'number' ? level : undefined;
-    };
+    // An arc the batch deleted, judged once every step has landed.
+    const arcGone: ArcGone = (arcId) => state.arcs?.has(arcId) === true && state.arcs.get(arcId) === null;
     const write = (type: EntityType, id: string, projection: Record<string, unknown>, current: Record<string, unknown> | undefined): void => {
-      const data = overlay(type, current, projection, arcLevelOf);
+      const data = overlay(type, current, projection, arcGone);
       if (!current) changes.added.push({ type, id, data });
       else if (!sameData(current, data)) changes.modified.push({ type, id, data });
     };
@@ -618,15 +617,9 @@ export class GraphWriteVersioningService {
     // fails the version: versioning the bare projection would drop those
     // fields and look like an ordinary edit.
     let previous: Record<string, unknown> | undefined;
-    let arcLevelOf: ArcLevelOf | undefined;
     if (operation === 'update') {
       try {
         previous = (await this.requireHeadEntities(graphId, write.type, [write.id]))[write.id];
-        const parent = write.type === 'arc' ? previous?.parent_arc_id : undefined;
-        if (typeof parent === 'string' && parent !== '') {
-          const level = (await this.requireHeadEntities(graphId, 'arc', [parent]))[parent]?.level;
-          arcLevelOf = (arcId) => (arcId === parent && typeof level === 'number' ? level : undefined);
-        }
       } catch (error) {
         this.logger.error(`Could not read the head to version an edit in graph ${graphId}`, error);
         if (!options.undoneOnFailure) {
@@ -635,7 +628,7 @@ export class GraphWriteVersioningService {
         throw error;
       }
     }
-    const entity = { type: write.type, id: write.id, data: overlay(write.type, previous, projection, arcLevelOf) };
+    const entity = { type: write.type, id: write.id, data: overlay(write.type, previous, projection) };
     const changes: EntityChanges = {
       added: operation === 'create' ? [entity] : [],
       modified: operation === 'update' ? [entity] : [],
