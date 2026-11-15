@@ -312,6 +312,19 @@ describe('TimelineView on a branch', () => {
     expect(line).toHaveTextContent(`Branch of The Engine Age · diverges ${formatHistoricalDate(ban.timestamp)}`)
   })
 
+  it('dates the point of divergence at the precision its event was given at', () => {
+    const banned = { ...ban, timestamp: '1860-01-01T00:00:00.000Z', metadata: { datePrecision: 'year' } }
+    vi.mocked(useBaselineGhost).mockReturnValue({
+      branch,
+      baseline,
+      baselineEvents: events,
+      pointOfDivergence: { timestamp: banned.timestamp, event: banned, type: 'event_added', description: '' },
+      ghost: { label: 'Baseline: The Engine Age', events, divergence: new Date(banned.timestamp) },
+    })
+    renderView()
+    expect(screen.getByTestId('branch-context')).toHaveTextContent(/Branch of The Engine Age · diverges 1860Compare/)
+  })
+
   it('opens the comparison of this branch against its baseline', async () => {
     const user = userEvent.setup()
     renderView()

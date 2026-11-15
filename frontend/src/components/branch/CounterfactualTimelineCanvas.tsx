@@ -9,6 +9,7 @@ import {
   analyzeEventDivergence,
   comparisonCalendar,
   comparisonSide,
+  formatDivergenceDate,
   PointOfDivergence,
   EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
@@ -594,7 +595,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
               <span>
                 Point of divergence,{' '}
                 <span className="font-mono-code">
-                  {formatHistoricalDate(metrics.pointOfDivergence.timestamp, undefined, podCalendar(metrics.pointOfDivergence))}
+                  {formatDivergenceDate(metrics.pointOfDivergence, podCalendar(metrics.pointOfDivergence))}
                 </span>
               </span>
             </li>

@@ -33,7 +33,8 @@ import {
   findEscapedParentArc,
 } from './timelineInteractionUtils'
 import type { UpdateArcRequest } from '@/types'
-import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
+import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
+import { formatDivergenceDate } from '@/utils/divergenceAnalysis'
 import { useEditHistory } from '@/hooks/useEditHistory'
 import { useKeptRef, useKeptState } from '@/hooks/useKeptState'
 import { useUndoableEventDelete } from '@/hooks/useUndoableEventDelete'
@@ -931,7 +932,7 @@ export function TimelineView() {
                     <>
                       diverges{' '}
                       <span className="font-mono-code text-ink">
-                        {formatHistoricalDate(baselineGhost.pointOfDivergence.timestamp)}
+                        {formatDivergenceDate(baselineGhost.pointOfDivergence)}
                       </span>
                     </>
                   ) : (
@@ -999,14 +1000,14 @@ export function TimelineView() {
           <div className="-mt-2 mb-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-ink-secondary">
             <span className="text-ink-muted">Branches from this history</span>
             <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5" aria-label="Branches from this history">
-              {branchDivergences.map(({ branch, label, date }) => (
+              {branchDivergences.map(({ branch, label, point }) => (
                 <li key={branch.id} className="inline-flex items-center gap-1.5">
                   <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" className="shrink-0">
                     <path d="M6 1.5 L10.5 6 L6 10.5 L1.5 6 Z" fill="var(--surface-card)" stroke="var(--accent-divergence)" strokeWidth="1.75" />
                   </svg>
                   <span className="font-medium text-ink">{label}</span>
                   <span className="font-mono-code text-ink-muted">
-                    {date ? `diverges ${formatHistoricalDate(date)}` : 'not diverged yet'}
+                    {point ? `diverges ${formatDivergenceDate(point)}` : 'not diverged yet'}
                   </span>
                   <button
                     type="button"
