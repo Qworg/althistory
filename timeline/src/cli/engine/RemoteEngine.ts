@@ -1529,12 +1529,13 @@ export class RemoteEngine implements IEngine {
       } else {
         const parsed = parseExportDocument(document);
         const exporter = new GraphExporter();
+        // Every format with the document's calendars, so a world's dates are its own, as the direct engine writes them.
         content =
           format === 'markdown'
             ? exporter.generateMarkdown(parsed.graphId, parsed.graphName, parsed.description, parsed.events, parsed.arcs, parsed.relationships, parsed.calendar)
             : format === 'dot'
-              ? exporter.generateDot(parsed.graphId, parsed.graphName, parsed.events, parsed.arcs, parsed.relationships)
-              : exporter.generateGraphML(parsed.graphId, parsed.graphName, parsed.events, parsed.arcs, parsed.relationships);
+              ? exporter.generateDot(parsed.graphId, parsed.graphName, parsed.events, parsed.arcs, parsed.relationships, parsed.calendar)
+              : exporter.generateGraphML(parsed.graphId, parsed.graphName, parsed.events, parsed.arcs, parsed.relationships, parsed.calendar);
       }
 
       if (outputPath) {

@@ -152,6 +152,11 @@ describe('invented worlds', () => {
 
       const json = await callTool(server, 'althistory_export_context', { graphId: graph.id, format: 'json' });
       expect(json.metadata.calendar).toEqual(legacyCalendarSet(CALENDAR));
+
+      // The DOT labels date the world's events in its calendar, not the Gregorian date they are stored at.
+      const dot = await callTool(server, 'althistory_export_context', { graphId: graph.id, format: 'dot' });
+      expect(dot).toContain(`"${founding.id}" [label="Mar 4, 2 AR\\nThe salt-kings found Vael`);
+      expect(dot).not.toContain('1001-03-04');
     });
 
     it('refuses a link from a later cause to an earlier effect, and a link type it does not know', async () => {
