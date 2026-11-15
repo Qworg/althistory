@@ -231,8 +231,6 @@ describe('a timeline beyond a Date (Req 12)', () => {
         for (const tick of ticks) {
           if (/^\d{2}:\d{2}$/.test(tick.label)) continue
           expect(tick.label, tick.label).toMatch(/^\d+(-\d{2}(-\d{2})?)?( BCE)?( \d{2}:\d{2})?$/)
-          // The axis's first day starts before its bound, so a time in it cannot be read as that day's.
-          if (tick.position - (tick.position % 86_400_000n + 86_400_000n) % 86_400_000n < MIN_AXIS_MS) continue
           // A date reads in a filter field; a date and time, wherever text is typed.
           const read = / \d{2}:\d{2}$/.test(tick.label) ? readHistoricalText(tick.label, 'start') : readDateBound(tick.label, 'start', null)
           expect(read.ok && read.time, tick.label).toBe(tick.position)
@@ -255,6 +253,20 @@ describe('a timeline beyond a Date (Req 12)', () => {
       const read = readDateBound(tick.label, 'start', null)
       expect(read.ok && read.time, tick.label).toBe(tick.position)
     }
+  })
+
+  it('reads back a time on the axis\'s first day, whose date starts before the bound', () => {
+    const ticks = gregorianTicks([MIN_AXIS_MS, MIN_AXIS_MS + 3n * 86_400_000n], 6)
+    expect(ticks.length).toBeGreaterThan(1)
+    for (const tick of ticks) {
+      if (/^\d{2}:\d{2}$/.test(tick.label)) continue
+      const read = readHistoricalText(tick.label, 'start')
+      expect(read.ok && read.time, tick.label).toBe(tick.position)
+    }
+    const first = readHistoricalText('285196678-06-10 BCE 12:00', 'start')
+    expect(first.ok && first.time).toBeGreaterThanOrEqual(MIN_AXIS_MS)
+    // The start of that day, without a time, is still beyond the bound.
+    expect(readHistoricalText('285196678-06-10 BCE', 'start').ok).toBe(false)
   })
 
   it('labels finer Gregorian ticks in the bound syntax, BCE included', () => {
