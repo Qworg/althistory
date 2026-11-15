@@ -81,10 +81,10 @@ const OPEN = 1
 /** Refusals of a subscribe that a later try can get past. */
 const RETRYABLE_SUBSCRIBE_CODES: ReadonlySet<StreamErrorCode> = new Set(['RATE_LIMITED', 'SUBSCRIPTION_LIMIT'])
 
-/** Codes that retrying cannot cure: the key is not allowed, or the graph is not there. */
+/** Refusals of one graph, not of the key: the socket keeps watching the graph list. */
 const GRAPH_REFUSALS: ReadonlySet<StreamErrorCode> = new Set(['GRAPH_ACCESS_DENIED', 'GRAPH_NOT_FOUND'])
 
-
+/** Codes that retrying cannot cure: the key is not allowed, or the graph is not there. */
 const FATAL_CODES: ReadonlySet<StreamErrorCode> = new Set([
   'KEY_INVALID',
   'PERMISSION_DENIED',
@@ -230,7 +230,12 @@ export class LiveFeedClient {
       this.connecting = false
       const status = (error as { status?: number }).status
       const message = error instanceof Error ? error.message : 'The live feed was refused'
-      if (!listOnly && (status === 403 || status === 404) && this.graphId === graphId) {
+      if (this.graphId !== graphId) {
+        // Another graph was opened while this one's token was asked for: connect for that one.
+        this.connectIfPossible()
+        return
+      }
+      if (!listOnly && (status === 403 || status === 404)) {
         // This graph is refused (or gone). The key may still read others, and
         // the graph list still needs watching: try a token for the list alone.
         this.revokedGraph = graphId

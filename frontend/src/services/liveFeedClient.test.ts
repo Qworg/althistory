@@ -214,6 +214,29 @@ describe('LiveFeedClient', () => {
       expect(h.client.currentStatus).toBe('live')
     })
 
+    it('connects for the graph opened while the last one\'s token was refused', async () => {
+      let refuse!: () => void
+      const getToken = vi.fn((channel: string) =>
+        channel === 'g1'
+          ? new Promise<StreamTokenResponse>((_resolve, reject) => {
+              refuse = () => reject(Object.assign(new Error('no'), { status: 403 }))
+            })
+          : Promise.resolve(token(channel))
+      )
+      const h = harness({ getToken })
+      h.client.setGraph('g1')
+      h.client.start()
+      await vi.advanceTimersByTimeAsync(0)
+      h.client.setGraph('g2')
+      refuse()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(getToken.mock.calls).toEqual([['g1'], ['g2']])
+      const socket = lastSocket()
+      socket.say({ type: 'auth_result', success: true })
+      expect(socket.sent).toContainEqual({ type: 'subscribe', graphId: 'g2' })
+      expect(h.revoked).toEqual([])
+    })
+
     it('retries a token request that failed for another reason, with a growing delay', async () => {
       let calls = 0
       const getToken = vi.fn(async () => {
