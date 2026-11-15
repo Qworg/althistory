@@ -68,3 +68,22 @@ describe('CounterfactualTimelineCanvas in world calendars', () => {
     expect(screen.getByLabelText(/The Charter, .*Mar 4, 844 AR \(Earth lane\)/)).toBeInTheDocument()
   })
 })
+
+describe('CounterfactualTimelineCanvas before 1 CE', () => {
+  it('labels year ticks with their era, never as astronomical years', () => {
+    const roman = [event('r1', 'The Ides', '-000043-03-15T00:00:00Z'), event('r2', 'Actium', '-000030-09-02T00:00:00Z')]
+    const { container } = render(
+      <CounterfactualTimelineCanvas
+        baselineName="Rome"
+        counterfactualName="Branch"
+        baselineEvents={roman}
+        counterfactualEvents={roman}
+        baselineCalendar={null}
+        counterfactualCalendar={null}
+      />
+    )
+    const labels = axisText(container)
+    expect(labels).toMatch(/\d+ BC\b/)
+    expect(labels).not.toMatch(/(^|\| )-\d/)
+  })
+})

@@ -91,6 +91,13 @@ describe('StreamingStatusBadge', () => {
     expect(onConnect).toHaveBeenCalledWith()
   })
 
+  it('says a graph that no longer exists is gone, rather than that the key lost it', () => {
+    render(<StreamingStatusBadge status="revoked" revokedReason="missing" onConnect={() => {}} />)
+    const badge = screen.getByRole('status', { name: 'Live sync: not watching this graph' })
+    expect(badge).toHaveAttribute('title', expect.stringMatching(/^This graph no longer exists.*graph list is still watched/))
+    expect(badge).not.toHaveAttribute('title', expect.stringMatching(/may no longer read/))
+  })
+
   it('explains a failure in plain words, keeps server detail out of the badge, and offers Retry', () => {
     const onConnect = vi.fn()
     render(<StreamingStatusBadge status="error" error='Unsafe graph id: "[object Object]"' onConnect={onConnect} />)

@@ -723,6 +723,15 @@ describe('ViewToolbar', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
         expect(useLiveChangesStore.getState().retries).toBe(1)
       })
+
+      it('says the open graph is gone when it no longer exists', () => {
+        renderWithProviders(<ViewToolbar viewMode="timeline" />)
+        act(() => {
+          useLiveChangesStore.getState().setRevokedReason('missing')
+          useLiveChangesStore.getState().setStatus('revoked')
+        })
+        expect(screen.getByRole('status', { name: 'Live sync: not watching this graph' })).toHaveAttribute('title', expect.stringMatching(/^This graph no longer exists/))
+      })
     })
   })
 

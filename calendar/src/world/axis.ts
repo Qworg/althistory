@@ -15,7 +15,16 @@ export interface WorldTick {
   label: string
 }
 
-type Unit = 'year' | 'month' | 'day' | 'hour' | 'minute'
+/** The unit an axis is ticked in. */
+export type TickUnit = 'year' | 'month' | 'day' | 'hour' | 'minute'
+type Unit = TickUnit
+
+/**
+ * Labels for ticks of one unit, one per tick, each different. {@link worldTicks}
+ * writes them in the calendar's notation; the Gregorian axis, as the date
+ * formatters write dates (gregorianAxis.ts).
+ */
+export type TickLabeller = (unit: TickUnit, ticks: AxisTime[]) => string[]
 
 const BASE_STEPS: Record<Exclude<Unit, 'year'>, number[]> = {
   month: [1, 2, 3, 6],
@@ -157,7 +166,12 @@ function ticksOf(calendar: CompiledCalendar, unit: Unit, step: number, lo: AxisT
  * the most (the coarser on a tie), as a d3 axis fills the room it is given;
  * each labelled in the calendar's notation, distinct.
  */
-export function worldTicks(calendar: CompiledCalendar, domain: readonly [AxisTime | number, AxisTime | number], maxTicks: number): WorldTick[] {
+export function worldTicks(
+  calendar: CompiledCalendar,
+  domain: readonly [AxisTime | number, AxisTime | number],
+  maxTicks: number,
+  label: TickLabeller = (unit, ticks) => labelled(calendar, unit, ticks)
+): WorldTick[] {
   const ends = domain.map((end) => (typeof end === 'bigint' ? end : Number.isFinite(end) ? BigInt(Math.trunc(end)) : null))
   if (ends[0] === null || ends[1] === null || ends[0] === undefined || ends[1] === undefined) return []
   const [a, b] = [ends[0], ends[1]]
@@ -202,11 +216,13 @@ export function worldTicks(calendar: CompiledCalendar, domain: readonly [AxisTim
     }
   }
   if (!best) return []
-  return labelled(calendar, best.unit, best.ticks)
+  const chosen = best
+  const labels = label(chosen.unit, chosen.ticks)
+  return chosen.ticks.map((position, index) => ({ position, label: labels[index]! }))
 }
 
 /** Labels for ticks of a unit: as short as the unit allows, made fuller where two would read the same. */
-function labelled(calendar: CompiledCalendar, unit: Unit, ticks: AxisTime[]): WorldTick[] {
+function labelled(calendar: CompiledCalendar, unit: Unit, ticks: AxisTime[]): string[] {
   const dates = ticks.map((position) => dateAt(calendar, position))
   const precision: WorldPrecision = unit === 'year' ? 'year' : unit === 'month' ? 'month' : 'day'
   let labels = dates.map((date) => formatWorldFields(calendar, date, precision))
@@ -219,7 +235,7 @@ function labelled(calendar: CompiledCalendar, unit: Unit, ticks: AxisTime[]): Wo
   if (new Set(labels).size !== labels.length) {
     labels = dates.map((date) => `${formatWorldFields(calendar, date, 'day')}, ${formatWorldTime(calendar, date)}`)
   }
-  return ticks.map((position, index) => ({ position, label: labels[index]! }))
+  return labels
 }
 
 /**

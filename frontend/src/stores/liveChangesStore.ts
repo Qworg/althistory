@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { ChangedEntityType } from '@/types'
-import type { LiveFeedStatus } from '@/services/liveFeedClient'
+import type { LiveFeedStatus, RevokedReason } from '@/services/liveFeedClient'
 import { FRESH_MS } from '@/services/liveChanges'
 
 /**
@@ -56,6 +56,8 @@ interface LiveChangesState {
   status: LiveFeedStatus
   /** Why the feed is in `error` or `reconnecting`, for the tooltip. */
   detail: string | null
+  /** While `revoked`: whether the key lost the open graph, or the graph is gone. */
+  revokedReason: RevokedReason | null
   /** Items that arrived a moment ago, by id, with when their highlight ends. */
   fresh: FreshMap
   notices: LiveNotice[]
@@ -64,6 +66,7 @@ interface LiveChangesState {
   /** Try the connection again, now. */
   retry: () => void
   setStatus: (status: LiveFeedStatus, detail?: string | null) => void
+  setRevokedReason: (reason: RevokedReason | null) => void
   /** Highlight items for `FRESH_MS`. */
   markFresh: (items: Array<{ type: ChangedEntityType; id: string }>, now?: number) => void
   addNotices: (messages: string[], now?: number) => void
@@ -122,6 +125,7 @@ export const useLiveChangesStore = create<LiveChangesState>((set, get) => {
     retries: 0,
     status: 'off',
     detail: null,
+    revokedReason: null,
     fresh: EMPTY_FRESH,
     notices: [],
 
@@ -133,6 +137,8 @@ export const useLiveChangesStore = create<LiveChangesState>((set, get) => {
     },
 
     setStatus: (status, detail = null) => set({ status, detail }),
+
+    setRevokedReason: (revokedReason) => set({ revokedReason }),
 
     markFresh: (items, now = Date.now()) => {
       const current = get().fresh
@@ -179,6 +185,7 @@ export function resetLiveChangesStore(): void {
     retries: 0,
     status: 'off',
     detail: null,
+    revokedReason: null,
     fresh: EMPTY_FRESH,
     notices: [],
   })

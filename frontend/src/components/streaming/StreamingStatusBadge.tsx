@@ -28,6 +28,8 @@ export type LiveSyncBadgeStatus =
 export interface StreamingStatusBadgeProps {
   status: LiveSyncBadgeStatus
   error?: string | null
+  /** While `revoked`: the key lost the open graph (the default), or the graph is gone. */
+  revokedReason?: 'access' | 'missing' | null
   onConnect?: () => void
   onDisconnect?: () => void
   className?: string
@@ -45,6 +47,8 @@ const WAITING_HINT = 'Live sync is on. It starts when a graph is open: a connect
 const REVOKED_MESSAGE =
   "This key may no longer read this graph, so its changes no longer arrive here. The graph list is still watched. Open another graph, or retry once access is back."
 
+const MISSING_MESSAGE = 'This graph no longer exists, so nothing more arrives for it. The graph list is still watched. Open another graph.'
+
 const ERROR_MESSAGE =
   "Couldn't start live sync. Your edits still save as you go; retry when the server is reachable."
 
@@ -54,6 +58,7 @@ const actionClass =
 export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
   status,
   error,
+  revokedReason,
   onConnect,
   onDisconnect,
   className = '',
@@ -110,9 +115,10 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
   // The server's own wording stays out of the badge; it is kept in the tooltip
   // for whoever is debugging the connection.
   const details = error ? ` (Details: ${error})` : ''
+  const revokedMessage = revokedReason === 'missing' ? MISSING_MESSAGE : REVOKED_MESSAGE
   const title: string | undefined = {
     error: `${ERROR_MESSAGE}${details}`,
-    revoked: `${REVOKED_MESSAGE}${details}`,
+    revoked: `${revokedMessage}${details}`,
     reconnecting: RECONNECTING_HINT,
     waiting: WAITING_HINT,
     disconnected: OFF_HINT,
@@ -132,7 +138,7 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
 
       {(status === 'error' || status === 'revoked') && (
         <span className="sr-only" role="alert">
-          {status === 'error' ? ERROR_MESSAGE : REVOKED_MESSAGE}
+          {status === 'error' ? ERROR_MESSAGE : revokedMessage}
         </span>
       )}
 

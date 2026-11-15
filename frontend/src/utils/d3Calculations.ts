@@ -29,7 +29,7 @@
 import * as d3 from 'd3'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { axisOf, calendarIn, compareInstants, gregorianTicks, instantOfAxisTime, msApart, toInstant, worldTicks } from '@althistory/calendar'
+import { axisOf, calendarIn, compareInstants, formatHistoricalDateAt, gregorianTicks, instantOfAxisTime, msApart, toInstant, worldTicks } from '@althistory/calendar'
 import { type InstantScale, type PositionScale, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
@@ -293,6 +293,11 @@ export function formatTimeAxisTick(tick: Date, timeSpanMs: number, utc = false):
 function formatAxisLabel(name: string, tick: Date, utc: boolean): string {
   const timeFormat = utc ? d3.utcFormat : d3.timeFormat
   const fullYear = utc ? tick.getUTCFullYear() : tick.getFullYear()
+  if (fullYear <= 0 && (name === 'decade' || name === '%Y' || name === '%b %Y')) {
+    // d3 writes a year before 1 CE astronomically ("-0043", "-50s"), which no
+    // reader takes back: the year with its era, as every date label writes it.
+    return formatHistoricalDateAt(tick, name === '%b %Y' ? 'month' : 'year', undefined, null)
+  }
   if (name === 'decade') return `${Math.floor(fullYear / 10) * 10}s`
   return timeFormat(name)(tick)
 }
@@ -346,7 +351,7 @@ export function axisTicks(
   }
   if (from !== null && to !== null && usesArithmeticTicks(first, last)) {
     // Past what d3's ticks reach, or where they floor out of a Date's range or label a BCE year
-    // astronomically: the calendar package's, labelled in years ("300000 BCE").
+    // astronomically: the calendar package's, labelled as the date labels are ("300000 BC" in en-US).
     return gregorianTicks([from, to], Math.max(2, count)).map((tick) => ({
       date: instantOfAxisTime(tick.position) ?? new Date(NaN),
       label: tick.label,

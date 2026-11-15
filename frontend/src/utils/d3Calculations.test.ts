@@ -16,6 +16,7 @@ import {
   axisTicks
 } from './d3Calculations'
 import { Event, Arc } from '@/types'
+import { historicalYear } from '@/utils/historicalTime'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
 /**
@@ -560,8 +561,24 @@ describe('axisTicks near a Date\'s lower bound', () => {
   ])('ticks %s to %s in BCE years, though a Date holds both', (from, to) => {
     const ticks = axisTicks([new Date(from), new Date(to)], 8, null)
     expect(ticks.length).toBeGreaterThan(2)
-    expect(ticks.some((tick) => /BCE/.test(tick.label))).toBe(true)
-    expect(ticks.every((tick) => !/^-|s$/.test(tick.label))).toBe(true)
+    expect(ticks.some((tick) => /\d BC$/.test(tick.label))).toBe(true)
+    expect(ticks.every((tick) => !/^-|s$|BCE|CE$/.test(tick.label))).toBe(true)
+  })
+
+  it('ticks a real history across 1 CE with the era its labels use, never an astronomical year', () => {
+    const ticks = axisTicks([new Date('-000099-01-01T00:00:00.000Z'), new Date('0100-01-01T00:00:00.000Z')], 8, null)
+    expect(ticks.length).toBeGreaterThan(2)
+    expect(ticks.some((tick) => /^\d+ BC$/.test(tick.label))).toBe(true)
+    expect(ticks.every((tick) => !/^-|BCE/.test(tick.label))).toBe(true)
+    // At d3's own positions: a real history's axis is drawn where it always was.
+    expect(ticks.map((tick) => +tick.date)).toEqual(
+      d3.scaleUtc().domain([new Date('-000099-01-01T00:00:00.000Z'), new Date('0100-01-01T00:00:00.000Z')]).ticks(8).map(Number)
+    )
+  })
+
+  it('labels deep-time year ticks as the year labels write them', () => {
+    const ticks = axisTicks([new Date('-250000-01-01T00:00:00.000Z'), new Date('+050000-01-01T00:00:00.000Z')], 8, null)
+    for (const tick of ticks) expect(tick.label).toBe(historicalYear(tick.date, null))
   })
 
   it('leaves a real history\'s CE ticks to d3', () => {

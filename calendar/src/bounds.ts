@@ -42,6 +42,15 @@ export type HistoricalDateParse = { ok: true; date: Date; time: AxisTime; text: 
 /** A minus sign before a year of one to five digits: not ISO 8601's six-digit year, and so either of two years. */
 const SIGNED_SHORT_YEAR = /^-\d{1,5}(?!\d)/
 
+/**
+ * Whether text starts with a minus sign before a year of one to five digits
+ * ("-44", "-0043-03-15"), which every door refuses for naming either of two
+ * years (see {@link parseHistoricalDate}). Spaces around it are ignored.
+ */
+export function isSignedShortYear(text: string): boolean {
+  return SIGNED_SHORT_YEAR.test(text.trim())
+}
+
 const HISTORICAL_DATE_PATTERN = /^(-)?(\d{1,9})(?:-(\d{1,2})(?:-(\d{1,2}))?)?(?:\s*(BCE|BC|CE|AD))?$/i
 
 /** A UTC axis time from an astronomical year (1 BCE = 0), by arithmetic: exact for every year, 0-99 and beyond a Date's range included. */
@@ -160,7 +169,7 @@ export function formatHistoricalDateBound(value: Date | string | null | undefine
     if (parsed.ok) return parsed.text
     // A minus sign before a short year is refused for naming two years; the
     // lenient reader below would make a third of it ("-44" as 2044).
-    if (SIGNED_SHORT_YEAR.test(value.trim())) return ''
+    if (isSignedShortYear(value)) return ''
   }
   const date = toInstant(value)
   if (Number.isNaN(date.getTime())) return ''
