@@ -630,7 +630,8 @@ export function TimelineView() {
     const to = newTimestamp.toISOString()
     if (!(await moveEvent(event, newTimestamp))) return
     recordEdit({
-      description: `moved "${event.description}" to ${formatHistoricalTimestamp(to)}`,
+      // Written when shown, in the calendar shown then (a world's viewer may switch).
+      description: () => `moved "${event.description}" to ${formatHistoricalTimestamp(to)}`,
       undo: () => reapply.current.eventTime(event.id, event.description, from, fromPeriod),
       redo: () => reapply.current.eventTime(event.id, event.description, to),
     })
@@ -641,7 +642,7 @@ export function TimelineView() {
     const to = { start: newBounds.start.toISOString(), end: newBounds.end.toISOString() }
     if (!(await resizeArc(arc, newBounds))) return
     recordEdit({
-      description: `resized "${arc.name}" to ${formatHistoricalTimestamp(to.start)} – ${formatHistoricalEnd(to.end)}`,
+      description: () => `resized "${arc.name}" to ${formatHistoricalTimestamp(to.start)} – ${formatHistoricalEnd(to.end)}`,
       undo: () => reapply.current.arcBounds(arc.id, arc.name, from),
       redo: () => reapply.current.arcBounds(arc.id, arc.name, to),
     })

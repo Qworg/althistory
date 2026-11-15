@@ -63,4 +63,24 @@ describe('date bounds in a link', () => {
     expect(boundToUrl('1843-11', 'start', null)).toBe('1843-11')
     expect(boundFromUrl('1843-11', 'start', null)).toBe('1843-11')
   })
+
+  it("in a world, reads a hand-typed bound by the world's rule, as the filter field does, not as a Gregorian year", async () => {
+    const { boundFromUrl } = await import('./filterUtils')
+    // "?startDate=400 AR": the world's year 400.
+    expect(boundFromUrl('400 AR', 'start', VAEL)).toBe('400 AR')
+    expect(boundFromUrl('Thaw 312 AR', 'end', VAEL)).toBe('Thaw 312 AR')
+    // "?startDate=400": year-first text names no date of the world's. It is
+    // kept as typed, for the field to say so, never turned into the world's
+    // date for 400 CE.
+    expect(boundFromUrl('400', 'start', VAEL)).toBe('400')
+    expect(boundFromUrl('1843-11', 'start', VAEL)).toBe('1843-11')
+    // And, as typed, it filters nothing, as the field's own refused text does.
+    const panel = { ...toPanelFilters(NO_FILTERS, VAEL), dateRange: { start: '400', end: '' } }
+    expect(Number.isNaN(fromPanelFilters(panel, VAEL).dateRange?.start.getTime())).toBe(true)
+    // The links the app writes, ISO instants, still read as the instants they are.
+    expect(boundFromUrl(vael(312, 2, 1).toISOString(), 'start', VAEL)).toBe('Thaw 312 AR')
+    expect(fromPanelFilters({ ...panel, dateRange: { start: vael(312, 2, 1).toISOString(), end: '' } }, VAEL).dateRange?.start.getTime()).toBe(
+      vael(312, 2, 1).getTime()
+    )
+  })
 })

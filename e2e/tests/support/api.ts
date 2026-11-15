@@ -144,8 +144,18 @@ export interface ApiStubState {
   ingestedVia: string[]
   approveCalls: Array<Record<string, unknown>>
   deletedJobs: string[]
+  /** Each `POST /api/stream/token`: the graph header it sent (null for none) and its body. */
+  streamTokenRequests: StreamTokenRequest[]
   unhandled: string[]
 }
+
+export interface StreamTokenRequest {
+  graphId: string | null
+  body: Record<string, unknown>
+}
+
+/** How the stub answers a stream token request: a status and a body. */
+export type StreamTokenAnswer = (request: StreamTokenRequest, attempt: number) => { status: number; body: unknown }
 
 /** Fixed clock so created_at/updated_at never make a snapshot or assertion flaky. */
 const FIXED_NOW = '2024-01-01T00:00:00.000Z'
@@ -297,6 +307,17 @@ export interface InstallApiStubOptions {
   graphs?: GraphSummary[]
   ingestResponse?: IngestResponse
   importResult?: ImportResult
+  /**
+   * Answers `POST /api/stream/token` (the live feed's token). Without it the
+   * feed is unavailable (503), as it is for every spec that does not test it.
+   * `attempt` counts from 1.
+   */
+  streamToken?: StreamTokenAnswer
+}
+
+/** A feed token the app accepts, for `streamToken`. */
+export function feedToken(token: string, graphId: string): { status: number; body: unknown } {
+  return { status: 201, body: { token, expiresIn: 300, graphId, permissions: ['read:events', 'read:graphs'], mode: 'feed', concurrentStreams: 5 } }
 }
 
 /**
@@ -318,6 +339,7 @@ export async function installApiStub(
     ingestedVia: [],
     approveCalls: [],
     deletedJobs: [],
+    streamTokenRequests: [],
     unhandled: [],
   }
 
@@ -475,6 +497,15 @@ export async function installApiStub(
     // has no socket behind it: answer as an app whose feed is unavailable, which
     // the page must survive (the badge reports it; nothing else depends on it).
     if (path === '/stream/token' && method === 'POST') {
+      const tokenRequest: StreamTokenRequest = {
+        graphId: request.headers()['x-graph-id'] ?? null,
+        body: (request.postDataJSON() as Record<string, unknown> | null) ?? {},
+      }
+      state.streamTokenRequests.push(tokenRequest)
+      if (options.streamToken) {
+        const answer = options.streamToken(tokenRequest, state.streamTokenRequests.length)
+        return json(route, answer.status, answer.body)
+      }
       return json(route, 503, { success: false, message: 'live feed unavailable in the stubbed API' })
     }
 

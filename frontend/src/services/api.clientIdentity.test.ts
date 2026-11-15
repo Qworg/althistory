@@ -32,4 +32,11 @@ describe('the API client identifies itself', () => {
     expect(post).toHaveBeenNthCalledWith(1, '/stream/token', { mode: 'feed' }, { headers: { 'X-Graph-Id': 'g1' } })
     expect(post).toHaveBeenNthCalledWith(2, '/stream/token', {}, { headers: { 'X-Graph-Id': 'g1' } })
   })
+
+  it('asks for a graph-list token with the channel in the body and no graph header', async () => {
+    const post = vi.fn().mockResolvedValue({ data: { token: 't' } })
+    ;(apiClient as unknown as { client: { post: unknown } }).client.post = post
+    await apiClient.stream.getGraphListToken()
+    expect(post).toHaveBeenCalledWith('/stream/token', { mode: 'feed', channel: '*' })
+  })
 })

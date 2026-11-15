@@ -4,6 +4,8 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { axe } from 'vitest-axe'
 import { BrowserRouter } from 'react-router'
 import { FilterPanel, FilterState } from './FilterPanel'
+import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
+import { VAEL, vael } from '@/test/fixtures/worldCalendars'
 
 const mockFilters: FilterState = {
   dateRange: null,
@@ -147,6 +149,30 @@ describe('FilterPanel', () => {
       fireEvent.blur(start)
       expect(start).toHaveAttribute('aria-invalid', 'true')
       expect(screen.getByText(/Write the year first/)).toBeInTheDocument()
+    })
+
+    it("in a world, reads a hand-typed link's bounds by the world's rule, and the app's own ISO links as before", () => {
+      useWorldCalendarStore.getState().setCalendar(VAEL)
+      try {
+        const onChange = vi.fn()
+        window.history.replaceState(null, '', '/?startDate=400%20AR&endDate=400')
+        const { unmount } = renderWithRouter(<Stateful onChange={onChange} />)
+        // "400 AR" is the world's year; "400" is no date of the world's, kept as typed
+        // (not the world's date for 400 CE), and says so when the field is left.
+        expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ dateRange: { start: '400 AR', end: '400' } }))
+        const end = screen.getByLabelText('End date')
+        expect(end).toHaveValue('400')
+        fireEvent.blur(end)
+        expect(end).toHaveAttribute('aria-invalid', 'true')
+        unmount()
+
+        onChange.mockClear()
+        window.history.replaceState(null, '', '/?startDate=' + encodeURIComponent(vael(312, 2, 1).toISOString()))
+        renderWithRouter(<Stateful onChange={onChange} />)
+        expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ dateRange: { start: 'Thaw 312 AR', end: '' } }))
+      } finally {
+        useWorldCalendarStore.getState().setCalendar(null)
+      }
     })
 
     it('names the impossible dates', () => {

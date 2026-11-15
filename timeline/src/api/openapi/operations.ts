@@ -985,7 +985,8 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     summary:
       'Issue a short-lived token for a WebSocket session: a write session, or with `mode: "feed"` a ' +
       'read-only session for the live change feed (see docs/api-integration.md). The graph the ' +
-      'socket is bound to comes from the `X-Graph-Id` header; a `graphId` in the body is ignored.',
+      'socket is bound to comes from the `X-Graph-Id` header; a `graphId` in the body is ignored. ' +
+      'A feed token with `channel: "*"` and no header is for the graph list alone.',
     request: 'StreamTokenRequest',
     response: 'StreamToken',
     envelope: 'bare',

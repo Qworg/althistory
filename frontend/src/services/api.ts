@@ -1246,6 +1246,23 @@ class APIClient {
                 handleAPIError(error as AxiosError)
             }
         },
+
+        /**
+         * A feed token for the graph list alone, bound to no graph: what the
+         * live feed asks for when the key may no longer read the graph that is
+         * open, since a token for that graph is refused. Needs `read:graphs`.
+         */
+        getGraphListToken: async (): Promise<StreamTokenResponse> => {
+            try {
+                const response: AxiosResponse<StreamTokenResponse> = await this.client.post('/stream/token', {
+                    mode: 'feed',
+                    channel: '*',
+                })
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
     }
 }
 

@@ -126,10 +126,36 @@ describe('useLiveChanges', () => {
       'Live sync stopped for the graph list: this key may no longer read graphs.',
     ])
     socket.say({ type: 'unsubscribed', graphId: 'g1', reason: 'access_revoked' })
-    expect(useLiveChangesStore.getState().status).toBe('error')
+    expect(useLiveChangesStore.getState().status).toBe('revoked')
     expect(useLiveChangesStore.getState().notices.map((notice) => notice.message)).toContain(
       'Live sync stopped for this graph: this key may no longer read it.'
     )
+  })
+
+  it('reconnects to the graph list alone after the open graph was revoked, with a token for the list', async () => {
+    renderHook(() => useLiveChanges(), { wrapper })
+    const socket = await live()
+    socket.say({ type: 'unsubscribed', graphId: 'g1', reason: 'access_revoked' })
+    // The server now refuses a token for g1, and mints one for the list.
+    vi.mocked(apiClient.stream.getToken).mockRejectedValue(
+      Object.assign(new Error("Access to graph 'g1' is not allowed"), { status: 403 })
+    )
+    const listToken = vi.spyOn(apiClient.stream, 'getGraphListToken').mockResolvedValue({
+      token: 'list-token',
+      expiresIn: 300,
+      graphId: '*',
+      permissions: [],
+      mode: 'feed',
+      concurrentStreams: 5,
+    })
+    socket.drop()
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2), { timeout: 3000 })
+    expect(listToken).toHaveBeenCalledTimes(1)
+    const second = latest()
+    expect(second.url).toContain('token=list-token')
+    second.say({ type: 'auth_result', success: true, mode: 'feed', graphId: '*' })
+    expect(second.sent).toEqual([{ type: 'subscribe', graphId: '*' }])
+    expect(useLiveChangesStore.getState().status).toBe('revoked')
   })
 
   it('does not connect when the person turned it off', async () => {
@@ -279,10 +305,14 @@ describe('useLiveChanges', () => {
   })
 
   it('shows an error, and does not retry, when the key may not read', async () => {
-    vi.spyOn(apiClient.stream, 'getToken').mockRejectedValue(Object.assign(new Error('Missing required permissions: read:events'), { status: 403 }))
+    const refusal = Object.assign(new Error('Missing required permissions: read:events'), { status: 403 })
+    vi.spyOn(apiClient.stream, 'getToken').mockRejectedValue(refusal)
+    // The graph list's token is refused for the same reason.
+    const listToken = vi.spyOn(apiClient.stream, 'getGraphListToken').mockRejectedValue(refusal)
     renderHook(() => useLiveChanges(), { wrapper })
     await waitFor(() => expect(useLiveChangesStore.getState().status).toBe('error'))
     expect(useLiveChangesStore.getState().detail).toContain('read:events')
+    expect(listToken).toHaveBeenCalledTimes(1)
     expect(FakeWebSocket.instances).toEqual([])
   })
 

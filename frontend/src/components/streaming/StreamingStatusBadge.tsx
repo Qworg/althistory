@@ -10,14 +10,23 @@
  */
 
 import React from 'react'
-import type { StreamingConnectionStatus, StreamingStats } from '@/hooks/useStreamingWrite'
 
-/** The write stream's states, plus the one only a feed that reopens itself has. */
-export type LiveSyncBadgeStatus = StreamingConnectionStatus | 'reconnecting' | 'waiting'
+/**
+ * What the badge can say: off (`disconnected`), starting, on, reopening a
+ * dropped connection, on with no graph open, on without the open graph (the
+ * key lost it), or stopped.
+ */
+export type LiveSyncBadgeStatus =
+  | 'disconnected'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'waiting'
+  | 'revoked'
+  | 'error'
 
 export interface StreamingStatusBadgeProps {
   status: LiveSyncBadgeStatus
-  stats?: StreamingStats
   error?: string | null
   onConnect?: () => void
   onDisconnect?: () => void
@@ -33,6 +42,9 @@ const RECONNECTING_HINT = 'The connection dropped. Reconnecting; whatever was mi
 
 const WAITING_HINT = 'Live sync is on. It starts when a graph is open: a connection is made for one graph.'
 
+const REVOKED_MESSAGE =
+  "This key may no longer read this graph, so its changes no longer arrive here. The graph list is still watched. Open another graph, or retry once access is back."
+
 const ERROR_MESSAGE =
   "Couldn't start live sync. Your edits still save as you go; retry when the server is reachable."
 
@@ -41,7 +53,6 @@ const actionClass =
 
 export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
   status,
-  stats,
   error,
   onConnect,
   onDisconnect,
@@ -73,6 +84,12 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
           dot: 'border border-ink-muted',
           label: 'Live sync: waiting for a graph',
         }
+      case 'revoked':
+        return {
+          bg: 'bg-warning/10 text-warning border-warning/30',
+          dot: 'bg-warning',
+          label: 'Live sync: not watching this graph',
+        }
       case 'error':
         return {
           bg: 'bg-danger/10 text-danger border-danger/30',
@@ -90,17 +107,18 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
   }
 
   const config = getStatusConfig()
-  const statsTitle = stats ? `${stats.acked} of ${stats.sent} edits confirmed${stats.failed ? `, ${stats.failed} failed` : ''}` : undefined
   // The server's own wording stays out of the badge; it is kept in the tooltip
   // for whoever is debugging the connection.
-  const title =
-    status === 'error'
-      ? `${ERROR_MESSAGE}${error ? ` (Details: ${error})` : ''}`
-      : status === 'reconnecting'
-        ? RECONNECTING_HINT
-        : status === 'waiting'
-          ? WAITING_HINT
-          : statsTitle || (status === 'disconnected' ? OFF_HINT : status === 'connected' ? ON_HINT : undefined)
+  const details = error ? ` (Details: ${error})` : ''
+  const title: string | undefined = {
+    error: `${ERROR_MESSAGE}${details}`,
+    revoked: `${REVOKED_MESSAGE}${details}`,
+    reconnecting: RECONNECTING_HINT,
+    waiting: WAITING_HINT,
+    disconnected: OFF_HINT,
+    connected: ON_HINT,
+    connecting: undefined,
+  }[status]
 
   return (
     <div
@@ -112,22 +130,9 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
       <span className={`w-2 h-2 shrink-0 rounded-full ${config.dot}`} aria-hidden="true" />
       <span>{config.label}</span>
 
-      {status === 'connected' && stats && (
-        <span className="font-mono-code text-xs text-success border-l border-success/30 pl-1.5 ml-0.5">
-          {/* Words, not "0/0": what the two numbers count. */}
-          {stats.sent === 0 ? 'no edits sent yet' : `${stats.acked} of ${stats.sent} confirmed`}
-        </span>
-      )}
-
-      {stats && stats.failed > 0 && (
-        <span className="text-xs text-danger font-semibold border-l border-danger/30 pl-1.5 ml-0.5" role="alert">
-          {stats.failed} failed
-        </span>
-      )}
-
-      {status === 'error' && (
+      {(status === 'error' || status === 'revoked') && (
         <span className="sr-only" role="alert">
-          {ERROR_MESSAGE}
+          {status === 'error' ? ERROR_MESSAGE : REVOKED_MESSAGE}
         </span>
       )}
 
@@ -138,7 +143,7 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
         </button>
       )}
 
-      {status === 'error' && onConnect && (
+      {(status === 'error' || status === 'revoked') && onConnect && (
         <button type="button" onClick={() => onConnect()} className={actionClass}>
           Retry
         </button>

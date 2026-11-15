@@ -6,7 +6,7 @@ import { CLIENT_ID } from '@/services/clientIdentity'
 import { GRAPH_LIST_CHANNEL, LiveFeedClient } from '@/services/liveFeedClient'
 import { LiveChangeApplier } from '@/services/liveChangeApplier'
 import { useLiveChangesStore } from '@/stores/liveChangesStore'
-import { getWebSocketStreamUrl } from '@/hooks/useStreamingWrite'
+import { getWebSocketStreamUrl } from '@/services/streamUrl'
 import { useActiveGraphId } from '@/hooks/useGraphs'
 
 /**
@@ -45,7 +45,8 @@ export function useLiveChanges(): void {
       clientId: CLIENT_ID,
     })
     const client = new LiveFeedClient({
-      getToken: (graphId) => apiClient.stream.getToken(graphId, 'feed'),
+      getToken: (channel) =>
+        channel === GRAPH_LIST_CHANNEL ? apiClient.stream.getGraphListToken() : apiClient.stream.getToken(channel, 'feed'),
       urlFor: getWebSocketStreamUrl,
       onChange: (change) => applier.push(change),
       onResync: (graphId) => applier.resync(graphId),

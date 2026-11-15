@@ -797,6 +797,14 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
           '`write` (the default) opens a session that may write entities and needs `write:events`. ' +
           '`feed` opens a read-only session for the live change feed and needs `read:events`.',
       },
+      channel: {
+        type: 'string',
+        enum: ['*'],
+        description:
+          'A feed token for the graph list alone, bound to no graph: send it with `mode: "feed"` and no ' +
+          '`X-Graph-Id`. It needs `read:graphs` too. For a client whose key may no longer read the graph ' +
+          'it had open.',
+      },
     },
   },
   GenerateTimelineRequest: {

@@ -22,6 +22,12 @@
  *   - `feed`: a read-only session for the live change feed, and needs
  *     `read:events`. A key that may only read can watch.
  *
+ * A feed token may instead be for the graph list alone: `{ mode: "feed",
+ * channel: "*" }`, with no `X-Graph-Id`. It needs `read:graphs` as well as
+ * `read:events`, and binds the socket to no graph, so it is what a client asks
+ * for when the key may no longer read the graph it had open: every graph it
+ * then subscribes to is checked on its own, as on any feed socket.
+ *
  * This route is protected exactly like the other write routes: authenticate ->
  * requireAuth -> authorize -> rateLimit -> resolveGraphContext ->
  * authorizeGraphAccess. It does NOT follow the historical pattern of a route
@@ -43,7 +49,9 @@ import {
   asyncHandler,
 } from '@/api/middleware';
 import {
+  GRAPH_LIST_CHANNEL,
   STREAM_FEED_PERMISSION,
+  STREAM_GRAPH_LIST_PERMISSION,
   STREAM_REQUIRED_PERMISSION,
   STREAM_TOKEN_TTL_MS,
   getStreamTokenStore,
@@ -66,13 +74,50 @@ function readMode(req: AuthenticatedRequest): 'write' | 'feed' {
   throw new ValidationError('mode must be "write" or "feed"', 'mode');
 }
 
-/** `authorize` for the permission the requested mode needs. */
+/**
+ * Whether the request asks for a graph-list token (`channel: "*"`). Only a feed
+ * token may be one, and it names no graph: a header alongside it is a 400, as
+ * a body that disagrees with the header is everywhere else.
+ */
+function readsGraphList(req: AuthenticatedRequest): boolean {
+  const body: unknown = req.body;
+  const channel = typeof body === 'object' && body !== null ? (body as { channel?: unknown }).channel : undefined;
+  if (channel === undefined || channel === null) return false;
+  if (channel !== GRAPH_LIST_CHANNEL) {
+    throw new ValidationError('channel must be "*" (the graph list), or left out for the X-Graph-Id graph', 'channel');
+  }
+  if (readMode(req) !== 'feed') {
+    throw new ValidationError('A graph-list token is a feed token: send mode "feed"', 'channel');
+  }
+  if (req.get('X-Graph-Id') !== undefined) {
+    throw new ValidationError('A graph-list token names no graph: leave out X-Graph-Id', 'channel');
+  }
+  return true;
+}
+
+/** `authorize` for the permission the requested mode needs (and the graph list's, for a list token). */
 function authorizeMode(req: AuthenticatedRequest, res: Response, next: (error?: unknown) => void): void {
   try {
-    authorize(MODE_PERMISSION[readMode(req)])(req, res, next);
+    const mode = MODE_PERMISSION[readMode(req)];
+    if (!readsGraphList(req)) {
+      authorize(mode)(req, res, next);
+      return;
+    }
+    authorize(mode)(req, res, (error?: unknown) => {
+      if (error) next(error);
+      else authorize(STREAM_GRAPH_LIST_PERMISSION)(req, res, next);
+    });
   } catch (error) {
     next(error);
   }
+}
+
+/** Run `handler` for a graph token; a graph-list token has no graph to resolve or check. */
+function forGraphToken(handler: RequestHandler): RequestHandler {
+  return (req, res, next) => {
+    if (readsGraphList(req as AuthenticatedRequest)) next();
+    else handler(req, res, next);
+  };
 }
 
 streamRoutes.post(
@@ -81,8 +126,8 @@ streamRoutes.post(
   requireAuth as RequestHandler,
   authorizeMode as RequestHandler,
   rateLimit() as RequestHandler,
-  resolveGraphContext() as RequestHandler,
-  authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler,
+  forGraphToken(resolveGraphContext() as RequestHandler),
+  forGraphToken(authorizeGraphAccess((req) => requireGraphId(req)) as RequestHandler),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     // `requireAuth` already refused an unauthenticated request; the guard keeps
     // that invariant visible without a non-null assertion.
@@ -91,7 +136,7 @@ streamRoutes.post(
       return;
     }
 
-    const graphId = requireGraphId(req);
+    const graphId = readsGraphList(req) ? GRAPH_LIST_CHANNEL : requireGraphId(req);
     const record = getStreamTokenStore().issue({
       apiKeyId: req.apiKey.id,
       graphId,
