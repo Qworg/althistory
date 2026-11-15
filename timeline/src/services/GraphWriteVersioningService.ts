@@ -229,6 +229,52 @@ export function describeEntityWrite(
   return `${verb} ${NOUN[type]} ${name}`;
 }
 
+/** One write a batch made that took effect, as the live feed announces it. */
+export interface BatchStep {
+  operation: EntityWriteOperation | 'delete';
+  type: 'event' | 'arc' | 'relationship';
+  id: string;
+}
+
+/**
+ * The entities a batch touched, as the live store holds them once it is done.
+ * An entity the store no longer has is `null`. Links are keyed by their two
+ * events, which is how the batch routes name them, with every link the store
+ * now holds between the two.
+ */
+export interface BatchLiveState {
+  events?: Map<string, Event | null>;
+  arcs?: Map<string, Arc | null>;
+  links?: Array<{ cause_event_id: string; effect_event_id: string; live: StoredCausalRelationship[] }>;
+}
+
+/** Whether a written entity's data is the data the head already holds (as stored: JSON). */
+function sameData(head: Record<string, unknown>, written: Record<string, unknown>): boolean {
+  return JSON.stringify(head) === JSON.stringify(JSON.parse(JSON.stringify(written)));
+}
+
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+/** "Edited 1 event, deleted 1 event, deleted 1 link, added 1 event": a version's changes, edits first, then deletes, then additions. */
+function describeChanges(changes: EntityChanges): string {
+  const parts: string[] = [];
+  const groups: Array<[EntityWriteOperation | 'delete', Array<{ type: EntityType }>]> = [
+    ['update', changes.modified],
+    ['delete', changes.deleted],
+    ['create', changes.added],
+  ];
+  for (const [operation, entities] of groups) {
+    const byType = new Map<EntityType, number>();
+    for (const entity of entities) byType.set(entity.type, (byType.get(entity.type) ?? 0) + 1);
+    for (const [type, n] of byType) parts.push(`${VERB[operation].toLowerCase()} ${count(n, NOUN[type])}`);
+  }
+  if (parts.length === 0) return 'Changed nothing';
+  const text = parts.join(', ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export class GraphWriteVersioningService {
   private readonly graphRepository: GraphRepository;
   private readonly logger: ILogger;
@@ -316,6 +362,114 @@ export class GraphWriteVersioningService {
       'delete',
       describeEntityWrite('delete', type, context)
     );
+  }
+
+  /**
+   * Record what a batch left in the live store as one version, and announce it.
+   *
+   * A batch (`/api/batch/*`) runs many writes, some of which a failure or an
+   * atomic rollback may undo again, so the version is taken from what the
+   * live store holds once the batch is done rather than from the steps it
+   * tried: `state` is each touched entity as the store now holds it (`null`
+   * when it is gone), and each touched link pair with the links now between
+   * it. Against the head that becomes added, modified and deleted entities;
+   * a deleted event also deletes the head's links to it, as the live store's
+   * DETACH DELETE did. Nothing is committed when nothing differs.
+   *
+   * `steps` are the writes that took effect, for the live feed: one
+   * announcement per kind of change ("Added 2 events in a batch"), the same
+   * the batch routes made before they were versioned, and never a second one.
+   *
+   * Failure policy as for a single write (see `commit`): a failed commit is
+   * announced as not versioned and propagated.
+   */
+  async recordBatch(graphId: string, state: BatchLiveState, steps: BatchStep[]): Promise<void> {
+    const head = await this.graphRepository.checkout(graphId);
+    const changes: EntityChanges = { added: [], modified: [], deleted: [] };
+    const deleted = new Set<string>();
+    const remove = (type: EntityType, id: string): void => {
+      if (deleted.has(`${type}:${id}`)) return;
+      deleted.add(`${type}:${id}`);
+      changes.deleted.push({ type, id });
+    };
+    const write = (type: EntityType, id: string, data: Record<string, unknown>, current: Record<string, unknown> | undefined): void => {
+      if (!current) changes.added.push({ type, id, data });
+      else if (!sameData(current, data)) changes.modified.push({ type, id, data });
+    };
+    const liveLinkIds = new Set<string>();
+
+    for (const [id, event] of state.events ?? []) {
+      if (event) write('event', id, eventToVersionData(event), head.events[id]);
+      else if (head.events[id]) remove('event', id);
+    }
+    for (const [id, arc] of state.arcs ?? []) {
+      if (arc) write('arc', id, arcToVersionData(arc), head.arcs[id]);
+      else if (head.arcs[id]) remove('arc', id);
+    }
+    for (const pair of state.links ?? []) {
+      for (const link of pair.live) {
+        liveLinkIds.add(link.id);
+        write('relationship', link.id, relationshipToVersionData(link), head.relationships[link.id]);
+      }
+      for (const [id, link] of Object.entries(head.relationships)) {
+        if (link.cause_event_id === pair.cause_event_id && link.effect_event_id === pair.effect_event_id && !liveLinkIds.has(id)) {
+          remove('relationship', id);
+        }
+      }
+    }
+    // The live store detached every link of a deleted event.
+    const goneEvents = new Set(changes.deleted.filter((entity) => entity.type === 'event').map((entity) => entity.id));
+    for (const [id, link] of Object.entries(head.relationships)) {
+      if (liveLinkIds.has(id)) continue;
+      if (goneEvents.has(String(link.cause_event_id)) || goneEvents.has(String(link.effect_event_id))) remove('relationship', id);
+    }
+
+    const summary = `${describeChanges(changes)} in a batch`;
+    const operation: EntityWriteOperation | 'delete' =
+      changes.modified.length === 0 && changes.deleted.length === 0
+        ? 'create'
+        : changes.added.length === 0 && changes.modified.length === 0
+          ? 'delete'
+          : 'update';
+
+    const empty = changes.added.length + changes.modified.length + changes.deleted.length === 0;
+    if (!empty) {
+      try {
+        await this.graphRepository.commitChanges(graphId, changes, operation, summary);
+      } catch (error) {
+        this.logger.error(`Failed to commit a batch to graph ${graphId}`, error);
+        // The live store holds the batch, and it is what the app reads.
+        this.announceSteps(graphId, steps, ' (not versioned)');
+        throw error;
+      }
+    }
+    this.announceSteps(graphId, steps, '');
+  }
+
+  /** A batch's writes on the live feed, once per kind of change. Never fails the batch. */
+  private announceSteps(graphId: string, steps: BatchStep[], suffix: string): void {
+    if (!this.changeFeed) return;
+    const groups = new Map<string, ChangedEntity[]>();
+    for (const step of steps) {
+      const key = `${step.operation}:${step.type}`;
+      groups.set(key, [...(groups.get(key) ?? []), { type: step.type, id: step.id }]);
+    }
+    for (const [key, entities] of groups) {
+      const operation = key.split(':')[0] as EntityWriteOperation | 'delete';
+      try {
+        this.changeFeed.publish(graphId, {
+          kind: 'entities',
+          operation,
+          entities,
+          summary: `${VERB[operation]} ${count(entities.length, NOUN[entities[0].type])} in a batch${suffix}`,
+        });
+      } catch (error) {
+        this.logger.warn('Could not announce a batch to the live feed', {
+          graphId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
 
   /**

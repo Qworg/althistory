@@ -939,7 +939,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
 
   // --- batch ---------------------------------------------------------------
   'POST /api/batch/events': {
-    summary: 'Create many events at once.',
+    summary: 'Create many events at once, recorded as one version of the graph.',
     request: 'BatchEventsRequest',
     requestRequired: true,
     response: 'BatchResult',
@@ -949,7 +949,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     responses: { 207: 'Some of the entities were rejected; the rest were created.' },
   },
   'POST /api/batch/arcs': {
-    summary: 'Create many arcs at once.',
+    summary: 'Create many arcs at once, recorded as one version of the graph.',
     request: 'BatchArcsRequest',
     requestRequired: true,
     response: 'BatchResult',
@@ -959,7 +959,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     responses: { 207: 'Some of the entities were rejected; the rest were created.' },
   },
   'POST /api/batch/relationships': {
-    summary: 'Create many causal relationships at once.',
+    summary: 'Create many causal relationships at once, recorded as one version of the graph.',
     request: 'BatchRelationshipsRequest',
     requestRequired: true,
     response: 'BatchResult',
@@ -969,7 +969,10 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     responses: { 207: 'Some of the entities were rejected; the rest were created.' },
   },
   'POST /api/batch/transaction': {
-    summary: 'Apply many changes at once, atomically: either all of them land, or none do.',
+    summary:
+      'Apply many changes at once. With `atomic` (the default) a failing step undoes the entities the ' +
+      'transaction created; the updates and deletes before it stay. What the transaction leaves is ' +
+      'recorded as one version of the graph.',
     request: 'BatchTransactionRequest',
     requestRequired: true,
     response: 'BatchTransactionResult',

@@ -512,7 +512,7 @@ connection, get a new token, connect, and subscribe again with `epoch` and
 changes to that graph happened, or the graph was deleted; `epoch`: the server
 restarted) and you refetch the graph. The graph list is never replayed: refetch it
 after a reconnect. A sequence number is used rather than a version number because
-not every change makes a version (a graph's name, a batch, a generation's
+not every change makes a version (a graph's name, a generation's
 progress).
 
 **Decisions behind it**
@@ -522,7 +522,8 @@ progress).
   so it cannot announce an agent adding one event. The feed is a write-level bus
   (`ChangeFeedService`) that the versioning bridge, the live-store sync (which
   `onHeadReplaced` triggers, and which now says why the head was replaced), the
-  graph service, the batch routes and the generation jobs publish to.
+  graph service and the generation jobs publish to. A batch is announced by the
+  versioning bridge too: once per kind of change, with one version for the batch.
 - *Conflicts.* A generation job never rewrites an existing item: a timeline or
   branch writes a new graph, an expansion adds new events and an arc. So there is
   nothing to skip or lock. When a person and an agent edit the same item, the last

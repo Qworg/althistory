@@ -35,7 +35,7 @@
 #   npm run test:cloud                      npx playwright test --grep-invert @visual
 #
 # The cloud job is the only one that starts services: a real Neo4j 5 and a
-# real Redis, so the four suites that exercise the Neo4j path actually run
+# real Redis, so the suites that exercise the Neo4j path actually run
 # against it. The e2e job is hermetic (no services).
 #
 # The two lint gates are deliberately NOT symmetric. The backend's script
@@ -69,7 +69,7 @@
 # run as separate parallel jobs on separate runners rather than sequentially.
 # Both suites run in local execution mode, so they need no external services.
 # The `cloud` job is the exception: it starts a real Neo4j and Redis, because
-# the four suites that exercise the Neo4j path cannot be tested any other way.
+# the suites that exercise the Neo4j path cannot be tested any other way.
 
 name: CI
 
@@ -197,7 +197,7 @@ jobs:
     # Independent of the other jobs for the same reason the e2e job is: a
     # failure here must not gate them, and vice versa.
     #
-    # These four suites are the only ones that exercise the Neo4j path. They
+    # These suites (vitest.cloud.config.ts) are the only ones that exercise the Neo4j path. They
     # are excluded from the default run because the services are not present on
     # a developer machine; here they are, as service containers.
     #

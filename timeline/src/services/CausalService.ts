@@ -649,7 +649,10 @@ export class CausalService {
         const result = await session.run(query, parameters);
 
         return result.records.map(record => ({
-          id: record.get('id'),
+          // Neo4j keeps no id on the edge (see storeCausalRelationship): the
+          // link is named by its events, as creating and deleting it name it,
+          // so the version store and the feed see one id for one link.
+          id: record.get('id') ?? `${record.get('cause_event_id')}->${record.get('effect_event_id')}`,
           cause_event_id: record.get('cause_event_id'),
           effect_event_id: record.get('effect_event_id'),
           weight: record.get('weight') || 0.5,
@@ -1084,4 +1087,4 @@ export class CausalService {
       }
     }
   }
-}
+}
