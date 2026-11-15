@@ -112,19 +112,22 @@ d3's labels unless any of its ticks falls before 1 CE: then the whole set is
 written in the typed syntax at the format's precision ("81 BCE … 1 BCE 20 40"),
 never d3's "-0043", "0001" or "20s" beside an era.
 
-At a time of day, a tick is its UTC `HH:MM`, or `HH:MM:SS` when a tick in the
+At a time of day, a tick is written `HH:MM`, or `HH:MM:SS` when a tick in the
 set has seconds, or `HH:MM:SS.mmm` when one has milliseconds (a single event's
-default view is 20 seconds, and zoom reaches 1). A day's first moment
-(00:00:00.000) is written as its date; when no tick in the set is one, the first
-tick names its day too ("44-03-15 BCE 11:59:50"); and if two labels would read
-the same, every tick is its date and time. The reader takes a time to the
-minute, second or millisecond after a date, so every such label reads back to
-its tick. A main-timeline set before 1 CE without a world calendar is longer
-than d3's, so it is thinned to its first and last tick and a regular stride
-between, keeping two whenever two fit; a set entirely after 1 CE, and a world's,
-is never thinned there. Full dates in prose (event
-labels, the inspector, arc spans, tooltips) are the locale's (Req 11), "Mar 15,
-44 BC" in en-US: nobody types those back. The en-US "BC" of a full date beside
+default view is 20 seconds, and zoom reaches 1); a day's first moment
+(00:00:00.000) is written as its date. The axis names the day of its times in a
+caption under it ("44-03-15 BCE", or "44-03-14 BCE – 44-03-15 BCE" across
+midnight), taken from the visible span, so the day stays named however the
+ticks are thinned, even where there is no tick. The reader takes a time to the
+minute, second or millisecond after a date, so every label and the caption read
+back. Before 1 CE, in deep time and beyond 9999 (never for a world calendar), an
+end label that would run past the SVG is anchored inward, and ticks whose
+labels would overprint are thinned to an even stride, keeping a label that
+names a day among times; the actor view fits such an axis the same way rather
+than turning its labels. An axis from 1 CE to 9999 draws as it always did.
+
+Full dates in prose (event labels, the inspector, arc spans, tooltips) are the
+locale's (Req 11), "Mar 15, 44 BC" in en-US: nobody types those back. The en-US "BC" of a full date beside
 the "BCE" of a year label is deliberate.
 
 ## Storage and exchange
