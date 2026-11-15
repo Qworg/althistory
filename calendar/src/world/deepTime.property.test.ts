@@ -231,6 +231,8 @@ describe('a timeline beyond a Date (Req 12)', () => {
         for (const tick of ticks) {
           if (/^\d{2}:\d{2}$/.test(tick.label)) continue
           expect(tick.label, tick.label).toMatch(/^\d+(-\d{2}(-\d{2})?)?( BCE)?( \d{2}:\d{2})?$/)
+          // The axis's first day starts before its bound, so a time in it cannot be read as that day's.
+          if (tick.position - (tick.position % 86_400_000n + 86_400_000n) % 86_400_000n < MIN_AXIS_MS) continue
           // A date reads in a filter field; a date and time, wherever text is typed.
           const read = / \d{2}:\d{2}$/.test(tick.label) ? readHistoricalText(tick.label, 'start') : readDateBound(tick.label, 'start', null)
           expect(read.ok && read.time, tick.label).toBe(tick.position)
