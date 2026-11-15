@@ -758,6 +758,15 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   // --- ingest --------------------------------------------------------------
   'POST /api/ingest/url': {
     summary: 'Extract entities from a web page.',
+    headers: [
+      {
+        name: 'X-Graph-Id',
+        description:
+          "The graph the extraction is for: its world calendars read `context.defaultTimeRange`. " +
+          'Optional, and unlike the graph-scoped routes there is no active-graph fallback: without it no graph ' +
+          'is read. A graph that does not exist is a 404; one the key may not access, a 403.',
+      },
+    ],
     request: 'IngestUrlRequest',
     requestRequired: true,
     response: 'IngestPreview',
@@ -766,6 +775,15 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   },
   'POST /api/ingest/wikidata': {
     summary: 'Extract entities from Wikidata.',
+    headers: [
+      {
+        name: 'X-Graph-Id',
+        description:
+          "The graph the extraction is for: its world calendars read `context.defaultTimeRange`. " +
+          'Optional, and unlike the graph-scoped routes there is no active-graph fallback: without it no graph ' +
+          'is read. A graph that does not exist is a 404; one the key may not access, a 403.',
+      },
+    ],
     request: 'IngestWikidataRequest',
     requestRequired: true,
     response: 'IngestPreview',
