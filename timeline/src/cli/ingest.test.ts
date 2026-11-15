@@ -370,8 +370,11 @@ describe('DirectEngine Ingestion from the web', () => {
     const result = await engine.ingestWikidata(undefined, { preset: 'historical-events', dryRun: true });
 
     expect(http.requests[0].url).toContain('query.wikidata.org');
-    // The recorded fixture holds ten rows, eight of which are BCE and cannot
-    // be represented by a date.
-    expect(result.eventsCreated).toBe(2);
+    // Every one of the 25 recorded rows is a date the timeline holds, the two BCE ones (427 and 404 BCE) included.
+    expect(result.eventsCreated).toBe(25);
+    expect(result.entities.events.filter((event) => event.timestamp.startsWith('-')).map((event) => event.timestamp).sort()).toEqual([
+      '-000403-01-01T00:00:00Z',
+      '-000426-01-01T00:00:00Z',
+    ]);
   });
 });

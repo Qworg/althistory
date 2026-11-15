@@ -4,6 +4,7 @@
       "event",
       "eventLabel",
       "date",
+      "precision",
       "placeLabel"
     ]
   },
@@ -12,211 +13,581 @@
       {
         "event": {
           "type": "uri",
-          "value": "http://www.wikidata.org/entity/Q6271"
+          "value": "http://www.wikidata.org/entity/Q5887710"
         },
         "date": {
           "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
           "type": "literal",
-          "value": "-0217-01-01T00:00:00Z"
+          "value": "1848-02-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "10"
         },
         "eventLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Second Punic War"
-        },
-        "placeLabel": {
-          "xml:lang": "en",
-          "type": "literal",
-          "value": "Mediterranean Sea"
+          "value": "1848–1856 Argentine Civil War"
         }
       },
       {
         "event": {
           "type": "uri",
-          "value": "http://www.wikidata.org/entity/Q6271"
+          "value": "http://www.wikidata.org/entity/Q5887712"
         },
         "date": {
           "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
           "type": "literal",
-          "value": "-0217-01-01T00:00:00Z"
+          "value": "1898-11-06T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
         },
         "eventLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Second Punic War"
+          "value": "Bolivian Civil War"
         },
         "placeLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Ancient Greece"
+          "value": "Bolivia"
         }
       },
       {
         "event": {
           "type": "uri",
-          "value": "http://www.wikidata.org/entity/Q6271"
+          "value": "http://www.wikidata.org/entity/Q5887715"
         },
         "date": {
           "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
           "type": "literal",
-          "value": "-0217-01-01T00:00:00Z"
+          "value": "-0426-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "9"
         },
         "eventLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Second Punic War"
+          "value": "Corcyrean Civil War"
         },
         "placeLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Africa"
+          "value": "Corfu"
         }
       },
       {
         "event": {
           "type": "uri",
-          "value": "http://www.wikidata.org/entity/Q6271"
+          "value": "http://www.wikidata.org/entity/Q5887718"
         },
         "date": {
           "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
           "type": "literal",
-          "value": "-0217-01-01T00:00:00Z"
+          "value": "1856-10-31T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
         },
         "eventLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Second Punic War"
-        },
-        "placeLabel": {
-          "xml:lang": "en",
-          "type": "literal",
-          "value": "Hispania"
+          "value": "Peruvian Civil War of 1856-1858"
         }
       },
       {
         "event": {
           "type": "uri",
-          "value": "http://www.wikidata.org/entity/Q6271"
+          "value": "http://www.wikidata.org/entity/Q5887721"
         },
         "date": {
           "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
           "type": "literal",
-          "value": "-0217-01-01T00:00:00Z"
+          "value": "1894-10-24T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
         },
         "eventLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Second Punic War"
-        },
-        "placeLabel": {
-          "xml:lang": "en",
-          "type": "literal",
-          "value": "Roman Italy"
+          "value": "Peruvian Civil War of 1894–1895"
         }
       },
       {
         "event": {
           "type": "uri",
-          "value": "http://www.wikidata.org/entity/Q6271"
+          "value": "http://www.wikidata.org/entity/Q5887865"
         },
         "date": {
           "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
           "type": "literal",
-          "value": "-0217-01-01T00:00:00Z"
+          "value": "1835-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "9"
         },
         "eventLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Second Punic War"
-        },
-        "placeLabel": {
-          "xml:lang": "en",
-          "type": "literal",
-          "value": "Empúries"
+          "value": "Salaverry-Santa Cruz War"
         }
       },
       {
         "event": {
           "type": "uri",
-          "value": "http://www.wikidata.org/entity/Q6286"
+          "value": "http://www.wikidata.org/entity/Q5887915"
         },
         "date": {
           "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
           "type": "literal",
-          "value": "-0263-01-01T00:00:00Z"
+          "value": "1537-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "9"
         },
         "eventLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "First Punic War"
-        },
-        "placeLabel": {
-          "xml:lang": "en",
-          "type": "literal",
-          "value": "Mediterranean Sea"
+          "value": "Civil Wars between the conquerors of Peru"
         }
       },
       {
         "event": {
           "type": "uri",
-          "value": "http://www.wikidata.org/entity/Q6334"
+          "value": "http://www.wikidata.org/entity/Q6086281"
         },
         "date": {
           "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
           "type": "literal",
-          "value": "-0148-01-01T00:00:00Z"
+          "value": "1919-07-23T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
         },
         "eventLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Third Punic War"
-        },
-        "placeLabel": {
-          "xml:lang": "en",
-          "type": "literal",
-          "value": "Tunisia"
+          "value": "First Honduran Civil War"
         }
       },
       {
         "event": {
           "type": "uri",
-          "value": "http://www.wikidata.org/entity/Q6683"
+          "value": "http://www.wikidata.org/entity/Q6123725"
         },
         "date": {
           "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
           "type": "literal",
-          "value": "1846-04-24T00:00:00Z"
+          "value": "1924-02-02T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
         },
         "eventLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Mexican-American War"
+          "value": "Second Honduran Civil War"
         },
         "placeLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Mexico"
+          "value": "Honduras"
         }
       },
       {
         "event": {
           "type": "uri",
-          "value": "http://www.wikidata.org/entity/Q8663"
+          "value": "http://www.wikidata.org/entity/Q6123785"
         },
         "date": {
           "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
           "type": "literal",
-          "value": "1950-06-25T00:00:00Z"
+          "value": "1828-12-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
         },
         "eventLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Korean War"
+          "value": "Third Argentine Civil War"
         },
         "placeLabel": {
           "xml:lang": "en",
           "type": "literal",
-          "value": "Sea of Japan"
+          "value": "United Provinces of the Río de la Plata"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6177105"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1879-10-25T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Jementah Civil War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Muar"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6364172"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1350-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "9"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Kannō disturbance"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6429210"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1600-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "8"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Kongo Civil War"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6644963"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0403-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "9"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Phyle Campaign"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q6762017"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1568-05-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "10"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Marian civil war"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q7076868"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1989-03-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "10"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "War of Liberation (1989–1990)"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Beirut"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q7109927"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1509-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "9"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Ottoman Civil War of 1509–13"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Anatolia"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q7109927"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1509-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "9"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Ottoman Civil War of 1509–13"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Rumelia"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q7130795"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1169-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "9"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Pandyan Civil War"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q7784981"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1983-09-03T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Mountain War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Mount Lebanon"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q7835391"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1862-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "9"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Transvaal Civil War"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "South African Republic"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q9377243"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1382-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "9"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Greater Poland Civil War"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q9377279"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1704-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "9"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Civil War in Poland"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q9377280"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "1764-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "9"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Polish Civil War"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q10292592"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "2007-07-21T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Insurgency in Ingushetia"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Ingushetia"
         }
       }
     ]

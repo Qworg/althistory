@@ -4,6 +4,7 @@
       "event",
       "eventLabel",
       "date",
+      "precision",
       "placeLabel"
     ]
   },
@@ -18,6 +19,11 @@
           "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
           "type": "literal",
           "value": "1066-10-04T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
         },
         "eventLabel": {
           "xml:lang": "en",

@@ -5,10 +5,11 @@
  * {@link HttpClient} and maps each result binding to an {@link ExtractedEvent}.
  * Three query types are supported: `historical-events`, `person-timeline` and
  * `custom` (a caller-supplied query). Results carry the Wikidata entity id in
- * their provenance. Dates before year 1 are dropped, because Wikidata's own
- * numbering of years before 1 CE (whether its -0044 is 44 BCE or 45 BCE) is not
- * settled here; that limit is stated in the source disclosure in `./index.ts`.
- * A year after 9999 is read: the timeline holds years beyond four digits.
+ * their provenance. Each date is read with its precision (`timePrecision`), so
+ * a year before 1 CE is the year it names and a month, a year, a decade or a
+ * million years is stored as a month or a year (see {@link readWikidataTime}
+ * for the numbering, measured against live data). A year beyond 9999 either
+ * way is read: the timeline holds about 285 million years each side.
  *
  * `historical-events` matches items that are instances of an event class and
  * carry a date, reading the date from `point in time` (P585) **or** `start time`
@@ -27,7 +28,7 @@
  * start, not its conclusion.
  */
 
-import { compareAxisTime, toAxisTime } from '@althistory/calendar';
+import { compareAxisTime, parseIsoInstant, toAxisTime } from '@althistory/calendar';
 import { DataSource } from '../ExportService';
 import { HttpClient, JsonValue, parseJsonBody, wikimediaUserAgent } from './http';
 import { newTempId } from './ids';
@@ -79,8 +80,26 @@ export interface WikidataFact {
   entityType: 'event' | 'person';
   label: string;
   date: string;
+  /** How much of `date` Wikidata states: a month or a year is stored at its first day with this recorded. */
+  datePrecision: 'day' | 'month' | 'year';
   placeLabel: string;
   personLabel: string;
+}
+
+/**
+ * A date property's best-ranked value with its precision, as a graph pattern
+ * on `?subject`. `wdt:` gives the value alone, and the value alone cannot say
+ * which year a BCE date is (see {@link readWikidataTime}); the statement's
+ * value node (`psv:`) carries `timePrecision` too. `wikibase:BestRank` keeps
+ * what `wdt:` keeps: the preferred statements, or the normal ones when none
+ * is preferred. Measured on query.wikidata.org on 2026-11-15, for the broad
+ * `historical-events` query with LIMIT 25: the `wdt:`-only query answered in
+ * 3.4 s, this form in 7 s; `?statement a wikibase:BestRank` outside the
+ * branches in 11 s once and timed out once (60 s), and joining the value node
+ * to the `wdt:` value took 51 s.
+ */
+function datedBy(subject: string, property: string): string {
+  return `?${subject} p:${property} ?statement . ?statement a wikibase:BestRank ; psv:${property} [ wikibase:timeValue ?date ; wikibase:timePrecision ?precision ] .`;
 }
 
 function clampLimit(limit: number | undefined): number {
@@ -103,11 +122,11 @@ export function buildSparqlQuery(input: WikidataExtractionInput, limit: number):
       throw new Error('person-timeline requires parameters.person to be a Wikidata id such as Q42');
     }
     return [
-      'SELECT ?person ?personLabel ?date ?eventLabel WHERE {',
+      'SELECT ?person ?personLabel ?date ?precision ?eventLabel WHERE {',
       `  VALUES ?person { wd:${person} }`,
-      '  { ?person wdt:P569 ?date . BIND("birth" AS ?eventLabel) }',
+      `  { ${datedBy('person', 'P569')} BIND("birth" AS ?eventLabel) }`,
       '  UNION',
-      '  { ?person wdt:P570 ?date . BIND("death" AS ?eventLabel) }',
+      `  { ${datedBy('person', 'P570')} BIND("death" AS ?eventLabel) }`,
       '  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }',
       `} LIMIT ${limit}`,
     ].join('\n');
@@ -119,12 +138,12 @@ export function buildSparqlQuery(input: WikidataExtractionInput, limit: number):
     ' UNION '
   );
   return [
-    'SELECT ?event ?eventLabel ?date ?placeLabel WHERE {',
+    'SELECT ?event ?eventLabel ?date ?precision ?placeLabel WHERE {',
     subjectClause,
     `  { ${classBranches} }`,
-    '  { ?event wdt:P585 ?date . }',
+    `  { ${datedBy('event', 'P585')} }`,
     '  UNION',
-    '  { ?event wdt:P580 ?date . }',
+    `  { ${datedBy('event', 'P580')} }`,
     '  OPTIONAL { ?event wdt:P276 ?place . }',
     '  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }',
     `} LIMIT ${limit}`,
@@ -143,15 +162,69 @@ function bindingValue(binding: { [key: string]: JsonValue }, key: string): strin
   return typeof entry.value === 'string' ? entry.value : '';
 }
 
-/** Normalize a Wikidata date value to an ISO-8601 instant, or null if unusable. */
-export function normalizeWikidataDate(value: string): string | null {
-  const match = value.match(/^\+?(\d{4,9})-(\d{2})-(\d{2})(?:T[\d:.]+Z?)?$/);
+/**
+ * A Wikidata time as the timeline stores it: the ISO 8601 instant (UTC
+ * midnight of its first day, a year before 0000 or after 9999 expanded, as
+ * `-000043-03-13T00:00:00Z`) and how much of it Wikidata states.
+ *
+ * Wikidata numbers years before 1 CE two ways, and which one a query result
+ * uses depends on the precision. Measured on 2026-11-15 against
+ * query.wikidata.org and Special:EntityData (the JSON the items are stored as;
+ * the recordings are in `fixtures/wikidata-bce-*.json` and
+ * `fixtures/wikidata-deep-time.json`):
+ *
+ * | Item, property | Entity JSON `time`, `precision` | SPARQL `timeValue` (and `wdt:`) |
+ * | :-- | :-- | :-- |
+ * | Q1048 (Julius Caesar), P570, Julian | `-0044-03-15`, 11 (day) | `-0043-03-13` |
+ * | Q1048, P570, Gregorian | `-0044-00-00`, 9 (year) | `-0043-01-01` |
+ * | Q220 (Rome), P571, Julian | `-0753-04-21`, 11 | `-0752-04-13` |
+ * | Q131969 (Thermopylae), P585, Julian | `-0480-07-00`, 10 (month) | `-0479-07-01` |
+ * | Q137567 (Asculum), P585 | `-0089-00-00`, 9 | `-0088-01-01` |
+ * | Q2888236 (Cameria), P585 | `-0730-00-00`, 8 (decade) | `-0730-01-01` |
+ * | Q513097 (Ten Kings), P585 | `-1400-00-00`, 7 (century) | `-1400-01-01` |
+ * | Q55811 (K-Pg extinction), P585 | `-66000000-00-00`, 3 (million years) | `-66000000-01-01` |
+ *
+ * The JSON counts back from 1 CE with no year 0 ("-0044" is 44 BCE). The
+ * query service writes XSD 1.1 years, where 0 is 1 BCE, for a precision of a
+ * year or finer: it adds one to a BCE year ("-0043" is 44 BCE) and converts a
+ * Julian day to the proleptic Gregorian calendar (15 March 44 BC is 13 March
+ * 44 BCE). For a decade or coarser it leaves the year as the JSON has it, so
+ * there "-0730" is 730 BCE. Both are read here as the year they name, stored
+ * astronomically as ISO 8601 has it. Without a precision (a `custom` query
+ * that selects none) a date is read as the query service writes most of them,
+ * XSD 1.1, at day precision.
+ *
+ * Precision 11 and finer (day, hour, minute, second) is a day; 10 a month; 9
+ * a year; 8 to 0 (decade to billion years) a year too, the year Wikidata
+ * gives: a decade's representative year, or the round number of a deep date
+ * ("66000000 BCE"), not one of our own rounding. A date beyond the timeline
+ * (the Big Bang, -13787000000) is null.
+ */
+export function readWikidataTime(value: string, precision?: number): { timestamp: string; precision: 'day' | 'month' | 'year' } | null {
+  const match = value.trim().match(/^([+-]?)(\d{4,})-(\d{2})-(\d{2})(?:T[\d:.]+Z?)?$/);
   if (!match) return null;
-  // A year beyond 9999 is written as ISO 8601 expands it: a sign and six digits or more.
-  const year = match[1]!.length > 4 || Number(match[1]) > 9999 ? `+${match[1]!.padStart(6, '0')}` : match[1];
-  const month = match[2];
-  const day = match[3];
-  return `${year}-${month}-${day}T00:00:00Z`;
+  const [, sign, yearText, monthText, dayText] = match;
+  const known = precision !== undefined && Number.isInteger(precision) && precision >= 0 && precision <= 14 ? precision : undefined;
+  if (precision !== undefined && known === undefined) return null;
+  const stated: 'day' | 'month' | 'year' = known === undefined || known >= 11 ? 'day' : known === 10 ? 'month' : 'year';
+  const digits = Number(yearText);
+  if (!Number.isSafeInteger(digits)) return null;
+  // XSD 1.1 (0 is 1 BCE) at a year or finer, and without a precision; counted back from 1 CE (no year 0) coarser than that.
+  const year = sign !== '-' ? digits : known !== undefined && known <= 8 ? 1 - digits : -digits;
+  const month = stated === 'year' ? 1 : Number(monthText);
+  const day = stated === 'day' ? Number(dayText) : 1;
+  const pad2 = (n: number): string => String(n).padStart(2, '0');
+  // ISO 8601: four digits within 0000-9999, else a sign and six or more.
+  const isoYear = year >= 0 && year <= 9999 ? String(year).padStart(4, '0') : `${year < 0 ? '-' : '+'}${String(Math.abs(year)).padStart(6, '0')}`;
+  const timestamp = `${isoYear}-${pad2(month)}-${pad2(day)}T00:00:00Z`;
+  // A month or a day that does not exist, or a moment beyond the timeline, is no date.
+  if (!parseIsoInstant(timestamp)) return null;
+  return { timestamp, precision: stated };
+}
+
+/** A Wikidata date value as an ISO-8601 instant, or null if unusable (see {@link readWikidataTime}). */
+export function normalizeWikidataDate(value: string, precision?: number): string | null {
+  return readWikidataTime(value, precision)?.timestamp ?? null;
 }
 
 /**
@@ -173,8 +246,10 @@ export function parseWikidataResponse(
   const facts: WikidataFact[] = [];
   for (const rawBinding of results.bindings) {
     if (!isJsonObject(rawBinding)) continue;
-    const date = normalizeWikidataDate(bindingValue(rawBinding, 'date'));
-    if (!date) continue;
+    const precisionText = bindingValue(rawBinding, 'precision');
+    const read = readWikidataTime(bindingValue(rawBinding, 'date'), precisionText === '' ? undefined : Number(precisionText));
+    if (!read) continue;
+    const { timestamp: date, precision: datePrecision } = read;
 
     if (entityType === 'event') {
       const entityUrl = bindingValue(rawBinding, 'event');
@@ -185,6 +260,7 @@ export function parseWikidataResponse(
         entityType,
         label,
         date,
+        datePrecision,
         placeLabel: bindingValue(rawBinding, 'placeLabel'),
         personLabel: '',
       });
@@ -197,6 +273,7 @@ export function parseWikidataResponse(
         entityType,
         label: bindingValue(rawBinding, 'eventLabel') || 'event',
         date,
+        datePrecision,
         placeLabel: '',
         personLabel,
       });
@@ -286,6 +363,7 @@ export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
         actor: fact.personLabel,
         target: fact.label,
         timestamp: fact.date,
+        ...(fact.datePrecision !== 'day' ? { datePrecision: fact.datePrecision } : {}),
         confidence: 0.9,
         source: { type: 'wikidata', wikidataId: fact.entityId, url: wikidataUrl, extractedAt },
         selected: true,
@@ -299,6 +377,7 @@ export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
       actor: fact.label,
       target: fact.placeLabel || fact.label,
       timestamp: fact.date,
+      ...(fact.datePrecision !== 'day' ? { datePrecision: fact.datePrecision } : {}),
       confidence: 0.9,
       source: { type: 'wikidata', wikidataId: fact.entityId, url: wikidataUrl, extractedAt },
       selected: true,
