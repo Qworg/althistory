@@ -171,6 +171,14 @@ export const STREAM_GRAPH_LIST_PERMISSION: Permission = 'read:graphs';
 /** The channel name for changes to the graph list. */
 export const GRAPH_LIST_CHANNEL = '*';
 
+/**
+ * The graph a socket's token was minted for, against which the graph list is
+ * checked; null for a graph-list-only feed socket, which is bound to no graph.
+ */
+function tokenGraph(context: { graphId: string }): string | null {
+  return context.graphId === GRAPH_LIST_CHANNEL ? null : context.graphId;
+}
+
 /** How many graphs one socket may watch at once. */
 export const DEFAULT_MAX_SUBSCRIPTIONS = 10;
 
@@ -644,9 +652,13 @@ export class StreamHandler {
 
     const record = consumed.token;
 
+    // The token is for one graph, or (a feed token only) for the graph list
+    // alone, when the key may no longer read the graph the client had open.
+    const mode = record.mode === 'feed' ? 'feed' : 'write';
+    const listOnly = record.graphId === GRAPH_LIST_CHANNEL && mode === 'feed';
     let graphId: string;
     try {
-      assertSafeGraphId(record.graphId);
+      if (!listOnly) assertSafeGraphId(record.graphId);
       graphId = record.graphId;
     } catch {
       return {
@@ -662,10 +674,9 @@ export class StreamHandler {
 
     // The token's `permissions` snapshot is deliberately NOT consulted: the
     // token proves which key asked, the repository says what that key may do.
-    const mode = record.mode === 'feed' ? 'feed' : 'write';
     const resolved = await this.resolveKey(
       record.apiKeyId,
-      graphId,
+      listOnly ? null : graphId,
       mode === 'feed' ? STREAM_FEED_PERMISSION : STREAM_REQUIRED_PERMISSION
     );
     if (!resolved.ok) {
@@ -685,7 +696,8 @@ export class StreamHandler {
    */
   private async resolveKey(
     apiKeyId: string,
-    graphId: string,
+    /** The graph the key must be able to access; null checks no graph (a graph-list-only socket). */
+    graphId: string | null,
     permission: Permission = STREAM_REQUIRED_PERMISSION
   ): Promise<KeyResolution> {
     const apiKey = await this.deps.authService.getApiKey(apiKeyId);
@@ -713,7 +725,7 @@ export class StreamHandler {
       };
     }
 
-    if (!apiKey.canAccessGraph(graphId)) {
+    if (graphId !== null && !apiKey.canAccessGraph(graphId)) {
       return {
         ok: false,
         rejection: {
@@ -1179,7 +1191,7 @@ export class StreamHandler {
     try {
       const resolved = await this.resolveKey(
         context.apiKey.id,
-        isList ? context.graphId : channel,
+        isList ? tokenGraph(context) : channel,
         isList ? STREAM_GRAPH_LIST_PERMISSION : STREAM_FEED_PERMISSION
       );
       if (!resolved.ok) {
@@ -1293,7 +1305,7 @@ export class StreamHandler {
             const isList = channel === GRAPH_LIST_CHANNEL;
             const resolved = await this.resolveKey(
               context.apiKey.id,
-              isList ? context.graphId : channel,
+              isList ? tokenGraph(context) : channel,
               isList ? STREAM_GRAPH_LIST_PERMISSION : STREAM_FEED_PERMISSION
             );
             if (!resolved.ok) {

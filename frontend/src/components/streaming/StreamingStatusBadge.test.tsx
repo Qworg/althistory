@@ -91,6 +91,18 @@ describe('StreamingStatusBadge', () => {
     expect(disconnect.className).not.toMatch(/hover:text-(?:slate|emerald)-900/)
   })
 
+  it('says the open graph is not watched when the key lost it, as a warning, and offers Retry', () => {
+    const onConnect = vi.fn()
+    render(<StreamingStatusBadge status="revoked" onConnect={onConnect} />)
+    const badge = screen.getByRole('status', { name: 'Live sync: not watching this graph' })
+    expect(badge.className).toMatch(/warning/)
+    expect(badge.className).not.toMatch(/danger/)
+    expect(badge).toHaveAttribute('title', expect.stringMatching(/may no longer read this graph.*graph list is still watched/))
+    expect(badge).not.toHaveAttribute('title', expect.stringMatching(/Details/))
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onConnect).toHaveBeenCalledWith()
+  })
+
   it('explains a failure in plain words, keeps server detail out of the badge, and offers Retry', () => {
     const onConnect = vi.fn()
     render(<StreamingStatusBadge status="error" error='Unsafe graph id: "[object Object]"' onConnect={onConnect} />)

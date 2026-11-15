@@ -662,6 +662,49 @@ describe('the live change feed over the WebSocket', () => {
       expect(await client.nextOf('change')).toMatchObject({ graphId: graphA });
     });
 
+    it('is watched from a graph-list token after the key loses the graph it had open, and every graph is checked on its own', async () => {
+      const key = await container.authService.createApiKey({ name: 'Lost A', permissions: ['read:events', 'read:graphs'] });
+      await container.authService.updateApiKey(key.id, { allowedGraphs: [graphB] });
+      // The graph the client had open cannot mint a token any more.
+      await request(app).post('/api/stream/token').set('X-API-Key', key.key).set('X-Graph-Id', graphA).send({ mode: 'feed' }).expect(403);
+
+      const minted = await request(app).post('/api/stream/token').set('X-API-Key', key.key).send({ mode: 'feed', channel: '*' }).expect(201);
+      expect(minted.body).toMatchObject({ graphId: '*', mode: 'feed' });
+      const client = await connect(url(minted.body.token as string));
+      open.push(client);
+      expect(await client.next()).toMatchObject({ type: 'auth_result', success: true, graphId: '*', mode: 'feed' });
+
+      client.send({ type: 'subscribe', graphId: '*' });
+      expect(await client.nextOf('subscribed')).toMatchObject({ graphId: '*' });
+      client.send({ type: 'subscribe', graphId: graphA });
+      expect(await client.nextOf('error')).toMatchObject({ code: 'GRAPH_ACCESS_DENIED', graphId: graphA });
+      client.send({ type: 'subscribe', graphId: graphB });
+      expect(await client.nextOf('subscribed')).toMatchObject({ graphId: graphB });
+      await agentAddsEvent(graphB, 'Heard on the list socket');
+      expect(await client.nextOf('change')).toMatchObject({ graphId: graphB });
+
+      // The list keeps saying what the key may see, and nothing else.
+      const hidden = await container.graphService.createGraph({ name: 'Not for this key' });
+      await settle();
+      expect(client.drain().filter((message) => message.type === 'change' && message.graphId === hidden.id)).toEqual([]);
+
+      // It survives a sweep: there is no graph for it to lose.
+      await handler.revalidateFeedSessions();
+      await settle();
+      expect(client.drain().filter((message) => message.type === 'unsubscribed' || message.type === 'error')).toEqual([]);
+
+      client.send({ type: 'event', data: { description: 'No', actor: 'a', target: 'b', timestamp: '1300-01-01T00:00:00Z' } });
+      expect(await client.nextOf('error')).toMatchObject({ code: 'READ_ONLY_STREAM' });
+    });
+
+    it('issues a graph-list token only in feed mode, with read:graphs, and with no graph named', async () => {
+      const noList = (await container.authService.createApiKey({ name: 'No list token', permissions: ['read:events'] })).key;
+      await request(app).post('/api/stream/token').set('X-API-Key', noList).send({ mode: 'feed', channel: '*' }).expect(403);
+      await request(app).post('/api/stream/token').set('X-API-Key', agentKey).send({ channel: '*' }).expect(400);
+      await request(app).post('/api/stream/token').set('X-API-Key', readerKey).set('X-Graph-Id', graphA).send({ mode: 'feed', channel: '*' }).expect(400);
+      await request(app).post('/api/stream/token').set('X-API-Key', readerKey).send({ mode: 'feed', channel: graphA }).expect(400);
+    });
+
     it('needs read:graphs', async () => {
       const key = await container.authService.createApiKey({ name: 'No list', permissions: ['read:events'] });
       const client = await watcher(key.key, graphA, []);

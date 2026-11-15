@@ -25,14 +25,21 @@
  *     status is `reconnecting` until the server confirms it: the badge must
  *     not say "live" for a graph nothing arrives from.
  *   - It reconnects with a growing delay, and stops (status `error`) for a
- *     refusal that retrying cannot fix: a key that cannot read, or may not
- *     access the graph.
+ *     refusal that retrying cannot fix: a key that cannot read.
+ *   - A key that may no longer read the open graph (its access was revoked,
+ *     or the graph is gone) costs that graph only: the status is `revoked`, and
+ *     the socket, or the next one, watches the graph list alone, from a token
+ *     minted for the list (a token for the open graph would be refused).
  *   - It pings, so the server's idle timeout does not end a quiet session.
  */
 
 import type { LiveChange, ServerStreamMessage, StreamTokenResponse, StreamErrorCode } from '@/types'
 
-export type LiveFeedStatus = 'off' | 'connecting' | 'live' | 'reconnecting' | 'error'
+/**
+ * `revoked`: connected, but the key may no longer read the open graph, so only
+ * the graph list is watched.
+ */
+export type LiveFeedStatus = 'off' | 'connecting' | 'live' | 'reconnecting' | 'revoked' | 'error'
 
 /** The part of a browser `WebSocket` the client uses; a test supplies its own. */
 export interface FeedSocket {
@@ -45,8 +52,11 @@ export interface FeedSocket {
 }
 
 export interface LiveFeedClientOptions {
-  /** Mints a feed token for the graph the socket is bound to. */
-  getToken(graphId: string): Promise<StreamTokenResponse>
+  /**
+   * Mints a feed token for the graph the socket is bound to, or, given
+   * `GRAPH_LIST_CHANNEL`, for the graph list alone.
+   */
+  getToken(channel: string): Promise<StreamTokenResponse>
   /** The socket URL for a token. */
   urlFor(token: string): string
   createSocket?(url: string): FeedSocket
@@ -72,6 +82,9 @@ const OPEN = 1
 const RETRYABLE_SUBSCRIBE_CODES: ReadonlySet<StreamErrorCode> = new Set(['RATE_LIMITED', 'SUBSCRIPTION_LIMIT'])
 
 /** Codes that retrying cannot cure: the key is not allowed, or the graph is not there. */
+const GRAPH_REFUSALS: ReadonlySet<StreamErrorCode> = new Set(['GRAPH_ACCESS_DENIED', 'GRAPH_NOT_FOUND'])
+
+
 const FATAL_CODES: ReadonlySet<StreamErrorCode> = new Set([
   'KEY_INVALID',
   'PERMISSION_DENIED',
@@ -111,8 +124,12 @@ export class LiveFeedClient {
    * that never arrived.
    */
   private readonly replaying = new Map<string, { remaining: number; seq: number }>()
-  /** The open graph's channel was revoked, so the status says `error` although the socket is up. */
-  private activeRevoked = false
+  /**
+   * The open graph, when the key may no longer read it (its channel was
+   * revoked, or refused): it is not subscribed, a reconnect mints a token for
+   * the graph list alone, and the status says `revoked`.
+   */
+  private revokedGraph: string | null = null
   /** Channels whose subscribe was refused for a passing reason, and the timer that tries again. */
   private readonly refused = new Map<string, { attempts: number; timer: ReturnType<typeof setTimeout> | undefined }>()
 
@@ -137,6 +154,7 @@ export class LiveFeedClient {
     this.clearTimers()
     const socket = this.socket
     this.socket = undefined
+    this.revokedGraph = null
     this.confirmed.clear()
     this.replaying.clear()
     this.clearRefused()
@@ -159,9 +177,9 @@ export class LiveFeedClient {
     if (graphId === this.graphId) return
     const previous = this.graphId
     this.graphId = graphId
-    if (this.activeRevoked) {
+    if (this.revokedGraph !== null) {
       // The graph that lost access is no longer the one watched.
-      this.activeRevoked = false
+      this.revokedGraph = null
       if (!graphId && this.socket) this.setStatus('live')
     }
     if (!this.running) return
@@ -195,22 +213,34 @@ export class LiveFeedClient {
     void this.connect(graphId)
   }
 
-  private async connect(graphId: string): Promise<void> {
+  private async connect(graphId: string, graphRefusal?: string): Promise<void> {
     this.connecting = true
     const run = this.run
     // Stopped, or stopped and started again, while a token was being fetched.
     const stale = (): boolean => !this.running || run !== this.run
+    // The key may no longer read the open graph: a token for it would be
+    // refused, so the socket is for the graph list alone.
+    const listOnly = this.revokedGraph === graphId
     this.setStatus(this.hasBeenLive || this.attempt > 0 ? 'reconnecting' : 'connecting')
     let token: StreamTokenResponse
     try {
-      token = await this.options.getToken(graphId)
+      token = await this.options.getToken(listOnly ? GRAPH_LIST_CHANNEL : graphId)
     } catch (error) {
       if (stale()) return
       this.connecting = false
       const status = (error as { status?: number }).status
+      const message = error instanceof Error ? error.message : 'The live feed was refused'
+      if (!listOnly && (status === 403 || status === 404) && this.graphId === graphId) {
+        // This graph is refused (or gone). The key may still read others, and
+        // the graph list still needs watching: try a token for the list alone.
+        this.revokedGraph = graphId
+        if (status === 403) this.options.onAccessRevoked?.(graphId)
+        void this.connect(graphId, message)
+        return
+      }
       if (status === 401 || status === 403 || status === 404 || status === 400) {
-        // The key is missing, refused, or cannot read this graph: retrying only repeats it.
-        this.setStatus('error', error instanceof Error ? error.message : 'The live feed was refused')
+        // The key is missing, refused, or cannot read: retrying only repeats it.
+        this.setStatus('error', graphRefusal ?? message)
         return
       }
       this.scheduleReconnect(error instanceof Error ? error.message : undefined)
@@ -240,17 +270,13 @@ export class LiveFeedClient {
     if (this.socket !== socket) return
     this.socket = undefined
     this.connecting = false
-    // An error that only the open graph's channel carries (its access was
-    // revoked) does not end the socket's business: the graph list still needs
-    // watching, and the key's access may come back.
-    const onlyRevoked = this.activeRevoked
-    this.activeRevoked = false
     this.confirmed.clear()
     this.replaying.clear()
     this.clearRefused()
     this.clearPing()
     if (!this.running) return
-    if (this.status === 'error' && !onlyRevoked) return
+    // `revoked` reconnects: the graph list still needs watching.
+    if (this.status === 'error') return
     this.scheduleReconnect()
   }
 
@@ -287,7 +313,8 @@ export class LiveFeedClient {
         }
         this.connecting = false
         this.attempt = 0
-        this.setStatus('live')
+        if (this.isRevoked()) this.setStatus('revoked')
+        else this.setStatus('live')
         this.startPing(socket)
         this.subscribeAll()
         return
@@ -300,8 +327,8 @@ export class LiveFeedClient {
         if (message.reason === 'access_revoked') {
           // Nothing more arrives for the open graph: the badge must not say 'live'.
           if (message.graphId === this.graphId) {
-            this.activeRevoked = true
-            this.setStatus('error', 'This key may no longer read this graph, so nothing more arrives for it')
+            this.revokedGraph = message.graphId
+            this.setStatus('revoked')
           }
           this.options.onAccessRevoked?.(message.graphId)
         }
@@ -326,6 +353,14 @@ export class LiveFeedClient {
           // server calls invalid is invalid for every channel.
           if (message.code !== 'KEY_INVALID' && message.graphId !== undefined && message.graphId !== this.graphId) {
             if (message.graphId === GRAPH_LIST_CHANNEL) this.clearRefusal(message.graphId)
+            return
+          }
+          if (message.graphId !== undefined && message.graphId === this.graphId && GRAPH_REFUSALS.has(message.code)) {
+            // The open graph is refused, not the key: the socket keeps the graph list.
+            this.clearRefusal(message.graphId)
+            this.revokedGraph = message.graphId
+            this.setStatus('revoked', message.message)
+            if (message.code === 'GRAPH_ACCESS_DENIED') this.options.onAccessRevoked?.(message.graphId)
             return
           }
           this.setStatus('error', message.message)
@@ -359,9 +394,9 @@ export class LiveFeedClient {
       this.cursors.set(channel, Math.max(this.cursors.get(channel) ?? 0, seq))
     }
     this.confirmed.add(channel)
-    if (this.status === 'error' && channel === this.graphId && this.socket) {
+    if (this.status === 'revoked' && channel === this.graphId && this.socket) {
       // A graph watched again after the one that lost access (or access came back).
-      this.activeRevoked = false
+      this.revokedGraph = null
       this.setStatus('live')
     }
     this.clearRefusal(channel)
@@ -393,8 +428,13 @@ export class LiveFeedClient {
     // Whether this socket resumes an earlier one, as opposed to being the first.
     this.resumed = this.hasBeenLive
     this.hasBeenLive = true
-    if (this.graphId) this.subscribe(this.graphId)
+    if (this.graphId && !this.isRevoked()) this.subscribe(this.graphId)
     this.subscribe(GRAPH_LIST_CHANNEL)
+  }
+
+  /** The open graph is one the key may no longer read. */
+  private isRevoked(): boolean {
+    return this.revokedGraph !== null && this.revokedGraph === this.graphId
   }
 
   private subscribe(channel: string): void {
@@ -445,7 +485,10 @@ export class LiveFeedClient {
     if (!held) return
     if (held.timer !== undefined) clearTimeout(held.timer)
     this.refused.delete(channel)
-    if (this.refused.size === 0 && this.status === 'reconnecting' && this.socket) this.setStatus('live')
+    if (this.refused.size === 0 && this.status === 'reconnecting' && this.socket) {
+      if (this.isRevoked()) this.setStatus('revoked')
+      else this.setStatus('live')
+    }
   }
 
   private clearRefused(): void {

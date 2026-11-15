@@ -469,6 +469,12 @@ has its socket closed (`KEY_INVALID`), and one that loses a graph is sent
 idle for 5 minutes is closed, and every session ends after 30 minutes, which is
 what the reconnect below is for.
 
+**A key that lost the graph it had open** cannot mint a token for that graph
+any more (403). To keep watching the graph list, ask for a token for the list
+alone: `{"mode":"feed","channel":"*"}` with no `X-Graph-Id`, which needs
+`read:graphs` as well as `read:events`. The socket is bound to no graph; any
+graph it then subscribes to is checked on its own, as on every feed socket.
+
 Watching needs `read:events` alone, but a change is told only as far as the key
 could read it over HTTP: entities the key may not read (arcs without
 `read:arcs`, links without `read:relationships`) are left out of an `entities`

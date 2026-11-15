@@ -45,7 +45,8 @@ export function useLiveChanges(): void {
       clientId: CLIENT_ID,
     })
     const client = new LiveFeedClient({
-      getToken: (graphId) => apiClient.stream.getToken(graphId, 'feed'),
+      getToken: (channel) =>
+        channel === GRAPH_LIST_CHANNEL ? apiClient.stream.getGraphListToken() : apiClient.stream.getToken(channel, 'feed'),
       urlFor: getWebSocketStreamUrl,
       onChange: (change) => applier.push(change),
       onResync: (graphId) => applier.resync(graphId),
