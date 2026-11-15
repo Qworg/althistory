@@ -7,8 +7,13 @@ import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
  * step leaves the history where it was, so the user can see why and retry.
  */
 export interface EditHistoryEntry {
-  /** What the edit did, in the past tense: `Moved "Hastings" to 14 Oct 1066`. */
-  description: string
+  /**
+   * What the edit did, in the past tense: `Moved "Hastings" to 14 Oct 1066`.
+   * A function is called each time the line is shown, so a date in it is
+   * written in the calendar shown then: a world's viewer may pick another of
+   * its calendars after the edit.
+   */
+  description: string | (() => string)
   undo: () => Promise<boolean>
   redo: () => Promise<boolean>
 }
@@ -34,7 +39,8 @@ interface HistoryState {
   key: unknown
   past: EditHistoryEntry[]
   future: EditHistoryEntry[]
-  message: string | null
+  /** The latest edit, undo or redo; written out when it is shown. */
+  message: { entry: EditHistoryEntry; step: 'Undone' | 'Redone' | null } | null
   /** An undo or redo is under way (one at a time, whichever component holds the history). */
   busy: boolean
   /** The mounted components showing this history, re-rendered when it changes. */
@@ -42,6 +48,16 @@ interface HistoryState {
 }
 
 const kept = new Map<string, HistoryState>()
+
+function describe(entry: EditHistoryEntry): string {
+  return typeof entry.description === 'function' ? entry.description() : entry.description
+}
+
+function messageOf(message: HistoryState['message']): string | null {
+  if (!message) return null
+  const text = describe(message.entry)
+  return message.step ? `${message.step}: ${text}` : text
+}
 
 /** The history kept under `name` for `key`, or a new one (kept, when named, in its place). */
 function historyFor(name: string | undefined, key: unknown): HistoryState {
@@ -58,7 +74,7 @@ export interface EditHistory {
   redo: () => Promise<void>
   canUndo: boolean
   canRedo: boolean
-  /** A one-line account of the latest edit, undo or redo, for a status line. */
+  /** A one-line account of the latest edit, undo or redo, for a status line, written as it is read. */
   lastMessage: string | null
   clear: () => void
 }
@@ -120,7 +136,7 @@ export function useEditHistory({
   const record = useCallback((entry: EditHistoryEntry) => {
     history.current.past = [...history.current.past, entry].slice(-limit)
     history.current.future = []
-    history.current.message = entry.description
+    history.current.message = { entry, step: null }
     rerender()
   }, [limit, rerender])
 
@@ -136,7 +152,7 @@ export function useEditHistory({
         const to = from === 'past' ? 'future' : 'past'
         held[from] = held[from].slice(0, -1)
         held[to] = [...held[to], entry]
-        held.message = `${from === 'past' ? 'Undone' : 'Redone'}: ${entry.description}`
+        held.message = { entry, step: from === 'past' ? 'Undone' : 'Redone' }
         if (history.current === held) rerender()
         else for (const view of held.views) view()
       }
@@ -174,7 +190,7 @@ export function useEditHistory({
     redo,
     canUndo: history.current.past.length > 0,
     canRedo: history.current.future.length > 0,
-    lastMessage: history.current.message,
+    lastMessage: messageOf(history.current.message),
     clear,
   }
 }
