@@ -2,7 +2,7 @@ import { memo, useMemo, useState, useCallback, useRef, useLayoutEffect, useEffec
 import type React from 'react'
 import { clampedAddInstantMs, instantExtent, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
 import { Event, Arc, GraphCalendar } from '@/types'
-import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
+import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate, historicalYear } from '@/utils/historicalTime'
 import { axisTicks } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import {
@@ -110,7 +110,7 @@ function formatTicks(dates: readonly Date[]): string[] {
       d.getUTCHours() === 0 &&
       d.getUTCMinutes() === 0
   )
-  return dates.map(d => (allYearStarts ? String(d.getUTCFullYear()) : formatHistoricalDate(d, undefined, null)))
+  return dates.map(d => (allYearStarts ? historicalYear(d, null) : formatHistoricalDate(d, undefined, null)))
 }
 
 /**

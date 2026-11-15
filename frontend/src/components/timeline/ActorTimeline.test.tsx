@@ -205,8 +205,10 @@ describe('ActorTimeline', () => {
       const labels = tickTexts(container)
       expect(labels.length).toBeGreaterThan(2)
       expect(new Set(labels).size).toBe(labels.length)
-      expect(labels.some((label) => /BCE/.test(label ?? ''))).toBe(true)
-      expect(labels.some((label) => /^\d+ CE$/.test(label ?? ''))).toBe(true)
+      // As the locale writes a year (en-US here): "500000 BC", and "300000" after 1 CE.
+      expect(labels.some((label) => /^\d+ BC$/.test(label ?? ''))).toBe(true)
+      expect(labels.some((label) => /^\d+$/.test(label ?? ''))).toBe(true)
+      expect(labels.some((label) => /BCE|CE$/.test(label ?? ''))).toBe(false)
       expect(container.innerHTML).not.toContain('NaN')
     })
 

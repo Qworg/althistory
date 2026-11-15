@@ -14,13 +14,17 @@ import {
   type WorldDateFields,
   MAX_AXIS_MS,
   MIN_AXIS_MS,
+  axisTimeOfCivil,
   calendarIn,
   compileCalendar,
   dateAt,
+  formatHistoricalDate,
+  formatHistoricalDateAt,
   formatInWorld,
   formatWorldFields,
   gregorianDefinition,
   gregorianTicks,
+  instantOfAxisTime,
   isoOfAxisTime,
   legacyCalendarSet,
   parseWorldDate,
@@ -229,10 +233,26 @@ describe('a timeline beyond a Date (Req 12)', () => {
     )
   })
 
-  it('labels a span of a million years in years, with the era', () => {
-    const ticks = gregorianTicks([-500_000n * 31_556_952_000n, 300_000n * 31_556_952_000n], 8)
+  it('labels a span of a million years in years, as the locale writes a year and its era', () => {
+    const ticks = gregorianTicks([-500_000n * 31_556_952_000n, 300_000n * 31_556_952_000n], 8, 'en-US')
     expect(ticks.length).toBeGreaterThan(2)
-    expect(ticks.map((tick) => tick.label).join()).toMatch(/BCE/)
-    expect(ticks.map((tick) => tick.label).join()).toMatch(/CE/)
+    const labels = ticks.map((tick) => tick.label)
+    expect(labels.some((label) => /^\d+ BC$/.test(label))).toBe(true)
+    expect(labels.some((label) => /^\d+$/.test(label))).toBe(true)
+    // The same text the date formatters write for those years, in any locale's digits and era.
+    for (const locale of ['en-US', 'de', 'ar-EG']) {
+      for (const tick of gregorianTicks([-500_000n * 31_556_952_000n, 300_000n * 31_556_952_000n], 8, locale)) {
+        expect(tick.label).toBe(formatHistoricalDateAt(instantOfAxisTime(tick.position)!, 'year', locale, null))
+      }
+    }
+  })
+
+  it('labels finer Gregorian ticks as the date formatters do, BCE included', () => {
+    const day = 86_400_000n
+    const start = axisTimeOfCivil(-43, 3, 1)
+    const ticks = gregorianTicks([start, start + 20n * day], 6, 'en-US')
+    expect(ticks.length).toBeGreaterThan(1)
+    for (const tick of ticks) expect(tick.label).toBe(formatHistoricalDate(instantOfAxisTime(tick.position)!, 'en-US', null))
+    expect(ticks[0]!.label).toMatch(/44 BC$/)
   })
 })

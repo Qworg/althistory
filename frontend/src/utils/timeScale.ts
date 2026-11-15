@@ -61,7 +61,7 @@ const SIX_DIGIT_YEARS_MS = -377_705_116_800_000
  * start to a multiple of k, and near the lower bound that floor is an Invalid
  * Date, so the axis has no ticks; and before year -9999 its labels are astronomical
  * ("-200000s"). So: any domain that starts before year -9999, or comes within a
- * span of a Date's bounds, takes the calendar package's ticks ("200000 BCE").
+ * span of a Date's bounds, takes the calendar package's ticks, labelled as the date labels are ("200000 BC" in en-US).
  */
 export function usesArithmeticTicks(first: Date, last: Date): boolean {
   if (isDeepInstant(first) || isDeepInstant(last)) return true
