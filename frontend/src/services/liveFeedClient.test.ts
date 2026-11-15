@@ -641,6 +641,39 @@ describe('LiveFeedClient', () => {
       expect(h.statuses).toEqual(['revoked'])
     })
 
+    it('stops when the graph is closed on a socket that lost the graph list, rather than hold it open watching nothing', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 1, replayed: 0 })
+      socket.say({ type: 'error', code: 'PERMISSION_DENIED', message: 'no read:graphs', graphId: '*' })
+      expect(h.client.currentStatus).toBe('live')
+      expect(socket.closed).toBe(false)
+      h.client.setGraph(null)
+      expect(socket.sent).toContainEqual({ type: 'unsubscribe', graphId: 'g1' })
+      expect(h.client.currentStatus).toBe('error')
+      expect(socket.closed).toBe(true)
+    })
+
+    it('says reconnecting, not live, when the graph is closed while the list waits on a retry', async () => {
+      const getToken = vi.fn(async (channel: string) => {
+        if (channel === 'g1') throw Object.assign(new Error('no'), { status: 403 })
+        return token('list')
+      })
+      const h = harness({ getToken })
+      h.client.setGraph('g1')
+      h.client.start()
+      await vi.advanceTimersByTimeAsync(0)
+      const socket = lastSocket()
+      socket.say({ type: 'auth_result', success: true, mode: 'feed' })
+      socket.say({ type: 'error', code: 'RATE_LIMITED', message: 'slow down', graphId: '*', retryAfter: 5 })
+      h.statuses.length = 0
+      h.client.setGraph(null)
+      expect(h.statuses).not.toContain('live')
+      expect(h.client.currentStatus).toBe('reconnecting')
+      socket.say({ type: 'subscribed', graphId: '*', epoch: 'E1', seq: 1, replayed: 0 })
+      expect(h.client.currentStatus).toBe('live')
+    })
+
     it('tells the caller when the open graph is watched again', async () => {
       const h = harness()
       const socket = await connected(h)
