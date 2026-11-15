@@ -11,6 +11,7 @@ import {
   formatHistoricalDateBound,
   formatWorldBound,
   formatWorldFields,
+  isSignedShortYear,
   parseHistoricalDate,
   parseIsoInstant,
   readDateBound,
@@ -151,9 +152,14 @@ describe('a minus sign before a year of fewer than six digits', () => {
         expect(readTimestamp(text), text).toBeNull()
         expect(readDateField(text), text).toBeNull()
         expect(unreadDateReason(null, text)).toContain(`${year + 1} BCE`)
+        expect(isSignedShortYear(` ${text}`), text).toBe(true)
       }),
       arb.runs(2000)
     )
+  })
+
+  it('is told apart from the six-digit year, a year with its era, and a year without a sign', () => {
+    for (const text of ['-000043', '-000043-03-15', '44 BCE', '1843', '+010000', '']) expect(isSignedShortYear(text), text).toBe(false)
   })
 
   it('leaves the stored-text reader as it was (toInstant does not read year-first text)', () => {

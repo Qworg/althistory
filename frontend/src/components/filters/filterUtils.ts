@@ -4,7 +4,7 @@ import type {
   CausalRelationship,
   FilterState
 } from '@/types'
-import { type AxisTime, type WorldCalendarSet, formatDateBound, readDateBound, toAxisTime, toInstant, type DateBoundEdge } from '@althistory/calendar'
+import { type AxisTime, type WorldCalendarSet, formatDateBound, isSignedShortYear, readDateBound, toAxisTime, toInstant, type DateBoundEdge } from '@althistory/calendar'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
 import type { FilterState as PanelFilterState } from './FilterPanel'
 
@@ -144,7 +144,7 @@ function fromInputDate(value: string, edge: DateBoundEdge, calendar: CalendarArg
   if (calendar) return new Date(NaN)
   // A minus sign before a short year ("-44", from an old link) is refused for
   // naming either of two years; the lenient reader would make it 2044.
-  if (/^\s*-\d{1,5}(?!\d)/.test(value)) return new Date(NaN)
+  if (isSignedShortYear(value)) return new Date(NaN)
   // Anything else (a full timestamp from a link) by the app's one reader: UTC
   // when it has no zone, and no date rather than the day V8 rolls "1870-02-31" into.
   return toInstant(value)
