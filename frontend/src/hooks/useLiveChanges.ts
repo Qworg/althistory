@@ -6,7 +6,7 @@ import { CLIENT_ID } from '@/services/clientIdentity'
 import { GRAPH_LIST_CHANNEL, LiveFeedClient } from '@/services/liveFeedClient'
 import { LiveChangeApplier } from '@/services/liveChangeApplier'
 import { useLiveChangesStore } from '@/stores/liveChangesStore'
-import { getWebSocketStreamUrl } from '@/hooks/useStreamingWrite'
+import { getWebSocketStreamUrl } from '@/services/streamUrl'
 import { useActiveGraphId } from '@/hooks/useGraphs'
 
 /**

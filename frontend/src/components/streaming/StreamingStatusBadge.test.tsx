@@ -23,7 +23,7 @@ describe('StreamingStatusBadge', () => {
     expect(onConnect).toHaveBeenCalledWith()
   })
 
-  it('says it is on, and what that gives, without edit counts it no longer keeps', () => {
+  it('says it is on, and what that gives', () => {
     render(<StreamingStatusBadge status="connected" onDisconnect={() => {}} />)
     const badge = screen.getByRole('status', { name: 'Live sync on' })
     expect(badge).toHaveAttribute('title', expect.stringMatching(/Changes made elsewhere, such as by an agent, appear here as they happen/))
@@ -57,21 +57,10 @@ describe('StreamingStatusBadge', () => {
     expect(screen.getByText('Live sync: connecting…')).toBeInTheDocument()
   })
 
-  it('renders connected state with stats and disconnect action', () => {
+  it('turns off from the badge when it is on', () => {
     const onDisconnect = vi.fn()
-    render(
-      <StreamingStatusBadge
-        status="connected"
-        stats={{ sent: 10, acked: 8, failed: 2 }}
-        onDisconnect={onDisconnect}
-      />
-    )
-
-    expect(screen.getByText('Live sync on')).toBeInTheDocument()
-    expect(screen.getByText('8 of 10 confirmed')).toBeInTheDocument()
-
-    const disconnectBtn = screen.getByText('Turn off')
-    fireEvent.click(disconnectBtn)
+    render(<StreamingStatusBadge status="connected" onDisconnect={onDisconnect} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Turn off' }))
     expect(onDisconnect).toHaveBeenCalledTimes(1)
   })
 
@@ -79,7 +68,6 @@ describe('StreamingStatusBadge', () => {
     const { container } = render(
       <StreamingStatusBadge
         status="connected"
-        stats={{ sent: 3, acked: 2, failed: 1 }}
         error="Socket closed"
         onDisconnect={() => {}}
       />

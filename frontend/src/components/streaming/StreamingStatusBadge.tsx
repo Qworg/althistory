@@ -10,14 +10,23 @@
  */
 
 import React from 'react'
-import type { StreamingConnectionStatus, StreamingStats } from '@/hooks/useStreamingWrite'
 
-/** The write stream's states, plus the one only a feed that reopens itself has. */
-export type LiveSyncBadgeStatus = StreamingConnectionStatus | 'reconnecting' | 'waiting' | 'revoked'
+/**
+ * What the badge can say: off (`disconnected`), starting, on, reopening a
+ * dropped connection, on with no graph open, on without the open graph (the
+ * key lost it), or stopped.
+ */
+export type LiveSyncBadgeStatus =
+  | 'disconnected'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'waiting'
+  | 'revoked'
+  | 'error'
 
 export interface StreamingStatusBadgeProps {
   status: LiveSyncBadgeStatus
-  stats?: StreamingStats
   error?: string | null
   onConnect?: () => void
   onDisconnect?: () => void
@@ -44,7 +53,6 @@ const actionClass =
 
 export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
   status,
-  stats,
   error,
   onConnect,
   onDisconnect,
@@ -99,19 +107,18 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
   }
 
   const config = getStatusConfig()
-  const statsTitle = stats ? `${stats.acked} of ${stats.sent} edits confirmed${stats.failed ? `, ${stats.failed} failed` : ''}` : undefined
   // The server's own wording stays out of the badge; it is kept in the tooltip
   // for whoever is debugging the connection.
-  const title =
-    status === 'error'
-      ? `${ERROR_MESSAGE}${error ? ` (Details: ${error})` : ''}`
-      : status === 'revoked'
-        ? `${REVOKED_MESSAGE}${error ? ` (Details: ${error})` : ''}`
-        : status === 'reconnecting'
-        ? RECONNECTING_HINT
-        : status === 'waiting'
-          ? WAITING_HINT
-          : statsTitle || (status === 'disconnected' ? OFF_HINT : status === 'connected' ? ON_HINT : undefined)
+  const details = error ? ` (Details: ${error})` : ''
+  const title: string | undefined = {
+    error: `${ERROR_MESSAGE}${details}`,
+    revoked: `${REVOKED_MESSAGE}${details}`,
+    reconnecting: RECONNECTING_HINT,
+    waiting: WAITING_HINT,
+    disconnected: OFF_HINT,
+    connected: ON_HINT,
+    connecting: undefined,
+  }[status]
 
   return (
     <div
@@ -122,19 +129,6 @@ export const StreamingStatusBadge: React.FC<StreamingStatusBadgeProps> = ({
     >
       <span className={`w-2 h-2 shrink-0 rounded-full ${config.dot}`} aria-hidden="true" />
       <span>{config.label}</span>
-
-      {status === 'connected' && stats && (
-        <span className="font-mono-code text-xs text-success border-l border-success/30 pl-1.5 ml-0.5">
-          {/* Words, not "0/0": what the two numbers count. */}
-          {stats.sent === 0 ? 'no edits sent yet' : `${stats.acked} of ${stats.sent} confirmed`}
-        </span>
-      )}
-
-      {stats && stats.failed > 0 && (
-        <span className="text-xs text-danger font-semibold border-l border-danger/30 pl-1.5 ml-0.5" role="alert">
-          {stats.failed} failed
-        </span>
-      )}
 
       {(status === 'error' || status === 'revoked') && (
         <span className="sr-only" role="alert">
