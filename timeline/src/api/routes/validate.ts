@@ -1,4 +1,10 @@
 import { compareInstants, msApart } from '@althistory/calendar';
+
+/** -1, 0 or 1, exactly (docs/specs/deep-time.md, Req 3); null when either names no moment. */
+function orderOf(a: Date, b: Date): -1 | 0 | 1 | null {
+  return Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) ? null : compareInstants(a, b);
+}
+
 /**
  * Validation API routes for checking data integrity
  */
@@ -227,7 +233,8 @@ validateRoutes.post(
             });
           }
 
-          if (startTime >= endTime) {
+          const order = orderOf(startTime, endTime);
+          if (order !== null && order >= 0) {
             response.errors.temporal.push({
               type: 'temporal',
               entityType: 'arc',
@@ -244,7 +251,7 @@ validateRoutes.post(
               const parentStart = bodyInstant(parentArc.start_time, calendar);
               const parentEnd = bodyInstant(parentArc.end_time, calendar, 'end');
 
-              if (startTime < parentStart || endTime > parentEnd) {
+              if ((orderOf(startTime, parentStart) ?? 0) < 0 || (orderOf(endTime, parentEnd) ?? 0) > 0) {
                 response.errors.temporal.push({
                   type: 'temporal',
                   entityType: 'arc',
@@ -508,7 +515,7 @@ validateRoutes.post(
               message: `Invalid start_time or end_time: ${JSON.stringify(arc.start_time)} – ${JSON.stringify(arc.end_time)}`,
             });
             response.valid = false;
-          } else if (start >= end) {
+          } else if (compareInstants(start, end) >= 0) {
             response.conflicts.push({
               type: 'invalid_data',
               entityType: 'arc',

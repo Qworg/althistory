@@ -8,6 +8,7 @@ import {
   findEscapedParentArc,
 } from './timelineInteractionUtils'
 import type { Arc, Event } from '@/types'
+import { toInstant } from '@althistory/calendar'
 
 const arc = (overrides: Partial<Arc> = {}): Arc => ({
   id: 'a1',
@@ -185,5 +186,24 @@ describe('findEscapedParentArc', () => {
         [parent]
       )
     ).toBeNull()
+  })
+})
+
+// Two moments a second apart near 200 million years BCE: one double, so
+// getTime() calls them the same moment (docs/specs/deep-time.md, Req 3).
+const EARLIER = '-200000001-12-31T23:59:59.500Z'
+const LATER = '-200000000-01-01T00:00:00.500Z'
+
+describe('bounds near 200 million years BCE, where a double holds no whole seconds', () => {
+  it('puts a moment a second past the end outside, and the end itself inside', () => {
+    expect(isWithinBounds(LATER, '-200000002-01-01T00:00:00.000Z', EARLIER)).toBe(false)
+    expect(isWithinBounds(EARLIER, '-200000002-01-01T00:00:00.000Z', EARLIER)).toBe(true)
+    expect(isWithinBounds(EARLIER, LATER, '-199999999-01-01T00:00:00.000Z')).toBe(false)
+  })
+
+  it('refuses a drag that leaves its arc by a second', () => {
+    const holding = arc({ id: 'deep', start_time: '-200000002-01-01T00:00:00.000Z', end_time: EARLIER })
+    const ev = { id: 'e', description: 'e', actor: 'a', target: 'b', timestamp: EARLIER, created_at: EARLIER, updated_at: EARLIER } as Event
+    expect(findExcludedContainingArcs(ev, toInstant(LATER), [holding]).map(a => a.id)).toEqual(['deep'])
   })
 })

@@ -19,7 +19,7 @@ import { useMemo } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import { apiClient } from '@/services/api'
 import { useActiveGraphId, useGraphs } from '@/hooks/useGraphs'
-import { analyzeEventDivergence } from '@/utils/divergenceAnalysis'
+import { analyzeEventDivergence, type PointOfDivergence } from '@/utils/divergenceAnalysis'
 import { branchLabel } from '@/components/graphs/graphTree'
 import type { Event, Graph } from '@/types'
 import { toInstant } from '@althistory/calendar'
@@ -33,6 +33,8 @@ export interface BranchDivergence {
   label: string
   /** Where it departs; null while loading or when it has not departed yet. */
   date: Date | null
+  /** The point of divergence the date is of (its event says how precisely the date is known). */
+  point: PointOfDivergence | null
 }
 
 export function useBranchDivergences(baselineEvents: readonly Event[]): BranchDivergence[] {
@@ -71,6 +73,7 @@ export function useBranchDivergences(baselineEvents: readonly Event[]): BranchDi
           branch,
           label: active ? branchLabel(branch, active) : branch.name,
           date: point ? toInstant(point.timestamp) : null,
+          point,
         }
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dataKey stands for `results`

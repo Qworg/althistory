@@ -332,5 +332,82 @@ describe('deep time', () => {
       expect(isSorted(moments)).toBe(true);
       expect(moments[moments.length - 1]! > 8_640_000_000_000_000n).toBe(true);
     });
+
+    it("expands a chronicle of one event over a year of the world's either side of it", async () => {
+      const graph = await engine.createGraph('One event', 'A single moment', WORLD);
+      created.push(graph.id);
+      const event = await engine.createEvent(graph.id, { description: 'The Thaw', timestamp: 'Ash 9, 250000 AF', actor: 'Folk', target: 'Land' });
+      const expanded = await engine.generateExpand({ graphId: graph.id, eventCount: 2, dryRun: false });
+      const at = toAxisTime(event.timestamp)!;
+      // The world's average year: 84.1 thirty-hour days.
+      const year = BigInt(Math.round(84.1 * 30 * 3600 * 1000));
+      expect(toAxisTime(expanded.arcs[0]!.startTime)).toBe(at - year);
+      expect(toAxisTime(expanded.arcs[0]!.endTime)).toBe(at + year);
+    });
+
+    it('dates a template chronicle 500 million of its years on at the start of its days, exactly', async () => {
+      // There a double holds only every 512th millisecond: a day start computed in one
+      // lands hundreds of milliseconds before or after midnight.
+      const result = await engine.generateTimeline({
+        world: 'The Long Count',
+        calendar: WORLD,
+        startDate: 'Ember 1, 500000000 AF',
+        endDate: 'Ember 1, 500000300 AF',
+        eventCount: 6,
+        dryRun: true,
+      });
+      const dayMs = BigInt(WORLD.dayLength * 1000);
+      const moments = result.events.map((event) => toAxisTime(event.timestamp)!);
+      expect(moments.map((moment) => ((moment % dayMs) + dayMs) % dayMs)).toEqual(moments.map(() => 0n));
+      expect(isSorted(moments)).toBe(true);
+    });
+  });
+
+  describe("the generator's plan, near 200 million years BCE where a double holds no whole seconds", () => {
+    // A second apart, and one double.
+    const EARLIER = '-200000001-12-31T23:59:59.500Z';
+    const LATER = '-200000000-01-01T00:00:00.500Z';
+
+    it('takes a span a second long, and starts at the moment it is given', async () => {
+      const result = await engine.generateTimeline({
+        premise: 'The first reef',
+        divergencePoint: 'A reef forms',
+        startDate: EARLIER,
+        endDate: LATER,
+        eventCount: 3,
+        dryRun: true,
+      });
+      const moments = result.events.map((event) => toAxisTime(event.timestamp)!);
+      expect(moments[0]).toBe(toAxisTime(EARLIER));
+      expect(isSorted(moments)).toBe(true);
+    });
+
+    it('refuses a span a second inside-out', async () => {
+      await expect(
+        engine.generateTimeline({ premise: 'The first reef', divergencePoint: 'A reef forms', startDate: LATER, endDate: EARLIER, eventCount: 3, dryRun: true })
+      ).rejects.toThrow(/end date must be after the start date/);
+    });
+
+    it('steps a simulation and a branch from the exact moment of the last event and the pivot', async () => {
+      const graph = await engine.createGraph('Reef');
+      created.push(graph.id);
+      const at = '-200000000-01-01T00:00:00.001Z';
+      const pivot = await engine.createEvent(graph.id, { description: 'A reef forms', timestamp: at, actor: 'Coral', target: 'Sea' });
+
+      const simulated = await engine.generateSimulate({ graphId: graph.id, steps: 2, timeAdvanceMonths: 12, dryRun: true });
+      const advance = BigInt(Math.trunc(12 * 30.4 * 24 * 60 * 60 * 1000));
+      expect(simulated.events.map((event) => toAxisTime(event.timestamp)!)).toEqual([toAxisTime(at)! + advance, toAxisTime(at)! + 2n * advance]);
+
+      const branch = await engine.generateBranch({
+        sourceGraphId: graph.id,
+        divergeAtEventId: pivot.id,
+        counterfactualPrompt: 'The reef fails',
+        branchName: 'No Reef',
+        eventCount: 3,
+        dryRun: true,
+      });
+      const first = branch.events.map((event) => toAxisTime(event.timestamp)!).sort(compareAxisTime)[0];
+      expect(first).toBe(toAxisTime(at)! + 86_400_000n);
+    });
   });
 });

@@ -29,7 +29,7 @@
 import * as d3 from 'd3'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { axisOf, calendarIn, compareInstants, gregorianTicks, instantOfAxisTime, toInstant, worldTicks } from '@althistory/calendar'
+import { axisOf, calendarIn, compareInstants, gregorianTicks, instantOfAxisTime, msApart, toInstant, worldTicks } from '@althistory/calendar'
 import { type InstantScale, type PositionScale, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
@@ -220,7 +220,8 @@ export function calculateInnerDimensions(
  * @returns Human-readable duration string
  */
 export function formatDuration(start: Date, end: Date): string {
-  const diffMs = end.getTime() - start.getTime()
+  // Exact to the nearest double: a getTime() difference of two deep moments is off by up to a second.
+  const diffMs = msApart(start, end)
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
 
   if (diffDays < 1) {

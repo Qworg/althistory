@@ -7,6 +7,8 @@ import { DirectEngine } from './engine/DirectEngine';
 import { TimelineGenerator, eraYearLabel, parseTimeWindow } from './generator/TimelineGenerator';
 import { LLMClient } from '../services/llm/LLMClient';
 import { ExtractedEvent } from '../services/ingestion/types';
+import { toAxisTime } from '@althistory/calendar';
+import type { GenerationResultDto } from './types';
 
 function createMockLLM(events: ExtractedEvent[]): LLMClient {
   return {
@@ -189,6 +191,68 @@ describe('TimelineGenerator Multi-Pass Engine', () => {
         dryRun: true,
       })
     ).rejects.toThrow(/Invalid time window/);
+  });
+
+  describe('a graph too small to have a span', () => {
+    async function graphWith(timestamps: string[]): Promise<string> {
+      const graph = await engine.createGraph('Expand me');
+      for (const [i, timestamp] of timestamps.entries()) {
+        await engine.createEvent(graph.id, { description: `Event ${i + 1}`, timestamp, actor: 'A', target: 'B' });
+      }
+      return graph.id;
+    }
+
+    function expectAround(expanded: GenerationResultDto, at: string): void {
+      const [arc] = expanded.arcs;
+      expect(arc).toBeDefined();
+      const start = toAxisTime(arc!.startTime)!;
+      const end = toAxisTime(arc!.endTime)!;
+      const event = toAxisTime(at)!;
+      expect(start < event && event < end).toBe(true);
+      for (const generated of expanded.events) {
+        const time = toAxisTime(generated.timestamp)!;
+        expect(start <= time && time <= end).toBe(true);
+      }
+    }
+
+    it('expands a graph of one event over a span around it', async () => {
+      const graphId = await graphWith(['1815-06-18T00:00:00.000Z']);
+      const expanded = await engine.generateExpand({ graphId, eventCount: 3, dryRun: false });
+      expect(expanded.eventCount).toBe(3);
+      expectAround(expanded, '1815-06-18T00:00:00.000Z');
+      expect(await engine.listEvents(graphId)).toHaveLength(4);
+      const preview = await engine.generateExpand({ graphId: await graphWith(['1815-06-18T00:00:00.000Z']), eventCount: 2, dryRun: true });
+      expectAround(preview, '1815-06-18T00:00:00.000Z');
+    });
+
+    it('expands a graph whose events are all at one moment', async () => {
+      const graphId = await graphWith(['-000043-03-15T00:00:00.000Z', '-000043-03-15T00:00:00.000Z']);
+      const expanded = await engine.generateExpand({ graphId, eventCount: 2, dryRun: false });
+      expectAround(expanded, '-000043-03-15T00:00:00.000Z');
+    });
+
+    it('expands one event far beyond what a double holds exactly', async () => {
+      const at = '-200000000-01-01T00:00:00.001Z';
+      const graphId = await graphWith([at]);
+      const expanded = await engine.generateExpand({ graphId, eventCount: 2, dryRun: false });
+      expectAround(expanded, at);
+    });
+
+    it('expands an empty graph over the time window it is given, and says what it needs without one', async () => {
+      const graphId = await graphWith([]);
+      await expect(engine.generateExpand({ graphId, eventCount: 2, dryRun: true })).rejects.toThrow(
+        /has no events.*time window/
+      );
+      const expanded = await engine.generateExpand({
+        graphId,
+        timeWindow: '1965-01-01T00:00:00Z/1966-01-01T00:00:00Z',
+        eventCount: 2,
+        dryRun: false,
+      });
+      expect(expanded.eventCount).toBe(2);
+      expect(expanded.arcs[0]?.startTime).toBe('1965-01-01T00:00:00.000Z');
+      expect(expanded.events[0]?.description).toMatch(/the start of the window/);
+    });
   });
 
   it('builds an arc hierarchy of the requested depth', async () => {

@@ -9,11 +9,22 @@
  * the picture stays centred on it.
  */
 import type { Core, NodeSingular } from 'cytoscape'
-import { toInstant } from '@althistory/calendar'
+import { type AxisTime, toAxisTime } from '@althistory/calendar'
 
 export interface TimedNode {
   id: string
-  time: number
+  /**
+   * When the node happened: an exact axis time, or milliseconds as a number
+   * (NaN for none). Ordered exactly: past 2^53 ms a getTime() is a rounded
+   * double, and a cause a second before its effect would be ordered by id.
+   */
+  time: AxisTime | number
+}
+
+/** The exact time of a node, or null when it has none. */
+function exactTime(time: AxisTime | number): AxisTime | null {
+  if (typeof time === 'bigint') return time
+  return Number.isFinite(time) ? BigInt(Math.trunc(time)) : null
 }
 
 export interface TimeOrderOptions {
@@ -32,15 +43,21 @@ export function timeOrderPositions(
 ): Map<string, { x: number; y: number }> {
   const positions = new Map<string, { x: number; y: number }>()
   if (nodes.length === 0) return positions
-  const timed = nodes.filter((n) => Number.isFinite(n.time)).sort((a, b) => a.time - b.time || a.id.localeCompare(b.id))
-  const untimed = nodes.filter((n) => !Number.isFinite(n.time))
+  const timed = nodes
+    .flatMap((n) => {
+      const time = exactTime(n.time)
+      return time === null ? [] : [{ id: n.id, time }]
+    })
+    .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : a.id.localeCompare(b.id)))
+  const untimed = nodes.filter((n) => exactTime(n.time) === null)
   // Wide enough to read as a time axis, narrow enough that the canvas's fit
   // keeps labels at a legible size: crowding goes into more rows, not into
   // a wider strip that the fit then shrinks until the labels are culled.
   const span = Math.max(1, width ?? Math.min(1400, Math.max(600, Math.sqrt(timed.length) * 170)))
-  const t0 = timed[0]?.time ?? 0
+  const t0 = timed[0]?.time ?? 0n
   const t1 = timed[timed.length - 1]?.time ?? t0
-  const scale = (t: number) => (t1 === t0 ? span / 2 : ((t - t0) / (t1 - t0)) * span)
+  // The distance from the first, exactly; only the ratio is a double.
+  const scale = (t: AxisTime) => (t1 === t0 ? span / 2 : (Number(t - t0) / Number(t1 - t0)) * span)
 
   // Rows in the order 0, -1, +1, -2, +2 …, each remembering its last x.
   const rowEnds: number[] = []
@@ -104,9 +121,9 @@ export function timeOrderPositionsForViewport(
 /** One computation per layout run, shared by the per-node `positions` calls. */
 const cache = new WeakMap<Core, { signature: string; positions: Map<string, { x: number; y: number }> }>()
 
-function nodeTime(node: NodeSingular): number {
+function nodeTime(node: NodeSingular): AxisTime | number {
   const event = node.data('event') as { timestamp?: string } | undefined
-  return event?.timestamp ? toInstant(event.timestamp).getTime() : Number.NaN
+  return (event?.timestamp ? toAxisTime(event.timestamp) : null) ?? Number.NaN
 }
 
 /** Cytoscape's `preset` layout `positions` callback for the time-order layout. */

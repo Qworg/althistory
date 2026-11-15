@@ -7,6 +7,7 @@ import {
   analyzeRelationshipDivergence,
   comparisonCalendar,
   comparisonSide,
+  formatDivergenceDate,
   type ComparisonCalendars,
   type EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
@@ -25,7 +26,7 @@ import {
   quoted,
 } from './branchUi'
 import { CausalGraphComponent } from '@/components/causal-graph/CausalGraphComponent'
-import { formatHistoricalDate, formatEventDate } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 
 export interface BranchComparisonModalProps {
   readonly isOpen: boolean
@@ -603,7 +604,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
               phone, four in a row from md */}
           <p className="sm:hidden border-y border-line py-2 text-xs text-ink-secondary">
             {metrics.pointOfDivergence
-              ? <>Splits <span className="font-mono-code text-ink">{formatHistoricalDate(metrics.pointOfDivergence.timestamp, undefined, calendarFor(metrics.pointOfDivergence.type))}</span> · {countNoun(metrics.divergentEventsCount, 'event')} added · {countNoun(newCausalLinks, 'new link')}</>
+              ? <>Splits <span className="font-mono-code text-ink">{formatDivergenceDate(metrics.pointOfDivergence, calendarFor(metrics.pointOfDivergence.type))}</span> · {countNoun(metrics.divergentEventsCount, 'event')} added · {countNoun(newCausalLinks, 'new link')}</>
               : 'No point of divergence: the graphs have the same events.'}
           </p>
           {calendarsDiffer && (
@@ -620,7 +621,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
               </dt>
               <dd className="mt-1 font-semibold font-mono-code truncate">
                 {metrics.pointOfDivergence
-                  ? formatHistoricalDate(metrics.pointOfDivergence.timestamp, undefined, calendarFor(metrics.pointOfDivergence.type))
+                  ? formatDivergenceDate(metrics.pointOfDivergence, calendarFor(metrics.pointOfDivergence.type))
                   : 'None'}
               </dd>
               <dd className="text-xs text-ink-secondary truncate mt-0.5">
@@ -878,7 +879,7 @@ export const BranchComparisonModal: React.FC<BranchComparisonModalProps> = ({
                         <>
                           {quoted(resolvedCounterfactualName)} follows {quoted(resolvedBaselineName)} until{' '}
                           <strong className="font-mono-code">
-                            {formatHistoricalDate(metrics.pointOfDivergence.timestamp, undefined, calendarFor(metrics.pointOfDivergence.type))}
+                            {formatDivergenceDate(metrics.pointOfDivergence, calendarFor(metrics.pointOfDivergence.type))}
                           </strong>
                           {' '}({countNoun(metrics.sharedEventsCount, 'shared event')}), then goes its own way.
                         </>

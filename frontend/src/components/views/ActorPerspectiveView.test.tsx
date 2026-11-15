@@ -82,6 +82,7 @@ vi.mock('@/components/actor/ActorStats', () => ({
       <div data-testid="stats-event-count">{stats.eventCount}</div>
       <div data-testid="stats-as-actor">{stats.relationshipMetrics.asActor}</div>
       <div data-testid="stats-as-target">{stats.relationshipMetrics.asTarget}</div>
+      <div data-testid="stats-span">{stats.timeSpan ? `${stats.timeSpan.start.toISOString()} – ${stats.timeSpan.end.toISOString()}` : ''}</div>
     </div>
   )
 }))
@@ -467,6 +468,38 @@ describe('ActorPerspectiveView', () => {
       await waitFor(() => {
         // Should show count of relevant arcs
         expect(screen.getByText(/· \d+ arcs?$/)).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('a second apart near 200 million years BCE, where a double holds no whole seconds', () => {
+    // One double: getTime() calls them the same moment (docs/specs/deep-time.md, Req 3).
+    const EARLIER = '-200000001-12-31T23:59:59.500Z'
+    const LATER = '-200000000-01-01T00:00:00.500Z'
+    const deepEvent = (id: string, timestamp: string): Event => ({
+      id, description: `Deep ${id}`, actor: 'Coral', target: 'Sea', timestamp, created_at: timestamp, updated_at: timestamp,
+    })
+    const deepArc = (id: string, start_time: string, end_time: string): Arc => ({
+      id, name: id, description: id, start_time, end_time, level: 0, parent_arc_id: null, created_at: start_time, updated_at: start_time,
+    })
+
+    it("spans the actor's events, and keeps only the arcs that overlap them, exactly", async () => {
+      vi.mocked(useEvents).mockReturnValue(eventsResult({ data: [deepEvent('a', LATER), deepEvent('b', EARLIER)], isLoading: false, error: null }))
+      vi.mocked(useArcs).mockReturnValue(arcsResult({
+        data: [
+          // Ends a second before the first event: not the actor's.
+          deepArc('before', '-200000002-01-01T00:00:00.000Z', '-200000001-12-31T23:59:58.500Z'),
+          deepArc('holding', '-200000002-01-01T00:00:00.000Z', EARLIER),
+        ],
+        isLoading: false,
+        error: null,
+      }))
+      renderWithQueryClient(<ActorPerspectiveView />)
+      fireEvent.change(screen.getByTestId('actor-select'), { target: { value: 'Coral' } })
+
+      await waitFor(() => {
+        expect(screen.getByTestId('stats-span')).toHaveTextContent(`${EARLIER} – ${LATER}`)
+        expect(screen.getByText(/· 1 arc$/)).toBeInTheDocument()
       })
     })
   })

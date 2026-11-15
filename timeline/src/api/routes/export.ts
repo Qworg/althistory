@@ -28,6 +28,7 @@ import { AlthistoryExport, ExportOptions } from '../../services/ExportService';
 import type { AsyncJob, ExportJobParams } from '../../models/AsyncJob';
 import { ValidationError, NotFoundError } from '../../utils/errors';
 import { queryInstant } from '../worldDates';
+import { compareInstants } from '@althistory/calendar';
 
 export const exportRoutes = Router();
 
@@ -506,7 +507,7 @@ function validateFilters(filters: ExportFilters): void {
     if (isNaN(end.getTime())) {
       throw new ValidationError('Invalid end date in timeRange', 'filters.timeRange.end', filters.timeRange.end);
     }
-    if (start > end) {
+    if (compareInstants(start, end) > 0) {
       throw new ValidationError('Start date must be before end date', 'filters.timeRange');
     }
   }

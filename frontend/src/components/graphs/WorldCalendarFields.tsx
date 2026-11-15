@@ -16,6 +16,7 @@ import {
   formatWorldFields,
   newCalendarDraft,
   trimCalendarSet,
+  type AxisTime,
   type WorldCalendarSet,
   readWorldDraft,
 } from '@althistory/calendar'
@@ -30,7 +31,7 @@ interface WorldCalendarFieldsProps {
    * A position on the timeline to show in the preview: the graph's first
    * event when it has one, so the preview speaks about this history.
    */
-  samplePosition?: number
+  samplePosition?: AxisTime
   disabled?: boolean
 }
 
@@ -136,13 +137,13 @@ function ListError({ id, error }: { id: string; error?: string }) {
  * What a calendar looks like: its year 1 and a date in the history (or a
  * hundred days on), once the whole set checks out.
  */
-function Preview({ draft, index, samplePosition }: { draft: WorldDraft; index: number; samplePosition?: number }) {
+function Preview({ draft, index, samplePosition }: { draft: WorldDraft; index: number; samplePosition?: AxisTime }) {
   const read = readWorldDraft(draft)
   if (!read.ok) return <p className="text-xs text-ink-muted">The preview shows once every field above checks out.</p>
   const calendar = calendarIn(read.set, read.set.calendars[index]!.id)
   const first = calendar.definition.epoch * calendar.dayMs
   const sample = samplePosition ?? first + 100 * calendar.dayMs
-  const line = (position: number) => formatWorldFields(calendar, dateAt(calendar, position), 'day', true)
+  const line = (position: AxisTime | number) => formatWorldFields(calendar, dateAt(calendar, position), 'day', true)
   return (
     <div className="text-xs text-ink-secondary space-y-0.5">
       <p>
@@ -169,7 +170,7 @@ function CalendarEditor({
   index: number
   idPrefix: string
   state: CalendarDraftState
-  samplePosition?: number
+  samplePosition?: AxisTime
   showErrors: boolean
 }) {
   const calendar = draft.calendars[index]!

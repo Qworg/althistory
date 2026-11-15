@@ -2,7 +2,7 @@ import * as d3 from 'd3'
 import { describe, expect, it } from 'vitest'
 import { AxisDate, MAX_AXIS_MS, MIN_AXIS_MS, axisOf, clampedInstantOfMs, instantOfMs, isoOfAxisTime, toAxisTime, toInstant } from '@althistory/calendar'
 import { axisTicks } from '@/utils/d3Calculations'
-import { instantScale, isDeepInstant, rescaleInstantX } from '@/utils/timeScale'
+import { clampedAddInstantMs, instantExtent, instantScale, isDeepInstant, rescaleInstantX } from '@/utils/timeScale'
 
 const YEAR = 365.2425 * 86_400_000
 
@@ -172,5 +172,25 @@ describe('ticks of a domain a Date holds, near its lower bound', () => {
     const scale = instantScale(true).domain([new Date('-250000-01-01T00:00:00.000Z'), new Date('+050000-01-01T00:00:00.000Z')]).range([0, 900])
     expect(isDeepInstant(scale.domain()[0])).toBe(false)
     expect(scale.ticks(8).length).toBeGreaterThan(2)
+  })
+})
+
+// Two moments a second apart near 200 million years BCE: one double, so
+// getTime() calls them the same moment (docs/specs/deep-time.md, Req 3).
+const EARLIER = '-200000001-12-31T23:59:59.500Z'
+const LATER = '-200000000-01-01T00:00:00.500Z'
+
+describe('extents and offsets near 200 million years BCE, where a double holds no whole seconds', () => {
+  it('takes the first and last of some moments exactly, leaving out invalid ones', () => {
+    const extent = instantExtent([toInstant(LATER), new Date(NaN), toInstant(EARLIER)])
+    expect(extent?.map((date) => date.toISOString())).toEqual([EARLIER, LATER])
+    expect(instantExtent([new Date(NaN)])).toBeNull()
+  })
+
+  it('moves a moment by an offset exactly, and stops at the bound', () => {
+    expect(clampedAddInstantMs(toInstant(EARLIER), 1000).toISOString()).toBe(LATER)
+    expect(axisOf(clampedAddInstantMs(toInstant(EARLIER), -1e30))).toBe(MIN_AXIS_MS)
+    expect(axisOf(clampedAddInstantMs(toInstant(LATER), Infinity))).toBe(MAX_AXIS_MS)
+    expect(Number.isNaN(clampedAddInstantMs(toInstant(LATER), NaN).getTime())).toBe(true)
   })
 })

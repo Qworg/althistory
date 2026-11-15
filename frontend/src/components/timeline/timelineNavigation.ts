@@ -40,9 +40,13 @@ export function parseMarkKey(key: MarkKey): { kind: 'event' | 'arc'; id: string 
 
 interface NavItem {
   key: MarkKey
-  /** Start and end of the mark in epoch ms (equal for an event). */
-  start: number
-  end: number
+  /**
+   * Start and end of the mark as exact axis times (equal for an event): past
+   * 2^53 ms a getTime() is a rounded double, and two marks a second apart
+   * would be one moment, ordered by their keys.
+   */
+  start: AxisTime
+  end: AxisTime
 }
 
 export interface NavModel {
@@ -53,7 +57,8 @@ export interface NavModel {
 
 export type NavMove = 'prev' | 'next' | 'first' | 'last' | 'up' | 'down'
 
-const byTime = (a: NavItem, b: NavItem) => a.start - b.start || a.end - b.end || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+const order = (a: AxisTime | string, b: AxisTime | string): number => (a < b ? -1 : a > b ? 1 : 0)
+const byTime = (a: NavItem, b: NavItem) => order(a.start, b.start) || order(a.end, b.end) || order(a.key, b.key)
 
 export function buildNavModel(
   events: ReadonlyArray<{ id: string; timestamp: string }>,
@@ -61,9 +66,9 @@ export function buildNavModel(
 ): NavModel {
   const rows = new Map<number, NavItem[]>()
   for (const arc of arcs) {
-    const start = toInstant(arc.start_time).getTime()
-    const end = toInstant(arc.end_time).getTime()
-    if (Number.isNaN(start) || Number.isNaN(end)) continue
+    const start = toAxisTime(arc.start_time)
+    const end = toAxisTime(arc.end_time)
+    if (start === null || end === null) continue
     const row = rows.get(arc.renderLevel) ?? []
     row.push({ key: arcMarkKey(arc.id), start, end })
     rows.set(arc.renderLevel, row)
@@ -74,8 +79,8 @@ export function buildNavModel(
 
   const track: NavItem[] = []
   for (const event of events) {
-    const t = toInstant(event.timestamp).getTime()
-    if (!Number.isNaN(t)) track.push({ key: eventMarkKey(event.id), start: t, end: t })
+    const t = toAxisTime(event.timestamp)
+    if (t !== null) track.push({ key: eventMarkKey(event.id), start: t, end: t })
   }
   if (track.length > 0) lanes.push(track.sort(byTime))
 
@@ -84,18 +89,18 @@ export function buildNavModel(
   return { lanes, index }
 }
 
-/** The span [start, end] (epoch ms) of a mark in the model, or null. */
-export function markSpan(model: NavModel, key: MarkKey): { start: number; end: number } | null {
+/** The span [start, end] (exact axis times) of a mark in the model, or null. */
+export function markSpan(model: NavModel, key: MarkKey): { start: AxisTime; end: AxisTime } | null {
   const at = model.index.get(key)
   const item = at ? model.lanes[at.lane]?.[at.position] : undefined
   return item ? { start: item.start, end: item.end } : null
 }
 
-/** Distance in time from t to an item (0 when the item spans t). */
-function distance(item: NavItem, t: number): number {
+/** Distance in time from t to an item (0 when the item spans t), exactly. */
+function distance(item: NavItem, t: AxisTime): AxisTime {
   if (t < item.start) return item.start - t
   if (t > item.end) return t - item.end
-  return 0
+  return 0n
 }
 
 /**
@@ -110,7 +115,7 @@ export function navigate(
   model: NavModel,
   from: MarkKey,
   move: NavMove,
-  view?: { start: number; end: number }
+  view?: { start: Date; end: Date }
 ): MarkKey | null {
   const at = model.index.get(from)
   if (!at) return null
@@ -133,15 +138,17 @@ export function navigate(
       if (!target || target.length === 0) return null
       let start = current.start
       let end = current.end
-      if (view && end > start) {
-        start = Math.max(start, view.start)
-        end = Math.min(end, view.end)
+      const viewStart = view ? toAxisTime(view.start) : null
+      const viewEnd = view ? toAxisTime(view.end) : null
+      if (viewStart !== null && viewEnd !== null && end > start) {
+        start = start > viewStart ? start : viewStart
+        end = end < viewEnd ? end : viewEnd
         if (end < start) {
           start = current.start
           end = current.end
         }
       }
-      const t = (start + end) / 2
+      const t = (start + end) / 2n
       let best = target[0]!
       let bestDistance = distance(best, t)
       for (const item of target) {

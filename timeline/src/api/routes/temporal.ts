@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { compareInstants, msApart } from '@althistory/calendar';
 import { ValidationError, NotFoundError } from '@/utils/errors';
 import { TimeRange, IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
@@ -71,7 +72,7 @@ temporalRoutes.get('/timeline', ...entityPermission('read:events', 'read:arcs'),
       throw new ValidationError('Invalid date format for startTime or endTime', 'timeRange', { startTime, endTime });
     }
 
-    if (timeRange.start >= timeRange.end) {
+    if (compareInstants(timeRange.start, timeRange.end) >= 0) {
       throw new ValidationError('startTime must be before endTime', 'timeRange', { startTime, endTime });
     }
 
@@ -440,7 +441,7 @@ temporalRoutes.get('/density', ...entityPermission('read:events', 'read:arcs'), 
     if (type === 'events' || type === 'both') {
       const events = await eventRepository.findByTimeRange(timeRange);
       density.eventCount = events.length;
-      density.eventDensity = events.length / ((timeRange.end.getTime() - timeRange.start.getTime()) / (24 * 60 * 60 * 1000)); // events per day
+      density.eventDensity = events.length / (msApart(timeRange.start, timeRange.end) / (24 * 60 * 60 * 1000)); // events per day
     }
     
     if (type === 'arcs' || type === 'both') {

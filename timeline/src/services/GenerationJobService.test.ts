@@ -233,7 +233,7 @@ describe('GenerationJobService', () => {
       const empty = await container.graphService.createGraph({ name: 'Empty graph' });
       const failed = await settled(service, service.start({ kind: 'expand', options: { graphId: empty.id } }, OWNER).id);
       expect(failed.status).toBe('failed');
-      expect(failed.error).toContain('Cannot expand empty graph');
+      expect(failed.error).toMatch(/Cannot expand graph .*: it has no events/);
       expect(failed.result).toBeUndefined();
     });
   });

@@ -1,5 +1,5 @@
 import { Event, CausalRelationship, GraphCalendar } from '@/types'
-import { formatHistoricalDate } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
 import { compareInstants, sameCalendarSet, toInstant } from '@althistory/calendar'
 
@@ -47,6 +47,19 @@ export interface PointOfDivergence {
   readonly event: Event | null
   readonly type: DivergenceType
   readonly description: string
+}
+
+/**
+ * The date a point of divergence is shown with: at the precision its event was
+ * given at ("1871", "Mar 1871"; in a world, its year or month in the calendar
+ * it was given in), and to the day only when the day is known. Without an
+ * event, the day of its timestamp.
+ */
+export function formatDivergenceDate(
+  pod: Pick<PointOfDivergence, 'timestamp' | 'event'>,
+  calendar?: GraphCalendar | null
+): string {
+  return formatEventDate({ timestamp: pod.timestamp, metadata: pod.event?.metadata }, undefined, calendar)
 }
 
 export interface FieldChange {
@@ -164,8 +177,8 @@ export function findPointOfDivergence(
       event,
       type: 'event_added',
       description: event
-        ? `First new counterfactual event: "${event.description}" (${formatHistoricalDate(timestamp, undefined, comparisonCalendar('counterfactual', calendars))})`
-        : `New event introduced at ${formatHistoricalDate(timestamp, undefined, comparisonCalendar('counterfactual', calendars))}`,
+        ? `First new counterfactual event: "${event.description}" (${formatDivergenceDate({ timestamp, event }, comparisonCalendar('counterfactual', calendars))})`
+        : `New event introduced at ${formatDivergenceDate({ timestamp, event }, comparisonCalendar('counterfactual', calendars))}`,
     }
   }
 
@@ -187,8 +200,8 @@ export function findPointOfDivergence(
     event,
     type: 'event_removed',
     description: event
-      ? `Prevented/omitted event: "${event.description}" (${formatHistoricalDate(timestamp, undefined, comparisonCalendar('baseline', calendars))})`
-      : `Event prevented at ${formatHistoricalDate(timestamp, undefined, comparisonCalendar('baseline', calendars))}`,
+      ? `Prevented/omitted event: "${event.description}" (${formatDivergenceDate({ timestamp, event }, comparisonCalendar('baseline', calendars))})`
+      : `Event prevented at ${formatDivergenceDate({ timestamp, event }, comparisonCalendar('baseline', calendars))}`,
   }
 }
 

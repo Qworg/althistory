@@ -1,5 +1,5 @@
 import { Arc, Event } from '@/types'
-import { toInstant } from '@althistory/calendar'
+import { type AxisTime, toAxisTime } from '@althistory/calendar'
 // Re-export formatDuration from shared utilities to avoid duplication
 export { formatDuration } from '@/utils/d3Calculations'
 
@@ -33,12 +33,17 @@ export interface ArcWithUIState extends Arc {
  * level-assignment code path and needs its own tests. It is reported as an
  * outstanding limit rather than half-done here.
  */
+/**
+ * Times here are exact axis times: past 2^53 ms (about 285,000 years) a
+ * getTime() is a rounded double, and an event a second outside an arc would
+ * be inside it.
+ */
 interface ParsedEvent {
   event: Event
-  time: number
+  time: AxisTime
 }
 
-function findStartIndex(events: readonly ParsedEvent[], targetTime: number): number {
+function findStartIndex(events: readonly ParsedEvent[], targetTime: AxisTime): number {
   let low = 0
   let high = events.length
   while (low < high) {
@@ -53,7 +58,7 @@ function findStartIndex(events: readonly ParsedEvent[], targetTime: number): num
   return low
 }
 
-function findEndIndex(events: readonly ParsedEvent[], targetTime: number): number {
+function findEndIndex(events: readonly ParsedEvent[], targetTime: AxisTime): number {
   let low = 0
   let high = events.length
   while (low < high) {
@@ -70,8 +75,15 @@ function findEndIndex(events: readonly ParsedEvent[], targetTime: number): numbe
 
 interface ArcWithTiming {
   arc: ArcWithUIState
-  startMs: number
-  endMs: number
+  /** Exact; null when unreadable. */
+  start: AxisTime | null
+  end: AxisTime | null
+}
+
+/** Exactly; an unreadable time sorts last. */
+function compareTimes(a: AxisTime | null, b: AxisTime | null): number {
+  if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1
+  return a < b ? -1 : a > b ? 1 : 0
 }
 
 /**
@@ -82,9 +94,7 @@ export function calculateArcHierarchy(arcs: ArcWithUIState[]): { arcHierarchy: A
   // Pre-parse timestamps and map by arc
   const timingByArc = new Map<ArcWithUIState, ArcWithTiming>()
   for (const arc of arcs) {
-    const startMs = toInstant(arc.start_time).getTime()
-    const endMs = toInstant(arc.end_time).getTime()
-    timingByArc.set(arc, { arc, startMs, endMs })
+    timingByArc.set(arc, { arc, start: toAxisTime(arc.start_time), end: toAxisTime(arc.end_time) })
   }
 
   // Build hierarchy tree
@@ -111,19 +121,22 @@ export function calculateArcHierarchy(arcs: ArcWithUIState[]): { arcHierarchy: A
 
   function processArcLevel(arcsAtLevel: ArcWithTiming[], baseLevel: number, expandedParents: Set<string>) {
     // Sort arcs by start time for consistent positioning
-    const sortedArcs = [...arcsAtLevel].sort((a, b) => a.startMs - b.startMs)
+    const sortedArcs = [...arcsAtLevel].sort((a, b) => compareTimes(a.start, b.start))
 
     // Track the latest end time on each candidate render level to avoid overlaps.
     // In start-time sorted order, an arc only conflicts with a level if its start time < last end time on that level.
-    const levelEndTimes = new Map<number, number>()
-    
+    // An unreadable time conflicts with nothing, and leaves its level free.
+    const levelEndTimes = new Map<number, AxisTime>()
+
     for (const timedArc of sortedArcs) {
       let level = baseLevel
-      while (levelEndTimes.has(level) && timedArc.startMs < levelEndTimes.get(level)!) {
+      const start = timedArc.start
+      while (start !== null && levelEndTimes.has(level) && start < levelEndTimes.get(level)!) {
         level++
       }
 
-      levelEndTimes.set(level, timedArc.endMs)
+      if (timedArc.end === null) levelEndTimes.delete(level)
+      else levelEndTimes.set(level, timedArc.end)
       timedArc.arc.renderLevel = level
       maxLevel = Math.max(maxLevel, level)
       result.push(timedArc.arc)
@@ -171,21 +184,25 @@ export function processArcsWithUIState(
   }
 
   // 2. Pre-parse event timestamps once and sort chronologically for O(log E) interval binary search
-  const parsedEvents: ParsedEvent[] = events.map(event => ({
-    event,
-    time: toInstant(event.timestamp).getTime()
-  }))
-  parsedEvents.sort((a, b) => a.time - b.time)
+  // An event without a readable time is in no arc.
+  const parsedEvents: ParsedEvent[] = []
+  for (const event of events) {
+    const time = toAxisTime(event.timestamp)
+    if (time !== null) parsedEvents.push({ event, time })
+  }
+  parsedEvents.sort((a, b) => compareTimes(a.time, b.time))
 
   return arcs.map(arc => {
-    const arcStart = toInstant(arc.start_time).getTime()
-    const arcEnd = toInstant(arc.end_time).getTime()
-    const duration = arcEnd - arcStart
+    const arcStart = toAxisTime(arc.start_time)
+    const arcEnd = toAxisTime(arc.end_time)
+    // A span in milliseconds (exact to the nearest double), NaN when unreadable.
+    const duration = arcStart === null || arcEnd === null ? NaN : Number(arcEnd - arcStart)
 
     // Binary search for events falling within [arcStart, arcEnd]
-    const startIdx = findStartIndex(parsedEvents, arcStart)
-    const endIdx = findEndIndex(parsedEvents, arcEnd)
-    const containedEvents = parsedEvents.slice(startIdx, endIdx).map(p => p.event)
+    const containedEvents =
+      arcStart === null || arcEnd === null
+        ? []
+        : parsedEvents.slice(findStartIndex(parsedEvents, arcStart), findEndIndex(parsedEvents, arcEnd)).map(p => p.event)
 
     const childArcs = childrenByParentId.get(arc.id) || []
     const parentArc = arc.parent_arc_id ? (arcsById.get(arc.parent_arc_id) || null) : null

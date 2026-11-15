@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import { formatHistoricalDate } from '@/utils/historicalTime'
+import { msApart } from '@althistory/calendar'
 
 export interface ActorStatsData {
   eventCount: number
@@ -21,7 +22,7 @@ export interface ActorStatsProps {
 const DAY_MS = 1000 * 60 * 60 * 24
 
 function formatDuration(start: Date, end: Date): string {
-  const diffDays = Math.floor((end.getTime() - start.getTime()) / DAY_MS)
+  const diffDays = Math.floor(msApart(start, end) / DAY_MS)
   const diffYears = Math.floor(diffDays / 365)
   const remainingDays = diffDays % 365
   const diffMonths = Math.floor(remainingDays / 30)
@@ -65,7 +66,7 @@ function formatRate(rate: number): string {
 function activityRate(stats: ActorStatsData): { value: string; unit: string } | null {
   if (!stats.timeSpan || stats.eventCount === 0) return null
 
-  const diffDays = Math.max(1, Math.floor((stats.timeSpan.end.getTime() - stats.timeSpan.start.getTime()) / DAY_MS))
+  const diffDays = Math.max(1, Math.floor(msApart(stats.timeSpan.start, stats.timeSpan.end) / DAY_MS))
   const daily = stats.eventCount / diffDays
 
   if (diffDays > 366) {
