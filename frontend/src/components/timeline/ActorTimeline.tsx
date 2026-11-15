@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
 import { clampedAddInstantMs, instantExtent, instantScale, rescaleInstantX, usesArithmeticTicks } from '@/utils/timeScale'
 import { Event, Arc, TimeRange } from '@/types'
-import { axisTicks, formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
+import { axisTicks, formatTimeAxisTickSet, getTimeAxisInterval } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
@@ -239,10 +239,12 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     // width holds, the count-based ticks (as the main timeline draws them).
     // The slack keeps a narrow chart's crowded, turned labels as they were.
     if (dates.length === 0 || dates.length > Math.max(maxTicks * 3, 24)) return countTicks()
-    return dates.map(date => ({
+    // Labelled as a set: one tick before 1 CE writes them all as a person types a date.
+    const labels = formatTimeAxisTickSet(dates, timeSpanMs, true)
+    return dates.map((date, index) => ({
       key: String(toAxisTime(date)),
       x: timeScale(date),
-      label: formatTimeAxisTick(date, timeSpanMs, true)
+      label: labels[index]!
     }))
   }, [timeScale, state.visibleTimeRange, worldCalendar])
 

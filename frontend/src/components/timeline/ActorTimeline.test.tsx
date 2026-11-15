@@ -191,6 +191,20 @@ describe('ActorTimeline', () => {
     })
   })
 
+  describe('across 1 CE', () => {
+    it('labels the whole tick set in the typed syntax, not d3\'s astronomical or decade styles', () => {
+      const roman = [
+        actorEvent('r1', 'actor', 'Rome', '-000080-06-15T00:00:00.000Z'),
+        actorEvent('r2', 'target', 'Gaul', '0045-01-01T00:00:00.000Z'),
+      ]
+      const { container } = render(<ActorTimeline actor="Rome" layoutMode="chronological" events={roman} arcs={[]} width={1000} />)
+      const labels = Array.from(container.querySelectorAll<SVGTextElement>('.x-axis .tick text')).map((t) => t.textContent ?? '')
+      expect(labels.length).toBeGreaterThan(2)
+      expect(labels.some((label) => / BCE$/.test(label))).toBe(true)
+      for (const label of labels) expect(label).toMatch(/^[1-9]\d*(-\d{2}){0,2}( BCE)?$/)
+    })
+  })
+
   describe('over a million years (docs/specs/deep-time.md)', () => {
     const deep = [
       actorEvent('e1', 'actor', 'Britain', '-500000-06-15T00:00:00.000Z'),
@@ -205,10 +219,10 @@ describe('ActorTimeline', () => {
       const labels = tickTexts(container)
       expect(labels.length).toBeGreaterThan(2)
       expect(new Set(labels).size).toBe(labels.length)
-      // As the locale writes a year (en-US here): "500000 BC", and "300000" after 1 CE.
-      expect(labels.some((label) => /^\d+ BC$/.test(label ?? ''))).toBe(true)
+      // As a person types a year: "500000 BCE", and "300000" after 1 CE.
+      expect(labels.some((label) => /^\d+ BCE$/.test(label ?? ''))).toBe(true)
       expect(labels.some((label) => /^\d+$/.test(label ?? ''))).toBe(true)
-      expect(labels.some((label) => /BCE|CE$/.test(label ?? ''))).toBe(false)
+      expect(labels.every((label) => /^\d+( BCE)?$/.test(label ?? ''))).toBe(true)
       expect(container.innerHTML).not.toContain('NaN')
     })
 
