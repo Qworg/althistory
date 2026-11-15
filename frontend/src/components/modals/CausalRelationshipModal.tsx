@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { CausalRelationship, Event, CausalRelationshipData } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 
 export interface CausalRelationshipModalProps {
@@ -281,7 +281,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
                       {causeEvent ? `${causeEvent.actor} → ${causeEvent.target}` : 'Unknown Event'}
                     </div>
                     <div className="text-xs text-ink-muted">
-                      {causeEvent ? formatHistoricalTimestamp(causeEvent.timestamp) : 'N/A'}
+                      {causeEvent ? formatEventDate(causeEvent) : 'N/A'}
                     </div>
                   </div>
                   <div className="text-ink-muted">
@@ -294,7 +294,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
                       {effectEvent ? `${effectEvent.actor} → ${effectEvent.target}` : 'Unknown Event'}
                     </div>
                     <div className="text-xs text-ink-muted">
-                      {effectEvent ? formatHistoricalTimestamp(effectEvent.timestamp) : 'N/A'}
+                      {effectEvent ? formatEventDate(effectEvent) : 'N/A'}
                     </div>
                   </div>
                 </div>

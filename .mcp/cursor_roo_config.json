@@ -2,10 +2,9 @@
   "mcpServers": {
     "althistory": {
       "command": "./bin/althistory",
-      "args": ["mcp"],
-      "env": {
-        "LOCAL_EXECUTION_ENABLED": "true"
-      }
+      "args": [
+        "mcp"
+      ]
     }
   }
 }

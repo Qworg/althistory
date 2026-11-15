@@ -1,5 +1,7 @@
-import type { Event } from '@/types'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import type { Event, GraphCalendar } from '@/types'
+import { historicalYear, formatEventDate } from '@/utils/historicalTime'
+import { getActiveCalendar } from '@/stores/worldCalendarStore'
+import { toInstant } from '@althistory/calendar'
 
 /**
  * How an event reads on the causal graph.
@@ -43,10 +45,16 @@ export function eventNodeLabel(event: Pick<Event, 'description' | 'actor' | 'tar
   return truncateLabel(description || formatActorTarget(event))
 }
 
-/** The year an event falls in, in UTC, with BCE for years before 1 CE. */
-export function eventYear(timestamp: string | Date): string {
-  const date = new Date(timestamp)
+/**
+ * The year an event falls in, in UTC, with BCE for years before 1 CE; in the
+ * world's own years when the graph has a calendar ("312 AR").
+ */
+export function eventYear(timestamp: string | Date, calendar?: GraphCalendar | null): string {
+  const date = toInstant(timestamp)
   if (Number.isNaN(date.getTime())) return ''
+  // In a world, the year as its calendar names it.
+  const world = calendar === undefined ? getActiveCalendar() : calendar
+  if (world) return historicalYear(date, world)
   const year = date.getUTCFullYear()
   // Astronomical year 0 is 1 BCE, -1 is 2 BCE, and so on.
   return year <= 0 ? `${1 - year} BCE` : String(year)
@@ -57,8 +65,11 @@ export function eventYear(timestamp: string | Date): string {
  * laid out by cause, not by date, so without the year a node gave no hint of
  * when it happened and every reading of the graph needed a hover.
  */
-export function eventNodeCanvasLabel(event: Pick<Event, 'description' | 'actor' | 'target' | 'timestamp'>): string {
-  const year = eventYear(event.timestamp)
+export function eventNodeCanvasLabel(
+  event: Pick<Event, 'description' | 'actor' | 'target' | 'timestamp'>,
+  calendar?: GraphCalendar | null
+): string {
+  const year = eventYear(event.timestamp, calendar)
   const label = eventNodeLabel(event)
   return year ? `${year}\n${label}` : label
 }
@@ -67,8 +78,11 @@ export function eventNodeCanvasLabel(event: Pick<Event, 'description' | 'actor' 
  * One sentence that says everything the node stands for: what happened, who
  * acted on whom, and when (in UTC, as all historical dates are).
  */
-export function describeEvent(event: Pick<Event, 'description' | 'actor' | 'target' | 'timestamp'>): string {
-  const parts = [normalise(event.description), formatActorTarget(event), formatHistoricalTimestamp(event.timestamp)]
+export function describeEvent(
+  event: Pick<Event, 'description' | 'actor' | 'target' | 'timestamp'> & Partial<Pick<Event, 'metadata'>>,
+  calendar?: GraphCalendar | null
+): string {
+  const parts = [normalise(event.description), formatActorTarget(event), formatEventDate(event, undefined, calendar)]
   return parts.filter(Boolean).join('. ')
 }
 
@@ -116,6 +130,8 @@ export interface GraphPalette {
   /** A point of divergence (also drawn as a diamond). */
   divergenceFill: string
   divergenceBorder: string
+  /** An event or link another writer just added or changed (the live change feed): its ring. */
+  freshRing: string
   /**
    * An event that cannot be the effect of the picked cause. Deliberately
    * dimmed: it is inactive, which WCAG 1.4.11 exempts from the 3:1 floor.
@@ -170,6 +186,7 @@ const LIGHT_PALETTE: GraphPalette = {
   foreignBorder: '#4c1d95',
   divergenceFill: '#c2410c',
   divergenceBorder: '#7c2d12',
+  freshRing: '#047857',
   inactiveFill: '#9ca3af',
   inactiveBorder: '#6b7280',
   edgeDirect: '#1d4ed8',
@@ -200,6 +217,7 @@ const DARK_PALETTE: GraphPalette = {
   foreignBorder: '#ddd6fe',
   divergenceFill: '#fb923c',
   divergenceBorder: '#ffedd5',
+  freshRing: '#34d399',
   inactiveFill: '#475569',
   inactiveBorder: '#64748b',
   edgeDirect: '#60a5fa',
@@ -230,6 +248,7 @@ const HIGH_CONTRAST_LIGHT_PALETTE: GraphPalette = {
   foreignBorder: '#000000',
   divergenceFill: '#9a3412',
   divergenceBorder: '#000000',
+  freshRing: '#065f46',
   inactiveFill: '#9ca3af',
   inactiveBorder: '#4b5563',
   edgeDirect: '#1e3a8a',
@@ -260,6 +279,7 @@ const HIGH_CONTRAST_DARK_PALETTE: GraphPalette = {
   foreignBorder: '#ffffff',
   divergenceFill: '#fdba74',
   divergenceBorder: '#ffffff',
+  freshRing: '#6ee7b7',
   inactiveFill: '#475569',
   inactiveBorder: '#94a3b8',
   edgeDirect: '#93c5fd',

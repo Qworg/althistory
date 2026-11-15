@@ -8,6 +8,8 @@
 import { memo, useState, useCallback, useEffect } from 'react'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { CreateGraphRequest } from '@/types'
+import { WorldCalendarFields } from './WorldCalendarFields'
+import { useCalendarDraft } from './useCalendarDraft'
 
 interface CreateGraphModalProps {
   /** Whether the modal is open */
@@ -34,6 +36,8 @@ export const CreateGraphModal = memo(function CreateGraphModal({
   const [description, setDescription] = useState('')
   const [errors, setErrors] = useState<FormErrors>({})
   const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const calendarDraft = useCalendarDraft()
+  const resetCalendar = calendarDraft.reset
 
   // Reset form when modal opens
   useEffect(() => {
@@ -42,8 +46,9 @@ export const CreateGraphModal = memo(function CreateGraphModal({
       setDescription('')
       setErrors({})
       setTouched({})
+      resetCalendar(null)
     }
-  }, [isOpen])
+  }, [isOpen, resetCalendar])
 
   // Validation
   const validate = useCallback((): boolean => {
@@ -73,7 +78,9 @@ export const CreateGraphModal = memo(function CreateGraphModal({
     
     setTouched({ name: true })
     
-    if (!validate()) {
+    const nameValid = validate()
+    const calendar = calendarDraft.resolve()
+    if (!nameValid || !calendar.ok) {
       return
     }
 
@@ -81,12 +88,14 @@ export const CreateGraphModal = memo(function CreateGraphModal({
       await onCreate({
         name: name.trim(),
         description: description.trim() || undefined,
+        // Only a graph that is given a calendar sends one.
+        ...(calendar.calendar ? { calendar: calendar.calendar } : {}),
       })
       onClose()
     } catch (error) {
       console.error('Failed to create graph:', error)
     }
-  }, [name, description, validate, onCreate, onClose])
+  }, [name, description, validate, calendarDraft, onCreate, onClose])
 
   const handleCancel = useCallback(() => {
     onClose()
@@ -175,6 +184,8 @@ export const CreateGraphModal = memo(function CreateGraphModal({
             Briefly describe the purpose or content of this graph.
           </p>
         </div>
+
+        <WorldCalendarFields state={calendarDraft} idPrefix="create-graph" disabled={isCreating} />
 
         {/* Info Box */}
         <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">

@@ -11,8 +11,8 @@ OpenAPI document the server serves at `GET /api/openapi.json`.
 ## Authenticating
 
 **Which routes require a key.** `/api/export`, `/api/import`, `/api/ingest`,
-`/api/keys`, `/api/batch`, `/api/validate`, `/api/suggest`, `/api/stream`, the
-`/api/graphs` endpoints, **and** the five entity groups — `/api/events`,
+`/api/keys`, `/api/batch`, `/api/validate`, `/api/suggest`, `/api/stream`,
+`/api/generate`, the `/api/graphs` endpoints, **and** the five entity groups — `/api/events`,
 `/api/arcs`, `/api/causal`, `/api/temporal` and `/api/inference`. The entity
 groups used to be the exception: they mounted only graph resolution, so anyone
 who could reach the port could read a timeline, rewrite it and run inference.
@@ -106,6 +106,7 @@ for a key, because there is no login flow.
 | `export` | Export a graph. |
 | `import` | Import a document into a graph. |
 | `ingest` | Run web/text/Wikidata ingestion. |
+| `generate` | Start generation jobs (`POST /api/generate/*`): a timeline, a branch or an expansion drafted by the app. A key without it may still generate if it holds every write permission the run uses (see [Generating a history](#generating-a-history)). |
 | `admin` | Manage API keys, including other keys' permissions. |
 
 A route that reads two kinds of entity asks for both permissions: the temporal
@@ -122,7 +123,11 @@ checked on the entity routes too, so a key issued for one graph answers `403`
 for any other, whatever its permissions.
 
 Four groups are predefined: `readOnly`, `readWrite`, `full` and `admin`. You
-may also pass an explicit list.
+may also pass an explicit list. `generate` is in `full` and `admin`, not in
+`readWrite`: a key made from `readWrite` can still generate through its writes,
+but it is the `generate` permission that says a key may start jobs that spend the
+app's model key. Those jobs write graphs, events, arcs and links, so give it as you
+would a write permission.
 
 ## Scoping to a graph
 
@@ -145,6 +150,12 @@ that is omitted. A key restricted to some graphs gets `403` for a
 `targetGraphId` (or, on `validate-incremental`, a `graphId`) outside them, and
 an import job is visible to, and cancellable by, only the key that started it.
 
+**Text extraction reads a graph only when named.** `POST /api/ingest/text`
+reads `X-Graph-Id` to find the graph the text is for (its world calendars tell
+the model how the world writes a date), but has no active-graph fallback:
+with no header, no graph is read. A graph that does not exist is a `404`, and
+one the key may not access a `403`.
+
 **Merge reads two graphs.** `POST /api/graphs/:id/merge` checks the key against
 both the target `:id` and the body's `sourceGraphId`.
 
@@ -153,6 +164,71 @@ both the target `:id` and the body's `sourceGraphId`.
 `GET /api/graphs/:id/branches`. `GET /api/graphs/active`, and
 `POST /api/graphs/copy` without a `sourceGraphId`, answer `403` when the
 active graph is outside the key's list.
+
+## Dates
+
+Send historical dates and times as ISO 8601: `1843-11-20`, `1843-11-20T14:30:00Z`,
+`1066-10-14T09:30+05:00`. A time with no zone (`1843-11-20T14:30`) is UTC, never
+the server's local time. The event, arc and batch routes read a date the way
+the CLI, the MCP tools, ingestion and the app do (`readWorldTimestamp` in
+[`calendar/`](../calendar/README.md)): a date and time is that instant; a
+date, a month or a year alone (`1843-11-20`, `1871-03`, `1066`) names that UTC
+period, is stored at its first moment with a month's or year's
+`metadata.datePrecision` recorded, and as an arc's `end_time` is the period's
+last moment. The query-string filters (and the time ranges of the temporal,
+inference and export routes) read ISO 8601 as instants; text that starts
+with a digit and is not ISO 8601 (`312`) is refused there. Dates a body sends
+to be checked rather than stored (`/api/validate/*`, `/api/suggest/*`, a
+`time_range` copy's `timeRange`) are read as the event routes read them, with
+the graph's calendars. An import reads a document's dates with the calendars
+of the graph it goes into: `POST /api/import/validate` does too when given
+`?targetGraphId=…&mode=merge` (or `replace`), and otherwise reads them as a
+new graph would, with the document's own.
+
+A date that does not exist (`2019-02-31`, `1870-13-01`) is refused. In a graph
+without world calendars, year-first text is read as the app's forms and the
+CLI read it (`312`, `44 BCE`, `1843-11-20 9:30`, in UTC), at the precision it
+states. Other text is refused with the reason, whether it starts with a digit
+(`0`) or is prose (`January 1, 2023`): no date a request gives is read in the
+server's zone. (An import still reads prose a graph stored before, so an old
+export imports.) Responses always
+write dates as `toISOString` does (`1843-11-20T14:30:00.000Z`).
+
+**Deep time** ([the spec](specs/deep-time.md)). The timeline is not limited to
+what a JavaScript `Date` holds (about ±275,760 years): it reaches ±9 × 10¹⁸ ms,
+about ±285 million years. Beyond year 9999, or before year 0, ISO 8601 writes
+the year with a sign and six digits or more, and so do the responses
+(`+300000-01-01T00:00:00.000Z`, `-499999-06-15T00:00:00.000Z`). ISO years are
+astronomical: year `0000` is 1 BCE, so `-499999` is 500,000 BCE and `-000043`
+is 44 BCE; the routes read that spelling too, and year-first text (`300000 BCE`). Every event also
+carries `timestamp_ms`, and every arc `start_time_ms` and `end_time_ms`: the
+same moment as exact milliseconds on the timeline (1970 is `"0"`), a decimal
+**string**, because JSON has no bigint and a number rounds past 2^53 (about
+285,000 years). Order and compare by it, not by `Date.parse` of the text. A
+moment past the bound is refused with `400`. The CLI and the MCP tools return
+the same as `timestampMs`, `startTimeMs` and `endTimeMs`.
+
+**In a graph with world calendars** ([the spec](specs/world-calendars.md)),
+the event and arc routes, and `POST /api/batch/*`, also take a date as the
+world writes it (`"Thaw 4, 312 AR"`, `"Thaw 312 AR"` for a month, `"312 AR"`
+for a year, a time after a comma), in any of its calendars, or as fields:
+`{ "calendar": "reckoning", "era": "AR", "year": 312, "month": "Thaw",
+"day": 4 }`. A month or a year is stored at its first moment with
+`metadata.datePrecision` and `metadata.dateCalendar` (the calendar it was
+given in, so "Flooding 312 TC" stays the Tide-count's half-year) recorded; as
+an arc's `end_time`, a day, month or year written without a time is its last
+moment. An ISO date or date and time is read as anywhere else, but an ISO
+month or year is refused there (a Gregorian month is no period of the world's),
+and so is text that is neither ISO 8601 nor the world's notation (`400`),
+never read as a Gregorian date. A new date on `PUT /api/events/:id` or a batch
+`update_event` replaces the old one's precision and calendar, and keeps the
+rest of the metadata; a new event (`POST /api/events`, a batch `create_event`)
+records its date's precision the same way. Only an ISO day keeps a
+`metadata.datePrecision` the request states (the app sends ISO with the
+precision its form read); a month, a year or a date in the world's notation
+states its own. Responses give each date's place on the
+timeline as ISO 8601; the query-string filters (`startTime`, `endTime`) and
+the temporal and inference routes take those ISO instants.
 
 ## Responses
 
@@ -281,6 +357,185 @@ registration, no list of endpoints, and no event stream. To learn about a
 change, poll the entity, or create a job with a webhook for the operation you
 started.
 
+## Generating a history
+
+The app drafts timelines itself, with the same generator as `althistory
+generate`, so a client (the CLI, the MCP server, your own) needs no model key and
+the app stays the one writer of its graphs. A request starts a **job**: a model
+call takes seconds to minutes.
+
+```bash
+# An alternate history, or an invented world ("world", never both)
+curl -s -X POST http://localhost:3000/api/generate/timeline \
+  -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"premise":"What if the tide never turned?","divergencePoint":"The wall holds in 1200","eventCount":8}'
+# 202 -> { "id": "gen_…", "status": "running", "progress": 5, "phase": "drafting", … }
+
+curl -s -H "X-API-Key: $KEY" http://localhost:3000/api/generate/jobs/gen_…
+curl -s -X POST -H "X-API-Key: $KEY" http://localhost:3000/api/generate/jobs/gen_…/cancel
+```
+
+| Route | Starts | Graph |
+| --- | --- | --- |
+| `POST /api/generate/timeline` | A new graph from `premise` and `divergencePoint`, or from a `world` (with its `calendar`). Also `startDate`, `endDate`, `eventCount`, `depth`, `style`, `graphName`. | none: it makes one |
+| `POST /api/generate/branch` | A branch of a graph at `divergeAtEventId`, drafted from `counterfactualPrompt`, named `branchName`. | `X-Graph-Id`: the source graph |
+| `POST /api/generate/expand` | Interpolated events in a graph, an `arcId` or a `timeWindow`, recorded as an arc of their own. | `X-Graph-Id` |
+| `GET /api/generate/jobs[/:id]` | The key's jobs, or one. | |
+| `POST /api/generate/jobs/:id/cancel` | | |
+
+Every start also takes `provider` (`openai` | `anthropic`), `model` and
+`dryRun`. The model **key** is the app's (`ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`); a request can choose the provider and model, never supply a
+key.
+
+**A job** reports `status` (`running`, `completed`, `failed`, `cancelled`),
+`progress` (0 to 100), `phase` (`planning`, `drafting`, `graph`, `arcs`,
+`events`, `links`, `done`), a `message`, the `graphId` once the graph exists, what
+it has `written`, and, once completed, its `result`: the graph, arcs, events and
+links, as the CLI prints them. The result's `source` says who wrote the events:
+`"model"`, or `"template"` when the app has no model key or the model's answer
+could not be used, which is a skeleton to rewrite, not a history. A
+request that cannot run (a premise without a point of divergence, a branch point
+that does not exist, a graph the key may not access) is refused at once with
+`400`, `404` or `403` and makes no job.
+
+**It writes as it goes**: the graph and its calendar, then the arcs, then the
+events, then the causal links, each announced on the [live change
+feed](#watching-a-graph-live), so a person with the graph open sees it fill in.
+A job is not a transaction. **Cancelling** stops it before its next write (a
+model call already in flight finishes first, and its answer is not written), and
+what it had written **stays**: the job's `written` and message say how much, and
+the half-written graph is an ordinary graph to finish, edit or delete.
+
+**Who may.** `generate`, or every write permission the run uses: `write:graphs`,
+`write:events`, `write:arcs` and `write:relationships` for a timeline or branch;
+`write:events` and `write:arcs` for an expansion. A branch or expansion also needs
+access to its graph (`allowedGraphs`). A timeline or branch makes a new graph, as
+`POST /api/graphs` does.
+
+**Cost.** A job spends the app's model key, so on top of the key's request rate
+limit a start is refused with `429` and `Retry-After` when the key already has 2
+jobs running, has started 30 in the last hour, or the app is running 4 jobs
+(`GENERATION_MAX_RUNNING_PER_KEY`, `GENERATION_MAX_PER_KEY_PER_HOUR` and
+`GENERATION_MAX_RUNNING_TOTAL` change them). The generator also clamps the number
+of events a job may ask for (3 to 30 for a timeline). Whether to confirm before
+starting is the client's call; `dryRun` is the cheap preview, though it still
+calls the model. Reading and cancelling a job are not charged to the request rate
+limit, so polling once a second is fine.
+
+**A job belongs to the key that started it**: another key's job is a `404`. Jobs
+are kept in memory for 24 hours (200 at most); a restart forgets them, and
+whatever a running job had written stays.
+
+## Writing over a WebSocket
+
+For a high-volume writer there is one socket per session instead of a request
+per entity. `POST /api/stream/token` (with `X-Graph-Id`; needs `write:events`)
+answers a single-use token good for five minutes, and `ws://…/api/ws/stream?token=`
+opens the session. Send `{"type":"event" | "arc" | "relationship","requestId","data":{…}}`
+(the same fields as the HTTP routes, dates read by the same rule) and each is
+answered with an `ack` carrying the new id, or `success: false` and a `code`. Each
+message is charged to the key's request rate limit, at most 4 are in flight, and
+the key is re-checked on every message. The same socket carries the live change
+feed below.
+
+## Watching a graph live
+
+Anything that changes a graph -- the app, the CLI, an agent through MCP, a batch,
+an import, a generation job -- is announced to every client watching it, over the
+same WebSocket as the [write stream](#writing-over-a-websocket). The bundled UI
+watches the open graph and shows the changes within about a second, without a
+reload.
+
+```bash
+# 1. A token for a read-only socket. `mode: "feed"` needs read:events only.
+curl -s -X POST http://localhost:3000/api/stream/token \
+  -H "X-API-Key: $KEY" -H "X-Graph-Id: $GRAPH" -H "Content-Type: application/json" \
+  -d '{"mode":"feed"}'
+# 2. Connect:  ws://localhost:3000/api/ws/stream?token=<token>   (single use, 5 minutes)
+# 3. Watch a graph (or "*" for the graph list):
+#      -> {"type":"subscribe","graphId":"<graph>"}
+#      <- {"type":"subscribed","graphId":"<graph>","epoch":"…","seq":41,"replayed":0}
+#      <- {"type":"change","graphId":"<graph>","seq":42,"kind":"entities",…}
+```
+
+A subscription needs `read:events` and access to the graph (`*`, the graph list,
+needs `read:graphs`; it hears only graphs the key may access). A socket may watch
+10 graphs at once and counts against the key's concurrent streams. The key is
+**checked again every 30 seconds**: a key that is revoked or loses `read:events`
+has its socket closed (`KEY_INVALID`), and one that loses a graph is sent
+`{"type":"unsubscribed","reason":"access_revoked"}` and hears no more of it. Send
+`{"type":"ping"}` at least every few minutes (answered with `pong`): a session
+idle for 5 minutes is closed, and every session ends after 30 minutes, which is
+what the reconnect below is for.
+
+Watching needs `read:events` alone, but a change is told only as far as the key
+could read it over HTTP: entities the key may not read (arcs without
+`read:arcs`, links without `read:relationships`) are left out of an `entities`
+change, its `summary` becomes a count, and a change with nothing left to show is
+not sent. Replays are redacted the same way. Jobs a key started are stopped when
+the key is revoked or deleted.
+
+**A `change` message** carries `graphId`, `seq`, `at`, the `actor` and a `kind`:
+
+| `kind` | When | Fields |
+| --- | --- | --- |
+| `entities` | Events, arcs or links were created, updated or deleted. | `operation`, `entities: [{type, id}]`, `summary` ("Added event “Census of 1851”"). A deleted event's links are listed with it. |
+| `replaced` | A branch, rollback, merge or import replaced the graph as a whole, once the app serves the new head. | `reason`, `counts`, `summary`. Refetch everything. |
+| `graph` | A graph was made, renamed, given or stripped of a calendar, or deleted. | `operation`, `fields`, `name`, `summary`. |
+| `generation` | A generation job moved. | `jobId`, `status`, `phase`, `progress`, `message`, `source`, `written`. |
+
+Pressures are not stored: the app infers them from the events on every read, so a
+pressure's change is the change of the events, arcs and links behind it, and a
+reader refetches the pressures when it hears one of those.
+
+**Who.** `actor` is `{kind, name, keyId}`: `person` (the web app), `agent` (an MCP
+server), `cli`, `api`, `generation` (a job, named after the key that started it)
+or `system`; `name` is the API key's name. A client says what it is with the
+`X-Althistory-Client` request header (`web`, `mcp` or `cli`; anything else is
+`api`), and a browser tab sends its own id in `X-Client-Id`, which comes back as
+`origin`, so a tab can tell its own edits from other writers'. Both are claims
+used only to label changes for people who may already read the graph. `origin`
+is sent only to sockets of the key that made the change, so another key cannot
+learn a tab's id and pose as it; in local mode every client shares the admin
+key, so there it is advisory.
+
+**A message is sent after the change is in the app's store**, so a client that
+refetches on it sees the change.
+
+**Catching up.** Each message has a `seq`, counted across all graphs, and the
+`subscribed` reply carries the server's `epoch` (one per process) and the `seq`
+the feed was at. Keep both, and the last `seq` you saw per graph. After a dropped
+connection, get a new token, connect, and subscribe again with `epoch` and
+`since`: the server replays what you missed, in order, straight after `subscribed`
+(`replayed` says how many), or sets `resync` (`gap`: more than the last 500
+changes to that graph happened, or the graph was deleted; `epoch`: the server
+restarted) and you refetch the graph. The graph list is never replayed: refetch it
+after a reconnect. A sequence number is used rather than a version number because
+not every change makes a version (a graph's name, a batch, a generation's
+progress).
+
+**Decisions behind it**
+
+- *Where it lives.* `GraphService`'s `onHeadReplaced` hook (typed in
+  `LiveStoreSyncService`) fires only for the four operations that replace a head,
+  so it cannot announce an agent adding one event. The feed is a write-level bus
+  (`ChangeFeedService`) that the versioning bridge, the live-store sync (which
+  `onHeadReplaced` triggers, and which now says why the head was replaced), the
+  graph service, the batch routes and the generation jobs publish to.
+- *Conflicts.* A generation job never rewrites an existing item: a timeline or
+  branch writes a new graph, an expansion adds new events and an arc. So there is
+  nothing to skip or lock. When a person and an agent edit the same item, the last
+  write wins, both are in the graph's history, and the person is told the item
+  changed (the notice and the highlight) rather than having it replaced silently.
+- *Single process.* The feed, its catch-up rings, the stream tokens and the
+  generation jobs are in memory: one replica, as `CLOUD_SINGLE_REPLICA_STATE`
+  already requires. Scaling out would need `ChangeFeedService.publish`,
+  `subscribe` and `replay` moved onto a shared channel (Redis pub/sub for the
+  fan-out, a Redis stream for the ring and the counter), the stream tokens in a
+  shared store, and the generation jobs in the job repository; the socket handler
+  and the routes would not change.
+
 ## Moving a graph in and out
 
 ```bash
@@ -330,8 +585,9 @@ curl -s -X POST http://localhost:3000/api/causal/link \
 ## What this API does not offer
 
 - **No long-lived webhook subscriptions** — webhooks are per job (above).
-- **No server-sent event stream for graph changes.** There is a streaming
-  channel for high-throughput writes; it is not a change feed for readers.
+- **No change feed over plain HTTP.** Changes are pushed over the WebSocket
+  ([above](#watching-a-graph-live)); there is no server-sent-events endpoint and
+  no webhook per graph. A client that cannot hold a socket polls the entity.
 - **No partial metadata update.** `PUT /api/events/:id` replaces `metadata`
   wholesale when you send it — send the whole object, not a patch.
 - **No cross-graph query.** One request reads one graph. A reference into

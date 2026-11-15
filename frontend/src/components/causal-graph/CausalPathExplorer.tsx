@@ -7,7 +7,7 @@ import {
   transformPathToSteps,
   CausalChainStep
 } from '@/utils/causalPathCalculations'
-import { formatHistoricalDate } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
 
 export interface CausalPathExplorerProps {
   className?: string
@@ -385,7 +385,7 @@ export const CausalPathExplorer: React.FC<CausalPathExplorerProps> = ({
                     <div className="flex items-center space-x-2 text-xs text-ink-muted">
                       <span>
                         {eventsById.get(step.eventId)?.timestamp
-                          ? formatHistoricalDate(eventsById.get(step.eventId)!.timestamp)
+                          ? formatEventDate(eventsById.get(step.eventId)!)
                           : 'Unknown date'}
                       </span>
                       {step.relationship && (

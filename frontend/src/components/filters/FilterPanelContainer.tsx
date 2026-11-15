@@ -12,6 +12,9 @@ import {
 import { useEvents, VIEW_EVENT_LIMIT } from '@/hooks/useEvents'
 import { useArcs } from '@/hooks/useArcs'
 import { useGlobalStore } from '@/stores/globalStore'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { type AxisTime, compareAxisTime, isoOfAxisTime, toAxisTime } from '@althistory/calendar'
+import { dateFieldValue } from '@/utils/dateField'
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values))
@@ -38,17 +41,19 @@ export function FilterPanelContainer() {
   const { data: events = [] } = useEvents({ limit: VIEW_EVENT_LIMIT })
   const { data: arcs = [] } = useArcs()
 
+  // Bounds are written in the world calendar shown, and rewritten when it changes.
+  const calendar = useWorldCalendar()
   const panelFilters = useMemo(
-    () => toPanelFilters(activeFilters),
-    [activeFilters]
+    () => toPanelFilters(activeFilters, calendar),
+    [activeFilters, calendar]
   )
 
   const handleFiltersChange = useCallback((next: PanelFilterState) => {
-    const mapped = fromPanelFilters(next)
+    const mapped = fromPanelFilters(next, calendar)
     if (!filtersEqual(mapped, activeFilters)) {
       setFilters(mapped)
     }
-  }, [activeFilters, setFilters])
+  }, [activeFilters, setFilters, calendar])
 
   const availableActors = useMemo(
     () => unique(events.flatMap(event => [event.actor, event.target])).sort(),
@@ -64,15 +69,19 @@ export function FilterPanelContainer() {
     if (events.length === 0) {
       return { start: '', end: '' }
     }
-    const timestamps = events
-      .map(event => new Date(event.timestamp).getTime())
-      .filter(time => !Number.isNaN(time))
-    if (timestamps.length === 0) {
+    // Exact bigint axis times: a deep moment's getTime() is a rounded double,
+    // and `new Date` of it past 8.64e15 is invalid.
+    const times = events
+      .map(event => toAxisTime(event.timestamp))
+      .filter((time): time is AxisTime => time !== null)
+    if (times.length === 0) {
       return { start: '', end: '' }
     }
+    const first = times.reduce((a, b) => (compareAxisTime(b, a) < 0 ? b : a))
+    const last = times.reduce((a, b) => (compareAxisTime(b, a) > 0 ? b : a))
     return {
-      start: new Date(Math.min(...timestamps)).toISOString().slice(0, 10),
-      end: new Date(Math.max(...timestamps)).toISOString().slice(0, 10)
+      start: dateFieldValue(isoOfAxisTime(first), 'date', { calendar: null }),
+      end: dateFieldValue(isoOfAxisTime(last), 'date', { calendar: null })
     }
   }, [events])
 
@@ -145,9 +154,10 @@ export function ActiveFiltersBar({ className = '' }: { className?: string }) {
     clearFilters
   } = useGlobalStore()
 
+  const calendar = useWorldCalendar()
   const panelFilters = useMemo(
-    () => toPanelFilters(activeFilters),
-    [activeFilters]
+    () => toPanelFilters(activeFilters, calendar),
+    [activeFilters, calendar]
   )
 
   const handleRemoveFilter = useCallback((key: keyof PanelFilterState, value?: unknown) => {

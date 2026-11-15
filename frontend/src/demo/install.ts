@@ -8,17 +8,21 @@
  * first. The server itself (and the recording it replays) is loaded on the
  * first request, as its own chunk.
  *
- * It also reads `?start=branch` or `?start=main`, the landing page's links:
- * the demo opens on the example branch, where the fork is, or on the main
- * history. In a tab that already has demo state, the edits are kept and only
+ * It also reads `?start=branch`, `?start=main` or `?start=world`, the site's
+ * links: the demo opens on the example branch, where the fork is, on the main
+ * history, or on Vael, the invented world with its own calendar. In a tab that already has demo state, the edits are kept and only
  * the active graph changes. The parameter is removed from the address
  * straight away, so a reload or a shared link does not keep resetting the
  * visitor's choice.
  */
 import axios from 'axios'
-import { DEMO_BRANCH_GRAPH_ID, DEMO_MAIN_GRAPH_ID, DEMO_MODE, DEMO_STATE_KEY } from './flag'
+import { DEMO_BRANCH_GRAPH_ID, DEMO_MAIN_GRAPH_ID, DEMO_MODE, DEMO_STATE_KEY, DEMO_WORLD_GRAPH_ID } from './flag'
 
-const START_GRAPHS: Record<string, string> = { branch: DEMO_BRANCH_GRAPH_ID, main: DEMO_MAIN_GRAPH_ID }
+const START_GRAPHS: Record<string, string> = {
+  branch: DEMO_BRANCH_GRAPH_ID,
+  main: DEMO_MAIN_GRAPH_ID,
+  world: DEMO_WORLD_GRAPH_ID,
+}
 
 function applyStartParameter(): void {
   try {
@@ -30,11 +34,11 @@ function applyStartParameter(): void {
       localStorage.setItem('active_graph_id', graph)
       const saved = sessionStorage.getItem(DEMO_STATE_KEY)
       if (saved) {
-        const state = JSON.parse(saved) as { active?: string; graphs?: Record<string, unknown> }
-        if (state.graphs?.[graph]) {
-          state.active = graph
-          sessionStorage.setItem(DEMO_STATE_KEY, JSON.stringify(state))
-        }
+        // Every starting graph is in the recording, and the server adds a
+        // recorded graph a tab saved before it existed, so it is always there.
+        const state = JSON.parse(saved) as { active?: string }
+        state.active = graph
+        sessionStorage.setItem(DEMO_STATE_KEY, JSON.stringify(state))
       }
     }
     url.searchParams.delete('start')

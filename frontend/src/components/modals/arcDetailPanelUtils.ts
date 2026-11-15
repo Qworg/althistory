@@ -1,4 +1,5 @@
 import { Event, Arc } from '@/types'
+import { compareInstants, readDateField, toInstant } from '@althistory/calendar'
 
 // Form data interface for arc editing
 export interface ArcFormData {
@@ -48,19 +49,16 @@ export function validateArcForm(
   }
 
   if (formData.start_time && formData.end_time) {
-    const startTime = new Date(formData.start_time)
-    const endTime = new Date(formData.end_time)
+    const startTime = toInstant(formData.start_time)
+    const endTime = toInstant(formData.end_time)
 
-    if (startTime >= endTime) {
+    if (compareInstants(startTime, endTime) >= 0) {
       errors.end_time = 'End time must be after start time'
     }
 
-    const startMs = startTime.getTime()
-    const endMs = endTime.getTime()
-
     const eventsOutsideRange = containedEvents.filter(event => {
-      const eventTime = new Date(event.timestamp).getTime()
-      return eventTime < startMs || eventTime > endMs
+      const eventTime = toInstant(event.timestamp)
+      return compareInstants(eventTime, startTime) < 0 || compareInstants(eventTime, endTime) > 0
     })
 
     if (eventsOutsideRange.length > 0) {
@@ -136,13 +134,12 @@ export function initializeFormData(arc: Arc | null): ArcFormData {
 }
 
 /**
- * Converts a datetime-local input value to ISO string
- * @param value - The datetime-local input value
- * @returns ISO string or empty string
+ * A datetime-local input value as an ISO string. The field holds a UTC
+ * wall-clock time, as every historical date is read (`readDateField`), not
+ * the browser's local time; a value that is not a real date and time is ''.
  */
 export function datetimeLocalToISO(value: string): string {
-  if (!value) return ''
-  return new Date(value).toISOString()
+  return readDateField(value)?.date.toISOString() ?? ''
 }
 
 /**
@@ -152,5 +149,7 @@ export function datetimeLocalToISO(value: string): string {
  */
 export function isoToDatetimeLocal(isoString: string | undefined): string {
   if (!isoString) return ''
-  return new Date(isoString).toISOString().slice(0, 16)
+  const date = toInstant(isoString)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toISOString().slice(0, 16)
 }

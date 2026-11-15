@@ -4,6 +4,7 @@ import { Breadcrumb } from './Breadcrumb'
 import { ViewToolbar } from '@/components/views/ViewToolbar'
 import { UserProfileMenu } from './UserProfileMenu'
 import { GraphSelector, GraphManagerModal } from '@/components/graphs'
+import { CalendarSwitcher } from './CalendarSwitcher'
 import { HelpButton } from '@/components/help/HelpButton'
 import { useGlobalStore } from '@/stores/globalStore'
 import { useApiAccess } from '@/hooks/useGraphs'
@@ -88,6 +89,9 @@ export function Header({ isMobile, layoutMode }: HeaderProps) {
               sheet={isMobile}
               className={isMobile ? 'min-w-0 flex-1 [&>button]:w-full [&>button]:min-h-11' : ''}
             />
+
+            {/* A world with several calendars: which its dates are shown in. */}
+            {!isMobile && <CalendarSwitcher />}
 
             {showViewSwitcher && <Navigation />}
 

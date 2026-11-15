@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { legacyCalendarSet } from '@althistory/calendar';
 import * as fs from 'fs';
 import * as path from 'path';
 import { GraphRepository } from './GraphRepository';
@@ -18,6 +19,7 @@ vi.mock('fs', () => ({
     access: vi.fn(),
     readFile: vi.fn(),
     writeFile: vi.fn().mockResolvedValue(undefined),
+    rename: vi.fn().mockResolvedValue(undefined),
     unlink: vi.fn().mockResolvedValue(undefined),
     rm: vi.fn().mockResolvedValue(undefined),
     readdir: vi.fn(),
@@ -66,6 +68,7 @@ describe('GraphRepository Unit Tests', () => {
     vi.mocked(fs.promises.access).mockClear();
     vi.mocked(fs.promises.readFile).mockClear();
     vi.mocked(fs.promises.writeFile).mockClear().mockResolvedValue(undefined);
+    vi.mocked(fs.promises.rename).mockClear().mockResolvedValue(undefined);
     vi.mocked(fs.promises.unlink).mockClear().mockResolvedValue(undefined);
     vi.mocked(fs.promises.rm).mockClear().mockResolvedValue(undefined);
     vi.mocked(fs.promises.readdir).mockClear();
@@ -112,9 +115,18 @@ describe('GraphRepository Unit Tests', () => {
     });
   });
 
+  describe('the index under its lock', () => {
+    it('refuses to change an index it cannot parse, rather than replacing the list', async () => {
+      vi.mocked(fs.promises.readFile).mockResolvedValue('{ not json');
+      await expect(repository.create({ name: 'On a damaged index' })).rejects.toThrow(/cannot be read/);
+      expect(fs.promises.rename).not.toHaveBeenCalled();
+    });
+  });
+
   describe('initialize()', () => {
     it('should create graphs directory if it does not exist', async () => {
       vi.mocked(fs.promises.access).mockRejectedValueOnce(new Error('ENOENT'));
+      vi.mocked(fs.promises.readFile).mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
       vi.mocked(fs.promises.writeFile).mockResolvedValue(undefined);
 
       await repository.initialize();
@@ -127,14 +139,18 @@ describe('GraphRepository Unit Tests', () => {
 
     it('should create index file if it does not exist', async () => {
       vi.mocked(fs.promises.access).mockRejectedValueOnce(new Error('ENOENT'));
+      vi.mocked(fs.promises.readFile).mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
       await repository.initialize();
 
+      // Written beside the index and renamed into place, so no reader sees half of it.
+      const indexPath = path.join(testDataDir, 'graphs', 'index.json');
       expect(fs.promises.writeFile).toHaveBeenCalledWith(
-        path.join(testDataDir, 'graphs', 'index.json'),
+        expect.stringMatching(/index\.json\..*\.tmp$/),
         JSON.stringify({ graphs: [], activeGraphId: null }, null, 2),
         'utf-8'
       );
+      expect(fs.promises.rename).toHaveBeenCalledWith(expect.stringMatching(/index\.json\..*\.tmp$/), indexPath);
     });
 
     it('should not overwrite existing index file', async () => {
@@ -181,9 +197,13 @@ describe('GraphRepository Unit Tests', () => {
       const graph = await repository.create({ name: 'Test Graph' });
 
       expect(fs.promises.writeFile).toHaveBeenCalledWith(
-        path.join(testDataDir, 'graphs', 'index.json'),
+        expect.stringMatching(/index\.json\..*\.tmp$/),
         expect.stringContaining(graph.id),
         'utf-8'
+      );
+      expect(fs.promises.rename).toHaveBeenCalledWith(
+        expect.stringMatching(/index\.json\..*\.tmp$/),
+        path.join(testDataDir, 'graphs', 'index.json')
       );
     });
 
@@ -269,6 +289,28 @@ describe('GraphRepository Unit Tests', () => {
   });
 
   describe('findAll()', () => {
+    it('lists a calendar as far as it checks out, as a graph read by id shows it', async () => {
+      const rlo = String.fromCodePoint(0x202e);
+      const graphData = {
+        id: 'graph1',
+        name: 'Vael',
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-02T00:00:00Z',
+        version: 1,
+        status: 'active',
+        metadata: { eventCount: 0, arcCount: 0, relationshipCount: 0, pressureCount: 0 },
+        // Stored before the rule: an open right-to-left override would reverse the graph's card.
+        calendar: { epochYear: 1000, eraLabel: `${rlo}AR`, name: 'n'.repeat(500) },
+      };
+      vi.mocked(fs.promises.readFile)
+        .mockResolvedValueOnce(JSON.stringify({ graphs: ['graph1'], activeGraphId: 'graph1' }))
+        .mockResolvedValueOnce(JSON.stringify(graphData));
+
+      const result = await repository.findAll();
+
+      expect(result.graphs[0]?.calendar).toEqual(legacyCalendarSet({ epochYear: 1000 }));
+    });
+
     it('should return all graphs', async () => {
       const indexData = { graphs: ['graph1', 'graph2'], activeGraphId: 'graph1' };
       const graph1Data: IGraph = {
@@ -402,6 +444,27 @@ describe('GraphRepository Unit Tests', () => {
 
       expect(result?.name).toBe('Updated Name');
       expect(result?.version).toBe(2); // Version should increment
+    });
+
+    it('writes a stored calendar back as it was on a rename, though it shows only what checks out', async () => {
+      const calendar = { epochYear: 1000, eraLabel: 'AR', monthNames: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L, M'] };
+      const graphData = {
+        id: 'test-id',
+        name: 'Vael',
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+        version: 1,
+        status: 'active',
+        metadata: { eventCount: 0, arcCount: 0, relationshipCount: 0, pressureCount: 0 },
+        calendar,
+      };
+      vi.mocked(fs.promises.readFile).mockResolvedValueOnce(JSON.stringify(graphData));
+
+      const result = await repository.update('test-id', { name: 'Vael, renamed' });
+
+      expect(result?.calendar).toEqual(legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR' }));
+      const written = vi.mocked(fs.promises.writeFile).mock.calls.map(([, body]) => String(body)).find((body) => body.includes('Vael, renamed'));
+      expect(JSON.parse(written!).calendar).toEqual(calendar);
     });
 
     it('should return null if graph not found', async () => {

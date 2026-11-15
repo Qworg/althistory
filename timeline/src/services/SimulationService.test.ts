@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Mock } from 'vitest';
+import { toAxisTime, toInstant } from '@althistory/calendar';
 import { Event } from '@/models';
 import { NotFoundError, ValidationError } from '@/utils/errors';
 import { InferenceService } from './InferenceService';
@@ -96,6 +97,43 @@ function makeHarness(seedEvents: Event[]): Harness {
   };
 }
 
+describe('SimulationService write recording', () => {
+  function withRecorder(recorder: SimulationServiceDependencies['recorder']): SimulationService {
+    const base = makeHarness([makeEvent()]);
+    const deps = (base.service as unknown as { graphScopedRepositories: SimulationServiceDependencies['graphScopedRepositories'] });
+    return new SimulationService({
+      inferenceService: new InferenceService(),
+      validationService: new ValidationService(),
+      graphScopedRepositories: deps.graphScopedRepositories,
+      recorder,
+    });
+  }
+
+  it('reports each persisted event, then its link, for the graph it wrote to', async () => {
+    const calls: string[] = [];
+    const service = withRecorder({
+      recordEvent: async (graphId, event) => void calls.push(`event:${graphId}:${event.id}`),
+      recordRelationship: async (graphId, link) => void calls.push(`link:${graphId}:${link.effect_event_id}`),
+    });
+    await service.simulate({ graphId: 'g1', steps: 2 });
+    expect(calls).toEqual(['event:g1:sim-1', 'link:g1:sim-1', 'event:g1:sim-2', 'link:g1:sim-2']);
+  });
+
+  it('reports nothing for a preview, and keeps going when the recorder fails', async () => {
+    const recordEvent = vi.fn(async () => {
+      throw new Error('version store down');
+    });
+    const recordRelationship = vi.fn(async () => undefined);
+    const service = withRecorder({ recordEvent, recordRelationship });
+    await service.preview({ graphId: 'g1', steps: 2 });
+    expect(recordEvent).not.toHaveBeenCalled();
+    const result = await service.simulate({ graphId: 'g1', steps: 2 });
+    expect(result.events).toHaveLength(2);
+    expect(recordEvent).toHaveBeenCalledTimes(2);
+    expect(recordRelationship).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('SimulationService', () => {
   it('rejects a missing graph id', async () => {
     const { service } = makeHarness([makeEvent()]);
@@ -159,6 +197,16 @@ describe('SimulationService', () => {
     const result = await service.simulate({ graphId: 'g1', steps: 1, stepDurationMs: 1000 });
     expect(result.anchorEventId).toBe('new');
     expect(result.events[0].timestamp.getTime()).toBe(newer.timestamp.getTime() + 1000);
+  });
+
+  it('tells the latest event from the one a millisecond before it, past what a double holds', async () => {
+    const older = makeEvent({ id: 'old', timestamp: toInstant('+300001-01-01T00:00:00.000Z') });
+    const newer = makeEvent({ id: 'new', timestamp: toInstant('+300001-01-01T00:00:00.001Z') });
+    const { service } = makeHarness([older, newer]);
+
+    const result = await service.simulate({ graphId: 'g1', steps: 1, stepDurationMs: 1000 });
+    expect(result.anchorEventId).toBe('new');
+    expect(toAxisTime(result.events[0].timestamp)).toBe(toAxisTime(newer.timestamp)! + 1000n);
   });
 
   it('never writes during a preview', async () => {

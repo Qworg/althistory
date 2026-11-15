@@ -21,6 +21,7 @@ import { ImportPreviewStep } from './ImportPreviewStep'
 import { ImportConflictStep } from './ImportConflictStep'
 import { ImportExecuteStep } from './ImportExecuteStep'
 import { AlthistoryExport, ImportMode, ConflictResolution, ImportResult, ExecuteImportResponse, SyncImportResponse } from '@/types'
+import { storedCalendarSet } from '@althistory/calendar'
 import { apiClient } from '@/services/api'
 import { ModalBase } from '@/components/modals/ModalBase'
 
@@ -65,6 +66,12 @@ export function ImportWizard({
   })
 
   const [executeProgress, setExecuteProgress] = useState(0)
+  // Each check of the file (on upload, on a change of mode) is numbered; an
+  // answer to one that a later check has replaced is dropped.
+  const checkSeq = useRef(0)
+  // The mode whose check (and, on the preview step, preview) is on screen:
+  // where a failed check of another mode falls back to.
+  const shownMode = useRef<ImportMode>(state.mode)
   // FIX #17: Track current async job for cancellation
   const [currentJobId, setCurrentJobId] = useState<string | null>(null)
   const [isCancelling, setIsCancelling] = useState(false)
@@ -124,23 +131,32 @@ export function ImportWizard({
       dispatch({ type: 'SET_DATA', payload: data })
       dispatch({ type: 'SET_ERROR', payload: null })
 
+      // Its dates are read as the mode it will be imported in reads them (a
+      // new graph's own calendars, or the target's); a change of mode checks
+      // them again.
+      const seq = ++checkSeq.current
       try {
-        const validation = await validateMutation.mutateAsync({ data })
+        const validation = await validateMutation.mutateAsync({ data, targetGraphId: state.targetGraphId, mode: state.mode })
+        if (seq !== checkSeq.current) return
         dispatch({ type: 'SET_VALIDATION', payload: validation })
+        shownMode.current = state.mode
         dispatch({ type: 'SET_STEP', payload: 'validate' })
       } catch (error) {
+        if (seq !== checkSeq.current) return
         dispatch({
           type: 'SET_ERROR',
           payload: error instanceof Error ? error.message : 'Validation failed',
         })
       }
     },
-    [validateMutation]
+    [validateMutation, state.targetGraphId, state.mode]
   )
 
   // Handle validation continue
   const handleValidationContinue = useCallback(async () => {
     if (!state.data) return
+    // Numbered with the checks: a preview a change of mode has overtaken is dropped.
+    const seq = ++checkSeq.current
 
     try {
       const preview = await previewMutation.mutateAsync({
@@ -148,9 +164,13 @@ export function ImportWizard({
         targetGraphId: state.targetGraphId,
         mode: state.mode,
       })
+      if (seq !== checkSeq.current) return
       dispatch({ type: 'SET_PREVIEW', payload: preview })
+      // Conflicts are this preview's; choices made for another mode's go.
+      dispatch({ type: 'SET_ALL_RESOLUTIONS', payload: {} })
       dispatch({ type: 'SET_STEP', payload: 'preview' })
     } catch (error) {
+      if (seq !== checkSeq.current) return
       dispatch({
         type: 'SET_ERROR',
         payload: error instanceof Error ? error.message : 'Preview failed',
@@ -158,29 +178,55 @@ export function ImportWizard({
     }
   }, [state.data, state.targetGraphId, state.mode, previewMutation])
 
-  // Handle mode change (re-fetch preview)
+  // Handle mode change: check the dates in that mode, then (from the preview
+  // step) preview it. Only the latest change's answers are used: a slower
+  // answer for a mode since left is dropped.
   const handleModeChange = useCallback(
-    async (mode: ImportMode) => {
+    async (mode: ImportMode, then: 'preview' | 'validate' = 'preview') => {
+      // A check of the new mode that fails puts back the mode whose check
+      // (and preview) is on screen, so the import never runs in a mode that
+      // was not checked and previewed.
       dispatch({ type: 'SET_MODE', payload: mode })
+      dispatch({ type: 'SET_ERROR', payload: null })
 
       if (!state.data) return
+      const seq = ++checkSeq.current
 
       try {
+        // Its dates read with the calendars this mode reads them with: a new
+        // graph's own, or the target's. If they no longer read, say so.
+        const validation = await validateMutation.mutateAsync({ data: state.data, targetGraphId: state.targetGraphId, mode })
+        if (seq !== checkSeq.current) return
+        if (!validation.valid || then === 'validate') {
+          dispatch({ type: 'SET_VALIDATION', payload: validation })
+          shownMode.current = mode
+          dispatch({ type: 'SET_STEP', payload: 'validate' })
+          return
+        }
         const preview = await previewMutation.mutateAsync({
           data: state.data,
           targetGraphId: state.targetGraphId,
           mode,
         })
+        if (seq !== checkSeq.current) return
+        // The check and the preview of this mode, shown together.
+        dispatch({ type: 'SET_VALIDATION', payload: validation })
         dispatch({ type: 'SET_PREVIEW', payload: preview })
+        shownMode.current = mode
+        // Conflicts are the new preview's; choices made for the old one go.
+        dispatch({ type: 'SET_ALL_RESOLUTIONS', payload: {} })
       } catch (error) {
+        if (seq !== checkSeq.current) return
+        dispatch({ type: 'SET_MODE', payload: shownMode.current })
         dispatch({
           type: 'SET_ERROR',
-          payload: error instanceof Error ? error.message : 'Preview failed',
+          payload: error instanceof Error ? error.message : 'Checking the import failed',
         })
       }
     },
-    [state.data, state.targetGraphId, previewMutation]
+    [state.data, state.targetGraphId, previewMutation, validateMutation]
   )
+  const handleValidationModeChange = useCallback((mode: ImportMode) => handleModeChange(mode, 'validate'), [handleModeChange])
 
   // Handle preview continue
   const handlePreviewContinue = useCallback(() => {
@@ -348,6 +394,8 @@ export function ImportWizard({
       // If going back from execute after completion, reset
       if (state.step === 'execute' && state.result) {
         dispatch({ type: 'RESET' })
+        shownMode.current = initialImportState.mode
+        checkSeq.current += 1
         return
       }
       const prevStep = STEP_ORDER[currentIndex - 1]
@@ -469,9 +517,11 @@ export function ImportWizard({
           {state.step === 'validate' && state.validation && (
             <ImportValidationStep
               validation={state.validation}
+              calendar={storedCalendarSet(state.data?.metadata?.calendar)}
               onContinue={handleValidationContinue}
               onBack={handleBack}
-              isLoading={previewMutation.isPending}
+              isLoading={previewMutation.isPending || validateMutation.isPending}
+              {...(state.targetGraphId ? { mode: state.mode, onModeChange: handleValidationModeChange } : {})}
             />
           )}
 
@@ -483,7 +533,7 @@ export function ImportWizard({
               onContinue={handlePreviewContinue}
               onBack={handleBack}
               hasConflicts={hasConflicts}
-              isLoading={previewMutation.isPending}
+              isLoading={previewMutation.isPending || validateMutation.isPending}
             />
           )}
 

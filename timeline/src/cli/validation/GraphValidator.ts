@@ -2,6 +2,7 @@ import { Event, Arc } from '@/models';
 import { CausalRelationship, CausalRelationshipType } from '@/models/relationships';
 import { ValidationIssueDto, ValidationReportDto } from '../types';
 import { isTemporalInversion } from '@/utils/causalOrder';
+import { type WorldCalendarSet, compareInstants, dateCalendarOf, datePrecisionOf, formatDateEntry, formatHistoricalDateAt, formatInWorld, toAxisTime } from '@althistory/calendar';
 
 export interface ScopedGraphServices {
   eventRepository: {
@@ -113,9 +114,18 @@ export interface ValidationOptions {
   autoRepair?: boolean;
   /** Finds the graph that owns an entity referenced by a broken reference. */
   crossGraphLookup?: CrossGraphLookup;
+  /** The graph's world calendars: a message then names each date as the world does, its instant beside it. */
+  calendar?: WorldCalendarSet;
 }
 
 export class GraphValidator {
+  /** A date as a message names it (the details keep the instant alone). */
+  private when: (date: Date) => string = (date) => date.toISOString();
+  /** An event's date as a message names it: at the precision it is known to, in the calendar it was given in. */
+  private whenEvent: (event: { timestamp: Date; metadata?: Record<string, unknown> }) => string = (event) => event.timestamp.toISOString();
+  /** An arc's end as a message names it: the day it ends, when it ends with that day. */
+  private whenEnd: (date: Date) => string = (date) => date.toISOString();
+
   /**
    * Validates graph data and optionally performs self-healing repairs.
    */
@@ -124,6 +134,17 @@ export class GraphValidator {
     scoped: ScopedGraphServices,
     options?: ValidationOptions
   ): Promise<ValidationReportDto> {
+    const calendar = options?.calendar;
+    this.when = calendar
+      ? (date) => `${formatInWorld(calendar, toAxisTime(date) ?? 0n)}, ${date.toISOString()}`
+      : (date) => date.toISOString();
+    this.whenEvent = calendar
+      ? (event) =>
+          `${formatHistoricalDateAt(event.timestamp, datePrecisionOf(event.metadata), 'en-US', calendar, dateCalendarOf(event.metadata))}, ${event.timestamp.toISOString()}`
+      : (event) => event.timestamp.toISOString();
+    this.whenEnd = calendar
+      ? (date) => `${formatDateEntry(date, 'day', calendar, 'end')}, ${date.toISOString()}`
+      : (date) => date.toISOString();
     const strict = options?.strict ?? false;
     const autoRepair = options?.autoRepair ?? false;
 
@@ -177,11 +198,11 @@ export class GraphValidator {
         continue;
       }
 
-      if (arc.start_time.getTime() > arc.end_time.getTime()) {
+      if (compareInstants(arc.start_time, arc.end_time) > 0) {
         issues.push({
           type: 'temporal',
           severity: 'error',
-          message: `Arc "${arc.name}" (${arc.id}) start_time (${arc.start_time.toISOString()}) is after end_time (${arc.end_time.toISOString()})`,
+          message: `Arc "${arc.name}" (${arc.id}) start_time (${this.when(arc.start_time)}) is after end_time (${this.whenEnd(arc.end_time)})`,
           entityId: arc.id,
           entityType: 'arc',
           details: {
@@ -208,7 +229,7 @@ export class GraphValidator {
             },
             crossGraphLookup
           );
-        } else if (arc.start_time.getTime() < parent.start_time.getTime() || arc.end_time.getTime() > parent.end_time.getTime()) {
+        } else if (compareInstants(arc.start_time, parent.start_time) < 0 || compareInstants(arc.end_time, parent.end_time) > 0) {
           issues.push({
             type: 'containment',
             severity: 'error',
@@ -243,12 +264,11 @@ export class GraphValidator {
             crossGraphLookup
           );
         } else {
-          const eventTime = event.timestamp.getTime();
-          if (eventTime < arc.start_time.getTime() || eventTime > arc.end_time.getTime()) {
+          if (compareInstants(event.timestamp, arc.start_time) < 0 || compareInstants(event.timestamp, arc.end_time) > 0) {
             issues.push({
               type: 'containment',
               severity: 'error',
-              message: `Event "${event.description}" (${event.id}, ${event.timestamp.toISOString()}) falls outside arc "${arc.name}" bounds (${arc.start_time.toISOString()} - ${arc.end_time.toISOString()})`,
+              message: `Event "${event.description}" (${event.id}, ${this.whenEvent(event)}) falls outside arc "${arc.name}" bounds (${this.when(arc.start_time)} - ${this.whenEnd(arc.end_time)})`,
               entityId: event.id,
               entityType: 'event',
               details: {
@@ -314,7 +334,7 @@ export class GraphValidator {
           issues.push({
             type: 'causal_direction',
             severity: 'error',
-            message: `Temporal paradox: cause "${cause.description}" (${cause.timestamp.toISOString()}) occurs after effect "${effect.description}" (${effect.timestamp.toISOString()})`,
+            message: `Temporal paradox: cause "${cause.description}" (${this.whenEvent(cause)}) occurs after effect "${effect.description}" (${this.whenEvent(effect)})`,
             entityId: rel.id,
             entityType: 'relationship',
             details: {
@@ -390,7 +410,7 @@ export class GraphValidator {
     // Step 1: Repair arc temporal inversions (start > end)
     const initialArcs = await scoped.arcRepository.findAll();
     for (const arc of initialArcs) {
-      if (arc.start_time && arc.end_time && arc.start_time.getTime() > arc.end_time.getTime()) {
+      if (arc.start_time && arc.end_time && compareInstants(arc.start_time, arc.end_time) > 0) {
         const swappedStart = arc.end_time;
         const swappedEnd = arc.start_time;
         await scoped.arcRepository.update(arc.id, {
@@ -439,17 +459,16 @@ export class GraphValidator {
           }
         } else {
           // Containment: expand arc bounds if event falls outside
-          const eventTime = event.timestamp.getTime();
           let needsUpdate = false;
           let newStart = arc.start_time;
           let newEnd = arc.end_time;
 
-          if (eventTime < arc.start_time.getTime()) {
-            newStart = new Date(eventTime);
+          if (compareInstants(event.timestamp, arc.start_time) < 0) {
+            newStart = event.timestamp;
             needsUpdate = true;
           }
-          if (eventTime > arc.end_time.getTime()) {
-            newEnd = new Date(eventTime);
+          if (compareInstants(event.timestamp, arc.end_time) > 0) {
+            newEnd = event.timestamp;
             needsUpdate = true;
           }
 
@@ -468,7 +487,7 @@ export class GraphValidator {
               metadata: arc.metadata,
             }));
             repairsApplied.push(
-              `Expanded arc "${arc.name}" (${arc.id}) boundaries to [${newStart.toISOString()} - ${newEnd.toISOString()}] to enclose event ${event.id}`
+              `Expanded arc "${arc.name}" (${arc.id}) boundaries to [${this.when(newStart)} - ${this.whenEnd(newEnd)}] to enclose event ${event.id}`
             );
           }
         }

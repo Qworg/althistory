@@ -9,6 +9,7 @@
  * the picture stays centred on it.
  */
 import type { Core, NodeSingular } from 'cytoscape'
+import { toInstant } from '@althistory/calendar'
 
 export interface TimedNode {
   id: string
@@ -105,7 +106,7 @@ const cache = new WeakMap<Core, { signature: string; positions: Map<string, { x:
 
 function nodeTime(node: NodeSingular): number {
   const event = node.data('event') as { timestamp?: string } | undefined
-  return event?.timestamp ? new Date(event.timestamp).getTime() : Number.NaN
+  return event?.timestamp ? toInstant(event.timestamp).getTime() : Number.NaN
 }
 
 /** Cytoscape's `preset` layout `positions` callback for the time-order layout. */

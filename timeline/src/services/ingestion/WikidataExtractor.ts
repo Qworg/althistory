@@ -5,8 +5,10 @@
  * {@link HttpClient} and maps each result binding to an {@link ExtractedEvent}.
  * Three query types are supported: `historical-events`, `person-timeline` and
  * `custom` (a caller-supplied query). Results carry the Wikidata entity id in
- * their provenance. Dates before year 1 are not representable by `Date` and
- * are dropped; that limit is stated in the source disclosure in `./index.ts`.
+ * their provenance. Dates before year 1 are dropped, because Wikidata's own
+ * numbering of years before 1 CE (whether its -0044 is 44 BCE or 45 BCE) is not
+ * settled here; that limit is stated in the source disclosure in `./index.ts`.
+ * A year after 9999 is read: the timeline holds years beyond four digits.
  *
  * `historical-events` matches items that are instances of an event class and
  * carry a date, reading the date from `point in time` (P585) **or** `start time`
@@ -25,6 +27,7 @@
  * start, not its conclusion.
  */
 
+import { toInstant } from '@althistory/calendar';
 import { DataSource } from '../ExportService';
 import { HttpClient, JsonValue, parseJsonBody, wikimediaUserAgent } from './http';
 import { newTempId } from './ids';
@@ -141,9 +144,10 @@ function bindingValue(binding: { [key: string]: JsonValue }, key: string): strin
 
 /** Normalize a Wikidata date value to an ISO-8601 instant, or null if unusable. */
 export function normalizeWikidataDate(value: string): string | null {
-  const match = value.match(/^\+?(\d{4})-(\d{2})-(\d{2})(?:T[\d:.]+Z?)?$/);
+  const match = value.match(/^\+?(\d{4,9})-(\d{2})-(\d{2})(?:T[\d:.]+Z?)?$/);
   if (!match) return null;
-  const year = match[1];
+  // A year beyond 9999 is written as ISO 8601 expands it: a sign and six digits or more.
+  const year = match[1]!.length > 4 || Number(match[1]) > 9999 ? `+${match[1]!.padStart(6, '0')}` : match[1];
   const month = match[2];
   const day = match[3];
   return `${year}-${month}-${day}T00:00:00Z`;
@@ -261,11 +265,11 @@ export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
     range?: { start: string; end: string }
   ): WikidataFact[] {
     if (!range) return facts;
-    const start = Date.parse(range.start);
-    const end = Date.parse(range.end);
+    const start = toInstant(range.start).getTime();
+    const end = toInstant(range.end).getTime();
     if (Number.isNaN(start) || Number.isNaN(end)) return facts;
     return facts.filter((fact) => {
-      const time = Date.parse(fact.date);
+      const time = toInstant(fact.date).getTime();
       return !Number.isNaN(time) && time >= start && time <= end;
     });
   }

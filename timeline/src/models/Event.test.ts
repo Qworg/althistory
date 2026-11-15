@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { toAxisTime } from '@althistory/calendar';
 import { Event, IEvent, CreateEventRequest, TimeRange } from './Event';
 
 /**
@@ -240,8 +241,17 @@ describe('Event Model', () => {
         actor: 'Napoleon Bonaparte',
         target: 'Coalition Forces',
         timestamp: new Date('1805-12-02'),
+        timestamp_ms: String(Date.parse('1805-12-02')),
         metadata: { location: 'Austerlitz' }
       });
+    });
+
+    it('holds a moment beyond a Date exactly, as text and as milliseconds', () => {
+      const event = new Event({ ...validEventData, timestamp: '+300000-03-15T12:00:00.000Z' as unknown as Date });
+      expect(event.timestamp.toISOString()).toBe('+300000-03-15T12:00:00.000Z');
+      expect(JSON.parse(JSON.stringify(event.toJSON())).timestamp).toBe('+300000-03-15T12:00:00.000Z');
+      expect(event.toJSON().timestamp_ms).toBe(String(toAxisTime('+300000-03-15T12:00:00.000Z')));
+      expect(event.timestampMs).toBe(String(toAxisTime('+300000-03-15T12:00:00.000Z')));
     });
 
     it('should convert event without metadata to JSON', () => {
@@ -263,5 +273,38 @@ describe('Event Model', () => {
       expect(eventInterface.target).toBe(event.target);
       expect(eventInterface.timestamp).toEqual(event.timestamp);
     });
+  });
+});
+
+describe('Event timestamps given as text', () => {
+  // The models are where every write reads its timestamp (the API, the
+  // importer, the ingestion commit), so they read it as the app does.
+  const make = (timestamp: string) =>
+    new Event({ description: 'd', actor: 'a', target: 't', timestamp: timestamp as unknown as Date });
+
+  it('reads ISO 8601 as UTC, with no zone too, in every spelling a person or model writes', () => {
+    expect(make('1870-02-14 09:30').timestamp.toISOString()).toBe('1870-02-14T09:30:00.000Z');
+    expect(make('1870-02-14T09:30').timestamp.toISOString()).toBe('1870-02-14T09:30:00.000Z');
+    expect(make('1066-10-14T09:30+05').timestamp.toISOString()).toBe('1066-10-14T04:30:00.000Z');
+    expect(make('1871-03').timestamp.toISOString()).toBe('1871-03-01T00:00:00.000Z');
+  });
+
+  it('refuses an ISO-shaped date that does not exist, rather than the day it would roll into', () => {
+    for (const text of ['2019-02-31', '1870-02-30T10:00', '1870-13']) {
+      expect(Event.validate({ description: 'd', actor: 'a', target: 't', timestamp: text as unknown as Date }).isValid, text).toBe(false);
+    }
+  });
+
+  it('refuses a timestamp that is not text, a number or a date as invalid, never with a thrown error (a 500)', () => {
+    for (const value of [{ $date: '2020-01-01' }, ['2020-01-01'], true, null]) {
+      expect(() => Event.validate({ description: 'd', actor: 'a', target: 't', timestamp: value as unknown as Date })).not.toThrow();
+      expect(Event.validate({ description: 'd', actor: 'a', target: 't', timestamp: value as unknown as Date }).isValid, JSON.stringify(value)).toBe(false);
+    }
+  });
+
+  it('reads other text as it always read it, so data stored before and existing API clients keep working', () => {
+    // Where text first enters from a person or a model (ingestion, the CLI
+    // and MCP tools) it is refused instead; see readTimestamp.
+    expect(make('January 1, 2023').timestamp.getTime()).toBe(new Date('January 1, 2023').getTime());
   });
 });

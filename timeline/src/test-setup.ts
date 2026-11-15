@@ -1,4 +1,7 @@
 import '@testing-library/jest-dom';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { config } from 'dotenv';
 
 // Load environment variables for tests
@@ -12,6 +15,13 @@ if (!process.env.NODE_ENV) {
 // Enable local execution for tests to avoid requiring external databases
 if (!process.env.LOCAL_EXECUTION_ENABLED) {
   process.env.LOCAL_EXECUTION_ENABLED = 'true';
+}
+
+// Each test file gets a store of its own: left at the default, every file
+// wrote into the developer's ./data, and files running side by side raced on
+// its graph index (a graph one created could vanish from another's list).
+if (!process.env.LOCAL_DATA_DIR) {
+  process.env.LOCAL_DATA_DIR = mkdtempSync(join(tmpdir(), 'althistory-test-'));
 }
 
 // Set default test database configuration

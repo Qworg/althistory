@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { AxiosInstance, AxiosResponse, AxiosError } from 'axios'
 import { toGraphVersion, type ServerVersionRef } from './graphVersions'
+import { CLIENT_ID, CLIENT_ID_HEADER, CLIENT_KIND_HEADER } from './clientIdentity'
 
 /** One entity a version added, changed or deleted, by kind and id. */
 export interface VersionEntityRef {
@@ -238,6 +239,10 @@ class APIClient {
                     config.headers.Authorization = `Bearer ${token}`
                     config.headers['X-API-Key'] = token
                 }
+                // Says who is writing, so the app's live change feed can tell
+                // other writers' changes from this tab's own.
+                config.headers[CLIENT_KIND_HEADER] = 'web'
+                config.headers[CLIENT_ID_HEADER] = CLIENT_ID
                 return config
             },
             (error) => Promise.reject(error)
@@ -975,10 +980,11 @@ class APIClient {
 
     // Import operations
     import = {
-        validate: async (data: AlthistoryExport): Promise<ImportValidationResult> => {
+        /** With a target and a merge or replace, its dates are read with that graph's calendars. */
+        validate: async (data: AlthistoryExport, targetGraphId?: string, mode: ImportMode = 'create-new'): Promise<ImportValidationResult> => {
             try {
                 const response: AxiosResponse<ImportValidationResult> = 
-                    await this.client.post('/import/validate', data)
+                    await this.client.post('/import/validate', data, targetGraphId && mode !== 'create-new' ? { params: { targetGraphId, mode } } : undefined)
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -1156,10 +1162,15 @@ class APIClient {
     // the server's own ingest budget (INGEST_TIMEOUT_MS, 5 min) plus a margin,
     // letting the server's answer arrive before the client gives up.
     ingest = {
+        // `targetGraphId` goes in the `X-Graph-Id` header, as on approve: the
+        // server reads that graph's world calendar to date the text.
         text: async (data: TextIngestRequest): Promise<IngestResponse> => {
             try {
-                const response: AxiosResponse<IngestResponse> =
-                    await this.client.post('/ingest/text', data, { timeout: INGEST_REQUEST_TIMEOUT_MS })
+                const { targetGraphId, ...body } = data
+                const response: AxiosResponse<IngestResponse> = await this.client.post('/ingest/text', body, {
+                    timeout: INGEST_REQUEST_TIMEOUT_MS,
+                    ...(targetGraphId ? { headers: { 'X-Graph-Id': targetGraphId } } : {}),
+                })
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -1217,12 +1228,17 @@ class APIClient {
 
     // WebSocket streaming operations (Requirement 16)
     stream = {
-        getToken: async (graphId?: string): Promise<StreamTokenResponse> => {
+        /**
+         * A short-lived token for a socket. `feed` asks for the read-only socket
+         * that carries the live change feed (it needs only `read:events`); the
+         * default is the write socket.
+         */
+        getToken: async (graphId?: string, mode: 'write' | 'feed' = 'write'): Promise<StreamTokenResponse> => {
             try {
                 const response: AxiosResponse<StreamTokenResponse> =
                     await this.client.post(
                         '/stream/token',
-                        {},
+                        mode === 'feed' ? { mode } : {},
                         graphId ? { headers: { 'X-Graph-Id': graphId } } : undefined
                     )
                 return response.data

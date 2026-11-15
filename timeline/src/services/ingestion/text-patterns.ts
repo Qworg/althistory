@@ -11,6 +11,8 @@
  * report file.
  */
 
+import { toInstant } from '@althistory/calendar';
+
 export type DatePrecision = 'day' | 'month' | 'year';
 
 export interface DateMatch {
@@ -58,7 +60,7 @@ export function extractDates(text: string): DateMatch[] {
 
   const push = (match: RawMatch): void => {
     // Reject impossible calendar components early; `Date.parse` would roll them.
-    const parsed = new Date(match.iso);
+    const parsed = toInstant(match.iso);
     if (Number.isNaN(parsed.getTime())) return;
     matches.push(match);
   };

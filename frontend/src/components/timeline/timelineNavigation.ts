@@ -7,6 +7,25 @@
  * Timeline.tsx wires these to the DOM; nothing here touches it.
  */
 
+import {
+  type AxisTime,
+  type CompiledCalendar,
+  type WorldCalendarSet,
+  axisTimeOfCivil,
+  calendarIn,
+  civilOfAxisTime,
+  compareInstants,
+  dateAt,
+  daysInMonth,
+  instantOfAxisTime,
+  partLengths,
+  positionOf,
+  toAxisTime,
+  toInstant,
+} from '@althistory/calendar'
+import { getActiveCalendar } from '@/stores/worldCalendarStore'
+
+
 /** A mark's identity in the DOM (`data-mark-key`) and in the model. */
 export type MarkKey = string
 
@@ -42,8 +61,8 @@ export function buildNavModel(
 ): NavModel {
   const rows = new Map<number, NavItem[]>()
   for (const arc of arcs) {
-    const start = new Date(arc.start_time).getTime()
-    const end = new Date(arc.end_time).getTime()
+    const start = toInstant(arc.start_time).getTime()
+    const end = toInstant(arc.end_time).getTime()
     if (Number.isNaN(start) || Number.isNaN(end)) continue
     const row = rows.get(arc.renderLevel) ?? []
     row.push({ key: arcMarkKey(arc.id), start, end })
@@ -55,7 +74,7 @@ export function buildNavModel(
 
   const track: NavItem[] = []
   for (const event of events) {
-    const t = new Date(event.timestamp).getTime()
+    const t = toInstant(event.timestamp).getTime()
     if (!Number.isNaN(t)) track.push({ key: eventMarkKey(event.id), start: t, end: t })
   }
   if (track.length > 0) lanes.push(track.sort(byTime))
@@ -182,31 +201,133 @@ const STEPS_PER_VIEW = 40
  * visible move at any zoom (a day when a year is in view, five years when two
  * centuries are).
  */
-export function keyboardTimeStep(visibleSpanMs: number): TimeStep {
+export function keyboardTimeStep(visibleSpanMs: number, calendar: WorldCalendarSet | null = getActiveCalendar()): TimeStep {
   const target = visibleSpanMs / STEPS_PER_VIEW
+  const approx = calendar ? worldUnitMs(calendar) : APPROX_MS
   let chosen = STEPS[0]!
   for (const step of STEPS) {
-    if (APPROX_MS[step.unit] * step.count <= target) chosen = step
+    if (approx[step.unit] * step.count <= target) chosen = step
   }
   return chosen
 }
 
-/** `date` moved by `direction` steps, in UTC (historical dates are UTC instants). */
-export function offsetByStep(date: Date, step: TimeStep, direction: number): Date {
-  const next = new Date(date.getTime())
+/** A world calendar's units, in milliseconds (a month and a year on average). */
+function worldUnitMs(set: WorldCalendarSet): Record<Unit, number> {
+  const calendar = calendarIn(set)
+  const yearMs = (calendar.cycleDays / calendar.cycleYears) * calendar.dayMs
+  return {
+    minute: calendar.dayMs / (calendar.time.hoursPerDay * calendar.time.minutesPerHour),
+    hour: calendar.dayMs / calendar.time.hoursPerDay,
+    day: calendar.dayMs,
+    month: yearMs / calendar.definition.parts.length,
+    year: yearMs,
+  }
+}
+
+/**
+ * `date` moved by `direction` steps. In a world, by its own minutes, hours,
+ * days, months and years (a month or a year keeps the day, the last day of a
+ * shorter month or festival when it has fewer); otherwise in UTC on the
+ * Gregorian calendar (historical dates are UTC instants).
+ */
+export function offsetByStep(date: Date, step: TimeStep, direction: number, calendar: WorldCalendarSet | null = getActiveCalendar()): Date {
+  const at = toAxisTime(date)
+  if (at === null) return new Date(NaN)
+  // By exact axis arithmetic, so a date beyond a Date's range moves as one inside it does.
+  const moved = calendar ? offsetInWorld(calendarIn(calendar), at, step, direction) : offsetInGregorian(at, step, direction)
+  return instantOfAxisTime(moved) ?? date
+}
+
+/**
+ * An arc moved whole by one keyboard step: its start by the step, its end by
+ * as much, so a move never stretches or shrinks it (months, and a world's
+ * festivals, differ in length). The shift is a bigint difference of the axis
+ * times, never a `getTime()` subtraction, which beyond about 285,000 years is
+ * rounded and would lengthen the arc by up to a day. Null when either end
+ * cannot be read or the move leaves the timeline.
+ */
+export function movedArcBounds(
+  startText: unknown,
+  endText: unknown,
+  step: TimeStep,
+  direction: number,
+  calendar: WorldCalendarSet | null = getActiveCalendar()
+): { start: Date; end: Date } | null {
+  const start = toInstant(startText)
+  const from = toAxisTime(start)
+  const end = toAxisTime(endText)
+  if (from === null || end === null) return null
+  const movedStart = offsetByStep(start, step, direction, calendar)
+  const to = toAxisTime(movedStart)
+  if (to === null) return null
+  const movedEnd = instantOfAxisTime(end + (to - from))
+  return movedEnd === null ? null : { start: movedStart, end: movedEnd }
+}
+
+/** An arc's bounds after one edge is moved to `timestamp`; the moved edge never crosses the other (compared exactly, as deep moments are). */
+export function resizedArcBounds(
+  startText: unknown,
+  endText: unknown,
+  edge: 'start' | 'end',
+  timestamp: Date
+): { start: Date; end: Date } {
+  const start = toInstant(startText)
+  const end = toInstant(endText)
+  if (edge === 'start') {
+    return { start: compareInstants(timestamp, end) > 0 ? end : timestamp, end }
+  }
+  return { start, end: compareInstants(timestamp, start) < 0 ? start : timestamp }
+}
+
+/** The Gregorian step of an axis time, in UTC. */
+function offsetInGregorian(position: AxisTime, step: TimeStep, direction: number): AxisTime {
   const n = step.count * direction
   switch (step.unit) {
     case 'minute':
     case 'hour':
     case 'day':
-      next.setTime(next.getTime() + n * APPROX_MS[step.unit])
-      break
+      return position + BigInt(Math.round(n * APPROX_MS[step.unit]))
     case 'month':
-      next.setUTCMonth(next.getUTCMonth() + n)
-      break
-    case 'year':
-      next.setUTCFullYear(next.getUTCFullYear() + n)
-      break
+    case 'year': {
+      // The same day of the month, or the month's last when it is shorter
+      // (Jan 31 + 1 month is Feb 28, not Mar 3).
+      const civil = civilOfAxisTime(position)
+      const months = civil.year * 12 + (civil.month - 1) + (step.unit === 'month' ? n : n * 12)
+      const year = Math.floor(months / 12)
+      const month = months - year * 12
+      const day = Math.min(civil.day, daysInMonth(year, month + 1))
+      const msOfDay = ((civil.hour * 60 + civil.minute) * 60 + civil.second) * 1000 + civil.millisecond
+      return axisTimeOfCivil(year, month + 1, day, msOfDay)
+    }
   }
-  return next
+}
+
+function offsetInWorld(calendar: CompiledCalendar, position: AxisTime, step: TimeStep, direction: number): AxisTime {
+  const n = step.count * direction
+  if (step.unit === 'minute' || step.unit === 'hour' || step.unit === 'day') {
+    const unit = step.unit === 'day' ? calendar.dayMs : step.unit === 'hour' ? calendar.dayMs / calendar.time.hoursPerDay : calendar.dayMs / (calendar.time.hoursPerDay * calendar.time.minutesPerHour)
+    return position + BigInt(Math.round(n * unit))
+  }
+  const date = dateAt(calendar, position)
+  let year = date.year
+  let part = date.part
+  if (step.unit === 'year') year += n
+  else {
+    // Months, not festivals: a step from Highsun lands in Saltreap, past
+    // Midyear's Day, and keeps the day. From a festival, the next month.
+    const months = calendar.definition.parts.flatMap((candidate, index) => (candidate.intercalary ? [] : [index]))
+    const here = months.indexOf(part)
+    // A festival sits between two months: forward from the one before it, back from the one after.
+    const after = months.findIndex((index) => index > part)
+    const next = after < 0 ? months.length : after
+    const from = here >= 0 ? here : n > 0 ? next - 1 : next
+    const index = from + n
+    year += Math.floor(index / months.length)
+    part = months[((index % months.length) + months.length) % months.length]!
+  }
+  const day = Math.min(date.day, partLengths(calendar, year)[part]!)
+  // The same time into the new day.
+  const intoDay = ((position % BigInt(calendar.dayMs)) + BigInt(calendar.dayMs)) % BigInt(calendar.dayMs)
+  const start = positionOf(calendar, { year, part, day, hour: 0, minute: 0, second: 0 })
+  return start === null ? position : start + intoDay
 }

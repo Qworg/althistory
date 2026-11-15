@@ -36,6 +36,30 @@ name the surviving event.
 `--mode llm` **fails** when no model answered, rather than presenting
 pattern output as the model's.
 
+### Prose about an invented world
+
+Ingesting text into a graph with world calendars (see
+[the MCP guide](mcp-agent-guide.md#inventing-a-world) and
+[the spec](specs/world-calendars.md)) tells the model how each of them names
+a date, and has it write every date that way: "the Tide War began on
+Midyear's Day, 141 AR" is read by the graph's own calendar, a month or a year
+alone ("in Thaw of 141 AR") with that precision. The review step shows and
+takes dates in the world's notation too. The patterns read only Gregorian
+dates, which an invented world does not use: in a graph with world
+calendars they date nothing, and every sentence goes to the review undated,
+for the reviewer to date in the world's notation. For a world, use `llm`.
+
+Both ingestion paths do this. The CLI's in-process ingestion (the CLI and the
+MCP server when no app is running) reads the target graph's calendar, and
+also names the arcs it groups the events into in the world's years. The app's
+review flow, `POST /api/ingest/text`, reads the calendar of the graph its
+`X-Graph-Id` header names; the app's import wizard sends the graph it will
+import into, and the CLI sends `--graph-id`. A request without the header is read
+without a calendar. The review table shows every date in the world's calendar,
+and the box you edit holds it in the world's notation; ISO 8601 typed there
+is read too. An arc's edited end without a time is the last moment of the
+day, month or year it names.
+
 ### Provider selection
 
 The provider is inferred from the environment, or named with `--provider`:
@@ -141,7 +165,9 @@ produced before it becomes history.
 
 Approval is bound to the graph the request is scoped to. A `targetGraphId` in
 the body must match the resolved graph context, so a key cannot approve an
-extraction into a graph it cannot access.
+extraction into a graph it cannot access. The reviewer's dates are read
+with that graph's calendars, not those the job was extracted with: a date in
+a world's notation goes only into a graph of that world.
 
 `validationIssues` are worth reading: they name the events that were dropped
 and why (no date, no actor, below the confidence threshold).

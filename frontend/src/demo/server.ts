@@ -24,6 +24,7 @@
 import { AxiosError, AxiosHeaders, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
 import recordingText from './recording.json?raw'
 import { DEMO_STATE_KEY, REPO_URL } from './flag'
+import { compareInstants, toInstant } from '@althistory/calendar'
 
 type Json = Record<string, unknown>
 
@@ -68,6 +69,8 @@ interface Recording {
   scenario: string
   mainGraphId: string
   branchGraphId: string
+  /** The invented world, whose graph carries a calendar. */
+  worldGraphId?: string
   entities: Record<string, GraphState>
   responses: Record<string, Recorded>
 }
@@ -89,7 +92,7 @@ interface Reply {
 const recording = JSON.parse(recordingText) as Recording
 const STATE_VERSION = 2
 
-/** The graph the app last showed (`demo/install.ts` sets it for `?start=branch`). */
+/** The graph the app last showed (`demo/install.ts` sets it for `?start=…`). */
 function startingGraph(): string {
   try {
     const remembered = localStorage.getItem('active_graph_id')
@@ -115,7 +118,12 @@ function load(): DemoState {
     const raw = sessionStorage.getItem(DEMO_STATE_KEY)
     if (raw) {
       const saved = JSON.parse(raw) as DemoState
-      if (saved.version === STATE_VERSION && saved.graphs[saved.active]) return saved
+      if (saved.version === STATE_VERSION) {
+        // A tab saved before a re-recording added a graph (the world, Vael)
+        // gets it as recorded, alongside its own edits.
+        for (const [id, graph] of Object.entries(recording.entities)) saved.graphs[id] ??= structuredClone(graph)
+        if (saved.graphs[saved.active]) return saved
+      }
     }
   } catch {
     // Storage unavailable or corrupt: start from the recording.
@@ -332,7 +340,8 @@ function list<T>(items: T[], params: URLSearchParams, extra: Json = {}): Reply {
   }
 }
 
-const byTime = (a: DemoEvent, b: DemoEvent) => a.timestamp.localeCompare(b.timestamp)
+// By the moment, not the text: "-000100…" is before "-000043…", and "+300000…" after "2000…".
+const byTime = (a: DemoEvent, b: DemoEvent) => compareInstants(toInstant(a.timestamp), toInstant(b.timestamp))
 
 function events(method: string, path: string, params: URLSearchParams, body: Json, graph: GraphState): Reply | undefined {
   if (path === '/events' && method === 'GET') {
@@ -385,7 +394,7 @@ function events(method: string, path: string, params: URLSearchParams, body: Jso
 }
 
 function arcs(method: string, path: string, params: URLSearchParams, body: Json, graph: GraphState): Reply | undefined {
-  const sorted = () => [...graph.arcs].sort((a, b) => a.level - b.level || a.start_time.localeCompare(b.start_time))
+  const sorted = () => [...graph.arcs].sort((a, b) => a.level - b.level || compareInstants(toInstant(a.start_time), toInstant(b.start_time)))
   if (path === '/arcs' && method === 'GET') return list(sorted(), params, { filters: { level: null, timeRange: null } })
   if (path === '/arcs/hierarchy' && method === 'GET') return ok(sorted())
   if (path === '/arcs' && method === 'POST') {

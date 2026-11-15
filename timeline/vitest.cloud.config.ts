@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'path';
+import { aliases } from './vitest.aliases';
 
 /**
  * Cloud integration test configuration.
@@ -27,6 +27,8 @@ export default defineConfig({
       // #59: cross-graph isolation. Creates two graphs through the scoped
       // repositories and asserts neither can read, count or mutate the other.
       'src/tests/integration/graph-scoped-storage.test.ts',
+      // Moments beyond a Date (docs/specs/deep-time.md, Req 13): +-300000 years through epochMillis.
+      'src/repositories/DeepTime.neo4j.test.ts',
     ],
     // These suites share one Neo4j instance and each deletes every node with
     // its label in its own hooks, so running the files concurrently makes them
@@ -45,8 +47,6 @@ export default defineConfig({
     setupFiles: ['./src/test/cloud-guard.setup.ts'],
   },
   resolve: {
-    alias: {
-      '@': resolve(__dirname, './src'),
-    },
+    alias: aliases,
   },
 });

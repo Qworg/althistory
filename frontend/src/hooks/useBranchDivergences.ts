@@ -22,6 +22,7 @@ import { useActiveGraphId, useGraphs } from '@/hooks/useGraphs'
 import { analyzeEventDivergence } from '@/utils/divergenceAnalysis'
 import { branchLabel } from '@/components/graphs/graphTree'
 import type { Event, Graph } from '@/types'
+import { toInstant } from '@althistory/calendar'
 
 const MAX_MEASURED_BRANCHES = 6
 const BRANCH_EVENT_LIMIT = 1000
@@ -69,7 +70,7 @@ export function useBranchDivergences(baselineEvents: readonly Event[]): BranchDi
         return {
           branch,
           label: active ? branchLabel(branch, active) : branch.name,
-          date: point ? new Date(point.timestamp) : null,
+          date: point ? toInstant(point.timestamp) : null,
         }
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dataKey stands for `results`

@@ -1,6 +1,7 @@
 import { Session, Integer } from 'neo4j-driver';
 import { Arc, CreateArcRequest, UpdateArcRequest } from '../models/Arc';
 import { TimeRange } from '../models/Event';
+import { readInstantValue, runTemporal } from '../utils/temporal';
 import { DatabaseManager, LocalDatabaseManager, LocalSession } from '../utils/database';
 import {
   graphPatternMap,
@@ -143,10 +144,7 @@ function readMetadata(value: unknown, field: string): Record<string, unknown> {
  * both encodings.
  */
 function readDate(value: unknown, field: string): Date {
-  if (value === null || value === undefined) {
-    throw new TypeError(`Record property "${field}" is missing`);
-  }
-  return new Date(String(value));
+  return readInstantValue(value, field);
 }
 
 /**
@@ -223,7 +221,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
 
       if (result.records.length === 0) {
         throw new Error('Failed to create arc');
@@ -251,7 +249,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
 
       if (result.records.length === 0) {
         return null;
@@ -286,7 +284,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find arcs: ${error}`);
@@ -316,7 +314,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find arcs by level: ${error}`);
@@ -350,7 +348,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find overlapping arcs: ${error}`);
@@ -384,7 +382,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find containing arcs: ${error}`);
@@ -422,7 +420,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find nested arcs: ${error}`);
@@ -452,7 +450,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find direct children: ${error}`);
@@ -482,7 +480,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to find parent arcs: ${error}`);
@@ -533,7 +531,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
 
       if (result.records.length === 0) {
         return null;
@@ -562,7 +560,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return readCount(result, 'deletedCount') > 0;
     } catch (error) {
       throw new Error(`Failed to delete arc: ${error}`);
@@ -585,7 +583,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count arcs: ${error}`);
@@ -608,7 +606,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return readCount(result, 'total');
     } catch (error) {
       throw new Error(`Failed to count arcs by level: ${error}`);
@@ -631,7 +629,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return Boolean(readFirstField(result, 'exists'));
     } catch (error) {
       throw new Error(`Failed to check if arc exists: ${error}`);
@@ -681,7 +679,7 @@ export class ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
 
       if (result.records.length > 0) {
         const conflict: QueryRecord = result.records[0];
@@ -828,7 +826,7 @@ export class AdvancedArcRepository extends ArcRepository {
 
     const session = this.getSession();
     try {
-      const result = await session.run(query, parameters);
+      const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
       throw new Error(`Failed to search arcs: ${error}`);

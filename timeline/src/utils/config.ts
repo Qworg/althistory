@@ -113,6 +113,16 @@ export interface AppConfig {
   localExecution: LocalExecutionConfig;
   cloudState: CloudStateConfig;
   apiAuth: ApiAuthConfig;
+  /**
+   * Limits on the generation jobs the app runs (`POST /api/generate/*`), which
+   * spend the app's own model key. Unset keeps `GenerationJobService`'s
+   * defaults: 2 running per key, 4 running in all, 30 started per key per hour.
+   */
+  generation?: {
+    maxRunningPerKey?: number;
+    maxRunningTotal?: number;
+    maxPerKeyPerHour?: number;
+  };
 }
 
 /**
@@ -223,6 +233,11 @@ export function loadConfig(): AppConfig {
           'API_AUTH_REQUIRED',
           !localExecutionEnabled
         ),
+      },
+      generation: {
+        maxRunningPerKey: parseOptionalIntegerEnvVar('GENERATION_MAX_RUNNING_PER_KEY'),
+        maxRunningTotal: parseOptionalIntegerEnvVar('GENERATION_MAX_RUNNING_TOTAL'),
+        maxPerKeyPerHour: parseOptionalIntegerEnvVar('GENERATION_MAX_PER_KEY_PER_HOUR'),
       },
       localExecution: {
         enabled: localExecutionEnabled,

@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/index.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p ../calendar/tsconfig.build.json && tsc -p tsconfig.build.json",
     "start": "TS_NODE_PROJECT=tsconfig.runtime.json node -r tsconfig-paths/register dist/index.js",
     "test": "vitest --run",
     "test:watch": "vitest",

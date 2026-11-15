@@ -2,6 +2,8 @@
  * Export Service for generating Althistory export files
  */
 
+import { toAxisTime } from '@althistory/calendar';
+import type { WorldCalendarSet } from '@althistory/calendar';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -13,12 +15,14 @@ import { ExportFilters } from '../models/AsyncJob';
 import { NotFoundError } from '../utils/errors';
 import { createLogger, ILogger } from '../utils/logger';
 import { assertSafeGraphId } from '../utils/GraphContextStore';
+import { type ExportVersion, READABLE_EXPORT_VERSIONS, exportVersionOf } from '../utils/exportVersion';
 
 /**
- * Althistory Export Format v1.0
+ * Althistory Export Format v1.0, or v1.1 when a date lies beyond what a
+ * JavaScript Date holds (see utils/exportVersion.ts).
  */
 export interface AlthistoryExport {
-  version: '1.0';
+  version: ExportVersion;
   metadata: ExportMetadata;
   data: ExportData;
   provenance?: ExportProvenance;
@@ -33,6 +37,8 @@ export interface ExportMetadata {
   graphVersion: number;
   checksum: string;
   filters?: ExportFilters;
+  /** The graph's own calendar, when it has one. Outside the checksum, like the rest of `metadata`. */
+  calendar?: WorldCalendarSet;
 }
 
 export interface ExportData {
@@ -248,6 +254,13 @@ const DEFAULT_ASYNC_EXPORT_ENTITY_THRESHOLD = 10_000;
 /**
  * Service for exporting graph data
  */
+/** An arc's parent: its own field, or the `parentArcId` its metadata records. */
+function parentArcIdOf(field: unknown, metadata: unknown): string | null {
+  if (typeof field === 'string' && field) return field;
+  const recorded = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).parentArcId : undefined;
+  return typeof recorded === 'string' && recorded ? recorded : null;
+}
+
 export class ExportService {
   private readonly graphRepository: GraphRepository;
   private readonly dataDir: string;
@@ -342,7 +355,7 @@ export class ExportService {
 
     // Build export object (without checksum first)
     const exportObj: AlthistoryExport = {
-      version: '1.0',
+      version: exportVersionOf({ events: Object.values(scoped.events), arcs: Object.values(scoped.arcs) }),
       metadata: {
         graphId: graph.id,
         graphName: graph.name,
@@ -352,6 +365,7 @@ export class ExportService {
         graphVersion: versionRef?.version ?? 0,
         checksum: '', // Will be calculated
         filters: options.scope === 'filtered' ? options.filters : undefined,
+        ...(graph.calendar ? { calendar: graph.calendar } : {}),
       },
       data: exportData,
     };
@@ -527,14 +541,16 @@ export class ExportService {
       graphVersion: versionRef?.version ?? 0,
       checksum,
       filters: options.scope === 'filtered' ? options.filters : undefined,
+      ...(graph.calendar ? { calendar: graph.calendar } : {}),
     };
 
     const provenance = options.includeProvenance
       ? await this.getProvenance(options.graphId)
       : undefined;
 
+    const version = exportVersionOf({ events: Object.values(scoped.events), arcs: Object.values(scoped.arcs) });
     const head =
-      `{"version":"1.0","metadata":${JSON.stringify(metadata)},"data":`;
+      `{"version":"${version}","metadata":${JSON.stringify(metadata)},"data":`;
     const tail = (provenance ? `,"provenance":${JSON.stringify(provenance)}` : '') + '}';
 
     hooks.onPhase?.('writing');
@@ -746,7 +762,7 @@ export class ExportService {
     const warnings: string[] = [];
 
     // Check version
-    if (exportData.version !== '1.0') {
+    if (!READABLE_EXPORT_VERSIONS.includes(exportData.version)) {
       warnings.push(`Unknown version: ${exportData.version}`);
     }
 
@@ -862,11 +878,12 @@ export class ExportService {
 
     // Check time range
     if (filters.timeRange) {
-      const timestamp = new Date(event.timestamp as string).getTime();
-      const start = new Date(filters.timeRange.start).getTime();
-      const end = new Date(filters.timeRange.end).getTime();
-      
-      if (timestamp < start || timestamp > end) {
+      // Exactly, on the axis: a double cannot order moments a second apart past ±285,000 years.
+      const timestamp = toAxisTime(event.timestamp);
+      const start = toAxisTime(filters.timeRange.start);
+      const end = toAxisTime(filters.timeRange.end);
+
+      if (timestamp === null || start === null || end === null || timestamp < start || timestamp > end) {
         return false;
       }
     }
@@ -898,11 +915,12 @@ export class ExportService {
 
     // Check time range (arc must overlap with filter range)
     if (filters.timeRange) {
-      const arcStart = new Date(arc.start_time as string).getTime();
-      const arcEnd = new Date(arc.end_time as string).getTime();
-      const filterStart = new Date(filters.timeRange.start).getTime();
-      const filterEnd = new Date(filters.timeRange.end).getTime();
-      
+      const arcStart = toAxisTime(arc.start_time);
+      const arcEnd = toAxisTime(arc.end_time);
+      const filterStart = toAxisTime(filters.timeRange.start);
+      const filterEnd = toAxisTime(filters.timeRange.end);
+      if (arcStart === null || arcEnd === null || filterStart === null || filterEnd === null) return false;
+
       // Arc overlaps if it starts before filter ends and ends after filter starts
       if (arcEnd < filterStart || arcStart > filterEnd) {
         return false;
@@ -991,7 +1009,10 @@ export class ExportService {
       start_time: a.start_time as string,
       end_time: a.end_time as string,
       level: a.level as number,
-      parent_arc_id: a.parent_arc_id as string | null,
+      // An arc made through the CLI, MCP or the generator records its parent in
+      // its metadata only; without it, a nested arc exported as a root fails
+      // the import's level check.
+      parent_arc_id: parentArcIdOf(a.parent_arc_id, a.metadata),
       metadata,
       sourceRef: a.sourceRef as string | undefined,
     };

@@ -18,10 +18,13 @@ import { IngestionWizard } from '@/components/ingestion'
 import { useCreateArc } from '@/hooks/useAPI'
 import { useCreateEventWithCause } from '@/hooks/useCreateEventWithCause'
 import { useActiveGraphId, useActiveGraph, useSwitchGraph, useDeleteGraph } from '@/hooks/useGraphs'
-import { StreamingStatusBadge } from '@/components/streaming/StreamingStatusBadge'
+import { StreamingStatusBadge, type LiveSyncBadgeStatus } from '@/components/streaming/StreamingStatusBadge'
 import { SimulationLauncherPanel } from '@/components/branch/SimulationLauncherPanel'
-import { useStreamingWrite } from '@/hooks/useStreamingWrite'
+import { useLiveChangesStore } from '@/stores/liveChangesStore'
+import { DEMO_MODE } from '@/demo/flag'
 import { MoreSheet } from '@/components/layout/MoreSheet'
+import { CalendarSwitcher } from '@/components/layout/CalendarSwitcher'
+import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import { useMoreSheetStore } from '@/components/layout/moreSheetStore'
 
 interface ViewToolbarProps {
@@ -133,6 +136,8 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
   } | null>(null)
 
   const moreSheetOpen = useMoreSheetStore((state) => state.isOpen)
+
+  const calendarCount = useWorldCalendarStore((state) => state.set?.calendars.length ?? 0)
   const setMoreSheetOpen = useMoreSheetStore((state) => state.setOpen)
 
   // Widening past lg puts the tools back on the toolbar: the sheet must not
@@ -166,14 +171,27 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
     deleteGraphMutation.mutate(copyId)
   }, [deleteGraphMutation])
 
-  // High-throughput WebSocket streaming write state
-  const {
-    status: streamStatus,
-    stats: streamStats,
-    error: streamError,
-    connect: connectStream,
-    disconnect: disconnectStream,
-  } = useStreamingWrite({ graphId: activeGraphId ?? undefined })
+  // Live sync: the app hears what other writers do to the open graph. It is
+  // on unless the person turned it off, and the layout holds the connection.
+  const liveEnabled = useLiveChangesStore((state) => state.enabled)
+  const liveStatus = useLiveChangesStore((state) => state.status)
+  const liveDetail = useLiveChangesStore((state) => state.detail)
+  const setLiveEnabled = useLiveChangesStore((state) => state.setEnabled)
+  const retryLive = useLiveChangesStore((state) => state.retry)
+  const streamStatus: LiveSyncBadgeStatus = !liveEnabled
+    ? 'disconnected'
+    : liveStatus === 'live'
+      ? 'connected'
+      : liveStatus === 'off'
+        ? // Wanted, and not started: the first moment, or no graph is open (a
+          // connection is made for a graph, so there is nothing to wait on).
+          activeGraphId
+          ? 'connecting'
+          : 'waiting'
+        : liveStatus
+  // Turning it on, or (when it is on and gave up) trying again.
+  const connectStream = useCallback(() => (liveEnabled ? retryLive() : setLiveEnabled(true)), [liveEnabled, retryLive, setLiveEnabled])
+  const disconnectStream = useCallback(() => setLiveEnabled(false), [setLiveEnabled])
 
   // Timeline-specific actions
   const getTimelineActions = useCallback((): ToolbarAction[] => {
@@ -567,11 +585,11 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
 
   const streamingBadge = (
     <StreamingStatusBadge
-      status={streamStatus}
-      stats={streamStats}
-      error={streamError}
-      onConnect={connectStream}
-      onDisconnect={disconnectStream}
+      status={DEMO_MODE ? 'disconnected' : streamStatus}
+      error={liveDetail}
+      // The in-browser demo has no server to hear from.
+      onConnect={DEMO_MODE ? undefined : connectStream}
+      onDisconnect={DEMO_MODE ? undefined : disconnectStream}
     />
   )
 
@@ -690,9 +708,13 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
             }
           ]}
           footer={
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-medium text-ink-muted">Live streaming</span>
-              {streamingBadge}
+            <div className="space-y-3">
+              {/* A world with several calendars: which its dates are shown in (in the header on wider screens). */}
+              {calendarCount > 1 && <CalendarSwitcher />}
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-ink-muted">Live streaming</span>
+                {streamingBadge}
+              </div>
             </div>
           }
         />

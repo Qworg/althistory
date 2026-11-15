@@ -223,7 +223,7 @@ describe('GraphSelector', () => {
         // anywhere west of Greenwich.
         metadata: {
           ...mockGraphs[0]!.metadata,
-          timeRange: { start: '1066-01-01T00:00:00Z', end: '1072-01-01T00:00:00Z' }
+          temporalRange: { start: '1066-01-01T00:00:00Z', end: '1072-01-01T00:00:00Z' }
         }
       }
       vi.mocked(useGraphManagement).mockReturnValue(createMockGraphManagement({

@@ -72,6 +72,98 @@ const AUTH_ERROR_RESPONSES: Record<string, string> = {
   403: 'The key may not perform this operation on this graph.',
 }
 
+
+/** The simple form of a world calendar: the Gregorian one with the world's year count and month names (see `@althistory/calendar`). */
+const GRAPH_CALENDAR_SCHEMA = {
+  type: 'object',
+  description:
+    "An invented world's calendar. Timestamps stay Gregorian; the calendar relabels the year (and, with " +
+    '`monthNames`, the month) when a date is shown: the stored year `epochYear` is year 1 of the world.',
+  properties: {
+    epochYear: { type: 'integer', description: 'The stored year that is year 1: any year the timeline holds (about 285 million either way; 0 and below are 1 BCE and before).' },
+    eraLabel: { type: 'string', maxLength: 16, description: 'Written after the year ("312 AR"). Without one, "Year 312".' },
+    name: { type: 'string', maxLength: 80, description: 'What the calendar is called.' },
+    monthNames: {
+      type: 'array',
+      items: { type: 'string', minLength: 1, maxLength: 24 },
+      minItems: 12,
+      maxItems: 12,
+      description: "The world's names for the twelve months, January's first; distinct. The months keep their stored lengths.",
+    },
+  },
+  required: ['epochYear'],
+  additionalProperties: false,
+};
+
+/** A world's calendars of any shape (docs/specs/world-calendars.md). */
+const WORLD_CALENDAR_SET_SCHEMA = {
+  type: 'object',
+  description:
+    "An invented world's calendars, of any shape, naming positions on the graph's one timeline. Responses always " +
+    'carry the calendar as a set; a calendar sent in the simple form is stored as one Gregorian-shaped calendar.',
+  properties: {
+    version: { type: 'integer', enum: [2] },
+    dayLength: { type: 'integer', minimum: 1, maximum: 1000000, description: "Seconds of the timeline in the world's day (86400 for Earth's)." },
+    primary: { type: 'string', description: 'The id of the calendar shown unless another is picked.' },
+    calendars: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 8,
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{0,31}$' },
+          name: { type: 'string', maxLength: 80 },
+          parts: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 100,
+            description: 'The year in order: months, and runs of festival days (intercalary) that belong to no month.',
+            items: {
+              type: 'object',
+              properties: { name: { type: 'string', maxLength: 24 }, days: { type: 'integer', minimum: 1, maximum: 1000 }, intercalary: { type: 'boolean' } },
+              additionalProperties: false, required: ['name', 'days'],
+            },
+          },
+          leapRules: {
+            type: 'array',
+            maxItems: 20,
+            description: 'Days added to (or taken from) a part in year Y when (Y - offset) is a multiple of every.',
+            items: {
+              type: 'object',
+              properties: { every: { type: 'integer', minimum: 1 }, offset: { type: 'integer' }, part: { type: 'integer', minimum: 0 }, days: { type: 'integer' } },
+              additionalProperties: false, required: ['every', 'part', 'days'],
+            },
+          },
+          epoch: { type: 'integer', description: 'The timeline day on which year 1 begins.' },
+          eras: {
+            type: 'array',
+            items: { type: 'object', properties: { label: { type: 'string', maxLength: 16 }, from: { type: 'integer' } }, additionalProperties: false, required: ['label', 'from'] },
+          },
+          beforeEra: { type: 'string', maxLength: 16 },
+          week: {
+            type: 'object',
+            properties: { days: { type: 'array', items: { type: 'string' } }, epochWeekday: { type: 'integer' }, skipsIntercalary: { type: 'boolean' } },
+            additionalProperties: false, required: ['days'],
+          },
+          time: {
+            type: 'object',
+            properties: { hoursPerDay: { type: 'integer' }, minutesPerHour: { type: 'integer' }, secondsPerMinute: { type: 'integer' } },
+            additionalProperties: false,
+          },
+          notation: {
+            type: 'object',
+            properties: { date: { type: 'string' }, month: { type: 'string' }, year: { type: 'string' }, festival: { type: 'string' }, time: { type: 'string' } },
+            additionalProperties: false,
+          },
+        },
+        additionalProperties: false, required: ['id', 'name', 'parts', 'epoch'],
+      },
+    },
+  },
+  additionalProperties: false, required: ['version', 'dayLength', 'calendars', 'primary'],
+};
+
 const SCHEMAS: Record<string, Record<string, unknown>> = {
   /**
    * The shape of a request or response this document does not describe in
@@ -81,6 +173,12 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     type: 'object',
     description: 'An object whose properties depend on the operation.',
     additionalProperties: true,
+  },
+  SimpleCalendar: GRAPH_CALENDAR_SCHEMA,
+  WorldCalendarSet: WORLD_CALENDAR_SET_SCHEMA,
+  CalendarInput: {
+    description: 'A calendar set of any shape, or the simple form (stored as a set).',
+    oneOf: [{ $ref: '#/components/schemas/WorldCalendarSet' }, { $ref: '#/components/schemas/SimpleCalendar' }],
   },
   Graph: {
     type: 'object',
@@ -93,6 +191,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       parentGraphId: { type: 'string' },
       createdAt: { type: 'string', format: 'date-time' },
       updatedAt: { type: 'string', format: 'date-time' },
+      calendar: { $ref: '#/components/schemas/WorldCalendarSet' },
     },
     required: ['id', 'name', 'status', 'version'],
   },
@@ -101,6 +200,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       name: { type: 'string' },
       description: { type: 'string' },
+      calendar: { $ref: '#/components/schemas/CalendarInput' },
     },
     required: ['name'],
   },
@@ -110,6 +210,14 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       name: { type: 'string' },
       description: { type: 'string' },
       status: { type: 'string', enum: ['active', 'archived'] },
+      // Inline rather than a $ref: in OpenAPI 3.0 `nullable` only counts next
+      // to a `type`, so a nullable reference cannot be written.
+      calendar: {
+        type: 'object',
+        description: 'A new calendar (a calendar set of any shape, or the simple form), or null to remove it.',
+        nullable: true,
+        oneOf: [{ $ref: '#/components/schemas/WorldCalendarSet' }, { $ref: '#/components/schemas/SimpleCalendar' }],
+      },
     },
   },
   BranchGraphRequest: {
@@ -201,10 +309,45 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       description: { type: 'string' },
       actor: { type: 'string' },
       target: { type: 'string' },
-      timestamp: { type: 'string', format: 'date-time' },
+      timestamp: {
+        type: 'string',
+        format: 'date-time',
+        description: 'ISO 8601; a year beyond 0000-9999 is signed with six digits or more ("+300000-01-01T00:00:00.000Z").',
+      },
+      timestamp_ms: {
+        type: 'string',
+        pattern: '^-?[0-9]+$',
+        description: 'The same moment as exact milliseconds on the timeline (1970 is 0), a decimal string: JSON numbers round past 2^53.',
+      },
       metadata: { type: 'object' },
     },
     required: ['id', 'description', 'actor', 'target', 'timestamp'],
+  },
+  WorldDate: {
+    description:
+      "A date to store. ISO 8601 (a position on the graph's timeline). In a graph with world calendars, also a date in the world's notation " +
+      '("Thaw 4, 312 AR", "Thaw 312 AR" for a month, "312 AR" for a year; a time after a comma), or its fields. A month or a year records ' +
+      "`metadata.datePrecision`; as an arc's end, a day, month or year without a time is its last moment. In such a graph, text that is " +
+      'neither is refused (docs/specs/world-calendars.md, Req 14-18).',
+    oneOf: [
+      { type: 'string' },
+      {
+        type: 'object',
+        description: "A date in one of the graph's calendars, as fields. `year` counts in `era` (a label, or \"before\"), or is the line year.",
+        properties: {
+          calendar: { type: 'string', description: "The calendar's id (the primary one when left out)" },
+          era: { type: 'string' },
+          year: { type: 'integer' },
+          month: { oneOf: [{ type: 'string' }, { type: 'integer', minimum: 1 }] },
+          day: { type: 'integer', minimum: 1 },
+          hour: { type: 'integer', minimum: 0 },
+          minute: { type: 'integer', minimum: 0 },
+          second: { type: 'integer', minimum: 0 },
+        },
+        required: ['year'],
+        additionalProperties: false,
+      },
+    ],
   },
   EventRequest: {
     type: 'object',
@@ -212,7 +355,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       description: { type: 'string' },
       actor: { type: 'string' },
       target: { type: 'string' },
-      timestamp: { type: 'string', format: 'date-time' },
+      timestamp: { $ref: '#/components/schemas/WorldDate' },
       metadata: { type: 'object' },
     },
     required: ['description', 'actor', 'target', 'timestamp'],
@@ -223,7 +366,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       description: { type: 'string' },
       actor: { type: 'string' },
       target: { type: 'string' },
-      timestamp: { type: 'string', format: 'date-time' },
+      timestamp: { $ref: '#/components/schemas/WorldDate' },
       metadata: { type: 'object' },
     },
   },
@@ -233,8 +376,10 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
       id: { type: 'string' },
       name: { type: 'string' },
       description: { type: 'string' },
-      start_time: { type: 'string', format: 'date-time' },
+      start_time: { type: 'string', format: 'date-time', description: 'ISO 8601, expanded beyond 0000-9999 (see Event.timestamp).' },
       end_time: { type: 'string', format: 'date-time' },
+      start_time_ms: { type: 'string', pattern: '^-?[0-9]+$', description: 'The start as exact milliseconds on the timeline, a decimal string.' },
+      end_time_ms: { type: 'string', pattern: '^-?[0-9]+$', description: 'The end as exact milliseconds on the timeline, a decimal string.' },
       level: { type: 'integer' },
     },
     required: ['id', 'name', 'start_time', 'end_time', 'level'],
@@ -244,8 +389,8 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       name: { type: 'string' },
       description: { type: 'string' },
-      start_time: { type: 'string', format: 'date-time' },
-      end_time: { type: 'string', format: 'date-time' },
+      start_time: { $ref: '#/components/schemas/WorldDate' },
+      end_time: { $ref: '#/components/schemas/WorldDate' },
       level: { type: 'integer' },
       parent_arc_id: { type: 'string', nullable: true },
     },
@@ -256,8 +401,8 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       name: { type: 'string' },
       description: { type: 'string' },
-      start_time: { type: 'string', format: 'date-time' },
-      end_time: { type: 'string', format: 'date-time' },
+      start_time: { $ref: '#/components/schemas/WorldDate' },
+      end_time: { $ref: '#/components/schemas/WorldDate' },
       level: { type: 'integer' },
     },
   },
@@ -645,7 +790,97 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     type: 'object',
     properties: {
       graphId: { type: 'string' },
+      mode: {
+        type: 'string',
+        enum: ['write', 'feed'],
+        description:
+          '`write` (the default) opens a session that may write entities and needs `write:events`. ' +
+          '`feed` opens a read-only session for the live change feed and needs `read:events`.',
+      },
     },
+  },
+  GenerateTimelineRequest: {
+    type: 'object',
+    description:
+      'An alternate history (`premise` and `divergencePoint`) or an invented world (`world`, never both).',
+    properties: {
+      premise: { type: 'string' },
+      divergencePoint: { type: 'string' },
+      world: { type: 'string' },
+      calendar: { type: 'object', description: "A world's calendars (a set, or the simple `{ epochYear, eraLabel, name, monthNames }`). Only with `world`." },
+      startDate: { type: 'string' },
+      endDate: { type: 'string' },
+      eventCount: { type: 'integer', description: 'How many events to write; the app keeps it between 3 and 30.' },
+      depth: { type: 'integer', description: 'How many levels of arcs.' },
+      style: { type: 'string', enum: ['academic', 'narrative', 'concise'] },
+      provider: { type: 'string', enum: ['openai', 'anthropic'] },
+      model: { type: 'string' },
+      temperature: { type: 'number' },
+      graphName: { type: 'string' },
+      dryRun: { type: 'boolean', description: 'Draft a preview and write nothing. The model is still called.' },
+    },
+  },
+  GenerateBranchRequest: {
+    type: 'object',
+    properties: {
+      sourceGraphId: { type: 'string', description: 'Optional; when given it must be the graph `X-Graph-Id` names.' },
+      divergeAtEventId: { type: 'string' },
+      counterfactualPrompt: { type: 'string' },
+      branchName: { type: 'string' },
+      eventCount: { type: 'integer' },
+      provider: { type: 'string', enum: ['openai', 'anthropic'] },
+      model: { type: 'string' },
+      dryRun: { type: 'boolean' },
+    },
+    required: ['divergeAtEventId', 'counterfactualPrompt', 'branchName'],
+  },
+  GenerateExpandRequest: {
+    type: 'object',
+    properties: {
+      graphId: { type: 'string', description: 'Optional; when given it must be the graph `X-Graph-Id` names.' },
+      arcId: { type: 'string' },
+      timeWindow: { type: 'string', description: '`start/end`, each read as the graph reads a date.' },
+      eventCount: { type: 'integer' },
+      provider: { type: 'string', enum: ['openai', 'anthropic'] },
+      model: { type: 'string' },
+      dryRun: { type: 'boolean' },
+    },
+  },
+  GenerationJob: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      kind: { type: 'string', enum: ['timeline', 'branch', 'expand'] },
+      status: { type: 'string', enum: ['running', 'completed', 'failed', 'cancelled'] },
+      progress: { type: 'integer', description: '0 to 100.' },
+      phase: { type: 'string', description: 'planning, drafting, graph, arcs, events, links or done.' },
+      message: { type: 'string' },
+      dryRun: { type: 'boolean' },
+      graphId: { type: 'string', description: 'The graph being written, once it exists.' },
+      source: {
+        type: 'string',
+        enum: ['model', 'template'],
+        description: 'Who wrote the events: a language model, or the template used without a model key. A template is a skeleton to rewrite.',
+      },
+      written: {
+        type: 'object',
+        properties: {
+          events: { type: 'integer' },
+          arcs: { type: 'integer' },
+          relationships: { type: 'integer' },
+        },
+      },
+      createdAt: { type: 'string' },
+      updatedAt: { type: 'string' },
+      completedAt: { type: 'string' },
+      error: { type: 'string' },
+      result: { type: 'object', description: 'The generated graph, arcs, events and links; present when the job completed.' },
+    },
+    required: ['id', 'kind', 'status', 'progress'],
+  },
+  GenerationJobList: {
+    type: 'object',
+    properties: { jobs: { type: 'array', items: { $ref: '#/components/schemas/GenerationJob' } } },
   },
   StreamToken: {
     type: 'object',
@@ -773,6 +1008,7 @@ const AREA_TAGS: Array<{ prefix: string; tag: string }> = [
   { prefix: '/api/keys', tag: 'keys' },
   { prefix: '/api/batch', tag: 'batch' },
   { prefix: '/api/stream', tag: 'stream' },
+  { prefix: '/api/generate', tag: 'generate' },
   { prefix: '/api', tag: 'service' },
 ]
 
@@ -852,6 +1088,18 @@ export function buildOpenApiDocument(routes: RouteEntry[]): Record<string, unkno
     const parameters = pathParameters(route.path)
     if (spec.graphScoped) {
       parameters.push(GRAPH_HEADER_PARAMETER)
+    }
+    if (spec.graphScoped && spec.headers?.some((header) => header.name.toLowerCase() === 'x-graph-id')) {
+      throw new Error(`${key} declares X-Graph-Id twice: as graphScoped and in its headers`)
+    }
+    for (const header of spec.headers ?? []) {
+      parameters.push({
+        name: header.name,
+        in: 'header',
+        required: header.required ?? false,
+        schema: { type: 'string' },
+        description: header.description,
+      })
     }
 
     const successStatus = String(spec.status ?? 200)
@@ -981,7 +1229,8 @@ export function buildOpenApiDocument(routes: RouteEntry[]): Record<string, unkno
       { name: 'ingest', description: 'Extracting entities from the web.' },
       { name: 'keys', description: 'API key management.' },
       { name: 'batch', description: 'Batch operations.' },
-      { name: 'stream', description: 'WebSocket write sessions.' },
+      { name: 'stream', description: 'WebSocket sessions: writes, and the live change feed.' },
+      { name: 'generate', description: 'Drafting timelines, branches and expansions as cancellable jobs.' },
     ],
     paths,
     components: {

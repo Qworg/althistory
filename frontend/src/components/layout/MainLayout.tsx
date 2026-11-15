@@ -7,11 +7,15 @@ import { useViewShortcuts } from '@/hooks/useViewShortcuts'
 import { useGlobalStore } from '@/stores/globalStore'
 import { ActiveFiltersBar, FilterPanelContainer } from '@/components/filters/FilterPanelContainer'
 import { CopyCompletionNotifier } from '@/components/notifications/CopyCompletionNotifier'
+import { LiveChangeNotices } from '@/components/notifications/LiveChangeNotices'
+import { useLiveChanges } from '@/hooks/useLiveChanges'
 import { HelpDialog } from '@/components/help/HelpDialog'
 import { useHelpShortcut } from '@/components/help/useHelpShortcut'
 import { useActiveGraphReconciler } from '@/hooks/useGraphs'
 import { NoActiveGraph } from '@/components/graphs/NoActiveGraph'
 import { ApiKeyRequired } from '@/components/graphs/ApiKeyRequired'
+import { useWorldCalendarSync } from '@/hooks/useWorldCalendar'
+import { WorldCalendarBoundary } from './WorldCalendarBoundary'
 
 interface MainLayoutProps {
   children: ReactNode
@@ -36,6 +40,13 @@ export function MainLayout({ children }: MainLayoutProps) {
 
   // The header's active graph follows the server's, which scopes the data
   const { noActiveGraph, accessProblem } = useActiveGraphReconciler()
+
+  // Dates are shown in the open graph's world calendar, when it has one
+  useWorldCalendarSync()
+
+  // Changes other writers make to the open graph (an agent working through MCP,
+  // the command line, a generation job) appear as they are made
+  useLiveChanges()
 
   // Sync high contrast accessibility preference to the root document element
   useEffect(() => {
@@ -175,10 +186,12 @@ export function MainLayout({ children }: MainLayoutProps) {
               ) : noActiveGraph ? (
                 <NoActiveGraph />
               ) : (
-                <>
+                // Remounted when the world calendar changes, so every date in
+                // the views is shown in the new one (WorldCalendarBoundary).
+                <WorldCalendarBoundary>
                   <ActiveFiltersBar className="mb-4" />
                   {children}
-                </>
+                </WorldCalendarBoundary>
               )}
             </div>
           </div>
@@ -192,6 +205,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       {/* The copy completion notice lives here so it outlives the modal that
           started the copy. */}
       <CopyCompletionNotifier />
+      <LiveChangeNotices />
 
       {/* Help & reference (shortcuts + glossary): opened from the header, the
           user menu or `?`. */}

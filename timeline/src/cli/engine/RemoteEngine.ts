@@ -1,5 +1,8 @@
 import axios, { AxiosInstance } from 'axios';
-import { IEngine } from './IEngine';
+import { MAX_AXIS_MS, MIN_AXIS_MS, datePrecisionMetadata, isoOfAxisTime, storedCalendarSet, toInstant } from '@althistory/calendar';
+import type { CalendarInput } from '../../models/Graph';
+import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
+import { IEngine, type GenerationRunHooks } from './IEngine';
 import {
   HealthInfo,
   GraphSummaryDto,
@@ -51,6 +54,57 @@ const DOWNLOAD_TIMEOUT_MS = 120000;
 
 const GRAPH_ID_HEADER = 'X-Graph-Id';
 
+/** Tells the app what kind of client is writing, so a watcher can say who changed what. */
+const CLIENT_KIND_HEADER = 'X-Althistory-Client';
+
+/** How often a running generation job is read: quickly at first, then less often. */
+const POLL_START_MS = 400;
+const POLL_MAX_MS = 2000;
+/** Consecutive failed reads of a job before the wait is given up. */
+const POLL_MAX_FAILURES = 5;
+/** How long a generation may run before the engine cancels it. */
+const DEFAULT_GENERATION_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** The app's description of a generation job (`GET /api/generate/jobs/:id`), as far as the engine reads it. */
+interface GenerationJobPayload {
+  id: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  progress: number;
+  phase?: string;
+  message?: string;
+  graphId?: string;
+  source?: string;
+  error?: string;
+  written?: { events?: number; arcs?: number; relationships?: number };
+  result?: GenerationResultDto;
+}
+
+/** " (3 events, 1 arc and 2 links stay in graph g)", for a job that stopped part way. */
+function describeWrittenSoFar(job: GenerationJobPayload): string {
+  const written = job.written;
+  const total = (written?.events ?? 0) + (written?.arcs ?? 0) + (written?.relationships ?? 0);
+  if (!written || total === 0) return '';
+  const part = (n: number | undefined, noun: string): string => `${n ?? 0} ${noun}${n === 1 ? '' : 's'}`;
+  const where = job.graphId ? ` in graph ${job.graphId}` : '';
+  return `; ${part(written.events, 'event')}, ${part(written.arcs, 'arc')} and ${part(written.relationships, 'link')} stay${where}`;
+}
+
+/** `ALTHISTORY_GENERATION_TIMEOUT_MS`, when it is a positive whole number of milliseconds. */
+function generationTimeoutFromEnv(): number {
+  const raw = process.env.ALTHISTORY_GENERATION_TIMEOUT_MS;
+  const parsed = raw !== undefined && /^\d+$/.test(raw.trim()) ? Number.parseInt(raw.trim(), 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_GENERATION_TIMEOUT_MS;
+}
+
+export interface RemoteEngineOptions {
+  /** What kind of client this is, for the app's live change feed. Defaults to `cli`. */
+  client?: 'cli' | 'mcp';
+  /** How long a generation may run before it is cancelled. Defaults to 30 minutes. */
+  generationTimeoutMs?: number;
+  /** Waits between reads of a job; a test seam. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
 /** Page size for the list routes, which are paginated. */
 const PAGE_LIMIT = 1000;
 
@@ -101,10 +155,19 @@ export class RemoteEngine implements IEngine {
   private client: AxiosInstance;
   private baseUrl: string;
 
-  constructor(baseUrl: string = 'http://localhost:3000', apiKey?: string) {
+  /** Whether requests carry a key, so a 401 can say what to do. */
+  private readonly sentApiKey: boolean;
+  private readonly generationTimeoutMs: number;
+  private readonly sleep: (ms: number) => Promise<void>;
+
+  constructor(baseUrl: string = 'http://localhost:3000', apiKey?: string, options: RemoteEngineOptions = {}) {
+    this.sentApiKey = Boolean(apiKey);
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.generationTimeoutMs = options.generationTimeoutMs ?? generationTimeoutFromEnv();
+    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      [CLIENT_KIND_HEADER]: options.client ?? 'cli',
     };
     if (apiKey) {
       headers['X-API-Key'] = apiKey;
@@ -141,7 +204,12 @@ export class RemoteEngine implements IEngine {
         error.message;
 
       if (status === 401 || status === 403) {
-        throw new AuthErrorCLI(`Authentication failed: ${message}`);
+        const hint =
+          status === 401 && !this.sentApiKey
+            ? ' No API key was sent: give one with --api-key or ALTHISTORY_API_KEY, or for the local app run ' +
+              './start-local.sh once, which writes ADMIN_API_KEY to timeline/.env.local.'
+            : '';
+        throw new AuthErrorCLI(`Authentication failed: ${message}${hint}`);
       }
       if (status === 404) {
         throw new NotFoundErrorCLI(`Resource not found: ${message}`);
@@ -195,7 +263,9 @@ export class RemoteEngine implements IEngine {
 
   async getHealth(): Promise<HealthInfo> {
     try {
-      const res = await this.client.get('/health');
+      // /health answers 503 while the app's services are unbuilt, which in
+      // local mode is most of the time; that is a report, not a failure.
+      const res = await this.client.get('/health', { validateStatus: (code) => code === 200 || code === 503 });
       const body = isRecord(res.data) ? res.data : {};
       return {
         status: body.status === 'healthy' ? 'healthy' : 'degraded',
@@ -221,6 +291,7 @@ export class RemoteEngine implements IEngine {
         typeof graph.branchPoint === 'number' ? `v${graph.branchPoint}` : undefined,
       createdAt: readString(graph.createdAt, new Date().toISOString()),
       updatedAt: readString(graph.updatedAt, new Date().toISOString()),
+      ...(storedCalendarSet(graph.calendar) ? { calendar: storedCalendarSet(graph.calendar)! } : {}),
     };
   }
 
@@ -233,13 +304,62 @@ export class RemoteEngine implements IEngine {
     }
   }
 
-  async createGraph(name: string, description?: string): Promise<GraphSummaryDto> {
+  async createGraph(name: string, description?: string, calendar?: CalendarInput): Promise<GraphSummaryDto> {
     try {
-      const res = await this.client.post('/api/graphs', { name, description });
+      const res = await this.client.post('/api/graphs', { name, description, calendar });
       return this.toGraphSummary(unwrap(res.data));
     } catch (err) {
       return this.handleError(err, 'creating graph');
     }
+  }
+
+  async setGraphCalendar(id: string, calendar: CalendarInput | null): Promise<GraphSummaryDto> {
+    try {
+      const res = await this.client.put(`/api/graphs/${encodeURIComponent(id)}`, { calendar });
+      return this.toGraphSummary(unwrap(res.data));
+    } catch (err) {
+      return this.handleError(err, `setting the calendar of graph ${id}`);
+    }
+  }
+
+  /**
+   * A date to send, read here as the direct engine reads it. When the graph
+   * cannot be read (a key allowed its events but not the graph), text that
+   * needs its calendars (anything but an ISO date or date and time) goes to
+   * the server as written: the event and arc routes read
+   * it with the graph's own calendars, and record its precision themselves.
+   */
+  private async readDate(
+    graphId: string,
+    text: string,
+    edge: 'start' | 'end' = 'start'
+  ): Promise<{ iso: string; precision: 'day' | 'month' | 'year'; deferred: boolean }> {
+    if (!needsCalendar(text)) return { ...readAgentTimestamp(text, undefined, edge), deferred: false };
+    let refused = false;
+    const graph = await this.getGraph(graphId).catch((err: unknown) => {
+      refused = err instanceof AuthErrorCLI;
+      return undefined;
+    });
+    // Only a key refused the graph defers; one that is gone, or a daemon that
+    // cannot answer, leaves the text to be refused here as in direct mode.
+    // An ISO month or year goes too: a world graph refuses it, a plain one records its period.
+    if (!graph && refused && String(text).trim() !== '') return { iso: String(text), precision: 'day', deferred: true };
+    return { ...readAgentTimestamp(text, graph?.calendar, edge), deferred: false };
+  }
+
+  /**
+   * A filter bound as the daemon's query string takes it: an instant. Text
+   * that needs the graph's calendars cannot be read when the key cannot read
+   * the graph, and the query string takes no other text, so it is refused here.
+   */
+  private async filterBound(graphId: string, text: string, edge: 'start' | 'end'): Promise<string> {
+    const read = await this.readDate(graphId, text, edge);
+    if (read.deferred) {
+      throw new ValidationErrorCLI(
+        `Invalid timestamp: "${text}" needs the graph's calendars to read, and this key cannot read the graph. Give the bound as an ISO 8601 date and time.`
+      );
+    }
+    return read.iso;
   }
 
   async getGraph(id: string): Promise<GraphSummaryDto> {
@@ -392,15 +512,18 @@ export class RemoteEngine implements IEngine {
       metadata?: Record<string, unknown>;
     }
   ): Promise<EventDto> {
+    // Read here, as the direct engine reads it, so both modes take the same text.
+    const read = await this.readDate(graphId, data.timestamp);
     try {
       const res = await this.client.post(
         '/api/events',
         {
           description: data.description,
-          timestamp: data.timestamp,
+          timestamp: read.iso,
           actor: data.actor || 'Unknown',
           target: data.target || 'Unknown',
           metadata: {
+            ...precisionMetadata(read),
             ...(data.metadata || {}),
             ...(data.importance !== undefined ? { importance: data.importance } : {}),
           },
@@ -423,6 +546,8 @@ export class RemoteEngine implements IEngine {
       timestamp: readString(event.timestamp),
       actor: readOptionalString(event.actor),
       target: readOptionalString(event.target),
+      // The arc an event is in and its date precision live here, as in the direct engine.
+      ...(isRecord(event.metadata) && Object.keys(event.metadata).length > 0 ? { metadata: event.metadata } : {}),
     };
   }
 
@@ -437,8 +562,10 @@ export class RemoteEngine implements IEngine {
         // The daemon only filters by a range when both ends are given, so a
         // one-sided filter is completed with the widest bound that keeps the
         // meaning ("from this date onwards" / "up to this date").
-        params.startTime = filters?.from ?? '0000-01-01T00:00:00.000Z';
-        params.endTime = filters?.to ?? '9999-12-31T23:59:59.999Z';
+        // Each read as every date an agent gives is (in a world, its notation
+        // too); the daemon's filter takes the instants.
+        params.startTime = filters?.from ? await this.filterBound(graphId, filters.from, 'start') : isoOfAxisTime(MIN_AXIS_MS);
+        params.endTime = filters?.to ? await this.filterBound(graphId, filters.to, 'end') : isoOfAxisTime(MAX_AXIS_MS);
       }
       const events = await this.fetchAll('/api/events', graphId, params);
       return events.map((e) => this.toEventDto(e, graphId));
@@ -463,12 +590,24 @@ export class RemoteEngine implements IEngine {
     eventId: string,
     data: Partial<{ description: string; timestamp: string; actor?: string; target?: string }>
   ): Promise<EventDto> {
+    const read = data.timestamp !== undefined ? await this.readDate(graphId, data.timestamp) : undefined;
     try {
+      // A new date replaces the old one's precision, as in the direct engine.
+      // The PUT replaces metadata whole, so it is sent only as read back and
+      // changed: never an empty object standing in for metadata not read.
+      const existing = read ? (await this.getEvent(graphId, eventId)).metadata : undefined;
+      const metadata = !read
+        ? undefined
+        : existing
+          ? withNewDatePrecision(existing, read)
+          : read.precision === 'day'
+            ? undefined
+            : precisionMetadata(read);
       const res = await this.client.put(
         `/api/events/${eventId}`,
         {
           ...(data.description !== undefined ? { description: data.description } : {}),
-          ...(data.timestamp !== undefined ? { timestamp: data.timestamp } : {}),
+          ...(read ? { timestamp: read.iso, ...(metadata ? { metadata } : {}) } : {}),
           ...(data.actor !== undefined ? { actor: data.actor } : {}),
           ...(data.target !== undefined ? { target: data.target } : {}),
         },
@@ -494,15 +633,21 @@ export class RemoteEngine implements IEngine {
     graphId: string,
     data: { name: string; startTime: string; endTime: string; description?: string; parentArcId?: string }
   ): Promise<ArcDto> {
+    // Read here, as the direct engine reads them, so both modes take the same text.
+    const startTime = (await this.readDate(graphId, data.startTime)).iso;
+    const endTime = (await this.readDate(graphId, data.endTime, 'end')).iso;
     try {
+      // A child arc sits one level below the arc it belongs to, which has to
+      // exist; the direct engine places it the same way.
+      const level = data.parentArcId ? ((await this.getArc(graphId, data.parentArcId)).level ?? 0) + 1 : 0;
       const res = await this.client.post(
         '/api/arcs',
         {
           name: data.name,
           description: data.description || '',
-          start_time: data.startTime,
-          end_time: data.endTime,
-          level: data.parentArcId ? 1 : 0,
+          start_time: startTime,
+          end_time: endTime,
+          level,
           metadata: data.parentArcId ? { parentArcId: data.parentArcId } : undefined,
         },
         { headers: this.graphHeaders(graphId) }
@@ -609,7 +754,7 @@ export class RemoteEngine implements IEngine {
             type: readRelationshipType(data.type),
             strength: data.weight ?? 1,
             confidence: 1,
-            evidence: data.reasoning || '',
+            evidence: data.reasoning || 'Observed historical causality',
           },
         },
         { headers: this.graphHeaders(graphId) }
@@ -773,6 +918,11 @@ export class RemoteEngine implements IEngine {
             timestamp: readString(event.timestamp),
             actor: readOptionalString(event.actor),
             target: readOptionalString(event.target),
+            // Its date's precision and calendar, so it is shown as the server read it (as in direct mode).
+            metadata: datePrecisionMetadata({
+              precision: event.datePrecision === 'month' || event.datePrecision === 'year' ? event.datePrecision : 'day',
+              calendar: typeof event.dateCalendar === 'string' ? event.dateCalendar : undefined,
+            }),
           };
         }),
         arcs: arcs.map((entry) => {
@@ -864,7 +1014,8 @@ export class RemoteEngine implements IEngine {
     if (!isWikipediaUrl(url)) {
       throw new ValidationErrorCLI(
         `The daemon reads Wikipedia articles only, so "${url}" cannot be ingested in remote mode. ` +
-          'Run it with --direct to read a page on any site.'
+          'Stop the althistory app and run it again to read a page on any site (or use --direct when no app ' +
+          'shares the data).'
       );
     }
     try {
@@ -912,31 +1063,158 @@ export class RemoteEngine implements IEngine {
   }
 
   /**
-   * The daemon serves no generation routes.
+   * Run a generation through the app, which holds the model key and stays the
+   * one writer of its graphs.
    *
-   * `POST /api/generate/timeline`, `/branch` and `/expand` are not mounted, so
-   * a request to them would be answered by the 404 handler. The CLI says so
-   * instead of pointing at a route that does something else.
+   * The app answers a start with a running job (`POST /api/generate/*`); the
+   * engine polls the job, reports its progress, and returns its result when it
+   * completes. Aborting the signal asks the app to cancel the job: it stops
+   * before its next write, and what it had already written stays, which the
+   * error says. A job that fails, or is cancelled by someone else, is an error
+   * naming why.
    */
-  private unsupportedGeneration(command: string, route: string): never {
-    throw new CLIError(
-      `The daemon at ${this.baseUrl} does not serve ${route}, so "${command}" cannot run in remote mode. ` +
-        'Run it with --direct to generate against the local store.',
-      ExitCode.GENERAL_ERROR,
-      'UNSUPPORTED_REMOTE_OPERATION'
+  private async runGeneration(
+    route: string,
+    body: Record<string, unknown>,
+    graphId: string | undefined,
+    hooks: GenerationRunHooks | undefined,
+    context: string
+  ): Promise<GenerationResultDto> {
+    let job: GenerationJobPayload;
+    try {
+      const res = await this.client.post<GenerationJobPayload>(route, body, {
+        headers: this.graphHeaders(graphId),
+      });
+      job = res.data;
+    } catch (err) {
+      return this.handleError(err, context);
+    }
+    if (!isRecord(job) || typeof job.id !== 'string') {
+      throw new CLIError(
+        `The daemon at ${this.baseUrl} did not answer ${route} with a generation job; it may be an older version that cannot generate.`,
+        ExitCode.GENERAL_ERROR,
+        'UNSUPPORTED_REMOTE_OPERATION'
+      );
+    }
+
+    const jobUrl = `/api/generate/jobs/${job.id}`;
+    const deadline = Date.now() + this.generationTimeoutMs;
+    let cancelSent = false;
+    let timedOut = false;
+    let delay = POLL_START_MS;
+    let failures = 0;
+    let lastReported = '';
+
+    const cancel = async (): Promise<void> => {
+      if (cancelSent) return;
+      cancelSent = true;
+      try {
+        await this.client.post(`${jobUrl}/cancel`);
+      } catch {
+        // The job may already be over; the next poll says.
+      }
+    };
+
+    for (;;) {
+      lastReported = this.reportProgress(job, hooks, lastReported);
+      if (job.status === 'completed') {
+        if (!job.result) {
+          throw new CLIError(`The generation job ${job.id} completed without a result`, ExitCode.GENERAL_ERROR, 'GENERATION_FAILED');
+        }
+        return job.result;
+      }
+      if (job.status === 'failed') {
+        throw new CLIError(
+          `Generation failed: ${job.error ?? job.message ?? 'no reason was given'}${describeWrittenSoFar(job)}`,
+          ExitCode.GENERAL_ERROR,
+          'GENERATION_FAILED'
+        );
+      }
+      if (job.status === 'cancelled') {
+        throw timedOut
+          ? new CLIError(
+              `Generation did not finish within ${Math.round(this.generationTimeoutMs / 1000)}s and was cancelled${describeWrittenSoFar(job)}`,
+              ExitCode.GENERAL_ERROR,
+              'GENERATION_TIMEOUT'
+            )
+          : new CLIError(`Generation was cancelled${describeWrittenSoFar(job)}`, ExitCode.GENERAL_ERROR, 'GENERATION_CANCELLED');
+      }
+
+      // Asked to stop, or out of time: the app is told once, and the next read says how it ended.
+      if (hooks?.signal?.aborted || Date.now() > deadline) {
+        timedOut = timedOut || !hooks?.signal?.aborted;
+        await cancel();
+      }
+
+      await this.sleep(delay);
+      delay = Math.min(POLL_MAX_MS, Math.round(delay * 1.5));
+      try {
+        const res = await this.client.get<GenerationJobPayload>(jobUrl);
+        job = res.data;
+        failures = 0;
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 404) {
+          throw new CLIError(
+            `The daemon no longer knows the generation job ${job.id}: it may have restarted. ` +
+              'What the job had written stays in its graph.',
+            ExitCode.GENERAL_ERROR,
+            'GENERATION_LOST'
+          );
+        }
+        failures += 1;
+        if (failures >= POLL_MAX_FAILURES) return this.handleError(err, `${context} (waiting for the job)`);
+      }
+    }
+  }
+
+  /** Report a job's progress to the caller, when it moved. */
+  private reportProgress(job: GenerationJobPayload, hooks: GenerationRunHooks | undefined, previous: string): string {
+    const line = `${job.progress}|${job.phase}|${job.message}`;
+    if (!hooks?.onProgress || line === previous) return previous;
+    try {
+      hooks.onProgress({
+        progress: typeof job.progress === 'number' ? job.progress : 0,
+        phase: typeof job.phase === 'string' ? job.phase : '',
+        message: typeof job.message === 'string' ? job.message : '',
+        ...(typeof job.graphId === 'string' ? { graphId: job.graphId } : {}),
+        ...(job.source === 'model' || job.source === 'template' ? { source: job.source } : {}),
+      });
+    } catch {
+      // A listener's failure must not stop the run it is watching.
+    }
+    return line;
+  }
+
+  async generateTimeline(options: GenerateTimelineOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto> {
+    return this.runGeneration(
+      '/api/generate/timeline',
+      { ...options },
+      undefined,
+      hooks,
+      'generating a timeline'
     );
   }
 
-  async generateTimeline(_options: GenerateTimelineOptions): Promise<GenerationResultDto> {
-    return this.unsupportedGeneration('generate timeline', 'POST /api/generate/timeline');
+  async generateBranch(options: GenerateBranchOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto> {
+    const { sourceGraphId, ...rest } = options;
+    return this.runGeneration(
+      '/api/generate/branch',
+      { ...rest },
+      sourceGraphId,
+      hooks,
+      'generating a branch'
+    );
   }
 
-  async generateBranch(_options: GenerateBranchOptions): Promise<GenerationResultDto> {
-    return this.unsupportedGeneration('generate branch', 'POST /api/generate/branch');
-  }
-
-  async generateExpand(_options: GenerateExpandOptions): Promise<GenerationResultDto> {
-    return this.unsupportedGeneration('generate expand', 'POST /api/generate/expand');
+  async generateExpand(options: GenerateExpandOptions, hooks?: GenerationRunHooks): Promise<GenerationResultDto> {
+    const { graphId, ...rest } = options;
+    return this.runGeneration(
+      '/api/generate/expand',
+      { ...rest },
+      graphId,
+      hooks,
+      'expanding a timeline'
+    );
   }
 
   async generateSimulate(options: GenerateSimulateOptions): Promise<GenerationResultDto> {
@@ -1100,7 +1378,7 @@ export class RemoteEngine implements IEngine {
       description: readString(event.description, 'Untitled event'),
       actor: readString(event.actor, 'Unknown'),
       target: readString(event.target, 'Unknown'),
-      timestamp: new Date(readString(event.timestamp)),
+      timestamp: toInstant(readString(event.timestamp)),
       metadata: readRecord(event.metadata),
     });
   }
@@ -1117,8 +1395,8 @@ export class RemoteEngine implements IEngine {
       id: readString(arc.id),
       name: readString(arc.name, 'Untitled arc'),
       description: readString(arc.description),
-      start_time: new Date(readString(arc.start_time)),
-      end_time: new Date(readString(arc.end_time)),
+      start_time: toInstant(readString(arc.start_time)),
+      end_time: toInstant(readString(arc.end_time)),
       level: readNumber(arc.level, 0),
       metadata,
     });
@@ -1215,6 +1493,7 @@ export class RemoteEngine implements IEngine {
         strict,
         autoRepair,
         crossGraphLookup: this.createCrossGraphLookup(graphId),
+        calendar: (await this.getGraph(graphId).catch(() => undefined))?.calendar,
       });
     } catch (err) {
       return this.handleError(err, 'validating graph');
@@ -1252,7 +1531,7 @@ export class RemoteEngine implements IEngine {
         const exporter = new GraphExporter();
         content =
           format === 'markdown'
-            ? exporter.generateMarkdown(parsed.graphId, parsed.graphName, parsed.description, parsed.events, parsed.arcs, parsed.relationships)
+            ? exporter.generateMarkdown(parsed.graphId, parsed.graphName, parsed.description, parsed.events, parsed.arcs, parsed.relationships, parsed.calendar)
             : format === 'dot'
               ? exporter.generateDot(parsed.graphId, parsed.graphName, parsed.events, parsed.arcs, parsed.relationships)
               : exporter.generateGraphML(parsed.graphId, parsed.graphName, parsed.events, parsed.arcs, parsed.relationships);
@@ -1394,6 +1673,10 @@ export class RemoteEngine implements IEngine {
         },
         conflicts: Array.isArray(body.errors) ? body.errors.length : 0,
         strategy: options?.strategy || 'skip',
+        // What the server warned of (a document's calendars the graph does not keep), as in direct mode.
+        ...(Array.isArray(body.warnings) && body.warnings.length > 0
+          ? { warnings: body.warnings.map((warning) => (isRecord(warning) ? readString(warning.message) : String(warning))) }
+          : {}),
       };
     } catch (err) {
       return this.handleError(err, 'importing graph');

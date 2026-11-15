@@ -27,7 +27,10 @@
  */
 
 import * as d3 from 'd3'
-import { Event, Arc } from '@/types'
+import { Event, Arc, GraphCalendar } from '@/types'
+import { getActiveCalendar } from '@/stores/worldCalendarStore'
+import { axisOf, calendarIn, compareInstants, gregorianTicks, instantOfAxisTime, toInstant, worldTicks } from '@althistory/calendar'
+import { type InstantScale, type PositionScale, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
 /**
@@ -61,8 +64,8 @@ export interface ArcPosition {
 export function createTimeScale(
   domain: [Date, Date],
   range: [number, number]
-): d3.ScaleTime<number, number> {
-  return d3.scaleTime()
+): InstantScale {
+  return instantScale()
     .domain(domain)
     .range(range)
     .nice()
@@ -79,30 +82,33 @@ export function calculateTimeDomain(
   events: Event[],
   arcs: Arc[]
 ): [Date, Date] {
-  const times: number[] = []
+  // The earliest and the latest moment, compared exactly: a history of a
+  // million years has moments a double cannot tell apart from their neighbours.
+  let first: Date | null = null
+  let last: Date | null = null
+  const see = (date: Date) => {
+    if (Number.isNaN(date.getTime())) return
+    if (first === null || compareInstants(date, first) < 0) first = date
+    if (last === null || compareInstants(date, last) > 0) last = date
+  }
 
   // Collect timestamps from events
-  for (const e of events) {
-    const t = new Date(e.timestamp).getTime()
-    if (!Number.isNaN(t)) times.push(t)
-  }
+  for (const e of events) see(toInstant(e.timestamp))
 
   // Collect start/end times from arcs
   for (const a of arcs) {
-    const s = new Date(a.start_time).getTime()
-    const e = new Date(a.end_time).getTime()
-    if (!Number.isNaN(s)) times.push(s)
-    if (!Number.isNaN(e)) times.push(e)
+    see(toInstant(a.start_time))
+    see(toInstant(a.end_time))
   }
 
   // Default to ±30 days if no data
-  if (times.length === 0) {
+  if (first === null || last === null) {
     const now = Date.now()
     const thirtyDays = 1000 * 60 * 60 * 24 * 30
     return [new Date(now - thirtyDays), new Date(now + thirtyDays)]
   }
 
-  return [new Date(Math.min(...times)), new Date(Math.max(...times))]
+  return [first, last]
 }
 
 /**
@@ -115,12 +121,12 @@ export function calculateTimeDomain(
  */
 export function calculateEventPositions(
   events: Event[],
-  xScale: d3.ScaleTime<number, number>,
+  xScale: PositionScale,
   yPosition: number
 ): EventPosition[] {
   return events.map(event => ({
     id: event.id,
-    x: xScale(new Date(event.timestamp)),
+    x: xScale(toInstant(event.timestamp)),
     y: yPosition,
     event
   }))
@@ -136,12 +142,12 @@ export function calculateEventPositions(
  */
 export function calculateArcPositions(
   arcs: ArcWithUIState[],
-  xScale: d3.ScaleTime<number, number>,
+  xScale: PositionScale,
   yScale: (level: number) => number
 ): ArcPosition[] {
   return arcs.map(arc => {
-    const x = xScale(new Date(arc.start_time))
-    const endX = xScale(new Date(arc.end_time))
+    const x = xScale(toInstant(arc.start_time))
+    const endX = xScale(toInstant(arc.end_time))
     return {
       id: arc.id,
       x,
@@ -177,7 +183,7 @@ export function createArcYScale(
  */
 export function pixelToTimestamp(
   x: number,
-  xScale: d3.ScaleTime<number, number>,
+  xScale: PositionScale,
   marginLeft: number,
   innerWidth: number
 ): Date {
@@ -274,52 +280,87 @@ export function getTimeAxisFormat(timeSpanMs: number): string {
 }
 
 /**
- * Formats a tick value based on the visible time span.
- * Handles standard D3 formats and special cases like decades.
- *
- * @param tick - The Date to format
- * @param timeSpanMs - The visible time span in milliseconds
- * @returns Formatted string for the tick label
+ * One tick label for a time axis without a world calendar, in the format the
+ * visible span calls for. `utc` reads the tick in UTC, as the event labels
+ * read every historical date (a world calendar's ticks come from
+ * {@link axisTicks} instead).
  */
-export function formatTimeAxisTick(tick: Date, timeSpanMs: number): string {
-  const format = getTimeAxisFormat(timeSpanMs)
-
-  if (format === 'decade') {
-    const year = tick.getFullYear()
-    const decadeStart = Math.floor(year / 10) * 10
-    return `${decadeStart}s`
-  }
-
-  return d3.timeFormat(format)(tick)
+export function formatTimeAxisTick(tick: Date, timeSpanMs: number, utc = false): string {
+  return formatAxisLabel(getTimeAxisFormat(timeSpanMs), tick, utc)
 }
 
-/** Axis label formats, coarsest first. */
+function formatAxisLabel(name: string, tick: Date, utc: boolean): string {
+  const timeFormat = utc ? d3.utcFormat : d3.timeFormat
+  const fullYear = utc ? tick.getUTCFullYear() : tick.getFullYear()
+  if (name === 'decade') return `${Math.floor(fullYear / 10) * 10}s`
+  return timeFormat(name)(tick)
+}
+
+/** The axis label formats from coarsest to finest. */
 const TIME_AXIS_FORMAT_LADDER = ['decade', '%Y', '%b %Y', '%b %d', '%a %d', '%H:%M:%S'] as const
 
 /**
- * Labels for a whole set of axis ticks.
- *
- * The span decides the preferred format, but the ticks decide whether it can
- * be used: a count-based `scale.ticks(n)` over ~35 years steps every 5 years,
- * and labelling those by decade printed "1840s" under both 1840 and 1845. The
- * preferred format is used when it gives every tick a distinct label;
- * otherwise the next finer format that does.
+ * Labels for a whole axis without a world calendar: the format the span
+ * prefers, or the next finer one when two ticks would read the same. d3's
+ * count-based `scale.ticks(n)` over ~35 years steps every 5 years, and
+ * labelling those by decade printed "1840s" under both 1840 and 1845.
  *
  * @param ticks - The tick values, in order
  * @param timeSpanMs - The visible time span in milliseconds
  * @returns One label per tick
  */
-export function formatTimeAxisTicks(ticks: Date[], timeSpanMs: number): string[] {
+export function formatTimeAxisTicks(ticks: Date[], timeSpanMs: number, utc = false): string[] {
   const preferred = getTimeAxisFormat(timeSpanMs)
   const start = Math.max(0, TIME_AXIS_FORMAT_LADDER.indexOf(preferred as (typeof TIME_AXIS_FORMAT_LADDER)[number]))
-  const format = (name: string, tick: Date) =>
-    name === 'decade' ? `${Math.floor(tick.getFullYear() / 10) * 10}s` : d3.timeFormat(name)(tick)
-
   for (const name of TIME_AXIS_FORMAT_LADDER.slice(start)) {
-    const labels = ticks.map((tick) => format(name, tick))
+    const labels = ticks.map((tick) => formatAxisLabel(name, tick, utc))
     if (new Set(labels).size === labels.length) return labels
   }
-  return ticks.map((tick) => format('%H:%M:%S', tick))
+  return ticks.map((tick) => formatAxisLabel('%H:%M:%S', tick, utc))
+}
+
+/**
+ * A time axis's ticks and their labels. In a world calendar, its own: years,
+ * months, days and hours of the world, labelled in its notation
+ * (`worldTicks`, docs/specs/world-calendars.md Req 17). Otherwise d3's UTC
+ * ticks, labelled by the span. At most about `count` ticks either way.
+ */
+export function axisTicks(
+  domain: readonly [Date, Date] | readonly Date[],
+  count: number,
+  calendar: GraphCalendar | null = getActiveCalendar()
+): Array<{ date: Date; label: string }> {
+  const first = domain[0]!
+  const last = domain[domain.length - 1]!
+  const start = +first
+  const end = +last
+  // Exact beyond a Date's range, where a double has no whole milliseconds.
+  const from = axisOf(first)
+  const to = axisOf(last)
+  if (calendar) {
+    return worldTicks(calendarIn(calendar), [from ?? 0n, to ?? 0n], Math.max(2, count)).map((tick) => ({
+      date: instantOfAxisTime(tick.position) ?? new Date(NaN),
+      label: tick.label,
+    }))
+  }
+  if (from !== null && to !== null && usesArithmeticTicks(first, last)) {
+    // Past what d3's ticks reach, or where they floor out of a Date's range or label a BCE year
+    // astronomically: the calendar package's, labelled in years ("300000 BCE").
+    return gregorianTicks([from, to], Math.max(2, count)).map((tick) => ({
+      date: instantOfAxisTime(tick.position) ?? new Date(NaN),
+      label: tick.label,
+    }))
+  }
+  const ticks = d3.scaleUtc().domain([new Date(start), new Date(end)]).ticks(Math.max(2, count))
+  if (ticks.length === 0 && from !== null && to !== null && from !== to) {
+    // d3 made none (its interval floored the start out of a Date's range).
+    return gregorianTicks([from, to], Math.max(2, count)).map((tick) => ({
+      date: instantOfAxisTime(tick.position) ?? new Date(NaN),
+      label: tick.label,
+    }))
+  }
+  const labels = formatTimeAxisTicks(ticks, Math.abs(end - start), true)
+  return ticks.map((date, index) => ({ date, label: labels[index]! }))
 }
 
 /**
@@ -328,24 +369,25 @@ export function formatTimeAxisTicks(ticks: Date[], timeSpanMs: number): string[]
  * @param timeSpanMs - The time span in milliseconds
  * @returns D3 time interval for tick generation
  */
-export function getTimeAxisInterval(timeSpanMs: number): d3.TimeInterval {
+export function getTimeAxisInterval(timeSpanMs: number, utc = false): d3.TimeInterval {
+  // `utc` gives the UTC intervals, for an axis read in UTC like the event labels.
   if (timeSpanMs <= TIME_THRESHOLDS.ONE_DAY) {
     // Within a day: hourly ticks
-    return d3.timeHour
+    return utc ? d3.utcHour : d3.timeHour
   } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_WEEKS) {
     // Within 2 weeks: daily ticks
-    return d3.timeDay
+    return utc ? d3.utcDay : d3.timeDay
   } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_MONTHS) {
     // Within 2 months: weekly ticks
-    return d3.timeWeek
+    return utc ? d3.utcWeek : d3.timeWeek
   } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_YEARS) {
     // Within 2 years: monthly ticks
-    return d3.timeMonth
+    return utc ? d3.utcMonth : d3.timeMonth
   } else if (timeSpanMs <= TIME_THRESHOLDS.TWO_DECADES) {
     // Within 2 decades: yearly ticks
-    return d3.timeYear
+    return utc ? d3.utcYear : d3.timeYear
   } else {
     // Beyond 2 decades: decade ticks (every 10 years)
-    return d3.timeYear.every(10) as d3.TimeInterval
+    return (utc ? d3.utcYear.every(10) : d3.timeYear.every(10)) as d3.TimeInterval
   }
 }

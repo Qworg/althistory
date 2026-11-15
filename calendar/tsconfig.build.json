@@ -1,0 +1,16 @@
+{
+  // The CommonJS build the backend runs (timeline/tsconfig.runtime.json points
+  // `@althistory/calendar` at dist/index.js). The frontend never reads it: Vite
+  // compiles src/ directly.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "declaration": true,
+    "sourceMap": true,
+    "types": []
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/test/**"]
+}

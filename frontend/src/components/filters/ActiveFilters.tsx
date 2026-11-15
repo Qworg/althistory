@@ -36,6 +36,7 @@ export function ActiveFilters({
 
     // Date range
     if (filters.dateRange) {
+      // Each bound as written: in a world, in the calendar shown.
       const { start, end } = filters.dateRange
       const label = start && end 
         ? `Date: ${start} to ${end}`

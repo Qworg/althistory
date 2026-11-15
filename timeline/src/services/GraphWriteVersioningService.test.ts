@@ -7,6 +7,26 @@ import { LocalDatabaseManager } from '@/utils/database';
 import { LocalGraphStore } from '@/utils/LocalGraphStore';
 import { AppConfig } from '@/utils/config';
 import { describeEntityWrite } from './GraphWriteVersioningService';
+import { type WorldCalendarSet, readWorldTimestamp } from '@althistory/calendar';
+
+const VAEL: WorldCalendarSet = {
+  version: 2,
+  dayLength: 30 * 3600,
+  primary: 'reckoning',
+  calendars: [
+    {
+      id: 'reckoning',
+      name: 'the Reckoning of the Rising',
+      parts: [
+        ...['Lowtide', 'Greywater', 'Thaw', 'Seedtide', 'Brightwater', 'Highsun', 'Saltreap', 'Panfire', 'Gale', 'Ebb', 'Wrack', 'Longnight'].map((name) => ({ name, days: 30 })),
+        { name: 'The Drowned Days', days: 5, intercalary: true },
+      ],
+      epoch: 0,
+      eras: [{ label: 'AR', from: 1 }],
+      time: { hoursPerDay: 20, minutesPerHour: 100, secondsPerMinute: 100 },
+    },
+  ],
+};
 
 /**
  * Version history shows each commit's description. These used to read
@@ -34,6 +54,23 @@ describe('describeEntityWrite', () => {
         data: { ...census, timestamp: '1066-10-14T00:00:00.000Z' },
       })
     ).toBe('Moved “Census of 1851” to Oct 14, 1066');
+  });
+
+  it("says where an event was moved at the precision it was given, in the calendar it was given in", () => {
+    expect(
+      describeEntityWrite('update', 'event', {
+        previous: census,
+        data: { ...census, timestamp: '1871-03-01T00:00:00.000Z', metadata: { datePrecision: 'month' } },
+      })
+    ).toBe('Moved “Census of 1851” to Mar 1871');
+    const thaw = readWorldTimestamp(VAEL, 'Thaw 312 AR')!;
+    expect(
+      describeEntityWrite('update', 'event', {
+        previous: census,
+        data: { ...census, timestamp: thaw.iso, metadata: { datePrecision: 'month', dateCalendar: 'reckoning' } },
+        calendar: VAEL,
+      })
+    ).toBe('Moved “Census of 1851” to Thaw 312 AR');
   });
 
   it('says an event was renamed when only its description changed', () => {

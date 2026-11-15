@@ -3,6 +3,7 @@
  */
 
 import type { SimulationDomain } from '@/services/SimulationService';
+import type { WorldCalendarSet } from '@althistory/calendar';
 
 
 export type OutputFormat = 'json' | 'ndjson' | 'markdown' | 'plain';
@@ -56,6 +57,8 @@ export interface GraphSummaryDto {
   eventCount?: number;
   arcCount?: number;
   relationshipCount?: number;
+  /** The world's own calendars, when the graph has them (see `@althistory/calendar`). */
+  calendar?: WorldCalendarSet;
 }
 
 export interface EventDto {
@@ -161,6 +164,8 @@ export interface ImportResultDto {
   };
   conflicts: number;
   strategy: 'skip' | 'overwrite' | 'rename';
+  /** What the import did that the caller may not expect (a document's calendars the graph does not keep). */
+  warnings?: string[];
 }
 
 export interface IngestTextOptions {
@@ -245,9 +250,25 @@ export interface IngestResultDto {
   skippedRelationships?: SkippedRelationship[];
 }
 
+/**
+ * What `generate timeline` writes. There are two kinds, and a request is one
+ * or the other:
+ *
+ * - an alternate history: a `premise` and the `divergencePoint` where real
+ *   history turns;
+ * - an invented world: a `world` to chronicle from its beginning, with no real
+ *   history under it, and optionally the `calendar` its years are counted in.
+ */
 export interface GenerateTimelineOptions {
-  premise: string;
-  divergencePoint: string;
+  premise?: string;
+  divergencePoint?: string;
+  /** An invented world to chronicle, instead of a premise and a point of divergence. */
+  world?: string;
+  /**
+   * The invented world's calendar. `epochYear` defaults to the start date's
+   * year, or 1000 when there is no start date.
+   */
+  calendar?: { epochYear?: number; eraLabel?: string; name?: string; monthNames?: string[] } | WorldCalendarSet;
   startDate?: string;
   endDate?: string;
   eventCount?: number;
@@ -303,6 +324,16 @@ export interface GenerationResultDto {
   graphName: string;
   premise: string;
   divergencePoint: string;
+  /** The invented world, when the timeline chronicles one. */
+  world?: string;
+  /** The calendar the generated graph counts its years in. */
+  calendar?: WorldCalendarSet;
+  /**
+   * Who wrote the events: `model`, or `template` when there was no model key
+   * or the model's answer could not be used. A template is a skeleton to
+   * rewrite. Absent for a simulation, which is a pressure model, not prose.
+   */
+  source?: 'model' | 'template';
   eventCount: number;
   arcCount: number;
   relationshipCount: number;

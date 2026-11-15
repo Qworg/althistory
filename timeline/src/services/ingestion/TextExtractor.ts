@@ -106,7 +106,7 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
     try {
       const events = await this.llmClient.extractEvents(input.text, context);
       if (events.length === 0) return null;
-      return this.toResult(events, 'llm', await this.suggestRelationships(events));
+      return this.toResult(events, 'llm', await this.suggestRelationships(events, context));
     } catch {
       return null;
     }
@@ -120,10 +120,10 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
    * failing the extraction. Fewer than two events cannot have a causal link, so
    * that case skips the provider call entirely.
    */
-  private async suggestRelationships(events: ExtractedEvent[]): Promise<ExtractedRelationship[]> {
+  private async suggestRelationships(events: ExtractedEvent[], context?: ExtractionContext): Promise<ExtractedRelationship[]> {
     if (!this.llmClient || events.length < 2) return [];
     try {
-      const suggested = await this.llmClient.suggestRelationships(events);
+      const suggested = await this.llmClient.suggestRelationships(events, context);
       const eventIds = new Set(events.map((event) => event.tempId));
       return suggested.filter(
         (relationship) =>
@@ -145,7 +145,11 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
     const skippedSentenceTexts: string[] = [];
 
     for (const sentence of splitSentences(text)) {
-      const dates = extractDates(sentence);
+      // The patterns read Gregorian dates ("1312", "March 4, 1871"). In a world
+      // those are no dates of its (Req 16): every sentence goes to the review
+      // undated, for the reviewer to date in the world's notation, rather than
+      // stored as a Gregorian day the world shows as another year.
+      const dates = context?.calendar ? [] : extractDates(sentence);
       if (dates.length === 0) {
         skippedSentences += 1;
         if (skippedSentenceTexts.length < 20 && sentence.trim()) skippedSentenceTexts.push(sentence.trim());

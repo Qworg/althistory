@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
 
 /**
@@ -20,6 +20,36 @@ export interface UseEditHistoryOptions {
   resetKey?: unknown
   /** Oldest entries are dropped beyond this many. */
   limit?: number
+  /**
+   * A name under which the history passes to the component that replaces
+   * this one in the same render, while `resetKey` stays the same: a view
+   * remounted to show another of the world's calendars (WorldCalendarBoundary)
+   * keeps what can be undone. A view that is simply unmounted takes its
+   * history with it, as before.
+   */
+  keepAs?: string
+}
+
+interface HistoryState {
+  key: unknown
+  past: EditHistoryEntry[]
+  future: EditHistoryEntry[]
+  message: string | null
+  /** An undo or redo is under way (one at a time, whichever component holds the history). */
+  busy: boolean
+  /** The mounted components showing this history, re-rendered when it changes. */
+  views: Set<() => void>
+}
+
+const kept = new Map<string, HistoryState>()
+
+/** The history kept under `name` for `key`, or a new one (kept, when named, in its place). */
+function historyFor(name: string | undefined, key: unknown): HistoryState {
+  const held = name ? kept.get(name) : undefined
+  if (held && Object.is(held.key, key)) return held
+  const fresh: HistoryState = { key, past: [], future: [], message: null, busy: false, views: new Set() }
+  if (name) kept.set(name, fresh)
+  return fresh
 }
 
 export interface EditHistory {
@@ -42,66 +72,80 @@ export function useEditHistory({
   enableShortcuts = true,
   resetKey,
   limit = 50,
+  keepAs,
 }: UseEditHistoryOptions = {}): EditHistory {
-  const pastRef = useRef<EditHistoryEntry[]>([])
-  const futureRef = useRef<EditHistoryEntry[]>([])
-  const messageRef = useRef<string | null>(null)
-  const busyRef = useRef(false)
-  const [, rerender] = useReducer((n: number) => n + 1, 0)
+  const [initial] = useState(() => historyFor(keepAs, resetKey))
+  const history = useRef(initial)
+
+  // Held under its name while mounted. The component that replaces this one
+  // took it while rendering, before this cleanup; its own effect holds it again.
+  useEffect(() => {
+    if (!keepAs) return
+    const held = history.current
+    kept.set(keepAs, held)
+    return () => {
+      if (kept.get(keepAs) === held) kept.delete(keepAs)
+    }
+  }, [keepAs])
+  const [, rerenderThis] = useReducer((n: number) => n + 1, 0)
+  // Every view of the history re-renders when it changes: an undo begun
+  // before a remount finishes in the view that replaced the one it began in.
+  useEffect(() => {
+    const views = history.current.views
+    views.add(rerenderThis)
+    return () => {
+      views.delete(rerenderThis)
+    }
+  })
+  const rerender = useCallback(() => {
+    rerenderThis()
+    for (const view of history.current.views) view()
+  }, [])
 
   const clear = useCallback(() => {
-    pastRef.current = []
-    futureRef.current = []
-    messageRef.current = null
+    history.current.past = []
+    history.current.future = []
+    history.current.message = null
     rerender()
-  }, [])
+  }, [rerender])
 
   // A different graph has different entities: its history does not apply.
-  const resetKeyRef = useRef(resetKey)
   useEffect(() => {
-    if (Object.is(resetKeyRef.current, resetKey)) return
-    resetKeyRef.current = resetKey
-    clear()
-  }, [resetKey, clear])
+    if (Object.is(history.current.key, resetKey)) return
+    history.current = historyFor(keepAs, resetKey)
+    if (keepAs) kept.set(keepAs, history.current)
+    rerender()
+  }, [resetKey, keepAs, rerender])
 
   const record = useCallback((entry: EditHistoryEntry) => {
-    pastRef.current = [...pastRef.current, entry].slice(-limit)
-    futureRef.current = []
-    messageRef.current = entry.description
+    history.current.past = [...history.current.past, entry].slice(-limit)
+    history.current.future = []
+    history.current.message = entry.description
     rerender()
-  }, [limit])
+  }, [limit, rerender])
 
-  const undo = useCallback(async () => {
-    const entry = pastRef.current[pastRef.current.length - 1]
-    if (!entry || busyRef.current) return
-    busyRef.current = true
+  // An undo or redo finishes in the history it began in, even if another
+  // graph's has been shown since; only that history's views redraw.
+  const step = useCallback(async (from: 'past' | 'future') => {
+    const held = history.current
+    const entry = held[from][held[from].length - 1]
+    if (!entry || held.busy) return
+    held.busy = true
     try {
-      if (await entry.undo()) {
-        pastRef.current = pastRef.current.slice(0, -1)
-        futureRef.current = [...futureRef.current, entry]
-        messageRef.current = `Undone: ${entry.description}`
-        rerender()
+      if (await (from === 'past' ? entry.undo() : entry.redo())) {
+        const to = from === 'past' ? 'future' : 'past'
+        held[from] = held[from].slice(0, -1)
+        held[to] = [...held[to], entry]
+        held.message = `${from === 'past' ? 'Undone' : 'Redone'}: ${entry.description}`
+        if (history.current === held) rerender()
+        else for (const view of held.views) view()
       }
     } finally {
-      busyRef.current = false
+      held.busy = false
     }
-  }, [])
-
-  const redo = useCallback(async () => {
-    const entry = futureRef.current[futureRef.current.length - 1]
-    if (!entry || busyRef.current) return
-    busyRef.current = true
-    try {
-      if (await entry.redo()) {
-        futureRef.current = futureRef.current.slice(0, -1)
-        pastRef.current = [...pastRef.current, entry]
-        messageRef.current = `Redone: ${entry.description}`
-        rerender()
-      }
-    } finally {
-      busyRef.current = false
-    }
-  }, [])
+  }, [rerender])
+  const undo = useCallback(() => step('past'), [step])
+  const redo = useCallback(() => step('future'), [step])
 
   useEffect(() => {
     if (!enableShortcuts) return
@@ -112,10 +156,10 @@ export function useEditHistory({
       const key = event.key.toLowerCase()
       const isUndo = key === 'z' && !event.shiftKey
       const isRedo = (key === 'z' && event.shiftKey) || (key === 'y' && event.ctrlKey && !event.shiftKey)
-      if (isUndo && pastRef.current.length > 0) {
+      if (isUndo && history.current.past.length > 0) {
         event.preventDefault()
         void undo()
-      } else if (isRedo && futureRef.current.length > 0) {
+      } else if (isRedo && history.current.future.length > 0) {
         event.preventDefault()
         void redo()
       }
@@ -128,9 +172,9 @@ export function useEditHistory({
     record,
     undo,
     redo,
-    canUndo: pastRef.current.length > 0,
-    canRedo: futureRef.current.length > 0,
-    lastMessage: messageRef.current,
+    canUndo: history.current.past.length > 0,
+    canRedo: history.current.future.length > 0,
+    lastMessage: history.current.message,
     clear,
   }
 }

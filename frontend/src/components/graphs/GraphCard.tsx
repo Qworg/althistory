@@ -7,6 +7,8 @@
 
 import { memo, useCallback } from 'react'
 import { Graph, GraphStatus } from '@/types'
+import { historicalYear } from '@/utils/historicalTime'
+import { storedCalendarSet } from '@althistory/calendar'
 
 interface GraphCardProps {
   /** The graph to display */
@@ -135,9 +137,10 @@ export const GraphCard = memo(function GraphCard({
       </div>
 
       {/* Time Range (if available) */}
-      {graph.metadata.timeRange && (
+      {graph.metadata.temporalRange && (
         <div className="mt-2 text-xs text-ink-muted">
-          {new Date(graph.metadata.timeRange.start).getFullYear()} - {new Date(graph.metadata.timeRange.end).getFullYear()}
+          {/* In the graph's own calendar, not the open graph's. */}
+          {`${historicalYear(graph.metadata.temporalRange.start, storedCalendarSet(graph.calendar))} - ${historicalYear(graph.metadata.temporalRange.end, storedCalendarSet(graph.calendar))}`}
         </div>
       )}
 

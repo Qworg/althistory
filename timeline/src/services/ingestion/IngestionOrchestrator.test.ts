@@ -4,12 +4,14 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+import { type WorldCalendarSet, formatInWorld } from '@althistory/calendar';
 import {
   ImportExecutor,
   IngestionJobNotFoundError,
   IngestionJobStateError,
   IngestionOrchestrator,
   IngestionValidationError,
+  selectForImport,
   toAlthistoryExport,
   validateExtraction,
 } from './IngestionOrchestrator';
@@ -237,6 +239,32 @@ describe('IngestionOrchestrator.approve', () => {
     expect(event?.actor).toBe('New Actor');
   });
 
+  it("imports a reviewer's typed date as toISOString's spelling, with the precision the text states", async () => {
+    for (const [typed, iso, precision] of [
+      ['1870-02-14 09:30', '1870-02-14T09:30:00.000Z', undefined],
+      ['1066-10-14T09:30+05', '1066-10-14T04:30:00.000Z', undefined],
+      ['1066-10-14T09:30:00,5Z', '1066-10-14T09:30:00.500Z', undefined],
+      ['1871-03', '1871-03-01T00:00:00.000Z', 'month'],
+    ] as const) {
+      const { orchestrator, importExecutor } = makeOrchestrator();
+      const preview = await orchestrator.ingest({ source: 'text', text: { text: 'x' } });
+      await orchestrator.approve(preview.jobId, { targetGraphId: 'graph-1', edits: { 'event-1': { timestamp: typed } } });
+      const event = importExecutor.calls[0].data.data.events.find((entry) => entry.id === 'event-1');
+      // What the import (and new Date() anywhere after it) reads as one instant on any server.
+      expect(event?.timestamp, typed).toBe(iso);
+      expect(event?.metadata?.datePrecision, typed).toBe(precision);
+    }
+  });
+
+  it("refuses a reviewer's date in prose, as the review marks it, rather than read it in the server's zone", async () => {
+    const { orchestrator, importExecutor } = makeOrchestrator();
+    const preview = await orchestrator.ingest({ source: 'text', text: { text: 'x' } });
+    await expect(
+      orchestrator.approve(preview.jobId, { targetGraphId: 'graph-1', edits: { 'event-1': { timestamp: 'Feb 14 1870' } } })
+    ).rejects.toThrow();
+    expect(importExecutor.calls).toHaveLength(0);
+  });
+
   it('rejects approval when the selected subset still has validation errors', async () => {
     const invalid = makeExtraction({
       events: [makeEvent({ actor: '' })],
@@ -338,6 +366,17 @@ describe('validateExtraction', () => {
     expect(errors.some((issue) => issue.message.includes('effect event'))).toBe(true);
   });
 
+  it("flags an arc or an event dated in prose, which the server would otherwise read in its own zone", () => {
+    const extraction = makeExtraction({
+      events: [makeEvent({ timestamp: 'Feb 14 1870' })],
+      relationships: [],
+      arcs: [makeArc({ start_time: 'January 1870', end_time: '1871-01-01T00:00:00Z' })],
+    });
+    const errors = validateExtraction(extraction).filter((issue) => issue.severity === 'error');
+    expect(errors.some((issue) => issue.entityType === 'event' && issue.message.includes('timestamp'))).toBe(true);
+    expect(errors.some((issue) => issue.entityType === 'arc' && issue.message.includes('valid timestamps'))).toBe(true);
+  });
+
   it('flags an arc whose start is after its end', () => {
     const extraction = makeExtraction({
       events: [],
@@ -376,5 +415,79 @@ describe('toAlthistoryExport', () => {
     const [month, day] = exported.data.events;
     expect(month?.metadata).toMatchObject({ datePrecision: 'month' });
     expect(day?.metadata).not.toHaveProperty('datePrecision');
+  });
+});
+
+describe('review edits in a world', () => {
+  const VAEL: WorldCalendarSet = {
+    version: 2,
+    dayLength: 30 * 3600,
+    primary: 'reckoning',
+    calendars: [
+      {
+        id: 'reckoning',
+        name: 'the Reckoning of the Rising',
+        parts: ['Lowtide', 'Greywater', 'Thaw', 'Seedtide'].map((name) => ({ name, days: 30 })),
+        epoch: 0,
+        eras: [{ label: 'AR', from: 1 }],
+      },
+    ],
+  };
+
+  it("reads an arc's edited end as the last moment of the month it names, as the API does", () => {
+    const extraction = {
+      events: [],
+      arcs: [{ tempId: 'a1', name: 'War', description: '', start_time: '', end_time: '', level: 0, confidence: 1, source: 'llm', selected: true, edited: false }],
+      relationships: [],
+      sources: [],
+      overallConfidence: 1,
+    } as unknown as Parameters<typeof selectForImport>[0];
+    const selected = selectForImport(extraction, { edits: { a1: { start_time: 'Seedtide 312 AR', end_time: 'Seedtide 312 AR' } } } as never, VAEL);
+    const arc = selected.arcs[0]!;
+    expect(formatInWorld(VAEL, Date.parse(arc.start_time))).toBe('Seedtide 1, 312 AR');
+    expect(formatInWorld(VAEL, Date.parse(arc.end_time))).toBe('Seedtide 30, 312 AR, 23:59');
+  });
+
+  it('reads the reviewer\'s dates with the calendars of the graph the review goes into, not the job\'s', async () => {
+    const edits = { 'event-1': { timestamp: 'Thaw 4, 312 AR' } };
+    // Extracted for no world, approved into Vael: the world's notation is read.
+    const into = makeOrchestrator();
+    const plainJob = await into.orchestrator.ingest({ source: 'text', text: { text: 'x' } });
+    await into.orchestrator.approve(plainJob.jobId, { targetGraphId: 'vael', edits }, undefined, { calendar: VAEL });
+    const event = into.importExecutor.calls[0]!.data.data.events.find((entry) => entry.id === 'event-1');
+    expect(formatInWorld(VAEL, Date.parse(event!.timestamp))).toBe('Thaw 4, 312 AR');
+
+    // Extracted for Vael, approved into a plain graph: the same text is refused.
+    const out = makeOrchestrator();
+    const worldJob = await out.orchestrator.ingest({ source: 'text', text: { text: 'x' } }, { calendar: VAEL });
+    await expect(
+      out.orchestrator.approve(worldJob.jobId, { targetGraphId: 'plain', edits }, undefined, { calendar: undefined })
+    ).rejects.toThrow();
+    expect(out.importExecutor.calls).toHaveLength(0);
+  });
+});
+
+describe('validating an extraction for a world', () => {
+  it('refuses a Gregorian month the reviewer typed, and calls no world date future', () => {
+    const extraction = {
+      events: [
+        { tempId: 'e1', description: 'A', actor: 'A', target: 'B', timestamp: '1871-03', confidence: 1, source: { type: 'llm' }, selected: true, edited: true },
+        { tempId: 'e2', description: 'B', actor: 'A', target: 'B', timestamp: '2358-11-19T06:00:00.000Z', confidence: 1, source: { type: 'llm' }, selected: true, edited: false },
+      ],
+      arcs: [],
+      relationships: [],
+      sources: [],
+      overallConfidence: 1,
+    } as unknown as Parameters<typeof validateExtraction>[0];
+    const world: WorldCalendarSet = {
+      version: 2, dayLength: 86_400, primary: 'r',
+      calendars: [{ id: 'r', name: 'R', parts: [{ name: 'Thaw', days: 30 }], epoch: 0, eras: [{ label: 'AR', from: 1 }] }],
+    };
+    const issues = validateExtraction(extraction, world);
+    expect(issues.filter((issue) => issue.severity === 'error').map((issue) => issue.entityTempId)).toEqual(['e1']);
+    expect(issues.some((issue) => /future/.test(issue.message))).toBe(false);
+    // Without a world, the same month is read (and the far date is future).
+    const plain = validateExtraction(extraction);
+    expect(plain.filter((issue) => issue.severity === 'error')).toEqual([]);
   });
 });

@@ -27,6 +27,7 @@
  * pattern copy.
  */
 
+import { toInstant } from '@althistory/calendar';
 import { ExtractedEvent, ExtractionResult } from './types';
 
 /**
@@ -214,8 +215,8 @@ export function describesSameEvent(left: ExtractedEvent, right: ExtractedEvent):
     (sharesActor && sharesTarget && covered >= RELATED_COVERAGE && sharedDescribed.length >= 1);
   if (!alike) return false;
 
-  const leftTime = Date.parse(left.timestamp);
-  const rightTime = Date.parse(right.timestamp);
+  const leftTime = toInstant(left.timestamp).getTime();
+  const rightTime = toInstant(right.timestamp).getTime();
   if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) {
     // One of the two has no usable time, so the wording is the only evidence.
     return true;

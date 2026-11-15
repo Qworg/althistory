@@ -50,6 +50,12 @@ export interface OperationSpec {
   status?: number
   /** Whether the operation is scoped to a graph by the `X-Graph-Id` header. */
   graphScoped?: boolean
+  /**
+   * Request headers of the operation's own, for one that reads a header in a
+   * way `graphScoped` does not describe (an optional `X-Graph-Id` with no
+   * active-graph fallback).
+   */
+  headers?: Array<{ name: string; required?: boolean; description: string }>
   /** Query parameters the operation takes. */
   query?: Array<{ name: string; type?: string; required?: boolean; description?: string }>
   /** Response codes this operation can answer with, beyond the usual ones. */
@@ -141,7 +147,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     auth: 'required',
   },
   'PUT /api/graphs/:id': {
-    summary: 'Rename a graph, change its description or archive it.',
+    summary: 'Rename a graph, change its description or calendar, or archive it.',
     request: 'GraphUpdate',
     response: 'Graph',
     auth: 'required',
@@ -698,6 +704,10 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   // --- import --------------------------------------------------------------
   'POST /api/import/validate': {
     summary: 'Check that an export document can be imported. Needs the `import` permission.',
+    query: [
+      { name: 'targetGraphId', type: 'string', description: "The graph it would go into: its dates are read with that graph's calendars (with mode merge or replace)." },
+      { name: 'mode', type: 'string', description: 'merge, replace or create-new (the default: the document is read with its own calendars).' },
+    ],
     request: 'ExportDocument',
     requestRequired: true,
     response: 'ValidationReport',
@@ -764,6 +774,15 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   },
   'POST /api/ingest/text': {
     summary: 'Extract entities from a piece of text.',
+    headers: [
+      {
+        name: 'X-Graph-Id',
+        description:
+          "The graph the text is for: its world calendars tell the model how the world writes a date, and the dates it gives are read in them. " +
+          'Optional, and unlike the graph-scoped routes there is no active-graph fallback: without it no graph ' +
+          'is read. A graph that does not exist is a 404; one the key may not access, a 403.',
+      },
+    ],
     request: 'IngestTextRequest',
     requestRequired: true,
     response: 'IngestPreview',
@@ -793,6 +812,67 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   'DELETE /api/ingest/jobs/:id': {
     summary: 'Discard an extraction and the entities it found.',
     response: 'GenericObject',
+    envelope: 'bare',
+    auth: 'required',
+  },
+
+  // --- generate ------------------------------------------------------------
+  'POST /api/generate/timeline': {
+    summary:
+      'Start a job that drafts a timeline: an alternate history from a premise and a point of ' +
+      'divergence, or an invented world. The job writes the graph, its arcs, events and links as it ' +
+      'goes, and reports `source` (`model` or `template`). Needs `generate` (or every write permission).',
+    request: 'GenerateTimelineRequest',
+    requestRequired: true,
+    response: 'GenerationJob',
+    envelope: 'bare',
+    status: 202,
+    auth: 'required',
+    responses: { 429: 'The key, or the app, is at its limit of generation jobs; see `Retry-After`.' },
+  },
+  'POST /api/generate/branch': {
+    summary:
+      'Start a job that branches a graph at an event and drafts what follows. The graph comes from ' +
+      'the `X-Graph-Id` header and the key must be allowed it.',
+    request: 'GenerateBranchRequest',
+    requestRequired: true,
+    response: 'GenerationJob',
+    envelope: 'bare',
+    status: 202,
+    auth: 'required',
+    graphScoped: true,
+    responses: { 429: 'The key, or the app, is at its limit of generation jobs; see `Retry-After`.' },
+  },
+  'POST /api/generate/expand': {
+    summary:
+      'Start a job that adds interpolated events to a graph, an arc or a time window, recorded as an ' +
+      'arc of their own. The graph comes from the `X-Graph-Id` header and the key must be allowed it.',
+    request: 'GenerateExpandRequest',
+    requestRequired: true,
+    response: 'GenerationJob',
+    envelope: 'bare',
+    status: 202,
+    auth: 'required',
+    graphScoped: true,
+    responses: { 429: 'The key, or the app, is at its limit of generation jobs; see `Retry-After`.' },
+  },
+  'GET /api/generate/jobs': {
+    summary: "The key's generation jobs, newest first, without their results.",
+    response: 'GenerationJobList',
+    envelope: 'bare',
+    auth: 'required',
+  },
+  'GET /api/generate/jobs/:id': {
+    summary: 'One generation job: its status and progress, and its result once it completed. Another key\'s job is a 404.',
+    response: 'GenerationJob',
+    envelope: 'bare',
+    auth: 'required',
+  },
+  'POST /api/generate/jobs/:id/cancel': {
+    summary:
+      'Cancel a generation job. It stops before its next write; what it already wrote stays in the ' +
+      'graph. A job that already finished is returned as it is.',
+    response: 'GenerationJob',
     envelope: 'bare',
     auth: 'required',
   },
@@ -900,8 +980,9 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   // --- stream --------------------------------------------------------------
   'POST /api/stream/token': {
     summary:
-      'Issue a short-lived token for a WebSocket write session. The graph comes ' +
-      'from the `X-Graph-Id` header; a `graphId` in the body is ignored.',
+      'Issue a short-lived token for a WebSocket session: a write session, or with `mode: "feed"` a ' +
+      'read-only session for the live change feed (see docs/api-integration.md). The graph the ' +
+      'socket is bound to comes from the `X-Graph-Id` header; a `graphId` in the body is ignored.',
     request: 'StreamTokenRequest',
     response: 'StreamToken',
     envelope: 'bare',

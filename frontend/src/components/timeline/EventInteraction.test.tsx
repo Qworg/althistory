@@ -67,6 +67,9 @@ vi.mock('d3', () => {
 
   return {
     scaleTime: () => createMockScale(),
+    // The axis ticks are generated on a UTC scale over the same domain.
+    scaleUtc: () => createMockScale(),
+    utcFormat: () => (date: Date): string => date.toISOString().split('T')[0] ?? '',
     scaleLinear: () => createMockScale(),
     timeFormat: () => (date: Date): string => date.toISOString().split('T')[0] ?? '',
     select: () => ({

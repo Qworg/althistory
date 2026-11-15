@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback, useId } from 'react'
 import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
 import cytoscape, { Core, NodeSingular, EdgeSingular, EventObject } from 'cytoscape'
 import '@/utils/cytoscapeSetup' // Register layout extensions (dagre, cose-bilkent)
-import { Event, CausalRelationship, CausalRelationshipData, CausalPath, CausalSuggestion } from '@/types'
+import { Event, CausalRelationship, CausalRelationshipData, CausalPath, CausalSuggestion, GraphCalendar } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
 import {
@@ -25,7 +25,8 @@ import { CausalGraphPerformanceManager } from './CausalGraphPerformanceManager'
 import useCausalPathExploration from '@/hooks/useCausalPathExploration'
 import useCausalSuggestions from '@/hooks/useCausalSuggestions'
 import { CausalRelationshipModal } from '@/components/modals/CausalRelationshipModal'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { formatEventDate } from '@/utils/historicalTime'
+import { useLiveChangesStore } from '@/stores/liveChangesStore'
 import {
   eventNodeLabel,
   eventNodeCanvasLabel,
@@ -40,6 +41,7 @@ import {
   type LabelBox
 } from './causalGraphPresentation'
 import { buildCausalGraphStylesheet, GRAPH_STYLESHEET_REPLACED_EVENT } from './causalGraphStylesheet'
+import { toInstant } from '@althistory/calendar'
 
 export interface CausalGraphComponentProps {
   className?: string
@@ -93,6 +95,11 @@ export interface CausalGraphComponentProps {
    * affordance (no right-click edit, no relationship form).
    */
   readOnly?: boolean
+  /**
+   * The world calendar the graph's dates read in, when it is not the open
+   * graph (the Compare dialog shows a branch); left out, the open graph's.
+   */
+  calendar?: GraphCalendar | null
 }
 
 /** Past this many events or links the graph needs its level-of-detail controls. */
@@ -160,7 +167,8 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   onLayoutChange,
   divergenceEventIds,
   branchAddedIds,
-  readOnly = false
+  readOnly = false,
+  calendar
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
@@ -240,6 +248,21 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     minConfidence: 0.3
   })
 
+  // The live change feed's highlight comes and goes while the graph is drawn:
+  // ring what just arrived and un-ring what has rested, without redrawing it.
+  useEffect(() => {
+    return useLiveChangesStore.subscribe((state, previous) => {
+      const cy = cyRef.current
+      if (!cy || state.fresh === previous.fresh) return
+      cy.nodes().forEach((node) => {
+        node.toggleClass('live-new', state.fresh.event[node.id()] !== undefined)
+      })
+      cy.edges().forEach((edge) => {
+        edge.toggleClass('live-new', state.fresh.relationship[edge.id()] !== undefined)
+      })
+    })
+  }, [])
+
   // Keep refs in sync with state (fixes closure stale state bug)
   useEffect(() => {
     isCreatingLinkRef.current = isCreatingLink
@@ -278,8 +301,8 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
   // Initialize Cytoscape instance
   // Validate temporal ordering for causal relationships
   const validateTemporalOrdering = useCallback((causeEvent: Event, effectEvent: Event): boolean => {
-    const causeTime = new Date(causeEvent.timestamp)
-    const effectTime = new Date(effectEvent.timestamp)
+    const causeTime = toInstant(causeEvent.timestamp)
+    const effectTime = toInstant(effectEvent.timestamp)
     return isCausalOrderValid(causeTime, effectTime)
   }, [])
 
@@ -620,7 +643,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     const nodes: CausalNodeData[] = events.map(event => ({
       id: event.id,
       event,
-      label: eventNodeCanvasLabel(event),
+      label: eventNodeCanvasLabel(event, calendar),
       reach: reach.get(event.id) ?? 0,
       weight: maxReach > 0 ? Math.pow((reach.get(event.id) ?? 0) / maxReach, 0.75) : 0.5,
       isSelected: selectedEvents.includes(event.id),
@@ -715,7 +738,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     })
 
     return { nodes, edges }
-  }, [events, causalRelationships, selectedEvents, divergenceEventIds]) // linkCreationSource removed
+  }, [events, causalRelationships, selectedEvents, divergenceEventIds, calendar]) // linkCreationSource removed
 
   // Update graph data
   const updateGraphData = useCallback(() => {
@@ -732,6 +755,9 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     const currentSessionData = useGlobalStore.getState().sessionData
     const causalGraphState = currentSessionData.viewportState.causalGraph
 
+    // What another writer just added (the live change feed), to ring as it is drawn.
+    const liveFresh = useLiveChangesStore.getState().fresh
+
     // Clear existing elements
     cyRef.current.elements().remove()
 
@@ -743,6 +769,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         classes.push('divergence-point')
       }
       if (branchAddedIds?.includes(node.id)) classes.push('branch-added')
+      if (liveFresh.event[node.id] !== undefined) classes.push('live-new')
       return {
         data: node,
         classes: classes.length > 0 ? classes.join(' ') : undefined,
@@ -752,7 +779,11 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
 
     // Add edges
     const cyEdges = edges.map(edge => {
-      const classes = [edge.isCrossGraph ? 'cross-graph' : '', branchAddedIds?.includes(edge.id) ? 'branch-added' : '']
+      const classes = [
+        edge.isCrossGraph ? 'cross-graph' : '',
+        branchAddedIds?.includes(edge.id) ? 'branch-added' : '',
+        liveFresh.relationship[edge.id] !== undefined ? 'live-new' : '',
+      ]
         .filter(Boolean)
         .join(' ')
       return { data: edge, classes: classes || undefined }
@@ -836,7 +867,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
     const first = events.find(e => e.id === selectedEvents[0])
     const second = events.find(e => e.id === selectedEvents[1])
     if (!first || !second || first.id === second.id) return null
-    return isTemporalInversion(new Date(first.timestamp).getTime(), new Date(second.timestamp).getTime())
+    return isTemporalInversion(toInstant(first.timestamp), toInstant(second.timestamp))
       ? { cause: second, effect: first }
       : { cause: first, effect: second }
   }, [selectedEvents, events])
@@ -1126,10 +1157,10 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
       // Mark nodes that can't be valid targets (events that occurred before
       // the source). The names say which is which, so that a comparison
       // between the two is recognisable as a causal-order comparison.
-      const causeTimestamp = new Date(linkCreationSource.timestamp).getTime()
+      const causeTimestamp = toInstant(linkCreationSource.timestamp)
 
       // Guard against invalid timestamp
-      if (isNaN(causeTimestamp)) {
+      if (isNaN(causeTimestamp.getTime())) {
         console.warn('[CausalGraph] Invalid source timestamp:', linkCreationSource.timestamp)
         return
       }
@@ -1141,10 +1172,10 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
           return
         }
 
-        const effectTimestamp = new Date(nodeData.event.timestamp).getTime()
+        const effectTimestamp = toInstant(nodeData.event.timestamp)
 
         // Skip if timestamp is invalid
-        if (isNaN(effectTimestamp)) {
+        if (isNaN(effectTimestamp.getTime())) {
           console.warn('[CausalGraph] Invalid node timestamp:', nodeData.event.timestamp)
           return
         }
@@ -1358,7 +1389,7 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
         {/* The canvas draws nodes, not DOM: announce the event the keyboard
             moves to, in full, the way the hover tooltip shows it. */}
         <p className="sr-only" aria-live="polite" aria-atomic="true">
-          {keyboardEvent ? describeEvent(keyboardEvent) : ''}
+          {keyboardEvent ? describeEvent(keyboardEvent, calendar) : ''}
         </p>
 
         {/* Path Highlighter */}
@@ -1514,21 +1545,21 @@ export const CausalGraphComponent: React.FC<CausalGraphComponentProps> = ({
               <p className="mt-1 text-ink-secondary">{formatActorTarget(hoveredNode)}</p>
             )}
             <p className="mt-1 text-xs text-ink-secondary font-mono-code">
-              {formatHistoricalTimestamp(hoveredNode.timestamp)}
+              {formatEventDate(hoveredNode, undefined, calendar)}
             </p>
             {isCreatingLink && (
               <div className={`text-xs mt-2 pt-2 border-t border-line font-medium ${
                 linkCreationSource && isTemporalInversion(
-                  new Date(linkCreationSource.timestamp).getTime(),
-                  new Date(hoveredNode.timestamp).getTime()
+                  toInstant(linkCreationSource.timestamp),
+                  toInstant(hoveredNode.timestamp)
                 )
                   ? 'text-ink-muted'
                   : 'text-selected'
               }`}>
                 {linkCreationSource
                   ? (isTemporalInversion(
-                      new Date(linkCreationSource.timestamp).getTime(),
-                      new Date(hoveredNode.timestamp).getTime()
+                      toInstant(linkCreationSource.timestamp),
+                      toInstant(hoveredNode.timestamp)
                     )
                     ? 'Cannot link - this event occurs before the source'
                     : 'Click to make this the effect'

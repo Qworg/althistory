@@ -187,7 +187,7 @@ describe('TextExtractor (LLM relationships)', () => {
 
     const result = await new TextExtractor({ llmClient: llm }).extract({ text: 'anything' });
 
-    expect(llm.suggestRelationships).toHaveBeenCalledWith([first, second]);
+    expect(llm.suggestRelationships).toHaveBeenCalledWith([first, second], undefined);
     expect(result.events).toHaveLength(2);
     expect(result.relationships).toHaveLength(1);
     expect(result.relationships[0]).toMatchObject({

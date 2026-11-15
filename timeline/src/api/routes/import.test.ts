@@ -10,6 +10,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { createImportRouter } from './import';
 import { AlthistoryExport } from '../../services/ExportService';
+import { GraphRepository } from '../../repositories/GraphRepository';
 
 describe('Import API Routes', () => {
   let app: Express;
@@ -126,6 +127,34 @@ describe('Import API Routes', () => {
       expect(response.body.errors).toHaveLength(0);
       expect(response.body.summary.eventCount).toBe(2);
       expect(response.body.summary.arcCount).toBe(1);
+    });
+
+    it("reads the dates with the target graph's calendars when merging into one", async () => {
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const vael = await repository.create({
+        name: 'Vael',
+        calendar: {
+          version: 2,
+          dayLength: 86_400,
+          primary: 'reckoning',
+          calendars: [{ id: 'reckoning', name: 'the Reckoning', parts: [{ name: 'Thaw', days: 30 }], epoch: 0, eras: [{ label: 'AR', from: 1 }] }],
+        } as never,
+      });
+      const doc = createValidExport();
+      doc.data.events[0]!.timestamp = 'Thaw 4, 312 AR';
+      doc.data.events[1]!.timestamp = 'Thaw 5, 312 AR';
+
+      // Without a target, the document's own (no) calendar: not a date.
+      const alone = await request(app).post('/api/import/validate').send(doc).expect(200);
+      expect(alone.body.valid).toBe(false);
+      // Into Vael, as the import itself will read it.
+      const into = await request(app)
+        .post('/api/import/validate')
+        .query({ targetGraphId: vael.id, mode: 'merge' })
+        .send(doc)
+        .expect(200);
+      expect(into.body.errors).toEqual([]);
     });
 
     it('should reject invalid data structure', async () => {

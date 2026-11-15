@@ -137,7 +137,8 @@ async function overview(ctx: TourContext): Promise<Shot> {
     // The toolbar is several button groups; its extent is first to last control.
     toolbar: union(
       await rectOf(page.getByRole('button', { name: 'Fit to View' }).first(), 'the first toolbar button'),
-      await rectOf(page.getByRole('button', { name: 'Live sync' }).first(), 'the last toolbar control')
+      // Live sync is on by default, so the badge's own control reads "Turn off"; it reads "Live sync" when it has been turned off.
+      await rectOf(page.getByRole('button', { name: /^(Turn off|Live sync|Retry)$/ }).first(), 'the last toolbar control')
     ),
     graphSelector: await rectOf(page.getByRole('button', { name: new RegExp(scenario.graph.name) }).first(), 'the graph selector'),
     timeline: await rectOf(page.locator('svg[data-timeline-canvas]').first(), 'the timeline'),

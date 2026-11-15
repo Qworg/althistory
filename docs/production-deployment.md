@@ -114,6 +114,8 @@ full list. The values that matter most:
 | Rate-limit counters | in-memory, snapshotted to Redis every 30 s | **no** — each process counts separately |
 | API keys | `LOCAL_DATA_DIR` (`/data`) | **no** — files on the node |
 | Streaming tokens (`/api/stream`) | in-memory | **no** — a token issued on one replica is unknown to another |
+| Live change feed (the sockets' `change` messages and their catch-up history) | in-memory | **no** — a change made through one replica is never heard by a socket on another |
+| Generation jobs (`/api/generate`) | in-memory | **no** — a replica cannot see, or cancel, another's job |
 
 Graph, export and job repositories are file-backed **even in cloud mode** —
 there is no Neo4j-backed implementation of them — so the `api` service mounts

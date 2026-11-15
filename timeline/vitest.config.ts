@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'path';
 import react from '@vitejs/plugin-react';
+import { aliases } from './vitest.aliases';
 
 export default defineConfig({
   plugins: [react()],
@@ -70,12 +70,14 @@ export default defineConfig({
       'src/repositories/ArcRepository.test.ts', // Requires Neo4j; see ArcRepository.unit.test.ts
       'src/services/GraphCopyService.test.ts', // Requires Neo4j; see GraphCopyService.unit.test.ts
       // Requires Neo4j (two graphs, one instance); run via `npm run test:cloud`.
-      'src/tests/integration/graph-scoped-storage.test.ts'
+      'src/tests/integration/graph-scoped-storage.test.ts',
+      // Requires Neo4j: moments beyond a Date through datetime({epochMillis}).
+      'src/repositories/DeepTime.neo4j.test.ts'
     ]
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src'),
+      ...aliases,
     },
   },
 });

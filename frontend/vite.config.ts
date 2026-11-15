@@ -57,6 +57,8 @@ export default defineConfig({
       '@/types': path.resolve(__dirname, './src/types'),
       '@/utils': path.resolve(__dirname, './src/utils'),
       '@/stores': path.resolve(__dirname, './src/stores'),
+      // The shared date and calendar package, compiled from source with the app.
+      '@althistory/calendar': path.resolve(__dirname, '../calendar/src/index.ts'),
     },
   },
   test: {

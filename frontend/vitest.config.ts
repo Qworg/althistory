@@ -56,6 +56,7 @@ export default defineConfig({
       '@/utils': resolve('./src/utils'),
       '@/stores': resolve('./src/stores'),
       '@/test': resolve('./src/test'),
+      '@althistory/calendar': resolve('../calendar/src/index.ts'),
     },
   },
-})
+})

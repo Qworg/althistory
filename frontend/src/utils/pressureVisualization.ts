@@ -5,6 +5,7 @@ import {
   PressureTooltipData,
   DEFAULT_PRESSURE_COLORS
 } from '@/types/pressure'
+import { toAxisTime, toInstant } from '@althistory/calendar'
 
 /**
  * Processes raw pressure data with context for visualization
@@ -24,10 +25,13 @@ export function processPressuresWithContext(
     // pressure could not be placed in time at all.
     const affectedArcs = pressure.time_range
       ? arcs.filter(arc => {
-          const arcStart = new Date(arc.start_time).getTime()
-          const arcEnd = new Date(arc.end_time).getTime()
-          const rangeStart = new Date(pressure.time_range!.start).getTime()
-          const rangeEnd = new Date(pressure.time_range!.end).getTime()
+          // Exact axis times: `new Date(text)` cannot read the expanded-year
+          // ISO text the backend writes beyond +-275,760 years.
+          const arcStart = toAxisTime(arc.start_time)
+          const arcEnd = toAxisTime(arc.end_time)
+          const rangeStart = toAxisTime(pressure.time_range!.start)
+          const rangeEnd = toAxisTime(pressure.time_range!.end)
+          if (arcStart === null || arcEnd === null || rangeStart === null || rangeEnd === null) return false
           return arcStart <= rangeEnd && arcEnd >= rangeStart
         })
       : []
@@ -93,8 +97,8 @@ export function generatePressureIndicators(
       // -- on top of the root's own indicator.
       const arcLevel = arcLevelMap.get(arc.id)
       if (arcLevel === undefined) return
-      const startX = timeScale(new Date(arc.start_time))
-      const endX = timeScale(new Date(arc.end_time))
+      const startX = timeScale(toInstant(arc.start_time))
+      const endX = timeScale(toInstant(arc.end_time))
       const y = yScale(arcLevel)
       
       // Create indicator positioned on top of the arc

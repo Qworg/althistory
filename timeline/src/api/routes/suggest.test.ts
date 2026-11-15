@@ -205,7 +205,8 @@ describe('Suggest Routes', () => {
       // rather than applying its own defaults.
       expect(mockInferenceService.suggestRelationships).toHaveBeenCalledWith(
         expect.any(Array),
-        { minConfidence: 0.42, maxSuggestions: 3, includeIndirect: false }
+        { minConfidence: 0.42, maxSuggestions: 3, includeIndirect: false },
+        undefined
       );
     });
 
@@ -310,7 +311,8 @@ describe('Suggest Routes', () => {
       expect(mockInferenceService.clusterEventsIntoArcs).toHaveBeenCalledWith(
         expect.any(Array),
         10,
-        4
+        4,
+        undefined
       );
       // The HTTP body is the service result, unchanged.
       expect(response.body.suggestions).toHaveLength(1);
@@ -410,7 +412,8 @@ describe('Suggest Routes', () => {
 
       expect(mockInferenceService.analyzeCompleteness).toHaveBeenCalledWith(
         expect.any(Array),
-        [{ cause_event_id: 'e0', effect_event_id: 'e1' }]
+        [{ cause_event_id: 'e0', effect_event_id: 'e1' }],
+        undefined
       );
       expect(response.body.overallCompleteness).toBeDefined();
     });
@@ -429,7 +432,8 @@ describe('Suggest Routes', () => {
 
       expect(mockInferenceService.analyzeCompleteness).toHaveBeenCalledWith(
         expect.any(Array),
-        expect.any(Array)
+        expect.any(Array),
+        undefined
       );
       // The HTTP body is the service result, unchanged.
       expect(response.body.gaps).toBeDefined();
@@ -479,6 +483,25 @@ describe('Suggest Routes', () => {
       expect(response.body.pressures).toBeDefined();
       expect(response.body.pressures.length).toBe(1);
       expect(response.body.pressures[0].pressure_type).toBe('economic');
+    });
+
+    it('reads event dates as every door does: milliseconds still, and a date it cannot read refused with a 400', async () => {
+      mockInferenceService.analyzeEventClusters.mockReturnValue([]);
+      const send = (timestamp: unknown) =>
+        request(app)
+          .post('/api/suggest/pressures')
+          .set('X-API-Key', 'valid-read-key')
+          .send({
+            events: [
+              { id: 'e1', description: 'A', actor: 'A', target: 'B', timestamp },
+              { id: 'e2', description: 'B', actor: 'A', target: 'B', timestamp: '1914-06-15T00:00:00.000Z' },
+            ],
+          });
+      await send(189000000000).expect(200);
+      await send('312-03-04 14:30').expect(200);
+      const refused = await send('Thaw 4, 312 AR').expect(400);
+      expect(JSON.stringify(refused.body)).toMatch(/timestamp/);
+      await send('0').expect(400);
     });
   });
 });

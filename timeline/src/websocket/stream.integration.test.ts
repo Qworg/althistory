@@ -225,6 +225,7 @@ describe('WebSocket streaming (requirement 16)', () => {
       graphScopedRepositories: (id) => container.graphScopedRepositories(id),
       graphWriteVersioningService: container.graphWriteVersioningService,
       rateLimitService: container.rateLimitService,
+      graphCalendar: async (id) => (await container.graphRepository.findById(id))?.calendar,
       ...overrides,
     };
   }
@@ -958,6 +959,35 @@ describe('WebSocket streaming (requirement 16)', () => {
         const persisted = await scoped.eventRepository.findById(ack.entityId as string);
         expect(persisted).not.toBeNull();
         expect(persisted?.description).toBe('The printing press is invented');
+      } finally {
+        await harness.close();
+      }
+    });
+
+    it('reads a date as the HTTP routes do: a month is recorded as one, and a non-date is refused', async () => {
+      const token = await requestToken(writerKey);
+      const harness = await connectAccepted(token);
+      try {
+        const event = (requestId: string, timestamp: unknown) =>
+          sendJson(harness, { type: 'event', requestId, data: { description: requestId, actor: 'A', target: 'B', timestamp } });
+        event('month', '1871-03');
+        const month = await harness.next();
+        expect(month.success).toBe(true);
+        const scoped = await container.graphScopedRepositories(graphId);
+        const stored = await scoped.eventRepository.findById(month.entityId as string);
+        expect(stored?.timestamp.toISOString()).toBe('1871-03-01T00:00:00.000Z');
+        expect(stored?.metadata?.datePrecision).toBe('month');
+
+        event('zero', '0');
+        const zero = await harness.next();
+        expect(zero.success).toBe(false);
+        expect(String(zero.error)).toMatch(/timestamp/);
+
+        sendJson(harness, { type: 'arc', requestId: 'year', data: { name: 'A year', level: 0, start_time: '1871', end_time: '1871' } });
+        const arc = await harness.next();
+        expect(arc.success).toBe(true);
+        const stored2 = await scoped.arcRepository.findById(arc.entityId as string);
+        expect(stored2?.end_time.toISOString()).toBe('1871-12-31T23:59:59.999Z');
       } finally {
         await harness.close();
       }

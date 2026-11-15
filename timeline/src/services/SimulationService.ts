@@ -1,3 +1,4 @@
+import { addInstantMs, compareInstants } from '@althistory/calendar';
 import { Event, InferredPressure, PressureType } from '@/models';
 import { CausalRelationship } from '@/models/relationships';
 import { NotFoundError, ValidationError } from '@/utils/errors';
@@ -151,6 +152,24 @@ export interface SimulationServiceDependencies {
   inferenceService: InferenceService;
   validationService: ValidationService;
   graphScopedRepositories(graphId: string): Promise<GraphScopedRepositories>;
+  /**
+   * Told of every event and link the engine persists, as the write routes tell
+   * the version history. The container binds it to the versioning bridge, which
+   * commits a version and announces the change on the live feed, so a person
+   * with the graph open sees a simulation's milestones as they land. A failure
+   * here never undoes a write that already happened.
+   */
+  recorder?: SimulationWriteRecorder;
+}
+
+/** What a persisted simulation step is reported through. */
+export interface SimulationWriteRecorder {
+  recordEvent(graphId: string, event: Event, operation: 'create'): Promise<void>;
+  recordRelationship(
+    graphId: string,
+    relationship: StoredCausalRelationship,
+    operation: 'create'
+  ): Promise<void>;
 }
 
 /**
@@ -173,8 +192,10 @@ export class SimulationService {
   private readonly inferenceService: InferenceService;
   private readonly validationService: ValidationService;
   private readonly graphScopedRepositories: SimulationServiceDependencies['graphScopedRepositories'];
+  private readonly recorder?: SimulationWriteRecorder;
 
   constructor(dependencies: SimulationServiceDependencies) {
+    this.recorder = dependencies.recorder;
     this.inferenceService = dependencies.inferenceService;
     this.validationService = dependencies.validationService;
     this.graphScopedRepositories = dependencies.graphScopedRepositories;
@@ -229,7 +250,7 @@ export class SimulationService {
     const stepResults: SimulationStep[] = [];
 
     let cursorEvent = anchor;
-    let cursorTime = anchor.timestamp.getTime();
+    let cursorTime: Date = anchor.timestamp;
     let previousEvent: Event | null = null;
 
     for (let index = 0; index < steps; index += 1) {
@@ -243,7 +264,7 @@ export class SimulationService {
       const event = this.buildCandidateEvent({
         domain: stepDomain,
         pressure,
-        timestamp: new Date(cursorTime + stepDurationMs),
+        timestamp: addInstantMs(cursorTime, stepDurationMs),
         window,
         anchor,
         aggressiveness,
@@ -280,6 +301,7 @@ export class SimulationService {
           timestamp: event.timestamp,
           metadata: event.metadata,
         });
+        await this.record(() => this.recorder?.recordEvent(graphId, persisted, 'create'));
 
         const relationship = this.buildRelationship(
           stepDomain,
@@ -291,6 +313,7 @@ export class SimulationService {
           persisted,
           relationship
         );
+        await this.record(() => this.recorder?.recordRelationship(graphId, link, 'create'));
 
         step.event = persisted;
         step.causalLink = link;
@@ -304,7 +327,7 @@ export class SimulationService {
         cursorEvent = event;
       }
 
-      cursorTime = event.timestamp.getTime();
+      cursorTime = event.timestamp;
       stepResults.push(step);
       if (!dryRun && onStep) {
         await onStep(step);
@@ -323,6 +346,16 @@ export class SimulationService {
       relationships,
       pressures: observedPressures,
     };
+  }
+
+  /** Report a persisted write; the write itself stands whatever happens here. */
+  private async record(report: () => Promise<void> | undefined): Promise<void> {
+    try {
+      await report();
+    } catch {
+      // Best effort, as in every other route that records a write: the live
+      // store holds the entity, and the next version commit carries it.
+    }
   }
 
   private requireGraphId(request: SimulationRequest): string {
@@ -410,7 +443,7 @@ export class SimulationService {
     }
 
     return events.reduce((latest, candidate) =>
-      candidate.timestamp.getTime() > latest.timestamp.getTime() ? candidate : latest
+      compareInstants(candidate.timestamp, latest.timestamp) > 0 ? candidate : latest
     );
   }
 
@@ -421,11 +454,11 @@ export class SimulationService {
   private recentWindow(
     history: Event[],
     generated: Event[],
-    cursorTime: number
+    cursorTime: Date
   ): Event[] {
     const combined = [...history, ...generated];
     const upToCursor = combined.filter(
-      (event) => event.timestamp.getTime() <= cursorTime
+      (event) => compareInstants(event.timestamp, cursorTime) <= 0
     );
     return upToCursor.length > 0 ? upToCursor : combined;
   }

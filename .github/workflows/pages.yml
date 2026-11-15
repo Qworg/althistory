@@ -22,6 +22,8 @@ on:
       - 'docs/media/**'
       - 'media/src/seed/**'
       - 'frontend/**'
+      # The app compiles the shared date package from source.
+      - 'calendar/src/**'
       - 'e2e/demo/**'
       - 'e2e/playwright.demo.config.ts'
       - 'e2e/site/**'
@@ -34,6 +36,8 @@ on:
       - 'docs/media/**'
       - 'media/src/seed/**'
       - 'frontend/**'
+      # The app compiles the shared date package from source.
+      - 'calendar/src/**'
       - 'e2e/demo/**'
       - 'e2e/playwright.demo.config.ts'
       - 'e2e/site/**'

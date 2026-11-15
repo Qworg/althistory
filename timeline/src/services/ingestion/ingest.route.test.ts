@@ -99,6 +99,7 @@ vi.mock('@/api/middleware', async () => {
 // Imported after the mock so the route file picks up the stubbed middleware.
 import { createIngestRouter } from '@/api/routes/ingest';
 import { HttpRequestError } from '@/services/ingestion/http';
+import type { GraphCalendar } from '@althistory/calendar';
 import { apiRouter } from '@/api/routes';
 import { errorHandler } from '@/api/middleware';
 
@@ -142,12 +143,14 @@ function makeImportExecutor(): ImportExecutor {
   };
 }
 
-function buildApp(): express.Application {
+function buildApp(
+  options: { graphCalendar?: (graphId: string) => Promise<GraphCalendar | undefined>; textExtract?: ReturnType<typeof vi.fn> } = {}
+): express.Application {
   const extraction = makeExtraction();
   const extractors = {
     wikipedia: { sourceType: 'wikipedia', extract: vi.fn().mockResolvedValue(extraction) } as Extractor<WikipediaExtractionInput>,
     wikidata: { sourceType: 'wikidata', extract: vi.fn().mockResolvedValue(extraction) } as Extractor<WikidataExtractionInput>,
-    text: { sourceType: 'text', extract: vi.fn().mockResolvedValue(extraction) } as Extractor<TextExtractionInput>,
+    text: { sourceType: 'text', extract: options.textExtract ?? vi.fn().mockResolvedValue(extraction) } as Extractor<TextExtractionInput>,
   };
   const orchestrator = new IngestionOrchestrator({
     extractors,
@@ -162,7 +165,10 @@ function buildApp(): express.Application {
     req.startTime = Date.now();
     next();
   });
-  app.use('/api/ingest', createIngestRouter({ dataDir: '/tmp/unused', orchestrator }));
+  app.use(
+    '/api/ingest',
+    createIngestRouter({ dataDir: '/tmp/unused', orchestrator, graphCalendar: options.graphCalendar ?? (async () => undefined) })
+  );
   app.use(errorHandler);
   return app;
 }
@@ -213,6 +219,76 @@ describe('Ingestion routes', () => {
     expect(response.body.jobId).toBe('job-1');
     expect(response.body.status).toBe('review');
     expect(response.body.extraction.events).toHaveLength(1);
+  });
+
+  describe('text bound for a graph with a world calendar', () => {
+    const calendars: Record<string, GraphCalendar> = {
+      'graph-1': { epochYear: 1000, eraLabel: 'AR', monthNames: ['Thaw', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'] },
+      'graph-9': { epochYear: 500 },
+    };
+    const setup = () => {
+      const textExtract = vi.fn().mockResolvedValue(makeExtraction());
+      const graphCalendar = vi.fn(async (graphId: string) => calendars[graphId]);
+      return { textExtract, graphCalendar, app: buildApp({ textExtract, graphCalendar }) };
+    };
+    const contextOf = (extract: ReturnType<typeof vi.fn>) => extract.mock.calls[0]?.[1] as { instructions?: string } | undefined;
+
+    it("tells the extractor how the named graph's world dates things, before the caller's instructions", async () => {
+      const { app: scoped, textExtract } = setup();
+      const response = await request(scoped)
+        .post('/api/ingest/text')
+        .set('X-API-Key', INGEST_KEY)
+        .set('X-Graph-Id', 'graph-1')
+        .send({ text: 'The Tide War began in Thaw of 141 AR.', context: { instructions: 'Skip the footnotes.' } });
+
+      expect(response.status).toBe(200);
+      const instructions = contextOf(textExtract)?.instructions ?? '';
+      // The model writes dates in the world's notation; the server reads them with the calendar.
+      expect(instructions).toContain('write a date as "Thaw 1, 1 AR"');
+      expect(instructions).toContain('its months and festivals, in order, are Thaw, B');
+      expect(instructions.indexOf('invented world')).toBeLessThan(instructions.indexOf('Skip the footnotes.'));
+    });
+
+    it("reads the reviewer's dates with the calendar of the graph the review goes into", async () => {
+      const approveInto = async (graphCalendar: (graphId: string) => Promise<GraphCalendar | undefined>) => {
+        const scoped = buildApp({ graphCalendar });
+        // Extracted without a graph, so the job itself knows no world.
+        await request(scoped).post('/api/ingest/text').set('X-API-Key', INGEST_KEY).send({ text: 'x' });
+        return request(scoped)
+          .post('/api/ingest/jobs/job-1/approve')
+          .set('X-API-Key', INGEST_KEY)
+          .set('X-Graph-Id', 'graph-1')
+          .send({ edits: { 'event-1': { timestamp: 'Thaw 4, 1010 AR' } } });
+      };
+      expect((await approveInto(async (graphId) => calendars[graphId])).status).toBe(200);
+      // The same date, approved into a graph without a world, is no date.
+      expect((await approveInto(async () => undefined)).status).toBe(400);
+    });
+
+    it('leaves the context alone without an X-Graph-Id, as before', async () => {
+      const { app: unscoped, textExtract, graphCalendar } = setup();
+      const response = await request(unscoped)
+        .post('/api/ingest/text')
+        .set('X-API-Key', INGEST_KEY)
+        .send({ text: 'The Battle of Hastings was fought in 1066.' });
+
+      expect(response.status).toBe(200);
+      expect(graphCalendar).not.toHaveBeenCalled();
+      expect(contextOf(textExtract)?.instructions).toBeUndefined();
+    });
+
+    it("refuses a graph the key may not read, without reading that graph's calendar", async () => {
+      const { app: scoped, textExtract, graphCalendar } = setup();
+      const response = await request(scoped)
+        .post('/api/ingest/text')
+        .set('X-API-Key', INGEST_KEY)
+        .set('X-Graph-Id', 'graph-9')
+        .send({ text: 'x' });
+
+      expect(response.status).toBe(403);
+      expect(graphCalendar).not.toHaveBeenCalled();
+      expect(textExtract).not.toHaveBeenCalled();
+    });
   });
 
   it('rejects an empty text body with 400', async () => {

@@ -30,7 +30,9 @@
       "@/services/*": ["./src/services/*"],
       "@/types/*": ["./src/types/*"],
       "@/utils/*": ["./src/utils/*"],
-      "@/stores/*": ["./src/stores/*"]
+      "@/stores/*": ["./src/stores/*"],
+      // Compiled from source with the app, so it needs no build of its own.
+      "@althistory/calendar": ["../calendar/src/index.ts"]
     }
   },
   "include": ["src", "src/test/vitest.d.ts"]

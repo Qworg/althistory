@@ -11,7 +11,9 @@ import { useArcs } from '@/hooks/useArcs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
 import { Event, Arc } from '@/types'
-import { formatHistoricalTimestamp } from '@/utils/historicalTime'
+import { historicalYear, formatEventDate } from '@/utils/historicalTime'
+import { compareInstants, toInstant } from '@althistory/calendar'
+import { instantOfMs } from '@/utils/timeScale'
 
 export interface ActorPerspectiveViewProps {
   className?: string
@@ -123,7 +125,7 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
   const actorIndex = useMemo(() => {
     const byName = new Map<string, { count: number; first: number; last: number }>()
     for (const event of fetchedEvents) {
-      const time = new Date(event.timestamp).getTime()
+      const time = toInstant(event.timestamp).getTime()
       for (const name of new Set([event.actor, event.target])) {
         if (!name) continue
         const entry = byName.get(name)
@@ -137,8 +139,8 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
       }
     }
     return Array.from(byName, ([name, { count, first, last }]) => {
-      const from = eventYear(new Date(first))
-      const to = eventYear(new Date(last))
+      const from = eventYear(instantOfMs(first))
+      const to = eventYear(instantOfMs(last))
       return { name, count, span: from === to ? from : `${from}–${to}` }
     }).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
   }, [fetchedEvents])
@@ -154,20 +156,20 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
         role: event.actor === selectedActor ? 'actor' as const : 'target' as const,
         isHighlighted: false
       }))
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      .sort((a, b) => compareInstants(toInstant(a.timestamp), toInstant(b.timestamp)))
   }, [allEvents, selectedActor])
 
   // Filter arcs that contain actor events
   const relevantArcs = useMemo((): Arc[] => {
     if (!selectedActor || actorEvents.length === 0) return []
     
-    const actorEventTimes = actorEvents.map(e => new Date(e.timestamp).getTime())
+    const actorEventTimes = actorEvents.map(e => toInstant(e.timestamp).getTime())
     const minTime = Math.min(...actorEventTimes)
     const maxTime = Math.max(...actorEventTimes)
     
     return allArcs.filter(arc => {
-      const arcStart = new Date(arc.start_time).getTime()
-      const arcEnd = new Date(arc.end_time).getTime()
+      const arcStart = toInstant(arc.start_time).getTime()
+      const arcEnd = toInstant(arc.end_time).getTime()
       
       // Include arc if it overlaps with actor's event timespan
       return arcStart <= maxTime && arcEnd >= minTime
@@ -195,10 +197,10 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
     const uniqueTargets = new Set(asActorEvents.map(e => e.target)).size
     const uniqueActors = new Set(asTargetEvents.map(e => e.actor)).size
     
-    const timestamps = actorEvents.map(e => new Date(e.timestamp).getTime())
+    const timestamps = actorEvents.map(e => toInstant(e.timestamp).getTime())
     const timeSpan = timestamps.length > 0 ? {
-      start: new Date(Math.min(...timestamps)),
-      end: new Date(Math.max(...timestamps))
+      start: instantOfMs(Math.min(...timestamps)),
+      end: instantOfMs(Math.max(...timestamps))
     } : null
 
     return {
@@ -366,7 +368,7 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
               {actorEvents.length} {actorEvents.length === 1 ? 'event' : 'events'} · {actorStats.relationshipMetrics.asActor} as actor ·{' '}
               {actorStats.relationshipMetrics.asTarget} as target
               {actorStats.timeSpan && (
-                <> · {actorStats.timeSpan.start.getUTCFullYear()}–{actorStats.timeSpan.end.getUTCFullYear()}</>
+                <> · {historicalYear(actorStats.timeSpan.start)}–{historicalYear(actorStats.timeSpan.end)}</>
               )}
               {' '}· {relevantArcs.length} {relevantArcs.length === 1 ? 'arc' : 'arcs'}
             </div>
@@ -407,7 +409,7 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-ink-muted">Timestamp</dt>
-                  <dd className="font-mono-code text-ink">{formatHistoricalTimestamp(selectedEvent.timestamp)}</dd>
+                  <dd className="font-mono-code text-ink">{formatEventDate(selectedEvent)}</dd>
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-ink-muted">Role</dt>

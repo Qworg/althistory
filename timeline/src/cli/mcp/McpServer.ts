@@ -1,7 +1,19 @@
 import * as readline from 'readline';
 import { IEngine } from '../engine/IEngine';
 import { MCP_TOOLS } from './toolDefinitions';
+import { MCP_PROMPTS, renderPrompt } from './prompts';
 import { isSimulationDomain } from '@/services/SimulationService';
+import { calendarFrom, partialCalendarFrom } from '../utils/calendarOptions';
+import { ValidationErrorCLI } from '../utils/exitCodes';
+import { storedCalendarSet } from '@althistory/calendar';
+import { withAxisTimes, withWorldDates } from './worldDates';
+
+const CAUSAL_LINK_TYPES = ['direct', 'indirect', 'contributory'] as const;
+
+/** An optional text argument: absent, or a string. */
+function optionalString(value: unknown): string | undefined {
+  return value === undefined || value === null || value === '' ? undefined : String(value);
+}
 
 export interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -24,6 +36,14 @@ export interface JsonRpcResponse {
 export class McpServer {
   private rl?: readline.Interface;
   private isRunning = false;
+  /** Requests still being answered; the input can close before they finish. */
+  private readonly inFlight = new Set<Promise<void>>();
+  /**
+   * One controller per tool call still running, by its JSON-RPC id, so a
+   * `notifications/cancelled` from the client can stop the call. A generation
+   * call hands its signal to the engine, which cancels the app's job.
+   */
+  private readonly calls = new Map<string | number, AbortController>();
 
   constructor(private readonly engine: IEngine) {}
 
@@ -53,9 +73,25 @@ export class McpServer {
     // Ignore notifications without id
     const isNotification = request.id === undefined || request.id === null;
 
+    // A client that gives up on a request (a timeout, a stop button) says so; the
+    // call it names is asked to stop. There is no response to a notification.
+    if (request.method === 'notifications/cancelled') {
+      const requestId = request.params?.requestId;
+      if (typeof requestId === 'string' || typeof requestId === 'number') {
+        this.calls.get(requestId)?.abort();
+      }
+      return null;
+    }
+
+    const controller = new AbortController();
+    const callId = !isNotification && request.method === 'tools/call' ? (request.id as string | number) : undefined;
+    if (callId !== undefined) this.calls.set(callId, controller);
+
     try {
-      const result = await this.dispatch(request.method, request.params);
-      if (isNotification) {
+      const result = await this.dispatch(request.method, request.params, controller.signal);
+      // The only thing that aborts the signal is the client's own cancellation,
+      // and a receiver SHOULD NOT answer a request the sender cancelled.
+      if (isNotification || controller.signal.aborted) {
         return null;
       }
       const response: JsonRpcResponse = {
@@ -65,31 +101,40 @@ export class McpServer {
       };
       return JSON.stringify(response);
     } catch (err) {
-      if (isNotification) {
+      if (isNotification || controller.signal.aborted) {
         return null;
       }
       const response: JsonRpcResponse = {
         jsonrpc: '2.0',
         id: request.id ?? null,
         error: {
-          code: -32603,
+          // A request the server understood but whose parameters are wrong
+          // (an unknown prompt, a missing argument) is the caller's to fix.
+          code: err instanceof ValidationErrorCLI ? -32602 : -32603,
           message: (err as Error).message,
         },
       };
       return JSON.stringify(response);
+    } finally {
+      if (callId !== undefined && this.calls.get(callId) === controller) this.calls.delete(callId);
     }
   }
 
   /**
    * Dispatches incoming JSON-RPC methods.
    */
-  private async dispatch(method: string, params?: Record<string, unknown>): Promise<unknown> {
+  private async dispatch(
+    method: string,
+    params?: Record<string, unknown>,
+    signal?: AbortSignal
+  ): Promise<unknown> {
     switch (method) {
       case 'initialize':
         return {
           protocolVersion: '2024-11-05',
           capabilities: {
             tools: {},
+            prompts: {},
           },
           serverInfo: {
             name: 'althistory-mcp',
@@ -109,7 +154,22 @@ export class McpServer {
         };
 
       case 'tools/call':
-        return this.callTool(params);
+        return this.callTool(params, signal);
+
+      case 'prompts/list':
+        return {
+          prompts: MCP_PROMPTS,
+        };
+
+      case 'prompts/get': {
+        const name = String(params?.name ?? '');
+        const args = (params?.arguments as Record<string, unknown> | undefined) || {};
+        const prompt = renderPrompt(name, args);
+        return {
+          description: prompt.description,
+          messages: [{ role: 'user', content: { type: 'text', text: prompt.text } }],
+        };
+      }
 
       default:
         throw new Error(`Method not found: ${method}`);
@@ -119,11 +179,21 @@ export class McpServer {
   /**
    * Executes an MCP tool call against the engine.
    */
-  private async callTool(params?: Record<string, unknown>): Promise<unknown> {
+  private async callTool(params?: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const name = String(params?.name || '');
     const args = (params?.arguments as Record<string, unknown> | undefined) || {};
 
     try {
+      // A required argument that is missing would otherwise reach the engine
+      // as the text "undefined".
+      const definition = MCP_TOOLS.find((tool) => tool.name === name);
+      const missing = (definition?.inputSchema.required ?? []).filter(
+        (key) => args[key] === undefined || args[key] === null || args[key] === ''
+      );
+      if (missing.length > 0) {
+        throw new Error(`${name} needs ${missing.map((key) => `"${key}"`).join(', ')}`);
+      }
+
       let toolOutput: unknown;
 
       switch (name) {
@@ -132,12 +202,87 @@ export class McpServer {
           break;
         }
 
+        case 'althistory_create_graph': {
+          toolOutput = await this.engine.createGraph(
+            String(args.name),
+            optionalString(args.description),
+            calendarFrom(args)
+          );
+          break;
+        }
+
+        case 'althistory_set_calendar': {
+          const calendar = calendarFrom(args);
+          if (args.clear === true && calendar) {
+            throw new Error('Give either clear or a calendar, not both');
+          }
+          if (args.clear !== true && !calendar) {
+            throw new Error('Give calendar (calendars of any shape), or epochYear (with eraLabel, calendarName and monthNames if wanted), or clear: true');
+          }
+          toolOutput = await this.engine.setGraphCalendar(String(args.graphId), calendar ?? null);
+          break;
+        }
+
         case 'althistory_create_event': {
-          toolOutput = await this.engine.createEvent(String(args.graphId), {
+          const graphId = String(args.graphId);
+          const arcId = optionalString(args.arcId);
+          let event = await this.engine.createEvent(graphId, {
             description: String(args.description),
             timestamp: String(args.timestamp),
-            actor: args.actor ? String(args.actor) : undefined,
-            target: args.target ? String(args.target) : undefined,
+            actor: optionalString(args.actor),
+            target: optionalString(args.target),
+          });
+          if (arcId) {
+            try {
+              event = await this.engine.assignEventToArc(graphId, event.id, arcId);
+            } catch (err) {
+              // The event exists; say so, so the agent does not create it twice.
+              throw new Error(
+                `Created event ${event.id}, but could not put it in arc ${arcId}: ${(err as Error).message}`
+              );
+            }
+          }
+          toolOutput = event;
+          break;
+        }
+
+        case 'althistory_create_arc': {
+          toolOutput = await this.engine.createArc(String(args.graphId), {
+            name: String(args.name),
+            startTime: String(args.startTime),
+            endTime: String(args.endTime),
+            description: optionalString(args.description),
+            parentArcId: optionalString(args.parentArcId),
+          });
+          break;
+        }
+
+        case 'althistory_assign_to_arc': {
+          toolOutput = await this.engine.assignEventToArc(
+            String(args.graphId),
+            String(args.eventId),
+            String(args.arcId)
+          );
+          break;
+        }
+
+        case 'althistory_link_events': {
+          const type = args.type === undefined ? 'direct' : args.type;
+          if (typeof type !== 'string' || !(CAUSAL_LINK_TYPES as readonly string[]).includes(type)) {
+            throw new Error(`type must be one of ${CAUSAL_LINK_TYPES.join(', ')}`);
+          }
+          if (
+            args.weight !== undefined &&
+            (typeof args.weight !== 'number' || !Number.isFinite(args.weight) || args.weight < 0 || args.weight > 1)
+          ) {
+            throw new Error('weight must be a number from 0 to 1');
+          }
+          toolOutput = await this.engine.createCausalLink(String(args.graphId), {
+            causeId: String(args.causeId),
+            effectId: String(args.effectId),
+            type,
+            weight: typeof args.weight === 'number' ? args.weight : undefined,
+            reasoning: optionalString(args.reasoning),
           });
           break;
         }
@@ -163,14 +308,16 @@ export class McpServer {
 
         case 'althistory_generate_timeline': {
           toolOutput = await this.engine.generateTimeline({
-            premise: String(args.premise),
-            divergencePoint: String(args.divergencePoint),
+            premise: optionalString(args.premise),
+            divergencePoint: optionalString(args.divergencePoint),
+            world: optionalString(args.world),
+            calendar: partialCalendarFrom(args),
             startDate: args.startDate ? String(args.startDate) : undefined,
             endDate: args.endDate ? String(args.endDate) : undefined,
             eventCount: typeof args.eventCount === 'number' ? args.eventCount : undefined,
             style: args.style as 'academic' | 'narrative' | 'concise' | undefined,
             dryRun: Boolean(args.dryRun),
-          });
+          }, { signal });
           break;
         }
 
@@ -182,7 +329,7 @@ export class McpServer {
             branchName: String(args.branchName),
             eventCount: typeof args.eventCount === 'number' ? args.eventCount : undefined,
             dryRun: Boolean(args.dryRun),
-          });
+          }, { signal });
           break;
         }
 
@@ -244,6 +391,17 @@ export class McpServer {
           };
       }
 
+      // In a world, every date in the result also as the world writes it.
+      if (typeof toolOutput === 'object' && toolOutput !== null) {
+        const outputRecord = toolOutput as { graphId?: unknown; calendar?: unknown };
+        const graphId = typeof args.graphId === 'string' ? args.graphId : typeof outputRecord.graphId === 'string' ? outputRecord.graphId : undefined;
+        const calendar =
+          storedCalendarSet(outputRecord.calendar) ??
+          (graphId ? storedCalendarSet((await this.engine.getGraph(graphId).catch(() => undefined))?.calendar) : null);
+        if (calendar) toolOutput = withWorldDates(toolOutput, calendar);
+        toolOutput = withAxisTimes(toolOutput);
+      }
+
       return {
         content: [
           {
@@ -280,16 +438,30 @@ export class McpServer {
       terminal: false,
     });
 
-    this.rl.on('line', async (line) => {
-      const response = await this.handleMessage(line);
-      if (response) {
-        output.write(response + '\n');
-      }
+    this.rl.on('line', (line) => {
+      const handled = this.handleMessage(line).then((response) => {
+        if (response) {
+          output.write(response + '\n');
+        }
+      });
+      this.inFlight.add(handled);
+      void handled.finally(() => this.inFlight.delete(handled));
     });
 
     this.rl.on('close', () => {
       this.isRunning = false;
     });
+  }
+
+  /**
+   * Resolves once every request received so far has been answered. A client
+   * that writes its requests and closes its end of the pipe still gets every
+   * answer, because the caller waits for this before shutting the engine down.
+   */
+  async whenIdle(): Promise<void> {
+    while (this.inFlight.size > 0) {
+      await Promise.allSettled([...this.inFlight]);
+    }
   }
 
   /**

@@ -4,11 +4,14 @@
  * Panel for exporting graph data with filtering options and job management.
  */
 
-import { useState, useCallback, memo } from 'react'
+import { useState, useCallback, useEffect, useRef, memo } from 'react'
 import { ExportHistoryList } from './ExportHistoryList'
 import { useExportManagement } from '@/hooks/useExport'
 import { useActiveGraphId, useActiveGraph } from '@/hooks/useGraphs'
 import { ExportFilters } from '@/types'
+import { DateField } from '@/components/ui/DateField'
+import { useWorldCalendar } from '@/stores/worldCalendarStore'
+import { dateFieldIso, dateFieldValue } from '@/utils/dateField'
 
 interface ExportPanelProps {
   className?: string
@@ -30,6 +33,11 @@ export const ExportPanel = memo(function ExportPanel({
   const [includeProvenance, setIncludeProvenance] = useState(false)
   const [filters, setFilters] = useState<ExportFilters>({})
   const [showFilters, setShowFilters] = useState(false)
+  // The range as typed: a date picker's value, or in a world its notation.
+  // What is sent is the instant each names (an end, the end of its day,
+  // month or year in a world).
+  const worldCalendar = useWorldCalendar()
+  const [rangeText, setRangeText] = useState({ start: '', end: '' })
 
 
   const activeGraphId = useActiveGraphId()
@@ -100,14 +108,33 @@ export const ExportPanel = memo(function ExportPanel({
   // The two time-range bounds are edited independently while ExportFilters
   // requires both, so the not-yet-entered bound falls back to an empty string.
   const handleTimeRangeChange = useCallback((bound: 'start' | 'end', value: string) => {
+    setRangeText(prev => ({ ...prev, [bound]: value }))
+    // Text that names no date sends nothing (the field says why, and the export waits).
+    const instant = value.trim() === '' ? '' : dateFieldIso(value, { calendar: worldCalendar, edge: bound })
     setFilters(prev => {
       const previous = prev.timeRange
       const timeRange = bound === 'start'
-        ? { start: value, end: previous?.end ?? '' }
-        : { start: previous?.start ?? '', end: value }
+        ? { start: instant, end: previous?.end ?? '' }
+        : { start: previous?.start ?? '', end: instant }
       return { ...prev, timeRange }
     })
-  }, [])
+  }, [worldCalendar])
+
+  // Another calendar shown rewrites the range in it, from the instants it names.
+  const rangeCalendar = useRef(worldCalendar)
+  useEffect(() => {
+    if (rangeCalendar.current === worldCalendar) return
+    rangeCalendar.current = worldCalendar
+    setRangeText((prev) => ({
+      start: filters.timeRange?.start ? dateFieldValue(filters.timeRange.start, 'date', { calendar: worldCalendar, edge: 'start' }) : prev.start,
+      end: filters.timeRange?.end ? dateFieldValue(filters.timeRange.end, 'date', { calendar: worldCalendar, edge: 'end' }) : prev.end,
+    }))
+  }, [worldCalendar, filters.timeRange])
+
+  // A bound typed but not read: the export would get no range, or half of one.
+  const rangeUnread =
+    scope === 'filtered' &&
+    ((rangeText.start.trim() !== '' && !filters.timeRange?.start) || (rangeText.end.trim() !== '' && !filters.timeRange?.end))
 
   if (!activeGraphId) {
     return (
@@ -238,18 +265,26 @@ export const ExportPanel = memo(function ExportPanel({
                     <div>
                       <label className="text-xs text-ink-muted">Between</label>
                       <div className="flex gap-2">
-                        <input
-                          type="date"
-                          value={filters.timeRange?.start || ''}
-                          onChange={(e) => handleTimeRangeChange('start', e.target.value)}
-                          className="flex-1 px-2 py-1 border border-line bg-card text-ink rounded text-sm"
-                        />
-                        <input
-                          type="date"
-                          value={filters.timeRange?.end || ''}
-                          onChange={(e) => handleTimeRangeChange('end', e.target.value)}
-                          className="flex-1 px-2 py-1 border border-line bg-card text-ink rounded text-sm"
-                        />
+                        <div className="flex-1 min-w-0">
+                          <DateField
+                            kind="date"
+                            edge="start"
+                            aria-label="Export from"
+                            value={rangeText.start}
+                            onChange={(value) => handleTimeRangeChange('start', value)}
+                            className="w-full px-2 py-1 border border-line bg-card text-ink rounded text-sm"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <DateField
+                            kind="date"
+                            edge="end"
+                            aria-label="Export until"
+                            value={rangeText.end}
+                            onChange={(value) => handleTimeRangeChange('end', value)}
+                            className="w-full px-2 py-1 border border-line bg-card text-ink rounded text-sm"
+                          />
+                        </div>
                       </div>
                     </div>
 
@@ -283,9 +318,14 @@ export const ExportPanel = memo(function ExportPanel({
             </label>
 
             {/* Start Export Button */}
+            {rangeUnread && (
+              <p className="text-xs text-red-700 dark:text-red-300" role="status">
+                A date in the range is not one this graph can read: fix it, or clear it, to export.
+              </p>
+            )}
             <button
               onClick={handleExport}
-              disabled={isCreating}
+              disabled={isCreating || rangeUnread}
               className="w-full px-4 py-2 border border-line bg-card text-ink rounded-md hover:bg-subtle disabled:opacity-50 text-sm font-medium"
             >
               {isCreating ? 'Preparing…' : 'Prepare export file'}

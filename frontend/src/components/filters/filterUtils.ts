@@ -4,6 +4,8 @@ import type {
   CausalRelationship,
   FilterState
 } from '@/types'
+import { type AxisTime, type WorldCalendarSet, formatDateBound, readDateBound, toAxisTime, toInstant, type DateBoundEdge } from '@althistory/calendar'
+import { getActiveCalendar } from '@/stores/worldCalendarStore'
 import type { FilterState as PanelFilterState } from './FilterPanel'
 
 export type { PanelFilterState }
@@ -21,16 +23,16 @@ export type { PanelFilterState }
 /** Inclusive timestamp for a bound of a date range. Missing/invalid bounds are
  * treated as open, so a partially-filled date range still narrows results. */
 function boundTimestamp(
-  value: Date | string | null | undefined,
-  edge: 'start' | 'end'
-): number {
-  const open = edge === 'start' ? -Infinity : Infinity
-  if (value === null || value === undefined || value === '') return open
-  const time = value instanceof Date
-    ? value.getTime()
-    : new Date(value).getTime()
-  return Number.isNaN(time) ? open : time
+  value: Date | string | null | undefined
+): AxisTime | null {
+  // null is an open bound. Axis times are exact bigints: a deep date's getTime() is a rounded double.
+  if (value === null || value === undefined || value === '') return null
+  return toAxisTime(value)
 }
+
+/** Whether `time` is at or after the bound (an open one is always passed). */
+const atOrAfter = (time: AxisTime, bound: AxisTime | null) => bound === null || time >= bound
+const atOrBefore = (time: AxisTime, bound: AxisTime | null) => bound === null || time <= bound
 
 function matchesQuery(query: string, ...values: string[]): boolean {
   const needle = query.trim().toLowerCase()
@@ -43,11 +45,11 @@ function withinRange(
   filters: FilterState
 ): boolean {
   if (!filters.dateRange) return true
-  const time = new Date(timestamp).getTime()
-  if (Number.isNaN(time)) return false
+  const time = toAxisTime(timestamp)
+  if (time === null) return false
   return (
-    time >= boundTimestamp(filters.dateRange.start, 'start') &&
-    time <= boundTimestamp(filters.dateRange.end, 'end')
+    atOrAfter(time, boundTimestamp(filters.dateRange.start)) &&
+    atOrBefore(time, boundTimestamp(filters.dateRange.end))
   )
 }
 
@@ -69,13 +71,13 @@ export function filterArcs(arcs: Arc[], filters: FilterState): Arc[] {
     if (!matchesQuery(filters.searchQuery, arc.name, arc.description)) return false
     if (filters.arcLevels.length > 0 && !filters.arcLevels.includes(arc.level)) return false
     if (filters.dateRange) {
-      const start = boundTimestamp(filters.dateRange.start, 'start')
-      const end = boundTimestamp(filters.dateRange.end, 'end')
-      const arcStart = new Date(arc.start_time).getTime()
-      const arcEnd = new Date(arc.end_time).getTime()
-      if (Number.isNaN(arcStart) || Number.isNaN(arcEnd)) return false
+      const start = boundTimestamp(filters.dateRange.start)
+      const end = boundTimestamp(filters.dateRange.end)
+      const arcStart = toAxisTime(arc.start_time)
+      const arcEnd = toAxisTime(arc.end_time)
+      if (arcStart === null || arcEnd === null) return false
       // Keep arcs that overlap the selected window.
-      if (arcStart > end || arcEnd < start) return false
+      if (!atOrBefore(arcStart, end) || !atOrAfter(arcEnd, start)) return false
     }
     return true
   })
@@ -109,153 +111,67 @@ export function hasActiveFilters(filters: FilterState): boolean {
 
 // ── Historical date bounds ────────────────────────────────────────────────
 //
-// The filter's date bounds are typed, not picked: a native date input shows
-// the browser's locale order (mm/dd/yyyy in the US) and cannot reach BCE. A
-// bound is a year, a year and month, or a full date, written largest unit
-// first -- `1843`, `1843-11`, `1843-11-20` -- with `BCE` (or a minus sign) for
-// years before 1 CE. There is no year 0: 1 BCE is followed by 1 CE.
-//
-// Like every historical time in the app (see utils/historicalTime.ts) a bound
-// is a UTC instant. A start bound is the first moment of the period it names
-// and an end bound the last, so `1843` to `1843` is the whole year.
+// A bound is typed largest unit first -- `1843`, `1843-11`, `1843-11-20`, with
+// `BCE` for years before 1 CE -- and read as a UTC instant: a start bound is
+// the first moment of the period it names and an end bound the last. In a
+// world it is written in the calendar shown ("Thaw 312 AR"). The reading and
+// writing are `@althistory/calendar` (calendar/src/bounds.ts), property-tested
+// against an arithmetic oracle and in calendars of every shape.
 
-export type DateBoundEdge = 'start' | 'end'
+export {
+  parseHistoricalDate,
+  formatHistoricalDateBound,
+  readDateBound,
+  formatDateBound,
+  type DateBoundEdge,
+  type HistoricalDateParse,
+} from '@althistory/calendar'
 
-export type HistoricalDateParse =
-  | { ok: true; date: Date; text: string }
-  | { ok: false; error: string }
+type CalendarArg = WorldCalendarSet | null
 
-const HISTORICAL_DATE_PATTERN = /^(-)?(\d{1,6})(?:-(\d{1,2})(?:-(\d{1,2}))?)?(?:\s*(BCE|BC|CE|AD))?$/i
-
-/** A UTC instant from an astronomical year (1 BCE = 0); safe for years 0-99. */
-function utcDate(astronomicalYear: number, monthIndex: number, day: number): Date {
-  const date = new Date(Date.UTC(2000, 0, 1))
-  date.setUTCFullYear(astronomicalYear, monthIndex, day)
-  return date
-}
-
-function pad2(value: number): string {
-  return String(value).padStart(2, '0')
-}
-
-/** The canonical spelling of a bound: `1843`, `1843-11`, `44-03-15 BCE`. */
-function formatBound(astronomicalYear: number, month?: number, day?: number): string {
-  const bce = astronomicalYear <= 0
-  const year = bce ? 1 - astronomicalYear : astronomicalYear
-  let text = String(year)
-  if (month !== undefined) text += `-${pad2(month)}`
-  if (day !== undefined) text += `-${pad2(day)}`
-  return bce ? `${text} BCE` : text
-}
-
-/**
- * Read a typed date bound. `edge` decides which end of the named period it
- * stands for. Returns the instant and the canonical spelling, or a message
- * that says what is wrong.
- */
-export function parseHistoricalDate(input: string, edge: DateBoundEdge): HistoricalDateParse {
-  const trimmed = input.trim().replace(/\s+/g, ' ')
-  const match = HISTORICAL_DATE_PATTERN.exec(trimmed)
-  if (!match) {
-    return { ok: false, error: 'Write the year first: 1843, 1843-11 or 1843-11-20 (add BCE before 1 CE).' }
-  }
-  const [, minus, yearText, monthText, dayText, era] = match
-  const eraUpper = era?.toUpperCase()
-  const isBce = Boolean(minus) || eraUpper === 'BCE' || eraUpper === 'BC'
-  if (minus && (eraUpper === 'BCE' || eraUpper === 'BC' || eraUpper === 'CE' || eraUpper === 'AD')) {
-    return { ok: false, error: 'Use a minus sign or an era, not both.' }
-  }
-  const year = Number(yearText)
-  if (year === 0) {
-    return { ok: false, error: 'There is no year 0: 1 BCE is followed by 1 CE.' }
-  }
-  const astronomicalYear = isBce ? 1 - year : year
-  const month = monthText === undefined ? undefined : Number(monthText)
-  const day = dayText === undefined ? undefined : Number(dayText)
-  if (month !== undefined && (month < 1 || month > 12)) {
-    return { ok: false, error: 'The month must be 01 to 12.' }
-  }
-  if (month !== undefined && day !== undefined) {
-    const check = utcDate(astronomicalYear, month - 1, day)
-    if (day < 1 || check.getUTCMonth() !== month - 1) {
-      return { ok: false, error: `That month has no day ${day}.` }
-    }
-  }
-
-  let date: Date
-  if (edge === 'start') {
-    date = utcDate(astronomicalYear, (month ?? 1) - 1, day ?? 1)
-  } else {
-    // The last millisecond of the period: the start of the next one, less 1ms.
-    const next = day !== undefined
-      ? utcDate(astronomicalYear, month! - 1, day + 1)
-      : month !== undefined
-        ? utcDate(astronomicalYear, month, 1)
-        : utcDate(astronomicalYear + 1, 0, 1)
-    date = new Date(next.getTime() - 1)
-  }
-  if (Number.isNaN(date.getTime())) {
-    return { ok: false, error: 'That date is out of range.' }
-  }
-  return { ok: true, date, text: formatBound(astronomicalYear, month, day) }
-}
-
-/**
- * The canonical spelling of an instant as a bound, the inverse of
- * {@link parseHistoricalDate}: a start on 1 January reads as the year, on the
- * 1st of a month as the month; an end on the last moment of a year or month
- * likewise. Anything else is the full date. Invalid -> ''.
- */
-export function formatHistoricalDateBound(value: Date | string | null | undefined, edge: DateBoundEdge): string {
-  if (value === null || value === undefined || value === '') return ''
-  if (typeof value === 'string') {
-    // A typed bound (from a link, say) keeps its own precision: `1843` as an
-    // end is the whole year, where Date would read it as 1 January.
-    const parsed = parseHistoricalDate(value, edge)
-    if (parsed.ok) return parsed.text
-  }
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  if (edge === 'end') {
-    const next = new Date(date.getTime() + 1)
-    const isMidnight = (d: Date) =>
-      d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0
-    if (isMidnight(next)) {
-      if (next.getUTCDate() === 1 && next.getUTCMonth() === 0) return formatBound(next.getUTCFullYear() - 1)
-      if (next.getUTCDate() === 1) {
-        return formatBound(date.getUTCFullYear(), date.getUTCMonth() + 1)
-      }
-      return formatBound(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate())
-    }
-  } else if (
-    date.getUTCHours() === 0 && date.getUTCMinutes() === 0 &&
-    date.getUTCSeconds() === 0 && date.getUTCMilliseconds() === 0
-  ) {
-    if (date.getUTCDate() === 1 && date.getUTCMonth() === 0) return formatBound(date.getUTCFullYear())
-    if (date.getUTCDate() === 1) return formatBound(date.getUTCFullYear(), date.getUTCMonth() + 1)
-  }
-  return formatBound(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate())
-}
-
-function toInputDate(value: Date | string | null | undefined, edge: DateBoundEdge): string {
-  return formatHistoricalDateBound(value, edge)
+function toInputDate(value: Date | string | null | undefined, edge: DateBoundEdge, calendar: CalendarArg): string {
+  return formatDateBound(value, edge, calendar)
 }
 
 /** A typed bound -> its instant; an empty or unreadable bound is an invalid
  * `Date`, which {@link boundTimestamp} treats as open. */
-function fromInputDate(value: string, edge: DateBoundEdge): Date {
+function fromInputDate(value: string, edge: DateBoundEdge, calendar: CalendarArg): Date {
   if (!value) return new Date(NaN)
-  const parsed = parseHistoricalDate(value, edge)
-  return parsed.ok ? parsed.date : new Date(value)
+  const parsed = readDateBound(value, edge, calendar)
+  // Anything else (a full timestamp from a link) by the app's one reader: UTC
+  // when it has no zone, and no date rather than the day V8 rolls "1870-02-31" into.
+  return parsed.ok ? parsed.date : toInstant(value)
 }
 
-/** Store filter shape (`Date` bounds) -> the string-bounded shape `FilterPanel` renders. */
-export function toPanelFilters(filters: FilterState): PanelFilterState {
+/**
+ * A bound as a link carries it. In a world the instant it names (ISO 8601):
+ * its text depends on the calendar the viewer picked, which a link does not
+ * carry, and two calendars can write the same text for different days.
+ * Without a world, the bound as typed (`1843-11`), as links always held it.
+ */
+export function boundToUrl(text: string, edge: DateBoundEdge, calendar: CalendarArg): string {
+  if (!calendar || text === '') return text
+  const read = readDateBound(text, edge, calendar)
+  return read.ok ? read.date.toISOString() : text
+}
+
+/** A bound from a link, as the panel shows it in the calendar shown (see {@link boundToUrl}). */
+export function boundFromUrl(value: string, edge: DateBoundEdge, calendar: CalendarArg): string {
+  if (!calendar || value === '') return value
+  return formatDateBound(value, edge, calendar) || value
+}
+
+/**
+ * Store filter shape (`Date` bounds) -> the string-bounded shape `FilterPanel`
+ * renders, with the bounds in the world calendar shown (the open graph's by
+ * default; `null` for stored dates).
+ */
+export function toPanelFilters(filters: FilterState, calendar: CalendarArg = getActiveCalendar()): PanelFilterState {
   return {
     dateRange: filters.dateRange
       ? {
-          start: toInputDate(filters.dateRange.start, 'start'),
-          end: toInputDate(filters.dateRange.end, 'end')
+          start: toInputDate(filters.dateRange.start, 'start', calendar),
+          end: toInputDate(filters.dateRange.end, 'end', calendar)
         }
       : null,
     actors: filters.actors,
@@ -270,12 +186,12 @@ export function toPanelFilters(filters: FilterState): PanelFilterState {
 
 /** `FilterPanel` string bounds -> the store filter shape. An empty bound stays
  * as an invalid `Date`, which {@link boundTimestamp} treats as open. */
-export function fromPanelFilters(filters: PanelFilterState): FilterState {
+export function fromPanelFilters(filters: PanelFilterState, calendar: CalendarArg = getActiveCalendar()): FilterState {
   return {
     dateRange: filters.dateRange
       ? {
-          start: fromInputDate(filters.dateRange.start, 'start'),
-          end: fromInputDate(filters.dateRange.end, 'end')
+          start: fromInputDate(filters.dateRange.start, 'start', calendar),
+          end: fromInputDate(filters.dateRange.end, 'end', calendar)
         }
       : null,
     actors: filters.actors,
@@ -301,13 +217,11 @@ function sameDateRange(
   b: FilterState['dateRange']
 ): boolean {
   if (a === null || b === null) return a === b
-  const startA = boundTimestamp(a.start, 'start')
-  const startB = boundTimestamp(b.start, 'start')
-  const endA = boundTimestamp(a.end, 'end')
-  const endB = boundTimestamp(b.end, 'end')
-  const startEqual = startA === startB || (Number.isNaN(startA) && Number.isNaN(startB))
-  const endEqual = endA === endB || (Number.isNaN(endA) && Number.isNaN(endB))
-  return startEqual && endEqual
+  const startA = boundTimestamp(a.start)
+  const startB = boundTimestamp(b.start)
+  const endA = boundTimestamp(a.end)
+  const endB = boundTimestamp(b.end)
+  return startA === startB && endA === endB
 }
 
 /** Value equality for the store filter shape, used to avoid writing an

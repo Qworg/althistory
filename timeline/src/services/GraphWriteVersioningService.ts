@@ -27,6 +27,7 @@
  * commit message for this service was inaccurate.
  */
 
+import { toAxisTime } from '@althistory/calendar';
 import { GraphRepository } from '@/repositories/GraphRepository';
 import { EntityChanges } from '@/repositories/VersionRepository';
 import { EntityType } from '@/models/Graph';
@@ -34,7 +35,8 @@ import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
 import { createLogger, ILogger } from '@/utils/logger';
 import { StoredCausalRelationship } from './CausalService';
-import { formatHistoricalDate } from '@/utils/historicalDate';
+import type { ChangeBody, ChangedEntity, ChangeRecord } from './ChangeFeedService';
+import { type WorldCalendarSet, dateCalendarOf, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
 
 /** A write to a live entity that should be reflected in one named graph's version. */
 export type EntityWriteOperation = 'create' | 'update';
@@ -42,6 +44,12 @@ export type EntityWriteOperation = 'create' | 'update';
 export interface GraphWriteVersioningConfig {
   graphRepository: GraphRepository;
   logger?: ILogger;
+  /**
+   * Where a committed entity write is announced to the live change feed. The
+   * live store already holds the change by the time this service is asked to
+   * record it, so the announcement means "refetch and you will see it".
+   */
+  changeFeed?: { publish(graphId: string, body: ChangeBody): ChangeRecord };
 }
 
 /**
@@ -129,9 +137,10 @@ function entityName(type: EntityType, data: Record<string, unknown> | undefined)
 }
 
 function sameInstant(a: unknown, b: unknown): boolean {
-  const ta = new Date(a as string).getTime();
-  const tb = new Date(b as string).getTime();
-  return Number.isFinite(ta) && Number.isFinite(tb) ? ta === tb : a === b;
+  // Exactly, on the axis: two moments a second apart past ±285,000 years are two moments.
+  const ta = toAxisTime(a);
+  const tb = toAxisTime(b);
+  return ta !== null && tb !== null ? ta === tb : a === b;
 }
 
 const NOUN: Record<EntityType, string> = {
@@ -165,6 +174,8 @@ export interface EntityWriteContext {
   effect?: Record<string, unknown>;
   /** For an event delete: how many links went with it. */
   cascadedLinks?: number;
+  /** The graph's world calendars, so a moved date is named as the world names it. */
+  calendar?: WorldCalendarSet;
 }
 
 /**
@@ -197,7 +208,9 @@ export function describeEntityWrite(
       const renamed = entityName(type, before) !== name;
       const otherChange = before.actor !== after.actor || before.target !== after.target;
       if (moved && !renamed && !otherChange) {
-        return `Moved ${name} to ${formatHistoricalDate(after.timestamp as string)}`;
+        // At the precision it is known to, in the calendar it was given in.
+        const metadata = (after.metadata ?? undefined) as Record<string, unknown> | undefined;
+        return `Moved ${name} to ${formatHistoricalDateAt(after.timestamp as string, datePrecisionOf(metadata), 'en-US', context.calendar ?? null, dateCalendarOf(metadata))}`;
       }
       if (renamed && !moved && !otherChange) {
         return `Renamed event ${entityName(type, before)} to ${name}`;
@@ -219,9 +232,11 @@ export function describeEntityWrite(
 export class GraphWriteVersioningService {
   private readonly graphRepository: GraphRepository;
   private readonly logger: ILogger;
+  private readonly changeFeed?: GraphWriteVersioningConfig['changeFeed'];
 
   constructor(config: GraphWriteVersioningConfig) {
     this.graphRepository = config.graphRepository;
+    this.changeFeed = config.changeFeed;
     this.logger = config.logger ?? createLogger('GraphWriteVersioningService');
   }
 
@@ -332,6 +347,7 @@ export class GraphWriteVersioningService {
     const context: EntityWriteContext = { data: entity.data };
     if (operation === 'update') {
       context.previous = (await this.headEntities(graphId, write.type, [write.id]))[write.id];
+      if (write.type === 'event') context.calendar = (await this.graphRepository.findById(graphId).catch(() => null))?.calendar;
     }
     if (write.type === 'relationship') {
       Object.assign(context, await this.linkEnds(graphId, entity.data));
@@ -408,7 +424,32 @@ export class GraphWriteVersioningService {
       await this.graphRepository.commitChanges(graphId, changes, operation, description);
     } catch (error) {
       this.logger.error(`Failed to commit ${description} to graph ${graphId}`, error);
+      // The live store changed before this was asked, and it is what the app
+      // reads, so a watcher is told even though the version was not made.
+      this.announce(graphId, changes, operation, `${description} (not versioned)`);
       throw error;
+    }
+    this.announce(graphId, changes, operation, description);
+  }
+
+  /** Tell the live change feed which entities a write touched. */
+  private announce(
+    graphId: string,
+    changes: EntityChanges,
+    operation: EntityWriteOperation | 'delete',
+    summary: string
+  ): void {
+    if (!this.changeFeed) return;
+    const touched = operation === 'create' ? changes.added : operation === 'update' ? changes.modified : changes.deleted;
+    const entities: ChangedEntity[] = touched.map((entity) => ({ type: entity.type, id: entity.id }));
+    if (entities.length === 0) return;
+    try {
+      this.changeFeed.publish(graphId, { kind: 'entities', operation, entities, summary });
+    } catch (error) {
+      this.logger.warn('Could not announce a change to the live feed', {
+        graphId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }

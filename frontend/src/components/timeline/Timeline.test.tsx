@@ -184,6 +184,9 @@ vi.mock('d3', () => {
   return {
     select: vi.fn(() => mockSelection),
     scaleTime: vi.fn(() => mockScale),
+    // The axis ticks are generated on a UTC scale over the same domain.
+    scaleUtc: vi.fn(() => mockScale),
+    utcFormat: vi.fn(() => vi.fn(() => '')),
     scaleLinear: vi.fn(() => mockScale),
     axisBottom: vi.fn(() => mockAxis),
     axisLeft: vi.fn(() => mockAxis),

@@ -1,3 +1,5 @@
+import { compareInstants, msApart, toAxisTime, toInstant } from '@althistory/calendar';
+
 /**
  * Arc represents a historical phase or period that can contain events and other arcs
  */
@@ -16,6 +18,10 @@ export interface IArc {
   
   /** End time of the arc */
   end_time: Date;
+
+  /** The start and end as decimal strings of milliseconds on the axis (see `IEvent.timestamp_ms`). */
+  start_time_ms?: string;
+  end_time_ms?: string;
   
   /** Hierarchy level for nesting (0 = top level) */
   level: number;
@@ -48,8 +54,8 @@ export class Arc implements IArc {
 
     this.name = data.name.trim();
     this.description = data.description?.trim();
-    this.start_time = new Date(data.start_time);
-    this.end_time = new Date(data.end_time);
+    this.start_time = toInstant(data.start_time);
+    this.end_time = toInstant(data.end_time);
     this.level = data.level;
     this.metadata = data.metadata;
   }
@@ -69,7 +75,7 @@ export class Arc implements IArc {
     if (!data.start_time) {
       errors.push('Start time is required');
     } else {
-      const startTime = new Date(data.start_time);
+      const startTime = toInstant(data.start_time);
       if (isNaN(startTime.getTime())) {
         errors.push('Start time must be a valid date');
       }
@@ -79,7 +85,7 @@ export class Arc implements IArc {
     if (!data.end_time) {
       errors.push('End time is required');
     } else {
-      const endTime = new Date(data.end_time);
+      const endTime = toInstant(data.end_time);
       if (isNaN(endTime.getTime())) {
         errors.push('End time must be a valid date');
       }
@@ -87,11 +93,11 @@ export class Arc implements IArc {
 
     // Temporal boundary validation (start_time < end_time)
     if (data.start_time && data.end_time) {
-      const startTime = new Date(data.start_time);
-      const endTime = new Date(data.end_time);
+      const startTime = toInstant(data.start_time);
+      const endTime = toInstant(data.end_time);
       
       if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
-        if (startTime >= endTime) {
+        if (compareInstants(startTime, endTime) >= 0) {
           errors.push('Start time must be before end time');
         }
       }
@@ -124,28 +130,28 @@ export class Arc implements IArc {
    * Validates if this arc can contain another arc (child arc must be completely within parent)
    */
   canContainArc(childArc: Arc): boolean {
-    return this.start_time <= childArc.start_time && this.end_time >= childArc.end_time;
+    return compareInstants(this.start_time, childArc.start_time) <= 0 && compareInstants(this.end_time, childArc.end_time) >= 0;
   }
 
   /**
    * Validates if this arc overlaps with another arc
    */
   overlapsWith(otherArc: Arc): boolean {
-    return this.start_time < otherArc.end_time && this.end_time > otherArc.start_time;
+    return compareInstants(this.start_time, otherArc.end_time) < 0 && compareInstants(this.end_time, otherArc.start_time) > 0;
   }
 
   /**
    * Validates if a timestamp falls within this arc's boundaries
    */
   containsTimestamp(timestamp: Date): boolean {
-    return timestamp >= this.start_time && timestamp <= this.end_time;
+    return compareInstants(timestamp, this.start_time) >= 0 && compareInstants(timestamp, this.end_time) <= 0;
   }
 
   /**
    * Gets the duration of this arc in milliseconds
    */
   getDuration(): number {
-    return this.end_time.getTime() - this.start_time.getTime();
+    return msApart(this.start_time, this.end_time);
   }
 
   /**
@@ -163,6 +169,16 @@ export class Arc implements IArc {
     });
   }
 
+  /** The arc's start on the axis, in milliseconds as a decimal string (the API's `start_time_ms`). */
+  get startTimeMs(): string {
+    return String(toAxisTime(this.start_time));
+  }
+
+  /** The arc's end on the axis, in milliseconds as a decimal string (the API's `end_time_ms`). */
+  get endTimeMs(): string {
+    return String(toAxisTime(this.end_time));
+  }
+
   /**
    * Converts the arc to a plain object
    */
@@ -173,6 +189,8 @@ export class Arc implements IArc {
       description: this.description,
       start_time: this.start_time,
       end_time: this.end_time,
+      start_time_ms: this.startTimeMs,
+      end_time_ms: this.endTimeMs,
       level: this.level,
       metadata: this.metadata
     };

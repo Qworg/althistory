@@ -16,7 +16,7 @@ and worth an issue.
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.0" | "1.1",
   "metadata": { "...": "..." },
   "data": { "...": "..." },
   "provenance": { "...": "..." }
@@ -25,14 +25,21 @@ and worth an issue.
 
 | Field | Type | Always present | Meaning |
 | --- | --- | --- | --- |
-| `version` | `"1.0"` | yes | The **format** version. Import accepts `"1.0"` and nothing else; any other value is rejected with the error code `VERSION_MISMATCH`. |
+| `version` | `"1.0"` or `"1.1"` | yes | The **format** version. `"1.0"` when every date in `data` is inside what a JavaScript `Date` holds (about ±275,760 years), exactly as it was before deep time, with the same checksum; `"1.1"` when any date lies beyond it. Import accepts both and nothing else; any other value is rejected with the error code `VERSION_MISMATCH`. |
 | `metadata` | object | yes | Provenance and integrity information about the export itself. |
 | `data` | object | yes | The graph's entities. This is the section the checksum covers. |
 | `provenance` | object | only with `includeProvenance` | How the graph was built. |
 
 Three versions are in play and they mean different things:
 
-- `version` — the shape of *this document*. `"1.0"`.
+- `version` — the shape of *this document*. `"1.0"`, or `"1.1"` for a history
+  with dates beyond a `Date`'s range. The two have the same shape; `"1.1"` only
+  allows an **expanded year** in a date, written as ISO 8601 writes it past
+  `9999`: a sign and six digits or more (`"+300000-01-01T00:00:00.000Z"`,
+  `"-499999-06-15T00:00:00.000Z"`). Years are astronomical, as ISO 8601 has
+  them: `0000` is 1 BCE, so `-499999` is 500,000 BCE. See
+  [docs/specs/deep-time.md](specs/deep-time.md), which also says how far the
+  timeline reaches (±9 × 10¹⁸ ms, about ±285 million years).
 - `metadata.graphVersion` — the graph's own committed version number, or `0`
   when the graph has no committed version (the head).
 - `metadata.sourceVersion` — the version of the Althistory build that wrote
@@ -50,6 +57,7 @@ Three versions are in play and they mean different things:
 | `graphVersion` | number | The committed version exported, or `0` for the head. |
 | `checksum` | string | Lowercase hex SHA-256 of the `data` section. See below. |
 | `filters` | object? | Present **only** when `scope=filtered`; records the filters that were applied, so a reader can tell a partial export from a full one. |
+| `calendar` | object? | The graph's world calendars, when it has them: a calendar set, `{ version: 2, dayLength, calendars, primary }`, in the shape [docs/specs/world-calendars.md](specs/world-calendars.md) defines. They name the dates; the dates in `data` are positions on the timeline, as every graph stores them. Import restores the set on a new graph: a calendar in it that no longer checks out is left out rather than failing the import, and a file written before calendar sets (`epochYear`, `eraLabel`, `name`, `monthNames`) is read as the set it stands for. Imported into a graph that already exists, the dates keep their places but are shown in that graph's calendars; when those are not the document's, the import says so with a `CALENDAR_MISMATCH` warning (the CLI, in `warnings`). |
 
 ## `data`
 
@@ -84,7 +92,7 @@ present only when the graph has any.
 | `description` | string | yes | What happened. |
 | `actor` | string | yes | Who acted. |
 | `target` | string | yes | Who or what was acted on. |
-| `timestamp` | string (ISO 8601) | yes | When. Comparisons are by instant. |
+| `timestamp` | string (ISO 8601) | yes | When. Comparisons are by instant. An import reads it as the API reads a date ([the spec](specs/world-calendars.md), Req 16): ISO 8601, or year-first text without a world (`"1871-03"`, `"44 BCE"`), or in a graph with world calendars the world's notation, with the target graph's calendars; a month or a year records its `datePrecision` unless `metadata` states one. |
 | `metadata` | object? | no | Free-form. `arcId` records the arc the event belongs to — that is where the association lives, not in a column of its own. `datePrecision` (`"month"` or `"year"`) says the source stated only that much of the date: "March 1871" is stored as `1871-03-01` with `datePrecision: "month"`, and the UI shows it as "Mar 1871". Absent means a full date. |
 | `sourceRef` | string? | no | Where the event came from, when it was ingested. |
 
@@ -217,7 +225,7 @@ Only `json` is this format. The others are renderings of the same data.
 
 `POST /api/import`, or `althistory import <file>`. The importer:
 
-1. Validates the document — `version` must be `"1.0"`; ids must be unique;
+1. Validates the document — `version` must be `"1.0"` or `"1.1"`; ids must be unique;
    every reference (`parent_arc_id`, `cause_event_id`, `effect_event_id`,
    `evidence_event_ids`, `affected_arc_ids`) must resolve within the document
    unless it names another graph; causal order must hold.

@@ -7,6 +7,7 @@
  * the entity it names is not in the extraction.
  */
 
+import { type DatePrecision, type WorldCalendarSet, formatDateEntry, parseIsoInstant, readWorldTimestamp } from '@althistory/calendar'
 import type {
   ExtractedArc,
   ExtractedEvent,
@@ -92,10 +93,20 @@ const ISO_WHOLE_MINUTE = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::00(?:\.0+)?)?Z$/
  * (a date, stored as its UTC midnight) is "1870-02-14", and a whole-minute time
  * keeps only its minutes ("1870-02-14T09:30Z"). Both parse back to the same
  * instant, so an untouched field round-trips; anything else (including what the
- * reviewer is typing) is shown as it is.
+ * reviewer is typing) is shown as it is. In a world, an extracted timestamp is
+ * shown in its notation, at the precision the text gave ("Thaw 312 AR").
  */
-export function compactReviewDate(raw: string): string {
+export function compactReviewDate(
+  raw: string,
+  calendar: WorldCalendarSet | null = null,
+  precision: DatePrecision = 'day',
+  calendarId?: string
+): string {
   const value = raw.trim()
+  if (calendar) return parseIsoInstant(value) ? formatDateEntry(value, precision, calendar, 'start', calendarId) : raw
+  // A month or year the text gave is shown as one ("1871-03"): shown as its
+  // first day, an untouched field would read back as that day.
+  if (precision !== 'day' && parseIsoInstant(value)) return formatDateEntry(value, precision, null)
   const midnight = ISO_MIDNIGHT.exec(value)
   if (midnight) return `${midnight[1]}-${midnight[2]}-${midnight[3]}`
   const minute = ISO_WHOLE_MINUTE.exec(value)
@@ -103,7 +114,17 @@ export function compactReviewDate(raw: string): string {
   return raw
 }
 
-/** True when `raw` is a date the importer can read. */
-export function isReadableReviewDate(raw: string): boolean {
-  return raw.trim() !== '' && !Number.isNaN(new Date(raw.trim()).getTime())
+/**
+ * The instant and precision `raw` names for the importer, or null when it
+ * cannot read it: ISO 8601, and in a world its notation first, read by the
+ * same `readWorldTimestamp` as the server's ingestion, so a date that reads
+ * here never reads "Invalid date" beneath the field.
+ */
+export function readReviewDate(raw: string, calendar: WorldCalendarSet | null = null): { iso: string; precision: DatePrecision; calendar?: string } | null {
+  return readWorldTimestamp(calendar, raw.trim())
+}
+
+/** True when `raw` is a date the importer can read (see {@link readReviewDate}). */
+export function isReadableReviewDate(raw: string, calendar: WorldCalendarSet | null = null): boolean {
+  return readReviewDate(raw, calendar) !== null
 }
