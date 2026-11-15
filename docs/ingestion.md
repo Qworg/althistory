@@ -52,8 +52,9 @@ for the reviewer to date in the world's notation. For a world, use `llm`.
 Both ingestion paths do this. The CLI's in-process ingestion (the CLI and the
 MCP server when no app is running) reads the target graph's calendar, and
 also names the arcs it groups the events into in the world's years. The app's
-review flow, `POST /api/ingest/text`, reads the calendar of the graph its
-`X-Graph-Id` header names; the app's import wizard sends the graph it will
+review flow reads the calendar of the graph its `X-Graph-Id` header names, on
+all three extraction routes (`POST /api/ingest/text`, `/url` and `/wikidata`),
+after checking the key may use that graph; the app's import wizard sends the graph it will
 import into, and the CLI sends `--graph-id`. A request without the header is read
 without a calendar. The review table shows every date in the world's calendar,
 and the box you edit holds it in the world's notation; ISO 8601 typed there
@@ -117,9 +118,10 @@ redirects, checking each hop.
 All routes are under `/api/ingest` and require the `ingest` permission.
 
 The three extraction routes take an optional `context`: `defaultTimeRange`
-(`{ start, end }`), `defaultActors` and `knownEntities`. The range's ends are
-read as every door reads a date, in the graph's calendar when it has one (its
-notation, then ISO 8601; without one, year-first text such as `1066` or
+(`{ start, end }`), `defaultActors`, `knownEntities`, `locale` and
+`instructions`. The range's ends are read as every door reads a date, in the
+calendar of the graph the optional `X-Graph-Id` header names, when it has one
+(its notation, then ISO 8601; without one, year-first text such as `1066` or
 `44 BCE` too), and an end is the last moment of what it names. Text that rule
 cannot read, or a range that ends before it starts, is refused with a 400
 naming the field (`context.defaultTimeRange.start`).

@@ -710,7 +710,7 @@ export const deep: DeepScenario = {
     { cause: 'traps', effect: 'extinction', type: 'direct', weight: 0.85, confidence: 0.85, evidence: "The Traps' carbon warmed the planet and stripped the oceans of oxygen." },
     { cause: 'extinction', effect: 'dinosaurs', type: 'contributory', weight: 0.6, confidence: 0.7, evidence: 'The emptied world let the archosaurs, and then the dinosaurs, spread.' },
     { cause: 'camp', effect: 'triassic', type: 'direct', weight: 0.8, confidence: 0.8, evidence: "The eruptions' carbon is the leading explanation of the extinction." },
-    { cause: 'triassic', effect: 'dominance', type: 'direct', weight: 0.75, confidence: 0.75, evidence: "Their crocodile-line rivals died out, and the dinosaurs did not." },
+    { cause: 'triassic', effect: 'dominance', type: 'direct', weight: 0.75, confidence: 0.75, evidence: 'Most of their crocodile-line rivals died out, and the dinosaurs did not.' },
     { cause: 'dinosaurs', effect: 'dominance', type: 'contributory', weight: 0.4, confidence: 0.7, evidence: 'The dinosaurs that appeared in the Late Triassic were already there to inherit the land.' },
     { cause: 'impact', effect: 'mammals', type: 'direct', weight: 0.85, confidence: 0.85, evidence: 'With the non-avian dinosaurs gone, mammals filled their niches.' },
     { cause: 'mammals', effect: 'hominins', type: 'indirect', weight: 0.6, confidence: 0.8, evidence: 'Primates were among the mammals that spread after the extinction.' },

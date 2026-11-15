@@ -264,11 +264,12 @@ test('a link opens on deep time, 252 million years on one axis', async ({ page }
   // Inside a Date's range, in the same graph.
   await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Toba erupts"]')).toHaveAttribute('aria-label', /at 72000 BC\b/)
 
-  // The axis takes the calendar package's year ticks: years with the same era
-  // as the labels, never d3's astronomical "-200000000s", and never empty.
-  await expect.poll(async () => (await axisLabels(page)).filter((l) => /^\d+ BC$/.test(l)).length).toBeGreaterThan(2)
+  // The axis takes the calendar package's year ticks, written as a person
+  // types a year ("250000000 BCE"), never d3's astronomical "-200000000s",
+  // and never empty. Full dates (the marks below) keep the locale's "BC".
+  await expect.poll(async () => (await axisLabels(page)).filter((l) => /^\d+ BCE$/.test(l)).length).toBeGreaterThan(2)
   expect((await axisLabels(page)).filter((l) => l.startsWith('-'))).toEqual([])
-  expect(await axisLabels(page)).toContain('250000000 BC')
+  expect(await axisLabels(page)).toContain('250000000 BCE')
 
   // An arc's span, and an event's details, in the same years.
   await expect(page.getByRole('button', { name: /^Arc: The Mesozoic, Jan 1, 251900000 BC – Dec 31, 66000000 BC/ })).toBeVisible()
