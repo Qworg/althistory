@@ -109,7 +109,8 @@ describe('Ingestion end-to-end', () => {
     });
     app.use(
       '/api/ingest',
-      createIngestRouter({ dataDir, httpClient, llmClient: null })
+      // Every door reads the named graph's calendar (none here: these graphs have no world).
+      createIngestRouter({ dataDir, httpClient, llmClient: null, graphCalendar: async () => undefined })
     );
     app.use(errorHandler);
   });

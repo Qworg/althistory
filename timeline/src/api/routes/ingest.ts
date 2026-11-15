@@ -327,6 +327,18 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
   const graphCalendar = config.graphCalendar ?? repositoryCalendar;
 
   /**
+   * A request's extraction context, read with the calendars of the graph its
+   * `X-Graph-Id` names (after the graph-access check), on every door alike:
+   * its time range is read as every door reads a date, and refused with a
+   * 400 naming the field when it cannot be.
+   */
+  const contextFor = async (req: AuthenticatedRequest, value: unknown): Promise<ExtractionContext | undefined> => {
+    // As a set, whatever form it was stored in.
+    const calendar = req.graphId ? (storedCalendarSet(await graphCalendar(req.graphId)) ?? undefined) : undefined;
+    return withCalendar(parseExtractionContext(value, calendar), calendar);
+  };
+
+  /**
    * POST /api/ingest/text — synchronous pattern/LLM extraction.
    *
    * With an `X-Graph-Id` naming a graph that has a world calendar, the model is
@@ -345,11 +357,9 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
         text: body.text,
         useLLM: body.useLLM !== false,
       };
-      // As a set, whatever form it was stored in.
-      const calendar = req.graphId ? (storedCalendarSet(await graphCalendar(req.graphId)) ?? undefined) : undefined;
       const preview = await orchestrator.ingest(
         { source: 'text', text: input },
-        withCalendar(parseExtractionContext(body.context, calendar), calendar),
+        await contextFor(req, body.context),
         ownerKeyId(req)
       );
       res.status(200).json(preview);
@@ -359,6 +369,7 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
   /** POST /api/ingest/url — Wikipedia extraction. */
   router.post(
     '/url',
+    ...scopeToGraphWhenNamed(),
     asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       const body = isRecord(req.body) ? req.body : {};
       if (typeof body.url !== 'string' || body.url.trim().length === 0) {
@@ -368,13 +379,14 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
         throw new ValidationError('strategy must be "wikipedia" or "auto"', 'strategy');
       }
       const url = body.url;
+      const context = await contextFor(req, body.context);
       const preview = await withUpstreamErrors('Wikipedia', () =>
         orchestrator.ingest(
           {
             source: 'wikipedia',
             wikipedia: { url, options: parseWikipediaOptions(body.options) },
           },
-          parseExtractionContext(body.context),
+          context,
           ownerKeyId(req)
         )
       );
@@ -385,6 +397,7 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
   /** POST /api/ingest/wikidata — SPARQL extraction. */
   router.post(
     '/wikidata',
+    ...scopeToGraphWhenNamed(),
     asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       const body = isRecord(req.body) ? req.body : {};
       const queryType = body.queryType;
@@ -400,10 +413,11 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
         customQuery: typeof body.customQuery === 'string' ? body.customQuery : undefined,
         limit: typeof body.limit === 'number' ? body.limit : undefined,
       };
+      const context = await contextFor(req, body.context);
       const preview = await withUpstreamErrors('Wikidata', () =>
         orchestrator.ingest(
           { source: 'wikidata', wikidata: input },
-          parseExtractionContext(body.context),
+          context,
           ownerKeyId(req)
         )
       );

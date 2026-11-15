@@ -165,7 +165,8 @@ The design emphasizes flexibility (supporting both cloud and local-only modes), 
 2. WHEN validation is set to 'strict' THEN the system SHALL reject the entire batch if any entity fails validation
 3. WHEN validation is set to 'lenient' THEN the system SHALL skip invalid entities and continue processing
 4. WHEN onError is 'collect' THEN the system SHALL return details of all failures after processing
-5. WHEN a transaction batch is requested THEN the system SHALL apply all operations atomically
+5. WHEN a transaction batch is requested with `atomic` (the default) AND a step fails THEN the system SHALL undo the entities the transaction created (each by its own id, never another entity between the same two events) and answer 400 with each step's result; the updates and deletes made before the failing step SHALL stay. The transaction is not all-or-nothing.
+6. WHEN a batch is done THEN the system SHALL record what it left in the store as one version of the graph, rewriting only what changed and keeping fields only the version store holds, and SHALL announce it on the live feed once per kind of change; a batch whose version cannot be made SHALL be announced as not versioned, and a batch of creates that the system undoes because of it SHALL not be announced.
 
 ### Requirement 14: Validation Endpoint
 

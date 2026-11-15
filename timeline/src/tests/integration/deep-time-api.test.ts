@@ -227,6 +227,15 @@ describe('Deep time through the API', () => {
       expect(density.body.data.eventDensity).toBe(86400);
     });
 
+    it('refuses a density range that is empty or runs backwards, as the other temporal routes do', async () => {
+      // Equal bounds used to divide by zero, and the density came back as null.
+      for (const [startTime, endTime] of [[LATER, LATER], [LATER, EARLIER]]) {
+        const refused = await request(app).get('/api/temporal/density').query({ startTime, endTime, type: 'events' });
+        expect(refused.status).toBe(400);
+        expect(refused.body.error.message).toMatch(/startTime must be before endTime/);
+      }
+    });
+
     // /api/validate and /api/export take an API key even in local mode: their
     // order checks are tested in validate.test.ts and export.test.ts.
   });

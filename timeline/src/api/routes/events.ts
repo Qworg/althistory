@@ -63,7 +63,8 @@ eventRoutes.post('/', ...entityPermission('write:events'), async (req: RequestWi
     // Mirror the write into the active graph's version store so version history
     // and ExportService see UI-created events (not only imported ones).
     try {
-      await req.container.graphWriteVersioningService.recordEvent(requireGraphId(req), event, 'create');
+      // Undone below if it cannot be versioned, so not announced then.
+      await req.container.graphWriteVersioningService.recordEvent(requireGraphId(req), event, 'create', { undoneOnFailure: true });
     } catch (versionError) {
       try {
         await repository.delete(event.id);
@@ -72,6 +73,7 @@ eventRoutes.post('/', ...entityPermission('write:events'), async (req: RequestWi
           eventId: event.id,
           rollbackError,
         });
+        req.container.graphWriteVersioningService.announceNotVersioned(requireGraphId(req), 'create', 'event', event.id, { description: event.description });
       }
       throw versionError;
     }
@@ -295,7 +297,8 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
     }
 
     try {
-      await req.container.graphWriteVersioningService.recordEvent(requireGraphId(req), updatedEvent, 'update');
+      // Undone below if it cannot be versioned, so not announced then.
+      await req.container.graphWriteVersioningService.recordEvent(requireGraphId(req), updatedEvent, 'update', { undoneOnFailure: true });
     } catch (versionError) {
       try {
         await repository.update(id, existingEvent);
@@ -304,6 +307,7 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
           eventId: id,
           rollbackError,
         });
+        req.container.graphWriteVersioningService.announceNotVersioned(requireGraphId(req), 'update', 'event', id, { description: updatedEvent.description });
       }
       throw versionError;
     }

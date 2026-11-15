@@ -419,6 +419,11 @@ temporalRoutes.get('/density', ...entityPermission('read:events', 'read:arcs'), 
       throw new ValidationError('Invalid date format for startTime or endTime', 'timeRange', { startTime, endTime });
     }
 
+    // A density is per day of the range: an empty range would divide by zero.
+    if (compareInstants(timeRange.start, timeRange.end) >= 0) {
+      throw new ValidationError('startTime must be before endTime', 'timeRange', { startTime, endTime });
+    }
+
     // Validate granularity
     const validGranularities = ['hour', 'day', 'week', 'month'];
     if (!validGranularities.includes(granularity as string)) {

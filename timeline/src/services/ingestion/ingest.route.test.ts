@@ -281,6 +281,50 @@ describe('Ingestion routes', () => {
       expect(textExtract).toHaveBeenCalledTimes(1);
     });
 
+    it("reads the time range of a Wikipedia or Wikidata request with the named graph's calendars too", async () => {
+      const { app: scoped, graphCalendar } = setup();
+      const range = { start: 'Thaw 141 AR', end: '142 AR' };
+      const url = await request(scoped)
+        .post('/api/ingest/url')
+        .set('X-API-Key', INGEST_KEY)
+        .set('X-Graph-Id', 'graph-1')
+        .send({ url: 'https://en.wikipedia.org/wiki/Tide_War', context: { defaultTimeRange: range } });
+      expect(url.status).toBe(200);
+      const wikidata = await request(scoped)
+        .post('/api/ingest/wikidata')
+        .set('X-API-Key', INGEST_KEY)
+        .set('X-Graph-Id', 'graph-1')
+        .send({ queryType: 'historical-events', context: { defaultTimeRange: range } });
+      expect(wikidata.status).toBe(200);
+      expect(graphCalendar).toHaveBeenCalledWith('graph-1');
+
+      // Refused with the reason, naming the field, as /text refuses it.
+      const refused = await request(scoped)
+        .post('/api/ingest/url')
+        .set('X-API-Key', INGEST_KEY)
+        .set('X-Graph-Id', 'graph-1')
+        .send({ url: 'https://en.wikipedia.org/wiki/Tide_War', context: { defaultTimeRange: { start: '1871-03', end: '142 AR' } } });
+      expect(refused.status).toBe(400);
+      expect(refused.body.error.message).toContain('context.defaultTimeRange.start');
+    });
+
+    it("refuses a Wikipedia or Wikidata request for a graph the key may not read, without reading its calendar", async () => {
+      const { app: scoped, graphCalendar } = setup();
+      const url = await request(scoped)
+        .post('/api/ingest/url')
+        .set('X-API-Key', INGEST_KEY)
+        .set('X-Graph-Id', 'graph-9')
+        .send({ url: 'https://en.wikipedia.org/wiki/Tide_War' });
+      expect(url.status).toBe(403);
+      const wikidata = await request(scoped)
+        .post('/api/ingest/wikidata')
+        .set('X-API-Key', INGEST_KEY)
+        .set('X-Graph-Id', 'graph-9')
+        .send({ queryType: 'historical-events' });
+      expect(wikidata.status).toBe(403);
+      expect(graphCalendar).not.toHaveBeenCalled();
+    });
+
     it('leaves the context alone without an X-Graph-Id, as before', async () => {
       const { app: unscoped, textExtract, graphCalendar } = setup();
       const response = await request(unscoped)
