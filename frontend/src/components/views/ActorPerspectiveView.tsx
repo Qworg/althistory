@@ -12,8 +12,7 @@ import { useGlobalStore } from '@/stores/globalStore'
 import { filterArcs, filterEvents } from '@/components/filters/filterUtils'
 import { Event, Arc } from '@/types'
 import { historicalYear, formatEventDate } from '@/utils/historicalTime'
-import { compareInstants, toInstant } from '@althistory/calendar'
-import { instantOfMs } from '@/utils/timeScale'
+import { compareInstants, toAxisTime, toInstant } from '@althistory/calendar'
 
 export interface ActorPerspectiveViewProps {
   className?: string
@@ -123,24 +122,25 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
   // Every actor (or target) with how many events involve it and the years
   // they span, most involved first: what the view lists before one is chosen.
   const actorIndex = useMemo(() => {
-    const byName = new Map<string, { count: number; first: number; last: number }>()
+    // The first and last moments compared exactly: past 2^53 ms a getTime() is a rounded double.
+    const byName = new Map<string, { count: number; first: Date; last: Date }>()
     for (const event of fetchedEvents) {
-      const time = toInstant(event.timestamp).getTime()
+      const time = toInstant(event.timestamp)
       for (const name of new Set([event.actor, event.target])) {
         if (!name) continue
         const entry = byName.get(name)
         if (entry) {
           entry.count += 1
-          entry.first = Math.min(entry.first, time)
-          entry.last = Math.max(entry.last, time)
+          if (compareInstants(time, entry.first) < 0) entry.first = time
+          if (compareInstants(time, entry.last) > 0) entry.last = time
         } else {
           byName.set(name, { count: 1, first: time, last: time })
         }
       }
     }
     return Array.from(byName, ([name, { count, first, last }]) => {
-      const from = eventYear(instantOfMs(first))
-      const to = eventYear(instantOfMs(last))
+      const from = eventYear(first)
+      const to = eventYear(last)
       return { name, count, span: from === to ? from : `${from}–${to}` }
     }).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
   }, [fetchedEvents])
@@ -163,16 +163,17 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
   const relevantArcs = useMemo((): Arc[] => {
     if (!selectedActor || actorEvents.length === 0) return []
     
-    const actorEventTimes = actorEvents.map(e => toInstant(e.timestamp).getTime())
-    const minTime = Math.min(...actorEventTimes)
-    const maxTime = Math.max(...actorEventTimes)
-    
+    // The actor's events are in order: the first and last are its span.
+    const minTime = toAxisTime(actorEvents[0]!.timestamp)
+    const maxTime = toAxisTime(actorEvents[actorEvents.length - 1]!.timestamp)
+    if (minTime === null || maxTime === null) return []
+
     return allArcs.filter(arc => {
-      const arcStart = toInstant(arc.start_time).getTime()
-      const arcEnd = toInstant(arc.end_time).getTime()
-      
-      // Include arc if it overlaps with actor's event timespan
-      return arcStart <= maxTime && arcEnd >= minTime
+      const arcStart = toAxisTime(arc.start_time)
+      const arcEnd = toAxisTime(arc.end_time)
+
+      // Include arc if it overlaps with actor's event timespan, exactly
+      return arcStart !== null && arcEnd !== null && arcStart <= maxTime && arcEnd >= minTime
     })
   }, [allArcs, selectedActor, actorEvents])
 
@@ -197,11 +198,11 @@ export function ActorPerspectiveView({ className = '' }: ActorPerspectiveViewPro
     const uniqueTargets = new Set(asActorEvents.map(e => e.target)).size
     const uniqueActors = new Set(asTargetEvents.map(e => e.actor)).size
     
-    const timestamps = actorEvents.map(e => toInstant(e.timestamp).getTime())
-    const timeSpan = timestamps.length > 0 ? {
-      start: instantOfMs(Math.min(...timestamps)),
-      end: instantOfMs(Math.max(...timestamps))
-    } : null
+    // The actor's events are in order: the first and last are its span, exactly.
+    const timeSpan = {
+      start: toInstant(actorEvents[0]!.timestamp),
+      end: toInstant(actorEvents[actorEvents.length - 1]!.timestamp)
+    }
 
     return {
       eventCount: actorEvents.length,

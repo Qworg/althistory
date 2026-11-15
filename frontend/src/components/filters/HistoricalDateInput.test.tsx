@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { HistoricalDateInput } from './HistoricalDateInput'
 import { formatDateBound, readDateBound } from './filterUtils'
 import { useWorldCalendar, useWorldCalendarStore } from '@/stores/worldCalendarStore'
@@ -21,6 +21,20 @@ function Bound({ instant }: { instant: Date }) {
     />
   )
 }
+
+describe('a filter bound near 200 million years BCE, where a double holds no whole seconds', () => {
+  it('commits a moment a second from the bound it has, which getTime() calls the same', () => {
+    const onCommit = vi.fn()
+    // One double apart from each other: zero.
+    const earlier = '-200000001-12-31T23:59:59.500Z'
+    const later = '-200000000-01-01T00:00:00.500Z'
+    render(<HistoricalDateInput id="start" label="Start date" edge="start" hintId="hint" onCommit={onCommit} value={earlier} />)
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: later } })
+    const read = readDateBound(later, 'start', null)
+    if (!read.ok) throw new Error(read.error)
+    expect(onCommit).toHaveBeenCalledWith(read.text)
+  })
+})
 
 describe('a filter bound when another calendar is shown', () => {
   it('is written again in that calendar, though the old text still reads', () => {
