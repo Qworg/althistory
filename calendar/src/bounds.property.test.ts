@@ -208,6 +208,11 @@ describe('a date with a time of day, to the second or the millisecond', () => {
       expect(readHistoricalText(text, 'start').ok, text).toBe(false)
     }
     expect(readHistoricalText('1843-11-20 14:30:05.5', 'start')).toMatchObject({ ok: true, iso: '1843-11-20T14:30:05.500Z' })
+    // The reason is the time's, not "write the year first".
+    for (const text of ['44-03-15 BCE 14:30:05.1234', '44-03-15 BCE 9:30:5', '44-03-15 BCE 14:30.5', '1843-11-20 14:30:60']) {
+      const read = readHistoricalText(text, 'start')
+      expect(read.ok ? '' : read.error, text).toMatch(/^The time must be HH:MM, HH:MM:SS or HH:MM:SS\.mmm/)
+    }
     expect(readHistoricalText('44-03-15 BCE 11:59:50', 'start')).toMatchObject({ ok: true, iso: '-000043-03-15T11:59:50.000Z' })
   })
 })
