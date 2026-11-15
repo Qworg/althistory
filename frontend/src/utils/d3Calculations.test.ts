@@ -13,13 +13,14 @@ import {
   formatTimeAxisTick,
   formatTimeAxisTickSet,
   formatTimeAxisTicks,
-  fitAxisLabels,
+  fitAxis,
   getTimeAxisInterval,
   axisTicks
 } from './d3Calculations'
 import { Event, Arc } from '@/types'
 import { historicalYear } from '@/utils/historicalTime'
 import { VAEL } from '@/test/fixtures/worldCalendars'
+import { labelExtent } from '@/utils/axisLabelFit'
 import { readDateBound, readHistoricalText, toAxisTime, toInstant } from '@althistory/calendar'
 
 /**
@@ -725,10 +726,10 @@ describe('axisTicks near a Date\'s lower bound', () => {
       const seconds = d3.utcSecond.every(5)!.range(new Date('-000043-03-14T23:59:50Z'), new Date('-000043-03-15T00:00:10.001Z'))
       expect(formatTimeAxisTicks(seconds, 20_000, true)).toEqual(['23:59:50', '23:59:55', '44-03-15 BCE', '00:00:05', '00:00:10'])
       const tenths = d3.utcMillisecond.every(250)!.range(new Date('-000043-03-15T11:59:59.500Z'), new Date('-000043-03-15T12:00:00.501Z'))
-      // No tick at a day's start: the first names the day too, so the axis says which.
-      expect(formatTimeAxisTicks(tenths, 1000, true)).toEqual(['44-03-15 BCE 11:59:59.500', '11:59:59.750', '12:00:00.000', '12:00:00.250', '12:00:00.500'])
+      // No tick at a day's start: the labels are times, and the axis's caption names the day (fitAxis).
+      expect(formatTimeAxisTicks(tenths, 1000, true)).toEqual(['11:59:59.500', '11:59:59.750', '12:00:00.000', '12:00:00.250', '12:00:00.500'])
       // 00:00:05 is not a day's first moment.
-      expect(formatTimeAxisTicks([new Date('-000043-03-15T00:00:05Z'), new Date('-000043-03-15T00:00:10Z')], 5000, true)).toEqual(['44-03-15 BCE 00:00:05', '00:00:10'])
+      expect(formatTimeAxisTicks([new Date('-000043-03-15T00:00:05Z'), new Date('-000043-03-15T00:00:10Z')], 5000, true)).toEqual(['00:00:05', '00:00:10'])
     })
 
     it('names the day of a midnight tick at hour precision, and the time of the rest', () => {
@@ -754,38 +755,34 @@ describe('axisTicks near a Date\'s lower bound', () => {
 
   describe('labels that would overprint on the main timeline', () => {
     const CHAR_PX = 7.2
-    const overlaps = (ticks: ReadonlyArray<{ x: number; label: string }>) =>
-      ticks.some((tick, i) => i > 0 && tick.x - ticks[i - 1]!.x < ((tick.label.length + ticks[i - 1]!.label.length) * CHAR_PX) / 2)
+    const ROOM = { left: -56, right: 16 }
+    const overlaps = (ticks: ReadonlyArray<{ x: number; label: string; anchor?: 'start' | 'middle' | 'end' }>) =>
+      ticks.some((tick, i) => i > 0 && labelExtent(tick, CHAR_PX)[0] < labelExtent(ticks[i - 1]!, CHAR_PX)[1])
     const place = (domain: [Date, Date], width: number) => {
       const scale = d3.scaleUtc().domain(domain).range([0, width])
       const count = Math.min(10, Math.floor(width / 96))
       return axisTicks(domain, count, null).map((tick) => ({ ...tick, x: scale(tick.date) }))
     }
+    const room = (width: number) => ({ left: ROOM.left, right: width + ROOM.right })
 
-    it('thins a BCE day axis until no two labels overprint', () => {
+    it('thins a BCE day axis until no two labels overprint, to an even stride', () => {
       for (const width of [700, 1000, 1200]) {
         for (const start of ['-000043-03-01T00:00:00Z', '-008999-03-01T00:00:00Z']) {
           const from = new Date(start)
-          const placed = place([from, new Date(+from + 13.5 * 86_400_000)], width)
-          const kept = fitAxisLabels(placed, null, CHAR_PX)
+          const to = new Date(+from + 13.5 * 86_400_000)
+          const placed = place([from, to], width)
+          const { ticks: kept } = fitAxis(placed, null, room(width), [from, to], CHAR_PX)
           expect(kept.length).toBeGreaterThan(1)
           expect(overlaps(kept), `${width} ${start} ${JSON.stringify(kept.map((t) => t.label))}`).toBe(false)
+          const indices = kept.map((tick) => placed.findIndex((p) => p.date === tick.date))
+          expect(new Set(indices.slice(1).map((index, i) => index - indices[i]!)).size).toBe(1)
         }
       }
     })
 
-    it('keeps the first and the last tick of a BCE axis it thins', () => {
-      const from = new Date('-008999-03-01T00:00:00Z')
-      const placed = place([from, new Date(+from + 13.5 * 86_400_000)], 1000)
-      const kept = fitAxisLabels(placed, null, CHAR_PX)
-      expect(kept.length).toBeLessThan(placed.length)
-      expect(kept[0]).toBe(placed[0])
-      expect(kept[kept.length - 1]).toBe(placed[placed.length - 1])
-    })
-
     it('leaves a world calendar\'s ticks alone, whatever Gregorian year they fall in', () => {
       const ticks = [0, 50, 100].map((x, i) => ({ date: new Date(`-000043-03-0${i + 1}T00:00:00Z`), x, label: 'Greywater 4, 312 AR' }))
-      expect(fitAxisLabels(ticks, VAEL, CHAR_PX)).toEqual(ticks)
+      expect(fitAxis(ticks, VAEL, room(100), [ticks[0]!.date, ticks[2]!.date], CHAR_PX)).toEqual({ ticks: ticks.map((tick) => ({ ...tick, anchor: 'middle' })), caption: null, fitted: false })
     })
 
     it('never drops a tick from an axis after 1 CE', () => {
@@ -795,8 +792,13 @@ describe('axisTicks near a Date\'s lower bound', () => {
         for (const start of ['1843-03-01T00:00:00Z', '0001-01-01T00:00:00Z', '2024-12-30T07:00:00Z', '9000-01-01T00:00:00Z']) {
           for (const span of spans) {
             const from = new Date(start)
-            const placed = place([from, new Date(+from + span)], width)
-            expect(fitAxisLabels(placed, null, CHAR_PX), `${width} ${start} ${span}`).toEqual(placed)
+            const to = new Date(+from + span)
+            const placed = place([from, to], width)
+            expect(fitAxis(placed, null, room(width), [from, to], CHAR_PX), `${width} ${start} ${span}`).toEqual({
+              ticks: placed.map((tick) => ({ ...tick, anchor: 'middle' })),
+              caption: null,
+              fitted: false,
+            })
           }
         }
       }

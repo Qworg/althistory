@@ -4,7 +4,7 @@ import { instantScale, rescaleInstantX } from '@/utils/timeScale'
 import { Event, Arc, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { type ArcWithUIState, calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
-import { axisTicks, fitAxisLabels, formatDuration } from '@/utils/d3Calculations'
+import { axisTicks, fitAxis, formatDuration } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import EventArcAssignment from './EventArcAssignment'
 import PressureIndicators from './PressureIndicators'
@@ -1725,26 +1725,45 @@ const Timeline = memo(function Timeline({
               // of the "1843" tick west of Greenwich); in a world calendar, on
               // its own years, months, days and hours. Labelled as a set, so
               // two ticks never share a label.
-              // A set before 1 CE writes long labels ("9000-03-01 BCE"): drop the
-              // ticks that would overprint. Any other set is drawn whole.
-              const ticks = fitAxisLabels(
+              // A set before 1 CE writes long labels ("9000-03-01 BCE"): an end
+              // label is anchored inside the SVG, ticks that would overprint are
+              // dropped, and times of day get a caption naming their day. Any
+              // other set is drawn whole, as it always was.
+              const { ticks, caption } = fitAxis(
                 axisTicks(xScale.domain(), maxTicks > 0 ? maxTicks : 5, worldCalendar).map((tick) => ({ ...tick, x: xScale(tick.date) })),
-                worldCalendar
+                worldCalendar,
+                { left: -margin.left, right: innerWidth + margin.right },
+                [xScale.domain()[0]!, xScale.domain()[1]!]
               )
-              return ticks.map(({ x, label }, i) => (
-                <g key={i} transform={`translate(${x},0)`}>
-                  <line y1={0} y2={6} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
-                  <text
-                    y={20}
-                    textAnchor="middle"
-                    fontSize={LABEL_FONT_SIZE}
-                    className="font-mono-code"
-                    style={{ fill: 'var(--text-muted)' }}
-                  >
-                    {label}
-                  </text>
-                </g>
-              ))
+              return (
+                <>
+                  {ticks.map(({ x, label, anchor }, i) => (
+                    <g key={i} transform={`translate(${x},0)`}>
+                      <line y1={0} y2={6} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
+                      <text
+                        y={20}
+                        textAnchor={anchor}
+                        fontSize={LABEL_FONT_SIZE}
+                        className="font-mono-code axis-tick"
+                        style={{ fill: 'var(--text-muted)' }}
+                      >
+                        {label}
+                      </text>
+                    </g>
+                  ))}
+                  {caption && (
+                    <text
+                      y={35}
+                      textAnchor="start"
+                      fontSize={LABEL_FONT_SIZE}
+                      className="axis-day-caption"
+                      style={{ fill: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}
+                    >
+                      {caption}
+                    </text>
+                  )}
+                </>
+              )
             })()}
           </g>
         </g>

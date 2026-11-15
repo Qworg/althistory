@@ -1,9 +1,9 @@
 import { memo, useMemo, useState, useCallback, useRef, useLayoutEffect, useEffect } from 'react'
 import type React from 'react'
-import { clampedAddInstantMs, instantExtent, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
+import { clampedAddInstantMs, instantExtent, instantScale } from '@/utils/timeScale'
 import { Event, Arc, GraphCalendar } from '@/types'
-import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate, historicalYear } from '@/utils/historicalTime'
-import { axisTicks } from '@/utils/d3Calculations'
+import { formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
+import { counterfactualAxisTicks } from './counterfactualAxis'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import {
   analyzeEventDivergence,
@@ -14,8 +14,7 @@ import {
   EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
 import { layoutEventLabels, truncateLabel, LABEL_ROW_OFFSETS, type EventLabelPlacement, type LabelLayoutConfig } from '@/components/timeline/eventLabelLayout'
-import { formatBoundAt, msApart, toAxisTime, toInstant } from '@althistory/calendar'
-import { thinTickLabels } from '@/utils/axisLabelFit'
+import { msApart, toAxisTime, toInstant } from '@althistory/calendar'
 
 export interface CounterfactualTimelineCanvasProps {
   readonly baselineName: string
@@ -91,46 +90,8 @@ const LABEL_FONT_PX = 12
  * and ran past the clip ("abbage completes…").
  */
 const LANE_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: LABEL_ROW_OFFSETS, fontSize: LABEL_FONT_PX }
-/** Advance of one character of the 12px monospace axis dates (0.6em). */
-const TICK_CHAR_PX = 7.2
-/** Clear space kept between two axis dates. */
-const TICK_GAP_PX = 12
 /** Width of the tooltip, which is clamped inside the canvas. */
 const TOOLTIP_WIDTH_PX = 240
-
-/**
- * Axis tick labels in the historical-date style used everywhere else. Ticks
- * that all fall on New Year's Day name the year alone; otherwise each tick is
- * a full UTC date ("May 10, 1940"), never shifted by the viewer's zone.
- */
-function formatTicks(dates: readonly Date[]): string[] {
-  const allYearStarts = dates.every(
-    d =>
-      d.getUTCMonth() === 0 &&
-      d.getUTCDate() === 1 &&
-      d.getUTCHours() === 0 &&
-      d.getUTCMinutes() === 0
-  )
-  // A set with any tick before 1 CE names its days as a person types them ("44-03-15 BCE"), as its years.
-  const beforeCommonEra = dates.some(d => d.getUTCFullYear() <= 0)
-  const labels = dates.map(d =>
-    allYearStarts ? historicalYear(d, null) : beforeCommonEra ? formatBoundAt(d, 'day') : formatHistoricalDate(d, undefined, null)
-  )
-  // Ticks within a day would read the same: each names its UTC time too ("44-03-15 BCE 12:00").
-  if (beforeCommonEra && new Set(labels).size !== labels.length) {
-    return dates.map(d => `${formatBoundAt(d, 'day')} ${d.toISOString().slice(-13, -8)}`)
-  }
-  return labels
-}
-
-/**
- * Drop axis ticks whose dates would overprint their neighbour's. d3 picks
- * "nice" ticks for a count it treats as a hint, so a narrow axis can get more
- * than fit: keep the first, the last and a regular stride between.
- */
-function thinTicks<T extends { x: number; label: string }>(ticks: readonly T[]): T[] {
-  return thinTickLabels(ticks, { charPx: TICK_CHAR_PX, gapPx: TICK_GAP_PX })
-}
 
 /** Lane label: 12px semibold, about 7px a character. */
 const LANE_LABEL_CHAR_PX = 7
@@ -377,26 +338,10 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
   }, [currentDomain, innerWidth])
 
   // 5. Ticks for time axis
-  const timeTicks = useMemo(() => {
-    const count = Math.max(2, Math.min(6, Math.floor(innerWidth / 110)))
-    // In a world calendar, its own years, months and days, in its notation.
-    // Beyond what a Date holds, d3's ticks cannot reach: the calendar package's.
-    const ticks = worldCalendar || usesArithmeticTicks(...xScale.domain())
-      ? axisTicks(xScale.domain(), count, worldCalendar)
-      : (() => {
-          const dates = xScale.ticks(count)
-          const labels = formatTicks(dates)
-          return dates.map((date, i) => ({ date, label: labels[i] ?? '' }))
-        })()
-    const kept = thinTicks(ticks.map(({ date, label }) => ({ date, x: xScale(date), label })))
-    // A date centred on an end tick would run off the SVG: anchor it inward.
-    return kept.map(tick => {
-      const half = (tick.label.length * TICK_CHAR_PX) / 2
-      const anchor: 'start' | 'middle' | 'end' =
-        tick.x + half > innerWidth + margin.right ? 'end' : tick.x - half < -margin.left ? 'start' : 'middle'
-      return { ...tick, anchor }
-    })
-  }, [xScale, innerWidth, margin.left, margin.right, worldCalendar])
+  const timeTicks = useMemo(
+    () => counterfactualAxisTicks(xScale, innerWidth, { left: margin.left, right: margin.right }, worldCalendar),
+    [xScale, innerWidth, margin.left, margin.right, worldCalendar]
+  )
 
   // Zoom controls
   const handleZoomIn = useCallback(() => {
@@ -879,7 +824,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
                     y={18}
                     textAnchor={tick.anchor}
                     fontSize={LABEL_FONT_PX}
-                    className="font-mono-code"
+                    className="font-mono-code axis-tick"
                     style={{ fill: 'var(--text-secondary)' }}
                   >
                     {tick.label}
