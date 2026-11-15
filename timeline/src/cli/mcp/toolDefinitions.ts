@@ -298,7 +298,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     name: 'althistory_generate_timeline',
     description:
       'Draft a new graph whole-cloth: an alternate history from a premise and point of divergence, or the chronicle of an invented world from a description of it. ' +
-      'A model writes it when the server has ANTHROPIC_API_KEY or OPENAI_API_KEY; otherwise it is a template to rewrite.',
+      'A model writes it when ANTHROPIC_API_KEY or OPENAI_API_KEY is set where it runs (in the app, when the app is running; otherwise in this server); otherwise it is a template to rewrite.',
     inputSchema: {
       type: 'object',
       properties: {

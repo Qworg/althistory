@@ -249,7 +249,8 @@ A session that builds a world by hand:
    of a world stays in that world and its calendar.
 
 `althistory_generate_timeline` with `world` drafts a skeleton instead: a model
-writes it when the server has `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, told
+writes it when `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is set where it runs (the
+app's, with the app running; otherwise the server's), told
 that the world is not Earth and to date events in the world's own calendar; without a key it is a
 template of generic ages to rewrite. The result's `source` says which.
 
