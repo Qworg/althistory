@@ -42,7 +42,11 @@ const typedLabels: TickLabeller = (unit, ticks) => {
     labels = dates.map((date) => formatBoundAt(date, unit))
   } else {
     // As a d3 axis reads: a day's first moment by its date, the rest by their time.
-    labels = ticks.map((position, index) => (timeOf(position) === '00:00' ? formatBoundAt(dates[index]!, 'day') : timeOf(position)))
+    // (Ticks fall on whole minutes, so a day's start is 00:00.)
+    const dayStart = (position: AxisTime) => timeOf(position) === '00:00'
+    labels = ticks.map((position, index) => (dayStart(position) ? formatBoundAt(dates[index]!, 'day') : timeOf(position)))
+    // No tick at a day's start: the first names its day too, so the axis says which.
+    if (ticks.length > 0 && !ticks.some(dayStart)) labels[0] = `${formatBoundAt(dates[0]!, 'day')} ${labels[0]}`
   }
   if (new Set(labels).size !== labels.length) labels = ticks.map((position, index) => `${formatBoundAt(dates[index]!, 'day')} ${timeOf(position)}`)
   return labels

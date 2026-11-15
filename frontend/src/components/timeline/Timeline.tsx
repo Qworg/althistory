@@ -1728,7 +1728,8 @@ const Timeline = memo(function Timeline({
               // A set before 1 CE writes long labels ("9000-03-01 BCE"): drop the
               // ticks that would overprint. Any other set is drawn whole.
               const ticks = fitAxisLabels(
-                axisTicks(xScale.domain(), maxTicks > 0 ? maxTicks : 5, worldCalendar).map((tick) => ({ ...tick, x: xScale(tick.date) }))
+                axisTicks(xScale.domain(), maxTicks > 0 ? maxTicks : 5, worldCalendar).map((tick) => ({ ...tick, x: xScale(tick.date) })),
+                worldCalendar
               )
               return ticks.map(({ x, label }, i) => (
                 <g key={i} transform={`translate(${x},0)`}>

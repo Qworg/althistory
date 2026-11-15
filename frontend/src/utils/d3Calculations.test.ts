@@ -19,6 +19,7 @@ import {
 } from './d3Calculations'
 import { Event, Arc } from '@/types'
 import { historicalYear } from '@/utils/historicalTime'
+import { VAEL } from '@/test/fixtures/worldCalendars'
 import { readDateBound, readHistoricalText, toAxisTime, toInstant } from '@althistory/calendar'
 
 /**
@@ -683,11 +684,18 @@ describe('axisTicks near a Date\'s lower bound', () => {
       ['-009000-01-01T00:00:00Z', '-008990-01-01T00:00:00Z'],
       ['-000005-01-01T00:00:00Z', '0015-01-01T00:00:00Z'],
       ['-000500-01-01T00:00:00Z', '0500-01-01T00:00:00Z'],
+      // A single event's default view: ten seconds either side of it.
+      ['-000043-03-15T11:59:50Z', '-000043-03-15T12:00:10Z'],
+      ['-000043-03-14T23:59:50Z', '-000043-03-15T00:00:10Z'],
+      ['-000043-03-15T11:58:30Z', '-000043-03-15T12:01:30Z'],
+      ['-000043-03-15T11:57:30Z', '-000043-03-15T12:02:30Z'],
+      // Zoomed in twenty times on that view: one second.
+      ['-000043-03-15T11:59:59.500Z', '-000043-03-15T12:00:00.500Z'],
     ]
     /** A label that names a date reads back as its tick; a bare time of day names none. */
     const readsBack = (label: string, date: Date) => {
-      if (/^\d{2}:\d{2}$/.test(label)) return
-      const read = / \d{2}:\d{2}$/.test(label) ? readHistoricalText(label, 'start') : readDateBound(label, 'start', null)
+      if (/^\d{2}:\d{2}(:\d{2}(\.\d{3})?)?$/.test(label)) return
+      const read = / \d{2}:\d{2}(:\d{2}(\.\d{3})?)?$/.test(label) ? readHistoricalText(label, 'start') : readDateBound(label, 'start', null)
       expect(read.ok && read.time, label).toBe(toAxisTime(date))
     }
 
@@ -711,6 +719,16 @@ describe('axisTicks near a Date\'s lower bound', () => {
         expect(new Set(labels).size, `${a}..${b} ${JSON.stringify(labels)}`).toBe(labels.length)
         dates.forEach((date, index) => readsBack(labels[index]!, date))
       }
+    })
+
+    it('writes seconds, or milliseconds, when a tick has them, and names a day only at its first millisecond', () => {
+      const seconds = d3.utcSecond.every(5)!.range(new Date('-000043-03-14T23:59:50Z'), new Date('-000043-03-15T00:00:10.001Z'))
+      expect(formatTimeAxisTicks(seconds, 20_000, true)).toEqual(['23:59:50', '23:59:55', '44-03-15 BCE', '00:00:05', '00:00:10'])
+      const tenths = d3.utcMillisecond.every(250)!.range(new Date('-000043-03-15T11:59:59.500Z'), new Date('-000043-03-15T12:00:00.501Z'))
+      // No tick at a day's start: the first names the day too, so the axis says which.
+      expect(formatTimeAxisTicks(tenths, 1000, true)).toEqual(['44-03-15 BCE 11:59:59.500', '11:59:59.750', '12:00:00.000', '12:00:00.250', '12:00:00.500'])
+      // 00:00:05 is not a day's first moment.
+      expect(formatTimeAxisTicks([new Date('-000043-03-15T00:00:05Z'), new Date('-000043-03-15T00:00:10Z')], 5000, true)).toEqual(['44-03-15 BCE 00:00:05', '00:00:10'])
     })
 
     it('names the day of a midnight tick at hour precision, and the time of the rest', () => {
@@ -749,11 +767,25 @@ describe('axisTicks near a Date\'s lower bound', () => {
         for (const start of ['-000043-03-01T00:00:00Z', '-008999-03-01T00:00:00Z']) {
           const from = new Date(start)
           const placed = place([from, new Date(+from + 13.5 * 86_400_000)], width)
-          const kept = fitAxisLabels(placed, CHAR_PX)
+          const kept = fitAxisLabels(placed, null, CHAR_PX)
           expect(kept.length).toBeGreaterThan(1)
           expect(overlaps(kept), `${width} ${start} ${JSON.stringify(kept.map((t) => t.label))}`).toBe(false)
         }
       }
+    })
+
+    it('keeps the first and the last tick of a BCE axis it thins', () => {
+      const from = new Date('-008999-03-01T00:00:00Z')
+      const placed = place([from, new Date(+from + 13.5 * 86_400_000)], 1000)
+      const kept = fitAxisLabels(placed, null, CHAR_PX)
+      expect(kept.length).toBeLessThan(placed.length)
+      expect(kept[0]).toBe(placed[0])
+      expect(kept[kept.length - 1]).toBe(placed[placed.length - 1])
+    })
+
+    it('leaves a world calendar\'s ticks alone, whatever Gregorian year they fall in', () => {
+      const ticks = [0, 50, 100].map((x, i) => ({ date: new Date(`-000043-03-0${i + 1}T00:00:00Z`), x, label: 'Greywater 4, 312 AR' }))
+      expect(fitAxisLabels(ticks, VAEL, CHAR_PX)).toEqual(ticks)
     })
 
     it('never drops a tick from an axis after 1 CE', () => {
@@ -764,7 +796,7 @@ describe('axisTicks near a Date\'s lower bound', () => {
           for (const span of spans) {
             const from = new Date(start)
             const placed = place([from, new Date(+from + span)], width)
-            expect(fitAxisLabels(placed, CHAR_PX), `${width} ${start} ${span}`).toEqual(placed)
+            expect(fitAxisLabels(placed, null, CHAR_PX), `${width} ${start} ${span}`).toEqual(placed)
           }
         }
       }
