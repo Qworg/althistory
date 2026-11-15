@@ -46,7 +46,7 @@ import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
 import { formatTypedDate } from '@/utils/historicalDate';
-import { addInstantMs, calendarSetInstructions, compareInstants, type WorldCalendarSet, toInstant, dateCalendarOf, datePrecisionMetadata, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
+import { addInstantMs, calendarIn, calendarSetInstructions, compareInstants, type WorldCalendarSet, toInstant, dateCalendarOf, datePrecisionMetadata, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
 import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
 import type { IGraph } from '@/models/Graph';
@@ -669,12 +669,13 @@ export class DirectEngine implements IEngine {
     const events = extracted.events.filter((e) => e.confidence >= minConf);
     let arcs = [...extracted.arcs];
     const relationships = [...extracted.relationships];
+    // A world's days are its own length: the arcs below are padded, and the links' windows counted, in them.
+    const calendar = await this.calendarOf(targetGraphId);
+    const dayMs = calendar ? calendarIn(calendar).dayMs : 24 * 60 * 60 * 1000;
 
     // Group into arcs if requested and not already present
     if (options.groupArcs && arcs.length === 0 && events.length > 0) {
-      arcs = clusterEventsIntoArcs(events, events[0].source, {
-        calendar: await this.calendarOf(targetGraphId),
-      });
+      arcs = clusterEventsIntoArcs(events, events[0].source, { calendar });
     }
 
     // Infer causes if requested and not already present
@@ -689,7 +690,7 @@ export class DirectEngine implements IEngine {
             target: e.target || 'None',
           })
       );
-      const suggestions = container.inferenceService.suggestCausalLinks(tempEvents);
+      const suggestions = container.inferenceService.suggestCausalLinks(tempEvents, calendar);
       for (const s of suggestions) {
         relationships.push({
           tempId: `rel-${s.cause_event_id}-${s.effect_event_id}`,
@@ -800,7 +801,7 @@ export class DirectEngine implements IEngine {
       const startTime = toInstant(a.start_time);
       let endTime = toInstant(a.end_time);
       if (compareInstants(startTime, endTime) >= 0) {
-        endTime = addInstantMs(startTime, 24 * 60 * 60 * 1000);
+        endTime = addInstantMs(startTime, dayMs);
       }
       const created = await scoped.arcRepository.create({
         name: a.name,

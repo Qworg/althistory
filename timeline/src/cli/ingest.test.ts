@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DirectEngine } from './engine/DirectEngine';
+import type { WorldCalendarSet } from '@althistory/calendar';
 import { clusterEventsIntoArcs } from './generator/arcClustering';
 import { ExtractedEvent } from '../services/ingestion/types';
 import { HttpClient, HttpRequest, HttpResponse } from '../services/ingestion/http';
@@ -168,6 +169,49 @@ describe('CLI Arc Clustering (clusterEventsIntoArcs)', () => {
     expect(arcs).toHaveLength(2);
     expect(arcs[0].start_time).toBe('1066-10-14T00:00:00Z');
     expect(arcs[1].start_time).toBe('1969-07-20T00:00:00Z');
+  });
+
+  describe("in a world whose day is 30 hours and whose year is 120 of them", () => {
+    const HOUR = 3600 * 1000;
+    const VAEL: WorldCalendarSet = {
+      version: 2,
+      dayLength: 30 * 3600,
+      primary: 'reckoning',
+      calendars: [
+        { id: 'reckoning', name: 'the Reckoning', parts: ['Lowtide', 'Greywater', 'Thaw', 'Seedtide'].map((name) => ({ name, days: 30 })), epoch: 0, eras: [{ label: 'AR', from: 1 }] },
+      ],
+    };
+    const event = (tempId: string, ms: number): ExtractedEvent => ({
+      tempId,
+      description: tempId,
+      actor: 'Council',
+      target: 'Realm',
+      timestamp: new Date(ms).toISOString(),
+      confidence: 0.9,
+      source: mockSource,
+      selected: true,
+      edited: false,
+    });
+
+    it("pads an arc around one moment by the world's day, not 24 hours", () => {
+      const at = 100 * 30 * HOUR;
+      const [single] = clusterEventsIntoArcs([event('e-1', at)], mockSource, { calendar: VAEL });
+      expect(Date.parse(single!.end_time) - Date.parse(single!.start_time)).toBe(30 * HOUR);
+      const [same] = clusterEventsIntoArcs([event('e-1', at), event('e-2', at)], mockSource, { calendar: VAEL });
+      expect(Date.parse(same!.end_time) - Date.parse(same!.start_time)).toBe(30 * HOUR);
+      // Without a world, a day is 24 hours.
+      const [plain] = clusterEventsIntoArcs([event('e-1', at)], mockSource);
+      expect(Date.parse(plain!.end_time) - Date.parse(plain!.start_time)).toBe(24 * HOUR);
+    });
+
+    it("splits a few events five of the world's years apart, not five Gregorian years", () => {
+      const year = 120 * 30 * HOUR;
+      // 5.5 world years is about 2.3 Gregorian years: apart in the world, together on Earth.
+      const events = [event('e-1', 0), event('e-2', 5.5 * year)];
+      expect(clusterEventsIntoArcs(events, mockSource, { calendar: VAEL })).toHaveLength(2);
+      expect(clusterEventsIntoArcs(events, mockSource)).toHaveLength(1);
+      expect(clusterEventsIntoArcs([event('e-1', 0), event('e-2', 4.5 * year)], mockSource, { calendar: VAEL })).toHaveLength(1);
+    });
   });
 });
 
