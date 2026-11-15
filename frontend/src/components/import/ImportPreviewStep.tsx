@@ -4,7 +4,7 @@
  * Shows what changes will be made by the import.
  */
 
-// React import not needed with new JSX transform
+import { useId } from 'react'
 import { ImportPreview, ImportMode, EntityCounts } from '@/types'
 
 export interface ImportPreviewStepProps {
@@ -77,6 +77,7 @@ export function ImportPreviewStep({
   isLoading = false,
 }: ImportPreviewStepProps) {
   const { toCreate, toUpdate, toDelete, warnings } = preview
+  const modeHeadingId = useId()
 
   return (
     <div className="space-y-6">
@@ -92,11 +93,11 @@ export function ImportPreviewStep({
           keyboard focus it holds to the page. A change made meanwhile is
           refused here instead. */}
       <div className="bg-subtle rounded-lg p-4">
-        <h4 id="import-mode-heading" className="text-sm font-medium text-ink mb-3">Import Mode</h4>
+        <h4 id={modeHeadingId} className="text-sm font-medium text-ink mb-3">Import Mode</h4>
         <div
           className="space-y-3"
           role="radiogroup"
-          aria-labelledby="import-mode-heading"
+          aria-labelledby={modeHeadingId}
           aria-busy={isLoading || undefined}
           onKeyDown={(event) => {
             if (isLoading && ARROW_KEYS.has(event.key)) event.preventDefault()

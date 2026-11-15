@@ -228,6 +228,22 @@ describe('ImportPreviewStep', () => {
     })
   })
 
+  describe('Mode group', () => {
+    it('gives each step its own heading id, so two on a page do not share one', () => {
+      render(
+        <>
+          <ImportPreviewStep preview={createPreviewMock()} mode="merge" onModeChange={vi.fn()} onContinue={vi.fn()} onBack={vi.fn()} hasConflicts={false} />
+          <ImportPreviewStep preview={createPreviewMock()} mode="merge" onModeChange={vi.fn()} onContinue={vi.fn()} onBack={vi.fn()} hasConflicts={false} />
+        </>
+      )
+      const groups = screen.getAllByRole('radiogroup', { name: 'Import Mode' })
+      expect(groups).toHaveLength(2)
+      const ids = groups.map((group) => group.getAttribute('aria-labelledby'))
+      expect(new Set(ids).size).toBe(2)
+      for (const id of ids) expect(document.querySelectorAll(`[id="${id}"]`)).toHaveLength(1)
+    })
+  })
+
   describe('Loading State', () => {
     it('holds the mode while a check runs, and keeps keyboard focus on the radio it was on', async () => {
       const { rerender } = renderComponent(createPreviewMock(), 'create-new')
