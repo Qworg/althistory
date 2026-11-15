@@ -384,7 +384,7 @@ describe('the live change feed over the WebSocket', () => {
       expect(announced.every((entity) => entity.type === 'event')).toBe(true);
     });
 
-    it('delivers a batch, which writes without a version', async () => {
+    it('delivers a batch once, though it is now versioned too', async () => {
       const client = await watcher(readerKey, graphA);
       await request(app)
         .post('/api/batch/events')
