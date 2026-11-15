@@ -50,6 +50,7 @@ import {
   addInstantMs,
   type AxisTime,
   MAX_AXIS_MS,
+  MIN_AXIS_MS,
   instantOfAxisTime,
   isoOfAxisTime,
 } from '@althistory/calendar';
@@ -149,6 +150,21 @@ function widenedEndAxis(start: AxisTime, end: AxisTime): AxisTime {
   if (start < end) return end;
   const widened = start + BigInt(MS_PER_DAY);
   return widened > MAX_AXIS_MS ? MAX_AXIS_MS : widened;
+}
+
+/** A year of the plan's timeline in milliseconds: the world's average year, or a Gregorian one. */
+function yearMsOf(calendar: WorldCalendarSet | undefined): number {
+  if (!calendar) return MS_PER_YEAR;
+  const compiled = calendarIn(calendar);
+  return (compiled.cycleDays / compiled.cycleYears) * compiled.dayMs;
+}
+
+/** A year either side of a moment, exactly, and never past the axis's bound. */
+function spanAround(at: AxisTime, calendar: WorldCalendarSet | undefined): { start: AxisTime; end: AxisTime } {
+  const year = BigInt(Math.round(yearMsOf(calendar)));
+  const start = at - year;
+  const end = at + year;
+  return { start: start < MIN_AXIS_MS ? MIN_AXIS_MS : start, end: end > MAX_AXIS_MS ? MAX_AXIS_MS : end };
 }
 
 /**
@@ -1081,17 +1097,15 @@ export class TimelineGenerator {
     run.report('planning', 'Reading the graph');
     const scoped = await container.graphScopedRepositories(options.graphId);
     const existingEvents = await scoped.eventRepository.findAll();
-    if (existingEvents.length === 0) {
-      throw new Error(`Cannot expand empty graph: ${options.graphId}`);
-    }
 
     const count = Math.max(2, Math.min(options.eventCount || 3, 10));
     const sorted = [...existingEvents].sort((a, b) => compareInstants(a.timestamp, b.timestamp));
 
     // Exact axis times: past about 287,000 CE a double has no whole milliseconds, and an
     // arc that ends on a year's last millisecond would round up out of its parent.
-    let windowStart: AxisTime = toAxisTime(sorted[0].timestamp) ?? 0n;
-    let windowEnd: AxisTime = toAxisTime(sorted[sorted.length - 1].timestamp) ?? 0n;
+    // Null until something gives the window: the graph's events, an arc or a time window.
+    let windowStart: AxisTime | null = sorted.length > 0 ? toAxisTime(sorted[0].timestamp) : null;
+    let windowEnd: AxisTime | null = sorted.length > 0 ? toAxisTime(sorted[sorted.length - 1].timestamp) : null;
     let parentArc: Arc | null = null;
 
     if (options.arcId) {
@@ -1111,8 +1125,8 @@ export class TimelineGenerator {
       if (parentArc) {
         // The expansion has to stay inside the arc it expands, or the graph
         // would hold an arc that is not contained by its parent.
-        const start = parsed.start > windowStart ? parsed.start : windowStart;
-        const end = parsed.end < windowEnd ? parsed.end : windowEnd;
+        const start = windowStart !== null && windowStart > parsed.start ? windowStart : parsed.start;
+        const end = windowEnd !== null && windowEnd < parsed.end ? windowEnd : parsed.end;
         if (start >= end) {
           throw new Error(
             `The time window ${options.timeWindow} does not overlap the arc ${parentArc.id} ` +
@@ -1125,6 +1139,20 @@ export class TimelineGenerator {
         windowStart = parsed.start;
         windowEnd = parsed.end;
       }
+    }
+
+    if (windowStart === null || windowEnd === null) {
+      throw new Error(
+        `Cannot expand graph ${options.graphId}: it has no events to expand between; ` +
+          'give a time window (start/end) or an arc to expand'
+      );
+    }
+    // The graph's events alone give no span when there is one of them, or all
+    // are at one moment: the expansion then runs a year either side of it.
+    if (windowStart >= windowEnd) {
+      const around = spanAround(windowStart, calendar);
+      windowStart = around.start;
+      windowEnd = around.end;
     }
 
     // Whole milliseconds, exactly, so that no event is placed outside the window.
@@ -1291,6 +1319,7 @@ export class TimelineGenerator {
     index: number,
     count: number
   ): string {
+    if (before && before === after) return `Local development ${index} of ${count} alongside "${before.description}"`;
     const from = before ? `"${before.description}"` : 'the start of the window';
     const to = after ? `"${after.description}"` : 'the end of the window';
     return `Local development ${index} of ${count} between ${from} and ${to}`;
