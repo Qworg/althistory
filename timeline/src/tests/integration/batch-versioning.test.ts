@@ -219,6 +219,26 @@ describe('Batch writes are recorded as versions', () => {
     expect(head.events[existing]).toMatchObject({ description: 'Changed, and not undone' });
   });
 
+  it('versions every step that landed in a transaction that is not atomic', async () => {
+    const graphId = await newGraph('Non-atomic transaction');
+    const existing = await addEvent(graphId, 'Existing', '1650-01-01T00:00:00.000Z');
+
+    const res = await batch(graphId, 'transaction', {
+      atomic: false,
+      operations: [
+        { type: 'create_event', data: { description: 'Lands', actor: 'A', target: 'B', timestamp: '1651-01-01T00:00:00.000Z' } },
+        { type: 'create_relationship', data: { cause_event_id: existing, effect_event_id: 'no-such-event', evidence: 'Seen' } },
+        { type: 'create_arc', data: { name: 'Lands too', description: 'An arc', start_time: '1650-01-01T00:00:00.000Z', end_time: '1660-01-01T00:00:00.000Z', level: 0 } },
+      ],
+    }).expect(207);
+    expect(res.body.results.map((step: { success: boolean }) => step.success)).toEqual([true, false, true]);
+
+    const stores = await bothStores(graphId);
+    expect(stores.live.events).toHaveLength(2);
+    expect(stores.live.arcs).toHaveLength(1);
+    expect(stores.head).toEqual(stores.live);
+  });
+
   it('undoes the links an aborted batch made, although event ids contain underscores', async () => {
     const graphId = await newGraph('Aborted links');
     const a = await addEvent(graphId, 'A', '1500-01-01T00:00:00.000Z');
