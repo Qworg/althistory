@@ -15,7 +15,7 @@
  * `vitest.cloud.config.ts` (`npm run test:cloud`); the default run excludes it.
  */
 
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import * as fs from 'fs/promises';
 import * as net from 'net';
 import * as os from 'os';
@@ -397,6 +397,45 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
       const head = await container.graphRepository.checkout(graphA);
       const between = Object.values(head.relationships).filter((link) => link.cause_event_id === a && link.effect_event_id === b);
       expect(between.map((link) => link.evidence)).toEqual(['ORIGINAL']);
+    });
+
+    // Second review: both links of a pair are named "cause->effect" in Neo4j,
+    // and the undo of an unversioned batch looked them up in a map by that id,
+    // so it deleted the second link twice and left the first behind.
+    it('undoes both links of one pair when a link batch cannot be versioned', async () => {
+      const add = async (description: string, timestamp: string): Promise<string> => {
+        const res = await http('POST', '/api/events', agentKey, graphA, { description, actor: 'A', target: 'B', timestamp });
+        expect(res.status).toBe(201);
+        return (res.body.data as { id: string }).id;
+      };
+      const a = await add('Dup A', '1270-01-01T00:00:00.000Z');
+      const b = await add('Dup B', '1271-01-01T00:00:00.000Z');
+      const commit = vi.spyOn(container.graphRepository, 'commitChanges').mockRejectedValueOnce(new Error('version store is down'));
+      let status: number;
+      try {
+        status = (
+          await http('POST', '/api/batch/relationships', agentKey, graphA, {
+            graphId: graphA,
+            relationships: [
+              { cause_event_id: a, effect_event_id: b, evidence: 'ONE' },
+              { cause_event_id: a, effect_event_id: b, evidence: 'TWO' },
+            ],
+          })
+        ).status;
+      } finally {
+        commit.mockRestore();
+      }
+      expect(status).toBe(500);
+
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        const edges = await session.run('MATCH (:Event {id: $a})-[r:CAUSES]->(:Event {id: $b}) RETURN r.evidence AS evidence', { a, b });
+        expect(edges.records.map((record) => record.get('evidence'))).toEqual([]);
+      } finally {
+        await session.close();
+      }
+      const head = await container.graphRepository.checkout(graphA);
+      expect(Object.values(head.relationships).filter((link) => link.cause_event_id === a)).toEqual([]);
     });
 
     it('does not deliver another graph\'s writes', async () => {

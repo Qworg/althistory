@@ -130,17 +130,19 @@ async function versionAfterFailure(req: Request, live: LiveReaders, touched: Tou
  * announced for what the undo removed; what it could not remove stays in the
  * store, unversioned, and is announced as such.
  */
-async function undoUnversioned(
+async function undoUnversioned<T>(
   req: Request,
   type: BatchStep['type'],
-  ids: string[],
-  remove: (id: string) => Promise<unknown>
+  written: T[],
+  remove: (entity: T) => Promise<unknown>,
+  idOf: (entity: T) => string
 ): Promise<void> {
   const left: BatchStep[] = [];
-  for (const id of [...ids].reverse()) {
+  for (const entity of [...written].reverse()) {
     try {
-      await remove(id);
+      await remove(entity);
     } catch (rollbackError) {
+      const id = idOf(entity);
       logger.error(`Compensating rollback failed for a batch ${type}`, rollbackError, { id });
       left.push({ operation: 'create', type, id });
     }
@@ -182,7 +184,7 @@ async function versionCreated(
   try {
     await versionBatch(req, live, touchedOf(kind, created), created.map((id) => ({ operation: 'create', type, id })), { undoOnFailure: true });
   } catch (versionError) {
-    await undoUnversioned(req, type, created, (id) => repository.delete(id));
+    await undoUnversioned(req, type, created, (id) => repository.delete(id), (id) => id);
     throw versionError;
   }
 }
@@ -652,9 +654,11 @@ batchRoutes.post(
     try {
       await versionBatch(req, { causalService }, touched, made.map((link) => ({ operation: 'create', type: 'relationship', id: link.id })), { undoOnFailure: true });
     } catch (versionError) {
-      // As a single write does: a batch that cannot be versioned is undone.
-      const byId = new Map(made.map((link) => [link.id, link]));
-      await undoUnversioned(req, 'relationship', made.map((link) => link.id), (id) => causalService.deleteCausalLinkById(byId.get(id)!));
+      // As a single write does: a batch that cannot be versioned is undone,
+      // link by link. Not through a map keyed by id: in Neo4j two links
+      // between the same events share the id "cause->effect", and a map kept
+      // only the second, so the undo deleted it twice and left the first.
+      await undoUnversioned(req, 'relationship', made, (link) => causalService.deleteCausalLinkById(link), (link) => link.id);
       throw versionError;
     }
     res.status(result.success ? 201 : 207).json(result);
