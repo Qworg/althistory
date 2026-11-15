@@ -1,0 +1,65 @@
+{
+  "head": {
+    "vars": [
+      "person",
+      "personLabel",
+      "date",
+      "precision",
+      "eventLabel"
+    ]
+  },
+  "results": {
+    "bindings": [
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q1048"
+        },
+        "personLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Julius Caesar"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0043-03-13T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
+        },
+        "eventLabel": {
+          "type": "literal",
+          "value": "death"
+        }
+      },
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q1048"
+        },
+        "personLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Julius Caesar"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0099-07-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "10"
+        },
+        "eventLabel": {
+          "type": "literal",
+          "value": "birth"
+        }
+      }
+    ]
+  }
+}

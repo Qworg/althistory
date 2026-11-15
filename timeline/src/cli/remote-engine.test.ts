@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express, { Express, Request, Response } from 'express';
 import { AddressInfo } from 'net';
+import { type WorldCalendarSet, legacyCalendarSet } from '@althistory/calendar';
 import { RemoteEngine } from './engine/RemoteEngine';
 
 interface RecordedRequest {
@@ -323,7 +324,7 @@ function createDaemon(): { app: Express; requests: RecordedRequest[]; state: Dae
 
   const exportDocument = (): Record<string, unknown> => ({
     version: '1.0',
-    metadata: { graphId: 'g1', graphName: 'First', description: '', graphVersion: 1 },
+    metadata: { graphId: 'g1', graphName: 'First', description: '', graphVersion: 1, ...(state.calendar ? { calendar: state.calendar } : {}) },
     data: {
       events: state.events,
       arcs: state.arcs,
@@ -380,6 +381,8 @@ interface DaemonState {
   ingestDate?: { timestamp: string; datePrecision?: string; dateCalendar?: string };
   /** Whether `GET /api/graphs/:id` refuses the key (403), as a key allowed events but not graphs. */
   refuseGraph?: boolean;
+  /** The world calendars the export document carries in its metadata. */
+  calendar?: WorldCalendarSet;
   /** Whether `GET /export` answers 202 with a job instead of the document. */
   asyncExport?: boolean;
   /** The status the export job reports while it is being polled. */
@@ -817,6 +820,37 @@ describe('RemoteEngine against a stand-in daemon', () => {
     const graphml = await engine.exportGraph('g1', 'graphml');
     expect(graphml.content).toContain('<graphml');
     expect(graphml.content).toContain('event-1');
+  });
+
+  it("dates a world's events in its calendar, at their precision, in every format it renders", async () => {
+    daemon.state.calendar = legacyCalendarSet({ epochYear: 1000, eraLabel: 'AR', name: 'Reckoning' });
+    daemon.state.events.push(
+      {
+        id: 'event-1',
+        description: 'The tide turns',
+        actor: 'A',
+        target: 'B',
+        timestamp: '1311-03-04T00:00:00.000Z',
+        metadata: { graphId: 'g1' },
+      },
+      {
+        id: 'event-2',
+        description: 'A year of storms',
+        actor: 'A',
+        target: 'B',
+        timestamp: '1312-01-01T00:00:00.000Z',
+        metadata: { graphId: 'g1', datePrecision: 'year' },
+      }
+    );
+
+    const dot = (await engine.exportGraph('g1', 'dot')).content!;
+    expect(dot).toContain('"event-1" [label="Mar 4, 312 AR\\nThe tide turns');
+    expect(dot).toContain('"event-2" [label="313 AR\\nA year of storms');
+    expect(dot).not.toContain('1311-03-04');
+
+    const graphml = (await engine.exportGraph('g1', 'graphml')).content!;
+    expect(graphml).toContain('<data key="d_world_date">Mar 4, 312 AR</data>');
+    expect(graphml).toContain('<data key="d_world_date">313 AR</data>');
   });
 
   it('follows the export job the daemon starts for a large graph', async () => {

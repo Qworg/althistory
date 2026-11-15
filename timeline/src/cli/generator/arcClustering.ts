@@ -53,8 +53,10 @@ export function clusterEventsIntoArcs(
   const { calendar } = naming;
   // The UTC year without a calendar; in a world, the year its primary calendar names.
   const primary = calendar ? calendarIn(calendar) : null;
-  // A world's day is its own length, and an arc it pads, and a gap it measures, count in it.
-  const dayMs = calendar ? calendar.dayLength * 1000 : 24 * 60 * 60 * 1000;
+  // A world's day is its own length (a 30-hour day pads an arc by 30 hours),
+  // and so is its year: the gaps measured below count in them.
+  const dayMs = primary ? primary.dayMs : 24 * 60 * 60 * 1000;
+  const yearMs = primary ? (primary.cycleDays / primary.cycleYears) * primary.dayMs : 365.25 * 24 * 60 * 60 * 1000;
   const yearOf = (timestamp: string): string => {
     const instant = toInstant(timestamp);
     const position = toAxisTime(instant);
@@ -96,7 +98,7 @@ export function clusterEventsIntoArcs(
 
   // Median gap when sufficient sample size exists; otherwise 5-year default
   const sortedGaps = [...gaps].sort((a, b) => a - b);
-  const fiveYearsMs = 5 * 365.25 * 24 * 60 * 60 * 1000;
+  const fiveYearsMs = 5 * yearMs;
   const thirtyDaysMs = 30 * dayMs;
 
   const medianGap = sortedGaps[Math.floor(sortedGaps.length / 2)] || thirtyDaysMs;

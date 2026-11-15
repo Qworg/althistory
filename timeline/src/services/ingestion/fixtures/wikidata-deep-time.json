@@ -1,0 +1,224 @@
+{
+  "head": {
+    "vars": [
+      "event",
+      "eventLabel",
+      "date",
+      "precision"
+    ]
+  },
+  "results": {
+    "bindings": [
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q55811"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-66000000-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "3"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Cretaceous-Paleogene mass extinction"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q141118"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-251900000-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "4"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Permian-Triassic mass extinction"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q378170"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-182700000-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "4"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Toarcian turnover"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q678023"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-372200000-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "4"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Late Devonian extinction"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q774248"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-116000000-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "3"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Aptian extinction"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q835034"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-201300000-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "4"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Triassic-Jurassic mass extinction"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q1050953"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-485400000-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "4"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Cambrian–Ordovician extinction event"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q1065985"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-443800000-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "4"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Ordovician–Silurian extinction event"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q1542955"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-33900000-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "4"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Eocene–Oligocene extinction event"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q1759232"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-9750-01-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "8"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Quaternary extinction event"
+        }
+      }
+    ]
+  }
+}

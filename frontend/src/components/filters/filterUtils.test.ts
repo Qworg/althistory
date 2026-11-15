@@ -232,7 +232,7 @@ describe('historical date bounds', () => {
   it('reads BCE years with no year 0 (1 BCE is astronomical year 0)', () => {
     expect(iso('1 BCE', 'start')).toBe('0000-01-01T00:00:00.000Z')
     expect(iso('44 BCE', 'start')).toBe('-000043-01-01T00:00:00.000Z')
-    expect(iso('-44', 'start')).toBe('-000043-01-01T00:00:00.000Z')
+    expect(iso('-000043', 'start')).toBe('-000043-01-01T00:00:00.000Z')
     expect(iso('44-03-15 BC', 'start')).toBe('-000043-03-15T00:00:00.000Z')
     expect(parseHistoricalDate('0', 'start').ok).toBe(false)
   })
@@ -243,7 +243,7 @@ describe('historical date bounds', () => {
   })
 
   it('refuses ambiguous or impossible input with a reason', () => {
-    for (const text of ['11/20/1843', '20.11.1843', 'Nov 1843', '1843-13', '1843-02-30', '-44 BCE', '']) {
+    for (const text of ['11/20/1843', '20.11.1843', 'Nov 1843', '1843-13', '1843-02-30', '-44 BCE', '-44', '-0043-03-15', '']) {
       const parsed = parseHistoricalDate(text, 'start')
       expect(parsed.ok, text).toBe(false)
       if (!parsed.ok) expect(parsed.error.length).toBeGreaterThan(0)
@@ -255,7 +255,7 @@ describe('historical date bounds', () => {
       ['1843', 'start', '1843'],
       ['1843-1', 'start', '1843-01'],
       ['1843-11-20', 'end', '1843-11-20'],
-      ['-44', 'start', '44 BCE'],
+      ['-000043', 'start', '44 BCE'],
       ['44-3-15 bce', 'end', '44-03-15 BCE'],
       ['1870-12', 'end', '1870-12'],
     ] as const) {
@@ -300,6 +300,12 @@ describe('a date bound from a link that is not a typed bound', () => {
   it('reads a full timestamp as UTC, and a day that does not exist as an open bound, not the day V8 rolls it into', () => {
     const store = fromPanelFilters(panel('1870-02-14T09:30', '1870-02-31T00:00'))
     expect((store.dateRange!.start as Date).toISOString()).toBe('1870-02-14T09:30:00.000Z')
+    expect(Number.isNaN((store.dateRange!.end as Date).getTime())).toBe(true)
+  })
+
+  it('reads a minus sign before a short year ("-44", which names two years) as an open bound, not as 2044', () => {
+    const store = fromPanelFilters(panel('-44', '-0043-03-15'), null)
+    expect(Number.isNaN((store.dateRange!.start as Date).getTime())).toBe(true)
     expect(Number.isNaN((store.dateRange!.end as Date).getTime())).toBe(true)
   })
 })

@@ -222,7 +222,8 @@ describe('deep time', () => {
       for (const format of ['markdown', 'dot', 'graphml'] as const) {
         const content = (await engine.exportGraph(graphId, format)).content!;
         expect(content, format).toContain('300000');
-        expect(content, format).toContain('499999');
+        // GraphML keeps the instant (ISO's astronomical year); Markdown and DOT write the date as it is typed.
+        expect(content, format).toContain(format === 'graphml' ? '-499999-06-15' : '500000-06-15 BCE');
         expect(content, format).not.toContain('Invalid');
       }
     });

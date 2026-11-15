@@ -29,7 +29,7 @@ interface HistoricalDateInputProps {
  * `Thaw 312 AR`, `Thaw 4, 312 AR`). The text is a draft until it reads as a date; only then (or when
  * it is cleared) does it reach the filters, so a half-typed year never empties
  * the field or filters on nonsense. Leaving the field rewrites a valid entry
- * in its canonical form (`-44` -> `44 BCE`), so what it was read as is shown.
+ * in its canonical form (`44 bc` -> `44 BCE`), so what it was read as is shown.
  */
 export function HistoricalDateInput({
   id,

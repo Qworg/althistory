@@ -36,12 +36,16 @@
  *     chronology and not a claim to cover every kind of historical event:
  *     treaties, elections and natural disasters are outside both anchors (use
  *     `custom` for those), results are whatever matches first up to `limit`,
- *     end times (P582) are not read, BCE rows are dropped, and an item with
+ *     end times (P582) are not read, and an item with
  *     several `location` (P276) values appears once per place (the recorded
- *     fixture shows the Second Punic War six times). The anchor set is also
+ *     fixture shows the Ottoman Civil War of 1509-13 twice). The anchor set is also
  *     bounded by what the query service can answer: `occurrence` (Q1190554),
  *     the common ancestor of both anchors, makes the broad query fail with
- *     HTTP 504, so it is not used.
+ *     HTTP 504, so it is not used. Each date keeps the precision Wikidata
+ *     gives it (a month; a year; a decade to a billion years as a year), and
+ *     a year before 1 CE is read as the query service numbers it at that
+ *     precision, measured against live data (`readWikidataTime`). A date
+ *     beyond the timeline's ±285 million years (the Big Bang) is dropped.
  *   - `wikipedia` link following: the namespace cannot be filtered server-side
  *     (`action=parse&prop=links` rejects `plnamespace` as unrecognized --
  *     MediaWiki answers "Unrecognized parameter: plnamespace"), so the

@@ -49,4 +49,10 @@ describe('a date an agent gives', () => {
     expect(() => readAgentTimestamp('Thaw 31, 312 AR', VAEL)).toThrow(/Thaw has 30 days.*reads like "Lowtide 1, 1 AR"/);
     expect(() => readAgentTimestamp('soon', undefined)).toThrow(/an ISO 8601 date/);
   });
+
+  it('refuses a minus sign before a short year, which names either of two years, and offers both', () => {
+    expect(() => readAgentTimestamp('-0043', undefined)).toThrow(/43 BCE, or 44 BCE.*"-000043"/);
+    expect(readAgentTimestamp('-000043', undefined)).toEqual({ iso: '-000043-01-01T00:00:00.000Z', precision: 'year' });
+    expect(readAgentTimestamp('44 BCE', undefined)).toEqual({ iso: '-000043-01-01T00:00:00.000Z', precision: 'year' });
+  });
 });

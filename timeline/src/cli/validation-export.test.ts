@@ -438,6 +438,43 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
     });
   });
 
+  describe('dates in a graph without a world', () => {
+    async function antiquity(): Promise<{ caesar: string; gaul: string; march: string; arc: string }> {
+      const arc = await engine.createArc(testGraphId, { name: 'The Late Republic', startTime: '100 BCE', endTime: '50 BCE' });
+      const caesar = await engine.createEvent(testGraphId, { description: 'Caesar is killed', timestamp: '44-03-15 BCE', actor: 'Senate', target: 'Caesar' });
+      const gaul = await engine.createEvent(testGraphId, { description: 'Gaul is conquered', timestamp: '50 BCE', actor: 'Caesar', target: 'Gaul' });
+      const march = await engine.createEvent(testGraphId, { description: 'The Commune rises', timestamp: '1871-03', actor: 'Paris', target: 'Versailles' });
+      await engine.assignEventToArc(testGraphId, caesar.id, arc.id).catch(() => undefined);
+      return { caesar: caesar.id, gaul: gaul.id, march: march.id, arc: arc.id };
+    }
+
+    it('are exported to Markdown and DOT as they were typed, at their precision, not as ISO instants', async () => {
+      await antiquity();
+      const markdown = (await engine.exportGraph(testGraphId, 'markdown')).content!;
+      expect(markdown).toContain('| 44-03-15 BCE |');
+      expect(markdown).toContain('| 50 BCE |');
+      expect(markdown).toContain('| 1871-03 |');
+      // An arc's end is the day it ends.
+      expect(markdown).toContain('| 100-01-01 BCE to 50-12-31 BCE |');
+      expect(markdown).not.toMatch(/-0000(43|49)|1871-03-01/);
+
+      const dot = (await engine.exportGraph(testGraphId, 'dot')).content!;
+      expect(dot).toContain('label="44-03-15 BCE\\nCaesar is killed');
+      expect(dot).toContain('label="1871-03\\nThe Commune rises');
+    });
+
+    it('are named as they were typed in what the validator reports, and when a later cause is refused', async () => {
+      const { caesar, gaul } = await antiquity();
+      const report = await engine.validateGraph(testGraphId);
+      const outside = report.issues.find((issue) => /falls outside arc/.test(issue.message));
+      expect(outside?.message).toContain('44-03-15 BCE) falls outside arc "The Late Republic" bounds (100-01-01 BCE - 50-12-31 BCE)');
+
+      await expect(engine.createCausalLink(testGraphId, { causeId: caesar, effectId: gaul })).rejects.toThrow(
+        'cause timestamp (44-03-15 BCE) must not be after effect timestamp (50 BCE)'
+      );
+    });
+  });
+
   describe('Import Subsystem', () => {
     it('imports graph from exported JSON file with strategy: skip', async () => {
       await engine.createEvent(testGraphId, {

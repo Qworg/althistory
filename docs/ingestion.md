@@ -178,7 +178,7 @@ and why (no date, no actor, below the confidence threshold).
 | --- | --- | --- |
 | `text` | A sentence stream. | Dated sentences become events. |
 | `wikipedia` | Article prose. | Link-following and depth are bounded (depth ≤ 3). |
-| `wikidata` | An item's claims. | Dates and participants come from the item. |
+| `wikidata` | An item's claims. | Dates and participants come from the item, at the precision Wikidata gives (a month, a year; a decade to a billion years as a year), BCE years included. |
 | `text` | Pasted text — or the text of a fetched page. | `ingest url` on a non-Wikipedia page reads it as a text document, so its events are `text`-sourced. |
 
 Events ingested **through the API** carry a `sourceRef` naming where they came

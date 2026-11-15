@@ -3,6 +3,7 @@ import { CausalRelationship, CausalRelationshipType } from '@/models/relationshi
 import { ValidationIssueDto, ValidationReportDto } from '../types';
 import { isTemporalInversion } from '@/utils/causalOrder';
 import { type WorldCalendarSet, compareInstants, dateCalendarOf, datePrecisionOf, formatDateEntry, formatHistoricalDateAt, formatInWorld, toAxisTime } from '@althistory/calendar';
+import { formatTypedDate } from '@/utils/historicalDate';
 
 export interface ScopedGraphServices {
   eventRepository: {
@@ -119,12 +120,13 @@ export interface ValidationOptions {
 }
 
 export class GraphValidator {
-  /** A date as a message names it (the details keep the instant alone). */
-  private when: (date: Date) => string = (date) => date.toISOString();
-  /** An event's date as a message names it: at the precision it is known to, in the calendar it was given in. */
-  private whenEvent: (event: { timestamp: Date; metadata?: Record<string, unknown> }) => string = (event) => event.timestamp.toISOString();
+  /** A date as a message names it (the details keep the instant alone): without a world, as it was typed ("1871-03-04"). */
+  private when: (date: Date) => string = (date) => formatTypedDate(date);
+  /** An event's date as a message names it: at the precision it is known to ("1871", "44 BCE"), in the calendar it was given in. */
+  private whenEvent: (event: { timestamp: Date; metadata?: Record<string, unknown> }) => string = (event) =>
+    formatTypedDate(event.timestamp, datePrecisionOf(event.metadata));
   /** An arc's end as a message names it: the day it ends, when it ends with that day. */
-  private whenEnd: (date: Date) => string = (date) => date.toISOString();
+  private whenEnd: (date: Date) => string = (date) => formatTypedDate(date, 'day', 'end');
 
   /**
    * Validates graph data and optionally performs self-healing repairs.
@@ -137,14 +139,14 @@ export class GraphValidator {
     const calendar = options?.calendar;
     this.when = calendar
       ? (date) => `${formatInWorld(calendar, toAxisTime(date) ?? 0n)}, ${date.toISOString()}`
-      : (date) => date.toISOString();
+      : (date) => formatTypedDate(date);
     this.whenEvent = calendar
       ? (event) =>
           `${formatHistoricalDateAt(event.timestamp, datePrecisionOf(event.metadata), 'en-US', calendar, dateCalendarOf(event.metadata))}, ${event.timestamp.toISOString()}`
-      : (event) => event.timestamp.toISOString();
+      : (event) => formatTypedDate(event.timestamp, datePrecisionOf(event.metadata));
     this.whenEnd = calendar
       ? (date) => `${formatDateEntry(date, 'day', calendar, 'end')}, ${date.toISOString()}`
-      : (date) => date.toISOString();
+      : (date) => formatTypedDate(date, 'day', 'end');
     const strict = options?.strict ?? false;
     const autoRepair = options?.autoRepair ?? false;
 

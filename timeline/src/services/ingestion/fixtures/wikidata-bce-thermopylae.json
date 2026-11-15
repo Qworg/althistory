@@ -1,0 +1,119 @@
+{
+  "head": {
+    "vars": [
+      "event",
+      "eventLabel",
+      "date",
+      "precision",
+      "placeLabel"
+    ]
+  },
+  "results": {
+    "bindings": [
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q131969"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0479-07-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "10"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Battle of Thermopylae"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Thermopylae"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q131969"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0479-08-06T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Battle of Thermopylae"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Thermopylae"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q131969"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0479-07-01T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "10"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Battle of Thermopylae"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Thermopylae"
+        }
+      },
+      {
+        "event": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q131969"
+        },
+        "date": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "-0479-08-06T00:00:00Z"
+        },
+        "precision": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+          "type": "literal",
+          "value": "11"
+        },
+        "eventLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Battle of Thermopylae"
+        },
+        "placeLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Thermopylae"
+        }
+      }
+    ]
+  }
+}

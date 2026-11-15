@@ -22,8 +22,14 @@ import { formatWorldFields } from './world/notation'
 // The filter's date bounds are typed, not picked: a native date input shows
 // the browser's locale order (mm/dd/yyyy in the US) and cannot reach BCE. A
 // bound is a year, a year and month, or a full date, written largest unit
-// first -- `1843`, `1843-11`, `1843-11-20` -- with `BCE` (or a minus sign) for
-// years before 1 CE. There is no year 0: 1 BCE is followed by 1 CE.
+// first -- `1843`, `1843-11`, `1843-11-20` -- with `BCE` for years before
+// 1 CE. There is no year 0: 1 BCE is followed by 1 CE.
+//
+// A minus sign is refused unless it is ISO 8601's expanded six-digit year
+// ("-000043", which counts astronomically: 44 BCE). "-0043" or "-43" could
+// be 43 BCE (counting back, as "43 BCE" does) or 44 BCE (as ISO 8601 and the
+// app's own year labels count, where 0 is 1 BCE): two dates a year apart that
+// a person cannot tell apart, so the message names both and asks for one.
 //
 // A start bound is the first moment of the period it names and an end bound
 // the last, so `1843` to `1843` is the whole year.
@@ -32,6 +38,9 @@ export type DateBoundEdge = 'start' | 'end'
 
 /** A typed bound: the instant as an axis time and as a Date (an `AxisDate` beyond a Date's range), and its canonical spelling. */
 export type HistoricalDateParse = { ok: true; date: Date; time: AxisTime; text: string } | { ok: false; error: string }
+
+/** A minus sign before a year of one to five digits: not ISO 8601's six-digit year, and so either of two years. */
+const SIGNED_SHORT_YEAR = /^-\d{1,5}(?!\d)/
 
 const HISTORICAL_DATE_PATTERN = /^(-)?(\d{1,9})(?:-(\d{1,2})(?:-(\d{1,2}))?)?(?:\s*(BCE|BC|CE|AD))?$/i
 
@@ -52,6 +61,19 @@ function formatBound(astronomicalYear: number, month?: number, day?: number): st
   if (month !== undefined) text += `-${pad2(month)}`
   if (day !== undefined) text += `-${pad2(day)}`
   return bce ? `${text} BCE` : text
+}
+
+/**
+ * Why "-43" (a minus sign before fewer than six digits) is refused, naming
+ * both dates it could be: 43 BCE counted back, or 44 BCE as ISO 8601 counts
+ * (year 0 is 1 BCE), with the spelling of each that is not ambiguous.
+ */
+function signedYearError(year: number, monthText: string | undefined, dayText: string | undefined): string {
+  const rest = `${monthText === undefined ? '' : `-${pad2(Number(monthText))}`}${dayText === undefined ? '' : `-${pad2(Number(dayText))}`}`
+  return (
+    `A minus sign there could mean ${year} BCE, or ${year + 1} BCE as ISO 8601 counts years (0 is 1 BCE). ` +
+    `Write "${year}${rest} BCE" or "${year + 1}${rest} BCE", or ISO 8601's six-digit "-${String(year).padStart(6, '0')}${rest}" (${year + 1} BCE).`
+  )
 }
 
 /**
@@ -79,14 +101,15 @@ export function parseHistoricalDate(input: string, edge: DateBoundEdge): Histori
     }
     const [, minus, yearText, monthPart, dayPart, era] = match
     const eraUpper = era?.toUpperCase()
-    const isBce = Boolean(minus) || eraUpper === 'BCE' || eraUpper === 'BC'
-    if (minus && (eraUpper === 'BCE' || eraUpper === 'BC' || eraUpper === 'CE' || eraUpper === 'AD')) {
+    const isBce = eraUpper === 'BCE' || eraUpper === 'BC'
+    if (minus && era) {
       return { ok: false, error: 'Use a minus sign or an era, not both.' }
     }
     const year = Number(yearText)
     if (year === 0) {
       return { ok: false, error: 'There is no year 0: 1 BCE is followed by 1 CE.' }
     }
+    if (minus) return { ok: false, error: signedYearError(year, monthPart, dayPart) }
     astronomicalYear = isBce ? 1 - year : year
     monthText = monthPart
     dayText = dayPart
@@ -135,6 +158,9 @@ export function formatHistoricalDateBound(value: Date | string | null | undefine
     // end is the whole year, where Date would read it as 1 January.
     const parsed = parseHistoricalDate(value, edge)
     if (parsed.ok) return parsed.text
+    // A minus sign before a short year is refused for naming two years; the
+    // lenient reader below would make a third of it ("-44" as 2044).
+    if (SIGNED_SHORT_YEAR.test(value.trim())) return ''
   }
   const date = toInstant(value)
   if (Number.isNaN(date.getTime())) return ''

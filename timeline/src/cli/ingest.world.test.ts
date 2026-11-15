@@ -77,4 +77,15 @@ describe('direct ingestion into a world graph', () => {
       .sort();
     expect(shown).toEqual(['301 AR', 'Flooding 290 TC', 'Thaw 300 AR'].sort());
   });
+
+  it("pads an arc around events at one moment by the world's day, 30 hours, not 24", async () => {
+    const graph = await engine.createGraph('Vael grouped', undefined, VAEL as never);
+    created.push(graph.id);
+    const once = vi.mocked(model.extractEvents).getMockImplementation()!;
+    vi.mocked(model.extractEvents).mockImplementationOnce(async (...args) => (await once(...args)).slice(0, 1));
+    const result = await engine.ingestText(graph.id, 'The council of Vael met.', { mode: 'llm', dryRun: false, groupArcs: true });
+    expect(result.arcsCreated).toBe(1);
+    const [arc] = await engine.listArcs(graph.id);
+    expect(Date.parse(arc!.endTime) - Date.parse(arc!.startTime)).toBe(30 * 3600 * 1000);
+  });
 });
