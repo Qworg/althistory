@@ -527,3 +527,185 @@ export const world: WorldScenario = {
     { cause: 'siege', effect: 'republic', type: 'direct', weight: 0.9, confidence: 0.8, evidence: 'With no king left, Ambry proclaimed a republic.' },
   ],
 }
+
+export interface DeepScenario {
+  graph: { name: string; description: string }
+  arcs: ArcSeed[]
+  events: EventSeed[]
+  links: LinkSeed[]
+}
+
+/**
+ * Deep time: a real history that runs from the end of the Permian, 252 million
+ * years ago, to the present, far beyond the ±275,760 years a JavaScript `Date`
+ * holds (docs/specs/deep-time.md). It is Gregorian, with no world calendar, so
+ * the axis takes the calendar package's year ticks ("150000000 BCE") and every
+ * date before 275,760 BCE is an `AxisTime` alone. Toba is inside a `Date`'s
+ * range, so the graph mixes both. Dates are rounded to the figures usually
+ * given; the year-first text is what a person would type.
+ */
+export const deep: DeepScenario = {
+  graph: {
+    name: 'Since the Great Dying',
+    description: 'From the end-Permian extinction to the first people: 252 million years, on one axis.',
+  },
+
+  arcs: [
+    {
+      key: 'dying',
+      name: 'The Great Dying',
+      description: 'The end-Permian extinction, the worst in the history of life.',
+      start: '252100000 BCE',
+      end: '251900000 BCE',
+      level: 0,
+    },
+    {
+      key: 'mesozoic',
+      name: 'The Mesozoic',
+      description: 'The age of reptiles, from the Great Dying to the asteroid.',
+      start: '251900000 BCE',
+      end: '66000000 BCE',
+      level: 0,
+    },
+    {
+      key: 'cenozoic',
+      name: 'The Cenozoic',
+      description: 'The age of mammals.',
+      start: '66000000 BCE',
+      end: '2000',
+      level: 0,
+    },
+    {
+      key: 'quaternary',
+      name: 'The Quaternary',
+      description: 'The ice ages, and the people who lived through them.',
+      start: '2580000 BCE',
+      end: '2000',
+      level: 1,
+      parent: 'cenozoic',
+    },
+  ],
+
+  events: [
+    {
+      key: 'traps',
+      description: 'The Siberian Traps erupt, pouring out lava and carbon for hundreds of thousands of years',
+      actor: 'Siberian Traps',
+      target: "Earth's climate",
+      timestamp: '252100000 BCE',
+      arc: 'dying',
+      significance: 0.8,
+    },
+    {
+      key: 'extinction',
+      description: 'The end-Permian extinction kills most species in the sea and many on land',
+      actor: 'Warming and anoxic oceans',
+      target: 'Life on Earth',
+      timestamp: '251900000 BCE',
+      arc: 'dying',
+      significance: 1,
+    },
+    {
+      key: 'dinosaurs',
+      description: 'The first dinosaurs appear',
+      actor: 'Archosaurs',
+      target: 'Life on land',
+      timestamp: '233000000 BCE',
+      arc: 'mesozoic',
+      significance: 0.7,
+    },
+    {
+      key: 'camp',
+      description: 'The Central Atlantic Magmatic Province erupts as Pangaea begins to split',
+      actor: 'Central Atlantic Magmatic Province',
+      target: "Earth's climate",
+      timestamp: '201600000 BCE',
+      arc: 'mesozoic',
+      significance: 0.6,
+    },
+    {
+      key: 'triassic',
+      description: 'The end-Triassic extinction clears the way for the dinosaurs',
+      actor: 'Volcanic warming',
+      target: 'Life on Earth',
+      timestamp: '201400000 BCE',
+      arc: 'mesozoic',
+      significance: 0.8,
+    },
+    {
+      key: 'impact',
+      description: 'An asteroid strikes Chicxulub, and the non-avian dinosaurs die out',
+      actor: 'The Chicxulub impactor',
+      target: 'Life on Earth',
+      timestamp: '66000000 BCE',
+      arc: 'cenozoic',
+      significance: 1,
+    },
+    {
+      key: 'mammals',
+      description: 'Mammals spread into the niches the dinosaurs left',
+      actor: 'Mammals',
+      target: 'Life on land',
+      timestamp: '62000000 BCE',
+      arc: 'cenozoic',
+      significance: 0.7,
+    },
+    {
+      key: 'antarctica',
+      description: "Antarctica's ice sheet forms as the world cools",
+      actor: 'A cooling climate',
+      target: 'Antarctica',
+      timestamp: '33900000 BCE',
+      arc: 'cenozoic',
+      significance: 0.6,
+    },
+    {
+      key: 'hominins',
+      description: 'Sahelanthropus lives in what is now Chad, among the earliest known hominins',
+      actor: 'Hominins',
+      target: 'Africa',
+      timestamp: '7000000 BCE',
+      arc: 'cenozoic',
+      significance: 0.7,
+    },
+    {
+      key: 'iceages',
+      description: 'The Quaternary ice ages begin',
+      actor: 'A cooling climate',
+      target: 'The Northern Hemisphere',
+      timestamp: '2580000 BCE',
+      arc: 'quaternary',
+      significance: 0.7,
+    },
+    {
+      key: 'sapiens',
+      description: 'Homo sapiens appears in Africa',
+      actor: 'Homo sapiens',
+      target: 'Africa',
+      timestamp: '300000 BCE',
+      arc: 'quaternary',
+      significance: 0.9,
+    },
+    {
+      key: 'toba',
+      description: 'Toba erupts in Sumatra, the largest eruption of the last two million years',
+      actor: 'Toba',
+      target: "Earth's climate",
+      timestamp: '72000 BCE',
+      arc: 'quaternary',
+      significance: 0.6,
+    },
+  ],
+
+  links: [
+    { cause: 'traps', effect: 'extinction', type: 'direct', weight: 0.85, confidence: 0.85, evidence: "The Traps' carbon warmed the planet and stripped the oceans of oxygen." },
+    { cause: 'extinction', effect: 'dinosaurs', type: 'contributory', weight: 0.6, confidence: 0.7, evidence: 'The emptied world let the archosaurs, and then the dinosaurs, spread.' },
+    { cause: 'camp', effect: 'triassic', type: 'direct', weight: 0.8, confidence: 0.8, evidence: "The eruptions' carbon is the leading explanation of the extinction." },
+    { cause: 'dinosaurs', effect: 'triassic', type: 'indirect', weight: 0.4, confidence: 0.6, evidence: 'The dinosaurs survived it, and their rivals did not.' },
+    { cause: 'impact', effect: 'mammals', type: 'direct', weight: 0.85, confidence: 0.85, evidence: 'With the non-avian dinosaurs gone, mammals filled their niches.' },
+    { cause: 'mammals', effect: 'hominins', type: 'indirect', weight: 0.6, confidence: 0.8, evidence: 'Primates were among the mammals that spread after the extinction.' },
+    { cause: 'antarctica', effect: 'iceages', type: 'contributory', weight: 0.5, confidence: 0.6, evidence: 'The long cooling that froze Antarctica led on to the ice ages.' },
+    { cause: 'hominins', effect: 'sapiens', type: 'indirect', weight: 0.7, confidence: 0.8, evidence: 'Homo sapiens descends from the hominin line.' },
+    { cause: 'iceages', effect: 'sapiens', type: 'contributory', weight: 0.4, confidence: 0.5, evidence: "By one hypothesis, Africa's swings of climate shaped human evolution." },
+  ],
+}

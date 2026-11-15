@@ -3,7 +3,7 @@
  * -- the same routes the frontend and the CLI use -- so a seed that stops
  * working is a real API change, not a fixture drifting.
  */
-import { scenario, world, type ArcSeed, type EventSeed, type LinkSeed } from './scenario.js'
+import { deep, scenario, world, type ArcSeed, type EventSeed, type LinkSeed } from './scenario.js'
 
 export interface SeedResult {
   graphId: string
@@ -14,6 +14,13 @@ export interface SeedResult {
   arcIds: Record<string, string>
   /** The invented world, with its own calendar (`scenario.ts`'s `world`). */
   world: {
+    graphId: string
+    graphName: string
+    eventIds: Record<string, string>
+    arcIds: Record<string, string>
+  }
+  /** Deep time, a real history beyond a `Date`'s range (`scenario.ts`'s `deep`). */
+  deep: {
     graphId: string
     graphName: string
     eventIds: Record<string, string>
@@ -173,6 +180,13 @@ export async function seed(baseUrl: string, apiKey: string): Promise<SeedResult>
   const worldEventIds = await createEvents(api, worldGraphId, world.events, worldArcIds)
   await createLinks(api, worldGraphId, world.links, worldEventIds)
 
+  // Deep time: 252 million years, most of it beyond a JavaScript Date.
+  const deepGraph = await api.call('POST', '/api/graphs', deep.graph)
+  const deepGraphId = idOf(deepGraph, 'the deep-time graph')
+  const deepArcIds = await createArcs(api, deepGraphId, deep.arcs)
+  const deepEventIds = await createEvents(api, deepGraphId, deep.events, deepArcIds)
+  await createLinks(api, deepGraphId, deep.links, deepEventIds)
+
   // The main line is what the app should open on.
   await api.call('POST', `/api/graphs/${graphId}/activate`)
 
@@ -188,6 +202,12 @@ export async function seed(baseUrl: string, apiKey: string): Promise<SeedResult>
       graphName: world.graph.name,
       eventIds: worldEventIds,
       arcIds: worldArcIds,
+    },
+    deep: {
+      graphId: deepGraphId,
+      graphName: deep.graph.name,
+      eventIds: deepEventIds,
+      arcIds: deepArcIds,
     },
   }
 }

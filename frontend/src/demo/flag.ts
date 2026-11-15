@@ -20,3 +20,6 @@ export const DEMO_MAIN_GRAPH_ID = 'graph_engine_age'
 
 /** The invented world in the recording, with its own calendar, which `?start=world` opens on. */
 export const DEMO_WORLD_GRAPH_ID = 'graph_vael'
+
+/** Deep time in the recording, 252 million years on one axis, which `?start=deep` opens on. */
+export const DEMO_DEEP_GRAPH_ID = 'graph_deep_time'
