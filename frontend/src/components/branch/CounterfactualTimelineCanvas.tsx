@@ -15,6 +15,7 @@ import {
 } from '@/utils/divergenceAnalysis'
 import { layoutEventLabels, truncateLabel, LABEL_ROW_OFFSETS, type EventLabelPlacement, type LabelLayoutConfig } from '@/components/timeline/eventLabelLayout'
 import { formatBoundAt, msApart, toAxisTime, toInstant } from '@althistory/calendar'
+import { thinTickLabels } from '@/utils/axisLabelFit'
 
 export interface CounterfactualTimelineCanvasProps {
   readonly baselineName: string
@@ -125,18 +126,10 @@ function formatTicks(dates: readonly Date[]): string[] {
 /**
  * Drop axis ticks whose dates would overprint their neighbour's. d3 picks
  * "nice" ticks for a count it treats as a hint, so a narrow axis can get more
- * than fit; keep them left to right while each clears the last one kept.
+ * than fit: keep the first, the last and a regular stride between.
  */
 function thinTicks<T extends { x: number; label: string }>(ticks: readonly T[]): T[] {
-  const kept: T[] = []
-  let lastRight = -Infinity
-  for (const tick of ticks) {
-    const half = (tick.label.length * TICK_CHAR_PX) / 2
-    if (tick.x - half < lastRight + TICK_GAP_PX) continue
-    kept.push(tick)
-    lastRight = tick.x + half
-  }
-  return kept
+  return thinTickLabels(ticks, { charPx: TICK_CHAR_PX, gapPx: TICK_GAP_PX })
 }
 
 /** Lane label: 12px semibold, about 7px a character. */

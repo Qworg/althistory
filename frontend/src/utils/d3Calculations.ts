@@ -31,6 +31,7 @@ import { Event, Arc, GraphCalendar } from '@/types'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
 import { axisOf, calendarIn, compareInstants, formatBoundAt, gregorianTicks, instantOfAxisTime, msApart, toInstant, worldTicks } from '@althistory/calendar'
 import { type InstantScale, type PositionScale, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
+import { thinTickLabels } from '@/utils/axisLabelFit'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
 /**
@@ -336,14 +337,39 @@ function typedDate(tick: Date, precision: 'year' | 'month' | 'day', utc: boolean
 
 const pad2 = (value: number) => String(value).padStart(2, '0')
 
-/** A tick's time of day, "14:30", in UTC or local time. */
-function typedTime(tick: Date, utc: boolean): string {
-  return utc ? `${pad2(tick.getUTCHours())}:${pad2(tick.getUTCMinutes())}` : `${pad2(tick.getHours())}:${pad2(tick.getMinutes())}`
+type Clock = 'minute' | 'second' | 'millisecond'
+
+/** A tick's hours, minutes, seconds and milliseconds, in UTC or local time. */
+function clockOf(tick: Date, utc: boolean): [number, number, number, number] {
+  return utc
+    ? [tick.getUTCHours(), tick.getUTCMinutes(), tick.getUTCSeconds(), tick.getUTCMilliseconds()]
+    : [tick.getHours(), tick.getMinutes(), tick.getSeconds(), tick.getMilliseconds()]
+}
+
+/** How finely a set's times must be written for each to be told apart and read back exactly. */
+function clockFor(ticks: readonly Date[], utc: boolean): Clock {
+  const clocks = ticks.map((tick) => clockOf(tick, utc))
+  if (clocks.some(([, , , ms]) => ms !== 0)) return 'millisecond'
+  return clocks.some(([, , seconds]) => seconds !== 0) ? 'second' : 'minute'
+}
+
+/** A tick's time of day, "14:30", "14:30:05" or "14:30:05.250", which the date reader takes back after a date. */
+function typedTime(tick: Date, utc: boolean, clock: Clock): string {
+  const [hours, minutes, seconds, ms] = clockOf(tick, utc)
+  const text = `${pad2(hours)}:${pad2(minutes)}`
+  if (clock === 'minute') return text
+  return clock === 'second' ? `${text}:${pad2(seconds)}` : `${text}:${pad2(seconds)}.${String(ms).padStart(3, '0')}`
+}
+
+/** Whether a tick is a day's first moment: no hours, minutes, seconds or milliseconds. */
+function isDayStart(tick: Date, utc: boolean): boolean {
+  return clockOf(tick, utc).every((part) => part === 0)
 }
 
 /** Every tick as its date and time, "44-03-14 BCE 12:00": what is left when shorter labels repeat. */
 function typedDateTimes(ticks: readonly Date[], utc: boolean): string[] {
-  return ticks.map((tick) => `${typedDate(tick, 'day', utc)} ${typedTime(tick, utc)}`)
+  const clock = clockFor(ticks, utc)
+  return ticks.map((tick) => `${typedDate(tick, 'day', utc)} ${typedTime(tick, utc, clock)}`)
 }
 
 /**
@@ -357,10 +383,13 @@ function typedDateTimes(ticks: readonly Date[], utc: boolean): string[] {
 function typedAxisLabels(name: string, ticks: readonly Date[], utc: boolean): string[] {
   const precision = FORMAT_PRECISION[name]
   if (precision) return ticks.map((tick) => typedDate(tick, precision, utc))
-  return ticks.map((tick) => {
-    const time = typedTime(tick, utc)
-    return time === '00:00' ? typedDate(tick, 'day', utc) : time
-  })
+  const clock = clockFor(ticks, utc)
+  const labels = ticks.map((tick) => (isDayStart(tick, utc) ? typedDate(tick, 'day', utc) : typedTime(tick, utc, clock)))
+  // No tick at a day's start: the first names its day too, so the axis says which.
+  if (ticks.length > 0 && !ticks.some((tick) => isDayStart(tick, utc))) {
+    labels[0] = `${typedDate(ticks[0]!, 'day', utc)} ${labels[0]}`
+  }
+  return labels
 }
 
 /** How wide a character of the timeline's 12px monospace tick labels is. */
@@ -369,28 +398,20 @@ export const AXIS_LABEL_CHAR_PX = 7.2
 const AXIS_LABEL_GAP_PX = 4
 
 /**
- * The ticks of a main-timeline axis whose labels fit: a set with a tick
- * before 1 CE (typed labels such as "9000-03-01 BCE", far wider than d3's
- * "Fri 01" for the same step) drops each tick whose label would overprint
- * the last one kept, left to right. A set entirely after 1 CE is returned as
- * it is, so a real history's axis is drawn exactly as before.
+ * The ticks of a main-timeline axis whose labels fit. A Gregorian set with a
+ * tick before 1 CE (typed labels such as "9000-03-01 BCE", far wider than
+ * d3's "Fri 01" for the same step) is thinned to the first, the last and a
+ * regular stride between ({@link thinTickLabels}). A set entirely after 1 CE
+ * is returned as it is, so a real history's axis is drawn exactly as before;
+ * so is a world calendar's, whose labels do not depend on the Gregorian year.
  */
-export function fitAxisLabels<T extends { date: Date; x: number; label: string }>(ticks: readonly T[], charPx = AXIS_LABEL_CHAR_PX): readonly T[] {
-  if (!ticks.some((tick) => tick.date.getUTCFullYear() <= 0)) return ticks
-  return thinTickLabels(ticks, charPx)
-}
-
-/** Drop the ticks whose labels would overprint the last one kept, left to right. */
-function thinTickLabels<T extends { x: number; label: string }>(ticks: readonly T[], charPx: number): T[] {
-  const kept: T[] = []
-  let lastRight = -Infinity
-  for (const tick of ticks) {
-    const half = (tick.label.length * charPx) / 2
-    if (tick.x - half < lastRight + AXIS_LABEL_GAP_PX) continue
-    kept.push(tick)
-    lastRight = tick.x + half
-  }
-  return kept
+export function fitAxisLabels<T extends { date: Date; x: number; label: string }>(
+  ticks: readonly T[],
+  calendar: GraphCalendar | null,
+  charPx = AXIS_LABEL_CHAR_PX
+): readonly T[] {
+  if (calendar || !ticks.some((tick) => tick.date.getUTCFullYear() <= 0)) return ticks
+  return thinTickLabels(ticks, { charPx, gapPx: AXIS_LABEL_GAP_PX })
 }
 
 /** The axis label formats from coarsest to finest. */

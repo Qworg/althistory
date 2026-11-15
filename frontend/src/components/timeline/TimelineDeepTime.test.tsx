@@ -3,7 +3,7 @@ import { act, render } from '@testing-library/react'
 import { ActorTimeline, type ActorEventData } from './ActorTimeline'
 import { Timeline } from './Timeline'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
-import { MAX_AXIS_MS, isoOfAxisTime } from '@althistory/calendar'
+import { MAX_AXIS_MS, isoOfAxisTime, readHistoricalText } from '@althistory/calendar'
 import type { Arc, Event } from '@/types'
 
 /**
@@ -109,6 +109,19 @@ describe('a fortnight before 1 CE, on the main timeline', () => {
     for (let i = 1; i < ticks.length; i++) {
       // 12px monospace: 7.2px a character.
       expect(ticks[i]!.x - ticks[i - 1]!.x, JSON.stringify(ticks)).toBeGreaterThanOrEqual(((ticks[i]!.label.length + ticks[i - 1]!.label.length) * 7.2) / 2)
+    }
+  })
+})
+
+describe('one event before 1 CE, on the main timeline', () => {
+  it('labels its twenty-second default view once a tick, each naming its time to the second', () => {
+    render(<Timeline events={[event('a', '-000043-03-15T12:00:00.000Z')]} arcs={[]} width={1300} height={400} />)
+    const labels = axisLabels()
+    expect(labels.length).toBeGreaterThan(2)
+    expect(new Set(labels).size, JSON.stringify(labels)).toBe(labels.length)
+    for (const label of labels) {
+      expect(label).toMatch(/^(44-03-15 BCE )?\d{2}:\d{2}:\d{2}$/)
+      if (label.includes('BCE')) expect(readHistoricalText(label, 'start').ok, label).toBe(true)
     }
   })
 })
