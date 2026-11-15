@@ -269,12 +269,11 @@ describe('a timeline beyond a Date (Req 12)', () => {
     expect(readHistoricalText('285196678-06-10 BCE', 'start').ok).toBe(false)
   })
 
-  it('names the day on the first tick of a span within one day, which has no tick at a day\'s start', () => {
+  it('labels a span within one day by its times, and a day\'s first moment by its date', () => {
     const noon = axisTimeOfCivil(-43, 3, 15) + 12n * 3_600_000n
-    const ticks = gregorianTicks([noon, noon + 3n * 3_600_000n], 4)
-    expect(ticks.map((tick) => tick.label)).toEqual(['44-03-15 BCE 12:00', '13:00', '14:00', '15:00'])
-    const read = readHistoricalText(ticks[0]!.label, 'start')
-    expect(read.ok && read.time).toBe(ticks[0]!.position)
+    expect(gregorianTicks([noon, noon + 3n * 3_600_000n], 4).map((tick) => tick.label)).toEqual(['12:00', '13:00', '14:00', '15:00'])
+    const evening = axisTimeOfCivil(-43, 3, 15) + 22n * 3_600_000n
+    expect(gregorianTicks([evening, evening + 4n * 3_600_000n], 5).map((tick) => tick.label)).toEqual(['22:00', '23:00', '44-03-16 BCE', '01:00', '02:00'])
   })
 
   it('labels finer Gregorian ticks in the bound syntax, BCE included', () => {

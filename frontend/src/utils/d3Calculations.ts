@@ -31,7 +31,7 @@ import { Event, Arc, GraphCalendar } from '@/types'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
 import { axisOf, calendarIn, compareInstants, formatBoundAt, gregorianTicks, instantOfAxisTime, msApart, toInstant, worldTicks } from '@althistory/calendar'
 import { type InstantScale, type PositionScale, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
-import { thinTickLabels } from '@/utils/axisLabelFit'
+import { type LabelAnchor, anchorInward, thinTickLabels } from '@/utils/axisLabelFit'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
 /**
@@ -378,18 +378,13 @@ function typedDateTimes(ticks: readonly Date[], utc: boolean): string[] {
  * year before 1 CE astronomically ("-0043", "-50s"), which no reader takes
  * back. At a time of day, as the calendar package's Gregorian ticks are: a
  * day's first moment by its date, the rest by their time ("44-03-15 BCE",
- * "12:00").
+ * "12:00"); the axis names the day of the rest in a caption ({@link fitAxis}).
  */
 function typedAxisLabels(name: string, ticks: readonly Date[], utc: boolean): string[] {
   const precision = FORMAT_PRECISION[name]
   if (precision) return ticks.map((tick) => typedDate(tick, precision, utc))
   const clock = clockFor(ticks, utc)
-  const labels = ticks.map((tick) => (isDayStart(tick, utc) ? typedDate(tick, 'day', utc) : typedTime(tick, utc, clock)))
-  // No tick at a day's start: the first names its day too, so the axis says which.
-  if (ticks.length > 0 && !ticks.some((tick) => isDayStart(tick, utc))) {
-    labels[0] = `${typedDate(ticks[0]!, 'day', utc)} ${labels[0]}`
-  }
-  return labels
+  return ticks.map((tick) => (isDayStart(tick, utc) ? typedDate(tick, 'day', utc) : typedTime(tick, utc, clock)))
 }
 
 /** How wide a character of the timeline's 12px monospace tick labels is. */
@@ -397,21 +392,67 @@ export const AXIS_LABEL_CHAR_PX = 7.2
 /** The clear space kept between two tick labels. */
 const AXIS_LABEL_GAP_PX = 4
 
+/** A label that is a time of day alone ("12:00", "11:59:50", "11:59:59.500"): it names no day. */
+export function isBareTime(label: string): boolean {
+  return /^\d{2}:\d{2}(:\d{2}(\.\d{3})?)?$/.test(label)
+}
+
 /**
- * The ticks of a main-timeline axis whose labels fit. A Gregorian set with a
- * tick before 1 CE (typed labels such as "9000-03-01 BCE", far wider than
- * d3's "Fri 01" for the same step) is thinned to the first, the last and a
- * regular stride between ({@link thinTickLabels}). A set entirely after 1 CE
- * is returned as it is, so a real history's axis is drawn exactly as before;
- * so is a world calendar's, whose labels do not depend on the Gregorian year.
+ * Whether a Gregorian tick set is written in the typed syntax, which
+ * {@link fitAxis} fits: a tick before 1 CE, or beyond year 9999 (the calendar
+ * package's ticks). A real history's set from 1 CE to 9999 is d3's, drawn as
+ * it always was; a world calendar's is its own.
  */
-export function fitAxisLabels<T extends { date: Date; x: number; label: string }>(
+function isTypedSet(dates: readonly Date[], calendar: GraphCalendar | null): boolean {
+  return !calendar && dates.some((date) => date.getUTCFullYear() <= 0 || date.getUTCFullYear() > 9999)
+}
+
+export interface FittedAxis<T> {
+  ticks: Array<T & { anchor: LabelAnchor }>
+  /**
+   * The day the axis shows, when its labels are times of day (or it has no
+   * tick at all, as a few seconds of deep time may not): "44-03-15 BCE", or
+   * "44-03-14 BCE – 44-03-15 BCE" across midnight. Drawn under the axis, so
+   * the labels stay short and the day is never lost to thinning. Null when the
+   * labels name their dates.
+   */
+  caption: string | null
+  /** Whether the set was fitted (a typed set): its labels are anchored and thinned, never turned. */
+  fitted: boolean
+}
+
+/**
+ * A time axis's ticks fitted to its room. A typed set (before 1 CE, or the
+ * calendar package's ticks beyond 9999) has longer labels than d3's for the
+ * same step ("9000-03-01 BCE" for "Fri 01"): an end label that would run
+ * past the SVG is anchored inward, ticks whose labels would overprint are
+ * thinned to an even stride ({@link thinTickLabels}), keeping each label that
+ * names a day among times, and a set of times of day gets a caption naming
+ * the day. Any other set (a real history's, a world's) is returned centred
+ * and whole, as it always was drawn.
+ *
+ * @param room - The x the SVG reaches on each side, in the plot's coordinates (`-margin.left`, `innerWidth + margin.right`).
+ */
+export function fitAxis<T extends { date: Date; x: number; label: string }>(
   ticks: readonly T[],
   calendar: GraphCalendar | null,
+  room: { left: number; right: number },
+  domain: readonly [Date, Date],
   charPx = AXIS_LABEL_CHAR_PX
-): readonly T[] {
-  if (calendar || !ticks.some((tick) => tick.date.getUTCFullYear() <= 0)) return ticks
-  return thinTickLabels(ticks, { charPx, gapPx: AXIS_LABEL_GAP_PX })
+): FittedAxis<T> {
+  if (!isTypedSet([...domain, ...ticks.map((tick) => tick.date)], calendar)) {
+    return { ticks: ticks.map((tick) => ({ ...tick, anchor: 'middle' as const })), caption: null, fitted: false }
+  }
+  const times = ticks.length === 0 || ticks.some((tick) => isBareTime(tick.label))
+  const kept = thinTickLabels(anchorInward(ticks, charPx, room), { charPx, gapPx: AXIS_LABEL_GAP_PX }, (tick) => times && !isBareTime(tick.label))
+  return { ticks: kept, caption: times ? dayCaption(domain) : null, fitted: true }
+}
+
+/** The day (or the first and last days) a span falls on, in the typed syntax. */
+function dayCaption([start, end]: readonly [Date, Date]): string {
+  const first = formatBoundAt(start, 'day')
+  const last = formatBoundAt(end, 'day')
+  return first === last ? first : `${first} – ${last}`
 }
 
 /** The axis label formats from coarsest to finest. */
