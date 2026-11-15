@@ -559,6 +559,25 @@ describe('IngestionWizard', () => {
       expect(mockedText).toHaveBeenCalledWith(expect.objectContaining({ targetGraphId: 'vael' }))
     })
 
+    it('sends a Wikipedia page and a Wikidata query with the graph they will enter, too', async () => {
+      const user = userEvent.setup()
+      mockedUrl.mockResolvedValue(makePreview())
+      const { unmount } = renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} targetGraphId="vael" />)
+      await user.type(screen.getByLabelText(/Wikipedia URL/), 'https://en.wikipedia.org/wiki/Battle_of_Hastings')
+      await user.click(screen.getByRole('button', { name: /Extract events/ }))
+      await waitFor(() => expect(mockedUrl).toHaveBeenCalledWith(expect.objectContaining({ targetGraphId: 'vael' })))
+      unmount()
+
+      mockedWikidata.mockResolvedValue(makePreview())
+      renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} targetGraphId="vael" />)
+      await user.click(screen.getByRole('tab', { name: 'Wikidata' }))
+      const panel = screen.getByRole('tabpanel')
+      await user.selectOptions(within(panel).getByLabelText(/Query type/), 'person-timeline')
+      await user.type(within(panel).getByLabelText(/Person Wikidata ID/), 'Q42')
+      await user.click(screen.getByRole('button', { name: /Extract events/ }))
+      await waitFor(() => expect(mockedWikidata).toHaveBeenCalledWith(expect.objectContaining({ targetGraphId: 'vael' })))
+    })
+
     it('falls back to the active graph when it is given no target', async () => {
       const user = userEvent.setup()
       activeGraph.current = { id: 'graph_vael', name: 'Vael' }
