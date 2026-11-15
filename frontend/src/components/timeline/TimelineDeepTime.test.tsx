@@ -96,6 +96,23 @@ describe('a timeline of a million years', () => {
   })
 })
 
+describe('a fortnight before 1 CE, on the main timeline', () => {
+  it.each(['-000043-03-01T00:00:00.000Z', '-008999-03-01T00:00:00.000Z'])('drops the day ticks whose labels would overprint, from %s', (from) => {
+    const to = new Date(+new Date(from) + 13.5 * 86_400_000).toISOString()
+    render(<Timeline events={[event('a', from), event('b', to)]} arcs={[]} width={1300} height={400} />)
+    const ticks = Array.from(document.querySelectorAll('svg text.font-mono-code')).map((text) => ({
+      label: text.textContent ?? '',
+      x: Number(/translate\(([^,]+),/.exec(text.parentElement?.getAttribute('transform') ?? '')?.[1]),
+    }))
+    expect(ticks.length).toBeGreaterThan(2)
+    expect(ticks.every((tick) => / BCE$/.test(tick.label) && Number.isFinite(tick.x))).toBe(true)
+    for (let i = 1; i < ticks.length; i++) {
+      // 12px monospace: 7.2px a character.
+      expect(ticks[i]!.x - ticks[i - 1]!.x, JSON.stringify(ticks)).toBeGreaterThanOrEqual(((ticks[i]!.label.length + ticks[i - 1]!.label.length) * 7.2) / 2)
+    }
+  })
+})
+
 describe('a history a Date can hold, near its lower bound', () => {
   // d3's utcYear.every(k) floors the domain's start to a multiple of k, which near -271,821
   // is an Invalid Date: it ticks nothing. These histories are inside a Date's range.

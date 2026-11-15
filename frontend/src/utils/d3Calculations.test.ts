@@ -11,13 +11,15 @@ import {
   formatDuration,
   getTimeAxisFormat,
   formatTimeAxisTick,
+  formatTimeAxisTickSet,
   formatTimeAxisTicks,
+  fitAxisLabels,
   getTimeAxisInterval,
   axisTicks
 } from './d3Calculations'
 import { Event, Arc } from '@/types'
 import { historicalYear } from '@/utils/historicalTime'
-import { readDateBound, toInstant } from '@althistory/calendar'
+import { readDateBound, readHistoricalText, toAxisTime, toInstant } from '@althistory/calendar'
 
 /**
  * Run `fn` as if the browser's locale were `locale`: every Intl formatter and
@@ -665,6 +667,108 @@ describe('axisTicks near a Date\'s lower bound', () => {
         }
       })
     }
+  })
+
+  describe('a tick set before 1 CE, at every precision', () => {
+    const domains: Array<[string, string]> = [
+      ['-000099-01-01T00:00:00Z', '0100-01-01T00:00:00Z'],
+      ['-000001-09-01T00:00:00Z', '0001-04-01T00:00:00Z'],
+      ['0000-12-20T00:00:00Z', '0001-01-10T00:00:00Z'],
+      ['0000-12-31T00:00:00Z', '0001-01-01T12:00:00Z'],
+      ['0000-12-31T18:00:00Z', '0001-01-01T06:00:00Z'],
+      ['0000-12-31T23:00:00Z', '0001-01-01T01:00:00Z'],
+      ['-000043-03-14T00:00:00Z', '-000043-03-17T00:00:00Z'],
+      ['-000043-03-15T00:00:00Z', '-000043-03-15T12:00:00Z'],
+      ['-000043-03-01T00:00:00Z', '-000043-04-20T00:00:00Z'],
+      ['-009000-01-01T00:00:00Z', '-008990-01-01T00:00:00Z'],
+      ['-000005-01-01T00:00:00Z', '0015-01-01T00:00:00Z'],
+      ['-000500-01-01T00:00:00Z', '0500-01-01T00:00:00Z'],
+    ]
+    /** A label that names a date reads back as its tick; a bare time of day names none. */
+    const readsBack = (label: string, date: Date) => {
+      if (/^\d{2}:\d{2}$/.test(label)) return
+      const read = / \d{2}:\d{2}$/.test(label) ? readHistoricalText(label, 'start') : readDateBound(label, 'start', null)
+      expect(read.ok && read.time, label).toBe(toAxisTime(date))
+    }
+
+    it('labels each tick once, and every date it names reads back, on the main axis', () => {
+      for (const [a, b] of domains) {
+        for (const count of [3, 5, 8, 10]) {
+          const ticks = axisTicks([new Date(a), new Date(b)], count, null)
+          const labels = ticks.map((tick) => tick.label)
+          expect(new Set(labels).size, `${a}..${b} ${JSON.stringify(labels)}`).toBe(labels.length)
+          for (const tick of ticks) readsBack(tick.label, tick.date)
+        }
+      }
+    })
+
+    it('labels each tick once, and every date it names reads back, on the actor axis', () => {
+      for (const [a, b] of domains) {
+        const span = +new Date(b) - +new Date(a)
+        const dates = d3.scaleUtc().domain([new Date(a), new Date(b)]).ticks(getTimeAxisInterval(span, true))
+        if (dates.length === 0 || dates.length > 60) continue
+        const labels = formatTimeAxisTickSet(dates, span, true)
+        expect(new Set(labels).size, `${a}..${b} ${JSON.stringify(labels)}`).toBe(labels.length)
+        dates.forEach((date, index) => readsBack(labels[index]!, date))
+      }
+    })
+
+    it('names the day of a midnight tick at hour precision, and the time of the rest', () => {
+      const day = d3.utcHour.every(6)!.range(new Date('-000043-03-15T00:00:00Z'), new Date('-000043-03-16T00:00:01Z'))
+      expect(formatTimeAxisTicks(day, 86_400_000, true)).toEqual(['44-03-15 BCE', '06:00', '12:00', '18:00', '44-03-16 BCE'])
+      // Two noons would read the same: then every tick names its day and time.
+      const days = d3.utcHour.every(12)!.range(new Date('-000043-03-14T00:00:00Z'), new Date('-000043-03-16T00:00:01Z'))
+      expect(formatTimeAxisTicks(days, 2 * 86_400_000, true)).toEqual([
+        '44-03-14 BCE 00:00',
+        '44-03-14 BCE 12:00',
+        '44-03-15 BCE 00:00',
+        '44-03-15 BCE 12:00',
+        '44-03-16 BCE 00:00',
+      ])
+    })
+  })
+
+  it('writes the one tick of formatTimeAxisTick as a set of one, never an astronomical year', () => {
+    expect(formatTimeAxisTick(new Date('-000043-06-15T00:00:00Z'), 5 * 365 * 86_400_000, true)).toBe('44 BCE')
+    expect(formatTimeAxisTick(new Date('-000050-01-01T00:00:00Z'), 30 * 365 * 86_400_000, true)).toBe('51 BCE')
+    expect(formatTimeAxisTick(new Date('-000043-01-01T00:00:00Z'), 365 * 86_400_000, true)).toBe('44-01 BCE')
+  })
+
+  describe('labels that would overprint on the main timeline', () => {
+    const CHAR_PX = 7.2
+    const overlaps = (ticks: ReadonlyArray<{ x: number; label: string }>) =>
+      ticks.some((tick, i) => i > 0 && tick.x - ticks[i - 1]!.x < ((tick.label.length + ticks[i - 1]!.label.length) * CHAR_PX) / 2)
+    const place = (domain: [Date, Date], width: number) => {
+      const scale = d3.scaleUtc().domain(domain).range([0, width])
+      const count = Math.min(10, Math.floor(width / 96))
+      return axisTicks(domain, count, null).map((tick) => ({ ...tick, x: scale(tick.date) }))
+    }
+
+    it('thins a BCE day axis until no two labels overprint', () => {
+      for (const width of [700, 1000, 1200]) {
+        for (const start of ['-000043-03-01T00:00:00Z', '-008999-03-01T00:00:00Z']) {
+          const from = new Date(start)
+          const placed = place([from, new Date(+from + 13.5 * 86_400_000)], width)
+          const kept = fitAxisLabels(placed, CHAR_PX)
+          expect(kept.length).toBeGreaterThan(1)
+          expect(overlaps(kept), `${width} ${start} ${JSON.stringify(kept.map((t) => t.label))}`).toBe(false)
+        }
+      }
+    })
+
+    it('never drops a tick from an axis after 1 CE', () => {
+      const DAY = 86_400_000
+      const spans = [DAY / 24, DAY / 2, DAY, 3 * DAY, 9.5 * DAY, 13.5 * DAY, 40 * DAY, 200 * DAY, 400 * DAY, 3 * 365 * DAY, 12 * 365 * DAY, 35 * 365 * DAY, 120 * 365 * DAY, 900 * 365 * DAY]
+      for (const width of [400, 600, 700, 800, 1000, 1200, 1600]) {
+        for (const start of ['1843-03-01T00:00:00Z', '0001-01-01T00:00:00Z', '2024-12-30T07:00:00Z', '9000-01-01T00:00:00Z']) {
+          for (const span of spans) {
+            const from = new Date(start)
+            const placed = place([from, new Date(+from + span)], width)
+            expect(fitAxisLabels(placed, CHAR_PX), `${width} ${start} ${span}`).toEqual(placed)
+          }
+        }
+      }
+    })
   })
 
   it('labels deep-time year ticks as the year labels write them', () => {
